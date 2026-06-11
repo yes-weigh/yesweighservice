@@ -28,10 +28,22 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-
       - name: Deploy to Firebase
-        run: npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && [ -z "$FIREBASE_TOKEN" ]; then
+            echo "::error::No Firebase credentials found. Add one GitHub Actions secret:"
+            echo "::error::  FIREBASE_SERVICE_ACCOUNT — full JSON from Firebase Console → Project settings → Service accounts → Generate new private key"
+            echo "::error::  or FIREBASE_TOKEN — output of: firebase login:ci"
+            exit 1
+          fi
+
+          if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "$FIREBASE_SERVICE_ACCOUNT" > "${RUNNER_TEMP}/firebase-sa.json"
+            export GOOGLE_APPLICATION_CREDENTIALS="${RUNNER_TEMP}/firebase-sa.json"
+            npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive
+          else
+            npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive --token "$FIREBASE_TOKEN"
+          fi
