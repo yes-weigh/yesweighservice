@@ -9,6 +9,8 @@ import {
   GraduationCap,
   ClipboardCheck,
   Bell,
+  Wrench,
+  Megaphone,
   UserCircle,
   Users,
   UserCog,
@@ -65,11 +67,17 @@ export const Layout: React.FC = () => {
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          { path: '/dealer/service', icon: <Wrench size={20} />, label: 'Service' },
           { path: '/dealer/products', icon: <Package size={20} />, label: 'Products' },
           {
             path: '/dealer/verification',
             icon: <ShieldCheck size={20} />,
             label: 'Verification',
+          },
+          {
+            path: '/dealer/advertisements',
+            icon: <Megaphone size={20} />,
+            label: 'Advertisements',
           },
           { path: '/dealer/training', icon: <GraduationCap size={20} />, label: 'Training' },
           {
@@ -84,11 +92,17 @@ export const Layout: React.FC = () => {
       case 'dealer_staff':
         return [
           { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          { path: '/dealer-staff/service', icon: <Wrench size={20} />, label: 'Service' },
           { path: '/dealer-staff/products', icon: <Package size={20} />, label: 'Products' },
           {
             path: '/dealer-staff/verification',
             icon: <ShieldCheck size={20} />,
             label: 'Verification',
+          },
+          {
+            path: '/dealer-staff/advertisements',
+            icon: <Megaphone size={20} />,
+            label: 'Advertisements',
           },
           { path: '/dealer-staff/training', icon: <GraduationCap size={20} />, label: 'Training' },
           {

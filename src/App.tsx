@@ -22,8 +22,10 @@ const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }
 const dealerRoutes = (
   <>
     <Route index element={<RoleDashboard />} />
+    <Route path="service" element={<DealerMenuPages.Service />} />
     <Route path="products" element={<DealerMenuPages.Products />} />
     <Route path="verification" element={<DealerMenuPages.Verification />} />
+    <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
     <Route path="training" element={<DealerMenuPages.Training />} />
     <Route path="quality" element={<DealerMenuPages.Quality />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
@@ -74,8 +76,10 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['dealer_staff']} />}>
             <Route path="/dealer-staff" element={<Layout />}>
               <Route index element={<RoleDashboard />} />
+              <Route path="service" element={<DealerMenuPages.Service />} />
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="verification" element={<DealerMenuPages.Verification />} />
+              <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
               <Route path="training" element={<DealerMenuPages.Training />} />
               <Route path="quality" element={<DealerMenuPages.Quality />} />
               <Route path="notifications" element={<DealerMenuPages.Notifications />} />

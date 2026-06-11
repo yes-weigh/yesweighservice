@@ -18,6 +18,12 @@ export const RoleDashboard: React.FC = () => {
 };
 
 export const DealerMenuPages = {
+  Service: () => (
+    <PagePlaceholder
+      title="Service"
+      description="Manage service jobs, appointments, and customer service requests."
+    />
+  ),
   Products: () => (
     <PagePlaceholder
       title="Products"
@@ -28,6 +34,12 @@ export const DealerMenuPages = {
     <PagePlaceholder
       title="Verification & Stamping"
       description="Track verification workflows, stamping records, and compliance checkpoints."
+    />
+  ),
+  Advertisements: () => (
+    <PagePlaceholder
+      title="Advertisements"
+      description="Create and manage promotional content and dealership advertisements."
     />
   ),
   Training: () => (
