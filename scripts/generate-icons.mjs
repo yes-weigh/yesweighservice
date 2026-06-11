@@ -1,5 +1,5 @@
 /**
- * Generates favicon and PWA icons: trimmed logo on a black circular background.
+ * Generates favicon and PWA icons: trimmed logo on a black rounded-square background.
  *
  * Usage: npm run generate:icons
  */
@@ -29,24 +29,29 @@ async function loadTrimmedLogo() {
   return sharp(logoPath).trim({ threshold: 12 }).png().toBuffer();
 }
 
+function roundedSquareSvg(size, maskable = false) {
+  const radius = Math.round(size * (maskable ? 0.16 : 0.22));
+
+  return Buffer.from(
+    `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="${size}" height="${size}" rx="${radius}" ry="${radius}" fill="#000000"/>
+    </svg>`,
+  );
+}
+
 async function makeIcon(trimmedLogo, size, maskable = false) {
-  // Maskable icons keep Android safe-zone padding; tab icons use the full circle.
   const insetRatio = maskable ? 0.18 : 0.06;
   const inset = Math.round(size * insetRatio);
   const logoMax = size - inset * 2;
 
-  const circleSvg = Buffer.from(
-    `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#000000"/>
-    </svg>`,
-  );
+  const background = roundedSquareSvg(size, maskable);
 
   const logo = await sharp(trimmedLogo)
     .resize(logoMax, logoMax, { fit: 'inside' })
     .png()
     .toBuffer();
 
-  return sharp(circleSvg).composite([{ input: logo, gravity: 'center' }]).png().toBuffer();
+  return sharp(background).composite([{ input: logo, gravity: 'center' }]).png().toBuffer();
 }
 
 mkdirSync(outDir, { recursive: true });

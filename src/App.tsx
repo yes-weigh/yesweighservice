@@ -30,6 +30,7 @@ const dealerRoutes = (
     <Route path="quality" element={<DealerMenuPages.Quality />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
     <Route path="team" element={<DealerTeamPage />} />
+    <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
     <Route path="profile" element={<ProfilePage />} />
   </>
 );

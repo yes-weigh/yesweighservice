@@ -60,4 +60,10 @@ export const DealerMenuPages = {
       description="Service alerts, renewal reminders, and operational updates."
     />
   ),
+  AiAssistant: () => (
+    <PagePlaceholder
+      title="AI Assistent"
+      description="Your YesWeigh AI assistant for service guidance, documentation lookup, and operational support."
+    />
+  ),
 };

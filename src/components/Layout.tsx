@@ -9,6 +9,7 @@ import {
   GraduationCap,
   ClipboardCheck,
   Bell,
+  Bot,
   Wrench,
   Megaphone,
   UserCircle,
@@ -87,6 +88,7 @@ export const Layout: React.FC = () => {
           },
           { path: '/dealer/notifications', icon: <Bell size={20} />, label: 'Notifications' },
           { path: '/dealer/team', icon: <Users size={20} />, label: 'Dealer Staff' },
+          { path: '/dealer/ai-assistant', icon: <Bot size={20} />, label: 'AI Assistent' },
           { path: '/dealer/profile', icon: <UserCircle size={20} />, label: 'My Profile' },
         ];
       case 'dealer_staff':
