@@ -2,6 +2,7 @@
  * Generates favicon and PWA icons: trimmed logo on a black rounded-square background.
  *
  * Usage: npm run generate:icons
+ * (downloads sharp on demand via npx — not required for production builds)
  */
 
 import sharp from 'sharp';
