@@ -22,7 +22,11 @@ const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }
 const dealerRoutes = (
   <>
     <Route index element={<RoleDashboard />} />
-    <Route path="service" element={<DealerMenuPages.Service />} />
+    <Route path="service" element={<Navigate to="../services" replace />} />
+    <Route path="services" element={<DealerMenuPages.Services />} />
+    <Route path="complaints" element={<DealerMenuPages.Complaints />} />
+    <Route path="invoices" element={<DealerMenuPages.Invoices />} />
+    <Route path="payments" element={<DealerMenuPages.Payments />} />
     <Route path="products" element={<DealerMenuPages.Products />} />
     <Route path="verification" element={<DealerMenuPages.Verification />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
@@ -77,7 +81,7 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['dealer_staff']} />}>
             <Route path="/dealer-staff" element={<Layout />}>
               <Route index element={<RoleDashboard />} />
-              <Route path="service" element={<DealerMenuPages.Service />} />
+              <Route path="service" element={<DealerMenuPages.Services />} />
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="verification" element={<DealerMenuPages.Verification />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />

@@ -12,6 +12,9 @@ import {
   Bot,
   Wrench,
   Megaphone,
+  MessageSquareWarning,
+  FileText,
+  CreditCard,
   UserCircle,
   Users,
   UserCog,
@@ -68,7 +71,10 @@ export const Layout: React.FC = () => {
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/dealer/service', icon: <Wrench size={20} />, label: 'Service' },
+          { path: '/dealer/services', icon: <Wrench size={20} />, label: 'Services' },
+          { path: '/dealer/complaints', icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
+          { path: '/dealer/invoices', icon: <FileText size={20} />, label: 'Invoices' },
+          { path: '/dealer/payments', icon: <CreditCard size={20} />, label: 'Payments' },
           { path: '/dealer/products', icon: <Package size={20} />, label: 'Products' },
           {
             path: '/dealer/verification',

@@ -18,10 +18,28 @@ export const RoleDashboard: React.FC = () => {
 };
 
 export const DealerMenuPages = {
-  Service: () => (
+  Services: () => (
     <PagePlaceholder
-      title="Service"
+      title="Services"
       description="Manage service jobs, appointments, and customer service requests."
+    />
+  ),
+  Complaints: () => (
+    <PagePlaceholder
+      title="Complaints"
+      description="Track and resolve customer complaints and follow-up actions."
+    />
+  ),
+  Invoices: () => (
+    <PagePlaceholder
+      title="Invoices"
+      description="Create, send, and manage customer invoices and billing records."
+    />
+  ),
+  Payments: () => (
+    <PagePlaceholder
+      title="Payments"
+      description="Record payments, track outstanding balances, and reconcile transactions."
     />
   ),
   Products: () => (
