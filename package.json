@@ -1,0 +1,30 @@
+{
+  "name": "yesweighservice",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "seed:admin": "node scripts/seed-admin.mjs",
+    "seed:sample-users": "node scripts/seed-sample-users.mjs",
+    "migrate:dealer-rename": "node scripts/migrate-dealer-rename.mjs"
+  },
+  "dependencies": {
+    "firebase": "^12.13.0",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.15.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "firebase-admin": "^13.6.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12"
+  }
+}

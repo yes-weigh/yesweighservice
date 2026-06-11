@@ -2,9 +2,103 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny-all until app logic is implemented.
-    match /{document=**} {
-      allow read, write: if false;
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return userDoc().role;
+    }
+
+    function isSuperAdmin() {
+      return signedIn() && (role() == 'super_admin' || role() == 'admin');
+    }
+
+    function isStaff() {
+      return signedIn() && role() == 'staff';
+    }
+
+    function isOpsUser() {
+      return isSuperAdmin() || isStaff();
+    }
+
+    function isDealer() {
+      return signedIn() && (role() == 'dealer' || role() == 'director');
+    }
+
+    function isActiveUser() {
+      return signedIn() && userDoc().active != false;
+    }
+
+    function bootstrapOpen() {
+      return !exists(/databases/$(database)/documents/appSettings/system)
+        || get(/databases/$(database)/documents/appSettings/system).data.bootstrapComplete != true;
+    }
+
+    function staffCanManageRole(targetRole) {
+      return targetRole == 'dealer' || targetRole == 'dealer_staff'
+        || targetRole == 'director' || targetRole == 'director_staff';
+    }
+
+    function userDealerId(data) {
+      return data.dealerId != null ? data.dealerId : data.directorId;
+    }
+
+    function isDealerStaffRole(r) {
+      return r == 'dealer_staff' || r == 'director_staff';
+    }
+
+    match /appSettings/{docId} {
+      allow read: if signedIn();
+      allow write: if signedIn() && bootstrapOpen();
+    }
+
+    match /users/{userId} {
+      allow read: if isActiveUser() && (
+        isOpsUser()
+        || request.auth.uid == userId
+        || (isDealer() && userDealerId(resource.data) == request.auth.uid)
+        || (isDealerStaffRole(role()) && userDealerId(resource.data) == userDealerId(userDoc()))
+      );
+
+      allow create: if signedIn() && (
+        (bootstrapOpen()
+          && request.auth.uid == userId
+          && (request.resource.data.role == 'super_admin' || request.resource.data.role == 'admin')
+          && request.resource.data.active == true)
+        || (isActiveUser() && isSuperAdmin())
+        || (isActiveUser()
+            && isStaff()
+            && staffCanManageRole(request.resource.data.role)
+            && request.resource.data.active == true)
+        || (isActiveUser()
+            && isDealer()
+            && isDealerStaffRole(request.resource.data.role)
+            && userDealerId(request.resource.data) == request.auth.uid
+            && request.resource.data.active == true)
+      );
+
+      allow update: if isActiveUser() && (
+        isSuperAdmin()
+        || (isStaff()
+            && staffCanManageRole(resource.data.role)
+            && staffCanManageRole(request.resource.data.role)
+            && resource.data.role == request.resource.data.role)
+        || (request.auth.uid == userId
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['role', 'email', 'dealerId', 'directorId', 'active', 'createdAt', 'createdByUid']))
+        || (isDealer()
+            && isDealerStaffRole(resource.data.role)
+            && userDealerId(resource.data) == request.auth.uid
+            && isDealerStaffRole(request.resource.data.role)
+            && userDealerId(request.resource.data) == request.auth.uid)
+      );
+
+      allow delete: if isSuperAdmin();
     }
   }
 }

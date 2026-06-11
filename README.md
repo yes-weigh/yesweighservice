@@ -1,55 +1,85 @@
 # YesWeigh Service
 
-Coming soon landing page for [service.yesweigh.in](https://service.yesweigh.in), hosted on Firebase.
+Operations portal for [service.yesweigh.in](https://service.yesweigh.in) — part of the **YesWeigh** group.
 
-## Stack
+Built with the same stack as YES LAB (yesgatcin): **React 19 + Vite + TypeScript + Firebase** (Auth, Firestore, Hosting), glassmorphism UI, role-based routing.
 
-- Firebase Hosting (static site)
-- Firestore (provisioned, not used yet)
-- Firebase Auth — Email/Password (enabled, not used yet)
+## Role hierarchy
 
-## Project
+| Level | Role | Access |
+|-------|------|--------|
+| 1 | **Super Admin** | Full control — CRUD staff, dealers, dealer staff |
+| 2 | **Staff** | Company staff — CRUD dealers & dealer staff (same ops as super admin for onboarding) |
+| 3 | **Dealer** | Service operations sidebar + manage own dealer staff |
+| 4 | **Dealer Staff** | Dealer menu (field operations, no team management) |
 
-- Firebase project: `yesweigh-service`
-- Console: https://console.firebase.google.com/project/yesweigh-service/overview
-- Live preview: https://yesweigh-service.web.app
-- GitHub: https://github.com/yes-weigh/yesweighservice
+Legacy `admin`, `director`, and `director_staff` values in Firestore are mapped automatically.
 
-## Custom domain (service.yesweigh.in)
+## Dealer sidebar
 
-Add the custom domain in Firebase Hosting (one-time setup):
-
-1. Open [Hosting → Domains](https://console.firebase.google.com/project/yesweigh-service/hosting/sites/yesweigh-service/domains)
-2. Click **Add custom domain**
-3. Enter `service.yesweigh.in`
-4. Add the DNS records Firebase shows at your domain registrar (for `yesweigh.in`)
-
-Firebase will provide A records and/or a TXT verification record for the `service` subdomain. SSL is provisioned automatically after DNS propagates.
-
-`service.yesweigh.in` is already added to Firebase Auth authorized domains for future sign-in flows.
-
-## Firestore & Auth
-
-- **Firestore**: `(default)` database in `asia-south1`, deny-all rules until the app is built
-- **Auth**: Email/Password sign-in enabled (verified during setup)
-- Billing is linked to the same account as `yesweighmomentumhub` (required to initialize Auth via API; Firebase free tier still applies for typical usage)
+- Dashboard
+- Products
+- Verification & Stamping
+- Training
+- Quality Management
+- Notifications
+- Dealer Staff (team)
+- My Profile
 
 ## Local development
 
-Serve the static files with any local server, for example:
-
 ```bash
-npx serve public
+npm install
+npm run dev
 ```
 
-## Deploy
+Open http://localhost:5173
+
+## Seed users
+
+Bootstrap super admin:
 
 ```bash
-firebase deploy
+npm run seed:admin -- admin@yesweigh.in YourPassword "YesWeigh Admin"
 ```
 
-Deploy hosting only:
+All role samples (one per role):
 
 ```bash
-firebase deploy --only hosting
+npm run seed:sample-users
 ```
+
+Migrate existing Firestore docs after rename:
+
+```bash
+npm run migrate:dealer-rename
+```
+
+| Role | Email | Password (default) |
+|------|-------|-------------------|
+| Super Admin | `admin@yesweigh.in` | `YesWeigh@2026` |
+| Super Admin (sample) | `superadmin@yesweigh.in` | `YesWeigh@2026` |
+| Staff | `staff@yesweigh.in` | `YesWeigh@2026` |
+| Dealer | `dealer@yesweigh.in` | `YesWeigh@2026` |
+| Dealer Staff | `dealerstaff@yesweigh.in` | `YesWeigh@2026` |
+
+Dealer Staff is linked to **Sample Dealer** (`dealer@yesweigh.in`).
+
+## Build & deploy
+
+```bash
+npm run build
+firebase deploy --only hosting,firestore:rules
+```
+
+## Firebase project
+
+- Project: `yesweigh-service`
+- Console: https://console.firebase.google.com/project/yesweigh-service/overview
+- GitHub: https://github.com/yes-weigh/yesweighservice
+
+## Business flow
+
+1. **Super Admin** onboards staff, dealers, and dealer staff.
+2. **Staff** can credential dealers and dealer staff in the field.
+3. **Dealers** run day-to-day service ops and add **dealer staff** under their unit.
