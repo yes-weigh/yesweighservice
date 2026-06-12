@@ -10,24 +10,14 @@ const STOCK_MAP = {
 
 export const StockBadge: React.FC<{
   status: StockStatus;
-  stock: number;
-  unit: string;
-  compact?: boolean;
-}> = ({ status, stock, unit, compact = false }) => {
+  overlay?: boolean;
+}> = ({ status, overlay = false }) => {
   const { cls, Icon, label } = STOCK_MAP[status] ?? STOCK_MAP.out_of_stock;
 
   return (
-    <div className={`catalog-stock ${cls} ${compact ? 'catalog-stock--compact' : ''}`}>
-      <div className="catalog-stock__label">
-        <Icon size={14} />
-        <span>{label}</span>
-      </div>
-      {stock > 0 && (
-        <div className="catalog-stock__qty">
-          <strong>{stock}</strong>
-          <span>{unit}</span>
-        </div>
-      )}
+    <div className={`catalog-stock ${cls} ${overlay ? 'catalog-stock--overlay' : ''}`}>
+      <Icon size={overlay ? 11 : 14} />
+      <span>{label}</span>
     </div>
   );
 };

@@ -143,13 +143,12 @@ export const CategoryFolderGrid: React.FC<CategoryFolderGridProps> = ({
       return;
     }
 
-    setLocalCategories(prev => {
-      const next = [...prev];
-      const [moved] = next.splice(fromIdx, 1);
-      next.splice(dropIdx, 0, moved);
-      onReorder(next);
-      return next;
-    });
+    const next = [...localCategories];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(dropIdx, 0, moved);
+    const withOrder = next.map((cat, index) => ({ ...cat, displayOrder: index }));
+    setLocalCategories(withOrder);
+    void Promise.resolve().then(() => onReorder(withOrder));
     dragIdx.current = null;
   };
 

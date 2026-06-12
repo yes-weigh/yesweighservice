@@ -48,10 +48,41 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Avoid verbose "No route found" logs in production SW.
+        mode: 'production',
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
         navigateFallback: '/index.html',
+        navigateFallbackAllowlist: [
+          /^\/$/,
+          /^\/login$/,
+          /^\/oc$/,
+          /^\/dealer(\/.*)?$/,
+          /^\/dealer-staff(\/.*)?$/,
+          /^\/staff(\/.*)?$/,
+          /^\/super-admin(\/.*)?$/,
+        ],
         navigateFallbackDenylist: [/^\/__/, /^\/firebase-messaging-sw\.js$/],
         runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/asia-south1-yesweigh-service\.cloudfunctions\.net\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^https:\/\/identitytoolkit\.googleapis\.com\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^https:\/\/securetoken\.googleapis\.com\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\/.*/i,
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
@@ -79,7 +110,7 @@ export default defineConfig({
         ],
       },
       devOptions: {
-        enabled: true,
+        enabled: false,
       },
     }),
   ],

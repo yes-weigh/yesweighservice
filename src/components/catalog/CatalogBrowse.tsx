@@ -7,10 +7,12 @@ import {
   Package,
   Search,
 } from 'lucide-react';
+import { isHiddenCatalogCategory } from '../../lib/catalog';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
-import { StockBadge } from './StockBadge';
 import { ProductDetailModal } from './ProductDetailModal';
+import { ProductImageFrame } from './ProductImageFrame';
+import { StockBadge } from './StockBadge';
 
 export interface CatalogBrowseProps {
   products: CatalogProduct[];
@@ -40,16 +42,12 @@ function ProductCard({ product, onSelect }: { product: CatalogProduct; onSelect:
   return (
     <button type="button" className="catalog-card panel glass" onClick={onSelect}>
       <div className="catalog-card__media">
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name} loading="lazy" />
-        ) : (
-          <Package size={48} className="catalog-card__placeholder" />
-        )}
+        <StockBadge status={product.stockStatus} overlay />
+        <ProductImageFrame src={product.imageUrl} alt={product.name} variant="card" />
       </div>
       <div className="catalog-card__body">
         {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
         <h3>{product.name}</h3>
-        <StockBadge status={product.stockStatus} stock={product.stock} unit={product.unit} />
         <div className="catalog-card__price">
           <span>Price</span>
           <strong>
@@ -66,16 +64,12 @@ function ProductListRow({ product, onSelect }: { product: CatalogProduct; onSele
   return (
     <button type="button" className="catalog-row panel glass" onClick={onSelect}>
       <div className="catalog-row__media">
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name} loading="lazy" />
-        ) : (
-          <Package size={24} className="catalog-card__placeholder" />
-        )}
+        <StockBadge status={product.stockStatus} overlay />
+        <ProductImageFrame src={product.imageUrl} alt={product.name} variant="row" />
       </div>
       <div className="catalog-row__main">
         {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
         <h3>{product.name}</h3>
-        <StockBadge status={product.stockStatus} stock={product.stock} unit={product.unit} compact />
       </div>
       <div className="catalog-row__price">
         <IndianRupee size={16} strokeWidth={2.5} />
@@ -171,7 +165,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
 
   const filteredCategories = useMemo(
     () => categories
-      .filter(c => c.id && c.productCount > 0)
+      .filter(c => c.id && c.productCount > 0 && !isHiddenCatalogCategory(c))
       .sort((a, b) => {
         const orderDiff = a.displayOrder - b.displayOrder;
         if (orderDiff !== 0) return orderDiff;

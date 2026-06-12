@@ -37,7 +37,17 @@ export const ProductsPage: React.FC = () => {
   }, [loadCatalog]);
 
   const handleCategoriesReorder = async (nextCategories: CatalogCategory[]) => {
-    setCatalog(prev => (prev ? { ...prev, categories: nextCategories } : prev));
+    const orderById = new Map(nextCategories.map((cat, index) => [cat.id, index]));
+    setCatalog(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        categories: prev.categories.map(cat => {
+          const order = orderById.get(cat.id);
+          return order !== undefined ? { ...cat, displayOrder: order } : cat;
+        }),
+      };
+    });
     try {
       await saveCatalogCategoryOrder(
         nextCategories.map((cat, index) => ({

@@ -17,12 +17,27 @@ export interface CatalogFilters {
   stockStatus?: string;
 }
 
+const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl']);
+
+/** Categories excluded from the browse grid (still in catalog data). */
+export function isHiddenCatalogCategory(category: Pick<CatalogCategory, 'name'>): boolean {
+  return HIDDEN_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
+}
+
 function catalogErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const code = 'code' in err ? String((err as { code: string }).code) : '';
     const message = 'message' in err ? String((err as { message: string }).message) : '';
     if (code === 'functions/deadline-exceeded' || message.includes('deadline-exceeded')) {
       return 'Catalog sync timed out. Deploy the latest functions and try again — sync should finish in under a minute.';
+    }
+    if (
+      code === 'functions/internal'
+      || message.includes('CORS')
+      || message.includes('Failed to fetch')
+      || message.includes('not-found')
+    ) {
+      return 'Cloud Function unavailable. Deploy the latest functions (saveCatalogCategoryOrder, uploadCatalogCategoryThumbnail) to Firebase.';
     }
     if (message) return message;
   }

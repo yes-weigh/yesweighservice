@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { IndianRupee, Package, X } from 'lucide-react';
+import { IndianRupee, X } from 'lucide-react';
 import { fetchCatalogProductDetail, formatCurrency } from '../../lib/catalog';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
+import { ProductImageFrame } from './ProductImageFrame';
 import { StockBadge } from './StockBadge';
 
 export const ProductDetailModal: React.FC<{
@@ -53,11 +54,7 @@ export const ProductDetailModal: React.FC<{
         </button>
 
         <div className="catalog-modal__hero">
-          {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name} className="catalog-modal__image" />
-          ) : (
-            <Package size={48} className="catalog-modal__placeholder" />
-          )}
+          <ProductImageFrame src={product.imageUrl} alt={product.name} variant="modal" />
         </div>
 
         <div className="catalog-modal__body">
@@ -68,7 +65,7 @@ export const ProductDetailModal: React.FC<{
           )}
 
           <div className="catalog-modal__meta">
-            <StockBadge status={product.stockStatus} stock={product.stock} unit={product.unit} />
+            <StockBadge status={product.stockStatus} />
             <div className="catalog-modal__price">
               <span>Price</span>
               <strong>
