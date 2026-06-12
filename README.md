@@ -108,6 +108,8 @@ firebase functions:secrets:set ZOHO_REFRESH_TOKEN --project yesweigh-service
 
 Add a GitHub Actions secret **`ZOHO_ORGANIZATION_ID`** (Zoho Inventory → Settings → Organization Profile → Organization ID). CI writes this into `functions/.env.yesweigh-service` before deploying functions.
 
+Cloud Functions (2nd gen) also require the Firebase project on the **Blaze (pay as you go)** plan with a billing account linked. If deploy fails with `cloudbilling.googleapis.com`, enable [Cloud Billing API](https://console.cloud.google.com/apis/library/cloudbilling.googleapis.com?project=yesweigh-service) and upgrade at [Firebase Usage and billing](https://console.firebase.google.com/project/yesweigh-service/usage/details).
+
 Hosting and Firestore rules still deploy even if functions fail, because CI runs those steps first.
 
 ## Firebase project
