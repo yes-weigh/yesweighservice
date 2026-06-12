@@ -18,8 +18,13 @@ export interface CatalogFilters {
 }
 
 function catalogErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'message' in err) {
-    return String((err as { message: string }).message);
+  if (err && typeof err === 'object') {
+    const code = 'code' in err ? String((err as { code: string }).code) : '';
+    const message = 'message' in err ? String((err as { message: string }).message) : '';
+    if (code === 'functions/deadline-exceeded' || message.includes('deadline-exceeded')) {
+      return 'Catalog sync timed out. Deploy the latest functions and try again — sync should finish in under a minute.';
+    }
+    if (message) return message;
   }
   return 'Unable to load product catalog.';
 }
@@ -112,6 +117,10 @@ function deriveCategoriesFromProducts(
       existing.productCount += 1;
       if (product.categoryName) existing.name = product.categoryName;
     }
+    const cat = derived.get(product.categoryId);
+    if (cat && !cat.thumbnailUrl && product.imageUrl) {
+      cat.thumbnailUrl = product.imageUrl;
+    }
   }
 
   const merged = new Map<string, CatalogCategory>();
@@ -184,10 +193,73 @@ export async function fetchCatalogProductDetail(productId: string): Promise<Cata
   }
 }
 
+async function fileToBase64(file: File): Promise<string> {
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('Image must be 5 MB or smaller.');
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not read image file.'));
+        return;
+      }
+      const base64 = result.split(',')[1];
+      if (!base64) {
+        reject(new Error('Could not read image file.'));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Could not read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function saveCatalogCategoryOrder(
+  categories: Array<{ id: string; name: string; displayOrder: number }>,
+): Promise<void> {
+  const callable = httpsCallable<
+    { categories: Array<{ id: string; name: string; displayOrder: number }> },
+    { ok: boolean }
+  >(functions, 'saveCatalogCategoryOrder');
+  try {
+    await callable({ categories });
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export async function uploadCatalogCategoryThumbnail(
+  categoryId: string,
+  categoryName: string,
+  file: File,
+): Promise<string> {
+  const callable = httpsCallable<
+    { categoryId: string; categoryName: string; contentType: string; imageBase64: string },
+    { thumbnailUrl: string }
+  >(functions, 'uploadCatalogCategoryThumbnail', { timeout: 120_000 });
+
+  try {
+    const imageBase64 = await fileToBase64(file);
+    const result = await callable({
+      categoryId,
+      categoryName,
+      contentType: file.type || 'image/jpeg',
+      imageBase64,
+    });
+    return result.data.thumbnailUrl;
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
 export async function syncCatalog(): Promise<{ syncedCount: number; syncedAt: string }> {
   const callable = httpsCallable<undefined, { syncedCount: number; syncedAt: string }>(
     functions,
     'syncZohoCatalog',
+    { timeout: 600_000 },
   );
   try {
     const result = await callable();

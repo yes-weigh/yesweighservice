@@ -55,6 +55,7 @@ export const Layout: React.FC = () => {
       case 'super_admin':
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          { path: '/super-admin/products', icon: <Package size={20} />, label: 'Products' },
           { path: '/super-admin/staff', icon: <Users size={20} />, label: 'Staff' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
@@ -62,6 +63,7 @@ export const Layout: React.FC = () => {
       case 'staff':
         return [
           { path: '/staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          { path: '/staff/products', icon: <Package size={20} />, label: 'Products' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
         ];
@@ -113,7 +115,7 @@ export const Layout: React.FC = () => {
 
   const navItems = getNavItems();
   const home = homePathForRole(user.role);
-  const profilePath = user.role === 'super_admin' ? null : `${home}/profile`;
+  const profilePath = `${home}/profile`;
 
   const currentNavItem = navItems.find(item => {
     if (location.pathname === item.path) return true;

@@ -48,6 +48,7 @@ try {
   const result = await syncCatalogToFirestore(
     { clientId, clientSecret, refreshToken },
     orgId,
+    { skipNewImages: false },
   );
 
   console.log(

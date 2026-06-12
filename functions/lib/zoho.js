@@ -158,6 +158,28 @@ export async function fetchItemsByGroup(accessToken, orgId, groupId, page = 1, p
   return items;
 }
 
+/** Bulk item details — fills in group_id when the list endpoint omits it. */
+export async function fetchBulkItemDetails(accessToken, orgId, itemIds) {
+  if (!itemIds.length) return [];
+
+  const url = new URL(`${ZOHO_API_BASE}/itemdetails`);
+  url.searchParams.set('organization_id', orgId);
+  url.searchParams.set('item_ids', itemIds.join(','));
+
+  const response = await fetch(url, { headers: authHeaders(accessToken, orgId) });
+  const payload = await response.json();
+  if (payload.code !== 0) {
+    throw new Error(payload.message || 'Zoho bulk item details error');
+  }
+
+  return (payload.items ?? []).map(raw => ({
+    id: String(raw.item_id ?? ''),
+    categoryId: raw.group_id ? String(raw.group_id) : null,
+    categoryName: raw.group_name ? String(raw.group_name) : null,
+    status: String(raw.status ?? 'active'),
+  })).filter(item => item.id);
+}
+
 export async function fetchAllProducts(accessToken, orgId, page = 1, perPage = 200) {
   const url = new URL(`${ZOHO_API_BASE}/items`);
   url.searchParams.set('organization_id', orgId);

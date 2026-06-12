@@ -1,12 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
-import { fetchCatalog } from '../../lib/catalog';
-import type { CatalogResponse } from '../../types/catalog';
+import { useAuth } from '../../context/AuthContext';
+import {
+  fetchCatalog,
+  saveCatalogCategoryOrder,
+  syncCatalog,
+  uploadCatalogCategoryThumbnail,
+} from '../../lib/catalog';
+import type { CatalogCategory, CatalogResponse } from '../../types/catalog';
 
 export const ProductsPage: React.FC = () => {
+  const { user } = useAuth();
+  const canSync = user?.role === 'staff' || user?.role === 'super_admin';
+
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadCatalog = useCallback(async () => {
@@ -25,6 +35,59 @@ export const ProductsPage: React.FC = () => {
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  const handleCategoriesReorder = async (nextCategories: CatalogCategory[]) => {
+    setCatalog(prev => (prev ? { ...prev, categories: nextCategories } : prev));
+    try {
+      await saveCatalogCategoryOrder(
+        nextCategories.map((cat, index) => ({
+          id: cat.id,
+          name: cat.name,
+          displayOrder: index,
+        })),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save category order.');
+      await loadCatalog();
+    }
+  };
+
+  const handleCategoryThumbnail = async (
+    categoryId: string,
+    categoryName: string,
+    file: File,
+  ): Promise<string | null> => {
+    setError(null);
+    try {
+      const thumbnailUrl = await uploadCatalogCategoryThumbnail(categoryId, categoryName, file);
+      setCatalog(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          categories: prev.categories.map(cat =>
+            cat.id === categoryId ? { ...cat, thumbnailUrl } : cat,
+          ),
+        };
+      });
+      return thumbnailUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Category image upload failed.');
+      return null;
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setError(null);
+    try {
+      await syncCatalog();
+      await loadCatalog();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Catalog sync failed.');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   if (loading && !catalog) {
     return (
@@ -48,6 +111,11 @@ export const ProductsPage: React.FC = () => {
             <button type="button" className="btn btn-primary" onClick={() => void loadCatalog()}>
               Try again
             </button>
+            {canSync && (
+              <button type="button" className="btn btn-secondary" onClick={() => void handleSync()}>
+                Sync from Zoho
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -68,6 +136,22 @@ export const ProductsPage: React.FC = () => {
         categories={catalog?.categories ?? []}
         isLoading={loading}
         showToolbar={false}
+        manageCategories={canSync}
+        onCategoriesReorder={canSync ? cats => void handleCategoriesReorder(cats) : undefined}
+        onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
+        filterExtra={
+          canSync ? (
+            <button
+              type="button"
+              className="btn btn-primary catalog-sync-btn"
+              disabled={syncing || loading}
+              onClick={() => void handleSync()}
+            >
+              <RefreshCw size={16} className={syncing ? 'spin-icon' : undefined} />
+              {syncing ? 'Syncing catalog…' : 'Sync from Zoho'}
+            </button>
+          ) : undefined
+        }
       />
     </div>
   );

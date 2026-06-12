@@ -3,6 +3,7 @@ import { getStorage } from 'firebase-admin/storage';
 import {
   fetchAllItemGroups,
   fetchAllProducts,
+  fetchBulkItemDetails,
   fetchItemsByGroup,
   getAccessToken,
   resolveOrganizationId,
@@ -12,6 +13,7 @@ import {
 const PRODUCTS_COLLECTION = 'catalogProducts';
 const CATEGORIES_COLLECTION = 'catalogCategories';
 const META_DOC = 'catalogMeta/sync';
+const BULK_DETAIL_CHUNK = 50;
 
 function publicStorageUrl(bucketName, storagePath) {
   const encoded = encodeURIComponent(storagePath).replace(/%2F/g, '%2F');
@@ -37,57 +39,96 @@ async function cacheProductImage(accessToken, orgId, productId, existingImageUrl
   return publicStorageUrl(bucket.name, storagePath);
 }
 
+/** Mirror yesweigh: map every active item in each Zoho item group (parallel). */
 async function buildGroupMembership(accessToken, orgId, itemGroups) {
   const membership = new Map();
+  const groups = (itemGroups ?? []).filter(g => g.id);
 
-  for (const group of itemGroups ?? []) {
-    if (!group.id) continue;
-    try {
-      const items = await fetchItemsByGroup(accessToken, orgId, group.id);
-      for (const item of items) {
-        if (item.status !== 'active') continue;
-        membership.set(item.id, {
-          categoryId: group.id,
-          categoryName: group.name,
-        });
+  const results = await Promise.all(
+    groups.map(async group => {
+      try {
+        const items = await fetchItemsByGroup(accessToken, orgId, group.id);
+        return { group, items };
+      } catch (err) {
+        console.warn(`Group item fetch failed for ${group.id}:`, err?.message ?? err);
+        return { group, items: [] };
       }
-    } catch (err) {
-      console.warn(`Group item fetch failed for ${group.id}:`, err?.message ?? err);
+    }),
+  );
+
+  for (const { group, items } of results) {
+    for (const item of items) {
+      if (item.status !== 'active') continue;
+      membership.set(item.id, {
+        categoryId: group.id,
+        categoryName: group.name,
+      });
     }
   }
 
   return membership;
 }
 
-function enrichProductGroups(product, membership) {
+function applyGroupMembership(product, membership) {
   const assigned = membership.get(product.id);
   const categoryId = product.categoryId || assigned?.categoryId || null;
   const categoryName = product.categoryName || assigned?.categoryName || null;
   return { ...product, categoryId, categoryName };
 }
 
+/** Fill group_id via Zoho bulk itemdetails for products still missing a category. */
+async function enrichMissingGroupIds(accessToken, orgId, products) {
+  const missingIds = products
+    .filter(p => p.status === 'active' && !p.categoryId)
+    .map(p => p.id);
+
+  if (!missingIds.length) return products;
+
+  const byId = new Map(products.map(p => [p.id, { ...p }]));
+
+  for (let i = 0; i < missingIds.length; i += BULK_DETAIL_CHUNK) {
+    const chunk = missingIds.slice(i, i + BULK_DETAIL_CHUNK);
+    try {
+      const details = await fetchBulkItemDetails(accessToken, orgId, chunk);
+      for (const item of details) {
+        const product = byId.get(item.id);
+        if (!product || product.categoryId) continue;
+        if (item.categoryId) {
+          product.categoryId = item.categoryId;
+          product.categoryName = item.categoryName || product.categoryName;
+        }
+      }
+    } catch (err) {
+      console.warn('Bulk item detail fetch failed:', err?.message ?? err);
+    }
+  }
+
+  return [...byId.values()];
+}
+
+/** Same aggregation pattern as D:\\yesweigh catalog API — groupBy active products. */
 function buildCategoryMap(products, itemGroups, existingCategories) {
   const existingSettings = new Map(
-    (existingCategories ?? []).map(cat => [cat.id, cat]),
+    (existingCategories ?? []).map(cat => [String(cat.id), cat]),
   );
 
   const counts = new Map();
 
   for (const group of itemGroups ?? []) {
     if (!group.id) continue;
-    counts.set(group.id, {
-      id: group.id,
+    const id = String(group.id);
+    counts.set(id, {
+      id,
       name: group.name || 'Category',
       productCount: 0,
-      displayOrder: existingSettings.get(group.id)?.displayOrder ?? 999,
-      thumbnailUrl: existingSettings.get(group.id)?.thumbnailUrl ?? null,
+      displayOrder: existingSettings.get(id)?.displayOrder ?? 999,
+      thumbnailUrl: existingSettings.get(id)?.thumbnailUrl ?? null,
     });
   }
 
   for (const product of products) {
-    if (product.status !== 'active') continue;
-    if (!product.categoryId) continue;
-    const key = product.categoryId;
+    if (product.status !== 'active' || !product.categoryId) continue;
+    const key = String(product.categoryId);
     if (!counts.has(key)) {
       counts.set(key, {
         id: key,
@@ -97,8 +138,15 @@ function buildCategoryMap(products, itemGroups, existingCategories) {
         thumbnailUrl: existingSettings.get(key)?.thumbnailUrl ?? null,
       });
     }
-    counts.get(key).productCount += 1;
-    if (product.categoryName) counts.get(key).name = product.categoryName;
+    const cat = counts.get(key);
+    cat.productCount += 1;
+    if (product.categoryName) cat.name = product.categoryName;
+    const customThumb = existingSettings.get(key)?.thumbnailUrl;
+    if (customThumb) {
+      cat.thumbnailUrl = customThumb;
+    } else if (!cat.thumbnailUrl && product.imageUrl) {
+      cat.thumbnailUrl = product.imageUrl;
+    }
   }
 
   return [...counts.values()]
@@ -109,17 +157,23 @@ function buildCategoryMap(products, itemGroups, existingCategories) {
     });
 }
 
-export async function syncCatalogToFirestore(secrets, configuredOrgId) {
+export async function syncCatalogToFirestore(secrets, configuredOrgId, options = {}) {
+  const { skipNewImages = false } = options;
   const db = getFirestore();
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
+
   const [products, itemGroups] = await Promise.all([
     fetchAllProducts(accessToken, organizationId),
-    fetchAllItemGroups(accessToken, organizationId).catch(() => []),
+    fetchAllItemGroups(accessToken, organizationId).catch(err => {
+      console.warn('Item groups fetch failed:', err?.message ?? err);
+      return [];
+    }),
   ]);
 
   const groupMembership = await buildGroupMembership(accessToken, organizationId, itemGroups);
-  const enrichedProducts = products.map(product => enrichProductGroups(product, groupMembership));
+  let enrichedProducts = products.map(product => applyGroupMembership(product, groupMembership));
+  enrichedProducts = await enrichMissingGroupIds(accessToken, organizationId, enrichedProducts);
 
   const existingSnap = await db.collection(PRODUCTS_COLLECTION).get();
   const existingMap = new Map(existingSnap.docs.map(doc => [doc.id, doc.data()]));
@@ -148,7 +202,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId) {
     const existing = existingMap.get(product.id);
     let imageUrl = existing?.imageUrl ?? null;
 
-    if (product.hasImage && !imageUrl && !skipFurtherImages) {
+    if (!skipNewImages && product.hasImage && !imageUrl && !skipFurtherImages) {
       const cached = await cacheProductImage(accessToken, organizationId, product.id, imageUrl);
       if (cached === 'RATE_LIMITED') {
         skipFurtherImages = true;
@@ -218,26 +272,30 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId) {
   await categoryBatch.commit();
 
   const activeProducts = enrichedProducts.filter(p => p.status === 'active');
+  const groupedCount = activeProducts.filter(p => p.categoryId).length;
+
   await db.doc(META_DOC).set({
     lastSyncAt: now,
     productCount: products.length,
     activeProductCount: activeProducts.length,
+    groupedProductCount: groupedCount,
     categoryCount: categories.length,
     organizationId,
-    imageDownloadsSkipped: skipFurtherImages,
+    imageDownloadsSkipped: skipNewImages || skipFurtherImages,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
   return {
     syncedCount,
     categoryCount: categories.length,
+    groupedProductCount: groupedCount,
     syncedAt: now,
     organizationId,
   };
 }
 
 function deriveCategoriesFromProducts(items, storedCategories) {
-  const storedMap = new Map(storedCategories.map(cat => [cat.id, cat]));
+  const storedMap = new Map(storedCategories.map(cat => [String(cat.id), cat]));
   const derived = new Map();
 
   for (const product of items) {
@@ -255,6 +313,10 @@ function deriveCategoriesFromProducts(items, storedCategories) {
       const cat = derived.get(key);
       cat.productCount += 1;
       if (product.categoryName) cat.name = product.categoryName;
+    }
+    const cat = derived.get(key);
+    if (cat && !cat.thumbnailUrl && product.imageUrl) {
+      cat.thumbnailUrl = product.imageUrl;
     }
   }
 
@@ -320,4 +382,65 @@ export async function patchProductCategory(productId, categoryId, categoryName) 
     categoryName,
     syncedAt: new Date().toISOString(),
   }, { merge: true });
+}
+
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+export async function saveCategoryOrder(categories) {
+  const db = getFirestore();
+  const batch = db.batch();
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < categories.length; i++) {
+    const cat = categories[i];
+    if (!cat?.id) continue;
+    batch.set(
+      db.collection(CATEGORIES_COLLECTION).doc(String(cat.id)),
+      {
+        id: String(cat.id),
+        name: cat.name || 'Category',
+        displayOrder: i,
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+  }
+
+  await batch.commit();
+  return { ok: true, count: categories.length };
+}
+
+export async function uploadCategoryThumbnail(categoryId, categoryName, buffer, contentType) {
+  const id = String(categoryId ?? '').trim();
+  if (!id) throw new Error('categoryId is required.');
+
+  const type = String(contentType ?? 'image/jpeg').toLowerCase();
+  if (!ALLOWED_IMAGE_TYPES.has(type)) {
+    throw new Error('Unsupported image type. Use JPEG, PNG, WebP, or GIF.');
+  }
+  if (buffer.length > 5 * 1024 * 1024) {
+    throw new Error('Image must be 5 MB or smaller.');
+  }
+
+  const ext = type.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+  const storagePath = `catalog/categories/${id}.${ext}`;
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+
+  await file.save(buffer, {
+    metadata: { contentType: type, cacheControl: 'public, max-age=31536000' },
+  });
+  await file.makePublic();
+
+  const thumbnailUrl = publicStorageUrl(bucket.name, storagePath);
+  const now = new Date().toISOString();
+
+  await getFirestore().collection(CATEGORIES_COLLECTION).doc(id).set({
+    id,
+    name: categoryName || 'Category',
+    thumbnailUrl,
+    updatedAt: now,
+  }, { merge: true });
+
+  return { thumbnailUrl };
 }

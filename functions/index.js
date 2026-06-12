@@ -14,6 +14,8 @@ import {
   syncCatalogToFirestore,
   readCatalogFromFirestore,
   patchProductCategory,
+  saveCategoryOrder,
+  uploadCategoryThumbnail,
 } from './lib/catalog-sync.js';
 
 initializeApp();
@@ -156,10 +158,11 @@ export const syncZohoCatalogScheduled = onSchedule(
     const result = await syncCatalogToFirestore(
       zohoSecrets(),
       zohoOrganizationId.value(),
+      { skipNewImages: true },
     );
 
     console.log(
-      `Scheduled catalog sync: ${result.syncedCount} products, ${result.categoryCount} categories.`,
+      `Scheduled catalog sync: ${result.syncedCount} products, ${result.categoryCount} categories (${result.groupedProductCount} grouped).`,
     );
   },
 );
@@ -178,9 +181,78 @@ export const syncZohoCatalog = onCall(
     const result = await syncCatalogToFirestore(
       zohoSecrets(),
       zohoOrganizationId.value(),
+      { skipNewImages: true },
     );
 
     return result;
+  },
+);
+
+/** Save drag-and-drop category order — staff / super admin only. */
+export const saveCatalogCategoryOrder = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const categories = request.data?.categories;
+    if (!Array.isArray(categories) || categories.length === 0) {
+      throw new HttpsError('invalid-argument', 'categories array is required.');
+    }
+
+    const payload = categories.map((cat, index) => ({
+      id: String(cat.id ?? '').trim(),
+      name: String(cat.name ?? 'Category'),
+      displayOrder: Number.isFinite(cat.displayOrder) ? cat.displayOrder : index,
+    })).filter(cat => cat.id);
+
+    if (!payload.length) {
+      throw new HttpsError('invalid-argument', 'No valid categories provided.');
+    }
+
+    await saveCategoryOrder(payload);
+    return { ok: true, count: payload.length };
+  },
+);
+
+/** Upload custom category thumbnail — staff / super admin only. */
+export const uploadCatalogCategoryThumbnail = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const categoryId = String(request.data?.categoryId ?? '').trim();
+    const categoryName = String(request.data?.categoryName ?? '').trim();
+    const contentType = String(request.data?.contentType ?? 'image/jpeg').trim();
+    const imageBase64 = String(request.data?.imageBase64 ?? '').trim();
+
+    if (!categoryId || !imageBase64) {
+      throw new HttpsError('invalid-argument', 'categoryId and imageBase64 are required.');
+    }
+
+    let buffer;
+    try {
+      buffer = Buffer.from(imageBase64, 'base64');
+    } catch {
+      throw new HttpsError('invalid-argument', 'Invalid image data.');
+    }
+
+    if (!buffer.length) {
+      throw new HttpsError('invalid-argument', 'Empty image data.');
+    }
+
+    try {
+      return await uploadCategoryThumbnail(categoryId, categoryName, buffer, contentType);
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Thumbnail upload failed.');
+    }
   },
 );
 

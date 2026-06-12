@@ -58,15 +58,18 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['super_admin']} />}>
             <Route path="/super-admin" element={<Layout />}>
               <Route index element={<SuperAdminDashboard />} />
+              <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="staff" element={<AdminStaffList />} />
               <Route path="dealers" element={<AdminDealersList />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
+              <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>
 
           <Route element={<ProtectedRoute allowedRoles={['staff']} />}>
             <Route path="/staff" element={<Layout />}>
               <Route index element={<StaffDashboard />} />
+              <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="dealers" element={<AdminDealersList />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
               <Route path="profile" element={<ProfilePage />} />

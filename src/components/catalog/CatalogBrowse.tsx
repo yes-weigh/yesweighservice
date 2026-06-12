@@ -8,6 +8,7 @@ import {
   Search,
 } from 'lucide-react';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
+import { CategoryFolderGrid } from './CategoryFolderGrid';
 import { StockBadge } from './StockBadge';
 import { ProductDetailModal } from './ProductDetailModal';
 
@@ -20,9 +21,19 @@ export interface CatalogBrowseProps {
   showCategoryGrid?: boolean;
   showToolbar?: boolean;
   headerExtra?: React.ReactNode;
+  /** Extra controls shown at the end of the search/filter bar */
+  filterExtra?: React.ReactNode;
   /** Public /oc layout — compact header, filters inline with title */
   variant?: 'dealer' | 'public';
   onReset?: () => void;
+  /** Staff/super_admin — drag reorder + category image upload */
+  manageCategories?: boolean;
+  onCategoriesReorder?: (categories: CatalogCategory[]) => void;
+  onCategoryThumbnail?: (
+    categoryId: string,
+    categoryName: string,
+    file: File,
+  ) => Promise<string | null>;
 }
 
 function ProductCard({ product, onSelect }: { product: CatalogProduct; onSelect: () => void }) {
@@ -145,8 +156,12 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   showCategoryGrid = true,
   showToolbar = true,
   headerExtra,
+  filterExtra,
   variant = 'dealer',
   onReset,
+  manageCategories = false,
+  onCategoriesReorder,
+  onCategoryThumbnail,
 }) => {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('');
@@ -155,7 +170,13 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null);
 
   const filteredCategories = useMemo(
-    () => categories.filter(c => c.id && c.productCount > 0),
+    () => categories
+      .filter(c => c.id && c.productCount > 0)
+      .sort((a, b) => {
+        const orderDiff = a.displayOrder - b.displayOrder;
+        if (orderDiff !== 0) return orderDiff;
+        return a.name.localeCompare(b.name);
+      }),
     [categories],
   );
 
@@ -213,6 +234,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
           </button>
           <div className="catalog-public-header__filters">
             <CatalogFilters {...filterProps} />
+            {filterExtra}
           </div>
         </header>
       ) : showToolbar ? (
@@ -228,15 +250,26 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
 
           <div className="catalog-filters panel glass">
             <CatalogFilters {...filterProps} />
+            {filterExtra}
           </div>
         </>
       ) : (
         <div className="catalog-filters panel glass">
           <CatalogFilters {...filterProps} />
+          {filterExtra}
         </div>
       )}
 
-      {showCategoryGrid && !showProducts && filteredCategories.length > 0 && (
+      {showCategoryGrid && !showProducts && filteredCategories.length > 0 && manageCategories && onCategoriesReorder && onCategoryThumbnail && (
+        <CategoryFolderGrid
+          categories={filteredCategories}
+          onCategoryClick={setActiveCategory}
+          onReorder={onCategoriesReorder}
+          onUploadThumbnail={onCategoryThumbnail}
+        />
+      )}
+
+      {showCategoryGrid && !showProducts && filteredCategories.length > 0 && !manageCategories && (
         <section className="catalog-categories">
           <h3>
             <FolderOpen size={14} />
