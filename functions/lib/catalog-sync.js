@@ -1,6 +1,7 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import {
+  fetchAllItemGroups,
   fetchAllProducts,
   getAccessToken,
   resolveOrganizationId,
@@ -35,12 +36,24 @@ async function cacheProductImage(accessToken, orgId, productId, existingImageUrl
   return publicStorageUrl(bucket.name, storagePath);
 }
 
-function buildCategoryMap(products, existingCategories) {
+function buildCategoryMap(products, itemGroups, existingCategories) {
   const existingSettings = new Map(
     (existingCategories ?? []).map(cat => [cat.id, cat]),
   );
 
   const counts = new Map();
+
+  for (const group of itemGroups ?? []) {
+    if (!group.id) continue;
+    counts.set(group.id, {
+      id: group.id,
+      name: group.name || 'Category',
+      productCount: 0,
+      displayOrder: existingSettings.get(group.id)?.displayOrder ?? 999,
+      thumbnailUrl: existingSettings.get(group.id)?.thumbnailUrl ?? null,
+    });
+  }
+
   for (const product of products) {
     if (product.status !== 'active') continue;
     if (!product.categoryId) continue;
@@ -58,17 +71,22 @@ function buildCategoryMap(products, existingCategories) {
     if (product.categoryName) counts.get(key).name = product.categoryName;
   }
 
-  return [...counts.values()].sort((a, b) => {
-    if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder;
-    return a.name.localeCompare(b.name);
-  });
+  return [...counts.values()]
+    .filter(cat => cat.productCount > 0)
+    .sort((a, b) => {
+      if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder;
+      return a.name.localeCompare(b.name);
+    });
 }
 
 export async function syncCatalogToFirestore(secrets, configuredOrgId) {
   const db = getFirestore();
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
-  const products = await fetchAllProducts(accessToken, organizationId);
+  const [products, itemGroups] = await Promise.all([
+    fetchAllProducts(accessToken, organizationId),
+    fetchAllItemGroups(accessToken, organizationId).catch(() => []),
+  ]);
 
   const existingSnap = await db.collection(PRODUCTS_COLLECTION).get();
   const existingMap = new Map(existingSnap.docs.map(doc => [doc.id, doc.data()]));
@@ -147,7 +165,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId) {
     await deleteBatch.commit();
   }
 
-  const categories = buildCategoryMap(products, existingCategories);
+  const categories = buildCategoryMap(products, itemGroups, existingCategories);
   const categoryBatch = db.batch();
   const categoryIds = new Set(categories.map(c => c.id));
 
@@ -185,6 +203,51 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId) {
   };
 }
 
+function deriveCategoriesFromProducts(items, storedCategories) {
+  const storedMap = new Map(storedCategories.map(cat => [cat.id, cat]));
+  const derived = new Map();
+
+  for (const product of items) {
+    if (!product.categoryId) continue;
+    const key = String(product.categoryId);
+    if (!derived.has(key)) {
+      derived.set(key, {
+        id: key,
+        name: product.categoryName || 'Category',
+        productCount: 1,
+        displayOrder: storedMap.get(key)?.displayOrder ?? 999,
+        thumbnailUrl: storedMap.get(key)?.thumbnailUrl ?? null,
+      });
+    } else {
+      const cat = derived.get(key);
+      cat.productCount += 1;
+      if (product.categoryName) cat.name = product.categoryName;
+    }
+  }
+
+  const merged = new Map();
+  for (const cat of storedCategories) {
+    if (cat.id) merged.set(String(cat.id), { ...cat, id: String(cat.id) });
+  }
+  for (const [id, cat] of derived) {
+    const prev = merged.get(id);
+    merged.set(id, {
+      ...cat,
+      productCount: Math.max(cat.productCount, prev?.productCount ?? 0),
+      thumbnailUrl: prev?.thumbnailUrl ?? cat.thumbnailUrl,
+      displayOrder: prev?.displayOrder ?? cat.displayOrder,
+    });
+  }
+
+  return [...merged.values()]
+    .filter(cat => cat.id && cat.productCount > 0)
+    .sort((a, b) => {
+      const orderDiff = (a.displayOrder ?? 999) - (b.displayOrder ?? 999);
+      if (orderDiff !== 0) return orderDiff;
+      return String(a.name ?? '').localeCompare(String(b.name ?? ''));
+    });
+}
+
 export async function readCatalogFromFirestore() {
   const db = getFirestore();
   const [productsSnap, categoriesSnap, metaSnap] = await Promise.all([
@@ -197,13 +260,8 @@ export async function readCatalogFromFirestore() {
     .map(doc => doc.data())
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
-  const categories = categoriesSnap.docs
-    .map(doc => doc.data())
-    .sort((a, b) => {
-      const orderDiff = (a.displayOrder ?? 999) - (b.displayOrder ?? 999);
-      if (orderDiff !== 0) return orderDiff;
-      return String(a.name ?? '').localeCompare(String(b.name ?? ''));
-    });
+  const storedCategories = categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const categories = deriveCategoriesFromProducts(items, storedCategories);
 
   const meta = metaSnap.exists ? metaSnap.data() : null;
 

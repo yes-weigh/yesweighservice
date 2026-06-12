@@ -8,7 +8,6 @@ import {
   Search,
 } from 'lucide-react';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
-import { formatCurrency } from '../../lib/catalog';
 import { StockBadge } from './StockBadge';
 import { ProductDetailModal } from './ProductDetailModal';
 
@@ -20,6 +19,9 @@ export interface CatalogBrowseProps {
   subtitle?: string;
   showCategoryGrid?: boolean;
   headerExtra?: React.ReactNode;
+  /** Public /oc layout — compact header, filters inline with title */
+  variant?: 'dealer' | 'public';
+  onReset?: () => void;
 }
 
 function ProductCard({ product, onSelect }: { product: CatalogProduct; onSelect: () => void }) {
@@ -29,7 +31,7 @@ function ProductCard({ product, onSelect }: { product: CatalogProduct; onSelect:
         {product.imageUrl ? (
           <img src={product.imageUrl} alt={product.name} loading="lazy" />
         ) : (
-          <Package size={40} className="catalog-card__placeholder" />
+          <Package size={48} className="catalog-card__placeholder" />
         )}
       </div>
       <div className="catalog-card__body">
@@ -39,8 +41,8 @@ function ProductCard({ product, onSelect }: { product: CatalogProduct; onSelect:
         <div className="catalog-card__price">
           <span>Price</span>
           <strong>
-            <IndianRupee size={14} />
-            {formatCurrency(product.rate).replace('₹', '')}
+            <IndianRupee size={16} strokeWidth={2.5} />
+            {product.rate.toLocaleString('en-IN')}
           </strong>
         </div>
       </div>
@@ -64,10 +66,72 @@ function ProductListRow({ product, onSelect }: { product: CatalogProduct; onSele
         <StockBadge status={product.stockStatus} stock={product.stock} unit={product.unit} compact />
       </div>
       <div className="catalog-row__price">
-        <IndianRupee size={14} />
-        {formatCurrency(product.rate).replace('₹', '')}
+        <IndianRupee size={16} strokeWidth={2.5} />
+        {product.rate.toLocaleString('en-IN')}
       </div>
     </button>
+  );
+}
+
+function CatalogFilters({
+  search,
+  setSearch,
+  stockFilter,
+  setStockFilter,
+  viewMode,
+  setViewMode,
+}: {
+  search: string;
+  setSearch: (v: string) => void;
+  stockFilter: string;
+  setStockFilter: (v: string) => void;
+  viewMode: 'grid' | 'list';
+  setViewMode: (v: 'grid' | 'list') => void;
+}) {
+  return (
+    <>
+      <div className="catalog-search">
+        <Search size={16} />
+        <input
+          type="search"
+          placeholder="Search products…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+
+      <select
+        title="Filter stock status"
+        aria-label="Filter stock status"
+        value={stockFilter}
+        onChange={e => setStockFilter(e.target.value)}
+        className="catalog-select"
+      >
+        <option value="">All Stock Logs</option>
+        <option value="in_stock">In Stock</option>
+        <option value="low_stock">Low Stock</option>
+        <option value="out_of_stock">Out of Stock</option>
+      </select>
+
+      <div className="catalog-view-toggle">
+        <button
+          type="button"
+          className={viewMode === 'grid' ? 'active' : ''}
+          onClick={() => setViewMode('grid')}
+          aria-label="Grid view"
+        >
+          <LayoutGrid size={15} />
+        </button>
+        <button
+          type="button"
+          className={viewMode === 'list' ? 'active' : ''}
+          onClick={() => setViewMode('list')}
+          aria-label="List view"
+        >
+          <List size={15} />
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -79,6 +143,8 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   subtitle,
   showCategoryGrid = true,
   headerExtra,
+  variant = 'dealer',
+  onReset,
 }) => {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('');
@@ -117,62 +183,52 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     setActiveCategory('');
     setSearch('');
     setStockFilter('');
+    onReset?.();
+  };
+
+  const resetToCategories = () => clearFilters();
+
+  const filterProps = {
+    search,
+    setSearch,
+    stockFilter,
+    setStockFilter,
+    viewMode,
+    setViewMode,
   };
 
   return (
-    <div className="catalog-browse">
-      <div className="catalog-toolbar panel glass">
-        <div className="catalog-toolbar__copy">
-          <p className="products-eyebrow">Zoho Inventory</p>
-          <h2>{title}</h2>
-          {subtitle && <p className="text-muted text-sm">{subtitle}</p>}
-        </div>
-        {headerExtra}
-      </div>
-
-      <div className="catalog-filters panel glass">
-        <div className="catalog-search">
-          <Search size={16} />
-          <input
-            type="search"
-            placeholder="Search products…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-
-        <select
-          title="Filter stock status"
-          aria-label="Filter stock status"
-          value={stockFilter}
-          onChange={e => setStockFilter(e.target.value)}
-          className="catalog-select"
-        >
-          <option value="">All Stock Logs</option>
-          <option value="in_stock">In Stock</option>
-          <option value="low_stock">Low Stock</option>
-          <option value="out_of_stock">Out of Stock</option>
-        </select>
-
-        <div className="catalog-view-toggle">
+    <div className={`catalog-browse catalog-browse--${variant}`}>
+      {variant === 'public' ? (
+        <header className="catalog-public-header panel glass">
           <button
             type="button"
-            className={viewMode === 'grid' ? 'active' : ''}
-            onClick={() => setViewMode('grid')}
-            aria-label="Grid view"
+            className="catalog-public-header__title"
+            onClick={resetToCategories}
+            title="Return to categories"
           >
-            <LayoutGrid size={15} />
+            <h1>{title}</h1>
           </button>
-          <button
-            type="button"
-            className={viewMode === 'list' ? 'active' : ''}
-            onClick={() => setViewMode('list')}
-            aria-label="List view"
-          >
-            <List size={15} />
-          </button>
-        </div>
-      </div>
+          <div className="catalog-public-header__filters">
+            <CatalogFilters {...filterProps} />
+          </div>
+        </header>
+      ) : (
+        <>
+          <div className="catalog-toolbar panel glass">
+            <div className="catalog-toolbar__copy">
+              <p className="products-eyebrow">Zoho Inventory</p>
+              <h2>{title}</h2>
+              {subtitle && <p className="text-muted text-sm">{subtitle}</p>}
+            </div>
+            {headerExtra}
+          </div>
+
+          <div className="catalog-filters panel glass">
+            <CatalogFilters {...filterProps} />
+          </div>
+        </>
+      )}
 
       {showCategoryGrid && !showProducts && filteredCategories.length > 0 && (
         <section className="catalog-categories">
@@ -192,15 +248,25 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   {category.thumbnailUrl ? (
                     <img src={category.thumbnailUrl} alt={category.name} loading="lazy" />
                   ) : (
-                    <FolderOpen size={36} />
+                    <FolderOpen size={42} className="catalog-category__icon" />
                   )}
                 </div>
-                <p>{category.name}</p>
-                <span>{category.productCount}</span>
+                <div className="catalog-category__copy">
+                  <p>{category.name}</p>
+                  <span>{category.productCount}</span>
+                </div>
               </button>
             ))}
           </div>
         </section>
+      )}
+
+      {showCategoryGrid && !showProducts && filteredCategories.length === 0 && products.length > 0 && (
+        <div className="catalog-empty panel glass">
+          <FolderOpen size={40} />
+          <p>No categories yet</p>
+          <span className="text-muted text-sm">Use search or stock filters to browse products.</span>
+        </div>
       )}
 
       {showProducts && (
@@ -209,7 +275,11 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
             <span>
               {activeCategory
                 ? `Category: ${activeCategoryName ?? 'Selected'}`
-                : 'Filtered products'}
+                : stockFilter
+                  ? `Stock: ${stockFilter.replace(/_/g, ' ')}`
+                  : search.trim()
+                    ? `Search: "${search.trim()}"`
+                    : 'Filtered products'}
             </span>
             <button type="button" className="btn btn-secondary btn-sm" onClick={clearFilters}>
               Clear filters
@@ -225,6 +295,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
             <div className="catalog-empty panel glass">
               <Package size={40} />
               <p>No products found</p>
+              <span className="text-muted text-sm">Try adjusting your filters or search term.</span>
             </div>
           ) : viewMode === 'grid' ? (
             <div className="catalog-grid">

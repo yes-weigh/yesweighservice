@@ -102,6 +102,33 @@ export async function resolveOrganizationId(accessToken, configuredOrgId) {
   return String(orgs[0].organization_id);
 }
 
+export async function fetchAllItemGroups(accessToken, orgId, page = 1, perPage = 200) {
+  const url = new URL(`${ZOHO_API_BASE}/itemgroups`);
+  url.searchParams.set('organization_id', orgId);
+  url.searchParams.set('page', String(page));
+  url.searchParams.set('per_page', String(perPage));
+
+  const response = await fetch(url, { headers: authHeaders(accessToken, orgId) });
+  const payload = await response.json();
+  if (payload.code !== 0) {
+    throw new Error(payload.message || 'Zoho item groups API error');
+  }
+
+  const groups = (payload.itemgroups ?? []).map(raw => ({
+    id: String(raw.group_id ?? raw.itemgroup_id ?? ''),
+    name: String(raw.group_name ?? raw.name ?? 'Category'),
+    productCount: Number(raw.product_count ?? raw.item_count ?? 0),
+  })).filter(g => g.id);
+
+  const hasMore = Boolean(payload.page_context?.has_more_page);
+  if (hasMore) {
+    const next = await fetchAllItemGroups(accessToken, orgId, page + 1, perPage);
+    return [...groups, ...next];
+  }
+
+  return groups;
+}
+
 export async function fetchAllProducts(accessToken, orgId, page = 1, perPage = 200) {
   const url = new URL(`${ZOHO_API_BASE}/items`);
   url.searchParams.set('organization_id', orgId);

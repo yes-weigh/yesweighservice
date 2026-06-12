@@ -89,6 +89,54 @@ function buildStats(items: CatalogProduct[], categories: CatalogCategory[]): Cat
   };
 }
 
+/** Build categories from product group fields when catalogCategories is empty or stale. */
+function deriveCategoriesFromProducts(
+  products: CatalogProduct[],
+  stored: CatalogCategory[],
+): CatalogCategory[] {
+  const storedMap = new Map(stored.map(cat => [cat.id, cat]));
+  const derived = new Map<string, CatalogCategory>();
+
+  for (const product of products) {
+    if (!product.categoryId) continue;
+    const existing = storedMap.get(product.categoryId) ?? derived.get(product.categoryId);
+    if (!existing) {
+      derived.set(product.categoryId, {
+        id: product.categoryId,
+        name: product.categoryName || 'Category',
+        productCount: 1,
+        displayOrder: storedMap.get(product.categoryId)?.displayOrder ?? 999,
+        thumbnailUrl: storedMap.get(product.categoryId)?.thumbnailUrl ?? null,
+      });
+    } else {
+      existing.productCount += 1;
+      if (product.categoryName) existing.name = product.categoryName;
+    }
+  }
+
+  const merged = new Map<string, CatalogCategory>();
+  for (const cat of stored) {
+    if (cat.id) merged.set(cat.id, { ...cat });
+  }
+  for (const [id, cat] of derived) {
+    const prev = merged.get(id);
+    merged.set(id, {
+      ...cat,
+      productCount: Math.max(cat.productCount, prev?.productCount ?? 0),
+      thumbnailUrl: prev?.thumbnailUrl ?? cat.thumbnailUrl,
+      displayOrder: prev?.displayOrder ?? cat.displayOrder,
+    });
+  }
+
+  return [...merged.values()]
+    .filter(cat => cat.id && cat.productCount > 0)
+    .sort((a, b) => {
+      const orderDiff = a.displayOrder - b.displayOrder;
+      if (orderDiff !== 0) return orderDiff;
+      return a.name.localeCompare(b.name);
+    });
+}
+
 /** Read cached catalog from Firestore (no Cloud Function — avoids callable/CORS issues). */
 export async function fetchCatalog(filters: CatalogFilters = {}): Promise<CatalogResponse> {
   try {
@@ -102,14 +150,11 @@ export async function fetchCatalog(filters: CatalogFilters = {}): Promise<Catalo
       .map(snap => mapProduct(snap.data() as Record<string, unknown>))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    const categories = categoriesSnap.docs
+    const storedCategories = categoriesSnap.docs
       .map(snap => mapCategory(snap.data() as Record<string, unknown>))
-      .filter(cat => cat.id && cat.productCount > 0)
-      .sort((a, b) => {
-        const orderDiff = a.displayOrder - b.displayOrder;
-        if (orderDiff !== 0) return orderDiff;
-        return a.name.localeCompare(b.name);
-      });
+      .filter(cat => cat.id);
+
+    const categories = deriveCategoriesFromProducts(allItems, storedCategories);
 
     const items = filterItems(allItems, filters);
     const meta = metaSnap.exists() ? metaSnap.data() : null;

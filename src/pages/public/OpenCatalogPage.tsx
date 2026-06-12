@@ -54,23 +54,17 @@ export const OpenCatalogPage: React.FC = () => {
 
   return (
     <div className="open-catalog-page">
-      <header className="open-catalog-page__brand panel glass">
-        <div>
-          <p className="products-eyebrow">Yes Weigh</p>
-          <h1>Product Catalog</h1>
-          <p className="text-muted text-sm">
-            Public catalog
-            {catalog?.syncedAt ? ` · Updated ${new Date(catalog.syncedAt).toLocaleString('en-IN')}` : ''}
-          </p>
-        </div>
-      </header>
-
       <CatalogBrowse
+        variant="public"
         products={catalog?.items ?? []}
         categories={catalog?.categories ?? []}
         isLoading={loading}
-        title="Browse products"
-        subtitle="Select a category or search to view live stock and pricing"
+        title="Product Catalog"
+        subtitle={
+          catalog?.syncedAt
+            ? `Updated ${new Date(catalog.syncedAt).toLocaleString('en-IN')}`
+            : undefined
+        }
       />
     </div>
   );
