@@ -50,15 +50,7 @@ jobs:
             echo "FIREBASE_TOKEN=$FIREBASE_TOKEN" >> "$GITHUB_ENV"
           fi
 
-      - name: Deploy hosting and Firestore
-        run: |
-          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-            npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive
-          else
-            npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive --token "$FIREBASE_TOKEN"
-          fi
-
-      - name: Deploy Cloud Functions
+      - name: Prepare functions environment
         env:
           ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
         run: |
@@ -69,20 +61,30 @@ jobs:
 
           printf 'ZOHO_ORGANIZATION_ID=%s\n' "$ZOHO_ORGANIZATION_ID" > functions/.env.yesweigh-service
 
-          set +e
+      - name: Deploy Firebase (hosting, Firestore, Storage, Functions)
+        run: |
+          set -e
+          DEPLOY_TARGETS="hosting,firestore,storage,functions"
+
           if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-            npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive --force
+            npx firebase-tools deploy \
+              --only "$DEPLOY_TARGETS" \
+              --project yesweigh-service \
+              --non-interactive \
+              --force
           else
-            npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive --force --token "$FIREBASE_TOKEN"
+            npx firebase-tools deploy \
+              --only "$DEPLOY_TARGETS" \
+              --project yesweigh-service \
+              --non-interactive \
+              --force \
+              --token "$FIREBASE_TOKEN"
           fi
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "::error::Cloud Functions deploy failed."
-            echo "::error::If the log mentions secretmanager: enable Secret Manager API, add Secret Manager Admin to firebase-adminsdk, and create ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN secrets."
-            echo "::error::If the log mentions environment variables: add GitHub secret ZOHO_ORGANIZATION_ID."
-            echo "::error::If the log mentions eventarc or run.googleapis: enable Eventarc and Cloud Run APIs in GCP (project owner)."
-            echo "::error::If the log mentions cloudbilling: upgrade Firebase to Blaze and link a billing account."
-            echo "::error::If the log mentions artifactregistry: enable Artifact Registry, Cloud Build, and Cloud Functions APIs."
-            echo "::error::See README.md → GitHub Actions (CI) for full setup."
-            exit "$status"
-          fi
+        env:
+          ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
+
+      - name: Post-deploy catalog sync
+        if: env.GOOGLE_APPLICATION_CREDENTIALS != ''
+        env:
+          ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
+        run: node functions/scripts/ci-sync-catalog.mjs

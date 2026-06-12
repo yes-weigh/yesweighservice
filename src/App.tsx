@@ -13,6 +13,7 @@ import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
+import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
 
 const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }) => {
   const { pathname } = useLocation();
@@ -44,6 +45,7 @@ const App: React.FC = () => (
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/oc" element={<OpenCatalogPage />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/admin/*" element={<Navigate to="/super-admin" replace />} />
           <Route path="/director-staff/*" element={<LegacyPathRedirect from="/director-staff" to="/dealer-staff" />} />

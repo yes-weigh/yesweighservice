@@ -69,18 +69,12 @@ Dealer Staff is linked to **Sample Dealer** (`dealer@yesweigh.in`).
 
 ```bash
 npm run build
-firebase deploy --only hosting,firestore:rules
-```
-
-Cloud Functions (Zoho sync) deploy separately:
-
-```bash
-firebase deploy --only functions
+firebase deploy --only hosting,firestore,storage,functions
 ```
 
 ### GitHub Actions (CI)
 
-Pushes to `main` run `.github/workflows/deploy.yml`: build, then deploy hosting + Firestore, then Cloud Functions.
+Pushes to `main` run `.github/workflows/deploy.yml`: build, deploy **hosting + Firestore (rules/indexes) + Storage rules + Cloud Functions**, then sync the product catalog from Zoho into Firestore.
 
 If the **functions** step fails with `Permissions denied enabling …`, a **Google Cloud project owner** must enable these APIs once in [APIs & Services](https://console.cloud.google.com/apis/library?project=yesweigh-service) (the CI service account cannot turn them on):
 
@@ -96,7 +90,7 @@ The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least
 - Firebase Admin (or Firebase Hosting Admin + Cloud Functions Admin)
 - Service Account User (on the default App Engine / compute service account)
 - Cloud Build Editor (for 2nd gen functions)
-- **Secret Manager Admin** (functions read Zoho credentials from Secret Manager)
+- **Secret Manager Admin** (functions + CI post-deploy catalog sync read Zoho credentials)
 
 CI passes `--force` on function deploys so Firebase can set the Artifact Registry cleanup policy non-interactively.
 
