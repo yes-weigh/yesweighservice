@@ -103,6 +103,8 @@ firebase functions:secrets:set ZOHO_CLIENT_SECRET --project yesweigh-service
 firebase functions:secrets:set ZOHO_REFRESH_TOKEN --project yesweigh-service
 ```
 
+Add a GitHub Actions secret **`ZOHO_ORGANIZATION_ID`** (Zoho Inventory → Settings → Organization Profile → Organization ID). CI writes this into `functions/.env.yesweigh-service` before deploying functions.
+
 Hosting and Firestore rules still deploy even if functions fail, because CI runs those steps first.
 
 ## Firebase project

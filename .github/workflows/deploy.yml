@@ -59,7 +59,16 @@ jobs:
           fi
 
       - name: Deploy Cloud Functions
+        env:
+          ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
         run: |
+          if [ -z "$ZOHO_ORGANIZATION_ID" ]; then
+            echo "::error::Add GitHub Actions secret ZOHO_ORGANIZATION_ID (Zoho Inventory → Settings → Organization Profile → Organization ID)."
+            exit 1
+          fi
+
+          printf 'ZOHO_ORGANIZATION_ID=%s\n' "$ZOHO_ORGANIZATION_ID" > functions/.env.yesweigh-service
+
           set +e
           if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
             npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive
@@ -70,6 +79,7 @@ jobs:
           if [ "$status" -ne 0 ]; then
             echo "::error::Cloud Functions deploy failed."
             echo "::error::If the log mentions secretmanager: enable Secret Manager API, add Secret Manager Admin to firebase-adminsdk, and create ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN secrets."
+            echo "::error::If the log mentions environment variables: add GitHub secret ZOHO_ORGANIZATION_ID."
             echo "::error::If the log mentions artifactregistry: enable Artifact Registry, Cloud Build, and Cloud Functions APIs."
             echo "::error::See README.md → GitHub Actions (CI) for full setup."
             exit "$status"

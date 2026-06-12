@@ -9,13 +9,10 @@ const zohoClientId = defineSecret('ZOHO_CLIENT_ID');
 const zohoClientSecret = defineSecret('ZOHO_CLIENT_SECRET');
 const zohoRefreshToken = defineSecret('ZOHO_REFRESH_TOKEN');
 
-const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID', { default: '' });
-const zohoAccountsUrl = defineString('ZOHO_ACCOUNTS_URL', {
-  default: 'https://accounts.zoho.in',
-});
-const zohoApiBase = defineString('ZOHO_API_BASE', {
-  default: 'https://www.zohoapis.in/inventory/v1',
-});
+const ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.in';
+const ZOHO_API_BASE = 'https://www.zohoapis.in/inventory/v1';
+
+const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 
@@ -47,7 +44,7 @@ async function getAccessToken(secrets) {
     grant_type: 'refresh_token',
   });
 
-  const response = await fetch(`${zohoAccountsUrl.value()}/oauth/v2/token`, {
+  const response = await fetch(`${ZOHO_ACCOUNTS_URL}/oauth/v2/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
@@ -71,7 +68,7 @@ async function getAccessToken(secrets) {
 }
 
 async function zohoGet(path, accessToken, orgId, page = 1) {
-  const url = new URL(`${zohoApiBase.value()}${path}`);
+  const url = new URL(`${ZOHO_API_BASE}${path}`);
   if (orgId) url.searchParams.set('organization_id', orgId);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', '200');
@@ -92,7 +89,7 @@ async function zohoGet(path, accessToken, orgId, page = 1) {
 }
 
 async function fetchOrganizations(accessToken) {
-  const url = new URL(`${zohoApiBase.value()}/organizations`);
+  const url = new URL(`${ZOHO_API_BASE}/organizations`);
   const response = await fetch(url, {
     headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
   });
