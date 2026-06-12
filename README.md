@@ -98,6 +98,8 @@ The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least
 - Cloud Build Editor (for 2nd gen functions)
 - **Secret Manager Admin** (functions read Zoho credentials from Secret Manager)
 
+CI passes `--force` on function deploys so Firebase can set the Artifact Registry cleanup policy non-interactively.
+
 Then create the function secrets once (from a machine with Firebase CLI logged in):
 
 ```bash

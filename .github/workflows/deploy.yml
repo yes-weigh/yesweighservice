@@ -71,9 +71,9 @@ jobs:
 
           set +e
           if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-            npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive
+            npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive --force
           else
-            npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive --token "$FIREBASE_TOKEN"
+            npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive --force --token "$FIREBASE_TOKEN"
           fi
           status=$?
           if [ "$status" -ne 0 ]; then
