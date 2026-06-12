@@ -74,7 +74,7 @@ firebase deploy --only hosting,firestore,storage,functions
 
 ### GitHub Actions (CI)
 
-Pushes to `main` run `.github/workflows/deploy.yml`: build, deploy **hosting + Firestore (rules/indexes) + Storage rules + Cloud Functions**, then sync the product catalog from Zoho into Firestore.
+Pushes to `main` run `.github/workflows/deploy.yml`: build, deploy **hosting + Firestore (rules/indexes) + Storage rules + Cloud Functions**, then sync the product catalog from Zoho into Firestore. Staff can also run **Sync from Zoho** on the Products page between deploys.
 
 If the **functions** step fails with `Permissions denied enabling …`, a **Google Cloud project owner** must enable these APIs once in [APIs & Services](https://console.cloud.google.com/apis/library?project=yesweigh-service) (the CI service account cannot turn them on):
 

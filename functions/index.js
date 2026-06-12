@@ -1,7 +1,6 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import {
   getAccessToken,
@@ -153,21 +152,6 @@ export const syncZohoCatalog = onCall(
     );
 
     return result;
-  },
-);
-
-/** Scheduled sync — Mon–Sat, hourly 9 AM–6 PM IST. */
-export const syncZohoCatalogScheduled = onSchedule(
-  {
-    schedule: '0 9-18 * * 1-6',
-    timeZone: 'Asia/Kolkata',
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 540,
-    memory: '512MiB',
-  },
-  async () => {
-    await syncCatalogToFirestore(zohoSecrets(), zohoOrganizationId.value());
   },
 );
 
