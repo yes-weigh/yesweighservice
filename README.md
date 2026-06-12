@@ -72,6 +72,30 @@ npm run build
 firebase deploy --only hosting,firestore:rules
 ```
 
+Cloud Functions (Zoho sync) deploy separately:
+
+```bash
+firebase deploy --only functions
+```
+
+### GitHub Actions (CI)
+
+Pushes to `main` run `.github/workflows/deploy.yml`: build, then deploy hosting + Firestore, then Cloud Functions.
+
+If the **functions** step fails with `Permissions denied enabling artifactregistry.googleapis.com`, a **Google Cloud project owner** must enable these APIs once in [APIs & Services](https://console.cloud.google.com/apis/library?project=yesweigh-service):
+
+- [Artifact Registry API](https://console.cloud.google.com/apis/library/artifactregistry.googleapis.com?project=yesweigh-service)
+- [Cloud Build API](https://console.cloud.google.com/apis/library/cloudbuild.googleapis.com?project=yesweigh-service)
+- [Cloud Functions API](https://console.cloud.google.com/apis/library/cloudfunctions.googleapis.com?project=yesweigh-service)
+
+The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least:
+
+- Firebase Admin (or Firebase Hosting Admin + Cloud Functions Admin)
+- Service Account User (on the default App Engine / compute service account)
+- Cloud Build Editor (for 2nd gen functions)
+
+Hosting and Firestore rules still deploy even if functions fail, because CI runs those steps first.
+
 ## Firebase project
 
 - Project: `yesweigh-service`

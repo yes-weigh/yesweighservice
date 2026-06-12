@@ -31,7 +31,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy to Firebase
+      - name: Configure Firebase credentials
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
@@ -45,8 +45,31 @@ jobs:
 
           if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
             echo "$FIREBASE_SERVICE_ACCOUNT" > "${RUNNER_TEMP}/firebase-sa.json"
-            export GOOGLE_APPLICATION_CREDENTIALS="${RUNNER_TEMP}/firebase-sa.json"
-            npx firebase-tools deploy --only hosting,firestore:rules,functions --project yesweigh-service --non-interactive
+            echo "GOOGLE_APPLICATION_CREDENTIALS=${RUNNER_TEMP}/firebase-sa.json" >> "$GITHUB_ENV"
           else
-            npx firebase-tools deploy --only hosting,firestore:rules,functions --project yesweigh-service --non-interactive --token "$FIREBASE_TOKEN"
+            echo "FIREBASE_TOKEN=$FIREBASE_TOKEN" >> "$GITHUB_ENV"
+          fi
+
+      - name: Deploy hosting and Firestore
+        run: |
+          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+            npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive
+          else
+            npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive --token "$FIREBASE_TOKEN"
+          fi
+
+      - name: Deploy Cloud Functions
+        run: |
+          set +e
+          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+            npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive
+          else
+            npx firebase-tools deploy --only functions --project yesweigh-service --non-interactive --token "$FIREBASE_TOKEN"
+          fi
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Cloud Functions deploy failed. A project owner must enable Artifact Registry, Cloud Build, and Cloud Functions APIs:"
+            echo "::error::https://console.cloud.google.com/apis/library?project=yesweigh-service"
+            echo "::error::See README.md → GitHub Actions (CI) for required service-account roles."
+            exit "$status"
           fi
