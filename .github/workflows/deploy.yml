@@ -68,8 +68,9 @@ jobs:
           fi
           status=$?
           if [ "$status" -ne 0 ]; then
-            echo "::error::Cloud Functions deploy failed. A project owner must enable Artifact Registry, Cloud Build, and Cloud Functions APIs:"
-            echo "::error::https://console.cloud.google.com/apis/library?project=yesweigh-service"
-            echo "::error::See README.md → GitHub Actions (CI) for required service-account roles."
+            echo "::error::Cloud Functions deploy failed."
+            echo "::error::If the log mentions secretmanager: enable Secret Manager API, add Secret Manager Admin to firebase-adminsdk, and create ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN secrets."
+            echo "::error::If the log mentions artifactregistry: enable Artifact Registry, Cloud Build, and Cloud Functions APIs."
+            echo "::error::See README.md → GitHub Actions (CI) for full setup."
             exit "$status"
           fi

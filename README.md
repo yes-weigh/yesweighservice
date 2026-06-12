@@ -93,6 +93,15 @@ The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least
 - Firebase Admin (or Firebase Hosting Admin + Cloud Functions Admin)
 - Service Account User (on the default App Engine / compute service account)
 - Cloud Build Editor (for 2nd gen functions)
+- **Secret Manager Admin** (functions read Zoho credentials from Secret Manager)
+
+Enable [Secret Manager API](https://console.cloud.google.com/apis/library/secretmanager.googleapis.com?project=yesweigh-service), then create the function secrets once (from a machine with Firebase CLI logged in):
+
+```bash
+firebase functions:secrets:set ZOHO_CLIENT_ID --project yesweigh-service
+firebase functions:secrets:set ZOHO_CLIENT_SECRET --project yesweigh-service
+firebase functions:secrets:set ZOHO_REFRESH_TOKEN --project yesweigh-service
+```
 
 Hosting and Firestore rules still deploy even if functions fail, because CI runs those steps first.
 
