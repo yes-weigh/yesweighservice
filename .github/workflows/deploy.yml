@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install functions dependencies
+        run: npm ci --prefix functions
+
       - name: Build
         run: npm run build
 
@@ -43,7 +46,7 @@ jobs:
           if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
             echo "$FIREBASE_SERVICE_ACCOUNT" > "${RUNNER_TEMP}/firebase-sa.json"
             export GOOGLE_APPLICATION_CREDENTIALS="${RUNNER_TEMP}/firebase-sa.json"
-            npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive
+            npx firebase-tools deploy --only hosting,firestore:rules,functions --project yesweigh-service --non-interactive
           else
-            npx firebase-tools deploy --only hosting,firestore:rules --project yesweigh-service --non-interactive --token "$FIREBASE_TOKEN"
+            npx firebase-tools deploy --only hosting,firestore:rules,functions --project yesweigh-service --non-interactive --token "$FIREBASE_TOKEN"
           fi

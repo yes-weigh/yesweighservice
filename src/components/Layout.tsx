@@ -1,27 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { homePathForRole, ROLE_LABELS } from '../types';
+import { homePathForRole } from '../types';
 import {
   LayoutDashboard,
   Package,
+  Boxes,
   ShieldCheck,
   GraduationCap,
-  ClipboardCheck,
   Bell,
   Bot,
   Wrench,
   Megaphone,
   MessageSquareWarning,
   FileText,
-  CreditCard,
   UserCircle,
   Users,
   UserCog,
   Building2,
   Menu,
   X,
-  LogOut,
 } from 'lucide-react';
 import { Logo } from './Logo';
 
@@ -32,7 +30,7 @@ type NavItem = {
 };
 
 export const Layout: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -66,36 +64,29 @@ export const Layout: React.FC = () => {
           { path: '/staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
-          { path: '/staff/profile', icon: <UserCircle size={20} />, label: 'My Profile' },
         ];
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/dealer/services', icon: <Wrench size={20} />, label: 'Services' },
-          { path: '/dealer/complaints', icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
-          { path: '/dealer/invoices', icon: <FileText size={20} />, label: 'Invoices' },
-          { path: '/dealer/payments', icon: <CreditCard size={20} />, label: 'Payments' },
           { path: '/dealer/products', icon: <Package size={20} />, label: 'Products' },
+          { path: '/dealer/spares', icon: <Boxes size={20} />, label: 'Spares' },
+          { path: '/dealer/complaints', icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
+          { path: '/dealer/services', icon: <Wrench size={20} />, label: 'Services' },
           {
             path: '/dealer/verification',
             icon: <ShieldCheck size={20} />,
-            label: 'Verification',
+            label: 'Verifications',
           },
           {
             path: '/dealer/advertisements',
             icon: <Megaphone size={20} />,
-            label: 'Advertisements',
+            label: 'Advertisement',
           },
-          { path: '/dealer/training', icon: <GraduationCap size={20} />, label: 'Training' },
-          {
-            path: '/dealer/quality',
-            icon: <ClipboardCheck size={20} />,
-            label: 'QMS',
-          },
+          { path: '/dealer/invoices', icon: <FileText size={20} />, label: 'Invoice' },
+          { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
+          { path: '/dealer/ai-assistant', icon: <Bot size={20} />, label: 'AI assistance' },
           { path: '/dealer/notifications', icon: <Bell size={20} />, label: 'Notifications' },
-          { path: '/dealer/team', icon: <Users size={20} />, label: 'Dealer Staff' },
-          { path: '/dealer/ai-assistant', icon: <Bot size={20} />, label: 'AI Assistent' },
-          { path: '/dealer/profile', icon: <UserCircle size={20} />, label: 'My Profile' },
+          { path: '/dealer/training', icon: <GraduationCap size={20} />, label: 'Trainings' },
         ];
       case 'dealer_staff':
         return [
@@ -113,13 +104,7 @@ export const Layout: React.FC = () => {
             label: 'Advertisements',
           },
           { path: '/dealer-staff/training', icon: <GraduationCap size={20} />, label: 'Training' },
-          {
-            path: '/dealer-staff/quality',
-            icon: <ClipboardCheck size={20} />,
-            label: 'QMS',
-          },
           { path: '/dealer-staff/notifications', icon: <Bell size={20} />, label: 'Notifications' },
-          { path: '/dealer-staff/profile', icon: <UserCircle size={20} />, label: 'My Profile' },
         ];
       default:
         return [];
@@ -128,6 +113,7 @@ export const Layout: React.FC = () => {
 
   const navItems = getNavItems();
   const home = homePathForRole(user.role);
+  const profilePath = user.role === 'super_admin' ? null : `${home}/profile`;
 
   const currentNavItem = navItems.find(item => {
     if (location.pathname === item.path) return true;
@@ -135,12 +121,8 @@ export const Layout: React.FC = () => {
     return location.pathname.startsWith(`${item.path}/`);
   });
 
-  const pageTitle = currentNavItem?.label ?? 'Dashboard';
-
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login', { replace: true });
-  };
+  const isProfileActive = profilePath !== null && location.pathname === profilePath;
+  const pageTitle = isProfileActive ? 'Profile' : (currentNavItem?.label ?? 'Dashboard');
 
   const handleNavClick = (path: string) => {
     if (location.pathname === path) {
@@ -170,6 +152,7 @@ export const Layout: React.FC = () => {
       <aside
         className={[
           'sidebar',
+          isMobile ? 'sidebar--mobile' : '',
           collapsed && !isMobile ? 'collapsed' : '',
           isMobile && mobileOpen ? 'mobile-open' : '',
         ]
@@ -178,7 +161,7 @@ export const Layout: React.FC = () => {
       >
         <div className="sidebar-header">
           <div className="logo-area">
-            <Logo size={collapsed ? 'sm' : 'md'} showText={!collapsed} />
+            <Logo size={collapsed || isMobile ? 'sm' : 'md'} showText={!collapsed} />
           </div>
           {!isMobile && (
             <button
@@ -205,19 +188,6 @@ export const Layout: React.FC = () => {
             </button>
           ))}
         </nav>
-
-        <div className="sidebar-footer">
-          {!collapsed && (
-            <div className="sidebar-user">
-              <strong>{user.displayName}</strong>
-              <span className="text-muted text-sm">{user.email}</span>
-            </div>
-          )}
-          <button type="button" className="logout-btn w-full" onClick={handleLogout}>
-            <LogOut size={16} />
-            {!collapsed && 'Sign out'}
-          </button>
-        </div>
       </aside>
 
       <main className={`main-content ${collapsed && !isMobile ? 'expanded' : ''}`}>
@@ -233,9 +203,17 @@ export const Layout: React.FC = () => {
             </button>
           )}
           <h1 className="page-title">{pageTitle}</h1>
-          <div className="user-chip">
-            <span className="role-badge">{ROLE_LABELS[user.role]}</span>
-          </div>
+          {profilePath && (
+            <button
+              type="button"
+              className={`profile-btn ${isProfileActive ? 'active' : ''}`}
+              onClick={() => handleNavClick(profilePath)}
+              aria-label="Open profile"
+              title="Profile"
+            >
+              <UserCircle size={22} />
+            </button>
+          )}
         </header>
 
         <div className="content-area">

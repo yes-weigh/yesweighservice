@@ -26,12 +26,11 @@ const dealerRoutes = (
     <Route path="services" element={<DealerMenuPages.Services />} />
     <Route path="complaints" element={<DealerMenuPages.Complaints />} />
     <Route path="invoices" element={<DealerMenuPages.Invoices />} />
-    <Route path="payments" element={<DealerMenuPages.Payments />} />
     <Route path="products" element={<DealerMenuPages.Products />} />
+    <Route path="spares" element={<DealerMenuPages.Spares />} />
     <Route path="verification" element={<DealerMenuPages.Verification />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
     <Route path="training" element={<DealerMenuPages.Training />} />
-    <Route path="quality" element={<DealerMenuPages.Quality />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
     <Route path="team" element={<DealerTeamPage />} />
     <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
@@ -86,7 +85,6 @@ const App: React.FC = () => (
               <Route path="verification" element={<DealerMenuPages.Verification />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
               <Route path="training" element={<DealerMenuPages.Training />} />
-              <Route path="quality" element={<DealerMenuPages.Quality />} />
               <Route path="notifications" element={<DealerMenuPages.Notifications />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>

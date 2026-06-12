@@ -1,6 +1,7 @@
 import React from 'react';
 import { PagePlaceholder } from '../../components/PagePlaceholder';
 import { useAuth } from '../../context/AuthContext';
+import { ProductsPage } from './ProductsPage';
 
 export const RoleDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -32,44 +33,33 @@ export const DealerMenuPages = {
   ),
   Invoices: () => (
     <PagePlaceholder
-      title="Invoices"
+      title="Invoice"
       description="Create, send, and manage customer invoices and billing records."
     />
   ),
-  Payments: () => (
+  Products: ProductsPage,
+  Spares: () => (
     <PagePlaceholder
-      title="Payments"
-      description="Record payments, track outstanding balances, and reconcile transactions."
-    />
-  ),
-  Products: () => (
-    <PagePlaceholder
-      title="Products"
-      description="Manage weighing products, models, and service catalogues for your dealership."
+      title="Spares"
+      description="Manage spare parts inventory, stock levels, and parts catalogues."
     />
   ),
   Verification: () => (
     <PagePlaceholder
-      title="Verification & Stamping"
+      title="Verifications"
       description="Track verification workflows, stamping records, and compliance checkpoints."
     />
   ),
   Advertisements: () => (
     <PagePlaceholder
-      title="Advertisements"
+      title="Advertisement"
       description="Create and manage promotional content and dealership advertisements."
     />
   ),
   Training: () => (
     <PagePlaceholder
-      title="Training"
+      title="Trainings"
       description="Assign and monitor staff training modules and certification progress."
-    />
-  ),
-  Quality: () => (
-    <PagePlaceholder
-      title="Quality Management"
-      description="ISO-aligned quality checks, audits, and corrective actions."
     />
   ),
   Notifications: () => (
@@ -80,7 +70,7 @@ export const DealerMenuPages = {
   ),
   AiAssistant: () => (
     <PagePlaceholder
-      title="AI Assistent"
+      title="AI assistance"
       description="Your YesWeigh AI assistant for service guidance, documentation lookup, and operational support."
     />
   ),

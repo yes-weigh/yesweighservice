@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
+import { LogOut } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import type { FirestoreUserDoc } from '../../types';
 import { ROLE_LABELS, normalizeRole, readDealerId } from '../../types';
 
 export const ProfilePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<FirestoreUserDoc | null>(null);
 
   useEffect(() => {
@@ -15,6 +18,11 @@ export const ProfilePage: React.FC = () => {
       if (snap.exists()) setProfile(snap.data() as FirestoreUserDoc);
     });
   }, [user]);
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
 
   if (!user || !profile) {
     return (
@@ -27,7 +35,7 @@ export const ProfilePage: React.FC = () => {
   return (
     <div className="page-content fade-in">
       <div className="panel glass max-w-4xl">
-        <h2>My Profile</h2>
+        <h2>Profile</h2>
         <div className="config-box mt-4">
           <p><span className="text-muted">Name:</span> <span className="highlight">{profile.displayName}</span></p>
           <p><span className="text-muted">Email:</span> {profile.email}</p>
@@ -36,6 +44,13 @@ export const ProfilePage: React.FC = () => {
           {readDealerId(profile) && (
             <p><span className="text-muted">Dealer ID:</span> {readDealerId(profile)}</p>
           )}
+        </div>
+
+        <div className="profile-actions mt-4">
+          <button type="button" className="logout-btn" onClick={handleLogout}>
+            <LogOut size={16} />
+            Sign out
+          </button>
         </div>
       </div>
     </div>
