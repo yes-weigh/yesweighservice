@@ -129,6 +129,35 @@ export async function fetchAllItemGroups(accessToken, orgId, page = 1, perPage =
   return groups;
 }
 
+export async function fetchItemsByGroup(accessToken, orgId, groupId, page = 1, perPage = 200) {
+  const url = new URL(`${ZOHO_API_BASE}/items`);
+  url.searchParams.set('organization_id', orgId);
+  url.searchParams.set('group_id', groupId);
+  url.searchParams.set('page', String(page));
+  url.searchParams.set('per_page', String(perPage));
+  url.searchParams.set('sort_column', 'item_name');
+  url.searchParams.set('sort_order', 'A');
+
+  const response = await fetch(url, { headers: authHeaders(accessToken, orgId) });
+  const payload = await response.json();
+  if (payload.code !== 0) {
+    throw new Error(payload.message || `Zoho items API error for group ${groupId}`);
+  }
+
+  const items = (payload.items ?? []).map(raw => ({
+    id: String(raw.item_id ?? ''),
+    status: String(raw.status ?? 'active'),
+  })).filter(item => item.id);
+
+  const hasMore = Boolean(payload.page_context?.has_more_page);
+  if (hasMore) {
+    const next = await fetchItemsByGroup(accessToken, orgId, groupId, page + 1, perPage);
+    return [...items, ...next];
+  }
+
+  return items;
+}
+
 export async function fetchAllProducts(accessToken, orgId, page = 1, perPage = 200) {
   const url = new URL(`${ZOHO_API_BASE}/items`);
   url.searchParams.set('organization_id', orgId);

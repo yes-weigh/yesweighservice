@@ -18,6 +18,7 @@ export interface CatalogBrowseProps {
   title?: string;
   subtitle?: string;
   showCategoryGrid?: boolean;
+  showToolbar?: boolean;
   headerExtra?: React.ReactNode;
   /** Public /oc layout — compact header, filters inline with title */
   variant?: 'dealer' | 'public';
@@ -142,6 +143,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   title = 'Product catalog',
   subtitle,
   showCategoryGrid = true,
+  showToolbar = true,
   headerExtra,
   variant = 'dealer',
   onReset,
@@ -213,7 +215,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
             <CatalogFilters {...filterProps} />
           </div>
         </header>
-      ) : (
+      ) : showToolbar ? (
         <>
           <div className="catalog-toolbar panel glass">
             <div className="catalog-toolbar__copy">
@@ -228,6 +230,10 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
             <CatalogFilters {...filterProps} />
           </div>
         </>
+      ) : (
+        <div className="catalog-filters panel glass">
+          <CatalogFilters {...filterProps} />
+        </div>
       )}
 
       {showCategoryGrid && !showProducts && filteredCategories.length > 0 && (

@@ -3,6 +3,7 @@ import { getStorage } from 'firebase-admin/storage';
 import {
   fetchAllItemGroups,
   fetchAllProducts,
+  fetchItemsByGroup,
   getAccessToken,
   resolveOrganizationId,
   downloadProductImage,
@@ -34,6 +35,35 @@ async function cacheProductImage(accessToken, orgId, productId, existingImageUrl
   await file.makePublic();
 
   return publicStorageUrl(bucket.name, storagePath);
+}
+
+async function buildGroupMembership(accessToken, orgId, itemGroups) {
+  const membership = new Map();
+
+  for (const group of itemGroups ?? []) {
+    if (!group.id) continue;
+    try {
+      const items = await fetchItemsByGroup(accessToken, orgId, group.id);
+      for (const item of items) {
+        if (item.status !== 'active') continue;
+        membership.set(item.id, {
+          categoryId: group.id,
+          categoryName: group.name,
+        });
+      }
+    } catch (err) {
+      console.warn(`Group item fetch failed for ${group.id}:`, err?.message ?? err);
+    }
+  }
+
+  return membership;
+}
+
+function enrichProductGroups(product, membership) {
+  const assigned = membership.get(product.id);
+  const categoryId = product.categoryId || assigned?.categoryId || null;
+  const categoryName = product.categoryName || assigned?.categoryName || null;
+  return { ...product, categoryId, categoryName };
 }
 
 function buildCategoryMap(products, itemGroups, existingCategories) {
@@ -88,6 +118,9 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId) {
     fetchAllItemGroups(accessToken, organizationId).catch(() => []),
   ]);
 
+  const groupMembership = await buildGroupMembership(accessToken, organizationId, itemGroups);
+  const enrichedProducts = products.map(product => enrichProductGroups(product, groupMembership));
+
   const existingSnap = await db.collection(PRODUCTS_COLLECTION).get();
   const existingMap = new Map(existingSnap.docs.map(doc => [doc.id, doc.data()]));
 
@@ -110,7 +143,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId) {
     batchCount = 0;
   }
 
-  for (const product of products) {
+  for (const product of enrichedProducts) {
     syncedIds.add(product.id);
     const existing = existingMap.get(product.id);
     let imageUrl = existing?.imageUrl ?? null;
@@ -165,7 +198,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId) {
     await deleteBatch.commit();
   }
 
-  const categories = buildCategoryMap(products, itemGroups, existingCategories);
+  const categories = buildCategoryMap(enrichedProducts, itemGroups, existingCategories);
   const categoryBatch = db.batch();
   const categoryIds = new Set(categories.map(c => c.id));
 
@@ -184,7 +217,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId) {
 
   await categoryBatch.commit();
 
-  const activeProducts = products.filter(p => p.status === 'active');
+  const activeProducts = enrichedProducts.filter(p => p.status === 'active');
   await db.doc(META_DOC).set({
     lastSyncAt: now,
     productCount: products.length,
