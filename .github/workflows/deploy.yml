@@ -80,6 +80,7 @@ jobs:
             echo "::error::Cloud Functions deploy failed."
             echo "::error::If the log mentions secretmanager: enable Secret Manager API, add Secret Manager Admin to firebase-adminsdk, and create ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN secrets."
             echo "::error::If the log mentions environment variables: add GitHub secret ZOHO_ORGANIZATION_ID."
+            echo "::error::If the log mentions eventarc or run.googleapis: enable Eventarc and Cloud Run APIs in GCP (project owner)."
             echo "::error::If the log mentions artifactregistry: enable Artifact Registry, Cloud Build, and Cloud Functions APIs."
             echo "::error::See README.md → GitHub Actions (CI) for full setup."
             exit "$status"

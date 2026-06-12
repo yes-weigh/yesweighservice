@@ -82,11 +82,14 @@ firebase deploy --only functions
 
 Pushes to `main` run `.github/workflows/deploy.yml`: build, then deploy hosting + Firestore, then Cloud Functions.
 
-If the **functions** step fails with `Permissions denied enabling artifactregistry.googleapis.com`, a **Google Cloud project owner** must enable these APIs once in [APIs & Services](https://console.cloud.google.com/apis/library?project=yesweigh-service):
+If the **functions** step fails with `Permissions denied enabling …`, a **Google Cloud project owner** must enable these APIs once in [APIs & Services](https://console.cloud.google.com/apis/library?project=yesweigh-service) (the CI service account cannot turn them on):
 
 - [Artifact Registry API](https://console.cloud.google.com/apis/library/artifactregistry.googleapis.com?project=yesweigh-service)
 - [Cloud Build API](https://console.cloud.google.com/apis/library/cloudbuild.googleapis.com?project=yesweigh-service)
 - [Cloud Functions API](https://console.cloud.google.com/apis/library/cloudfunctions.googleapis.com?project=yesweigh-service)
+- [Cloud Run Admin API](https://console.cloud.google.com/apis/library/run.googleapis.com?project=yesweigh-service) (`run.googleapis.com`)
+- [Eventarc API](https://console.cloud.google.com/apis/library/eventarc.googleapis.com?project=yesweigh-service)
+- [Secret Manager API](https://console.cloud.google.com/apis/library/secretmanager.googleapis.com?project=yesweigh-service)
 
 The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least:
 
@@ -95,7 +98,7 @@ The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least
 - Cloud Build Editor (for 2nd gen functions)
 - **Secret Manager Admin** (functions read Zoho credentials from Secret Manager)
 
-Enable [Secret Manager API](https://console.cloud.google.com/apis/library/secretmanager.googleapis.com?project=yesweigh-service), then create the function secrets once (from a machine with Firebase CLI logged in):
+Then create the function secrets once (from a machine with Firebase CLI logged in):
 
 ```bash
 firebase functions:secrets:set ZOHO_CLIENT_ID --project yesweigh-service
