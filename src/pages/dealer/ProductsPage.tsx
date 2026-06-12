@@ -115,6 +115,16 @@ export const ProductsPage: React.FC = () => {
         </div>
       </div>
 
+      {!catalog?.syncedAt && (catalog?.items.length ?? 0) === 0 && (
+        <div className="products-inline-error panel glass mb-4">
+          <AlertCircle size={18} />
+          <span>
+            Catalog not synced yet.
+            {canSync ? ' Use Sync from Zoho to load products.' : ' Ask staff to run a Zoho sync.'}
+          </span>
+        </div>
+      )}
+
       <CatalogBrowse
         products={catalog?.items ?? []}
         categories={catalog?.categories ?? []}
@@ -123,7 +133,7 @@ export const ProductsPage: React.FC = () => {
         subtitle={
           catalog?.syncedAt
             ? `Synced from Zoho Inventory · ${new Date(catalog.syncedAt).toLocaleString('en-IN')}`
-            : 'Synced from Zoho Inventory'
+            : 'Waiting for first Zoho sync'
         }
         headerExtra={
           <div className="catalog-toolbar__actions">

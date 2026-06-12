@@ -1,28 +1,54 @@
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { FirebaseError } from 'firebase/app';
-import { app } from '../firebase';
 import type { ZohoCatalogResponse } from '../types/zoho';
+import { fetchCatalog } from './catalog';
 
-const functions = getFunctions(app, 'asia-south1');
-
-function callableErrorMessage(error: unknown): string {
-  if (error instanceof FirebaseError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return 'Unable to load products from Zoho Inventory.';
-}
-
+/** @deprecated Use fetchCatalog from ./catalog */
 export async function fetchZohoCatalog(): Promise<ZohoCatalogResponse> {
-  const callable = httpsCallable<undefined, ZohoCatalogResponse>(functions, 'getZohoCatalog');
-  try {
-    const result = await callable();
-    return result.data;
-  } catch (error) {
-    throw new Error(callableErrorMessage(error), { cause: error });
-  }
+  const catalog = await fetchCatalog();
+
+  return {
+    organizationId: '',
+    syncedAt: catalog.syncedAt ?? new Date().toISOString(),
+    stats: {
+      totalItems: catalog.stats.totalProducts,
+      totalGroups: catalog.stats.totalCategories,
+      activeItems: catalog.stats.totalProducts,
+      activeGroups: catalog.stats.totalCategories,
+    },
+    items: catalog.items.map(item => ({
+      id: item.id,
+      name: item.name,
+      sku: item.sku ?? '',
+      rate: item.rate,
+      status: item.status,
+      unit: item.unit,
+      type: '',
+      description: item.description ?? '',
+      groupId: item.categoryId ?? undefined,
+      groupName: item.categoryName ?? undefined,
+    })),
+    itemGroups: catalog.categories.map(cat => ({
+      id: cat.id,
+      name: cat.name,
+      description: '',
+      status: 'active',
+      unit: '',
+      itemCount: cat.productCount,
+      items: catalog.items
+        .filter(p => p.categoryId === cat.id)
+        .map(item => ({
+          id: item.id,
+          name: item.name,
+          sku: item.sku ?? '',
+          rate: item.rate,
+          status: item.status,
+          unit: item.unit,
+          type: '',
+          description: item.description ?? '',
+          groupId: item.categoryId ?? undefined,
+          groupName: item.categoryName ?? undefined,
+        })),
+    })),
+  };
 }
 
 export function formatCurrency(amount: number): string {

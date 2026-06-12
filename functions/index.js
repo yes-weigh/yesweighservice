@@ -185,82 +185,61 @@ export const assignCatalogProductCategory = onCall(
   },
 );
 
-/** @deprecated Use getCatalog — kept for backward compatibility during migration. */
+/** @deprecated Use Firestore catalog read on the client — thin cache proxy for old app bundles. */
 export const getZohoCatalog = onCall(
   {
     region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
+    timeoutSeconds: 60,
     memory: '256MiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid);
 
     const catalog = await readCatalogFromFirestore();
-    if (catalog.items.length > 0) {
-      return {
-        organizationId: catalog.items[0]?.organizationId ?? null,
-        syncedAt: catalog.syncedAt ?? new Date().toISOString(),
-        stats: {
-          totalItems: catalog.stats.totalProducts,
-          totalGroups: catalog.stats.totalCategories,
-          activeItems: catalog.stats.totalProducts,
-          activeGroups: catalog.stats.totalCategories,
-        },
-        items: catalog.items.map(item => ({
-          id: item.id,
-          name: item.name,
-          sku: item.sku ?? '',
-          rate: item.rate,
-          status: item.status,
-          unit: item.unit,
-          type: '',
-          description: item.description ?? '',
-          groupId: item.categoryId ?? undefined,
-          groupName: item.categoryName ?? undefined,
-        })),
-        itemGroups: catalog.categories.map(cat => ({
-          id: cat.id,
-          name: cat.name,
-          description: '',
-          status: 'active',
-          unit: '',
-          itemCount: cat.productCount,
-          items: catalog.items
-            .filter(p => p.categoryId === cat.id)
-            .map(item => ({
-              id: item.id,
-              name: item.name,
-              sku: item.sku ?? '',
-              rate: item.rate,
-              status: item.status,
-              unit: item.unit,
-              type: '',
-              description: item.description ?? '',
-              groupId: item.categoryId ?? undefined,
-              groupName: item.categoryName ?? undefined,
-            })),
-        })),
-      };
-    }
-
-    const secrets = zohoSecrets();
-    const accessToken = await getAccessToken(secrets);
-    const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
-    await syncCatalogToFirestore(secrets, organizationId);
-    const refreshed = await readCatalogFromFirestore();
 
     return {
-      organizationId,
-      syncedAt: refreshed.syncedAt ?? new Date().toISOString(),
+      organizationId: catalog.items[0]?.organizationId ?? null,
+      syncedAt: catalog.syncedAt ?? new Date().toISOString(),
       stats: {
-        totalItems: refreshed.stats.totalProducts,
-        totalGroups: refreshed.stats.totalCategories,
-        activeItems: refreshed.stats.totalProducts,
-        activeGroups: refreshed.stats.totalCategories,
+        totalItems: catalog.stats.totalProducts,
+        totalGroups: catalog.stats.totalCategories,
+        activeItems: catalog.stats.totalProducts,
+        activeGroups: catalog.stats.totalCategories,
       },
-      items: refreshed.items,
-      itemGroups: refreshed.categories,
+      items: catalog.items.map(item => ({
+        id: item.id,
+        name: item.name,
+        sku: item.sku ?? '',
+        rate: item.rate,
+        status: item.status,
+        unit: item.unit,
+        type: '',
+        description: item.description ?? '',
+        groupId: item.categoryId ?? undefined,
+        groupName: item.categoryName ?? undefined,
+      })),
+      itemGroups: catalog.categories.map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        description: '',
+        status: 'active',
+        unit: '',
+        itemCount: cat.productCount,
+        items: catalog.items
+          .filter(p => p.categoryId === cat.id)
+          .map(item => ({
+            id: item.id,
+            name: item.name,
+            sku: item.sku ?? '',
+            rate: item.rate,
+            status: item.status,
+            unit: item.unit,
+            type: '',
+            description: item.description ?? '',
+            groupId: item.categoryId ?? undefined,
+            groupName: item.categoryName ?? undefined,
+          })),
+      })),
     };
   },
 );
