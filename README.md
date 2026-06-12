@@ -84,6 +84,7 @@ If the **functions** step fails with `Permissions denied enabling …`, a **Goog
 - [Cloud Run Admin API](https://console.cloud.google.com/apis/library/run.googleapis.com?project=yesweigh-service) (`run.googleapis.com`)
 - [Eventarc API](https://console.cloud.google.com/apis/library/eventarc.googleapis.com?project=yesweigh-service)
 - [Secret Manager API](https://console.cloud.google.com/apis/library/secretmanager.googleapis.com?project=yesweigh-service)
+- [Firebase Storage API](https://console.cloud.google.com/apis/library/firebasestorage.googleapis.com?project=yesweigh-service) (catalog product images + `storage.rules`)
 
 The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least:
 
@@ -91,8 +92,11 @@ The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least
 - Service Account User (on the default App Engine / compute service account)
 - Cloud Build Editor (for 2nd gen functions)
 - **Secret Manager Admin** (functions + CI post-deploy catalog sync read Zoho credentials)
+- **Storage Admin** (deploy `storage.rules` and cache catalog images)
 
 CI passes `--force` on function deploys so Firebase can set the Artifact Registry cleanup policy non-interactively.
+
+If Storage deploy fails with `firebasestorage.googleapis.com`, a **project owner** must open the Firebase Storage API link above and click **Enable**, then re-run the failed GitHub Actions workflow.
 
 Then create the function secrets once (from a machine with Firebase CLI logged in):
 
@@ -106,7 +110,7 @@ Add a GitHub Actions secret **`ZOHO_ORGANIZATION_ID`** (Zoho Inventory → Setti
 
 Cloud Functions (2nd gen) also require the Firebase project on the **Blaze (pay as you go)** plan with a billing account linked. If deploy fails with `cloudbilling.googleapis.com`, enable [Cloud Billing API](https://console.cloud.google.com/apis/library/cloudbilling.googleapis.com?project=yesweigh-service) and upgrade at [Firebase Usage and billing](https://console.firebase.google.com/project/yesweigh-service/usage/details).
 
-Hosting and Firestore rules still deploy even if functions fail, because CI runs those steps first.
+CI deploys hosting, Firestore, and Functions first; Storage rules deploy in a separate step so a Storage API issue is easier to spot. Re-run the workflow after enabling any missing API.
 
 ## Firebase project
 

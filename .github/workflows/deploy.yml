@@ -61,27 +61,47 @@ jobs:
 
           printf 'ZOHO_ORGANIZATION_ID=%s\n' "$ZOHO_ORGANIZATION_ID" > functions/.env.yesweigh-service
 
-      - name: Deploy Firebase (hosting, Firestore, Storage, Functions)
+      - name: Deploy hosting, Firestore, and Functions
         run: |
           set -e
-          DEPLOY_TARGETS="hosting,firestore,storage,functions"
-
           if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
             npx firebase-tools deploy \
-              --only "$DEPLOY_TARGETS" \
+              --only hosting,firestore,functions \
               --project yesweigh-service \
               --non-interactive \
               --force
           else
             npx firebase-tools deploy \
-              --only "$DEPLOY_TARGETS" \
+              --only hosting,firestore,functions \
               --project yesweigh-service \
               --non-interactive \
               --force \
               --token "$FIREBASE_TOKEN"
           fi
-        env:
-          ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
+
+      - name: Deploy Storage rules
+        run: |
+          set +e
+          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+            npx firebase-tools deploy \
+              --only storage \
+              --project yesweigh-service \
+              --non-interactive
+          else
+            npx firebase-tools deploy \
+              --only storage \
+              --project yesweigh-service \
+              --non-interactive \
+              --token "$FIREBASE_TOKEN"
+          fi
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Storage deploy failed."
+            echo "::error::A Google Cloud project owner must enable Firebase Storage API once (CI cannot enable APIs):"
+            echo "::error::https://console.cloud.google.com/apis/library/firebasestorage.googleapis.com?project=yesweigh-service"
+            echo "::error::Then re-run this workflow. Catalog product images require Storage."
+            exit "$status"
+          fi
 
       - name: Post-deploy catalog sync
         if: env.GOOGLE_APPLICATION_CREDENTIALS != ''
