@@ -74,7 +74,9 @@ firebase deploy --only hosting,firestore,storage,functions
 
 ### GitHub Actions (CI)
 
-Pushes to `main` run `.github/workflows/deploy.yml`: build, deploy **hosting + Firestore (rules/indexes) + Storage rules + Cloud Functions**, then sync the product catalog from Zoho into Firestore. Staff can also run **Sync from Zoho** on the Products page between deploys.
+Pushes to `main` run `.github/workflows/deploy.yml`: build, deploy **hosting + Firestore (rules/indexes) + Storage rules + Cloud Functions**, then sync the product catalog from Zoho into Firestore.
+
+**Automatic catalog sync:** Cloud Scheduler runs `syncZohoCatalogScheduled` every **30 minutes**, **Monday–Saturday**, **09:00–18:00 IST** (last run at 18:00). Staff can still use **Sync from Zoho** on the Products page for an immediate refresh.
 
 If the **functions** step fails with `Permissions denied enabling …`, a **Google Cloud project owner** must enable these APIs once in [APIs & Services](https://console.cloud.google.com/apis/library?project=yesweigh-service) (the CI service account cannot turn them on):
 
@@ -111,6 +113,8 @@ Add a GitHub Actions secret **`ZOHO_ORGANIZATION_ID`** (Zoho Inventory → Setti
 Cloud Functions (2nd gen) also require the Firebase project on the **Blaze (pay as you go)** plan with a billing account linked. If deploy fails with `cloudbilling.googleapis.com`, enable [Cloud Billing API](https://console.cloud.google.com/apis/library/cloudbilling.googleapis.com?project=yesweigh-service) and upgrade at [Firebase Usage and billing](https://console.firebase.google.com/project/yesweigh-service/usage/details).
 
 CI deploys hosting, Firestore, and Functions first; Storage rules deploy in a separate step so a Storage API issue is easier to spot. Re-run the workflow after enabling any missing API.
+
+If function deploy fails with `cloudscheduler.googleapis.com`, a **project owner** must enable [Cloud Scheduler API](https://console.cloud.google.com/apis/library/cloudscheduler.googleapis.com?project=yesweigh-service) once, then redeploy functions.
 
 ## Firebase project
 

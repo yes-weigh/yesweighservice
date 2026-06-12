@@ -1,7 +1,9 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
+import { isCatalogSyncWindow } from './lib/business-hours.js';
 import {
   getAccessToken,
   resolveOrganizationId,
@@ -132,6 +134,33 @@ export const getCatalogProductDetail = onCall(
     }
 
     return detail;
+  },
+);
+
+/** Auto sync — every 30 min, Mon–Sat 09:00–18:00 IST. */
+export const syncZohoCatalogScheduled = onSchedule(
+  {
+    schedule: '*/30 9-18 * * 1-6',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async () => {
+    if (!isCatalogSyncWindow()) {
+      console.log('Skipping scheduled catalog sync — outside business hours (IST).');
+      return;
+    }
+
+    const result = await syncCatalogToFirestore(
+      zohoSecrets(),
+      zohoOrganizationId.value(),
+    );
+
+    console.log(
+      `Scheduled catalog sync: ${result.syncedCount} products, ${result.categoryCount} categories.`,
+    );
   },
 );
 
