@@ -11,6 +11,7 @@ import {
   Bell,
   Bot,
   Wrench,
+  RotateCcw,
   Megaphone,
   MessageSquareWarning,
   FileText,
@@ -74,6 +75,7 @@ export const Layout: React.FC = () => {
           { path: '/dealer/spares', icon: <Boxes size={20} />, label: 'Spares' },
           { path: '/dealer/complaints', icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
           { path: '/dealer/services', icon: <Wrench size={20} />, label: 'Services' },
+          { path: '/dealer/returns', icon: <RotateCcw size={20} />, label: 'Returns' },
           {
             path: '/dealer/verification',
             icon: <ShieldCheck size={20} />,
@@ -94,6 +96,7 @@ export const Layout: React.FC = () => {
         return [
           { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/dealer-staff/service', icon: <Wrench size={20} />, label: 'Service' },
+          { path: '/dealer-staff/returns', icon: <RotateCcw size={20} />, label: 'Returns' },
           { path: '/dealer-staff/products', icon: <Package size={20} />, label: 'Products' },
           {
             path: '/dealer-staff/verification',

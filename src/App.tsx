@@ -25,6 +25,7 @@ const dealerRoutes = (
     <Route index element={<RoleDashboard />} />
     <Route path="service" element={<Navigate to="../services" replace />} />
     <Route path="services" element={<DealerMenuPages.Services />} />
+    <Route path="returns" element={<DealerMenuPages.Returns />} />
     <Route path="complaints" element={<DealerMenuPages.Complaints />} />
     <Route path="invoices" element={<DealerMenuPages.Invoices />} />
     <Route path="products" element={<DealerMenuPages.Products />} />
@@ -86,6 +87,7 @@ const App: React.FC = () => (
             <Route path="/dealer-staff" element={<Layout />}>
               <Route index element={<RoleDashboard />} />
               <Route path="service" element={<DealerMenuPages.Services />} />
+              <Route path="returns" element={<DealerMenuPages.Returns />} />
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="verification" element={<DealerMenuPages.Verification />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />

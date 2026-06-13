@@ -146,6 +146,7 @@ export const ProductsPage: React.FC = () => {
         categories={catalog?.categories ?? []}
         isLoading={loading}
         showToolbar={false}
+        filterMode={canSync ? 'full' : 'minimal'}
         manageCategories={canSync}
         onCategoriesReorder={canSync ? cats => void handleCategoriesReorder(cats) : undefined}
         onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}

@@ -25,6 +25,12 @@ export const DealerMenuPages = {
       description="Manage service jobs, appointments, and customer service requests."
     />
   ),
+  Returns: () => (
+    <PagePlaceholder
+      title="Returns"
+      description="Process product returns, RMA requests, and return-to-vendor workflows."
+    />
+  ),
   Complaints: () => (
     <PagePlaceholder
       title="Complaints"

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  ArrowLeft,
   FolderOpen,
   IndianRupee,
   LayoutGrid,
@@ -12,6 +13,7 @@ import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import { CategoryBrowseCard } from './CategoryBrowseCard';
 import { CategoryBrowseSection } from './CategoryBrowseSection';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
+import { ProductBrowseCard } from './ProductBrowseCard';
 import { ProductDetailModal } from './ProductDetailModal';
 import { ProductImageFrame } from './ProductImageFrame';
 import { StockBadge } from './StockBadge';
@@ -29,6 +31,8 @@ export interface CatalogBrowseProps {
   filterExtra?: React.ReactNode;
   /** Public /oc layout — compact header, filters inline with title */
   variant?: 'dealer' | 'public';
+  /** Dealer catalog — search only, grid view, no stock/admin filters */
+  filterMode?: 'full' | 'minimal';
   onReset?: () => void;
   /** Staff/super_admin — drag reorder + category image upload */
   manageCategories?: boolean;
@@ -38,28 +42,6 @@ export interface CatalogBrowseProps {
     categoryName: string,
     file: File,
   ) => Promise<string | null>;
-}
-
-function ProductCard({ product, onSelect }: { product: CatalogProduct; onSelect: () => void }) {
-  return (
-    <button type="button" className="catalog-card panel glass" onClick={onSelect}>
-      <div className="catalog-card__media">
-        <StockBadge status={product.stockStatus} overlay />
-        <ProductImageFrame src={product.imageUrl} alt={product.name} variant="card" />
-      </div>
-      <div className="catalog-card__body">
-        {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
-        <h3>{product.name}</h3>
-        <div className="catalog-card__price">
-          <span>Price</span>
-          <strong>
-            <IndianRupee size={16} strokeWidth={2.5} />
-            {product.rate.toLocaleString('en-IN')}
-          </strong>
-        </div>
-      </div>
-    </button>
-  );
 }
 
 function ProductListRow({ product, onSelect }: { product: CatalogProduct; onSelect: () => void }) {
@@ -88,6 +70,7 @@ function CatalogFilters({
   setStockFilter,
   viewMode,
   setViewMode,
+  mode,
 }: {
   search: string;
   setSearch: (v: string) => void;
@@ -95,6 +78,7 @@ function CatalogFilters({
   setStockFilter: (v: string) => void;
   viewMode: 'grid' | 'list';
   setViewMode: (v: 'grid' | 'list') => void;
+  mode: 'full' | 'minimal';
 }) {
   return (
     <>
@@ -108,37 +92,41 @@ function CatalogFilters({
         />
       </div>
 
-      <select
-        title="Filter stock status"
-        aria-label="Filter stock status"
-        value={stockFilter}
-        onChange={e => setStockFilter(e.target.value)}
-        className="catalog-select"
-      >
-        <option value="">All Stock Logs</option>
-        <option value="in_stock">In Stock</option>
-        <option value="low_stock">Low Stock</option>
-        <option value="out_of_stock">Out of Stock</option>
-      </select>
+      {mode === 'full' && (
+        <>
+          <select
+            title="Filter stock status"
+            aria-label="Filter stock status"
+            value={stockFilter}
+            onChange={e => setStockFilter(e.target.value)}
+            className="catalog-select"
+          >
+            <option value="">All Stock Logs</option>
+            <option value="in_stock">In Stock</option>
+            <option value="low_stock">Low Stock</option>
+            <option value="out_of_stock">Out of Stock</option>
+          </select>
 
-      <div className="catalog-view-toggle">
-        <button
-          type="button"
-          className={viewMode === 'grid' ? 'active' : ''}
-          onClick={() => setViewMode('grid')}
-          aria-label="Grid view"
-        >
-          <LayoutGrid size={15} />
-        </button>
-        <button
-          type="button"
-          className={viewMode === 'list' ? 'active' : ''}
-          onClick={() => setViewMode('list')}
-          aria-label="List view"
-        >
-          <List size={15} />
-        </button>
-      </div>
+          <div className="catalog-view-toggle">
+            <button
+              type="button"
+              className={viewMode === 'grid' ? 'active' : ''}
+              onClick={() => setViewMode('grid')}
+              aria-label="Grid view"
+            >
+              <LayoutGrid size={15} />
+            </button>
+            <button
+              type="button"
+              className={viewMode === 'list' ? 'active' : ''}
+              onClick={() => setViewMode('list')}
+              aria-label="List view"
+            >
+              <List size={15} />
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 }
@@ -154,6 +142,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   headerExtra,
   filterExtra,
   variant = 'dealer',
+  filterMode = 'full',
   onReset,
   manageCategories = false,
   onCategoriesReorder,
@@ -214,7 +203,35 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     setStockFilter,
     viewMode,
     setViewMode,
+    mode: filterMode,
   };
+
+  const showFilterBar = filterMode === 'full' || filterMode === 'minimal';
+  const showMinimalBack = filterMode === 'minimal' && showProducts;
+
+  const filterBarClass = [
+    'catalog-filters',
+    filterMode === 'minimal' ? 'catalog-filters--minimal catalog-filters--sticky' : 'panel glass',
+    showMinimalBack ? 'catalog-filters--with-back' : '',
+  ].filter(Boolean).join(' ');
+
+  const filterBar = showFilterBar ? (
+    <div className={filterBarClass}>
+      {showMinimalBack && (
+        <button
+          type="button"
+          className="catalog-filters__back-btn"
+          onClick={clearFilters}
+          aria-label="All categories"
+        >
+          <ArrowLeft size={18} aria-hidden />
+          <span>All categories</span>
+        </button>
+      )}
+      <CatalogFilters {...filterProps} />
+      {filterExtra}
+    </div>
+  ) : null;
 
   return (
     <div className={`catalog-browse catalog-browse--${variant}`}>
@@ -244,16 +261,10 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
             {headerExtra}
           </div>
 
-          <div className="catalog-filters panel glass">
-            <CatalogFilters {...filterProps} />
-            {filterExtra}
-          </div>
+          {filterBar}
         </>
       ) : (
-        <div className="catalog-filters panel glass">
-          <CatalogFilters {...filterProps} />
-          {filterExtra}
-        </div>
+        filterBar
       )}
 
       {showCategoryGrid && !showProducts && filteredCategories.length > 0 && manageCategories && onCategoriesReorder && onCategoryThumbnail && (
@@ -266,7 +277,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
       )}
 
       {showCategoryGrid && !showProducts && filteredCategories.length > 0 && !manageCategories && (
-        <CategoryBrowseSection>
+        <CategoryBrowseSection showHeading={filterMode !== 'minimal'}>
           {filteredCategories.map((category, idx) => (
             <CategoryBrowseCard
               key={category.id}
@@ -288,20 +299,22 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
 
       {showProducts && (
         <div className="catalog-results">
-          <div className="catalog-results__bar panel glass">
-            <span>
-              {activeCategory
-                ? `Category: ${activeCategoryName ?? 'Selected'}`
-                : stockFilter
-                  ? `Stock: ${stockFilter.replace(/_/g, ' ')}`
-                  : search.trim()
-                    ? `Search: "${search.trim()}"`
-                    : 'Filtered products'}
-            </span>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={clearFilters}>
-              Clear filters
-            </button>
-          </div>
+          {filterMode === 'full' && (
+            <div className="catalog-results__bar panel glass">
+              <span>
+                {activeCategory
+                  ? `Category: ${activeCategoryName ?? 'Selected'}`
+                  : stockFilter
+                    ? `Stock: ${stockFilter.replace(/_/g, ' ')}`
+                    : search.trim()
+                      ? `Search: "${search.trim()}"`
+                      : 'Filtered products'}
+              </span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={clearFilters}>
+                Clear filters
+              </button>
+            </div>
+          )}
 
           {isLoading ? (
             <div className="catalog-loading panel glass">
@@ -314,12 +327,13 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               <p>No products found</p>
               <span className="text-muted text-sm">Try adjusting your filters or search term.</span>
             </div>
-          ) : viewMode === 'grid' ? (
-            <div className="catalog-grid">
-              {filteredProducts.map(product => (
-                <ProductCard
+          ) : filterMode === 'minimal' || viewMode === 'grid' ? (
+            <div className="catalog-grid catalog-grid--tiles">
+              {filteredProducts.map((product, idx) => (
+                <ProductBrowseCard
                   key={product.id}
                   product={product}
+                  index={idx}
                   onSelect={() => setSelectedProduct(product)}
                 />
               ))}
