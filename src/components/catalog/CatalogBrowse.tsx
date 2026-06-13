@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { isHiddenCatalogCategory } from '../../lib/catalog';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
+import { CategoryBrowseCard } from './CategoryBrowseCard';
+import { CategoryBrowseSection } from './CategoryBrowseSection';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
 import { ProductDetailModal } from './ProductDetailModal';
 import { ProductImageFrame } from './ProductImageFrame';
@@ -100,7 +102,7 @@ function CatalogFilters({
         <Search size={16} />
         <input
           type="search"
-          placeholder="Search products…"
+          placeholder="Search weighing scales, indicators…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -264,34 +266,16 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
       )}
 
       {showCategoryGrid && !showProducts && filteredCategories.length > 0 && !manageCategories && (
-        <section className="catalog-categories">
-          <h3>
-            <FolderOpen size={14} />
-            Browse categories
-          </h3>
-          <div className="catalog-categories__grid">
-            {filteredCategories.map(category => (
-              <button
-                key={category.id}
-                type="button"
-                className="catalog-category panel glass"
-                onClick={() => setActiveCategory(category.id)}
-              >
-                <div className="catalog-category__thumb">
-                  {category.thumbnailUrl ? (
-                    <img src={category.thumbnailUrl} alt={category.name} loading="lazy" />
-                  ) : (
-                    <FolderOpen size={42} className="catalog-category__icon" />
-                  )}
-                </div>
-                <div className="catalog-category__copy">
-                  <p>{category.name}</p>
-                  <span>{category.productCount}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
+        <CategoryBrowseSection>
+          {filteredCategories.map((category, idx) => (
+            <CategoryBrowseCard
+              key={category.id}
+              category={category}
+              index={idx}
+              onClick={() => setActiveCategory(category.id)}
+            />
+          ))}
+        </CategoryBrowseSection>
       )}
 
       {showCategoryGrid && !showProducts && filteredCategories.length === 0 && products.length > 0 && (
