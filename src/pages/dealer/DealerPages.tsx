@@ -1,10 +1,19 @@
 import React from 'react';
 import { PagePlaceholder } from '../../components/PagePlaceholder';
 import { useAuth } from '../../context/AuthContext';
+import { homePathForRole } from '../../types';
+import { DealerDashboard } from './DealerDashboard';
+import { OrdersPage } from './OrdersPage';
 import { ProductsPage } from './ProductsPage';
+import { SparesPage } from './SparesPage';
 
 export const RoleDashboard: React.FC = () => {
   const { user } = useAuth();
+
+  if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
+    return <DealerDashboard basePath={homePathForRole(user.role)} />;
+  }
+
   return (
     <div className="page-content fade-in">
       <div className="panel glass">
@@ -44,12 +53,8 @@ export const DealerMenuPages = {
     />
   ),
   Products: ProductsPage,
-  Spares: () => (
-    <PagePlaceholder
-      title="Spares"
-      description="Manage spare parts inventory, stock levels, and parts catalogues."
-    />
-  ),
+  Orders: OrdersPage,
+  Spares: SparesPage,
   Verification: () => (
     <PagePlaceholder
       title="Verifications"

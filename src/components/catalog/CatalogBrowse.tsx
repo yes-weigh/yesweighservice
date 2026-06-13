@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   FolderOpen,
@@ -14,7 +15,6 @@ import { CategoryBrowseCard } from './CategoryBrowseCard';
 import { CategoryBrowseSection } from './CategoryBrowseSection';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
 import { ProductBrowseCard } from './ProductBrowseCard';
-import { ProductDetailModal } from './ProductDetailModal';
 import { ProductImageFrame } from './ProductImageFrame';
 import { StockBadge } from './StockBadge';
 
@@ -42,6 +42,13 @@ export interface CatalogBrowseProps {
     categoryName: string,
     file: File,
   ) => Promise<string | null>;
+  /** Navigate to product detail page instead of modal */
+  productsBasePath?: string;
+  /** Dealer — show add-to-cart on product tiles */
+  enableCart?: boolean;
+  /** Spares — skip category grid and list all products with search */
+  flatBrowse?: boolean;
+  searchPlaceholder?: string;
 }
 
 function ProductListRow({ product, onSelect }: { product: CatalogProduct; onSelect: () => void }) {
@@ -71,6 +78,7 @@ function CatalogFilters({
   viewMode,
   setViewMode,
   mode,
+  searchPlaceholder = 'Search weighing scales, indicators…',
 }: {
   search: string;
   setSearch: (v: string) => void;
@@ -79,6 +87,7 @@ function CatalogFilters({
   viewMode: 'grid' | 'list';
   setViewMode: (v: 'grid' | 'list') => void;
   mode: 'full' | 'minimal';
+  searchPlaceholder?: string;
 }) {
   return (
     <>
@@ -86,7 +95,7 @@ function CatalogFilters({
         <Search size={16} />
         <input
           type="search"
-          placeholder="Search weighing scales, indicators…"
+          placeholder={searchPlaceholder}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -147,12 +156,23 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   manageCategories = false,
   onCategoriesReorder,
   onCategoryThumbnail,
+  productsBasePath,
+  enableCart = false,
+  flatBrowse = false,
+  searchPlaceholder,
 }) => {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('');
   const [stockFilter, setStockFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null);
+
+  const openProduct = (product: CatalogProduct) => {
+    if (productsBasePath) {
+      navigate(`${productsBasePath}/${product.id}`, { state: { preview: product } });
+      return;
+    }
+  };
 
   const filteredCategories = useMemo(
     () => categories
@@ -184,7 +204,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     return list;
   }, [products, search, activeCategory, stockFilter]);
 
-  const showProducts = Boolean(activeCategory || search.trim() || stockFilter);
+  const showProducts = flatBrowse || Boolean(activeCategory || search.trim() || stockFilter);
   const activeCategoryName = filteredCategories.find(c => c.id === activeCategory)?.name;
 
   const clearFilters = () => {
@@ -204,6 +224,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     viewMode,
     setViewMode,
     mode: filterMode,
+    searchPlaceholder,
   };
 
   const showFilterBar = filterMode === 'full' || filterMode === 'minimal';
@@ -267,7 +288,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
         filterBar
       )}
 
-      {showCategoryGrid && !showProducts && filteredCategories.length > 0 && manageCategories && onCategoriesReorder && onCategoryThumbnail && (
+      {showCategoryGrid && !flatBrowse && !showProducts && filteredCategories.length > 0 && manageCategories && onCategoriesReorder && onCategoryThumbnail && (
         <CategoryFolderGrid
           categories={filteredCategories}
           onCategoryClick={setActiveCategory}
@@ -276,7 +297,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
         />
       )}
 
-      {showCategoryGrid && !showProducts && filteredCategories.length > 0 && !manageCategories && (
+      {showCategoryGrid && !flatBrowse && !showProducts && filteredCategories.length > 0 && !manageCategories && (
         <CategoryBrowseSection showHeading={filterMode !== 'minimal'}>
           {filteredCategories.map((category, idx) => (
             <CategoryBrowseCard
@@ -289,7 +310,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
         </CategoryBrowseSection>
       )}
 
-      {showCategoryGrid && !showProducts && filteredCategories.length === 0 && products.length > 0 && (
+      {showCategoryGrid && !flatBrowse && !showProducts && filteredCategories.length === 0 && products.length > 0 && (
         <div className="catalog-empty panel glass">
           <FolderOpen size={40} />
           <p>No categories yet</p>
@@ -324,8 +345,12 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
           ) : filteredProducts.length === 0 ? (
             <div className="catalog-empty panel glass">
               <Package size={40} />
-              <p>No products found</p>
-              <span className="text-muted text-sm">Try adjusting your filters or search term.</span>
+              <p>{flatBrowse && !search.trim() ? 'No spares in catalog' : 'No products found'}</p>
+              <span className="text-muted text-sm">
+                {flatBrowse && !search.trim()
+                  ? 'Ungrouped Zoho items appear here after catalog sync.'
+                  : 'Try adjusting your filters or search term.'}
+              </span>
             </div>
           ) : filterMode === 'minimal' || viewMode === 'grid' ? (
             <div className="catalog-grid catalog-grid--tiles">
@@ -334,7 +359,8 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   key={product.id}
                   product={product}
                   index={idx}
-                  onSelect={() => setSelectedProduct(product)}
+                  onSelect={() => openProduct(product)}
+                  enableCart={enableCart}
                 />
               ))}
             </div>
@@ -344,19 +370,12 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                 <ProductListRow
                   key={product.id}
                   product={product}
-                  onSelect={() => setSelectedProduct(product)}
+                  onSelect={() => openProduct(product)}
                 />
               ))}
             </div>
           )}
         </div>
-      )}
-
-      {selectedProduct && (
-        <ProductDetailModal
-          product={selectedProduct}
-          onClose={() => setSelectedProduct(null)}
-        />
       )}
     </div>
   );

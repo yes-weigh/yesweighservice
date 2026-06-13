@@ -24,6 +24,29 @@ export function isHiddenCatalogCategory(category: Pick<CatalogCategory, 'name'>)
   return HIDDEN_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
 }
 
+/** Product synced with a Zoho item group (has categoryId). */
+export function hasCatalogCategory(product: Pick<CatalogProduct, 'categoryId'>): boolean {
+  return Boolean(product.categoryId?.trim());
+}
+
+/** Active products assigned to a Zoho item group — shown on Products. */
+export function getCategorizedProducts(products: CatalogProduct[]): CatalogProduct[] {
+  return products.filter(hasCatalogCategory);
+}
+
+/** Zoho ungrouped items (no item group) — shown on Spares. */
+export function getUncategorizedProducts(products: CatalogProduct[]): CatalogProduct[] {
+  return products.filter(p => !hasCatalogCategory(p));
+}
+
+export function getCategoriesForProducts(
+  categories: CatalogCategory[],
+  products: CatalogProduct[],
+): CatalogCategory[] {
+  const ids = new Set(products.map(p => p.categoryId).filter(Boolean) as string[]);
+  return categories.filter(c => ids.has(c.id));
+}
+
 function catalogErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const code = 'code' in err ? String((err as { code: string }).code) : '';

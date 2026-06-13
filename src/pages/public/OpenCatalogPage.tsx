@@ -65,6 +65,7 @@ export const OpenCatalogPage: React.FC = () => {
             ? `Updated ${new Date(catalog.syncedAt).toLocaleString('en-IN')}`
             : undefined
         }
+        productsBasePath="/oc"
       />
     </div>
   );

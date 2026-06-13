@@ -5,15 +5,12 @@ import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { useAuth } from '../../context/AuthContext';
 import {
   fetchCatalog,
-  getCategorizedProducts,
-  getCategoriesForProducts,
-  saveCatalogCategoryOrder,
+  getUncategorizedProducts,
   syncCatalog,
-  uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
-import type { CatalogCategory, CatalogResponse } from '../../types/catalog';
+import type { CatalogResponse } from '../../types/catalog';
 
-export const ProductsPage: React.FC = () => {
+export const SparesPage: React.FC = () => {
   const { pathname } = useLocation();
   const { user } = useAuth();
   const canSync = user?.role === 'staff' || user?.role === 'super_admin';
@@ -30,7 +27,7 @@ export const ProductsPage: React.FC = () => {
       const data = await fetchCatalog();
       setCatalog(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load product catalog.');
+      setError(err instanceof Error ? err.message : 'Unable to load spares catalog.');
     } finally {
       setLoading(false);
     }
@@ -40,65 +37,10 @@ export const ProductsPage: React.FC = () => {
     void loadCatalog();
   }, [loadCatalog]);
 
-  const catalogProducts = useMemo(
-    () => getCategorizedProducts(catalog?.items ?? []),
+  const sparesProducts = useMemo(
+    () => getUncategorizedProducts(catalog?.items ?? []),
     [catalog?.items],
   );
-
-  const catalogCategories = useMemo(
-    () => getCategoriesForProducts(catalog?.categories ?? [], catalogProducts),
-    [catalog?.categories, catalogProducts],
-  );
-
-  const handleCategoriesReorder = async (nextCategories: CatalogCategory[]) => {
-    const orderById = new Map(nextCategories.map((cat, index) => [cat.id, index]));
-    setCatalog(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        categories: prev.categories.map(cat => {
-          const order = orderById.get(cat.id);
-          return order !== undefined ? { ...cat, displayOrder: order } : cat;
-        }),
-      };
-    });
-    try {
-      await saveCatalogCategoryOrder(
-        nextCategories.map((cat, index) => ({
-          id: cat.id,
-          name: cat.name,
-          displayOrder: index,
-        })),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save category order.');
-      await loadCatalog();
-    }
-  };
-
-  const handleCategoryThumbnail = async (
-    categoryId: string,
-    categoryName: string,
-    file: File,
-  ): Promise<string | null> => {
-    setError(null);
-    try {
-      const thumbnailUrl = await uploadCatalogCategoryThumbnail(categoryId, categoryName, file);
-      setCatalog(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          categories: prev.categories.map(cat =>
-            cat.id === categoryId ? { ...cat, thumbnailUrl } : cat,
-          ),
-        };
-      });
-      return thumbnailUrl;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Category image upload failed.');
-      return null;
-    }
-  };
 
   const handleSync = async () => {
     setSyncing(true);
@@ -115,10 +57,10 @@ export const ProductsPage: React.FC = () => {
 
   if (loading && !catalog) {
     return (
-      <div className="page-content fade-in products-page">
+      <div className="page-content fade-in products-page spares-page">
         <div className="catalog-loading panel glass">
           <div className="loader-ring" />
-          <p className="text-muted">Loading product catalog…</p>
+          <p className="text-muted">Loading spares…</p>
         </div>
       </div>
     );
@@ -126,10 +68,10 @@ export const ProductsPage: React.FC = () => {
 
   if (error && !catalog) {
     return (
-      <div className="page-content fade-in products-page">
+      <div className="page-content fade-in products-page spares-page">
         <div className="panel glass products-error">
           <AlertCircle size={40} className="products-error-icon" />
-          <h2>Could not load products</h2>
+          <h2>Could not load spares</h2>
           <p className="text-muted">{error}</p>
           <div className="products-error-actions">
             <button type="button" className="btn btn-primary" onClick={() => void loadCatalog()}>
@@ -147,7 +89,7 @@ export const ProductsPage: React.FC = () => {
   }
 
   return (
-    <div className="page-content fade-in products-page">
+    <div className="page-content fade-in products-page spares-page">
       {error && (
         <div className="products-inline-error panel glass">
           <AlertCircle size={18} />
@@ -156,14 +98,14 @@ export const ProductsPage: React.FC = () => {
       )}
 
       <CatalogBrowse
-        products={catalogProducts}
-        categories={catalogCategories}
+        products={sparesProducts}
+        categories={[]}
         isLoading={loading}
         showToolbar={false}
-        filterMode={canSync ? 'full' : 'minimal'}
-        manageCategories={canSync}
-        onCategoriesReorder={canSync ? cats => void handleCategoriesReorder(cats) : undefined}
-        onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
+        showCategoryGrid={false}
+        flatBrowse
+        filterMode="minimal"
+        searchPlaceholder="Search spare parts, components, accessories…"
         filterExtra={
           canSync ? (
             <button

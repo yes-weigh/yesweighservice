@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/useCart';
+import { useCartFly } from '../context/useCartFly';
 import { homePathForRole } from '../types';
 import {
   LayoutDashboard,
@@ -15,6 +17,7 @@ import {
   Megaphone,
   MessageSquareWarning,
   FileText,
+  ShoppingCart,
   UserCircle,
   Users,
   UserCog,
@@ -28,10 +31,14 @@ type NavItem = {
   path: string;
   icon: React.ReactNode;
   label: string;
+  badge?: number;
 };
 
 export const Layout: React.FC = () => {
   const { user } = useAuth();
+  const { itemCount } = useCart();
+  const { registerCartTarget, cartBump } = useCartFly();
+  const cartBtnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -48,6 +55,17 @@ export const Layout: React.FC = () => {
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
+
+  const showCartFlyTarget = user?.role === 'dealer' || user?.role === 'dealer_staff';
+
+  useEffect(() => {
+    if (showCartFlyTarget) {
+      registerCartTarget(cartBtnRef.current);
+    } else {
+      registerCartTarget(null);
+    }
+    return () => registerCartTarget(null);
+  }, [registerCartTarget, showCartFlyTarget, itemCount]);
 
   if (!user) return null;
 
@@ -72,6 +90,12 @@ export const Layout: React.FC = () => {
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/dealer/products', icon: <Package size={20} />, label: 'Products' },
+          {
+            path: '/dealer/orders',
+            icon: <ShoppingCart size={20} />,
+            label: 'Orders',
+            badge: itemCount > 0 ? itemCount : undefined,
+          },
           { path: '/dealer/spares', icon: <Boxes size={20} />, label: 'Spares' },
           { path: '/dealer/complaints', icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
           { path: '/dealer/services', icon: <Wrench size={20} />, label: 'Services' },
@@ -98,6 +122,12 @@ export const Layout: React.FC = () => {
           { path: '/dealer-staff/service', icon: <Wrench size={20} />, label: 'Service' },
           { path: '/dealer-staff/returns', icon: <RotateCcw size={20} />, label: 'Returns' },
           { path: '/dealer-staff/products', icon: <Package size={20} />, label: 'Products' },
+          {
+            path: '/dealer-staff/orders',
+            icon: <ShoppingCart size={20} />,
+            label: 'Orders',
+            badge: itemCount > 0 ? itemCount : undefined,
+          },
           {
             path: '/dealer-staff/verification',
             icon: <ShieldCheck size={20} />,
@@ -127,7 +157,14 @@ export const Layout: React.FC = () => {
   });
 
   const isProfileActive = profilePath !== null && location.pathname === profilePath;
-  const pageTitle = isProfileActive ? 'Profile' : (currentNavItem?.label ?? 'Dashboard');
+  const isProductDetail = /\/products\/[^/]+$/.test(location.pathname)
+    || /\/spares\/[^/]+$/.test(location.pathname)
+    || /^\/oc\/[^/]+$/.test(location.pathname);
+  const pageTitle = isProfileActive
+    ? 'Profile'
+    : isProductDetail
+      ? 'Product Details'
+      : (currentNavItem?.label ?? 'Dashboard');
 
   const handleNavClick = (path: string) => {
     if (location.pathname === path) {
@@ -188,7 +225,14 @@ export const Layout: React.FC = () => {
               className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
               onClick={() => handleNavClick(item.path)}
             >
-              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-icon">
+                {item.icon}
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="nav-badge" aria-label={`${item.badge} items in cart`}>
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
+                )}
+              </span>
               {!collapsed && <span className="nav-label">{item.label}</span>}
             </button>
           ))}
@@ -196,7 +240,7 @@ export const Layout: React.FC = () => {
       </aside>
 
       <main className={`main-content ${collapsed && !isMobile ? 'expanded' : ''}`}>
-        <header className="top-bar glass">
+        <header className="top-bar">
           {isMobile && (
             <button
               type="button"
@@ -208,6 +252,22 @@ export const Layout: React.FC = () => {
             </button>
           )}
           <h1 className="page-title">{pageTitle}</h1>
+          {showCartFlyTarget && (
+            <button
+              ref={cartBtnRef}
+              id="cart-fly-target"
+              type="button"
+              className={`cart-header-btn ${cartBump ? 'cart-header-btn--bump' : ''} ${itemCount > 0 ? 'cart-header-btn--has-items' : ''}`}
+              onClick={() => handleNavClick(`${home}/orders`)}
+              aria-label={itemCount > 0 ? `View cart, ${itemCount} items` : 'View cart'}
+              title="View cart"
+            >
+              <ShoppingCart size={22} />
+              {itemCount > 0 && (
+                <span className="cart-header-btn__badge">{itemCount > 99 ? '99+' : itemCount}</span>
+              )}
+            </button>
+          )}
           {profilePath && (
             <button
               type="button"
