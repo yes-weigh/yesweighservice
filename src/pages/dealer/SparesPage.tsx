@@ -121,6 +121,7 @@ export const SparesPage: React.FC = () => {
         }
         productsBasePath={pathname}
         enableCart={user?.role === 'dealer' || user?.role === 'dealer_staff' || user?.role === 'staff'}
+        showStockQuantity={canSync}
       />
     </div>
   );

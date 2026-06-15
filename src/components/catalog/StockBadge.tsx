@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { formatStockQuantity } from '../../lib/catalog';
 import type { StockStatus } from '../../types/catalog';
 
 const STOCK_MAP = {
@@ -28,5 +29,35 @@ export const StockBadge: React.FC<{
       <Icon size={variant === 'tile' ? 12 : overlay ? 11 : 14} strokeWidth={2.5} />
       <span>{displayLabel}</span>
     </div>
+  );
+};
+
+export const StockQuantity: React.FC<{
+  stock: number;
+  unit?: string;
+  compact?: boolean;
+  status?: StockStatus;
+}> = ({ stock, unit = 'pcs', compact = false, status }) => {
+  const formatted = formatStockQuantity(stock, unit);
+  const statusClass = status ? ` catalog-stock-qty--${status.replace(/_/g, '-')}` : '';
+  const spaceIndex = formatted.indexOf(' ');
+  const qtyValue = spaceIndex === -1 ? formatted : formatted.slice(0, spaceIndex);
+  const qtyUnit = spaceIndex === -1 ? '' : formatted.slice(spaceIndex + 1);
+
+  if (compact) {
+    return (
+      <span className={`catalog-stock-qty catalog-stock-qty--compact${statusClass}`}>
+        <strong className="catalog-stock-qty__value">{qtyValue}</strong>
+        {qtyUnit && <span className="catalog-stock-qty__unit">{qtyUnit}</span>}
+      </span>
+    );
+  }
+
+  return (
+    <span className={`catalog-stock-qty${statusClass}`}>
+      <span className="catalog-stock-qty__label">Stock:</span>
+      <strong className="catalog-stock-qty__value">{qtyValue}</strong>
+      {qtyUnit && <span className="catalog-stock-qty__unit">{qtyUnit}</span>}
+    </span>
   );
 };

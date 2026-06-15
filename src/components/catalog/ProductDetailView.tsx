@@ -27,7 +27,7 @@ import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { SpareLinkEditor } from './SpareLinkEditor';
-import { StockBadge } from './StockBadge';
+import { StockBadge, StockQuantity } from './StockBadge';
 
 function formatProductTitle(name: string): string {
   return name
@@ -52,6 +52,7 @@ export const ProductDetailView: React.FC<{
   preview?: CatalogProduct | null;
   variant?: 'app' | 'public';
   showWarehouseStock?: boolean;
+  showStockQuantity?: boolean;
   showCartActions?: boolean;
   ordersPath?: string;
   showRelatedLinks?: boolean;
@@ -65,6 +66,7 @@ export const ProductDetailView: React.FC<{
   preview = null,
   variant = 'app',
   showWarehouseStock = false,
+  showStockQuantity = false,
   showCartActions = false,
   ordersPath = '/dealer/orders',
   showRelatedLinks = false,
@@ -241,6 +243,9 @@ export const ProductDetailView: React.FC<{
         }
       : null,
     detail?.preferredVendor ? { label: 'Vendor', value: detail.preferredVendor } : null,
+    showStockQuantity
+      ? { label: 'Stock on hand', value: `${product.stock.toLocaleString('en-IN')} ${product.unit}` }
+      : null,
   ].filter((row): row is { label: string; value: string } => Boolean(row));
 
   return (
@@ -299,6 +304,13 @@ export const ProductDetailView: React.FC<{
 
           <div className="product-detail-page__availability">
             <StockBadge status={product.stockStatus} variant="tile" />
+            {showStockQuantity && (
+              <StockQuantity
+                stock={product.stock}
+                unit={product.unit}
+                status={product.stockStatus}
+              />
+            )}
             {loading && (
               <span className="product-detail-page__loading-note">Updating stock…</span>
             )}
@@ -396,6 +408,7 @@ export const ProductDetailView: React.FC<{
                 }
                 detailBasePath={relatedKind === 'spares' ? sparesBasePath : productsBasePath}
                 loading={relatedLoading}
+                showStockQuantity={showStockQuantity}
                 headerAction={
                   manageSpareLinks ? (
                     <button

@@ -16,7 +16,7 @@ import { CategoryBrowseSection } from './CategoryBrowseSection';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
 import { ProductBrowseCard } from './ProductBrowseCard';
 import { ProductImageFrame } from './ProductImageFrame';
-import { StockBadge } from './StockBadge';
+import { StockBadge, StockQuantity } from './StockBadge';
 
 export interface CatalogBrowseProps {
   products: CatalogProduct[];
@@ -49,9 +49,19 @@ export interface CatalogBrowseProps {
   /** Spares — skip category grid and list all products with search */
   flatBrowse?: boolean;
   searchPlaceholder?: string;
+  /** Staff / super admin — show numeric stock on product tiles */
+  showStockQuantity?: boolean;
 }
 
-function ProductListRow({ product, onSelect }: { product: CatalogProduct; onSelect: () => void }) {
+function ProductListRow({
+  product,
+  onSelect,
+  showStockQuantity = false,
+}: {
+  product: CatalogProduct;
+  onSelect: () => void;
+  showStockQuantity?: boolean;
+}) {
   return (
     <button type="button" className="catalog-row panel glass" onClick={onSelect}>
       <div className="catalog-row__media">
@@ -61,6 +71,14 @@ function ProductListRow({ product, onSelect }: { product: CatalogProduct; onSele
       <div className="catalog-row__main">
         {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
         <h3>{product.name}</h3>
+        {showStockQuantity && (
+          <StockQuantity
+            stock={product.stock}
+            unit={product.unit}
+            status={product.stockStatus}
+            compact
+          />
+        )}
       </div>
       <div className="catalog-row__price">
         <IndianRupee size={16} strokeWidth={2.5} />
@@ -160,6 +178,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   enableCart = false,
   flatBrowse = false,
   searchPlaceholder,
+  showStockQuantity = false,
 }) => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -361,6 +380,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   index={idx}
                   onSelect={() => openProduct(product)}
                   enableCart={enableCart}
+                  showStockQuantity={showStockQuantity}
                 />
               ))}
             </div>
@@ -371,6 +391,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   key={product.id}
                   product={product}
                   onSelect={() => openProduct(product)}
+                  showStockQuantity={showStockQuantity}
                 />
               ))}
             </div>

@@ -388,3 +388,12 @@ export function stockStatusLabel(status: string): string {
   if (status === 'low_stock') return 'Low Stock';
   return 'Out of Stock';
 }
+
+export function formatStockQuantity(stock: number, unit = 'pcs'): string {
+  const qty = Number.isFinite(stock) ? stock : 0;
+  const formatted =
+    qty % 1 === 0
+      ? qty.toLocaleString('en-IN')
+      : qty.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return `${formatted} ${unit}`.trim();
+}

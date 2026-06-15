@@ -14,6 +14,7 @@ export const ProductDetailPage: React.FC = () => {
   const backPath = isPublic ? '/oc' : location.pathname.replace(/\/[^/]+$/, '');
   const preview = (location.state as { preview?: CatalogProduct } | null)?.preview ?? null;
   const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin';
+  const showStockQuantity = showWarehouseStock;
   const showCartActions =
     user?.role === 'dealer' || user?.role === 'dealer_staff' || user?.role === 'staff';
   const manageSpareLinks = user?.role === 'staff' || user?.role === 'super_admin';
@@ -43,6 +44,7 @@ export const ProductDetailPage: React.FC = () => {
         preview={preview && preview.id === productId ? preview : null}
         variant={isPublic ? 'public' : 'app'}
         showWarehouseStock={showWarehouseStock}
+        showStockQuantity={showStockQuantity}
         showCartActions={showCartActions}
         showRelatedLinks={showRelatedLinks}
         manageSpareLinks={manageSpareLinks}

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { IndianRupee, Package } from 'lucide-react';
 import type { CatalogProduct } from '../../types/catalog';
 import { CategoryThumbnail } from './CategoryThumbnail';
-import { StockBadge } from './StockBadge';
+import { StockBadge, StockQuantity } from './StockBadge';
 
 function formatProductTitle(name: string): string {
   return name
@@ -20,7 +20,8 @@ export const RelatedCatalogItems: React.FC<{
   detailBasePath: string;
   loading?: boolean;
   headerAction?: React.ReactNode;
-}> = ({ items, title, emptyMessage, detailBasePath, loading = false, headerAction }) => {
+  showStockQuantity?: boolean;
+}> = ({ items, title, emptyMessage, detailBasePath, loading = false, headerAction, showStockQuantity = false }) => {
   const navigate = useNavigate();
 
   if (loading) {
@@ -69,6 +70,14 @@ export const RelatedCatalogItems: React.FC<{
                     <span className="related-catalog__category text-muted text-sm">
                       {item.categoryName}
                     </span>
+                  )}
+                  {showStockQuantity && (
+                    <StockQuantity
+                      stock={item.stock}
+                      unit={item.unit}
+                      status={item.stockStatus}
+                      compact
+                    />
                   )}
                 </div>
                 <div className="related-catalog__price">

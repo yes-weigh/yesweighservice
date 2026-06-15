@@ -5,13 +5,14 @@ import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct } from '../../types/catalog';
 import { CategoryThumbnail } from './CategoryThumbnail';
-import { StockBadge } from './StockBadge';
+import { StockBadge, StockQuantity } from './StockBadge';
 
 export interface ProductBrowseCardProps {
   product: CatalogProduct;
   index: number;
   onSelect: () => void;
   enableCart?: boolean;
+  showStockQuantity?: boolean;
 }
 
 function formatProductTitle(name: string): string {
@@ -27,6 +28,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   index,
   onSelect,
   enableCart = false,
+  showStockQuantity = false,
 }) => {
   const { addItem, isInCart } = useCart();
   const { flyToCart } = useCartFly();
@@ -77,6 +79,14 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
             <span>{product.rate.toLocaleString('en-IN')}</span>
           </div>
+          {showStockQuantity && (
+            <StockQuantity
+              stock={product.stock}
+              unit={product.unit}
+              status={product.stockStatus}
+              compact
+            />
+          )}
         </div>
       </button>
 
