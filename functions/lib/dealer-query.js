@@ -4,6 +4,17 @@ function parseListParam(value) {
   return String(value).split(',').map(s => s.trim()).filter(Boolean);
 }
 
+function getDealerStatusKey(dealer) {
+  const stage = dealer.dealerStage;
+  const signed = Boolean(dealer.portalUserId);
+  if (stage === 'Active') return signed ? 'active-yes' : 'active-no';
+  if (stage === 'Non Active') return signed ? 'non-active-yes' : 'non-active-no';
+  if (stage === 'Black listed' || stage === 'Blacklisted') {
+    return signed ? 'blacklisted-yes' : 'blacklisted-no';
+  }
+  return signed ? 'unset-yes' : 'unset-no';
+}
+
 function normalizeCategories(categories) {
   if (!categories) return [];
   if (Array.isArray(categories)) return categories.map(String);
@@ -20,8 +31,10 @@ export function filterDealers(dealers, query = {}) {
 
   const explicitStageFilter = query.dealerStage && query.dealerStage !== 'all'
     && parseListParam(query.dealerStage).length > 0;
+  const explicitStatusFilter = query.dealerStatus
+    && parseListParam(query.dealerStatus).length > 0;
 
-  if (!explicitStageFilter) {
+  if (!explicitStageFilter && !explicitStatusFilter) {
     const isFiltered = query.isFiltered === true || query.isFiltered === 'true';
     list = list.filter(d => Boolean(d.isFiltered) === isFiltered);
     if (isFiltered) {
@@ -56,6 +69,11 @@ export function filterDealers(dealers, query = {}) {
   const stages = parseListParam(query.dealerStage);
   if (stages.length > 0) {
     list = list.filter(d => d.dealerStage && stages.includes(d.dealerStage));
+  }
+
+  const statusKeys = parseListParam(query.dealerStatus);
+  if (statusKeys.length > 0) {
+    list = list.filter(d => statusKeys.includes(getDealerStatusKey(d)));
   }
 
   const states = parseListParam(query.billingState);

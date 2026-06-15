@@ -37,6 +37,7 @@ export interface DealerListParams {
   status?: string;
   kamId?: string;
   dealerStage?: string;
+  dealerStatus?: string;
   billingState?: string;
   district?: string;
   categories?: string;
