@@ -2,7 +2,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
-const DELETABLE_ROLES = new Set(['dealer']);
+const DELETABLE_ROLES = new Set(['dealer', 'staff']);
 
 function normalizeRole(role) {
   if (role === 'admin') return 'super_admin';
@@ -53,10 +53,10 @@ export async function deleteManagedUserAccount(targetUid) {
   const data = targetSnap.data();
   const role = normalizeRole(String(data?.role ?? ''));
   if (!DELETABLE_ROLES.has(role)) {
-    throw new HttpsError('failed-precondition', 'Only dealers can be permanently deleted.');
+    throw new HttpsError('failed-precondition', 'This user cannot be permanently deleted.');
   }
 
-  if (await dealerHasStaff(db, targetUid)) {
+  if (role === 'dealer' && (await dealerHasStaff(db, targetUid))) {
     throw new HttpsError(
       'failed-precondition',
       'Remove or reassign all dealer staff before deleting this dealer.',

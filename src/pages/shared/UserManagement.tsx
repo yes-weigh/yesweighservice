@@ -7,7 +7,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { InlineFormPanel } from '../../components/InlineFormPanel';
 import {
   deactivateUser,
-  deleteDealerPermanently,
+  deleteUserPermanently,
   registerUser,
   updateUserProfile,
 } from '../../lib/userAdmin';
@@ -181,27 +181,31 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     await fetchUsers();
   };
 
-  const handleDeleteDealer = async (record: UserRecord) => {
-    if (!user || user.role !== 'super_admin' || role !== 'dealer' || record.uid === user.uid) {
+  const handleDeletePermanently = async (record: UserRecord) => {
+    if (!user || user.role !== 'super_admin' || !canPermanentlyDelete || record.uid === user.uid) {
       return;
     }
+    const extraNote =
+      role === 'dealer'
+        ? ' Dealer staff must be removed first.'
+        : '';
     const ok = await confirm({
-      title: 'Delete dealer permanently',
-      message: `Permanently delete ${record.displayName}? This removes their account and login. Dealer staff must be removed first. This cannot be undone.`,
+      title: `Delete ${ROLE_LABELS[role]} permanently`,
+      message: `Permanently delete ${record.displayName}? This removes their account and login.${extraNote} This cannot be undone.`,
       confirmLabel: 'Delete permanently',
       destructive: true,
     });
     if (!ok) return;
     setError('');
     try {
-      await deleteDealerPermanently(record.uid);
+      await deleteUserPermanently(record.uid);
       await fetchUsers();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Delete failed');
     }
   };
 
-  const canDeleteDealer = user?.role === 'super_admin' && role === 'dealer';
+  const canPermanentlyDelete = user?.role === 'super_admin' && (role === 'dealer' || role === 'staff');
 
   const dealerName = (dealerId?: string) =>
     dealers.find(d => d.uid === dealerId)?.displayName ?? '—';
@@ -409,12 +413,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             <UserX size={16} />
                           </button>
                         )}
-                        {canDeleteDealer && record.uid !== user?.uid && (
+                        {canPermanentlyDelete && record.uid !== user?.uid && (
                           <button
                             type="button"
                             className="btn-icon text-red"
                             title="Delete permanently"
-                            onClick={() => void handleDeleteDealer(record)}
+                            onClick={() => void handleDeletePermanently(record)}
                           >
                             <Trash2 size={16} />
                           </button>

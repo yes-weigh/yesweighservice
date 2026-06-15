@@ -116,7 +116,7 @@ export async function deleteUserProfile(db: Firestore, uid: string): Promise<voi
   await deleteDoc(doc(db, 'users', uid));
 }
 
-export async function deleteDealerPermanently(uid: string): Promise<void> {
+export async function deleteUserPermanently(uid: string): Promise<void> {
   const functions = getFunctions(app, 'asia-south1');
   const callable = httpsCallable<{ uid: string }, { deleted: boolean }>(
     functions,
@@ -125,24 +125,15 @@ export async function deleteDealerPermanently(uid: string): Promise<void> {
   try {
     await callable({ uid });
   } catch (err: unknown) {
-    const details =
-      typeof err === 'object' && err !== null && 'details' in err
-        ? (err as { details?: unknown }).details
-        : undefined;
-    const detailMessage =
-      typeof details === 'object' && details !== null && 'message' in details
-        ? String((details as { message: string }).message)
-        : '';
-    const message =
-      typeof err === 'object' && err !== null && 'message' in err
-        ? String((err as { message: string }).message)
-        : '';
-    if (detailMessage) {
-      throw new Error(detailMessage);
+    if (typeof err === 'object' && err !== null && 'code' in err && 'message' in err) {
+      const fbErr = err as { code: string; message: string };
+      if (fbErr.code.startsWith('functions/') && fbErr.message) {
+        throw new Error(fbErr.message);
+      }
     }
-    if (message.includes('failed-precondition')) {
-      throw new Error(message.replace(/^Firebase: | \(.*\)\.?$/g, ''));
-    }
-    throw new Error(authErrorMessage(err, 'Could not delete dealer'));
+    throw new Error(authErrorMessage(err, 'Could not delete user'));
   }
 }
+
+/** @deprecated Use deleteUserPermanently */
+export const deleteDealerPermanently = deleteUserPermanently;
