@@ -1,9 +1,3 @@
-import { UserManagement } from '../shared/UserManagement';
+import { ZohoDealersPage } from '../dealers/ZohoDealersPage';
 
-export const AdminDealersList = () => (
-  <UserManagement
-    role="dealer"
-    title="Dealers"
-    description="Dealers lead regional or business units under YesWeigh Service."
-  />
-);
+export const AdminDealersList = () => <ZohoDealersPage />;

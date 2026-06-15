@@ -24,6 +24,17 @@ import {
   saveSpareProductMap,
 } from './lib/spare-links.js';
 import { deleteManagedUserAccount } from './lib/user-delete.js';
+import { syncCustomersToFirestore } from './lib/zoho-customers.js';
+import {
+  listDealers,
+  exportDealersCsv,
+  getDealerStatsSummary,
+  getDealerLocationsSummary,
+  patchDealerRecord,
+  linkDealerPortalUser,
+  readDealerSetting,
+  writeDealerSetting,
+} from './lib/dealers-api.js';
 
 initializeApp();
 
@@ -439,5 +450,148 @@ export const getZohoCatalog = onCall(
           })),
       })),
     };
+  },
+);
+
+/** Sync Zoho customers (dealers) — staff / super admin. */
+export const syncZohoCustomers = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const count = await syncCustomersToFirestore(zohoSecrets(), zohoOrganizationId.value());
+    return { syncedCount: count };
+  },
+);
+
+/** List Zoho dealers with filters — staff / super admin. */
+export const getDealers = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    return listDealers(request.data ?? {});
+  },
+);
+
+/** Export dealers CSV — staff / super admin. */
+export const exportDealers = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const csv = await exportDealersCsv(request.data ?? {});
+    return { csv };
+  },
+);
+
+/** Dealer KPI stats — staff / super admin. */
+export const getDealerStats = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    return getDealerStatsSummary();
+  },
+);
+
+/** Dealer location facets — staff / super admin. */
+export const getDealerLocations = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    return getDealerLocationsSummary();
+  },
+);
+
+/** Patch dealer overrides — staff / super admin. */
+export const patchDealer = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const id = String(request.data?.id ?? '').trim();
+    if (!id) throw new HttpsError('invalid-argument', 'id is required.');
+    const updated = await patchDealerRecord(id, request.data?.patch ?? {});
+    return { dealer: updated };
+  },
+);
+
+/** Link portal user to Zoho customer — staff / super admin. */
+export const linkDealerPortalUserFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const zohoCustomerId = String(request.data?.zohoCustomerId ?? '').trim();
+    const portalUserId = String(request.data?.portalUserId ?? '').trim();
+    if (!zohoCustomerId || !portalUserId) {
+      throw new HttpsError('invalid-argument', 'zohoCustomerId and portalUserId are required.');
+    }
+    await linkDealerPortalUser(zohoCustomerId, portalUserId);
+    return { ok: true };
+  },
+);
+
+/** KAM list — staff / super admin. */
+export const getDealerKams = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const snap = await getFirestore().collection('kams').orderBy('name').get();
+    return { data: snap.docs.map(d => ({ id: d.id, ...d.data() })) };
+  },
+);
+
+/** Create KAM — staff / super admin. */
+export const createDealerKam = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const name = String(request.data?.name ?? '').trim();
+    if (!name) throw new HttpsError('invalid-argument', 'name is required.');
+    const phone = request.data?.phone ? String(request.data.phone).trim() : null;
+    const ref = await getFirestore().collection('kams').add({
+      name,
+      phone,
+      createdAt: new Date().toISOString(),
+    });
+    const snap = await ref.get();
+    return { data: { id: snap.id, ...snap.data() } };
+  },
+);
+
+/** Delete KAM — staff / super admin. */
+export const deleteDealerKam = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const id = String(request.data?.id ?? '').trim();
+    if (!id) throw new HttpsError('invalid-argument', 'id is required.');
+    await getFirestore().collection('kams').doc(id).delete();
+    return { ok: true };
+  },
+);
+
+/** Dealer settings (categories, etc.) — staff / super admin. */
+export const getDealerSetting = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const key = String(request.data?.key ?? '').trim();
+    if (!key) throw new HttpsError('invalid-argument', 'key is required.');
+    const fallback = request.data?.fallback ?? [];
+    const value = await readDealerSetting(key, fallback);
+    return { value };
+  },
+);
+
+export const setDealerSetting = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const key = String(request.data?.key ?? '').trim();
+    if (!key) throw new HttpsError('invalid-argument', 'key is required.');
+    const value = await writeDealerSetting(key, request.data?.value);
+    return { value };
   },
 );

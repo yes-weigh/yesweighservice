@@ -45,6 +45,7 @@ export type CreateUserInput = {
   phone?: string;
   email?: string;
   dealerId?: string;
+  zohoCustomerId?: string;
   createdByUid: string;
 };
 
@@ -72,6 +73,7 @@ export async function createUserProfile(
     phone: contactPhone || undefined,
     email: contactEmail || undefined,
     dealerId: input.role === 'dealer_staff' ? input.dealerId?.trim() : undefined,
+    zohoCustomerId: input.zohoCustomerId?.trim() || undefined,
     active: true,
     createdAt: new Date().toISOString(),
     createdByUid: input.createdByUid,

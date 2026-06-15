@@ -22,6 +22,7 @@ export interface User {
   role: Role;
   email?: string;
   dealerId?: string;
+  zohoCustomerId?: string;
   phone?: string;
   aadhar?: string;
   active: boolean;
@@ -34,6 +35,7 @@ export interface FirestoreUserDoc {
   role: Role | 'admin' | 'director' | 'director_staff';
   email?: string;
   dealerId?: string;
+  zohoCustomerId?: string;
   /** @deprecated use dealerId */
   directorId?: string;
   phone?: string;

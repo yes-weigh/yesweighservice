@@ -1,0 +1,55 @@
+/** Simplified state/district normalization for Zoho customer sync. */
+
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
+  'Haryana', 'Himachal Pradesh', 'Jammu and Kashmir', 'Jharkhand', 'Karnataka', 'Kerala',
+  'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha',
+  'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh',
+  'Uttarakhand', 'West Bengal', 'Andaman and Nicobar Islands', 'Chandigarh',
+  'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Lakshadweep', 'Puducherry', 'Ladakh',
+];
+
+function clean(str) {
+  return String(str).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+}
+
+export function normalizeStateName(rawStateName) {
+  if (!rawStateName) return null;
+  const target = clean(rawStateName);
+  if (!target) return String(rawStateName).trim() || null;
+
+  for (const canonical of INDIAN_STATES) {
+    if (clean(canonical) === target) return canonical;
+  }
+
+  return String(rawStateName).trim() || null;
+}
+
+export function normalizeDistrictName(rawDistrict) {
+  if (!rawDistrict) return null;
+  return String(rawDistrict).trim().replace(/\s+/g, ' ') || null;
+}
+
+export async function resolveLiveZipDistrict(zip, zipCache = {}) {
+  const key = String(zip ?? '').trim();
+  if (!key) return null;
+  if (zipCache[key]) return zipCache[key];
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`https://api.postalpincode.in/pincode/${key}`, {
+      headers: { 'User-Agent': 'YesWeighService/1.0' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.[0]?.Status === 'Success' && data[0].PostOffice?.[0]?.District) {
+      return data[0].PostOffice[0].District;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}

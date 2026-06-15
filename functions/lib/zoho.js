@@ -1,5 +1,5 @@
 const ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.in';
-const ZOHO_API_BASE = 'https://www.zohoapis.in/inventory/v1';
+export const ZOHO_API_BASE = 'https://www.zohoapis.in/inventory/v1';
 
 /** @type {{ token: string; expiresAt: number } | null} */
 let tokenCache = null;
@@ -73,7 +73,7 @@ export async function getAccessToken(secrets) {
   return tokenCache.token;
 }
 
-function authHeaders(accessToken, orgId) {
+export function authHeaders(accessToken, orgId) {
   return {
     Authorization: `Zoho-oauthtoken ${accessToken}`,
     'X-com-zoho-inventory-organizationid': orgId,
