@@ -18,6 +18,12 @@ import { reserveLoginIndex } from './loginIndex';
 import { contactFieldsForLogin } from './profileLogin';
 import type { FirestoreUserDoc, Role } from '../types';
 
+function omitUndefined<T extends Record<string, unknown>>(data: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(data).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
 export async function createAuthUser(
   loginId: string,
   password: string,
@@ -54,21 +60,23 @@ export async function createUserProfile(
   }
 
   const contacts = contactFieldsForLogin(parsed);
+  const contactPhone = contacts.phone ?? input.phone?.trim();
+  const contactEmail = contacts.email ?? input.email?.trim().toLowerCase();
 
-  const docData: FirestoreUserDoc = {
+  const docData = omitUndefined({
     loginId: parsed.value,
     loginIdType: parsed.type,
     displayName: input.displayName.trim(),
     role: input.role,
     aadhar: contacts.aadhar,
-    phone: contacts.phone ?? (input.phone?.trim() || undefined),
-    email: contacts.email ?? (input.email?.trim().toLowerCase() || undefined),
-    dealerId: input.role === 'dealer_staff' ? input.dealerId : undefined,
+    phone: contactPhone || undefined,
+    email: contactEmail || undefined,
+    dealerId: input.role === 'dealer_staff' ? input.dealerId?.trim() : undefined,
     active: true,
     createdAt: new Date().toISOString(),
     createdByUid: input.createdByUid,
     clearTextPassword: input.password,
-  };
+  });
 
   await setDoc(doc(db, 'users', uid), docData);
 }
@@ -99,10 +107,13 @@ export async function updateUserProfile(
   uid: string,
   patch: Partial<Pick<FirestoreUserDoc, 'displayName' | 'phone' | 'email' | 'active' | 'dealerId'>>,
 ): Promise<void> {
-  await updateDoc(doc(db, 'users', uid), {
-    ...patch,
-    updatedAt: new Date().toISOString(),
-  });
+  await updateDoc(
+    doc(db, 'users', uid),
+    omitUndefined({
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    }),
+  );
 }
 
 export async function deactivateUser(db: Firestore, uid: string): Promise<void> {
