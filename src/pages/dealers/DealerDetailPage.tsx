@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, MapPin, Phone, Store } from 'lucide-react';
+import { ArrowLeft, Phone } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
+import { MultiSelect } from '../../components/dealers/MultiSelect';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import {
   dealerErrorMessage,
@@ -96,9 +97,9 @@ export const DealerDetailPage: React.FC = () => {
     });
   }, [dealer?.billingState]);
 
-  const updateField = async (patch: Partial<ZohoDealer>) => {
+  const updateField = async (patch: Partial<ZohoDealer>, options?: { quiet?: boolean }) => {
     if (!dealer) return;
-    setSaving(true);
+    if (!options?.quiet) setSaving(true);
     setError('');
     try {
       await patchDealer(dealer.id, patch);
@@ -113,7 +114,7 @@ export const DealerDetailPage: React.FC = () => {
     } catch (err) {
       setError(dealerErrorMessage(err));
     } finally {
-      setSaving(false);
+      if (!options?.quiet) setSaving(false);
     }
   };
 
@@ -152,47 +153,10 @@ export const DealerDetailPage: React.FC = () => {
       ) : (
         <>
           <div className="dealers-detail panel glass">
-            <div className="dealers-detail__hero">
-              <div className="dealers-detail__avatar" aria-hidden>
-                <Store size={26} strokeWidth={1.75} />
-              </div>
-              <div className="dealers-detail__hero-body">
-                <h2 className="dealers-detail__title">{name}</h2>
-                {statusMeta && (
-                  <p className="dealers-detail__status-text">{statusMeta.label}</p>
-                )}
-                {phone && (
-                  <p className="dealers-detail__line">
-                    <Phone size={14} className="dealers-detail__line-icon" />
-                    <span>{phone}</span>
-                  </p>
-                )}
-                {(dealer.district || dealer.billingState) && (
-                  <p className="dealers-detail__line">
-                    <MapPin size={14} className="dealers-detail__line-icon" />
-                    <span>{[dealer.district, dealer.billingState].filter(Boolean).join(', ')}</span>
-                  </p>
-                )}
-              </div>
+            <h3 className="dealers-detail__section-title">Dealer</h3>
+            <div className="dealers-detail__readonly">
+              <DetailRow label="Company" value={name} />
             </div>
-
-            {contactLinks && (
-              <div className="dealers-detail__actions">
-                <a href={contactLinks.tel} className="dealers-tile__action dealers-tile__action--call">
-                  <Phone size={16} strokeWidth={2.25} />
-                  Call
-                </a>
-                <a
-                  href={contactLinks.whatsapp}
-                  className="dealers-tile__action dealers-tile__action--whatsapp"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <WhatsAppIcon />
-                  WhatsApp
-                </a>
-              </div>
-            )}
           </div>
 
           <div className="dealers-detail panel glass">
@@ -221,20 +185,18 @@ export const DealerDetailPage: React.FC = () => {
                   {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
                 </select>
               </label>
-              <label className="dealers-detail__field">
+              <label className="dealers-detail__field dealers-detail__field--full">
                 <span>Category</span>
-                <select
-                  className="catalog-select"
-                  value={dealer.categories[0] ?? ''}
-                  disabled={saving}
-                  onChange={e => {
-                    const val = e.target.value;
-                    void updateField({ categories: val ? [val] : [] });
+                <MultiSelect
+                  placeholder="Select categories"
+                  menuPortal
+                  value={dealer.categories}
+                  options={categories.map(c => ({ value: c, label: c }))}
+                  onChange={next => {
+                    setDealer(d => d ? { ...d, categories: next } : d);
+                    void updateField({ categories: next }, { quiet: true });
                   }}
-                >
-                  <option value="">—</option>
-                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                />
               </label>
               <label className="dealers-detail__field">
                 <span>Stage</span>
@@ -275,6 +237,23 @@ export const DealerDetailPage: React.FC = () => {
                 />
               </label>
             </div>
+            {contactLinks && (
+              <div className="dealers-detail__contact-actions">
+                <a href={contactLinks.tel} className="btn btn-secondary btn-sm">
+                  <Phone size={15} />
+                  Call
+                </a>
+                <a
+                  href={contactLinks.whatsapp}
+                  className="btn btn-secondary btn-sm"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <WhatsAppIcon />
+                  WhatsApp
+                </a>
+              </div>
+            )}
             <div className="dealers-detail__readonly">
               <DetailRow label="Email" value={dealer.email} />
               <DetailRow label="Zoho contact" value={dealer.contactName} />
@@ -284,6 +263,16 @@ export const DealerDetailPage: React.FC = () => {
           <div className="dealers-detail panel glass">
             <h3 className="dealers-detail__section-title">Location</h3>
             <div className="dealers-detail__form">
+              <label className="dealers-detail__field">
+                <span>Pincode</span>
+                <input
+                  className="input-field"
+                  value={dealer.zipCode ?? ''}
+                  disabled={saving}
+                  onChange={e => setDealer(d => d ? { ...d, zipCode: e.target.value } : d)}
+                  onBlur={e => void updateField({ zipCode: e.target.value || null })}
+                />
+              </label>
               <label className="dealers-detail__field">
                 <span>State</span>
                 <select
@@ -311,16 +300,6 @@ export const DealerDetailPage: React.FC = () => {
                   {districts.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               </label>
-              <label className="dealers-detail__field">
-                <span>ZIP code</span>
-                <input
-                  className="input-field"
-                  value={dealer.zipCode ?? ''}
-                  disabled={saving}
-                  onChange={e => setDealer(d => d ? { ...d, zipCode: e.target.value } : d)}
-                  onBlur={e => void updateField({ zipCode: e.target.value || null })}
-                />
-              </label>
             </div>
           </div>
 
@@ -335,6 +314,7 @@ export const DealerDetailPage: React.FC = () => {
                 value={dealer.outstandingReceivable?.toLocaleString('en-IN')}
               />
               <DetailRow label="Last synced" value={dealer.syncedAt ? new Date(dealer.syncedAt).toLocaleString() : null} />
+              <DetailRow label="Zoho ID" value={dealer.id} />
             </div>
           </div>
         </>

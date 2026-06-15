@@ -15,13 +15,11 @@ function WhatsAppIcon() {
 
 interface DealerTileProps {
   dealer: ZohoDealer;
-  index: number;
   onOpen: () => void;
 }
 
 export const DealerTile: React.FC<DealerTileProps> = ({
   dealer,
-  index,
   onOpen,
 }) => {
   const name = dealer.companyName || dealer.contactName;
@@ -48,20 +46,20 @@ export const DealerTile: React.FC<DealerTileProps> = ({
       tabIndex={0}
       aria-label={`Open ${name}`}
     >
-      <div className="dealers-tile__toolbar">
-        <span className="dealers-tile__index">#{index}</span>
-        <div className="dealers-tile__status">
-          <DealerStatusBadge meta={statusMeta} />
-        </div>
-      </div>
-
       <div className="dealers-tile__main">
         <div className="dealers-tile__avatar" aria-hidden>
           <Store size={22} strokeWidth={1.75} />
         </div>
 
         <div className="dealers-tile__body">
-          <h3 className="dealers-tile__name">{name}</h3>
+          <div className="dealers-tile__name-row">
+            <h3 className="dealers-tile__name">{name}</h3>
+            <DealerStatusBadge meta={statusMeta} />
+          </div>
+
+          {dealer.firstName && (
+            <p className="dealers-tile__contact">{dealer.firstName}</p>
+          )}
 
           {phone && (
             <p className="dealers-tile__line">
@@ -75,10 +73,6 @@ export const DealerTile: React.FC<DealerTileProps> = ({
               <MapPin size={14} className="dealers-tile__line-icon" strokeWidth={2} />
               <span>{location}</span>
             </p>
-          )}
-
-          {dealer.firstName && (
-            <p className="dealers-tile__contact">{dealer.firstName}</p>
           )}
         </div>
       </div>

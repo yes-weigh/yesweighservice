@@ -14,6 +14,7 @@ interface MultiSelectProps {
   placeholder?: string;
   className?: string;
   menuPortal?: boolean;
+  disabled?: boolean;
 }
 
 export const MultiSelect: React.FC<MultiSelectProps> = ({
@@ -23,6 +24,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   placeholder = 'Select…',
   className = '',
   menuPortal = false,
+  disabled = false,
 }) => {
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
@@ -110,15 +112,16 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
         ref={triggerRef}
         type="button"
         className="dealers-multiselect__trigger catalog-select"
-        onClick={() => setOpen(v => !v)}
+        onClick={() => !disabled && setOpen(v => !v)}
         aria-expanded={open}
         aria-haspopup="listbox"
+        disabled={disabled}
       >
         <span className="dealers-multiselect__label">{label}</span>
         <ChevronDown size={14} />
       </button>
       {menu && (menuPortal ? createPortal(menu, document.body) : menu)}
-      {value.length > 0 && (
+      {value.length > 0 && !disabled && (
         <button
           type="button"
           className="dealers-multiselect__clear"

@@ -277,6 +277,23 @@ export const Layout: React.FC = () => {
             </button>
           ))}
         </nav>
+
+        {profilePath && (
+          <div className="sidebar-profile">
+            <button
+              type="button"
+              className={`nav-item ${isProfileActive ? 'active' : ''}`}
+              onClick={() => handleNavClick(profilePath)}
+              aria-label="Open profile"
+              title="Profile"
+            >
+              <span className="nav-icon">
+                <UserCircle size={20} />
+              </span>
+              {!collapsed && <span className="nav-label">Profile</span>}
+            </button>
+          </div>
+        )}
       </aside>
 
       <main className={`main-content ${collapsed && !isMobile ? 'expanded' : ''}`}>
@@ -306,17 +323,6 @@ export const Layout: React.FC = () => {
               {itemCount > 0 && (
                 <span className="cart-header-btn__badge">{itemCount > 99 ? '99+' : itemCount}</span>
               )}
-            </button>
-          )}
-          {profilePath && (
-            <button
-              type="button"
-              className={`profile-btn ${isProfileActive ? 'active' : ''}`}
-              onClick={() => handleNavClick(profilePath)}
-              aria-label="Open profile"
-              title="Profile"
-            >
-              <UserCircle size={22} />
             </button>
           )}
         </header>

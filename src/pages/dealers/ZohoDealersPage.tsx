@@ -2,14 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Ban,
-  Briefcase,
   Download,
   RefreshCw,
   Search,
   SlidersHorizontal,
-  UserCheck,
-  Users,
-  UserX,
   X,
 } from 'lucide-react';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
@@ -25,7 +21,6 @@ import {
   fetchDealerCategories,
   fetchDealerLocations,
   fetchDealers,
-  fetchDealerStats,
   fetchKams,
   patchDealer,
   syncZohoCustomers,
@@ -67,7 +62,6 @@ export const ZohoDealersPage: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [stats, setStats] = useState({ total: 0, active: 0, blacklisted: 0, inactive: 0, unassignedKam: 0 });
   const [states, setStates] = useState<string[]>([]);
   const [districtsByState, setDistrictsByState] = useState<Record<string, string[]>>({});
   const [kams, setKams] = useState<Kam[]>([]);
@@ -100,13 +94,11 @@ export const ZohoDealersPage: React.FC = () => {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [statsRes, locRes, kamsRes, catsRes] = await Promise.all([
-        fetchDealerStats(),
+      const [locRes, kamsRes, catsRes] = await Promise.all([
         fetchDealerLocations(),
         fetchKams(),
         fetchDealerCategories(),
       ]);
-      setStats(statsRes);
       setStates(locRes.states);
       setDistrictsByState(locRes.districtsByState);
       setKams(kamsRes);
@@ -322,35 +314,6 @@ export const ZohoDealersPage: React.FC = () => {
         </div>
       )}
 
-      <div className="dealers-kpis stats-grid stats-grid--5">
-        <button type="button" className="stat-card glass dealers-kpi" onClick={() => { setStatusFilter([]); setKamFilter([]); }}>
-          <Users size={18} />
-          <div><h3>Total</h3><p className="stat-value">{stats.total}</p></div>
-        </button>
-        <button type="button" className="stat-card glass dealers-kpi" onClick={() => setStatusFilter(['active-yes', 'active-no'])}>
-          <UserCheck size={18} />
-          <div><h3>Active</h3><p className="stat-value">{stats.active}</p></div>
-        </button>
-        <button type="button" className="stat-card glass dealers-kpi" onClick={() => setStatusFilter(['non-active-yes', 'non-active-no'])}>
-          <UserX size={18} />
-          <div><h3>Non Active</h3><p className="stat-value">{stats.inactive}</p></div>
-        </button>
-        <button type="button" className="stat-card glass dealers-kpi" onClick={() => setStatusFilter(['blacklisted-yes', 'blacklisted-no'])}>
-          <Ban size={18} />
-          <div><h3>Blacklisted</h3><p className="stat-value">{stats.blacklisted}</p></div>
-        </button>
-        <button type="button" className="stat-card glass dealers-kpi" onClick={() => setKamFilter(['unassigned'])}>
-          <Briefcase size={18} />
-          <div>
-            <h3>
-              <span className="dealers-kpi__label-long">Unassigned KAM</span>
-              <span className="dealers-kpi__label-short">No KAM</span>
-            </h3>
-            <p className="stat-value">{stats.unassignedKam}</p>
-          </div>
-        </button>
-      </div>
-
       <div className="dealers-toolbar panel glass">
         <div className="dealers-toolbar__row">
           <div className="catalog-search dealers-search">
@@ -489,18 +452,14 @@ export const ZohoDealersPage: React.FC = () => {
                   <td>{dealer.billingState || '—'}</td>
                   <td>{dealer.district || '—'}</td>
                   <td>
-                    <select
-                      className="catalog-select dealers-inline-select"
-                      value={dealer.categories[0] ?? ''}
-                      onChange={e => {
-                        const val = e.target.value;
-                        void updateField(dealer.id, { categories: val ? [val] : [] });
-                      }}
-                      aria-label="Category"
-                    >
-                      <option value="">—</option>
-                      {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                    <MultiSelect
+                      className="dealers-multiselect--inline"
+                      placeholder="—"
+                      menuPortal
+                      value={dealer.categories}
+                      options={categories.map(c => ({ value: c, label: c }))}
+                      onChange={next => void updateField(dealer.id, { categories: next })}
+                    />
                   </td>
                   <td>
                     <DealerStatusCell
@@ -525,7 +484,6 @@ export const ZohoDealersPage: React.FC = () => {
               <DealerTile
                 key={dealer.id}
                 dealer={dealer}
-                index={paginationOn ? (page - 1) * limit + idx + 1 : idx + 1}
                 onOpen={() => navigate(`${dealersBase}/${dealer.id}`, { state: { dealer } })}
               />
             ))
