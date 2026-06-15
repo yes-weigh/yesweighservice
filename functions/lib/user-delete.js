@@ -2,7 +2,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
-const DELETABLE_ROLES = new Set(['dealer', 'staff']);
+const DELETABLE_ROLES = new Set(['dealer', 'staff', 'dealer_staff']);
 
 function normalizeRole(role) {
   if (role === 'admin') return 'super_admin';
@@ -17,6 +17,7 @@ function loginIndexDocId(type, value) {
   return `a_${value}`;
 }
 
+/** Login used for sign-in — avoid treating contact email/phone as login. */
 function resolveProfileLogin(data) {
   if (data.loginId && data.loginIdType) {
     return { type: data.loginIdType, value: data.loginId };
@@ -24,21 +25,47 @@ function resolveProfileLogin(data) {
   if (data.aadhar && String(data.aadhar).length === 12) {
     return { type: 'aadhar', value: String(data.aadhar) };
   }
-  if (data.phone && String(data.phone).replace(/\D/g, '').length === 10) {
-    return { type: 'phone', value: String(data.phone).replace(/\D/g, '') };
-  }
-  if (data.email && String(data.email).includes('@')) {
-    return { type: 'email', value: String(data.email).trim().toLowerCase() };
-  }
   return null;
 }
 
-async function dealerHasStaff(db, dealerUid) {
-  const byDealerId = await db.collection('users').where('dealerId', '==', dealerUid).limit(1).get();
-  if (!byDealerId.empty) return true;
+async function listDealerStaffUids(db, dealerUid) {
+  const [byDealerId, byDirectorId] = await Promise.all([
+    db.collection('users').where('dealerId', '==', dealerUid).get(),
+    db.collection('users').where('directorId', '==', dealerUid).get(),
+  ]);
 
-  const byDirectorId = await db.collection('users').where('directorId', '==', dealerUid).limit(1).get();
-  return !byDirectorId.empty;
+  const ids = new Set();
+  for (const doc of byDealerId.docs) ids.add(doc.id);
+  for (const doc of byDirectorId.docs) ids.add(doc.id);
+  return [...ids];
+}
+
+async function purgeUserIndexes(db, data) {
+  const login = resolveProfileLogin(data);
+  if (login) {
+    await db.doc(`loginIndex/${loginIndexDocId(login.type, login.value)}`).delete().catch(() => undefined);
+  }
+  if (data.aadhar && String(data.aadhar).length === 12) {
+    await db.doc(`aadharIndex/${String(data.aadhar)}`).delete().catch(() => undefined);
+  }
+}
+
+async function purgeUserRecord(db, targetUid, data) {
+  await purgeUserIndexes(db, data);
+  await db.doc(`users/${targetUid}`).delete();
+
+  try {
+    await getAuth().deleteUser(targetUid);
+  } catch (err) {
+    const code = err?.code ?? '';
+    if (code === 'auth/user-not-found') return;
+    throw new HttpsError(
+      'internal',
+      code === 'auth/insufficient-permission'
+        ? 'Server cannot delete the auth account. Grant Firebase Authentication Admin to the Cloud Functions service account.'
+        : (err?.message ?? 'Could not delete auth user.'),
+    );
+  }
 }
 
 export async function deleteManagedUserAccount(targetUid) {
@@ -53,38 +80,19 @@ export async function deleteManagedUserAccount(targetUid) {
   const data = targetSnap.data();
   const role = normalizeRole(String(data?.role ?? ''));
   if (!DELETABLE_ROLES.has(role)) {
-    throw new HttpsError('failed-precondition', 'This user cannot be permanently deleted.');
-  }
-
-  if (role === 'dealer' && (await dealerHasStaff(db, targetUid))) {
     throw new HttpsError(
       'failed-precondition',
-      'Remove or reassign all dealer staff before deleting this dealer.',
+      `Cannot permanently delete ${role || 'this user'}. Only staff, dealers, and dealer staff can be removed.`,
     );
   }
 
-  const batch = db.batch();
-
-  const login = resolveProfileLogin(data);
-  if (login) {
-    batch.delete(db.doc(`loginIndex/${loginIndexDocId(login.type, login.value)}`));
-  }
-
-  if (data.aadhar && String(data.aadhar).length === 12) {
-    batch.delete(db.doc(`aadharIndex/${String(data.aadhar)}`));
-  }
-
-  batch.delete(targetRef);
-  await batch.commit();
-
-  try {
-    await getAuth().deleteUser(targetUid);
-  } catch (err) {
-    const code = err?.code ?? '';
-    if (code !== 'auth/user-not-found') {
-      throw err;
+  if (role === 'dealer') {
+    const staffUids = await listDealerStaffUids(db, targetUid);
+    for (const staffUid of staffUids) {
+      await deleteManagedUserAccount(staffUid);
     }
   }
 
+  await purgeUserRecord(db, targetUid, data);
   return { deleted: true };
 }

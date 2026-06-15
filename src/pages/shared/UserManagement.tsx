@@ -187,7 +187,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     }
     const extraNote =
       role === 'dealer'
-        ? ' Dealer staff must be removed first.'
+        ? ' Linked dealer staff will also be removed.'
         : '';
     const ok = await confirm({
       title: `Delete ${ROLE_LABELS[role]} permanently`,
@@ -205,7 +205,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     }
   };
 
-  const canPermanentlyDelete = user?.role === 'super_admin' && (role === 'dealer' || role === 'staff');
+  const canPermanentlyDelete =
+    user?.role === 'super_admin' && (role === 'dealer' || role === 'staff' || role === 'dealer_staff');
 
   const dealerName = (dealerId?: string) =>
     dealers.find(d => d.uid === dealerId)?.displayName ?? '—';
@@ -239,6 +240,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             </button>
           </div>
         </div>
+
+        {error && !showForm && (
+          <div className="login-error mx-4 mb-3">{error}</div>
+        )}
 
         {showForm && (
           <InlineFormPanel
