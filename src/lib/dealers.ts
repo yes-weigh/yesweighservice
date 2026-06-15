@@ -25,6 +25,9 @@ function dealerErrorMessage(err: unknown): string {
     if (code === 'functions/permission-denied') {
       return 'You do not have permission to sync dealers.';
     }
+    if (code === 'functions/internal' || message === 'internal') {
+      return 'Could not reach the dealer service. Deploy the latest Cloud Functions and try again.';
+    }
     if (message) return message;
   }
   return 'Dealer request failed.';
@@ -44,6 +47,12 @@ export async function fetchDealers(params: DealerListParams): Promise<DealerList
   const fn = httpsCallable(functions, 'getDealers');
   const result = await fn(params);
   return result.data as DealerListResponse;
+}
+
+export async function fetchDealerById(id: string): Promise<ZohoDealer> {
+  const fn = httpsCallable(functions, 'getDealer');
+  const result = await fn({ id });
+  return (result.data as { dealer: ZohoDealer }).dealer;
 }
 
 export async function fetchDealerStats(): Promise<DealerStats> {

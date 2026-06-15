@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Ban,
   Briefcase,
   Download,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   UserCheck,
   Users,
   UserX,
@@ -14,6 +16,7 @@ import { MultiSelect } from '../../components/dealers/MultiSelect';
 import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
+import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { DEALER_STATUS_LEGEND } from '../../lib/dealerStatus';
 import {
@@ -28,6 +31,7 @@ import {
   syncZohoCustomers,
 } from '../../lib/dealers';
 import { type DealerListParams, type Kam, type ZohoDealer } from '../../types/dealers';
+import { homePathForRole } from '../../types';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -40,6 +44,9 @@ function useDebounce<T>(value: T, delay: number): T {
 
 export const ZohoDealersPage: React.FC = () => {
   const confirm = useConfirm();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const dealersBase = user ? `${homePathForRole(user.role)}/dealers` : '/staff/dealers';
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
@@ -240,6 +247,14 @@ export const ZohoDealersPage: React.FC = () => {
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
+  const activeFilterCount = [
+    kamFilter,
+    statusFilter,
+    stateFilter,
+    districtFilter,
+    categoryFilter,
+  ].filter(f => f.length > 0).length;
+
   const renderPaginationBar = (position: 'top' | 'bottom') => (
     <div
       className={`dealers-pagination dealers-pagination--inset dealers-pagination--${position}`}
@@ -326,7 +341,13 @@ export const ZohoDealersPage: React.FC = () => {
         </button>
         <button type="button" className="stat-card glass dealers-kpi" onClick={() => setKamFilter(['unassigned'])}>
           <Briefcase size={18} />
-          <div><h3>Unassigned KAM</h3><p className="stat-value">{stats.unassignedKam}</p></div>
+          <div>
+            <h3>
+              <span className="dealers-kpi__label-long">Unassigned KAM</span>
+              <span className="dealers-kpi__label-short">No KAM</span>
+            </h3>
+            <p className="stat-value">{stats.unassignedKam}</p>
+          </div>
         </button>
       </div>
 
@@ -336,7 +357,7 @@ export const ZohoDealersPage: React.FC = () => {
             <Search size={16} />
             <input
               type="search"
-              placeholder="Search by name or company…"
+              placeholder="Search dealers…"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
@@ -344,14 +365,33 @@ export const ZohoDealersPage: React.FC = () => {
           <div className="dealers-toolbar__actions">
             <button type="button" className="btn btn-primary btn-sm" disabled={syncing} onClick={() => void handleSync()}>
               <RefreshCw size={15} className={syncing ? 'spin-icon' : undefined} />
-              {syncing ? 'Syncing…' : 'Sync from Zoho'}
+              <span className="dealers-toolbar__btn-label">{syncing ? 'Syncing…' : 'Sync from Zoho'}</span>
             </button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => void handleExport()}>
-              <Download size={15} /> Export CSV
+              <Download size={15} />
+              <span className="dealers-toolbar__btn-label">Export CSV</span>
             </button>
           </div>
         </div>
-        <div className="dealers-filters">
+        <div className="dealers-filters-mobile">
+          <MultiSelect
+            className="dealers-filter--state dealers-multiselect--state-cta"
+            placeholder="State"
+            value={stateFilter}
+            onChange={setStateFilter}
+            options={states.map(s => ({ value: s, label: s }))}
+            menuPortal
+          />
+        </div>
+        <details className="dealers-filters-drawer">
+          <summary className="dealers-filters-drawer__summary">
+            <SlidersHorizontal size={15} />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="dealers-filters-drawer__count">{activeFilterCount}</span>
+            )}
+          </summary>
+          <div className="dealers-filters">
           <MultiSelect
             placeholder="KAM"
             value={kamFilter}
@@ -368,6 +408,7 @@ export const ZohoDealersPage: React.FC = () => {
             options={DEALER_STATUS_LEGEND.map(item => ({ value: item.key, label: item.symbol }))}
           />
           <MultiSelect
+            className="dealers-filter--state"
             placeholder="State"
             value={stateFilter}
             onChange={setStateFilter}
@@ -385,10 +426,9 @@ export const ZohoDealersPage: React.FC = () => {
             onChange={setCategoryFilter}
             options={categories.map(c => ({ value: c, label: c }))}
           />
-        </div>
+          </div>
+        </details>
       </div>
-
-      <DealerStatusLegend />
 
       <div className="dealers-table-panel panel glass">
         {renderPaginationBar('top')}
@@ -486,11 +526,7 @@ export const ZohoDealersPage: React.FC = () => {
                 key={dealer.id}
                 dealer={dealer}
                 index={paginationOn ? (page - 1) * limit + idx + 1 : idx + 1}
-                selected={selectedIds.has(dealer.id)}
-                onToggle={() => toggleRow(dealer.id)}
-                kams={kams}
-                categories={categories}
-                onUpdate={patch => void updateField(dealer.id, patch)}
+                onOpen={() => navigate(`${dealersBase}/${dealer.id}`, { state: { dealer } })}
               />
             ))
           )}
@@ -498,6 +534,8 @@ export const ZohoDealersPage: React.FC = () => {
 
         {renderPaginationBar('bottom')}
       </div>
+
+      <DealerStatusLegend />
 
       {selectedIds.size > 0 && (
         <div className="dealers-bulk-bar panel glass">

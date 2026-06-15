@@ -30,6 +30,7 @@ import {
   exportDealersCsv,
   getDealerStatsSummary,
   getDealerLocationsSummary,
+  getDealerRecord,
   patchDealerRecord,
   linkDealerPortalUser,
   readDealerSetting,
@@ -483,6 +484,25 @@ export const getDealers = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     return listDealers(request.data ?? {});
+  },
+);
+
+/** Single dealer by id — staff / super admin. */
+export const getDealer = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const id = String(request.data?.id ?? '').trim();
+    if (!id) throw new HttpsError('invalid-argument', 'id is required.');
+    try {
+      const dealer = await getDealerRecord(id);
+      return { dealer };
+    } catch (err) {
+      if (err?.message === 'Dealer not found.') {
+        throw new HttpsError('not-found', err.message);
+      }
+      throw err;
+    }
   },
 );
 

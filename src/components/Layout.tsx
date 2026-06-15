@@ -197,8 +197,11 @@ export const Layout: React.FC = () => {
   const isProductDetail = /\/products\/[^/]+$/.test(location.pathname)
     || /\/spares\/[^/]+$/.test(location.pathname)
     || /^\/oc\/[^/]+$/.test(location.pathname);
+  const isDealerDetail = /\/dealers\/[^/]+$/.test(location.pathname);
   const pageTitle = isProfileActive
     ? 'Profile'
+    : isDealerDetail
+      ? 'Dealer'
     : isProductDetail
       ? 'Product Details'
       : (currentNavItem?.label ?? 'Dashboard');

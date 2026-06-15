@@ -1,8 +1,9 @@
 import React from 'react';
-import { Phone } from 'lucide-react';
-import type { Kam, ZohoDealer } from '../../types/dealers';
+import { MapPin, Phone, Store } from 'lucide-react';
+import type { ZohoDealer } from '../../types/dealers';
+import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { buildContactLinks } from '../../lib/phoneLinks';
-import { DealerStatusCell } from './DealerStatusCell';
+import { DealerStatusBadge } from './DealerStatusBadge';
 
 function WhatsAppIcon() {
   return (
@@ -15,97 +16,75 @@ function WhatsAppIcon() {
 interface DealerTileProps {
   dealer: ZohoDealer;
   index: number;
-  selected: boolean;
-  onToggle: () => void;
-  kams: Kam[];
-  categories: string[];
-  onUpdate: (patch: Partial<ZohoDealer>) => void;
+  onOpen: () => void;
 }
 
 export const DealerTile: React.FC<DealerTileProps> = ({
   dealer,
   index,
-  selected,
-  onToggle,
-  kams,
-  categories,
-  onUpdate,
+  onOpen,
 }) => {
   const name = dealer.companyName || dealer.contactName;
   const phone = dealer.phone || dealer.mobile;
   const contactLinks = phone ? buildContactLinks(phone) : null;
+  const location = [dealer.district, dealer.billingState].filter(Boolean).join(', ');
+  const statusMeta = getDealerStatusMeta(dealer);
+
+  const stopBubble = (e: React.MouseEvent | React.ChangeEvent) => {
+    e.stopPropagation();
+  };
 
   return (
-    <article className={`dealers-tile panel glass${selected ? ' dealers-tile--selected' : ''}`}>
-      <div className="dealers-tile__header">
-        <label className="dealers-tile__select">
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggle}
-            aria-label={`Select ${name}`}
-          />
-          <span className="dealers-tile__index">#{index}</span>
-        </label>
-        <DealerStatusCell
-          dealer={dealer}
-          onStageChange={stage => void onUpdate({ dealerStage: stage })}
-        />
+    <article
+      className="dealers-tile panel glass"
+      onClick={onOpen}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${name}`}
+    >
+      <div className="dealers-tile__toolbar">
+        <span className="dealers-tile__index">#{index}</span>
+        <div className="dealers-tile__status">
+          <DealerStatusBadge meta={statusMeta} />
+        </div>
       </div>
 
-      <h3 className="dealers-tile__name">{name}</h3>
+      <div className="dealers-tile__main">
+        <div className="dealers-tile__avatar" aria-hidden>
+          <Store size={22} strokeWidth={1.75} />
+        </div>
 
-      <dl className="dealers-tile__meta">
-        <div className="dealers-tile__meta-row">
-          <dt>Contact</dt>
-          <dd>{dealer.firstName || '—'}</dd>
-        </div>
-        <div className="dealers-tile__meta-row">
-          <dt>Phone</dt>
-          <dd>{phone || '—'}</dd>
-        </div>
-        <div className="dealers-tile__meta-row">
-          <dt>State</dt>
-          <dd>{dealer.billingState || '—'}</dd>
-        </div>
-        <div className="dealers-tile__meta-row">
-          <dt>District</dt>
-          <dd>{dealer.district || '—'}</dd>
-        </div>
-      </dl>
+        <div className="dealers-tile__body">
+          <h3 className="dealers-tile__name">{name}</h3>
 
-      <div className="dealers-tile__fields">
-        <label className="dealers-tile__field">
-          <span className="dealers-tile__field-label">KAM</span>
-          <select
-            className="catalog-select dealers-inline-select"
-            value={dealer.kamId ?? ''}
-            onChange={e => void onUpdate({ kamId: e.target.value || null })}
-            aria-label={`KAM for ${name}`}
-          >
-            <option value="">Unassigned</option>
-            {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-          </select>
-        </label>
-        <label className="dealers-tile__field">
-          <span className="dealers-tile__field-label">Category</span>
-          <select
-            className="catalog-select dealers-inline-select"
-            value={dealer.categories[0] ?? ''}
-            onChange={e => {
-              const val = e.target.value;
-              void onUpdate({ categories: val ? [val] : [] });
-            }}
-            aria-label={`Category for ${name}`}
-          >
-            <option value="">—</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </label>
+          {phone && (
+            <p className="dealers-tile__line">
+              <Phone size={14} className="dealers-tile__line-icon" strokeWidth={2} />
+              <span>{phone}</span>
+            </p>
+          )}
+
+          {location && (
+            <p className="dealers-tile__line">
+              <MapPin size={14} className="dealers-tile__line-icon" strokeWidth={2} />
+              <span>{location}</span>
+            </p>
+          )}
+
+          {dealer.firstName && (
+            <p className="dealers-tile__contact">{dealer.firstName}</p>
+          )}
+        </div>
       </div>
 
       {contactLinks && (
-        <div className="dealers-tile__actions">
+        <div className="dealers-tile__actions" onClick={stopBubble}>
           <a
             href={contactLinks.tel}
             className="dealers-tile__action dealers-tile__action--call"

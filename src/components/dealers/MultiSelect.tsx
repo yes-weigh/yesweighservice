@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 
 export interface MultiSelectOption {
@@ -12,6 +13,7 @@ interface MultiSelectProps {
   onChange: (next: string[]) => void;
   placeholder?: string;
   className?: string;
+  menuPortal?: boolean;
 }
 
 export const MultiSelect: React.FC<MultiSelectProps> = ({
@@ -20,19 +22,54 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   onChange,
   placeholder = 'Select…',
   className = '',
+  menuPortal = false,
 }) => {
   const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const updateMenuPosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    setMenuStyle({
+      position: 'fixed',
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+      zIndex: 500,
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open || !menuPortal) return;
+    updateMenuPosition();
+  }, [open, menuPortal]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (menuPortal && (target as Element).closest?.('.dealers-multiselect__menu--portal')) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
+  }, [menuPortal]);
+
+  useEffect(() => {
+    if (!open || !menuPortal) return;
+
+    const onReposition = () => updateMenuPosition();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [open, menuPortal]);
 
   const toggle = (val: string) => {
     if (value.includes(val)) {
@@ -49,30 +86,38 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
         ? options.find(o => o.value === value[0])?.label ?? value[0]
         : `${value.length} selected`;
 
+  const menu = open ? (
+    <div
+      className={`dealers-multiselect__menu panel glass${menuPortal ? ' dealers-multiselect__menu--portal' : ''}`}
+      style={menuPortal ? menuStyle : undefined}
+    >
+      {options.map(opt => (
+        <label key={opt.value} className="dealers-multiselect__option">
+          <input
+            type="checkbox"
+            checked={value.includes(opt.value)}
+            onChange={() => toggle(opt.value)}
+          />
+          <span>{opt.label}</span>
+        </label>
+      ))}
+    </div>
+  ) : null;
+
   return (
     <div className={`dealers-multiselect ${className}`.trim()} ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         className="dealers-multiselect__trigger catalog-select"
         onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
       >
         <span className="dealers-multiselect__label">{label}</span>
         <ChevronDown size={14} />
       </button>
-      {open && (
-        <div className="dealers-multiselect__menu panel glass">
-          {options.map(opt => (
-            <label key={opt.value} className="dealers-multiselect__option">
-              <input
-                type="checkbox"
-                checked={value.includes(opt.value)}
-                onChange={() => toggle(opt.value)}
-              />
-              <span>{opt.label}</span>
-            </label>
-          ))}
-        </div>
-      )}
+      {menu && (menuPortal ? createPortal(menu, document.body) : menu)}
       {value.length > 0 && (
         <button
           type="button"

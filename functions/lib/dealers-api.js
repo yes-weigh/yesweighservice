@@ -15,11 +15,6 @@ import {
   mapDealerForClient,
 } from './dealer-query.js';
 
-async function loadKamMap() {
-  const kams = await readKamsFromFirestore();
-  return new Map(kams.map(k => [k.id, k]));
-}
-
 async function loadPortalUserMap(portalUserIds) {
   const ids = [...new Set(portalUserIds.filter(Boolean))];
   const map = new Map();
@@ -81,6 +76,20 @@ export async function getDealerStatsSummary() {
 export async function getDealerLocationsSummary() {
   const rawDealers = await readAllDealersFromFirestore();
   return dealerLocations(rawDealers);
+}
+
+export async function getDealerRecord(id) {
+  const db = getFirestore();
+  const snap = await db.collection('zohoCustomers').doc(id).get();
+  if (!snap.exists) throw new Error('Dealer not found.');
+
+  const raw = { id: snap.id, ...snap.data() };
+  const [kams, usersById] = await Promise.all([
+    readKamsFromFirestore(),
+    loadPortalUserMap([raw.portalUserId]),
+  ]);
+  const kamsById = new Map(kams.map(k => [k.id, k]));
+  return mapDealerForClient(raw, kamsById, usersById);
 }
 
 export async function patchDealerRecord(id, body = {}) {

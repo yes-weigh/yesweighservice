@@ -79,7 +79,7 @@ const App: React.FC = () => (
               <Route path="spares" element={<DealerMenuPages.Spares />} />
               <Route path="spares/:productId" element={<ProductDetailPage />} />
               <Route path="staff" element={<AdminStaffList />} />
-              <Route path="dealers" element={<AdminDealersList />} />
+              <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>
@@ -91,7 +91,7 @@ const App: React.FC = () => (
               <Route path="tasks" element={<DealerMenuPages.Tasks />} />
               {portalMenuRoutes}
               <Route path="leads" element={<DealerMenuPages.Leads />} />
-              <Route path="dealers" element={<AdminDealersList />} />
+              <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>
