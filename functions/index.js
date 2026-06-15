@@ -23,6 +23,7 @@ import {
   saveProductSpareMap,
   saveSpareProductMap,
 } from './lib/spare-links.js';
+import { deleteManagedUserAccount } from './lib/user-delete.js';
 
 initializeApp();
 
@@ -352,6 +353,32 @@ export const saveCatalogSpareLinks = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not save spare links.');
+    }
+  },
+);
+
+export const deleteManagedUser = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, new Set(['super_admin']));
+
+    const targetUid = request.data?.uid;
+    if (!targetUid || typeof targetUid !== 'string') {
+      throw new HttpsError('invalid-argument', 'User id is required.');
+    }
+    if (targetUid === request.auth.uid) {
+      throw new HttpsError('failed-precondition', 'You cannot delete your own account.');
+    }
+
+    try {
+      return await deleteManagedUserAccount(targetUid);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not delete user.');
     }
   },
 );

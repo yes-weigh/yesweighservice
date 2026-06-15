@@ -1,4 +1,5 @@
 import { signOut, type UserCredential } from 'firebase/auth';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   doc,
   setDoc,
@@ -6,7 +7,7 @@ import {
   deleteDoc,
   type Firestore,
 } from 'firebase/firestore';
-import { secondaryAuth } from '../firebase';
+import { secondaryAuth, app } from '../firebase';
 import {
   assertLoginIdAvailable,
   createAuthUserForLoginId,
@@ -113,4 +114,35 @@ export async function deactivateUser(db: Firestore, uid: string): Promise<void> 
 
 export async function deleteUserProfile(db: Firestore, uid: string): Promise<void> {
   await deleteDoc(doc(db, 'users', uid));
+}
+
+export async function deleteDealerPermanently(uid: string): Promise<void> {
+  const functions = getFunctions(app, 'asia-south1');
+  const callable = httpsCallable<{ uid: string }, { deleted: boolean }>(
+    functions,
+    'deleteManagedUser',
+  );
+  try {
+    await callable({ uid });
+  } catch (err: unknown) {
+    const details =
+      typeof err === 'object' && err !== null && 'details' in err
+        ? (err as { details?: unknown }).details
+        : undefined;
+    const detailMessage =
+      typeof details === 'object' && details !== null && 'message' in details
+        ? String((details as { message: string }).message)
+        : '';
+    const message =
+      typeof err === 'object' && err !== null && 'message' in err
+        ? String((err as { message: string }).message)
+        : '';
+    if (detailMessage) {
+      throw new Error(detailMessage);
+    }
+    if (message.includes('failed-precondition')) {
+      throw new Error(message.replace(/^Firebase: | \(.*\)\.?$/g, ''));
+    }
+    throw new Error(authErrorMessage(err, 'Could not delete dealer'));
+  }
 }

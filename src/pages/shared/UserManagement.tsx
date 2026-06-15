@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
-import { Eye, EyeOff, Pencil, Plus, RefreshCw, Trash2, Save } from 'lucide-react';
+import { Eye, EyeOff, Pencil, Plus, RefreshCw, Trash2, Save, UserX } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { InlineFormPanel } from '../../components/InlineFormPanel';
 import {
   deactivateUser,
+  deleteDealerPermanently,
   registerUser,
   updateUserProfile,
 } from '../../lib/userAdmin';
@@ -179,6 +180,28 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     await deactivateUser(db, record.uid);
     await fetchUsers();
   };
+
+  const handleDeleteDealer = async (record: UserRecord) => {
+    if (!user || user.role !== 'super_admin' || role !== 'dealer' || record.uid === user.uid) {
+      return;
+    }
+    const ok = await confirm({
+      title: 'Delete dealer permanently',
+      message: `Permanently delete ${record.displayName}? This removes their account and login. Dealer staff must be removed first. This cannot be undone.`,
+      confirmLabel: 'Delete permanently',
+      destructive: true,
+    });
+    if (!ok) return;
+    setError('');
+    try {
+      await deleteDealerPermanently(record.uid);
+      await fetchUsers();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
+  const canDeleteDealer = user?.role === 'super_admin' && role === 'dealer';
 
   const dealerName = (dealerId?: string) =>
     dealers.find(d => d.uid === dealerId)?.displayName ?? '—';
@@ -382,6 +405,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             className="btn-icon text-red"
                             title="Deactivate"
                             onClick={() => void handleDeactivate(record)}
+                          >
+                            <UserX size={16} />
+                          </button>
+                        )}
+                        {canDeleteDealer && record.uid !== user?.uid && (
+                          <button
+                            type="button"
+                            className="btn-icon text-red"
+                            title="Delete permanently"
+                            onClick={() => void handleDeleteDealer(record)}
                           >
                             <Trash2 size={16} />
                           </button>
