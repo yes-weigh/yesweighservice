@@ -95,6 +95,7 @@ The `FIREBASE_SERVICE_ACCOUNT` secret should use a service account with at least
 - Cloud Build Editor (for 2nd gen functions)
 - **Secret Manager Admin** (functions + CI post-deploy catalog sync read Zoho credentials)
 - **Storage Admin** (deploy `storage.rules` and cache catalog images)
+- **Cloud Scheduler Admin** (`roles/cloudscheduler.admin`) — CI must update the `syncZohoCatalogScheduled` job; without it deploy fails with `cloudscheduler.jobs.update` permission denied
 
 CI passes `--force` on function deploys so Firebase can set the Artifact Registry cleanup policy non-interactively.
 
@@ -112,9 +113,9 @@ Add a GitHub Actions secret **`ZOHO_ORGANIZATION_ID`** (Zoho Inventory → Setti
 
 Cloud Functions (2nd gen) also require the Firebase project on the **Blaze (pay as you go)** plan with a billing account linked. If deploy fails with `cloudbilling.googleapis.com`, enable [Cloud Billing API](https://console.cloud.google.com/apis/library/cloudbilling.googleapis.com?project=yesweigh-service) and upgrade at [Firebase Usage and billing](https://console.firebase.google.com/project/yesweigh-service/usage/details).
 
-CI deploys hosting, Firestore, and Functions first; Storage rules deploy in a separate step so a Storage API issue is easier to spot. Re-run the workflow after enabling any missing API.
+CI deploys hosting and Firestore first, then Functions, then Storage rules in separate steps so a Functions or Storage issue does not block the rest. Re-run the workflow after fixing any missing API or IAM permission.
 
-If function deploy fails with `cloudscheduler.googleapis.com`, a **project owner** must enable [Cloud Scheduler API](https://console.cloud.google.com/apis/library/cloudscheduler.googleapis.com?project=yesweigh-service) once, then redeploy functions.
+If function deploy fails with `cloudscheduler.jobs.update`, a **project owner** must grant the CI service account **Cloud Scheduler Admin** on [IAM](https://console.cloud.google.com/iam-admin/iam?project=yesweigh-service), then re-run the workflow. (Enabling the [Cloud Scheduler API](https://console.cloud.google.com/apis/library/cloudscheduler.googleapis.com?project=yesweigh-service) alone is not enough.)
 
 ## Firebase project
 
