@@ -1,7 +1,7 @@
 import React from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { homePathForRole } from '../types';
+import { homePathForRole, canUseCart } from '../types';
 import type { CatalogProduct } from '../types/catalog';
 import { ProductDetailView } from '../components/catalog/ProductDetailView';
 
@@ -15,8 +15,7 @@ export const ProductDetailPage: React.FC = () => {
   const preview = (location.state as { preview?: CatalogProduct } | null)?.preview ?? null;
   const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin';
   const showStockQuantity = showWarehouseStock;
-  const showCartActions =
-    user?.role === 'dealer' || user?.role === 'dealer_staff' || user?.role === 'staff';
+  const showCartActions = canUseCart(user?.role);
   const manageSpareLinks = user?.role === 'staff' || user?.role === 'super_admin';
   const showRelatedLinks =
     !isPublic

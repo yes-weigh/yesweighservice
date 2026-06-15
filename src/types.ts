@@ -97,3 +97,7 @@ export function canManageRole(actor: Role, target: Role): boolean {
 export function isOpsRole(role: Role): boolean {
   return role === 'super_admin' || role === 'staff';
 }
+
+export function canUseCart(role: Role | undefined): boolean {
+  return role === 'dealer' || role === 'dealer_staff';
+}

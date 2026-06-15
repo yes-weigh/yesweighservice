@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
-import { homePathForRole } from '../types';
+import { homePathForRole, canUseCart } from '../types';
 import {
   LayoutDashboard,
   Package,
@@ -113,8 +113,8 @@ export const Layout: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
-  const showCartFlyTarget =
-    user?.role === 'dealer' || user?.role === 'dealer_staff' || user?.role === 'staff';
+  const showCartFlyTarget = canUseCart(user?.role);
+  const cartBadgeCount = showCartFlyTarget ? itemCount : 0;
 
   useEffect(() => {
     if (showCartFlyTarget) {
@@ -144,12 +144,12 @@ export const Layout: React.FC = () => {
           { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
-          ...portalNavItems('/staff', itemCount, 'staff'),
+          ...portalNavItems('/staff', cartBadgeCount, 'staff'),
         ];
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          ...portalNavItems('/dealer', itemCount),
+          ...portalNavItems('/dealer', cartBadgeCount),
           { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
         ];
       case 'dealer_staff':
@@ -163,7 +163,7 @@ export const Layout: React.FC = () => {
             path: '/dealer-staff/orders',
             icon: <ShoppingCart size={20} />,
             label: 'Orders',
-            badge: itemCount > 0 ? itemCount : undefined,
+            badge: cartBadgeCount > 0 ? cartBadgeCount : undefined,
           },
           {
             path: '/dealer-staff/verification',

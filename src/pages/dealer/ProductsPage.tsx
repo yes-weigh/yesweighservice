@@ -11,6 +11,7 @@ import {
   syncCatalog,
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
+import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogResponse } from '../../types/catalog';
 
 export const ProductsPage: React.FC = () => {
@@ -178,7 +179,7 @@ export const ProductsPage: React.FC = () => {
           ) : undefined
         }
         productsBasePath={pathname}
-        enableCart={user?.role === 'dealer' || user?.role === 'dealer_staff' || user?.role === 'staff'}
+        enableCart={canUseCart(user?.role)}
         showStockQuantity={canSync}
       />
     </div>

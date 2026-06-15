@@ -8,6 +8,7 @@ import {
   getUncategorizedProducts,
   syncCatalog,
 } from '../../lib/catalog';
+import { canUseCart } from '../../types';
 import type { CatalogResponse } from '../../types/catalog';
 
 export const SparesPage: React.FC = () => {
@@ -120,7 +121,7 @@ export const SparesPage: React.FC = () => {
           ) : undefined
         }
         productsBasePath={pathname}
-        enableCart={user?.role === 'dealer' || user?.role === 'dealer_staff' || user?.role === 'staff'}
+        enableCart={canUseCart(user?.role)}
         showStockQuantity={canSync}
       />
     </div>
