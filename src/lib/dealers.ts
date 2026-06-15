@@ -116,4 +116,56 @@ export async function saveDealerCategories(categories: string[]): Promise<void> 
   await fn({ key: 'dealer_categories', value: categories });
 }
 
+export async function fetchDealerSetting<T>(key: string, fallback: T): Promise<T> {
+  const fn = httpsCallable(functions, 'getDealerSetting');
+  const result = await fn({ key, fallback });
+  const value = (result.data as { value?: T }).value;
+  return value ?? fallback;
+}
+
+export async function importCrmDealerOverlay(): Promise<{
+  sourceProject: string;
+  deactivatedNames: number;
+  deactivatedMatched: number;
+  overrideNames: number;
+  overridesMatched: number;
+  overridesSkipped: number;
+  documentsUpdated: number;
+  zipCodesStored: number;
+  dealerCategoriesStored: number;
+  dealerStagesStored: number;
+}> {
+  const fn = httpsCallable(functions, 'importCrmDealerOverlayFn', { timeout: 600_000 });
+  const result = await fn();
+  return result.data as {
+    sourceProject: string;
+    deactivatedNames: number;
+    deactivatedMatched: number;
+    overrideNames: number;
+    overridesMatched: number;
+    overridesSkipped: number;
+    documentsUpdated: number;
+    zipCodesStored: number;
+    dealerCategoriesStored: number;
+    dealerStagesStored: number;
+  };
+}
+
+/** @deprecated Use importCrmDealerOverlay */
+export const importDealerLegacyOverrides = importCrmDealerOverlay;
+
+export async function backfillDealerLocations(): Promise<{
+  offlineFixedCount: number;
+  deepFetchCount: number;
+  totalAttempted: number;
+}> {
+  const fn = httpsCallable(functions, 'backfillDealerLocationsFn', { timeout: 600_000 });
+  const result = await fn();
+  return result.data as {
+    offlineFixedCount: number;
+    deepFetchCount: number;
+    totalAttempted: number;
+  };
+}
+
 export { dealerErrorMessage };

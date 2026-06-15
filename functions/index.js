@@ -35,6 +35,10 @@ import {
   readDealerSetting,
   writeDealerSetting,
 } from './lib/dealers-api.js';
+import {
+  importCrmDealerOverlay,
+  backfillDealerLocations,
+} from './lib/dealer-legacy-import.js';
 
 initializeApp();
 
@@ -598,5 +602,46 @@ export const setDealerSetting = onCall(
     if (!key) throw new HttpsError('invalid-argument', 'key is required.');
     const value = await writeDealerSetting(key, request.data?.value);
     return { value };
+  },
+);
+
+/** Apply KAM/stage/deactivation overlay from yesweighmomentumhub CRM Firebase — staff / super admin. */
+export const importCrmDealerOverlayFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 540, memory: '512MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      const result = await importCrmDealerOverlay();
+      return result;
+    } catch (err) {
+      console.error('importCrmDealerOverlay failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'CRM dealer overlay import failed.');
+    }
+  },
+);
+
+/** @deprecated Use importCrmDealerOverlayFn */
+export const importDealerLegacyOverridesFn = importCrmDealerOverlayFn;
+
+/** Backfill dealer state/district/zip from cache + Zoho detail — staff / super admin. */
+export const backfillDealerLocationsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      const result = await backfillDealerLocations(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+      return result;
+    } catch (err) {
+      console.error('backfillDealerLocations failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Location backfill failed.');
+    }
   },
 );

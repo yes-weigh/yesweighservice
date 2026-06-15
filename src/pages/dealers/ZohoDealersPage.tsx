@@ -21,9 +21,12 @@ import {
   exportDealersCsv,
   fetchDealerCategories,
   fetchDealerLocations,
+  fetchDealerSetting,
   fetchDealers,
   fetchDealerStats,
   fetchKams,
+  importCrmDealerOverlay,
+  backfillDealerLocations,
   linkDealerPortalUser,
   patchDealer,
   syncZohoCustomers,
@@ -62,6 +65,10 @@ export const ZohoDealersPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [importingCrmOverlay, setImportingCrmOverlay] = useState(false);
+  const [backfillingLocations, setBackfillingLocations] = useState(false);
+  const [crmOverlayDone, setCrmOverlayDone] = useState(false);
+  const [locationsBackfilled, setLocationsBackfilled] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [stats, setStats] = useState({ total: 0, active: 0, blacklisted: 0, inactive: 0, unassignedKam: 0 });
@@ -101,17 +108,21 @@ export const ZohoDealersPage: React.FC = () => {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [statsRes, locRes, kamsRes, catsRes] = await Promise.all([
+      const [statsRes, locRes, kamsRes, catsRes, crmOverlayDoneRes, locDone] = await Promise.all([
         fetchDealerStats(),
         fetchDealerLocations(),
         fetchKams(),
         fetchDealerCategories(),
+        fetchDealerSetting('crm_overlay_import_done', false),
+        fetchDealerSetting('locations_backfilled', false),
       ]);
       setStats(statsRes);
       setStates(locRes.states);
       setDistrictsByState(locRes.districtsByState);
       setKams(kamsRes);
       setCategories(catsRes);
+      setCrmOverlayDone(Boolean(crmOverlayDoneRes));
+      setLocationsBackfilled(Boolean(locDone));
     } catch (err) {
       console.error('Dealer meta load failed:', err);
       setError(dealerErrorMessage(err));
@@ -167,6 +178,72 @@ export const ZohoDealersPage: React.FC = () => {
       setError(dealerErrorMessage(err));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleImportCrmOverlay = async () => {
+    const proceed = crmOverlayDone
+      ? await confirm({
+        title: 'Re-import CRM overlay?',
+        message: 'Reads current KAM, stages, and deactivations from yesweighmomentumhub Firebase and merges them onto Zoho dealers.',
+        confirmLabel: 'Import again',
+      })
+      : await confirm({
+        title: 'Import CRM overlay from Firebase?',
+        message: 'Copies current dealer KAM, stages, deactivations, categories, and zip codes from yesweighmomentumhub Firebase onto your Zoho-synced dealers. Run Sync from Zoho first.',
+        confirmLabel: 'Import CRM overlay',
+      });
+    if (!proceed) return;
+
+    setImportingCrmOverlay(true);
+    setError('');
+    setSuccess('');
+    try {
+      const result = await importCrmDealerOverlay();
+      await loadMeta();
+      await loadDealers();
+      setCrmOverlayDone(true);
+      setSuccess(
+        `CRM overlay imported from ${result.sourceProject}: `
+        + `${result.overridesMatched} overrides, ${result.deactivatedMatched} deactivations, `
+        + `${result.documentsUpdated} documents updated.`
+        + (result.overridesSkipped
+          ? ` ${result.overridesSkipped} CRM names had no Zoho match.`
+          : ''),
+      );
+    } catch (err) {
+      console.error('CRM dealer overlay import failed:', err);
+      setError(dealerErrorMessage(err));
+    } finally {
+      setImportingCrmOverlay(false);
+    }
+  };
+
+  const handleBackfillLocations = async () => {
+    const proceed = await confirm({
+      title: 'Backfill dealer locations?',
+      message: 'Normalizes districts from zip cache, then fetches missing state/district/zip from Zoho (slow — one API call per dealer).',
+      confirmLabel: 'Backfill locations',
+    });
+    if (!proceed) return;
+
+    setBackfillingLocations(true);
+    setError('');
+    setSuccess('');
+    try {
+      const result = await backfillDealerLocations();
+      await loadMeta();
+      await loadDealers();
+      setLocationsBackfilled(true);
+      setSuccess(
+        `Location backfill done: ${result.offlineFixedCount} districts normalized, `
+        + `${result.deepFetchCount} dealers updated from Zoho (${result.totalAttempted} attempted).`,
+      );
+    } catch (err) {
+      console.error('Location backfill failed:', err);
+      setError(dealerErrorMessage(err));
+    } finally {
+      setBackfillingLocations(false);
     }
   };
 
@@ -343,6 +420,24 @@ export const ZohoDealersPage: React.FC = () => {
           <button type="button" className="btn btn-primary" disabled={syncing} onClick={() => void handleSync()}>
             <RefreshCw size={16} className={syncing ? 'spin-icon' : undefined} />
             {syncing ? 'Syncing…' : 'Sync from Zoho'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={importingCrmOverlay}
+            onClick={() => void handleImportCrmOverlay()}
+            title={crmOverlayDone ? 'CRM overlay already imported — click to re-import from Firebase' : 'Import KAM/stages from yesweighmomentumhub Firebase'}
+          >
+            {importingCrmOverlay ? 'Importing…' : crmOverlayDone ? 'Re-import CRM overlay' : 'Import CRM overlay'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={backfillingLocations}
+            onClick={() => void handleBackfillLocations()}
+            title={locationsBackfilled ? 'Locations already backfilled — click to run again' : 'Fill missing state/district/zip from Zoho'}
+          >
+            {backfillingLocations ? 'Backfilling…' : locationsBackfilled ? 'Re-backfill locations' : 'Backfill locations'}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => void handleExport()}>
             <Download size={16} /> Export CSV
