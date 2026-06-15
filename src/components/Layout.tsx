@@ -24,6 +24,8 @@ import {
   Building2,
   Menu,
   X,
+  UserRoundPlus,
+  ListTodo,
 } from 'lucide-react';
 import { Logo } from './Logo';
 
@@ -33,6 +35,61 @@ type NavItem = {
   label: string;
   badge?: number;
 };
+
+function portalNavItems(home: string, itemCount: number, order: 'default' | 'staff' = 'default'): NavItem[] {
+  const items: Record<string, NavItem> = {
+    products: { path: `${home}/products`, icon: <Package size={20} />, label: 'Products' },
+    orders: {
+      path: `${home}/orders`,
+      icon: <ShoppingCart size={20} />,
+      label: 'Orders',
+      badge: itemCount > 0 ? itemCount : undefined,
+    },
+    spares: { path: `${home}/spares`, icon: <Boxes size={20} />, label: 'Spares' },
+    complaints: { path: `${home}/complaints`, icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
+    services: { path: `${home}/services`, icon: <Wrench size={20} />, label: 'Services' },
+    returns: { path: `${home}/returns`, icon: <RotateCcw size={20} />, label: 'Returns' },
+    verification: { path: `${home}/verification`, icon: <ShieldCheck size={20} />, label: 'Verifications' },
+    advertisements: { path: `${home}/advertisements`, icon: <Megaphone size={20} />, label: 'Advertisement' },
+    invoices: { path: `${home}/invoices`, icon: <FileText size={20} />, label: 'Invoice' },
+    aiAssistant: { path: `${home}/ai-assistant`, icon: <Bot size={20} />, label: 'AI assistance' },
+    notifications: { path: `${home}/notifications`, icon: <Bell size={20} />, label: 'Notifications' },
+    training: { path: `${home}/training`, icon: <GraduationCap size={20} />, label: 'Trainings' },
+  };
+
+  const sequence =
+    order === 'staff'
+      ? [
+          'orders',
+          'products',
+          'spares',
+          'complaints',
+          'services',
+          'returns',
+          'verification',
+          'advertisements',
+          'invoices',
+          'aiAssistant',
+          'notifications',
+          'training',
+        ]
+      : [
+          'products',
+          'orders',
+          'spares',
+          'complaints',
+          'services',
+          'returns',
+          'verification',
+          'advertisements',
+          'invoices',
+          'aiAssistant',
+          'notifications',
+          'training',
+        ];
+
+  return sequence.map((key) => items[key]);
+}
 
 export const Layout: React.FC = () => {
   const { user } = useAuth();
@@ -56,7 +113,8 @@ export const Layout: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
-  const showCartFlyTarget = user?.role === 'dealer' || user?.role === 'dealer_staff';
+  const showCartFlyTarget =
+    user?.role === 'dealer' || user?.role === 'dealer_staff' || user?.role === 'staff';
 
   useEffect(() => {
     if (showCartFlyTarget) {
@@ -83,40 +141,16 @@ export const Layout: React.FC = () => {
       case 'staff':
         return [
           { path: '/staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/staff/products', icon: <Package size={20} />, label: 'Products' },
-          { path: '/staff/spares', icon: <Boxes size={20} />, label: 'Spares' },
+          { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
-          { path: '/staff/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
+          { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
+          ...portalNavItems('/staff', itemCount, 'staff'),
         ];
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/dealer/products', icon: <Package size={20} />, label: 'Products' },
-          {
-            path: '/dealer/orders',
-            icon: <ShoppingCart size={20} />,
-            label: 'Orders',
-            badge: itemCount > 0 ? itemCount : undefined,
-          },
-          { path: '/dealer/spares', icon: <Boxes size={20} />, label: 'Spares' },
-          { path: '/dealer/complaints', icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
-          { path: '/dealer/services', icon: <Wrench size={20} />, label: 'Services' },
-          { path: '/dealer/returns', icon: <RotateCcw size={20} />, label: 'Returns' },
-          {
-            path: '/dealer/verification',
-            icon: <ShieldCheck size={20} />,
-            label: 'Verifications',
-          },
-          {
-            path: '/dealer/advertisements',
-            icon: <Megaphone size={20} />,
-            label: 'Advertisement',
-          },
-          { path: '/dealer/invoices', icon: <FileText size={20} />, label: 'Invoice' },
+          ...portalNavItems('/dealer', itemCount),
           { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
-          { path: '/dealer/ai-assistant', icon: <Bot size={20} />, label: 'AI assistance' },
-          { path: '/dealer/notifications', icon: <Bell size={20} />, label: 'Notifications' },
-          { path: '/dealer/training', icon: <GraduationCap size={20} />, label: 'Trainings' },
         ];
       case 'dealer_staff':
         return [

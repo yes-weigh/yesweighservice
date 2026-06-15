@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, UserCog } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => (
   <div className="page-content fade-in">
@@ -8,14 +8,7 @@ export const StaffDashboard: React.FC = () => (
         <div className="stat-icon"><Building2 size={28} /></div>
         <div>
           <h3>Dealers</h3>
-          <p className="text-muted text-sm">Onboard & manage dealer accounts</p>
-        </div>
-      </div>
-      <div className="stat-card glass">
-        <div className="stat-icon"><UserCog size={28} /></div>
-        <div>
-          <h3>Dealer Staff</h3>
-          <p className="text-muted text-sm">Assign staff under each dealer</p>
+          <p className="text-muted text-sm">Onboard and manage dealer accounts</p>
         </div>
       </div>
     </div>
@@ -23,8 +16,8 @@ export const StaffDashboard: React.FC = () => (
     <div className="panel glass">
       <h2>YesWeigh Staff Portal</h2>
       <p className="text-muted mt-4">
-        Authorised company staff can credential dealers and dealer staff — the same
-        operational access as super admin for field onboarding, without staff-user management.
+        Authorised company staff can credential dealers and run day-to-day service
+        operations — products, orders, spares, and customer workflows.
       </p>
     </div>
   </div>

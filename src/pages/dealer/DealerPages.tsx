@@ -85,4 +85,16 @@ export const DealerMenuPages = {
       description="Your YesWeigh AI assistant for service guidance, documentation lookup, and operational support."
     />
   ),
+  Leads: () => (
+    <PagePlaceholder
+      title="Leads"
+      description="Track sales leads, inquiries, and follow-ups across dealers and regions."
+    />
+  ),
+  Tasks: () => (
+    <PagePlaceholder
+      title="Tasks"
+      description="Assign, track, and complete daily work items across your team."
+    />
+  ),
 };

@@ -23,9 +23,8 @@ const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }
   return <Navigate to={pathname.replace(from, to)} replace />;
 };
 
-const dealerRoutes = (
+const portalMenuRoutes = (
   <>
-    <Route index element={<RoleDashboard />} />
     <Route path="service" element={<Navigate to="../services" replace />} />
     <Route path="services" element={<DealerMenuPages.Services />} />
     <Route path="returns" element={<DealerMenuPages.Returns />} />
@@ -40,8 +39,15 @@ const dealerRoutes = (
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
     <Route path="training" element={<DealerMenuPages.Training />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
-    <Route path="team" element={<DealerTeamPage />} />
     <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
+  </>
+);
+
+const dealerRoutes = (
+  <>
+    <Route index element={<RoleDashboard />} />
+    {portalMenuRoutes}
+    <Route path="team" element={<DealerTeamPage />} />
     <Route path="profile" element={<ProfilePage />} />
   </>
 );
@@ -63,7 +69,7 @@ const App: React.FC = () => (
           <Route path="/super-admin/directors/*" element={<Navigate to="/super-admin/dealers" replace />} />
           <Route path="/super-admin/director-staff/*" element={<Navigate to="/super-admin/dealer-staff" replace />} />
           <Route path="/staff/directors/*" element={<Navigate to="/staff/dealers" replace />} />
-          <Route path="/staff/director-staff/*" element={<Navigate to="/staff/dealer-staff" replace />} />
+          <Route path="/staff/director-staff/*" element={<Navigate to="/staff/dealers" replace />} />
 
           <Route element={<ProtectedRoute allowedRoles={['super_admin']} />}>
             <Route path="/super-admin" element={<Layout />}>
@@ -82,12 +88,10 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['staff']} />}>
             <Route path="/staff" element={<Layout />}>
               <Route index element={<StaffDashboard />} />
-              <Route path="products" element={<DealerMenuPages.Products />} />
-              <Route path="products/:productId" element={<ProductDetailPage />} />
-              <Route path="spares" element={<DealerMenuPages.Spares />} />
-              <Route path="spares/:productId" element={<ProductDetailPage />} />
+              <Route path="tasks" element={<DealerMenuPages.Tasks />} />
+              {portalMenuRoutes}
+              <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers" element={<AdminDealersList />} />
-              <Route path="dealer-staff" element={<AdminDealerStaffList />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>

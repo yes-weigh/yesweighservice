@@ -120,7 +120,7 @@ export const SparesPage: React.FC = () => {
           ) : undefined
         }
         productsBasePath={pathname}
-        enableCart={user?.role === 'dealer' || user?.role === 'dealer_staff'}
+        enableCart={user?.role === 'dealer' || user?.role === 'dealer_staff' || user?.role === 'staff'}
       />
     </div>
   );
