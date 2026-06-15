@@ -480,7 +480,7 @@ export const ZohoDealersPage: React.FC = () => {
           ) : dealers.length === 0 ? (
             <p className="dealers-tiles__empty">No dealers found. Sync from Zoho to get started.</p>
           ) : (
-            dealers.map((dealer, idx) => (
+            dealers.map(dealer => (
               <DealerTile
                 key={dealer.id}
                 dealer={dealer}
