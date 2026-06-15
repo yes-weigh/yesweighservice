@@ -12,17 +12,32 @@ import { DEFAULT_DEALER_CATEGORIES } from '../types/dealers';
 const functions = getFunctions(app, 'asia-south1');
 
 function dealerErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'message' in err) {
-    return String((err as { message: string }).message);
+  if (err && typeof err === 'object') {
+    const fb = err as { code?: string; message?: string; details?: unknown };
+    const code = fb.code ? String(fb.code) : '';
+    const message = fb.message ? String(fb.message) : '';
+    if (code === 'functions/deadline-exceeded' || message.includes('deadline-exceeded')) {
+      return 'Sync timed out. The server may still be running — wait a minute and click Refresh.';
+    }
+    if (code === 'functions/not-found' || message.includes('not-found')) {
+      return 'Dealer functions are not deployed yet. Push to main or deploy Cloud Functions.';
+    }
+    if (code === 'functions/permission-denied') {
+      return 'You do not have permission to sync dealers.';
+    }
+    if (message) return message;
   }
   return 'Dealer request failed.';
 }
 
 export async function syncZohoCustomers(): Promise<number> {
-  const fn = httpsCallable(functions, 'syncZohoCustomers');
+  const fn = httpsCallable<undefined, { syncedCount?: number }>(
+    functions,
+    'syncZohoCustomers',
+    { timeout: 600_000 },
+  );
   const result = await fn();
-  const data = result.data as { syncedCount?: number };
-  return data.syncedCount ?? 0;
+  return result.data.syncedCount ?? 0;
 }
 
 export async function fetchDealers(params: DealerListParams): Promise<DealerListResponse> {

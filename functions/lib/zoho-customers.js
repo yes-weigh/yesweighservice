@@ -1,6 +1,5 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
-import { normalizeStateName, normalizeDistrictName, resolveLiveZipDistrict } from './location-utils.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const SETTINGS_COLLECTION = 'dealerSettings';
@@ -102,15 +101,13 @@ export async function syncCustomersToFirestore(secrets, orgId) {
   const organizationId = await resolveOrganizationId(accessToken, orgId);
   const raw = await fetchCustomersPage(accessToken, organizationId);
   const customers = processCustomers(raw);
+  console.info(`Zoho customer sync: fetched ${raw.length} contacts, ${customers.length} after processing`);
 
   const db = getFirestore();
   const existingSnap = await db.collection(CUSTOMERS_COLLECTION).get();
   const existingMap = new Map(
     existingSnap.docs.map(d => [d.id, d.data()]),
   );
-
-  const zipDoc = await db.collection(SETTINGS_COLLECTION).doc('zip_codes').get();
-  const zipCodesCache = zipDoc.exists ? (zipDoc.data()?.value ?? {}) : {};
 
   let count = 0;
   const batchSize = 400;
@@ -127,27 +124,8 @@ export async function syncCustomersToFirestore(secrets, orgId) {
     let district = existing?.district ?? null;
     let zipCode = existing?.zipCode ?? null;
 
-    if (!existing) {
-      try {
-        const detail = await fetchRawCustomerDetail(accessToken, organizationId, customer.id);
-        const shipping = detail?.shipping_address;
-        const billing = detail?.billing_address;
-        const address = (shipping && (shipping.state || shipping.city)) ? shipping : billing;
-        if (address) {
-          billingState = normalizeStateName(address.state || address.state_code);
-          zipCode = address.zip || billing?.zip || shipping?.zip || null;
-          district = address.city || null;
-          if (zipCode) {
-            const liveDist = await resolveLiveZipDistrict(zipCode, zipCodesCache);
-            if (liveDist) district = liveDist;
-          }
-          district = normalizeDistrictName(district);
-        }
-        await new Promise(r => setTimeout(r, 200));
-      } catch {
-        // location optional for new rows
-      }
-    }
+    // Skip per-contact Zoho detail fetch during bulk sync — it adds minutes on first
+    // import (one API call + delay per new customer). Location can be edited later.
 
     const ref = db.collection(CUSTOMERS_COLLECTION).doc(customer.id);
     const base = {
@@ -198,6 +176,8 @@ export async function syncCustomersToFirestore(secrets, orgId) {
     customerCount: count,
   }, { merge: true });
 
+  const visible = customers.filter(c => !c.isFiltered || c.filterReason !== 'Manual').length;
+  console.info(`Zoho customer sync complete: upserted ${count}, visible roster ~${visible}`);
   return count;
 }
 

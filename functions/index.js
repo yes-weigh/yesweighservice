@@ -463,8 +463,13 @@ export const syncZohoCustomers = onCall(
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
-    const count = await syncCustomersToFirestore(zohoSecrets(), zohoOrganizationId.value());
-    return { syncedCount: count };
+    try {
+      const count = await syncCustomersToFirestore(zohoSecrets(), zohoOrganizationId.value());
+      return { syncedCount: count };
+    } catch (err) {
+      console.error('syncZohoCustomers failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Zoho customer sync failed.');
+    }
   },
 );
 

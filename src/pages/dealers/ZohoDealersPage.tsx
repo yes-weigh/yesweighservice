@@ -100,17 +100,22 @@ export const ZohoDealersPage: React.FC = () => {
   }, [districtsByState, stateFilter]);
 
   const loadMeta = useCallback(async () => {
-    const [statsRes, locRes, kamsRes, catsRes] = await Promise.all([
-      fetchDealerStats(),
-      fetchDealerLocations(),
-      fetchKams(),
-      fetchDealerCategories(),
-    ]);
-    setStats(statsRes);
-    setStates(locRes.states);
-    setDistrictsByState(locRes.districtsByState);
-    setKams(kamsRes);
-    setCategories(catsRes);
+    try {
+      const [statsRes, locRes, kamsRes, catsRes] = await Promise.all([
+        fetchDealerStats(),
+        fetchDealerLocations(),
+        fetchKams(),
+        fetchDealerCategories(),
+      ]);
+      setStats(statsRes);
+      setStates(locRes.states);
+      setDistrictsByState(locRes.districtsByState);
+      setKams(kamsRes);
+      setCategories(catsRes);
+    } catch (err) {
+      console.error('Dealer meta load failed:', err);
+      setError(dealerErrorMessage(err));
+    }
   }, []);
 
   const loadDealers = useCallback(async () => {
@@ -147,12 +152,18 @@ export const ZohoDealersPage: React.FC = () => {
   const handleSync = async () => {
     setSyncing(true);
     setError('');
+    setSuccess('');
     try {
       const count = await syncZohoCustomers();
       await loadMeta();
       await loadDealers();
-      setSuccess(`Synced ${count} dealers from Zoho.`);
+      if (count === 0) {
+        setError('Sync finished but Zoho returned 0 customers. Check Zoho Inventory contacts and API scopes.');
+      } else {
+        setSuccess(`Synced ${count} dealers from Zoho. Visible rows exclude filtered/blacklisted entries.`);
+      }
     } catch (err) {
+      console.error('Zoho dealer sync failed:', err);
       setError(dealerErrorMessage(err));
     } finally {
       setSyncing(false);
