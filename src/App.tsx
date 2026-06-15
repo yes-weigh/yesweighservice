@@ -70,6 +70,8 @@ const App: React.FC = () => (
               <Route index element={<SuperAdminDashboard />} />
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="products/:productId" element={<ProductDetailPage />} />
+              <Route path="spares" element={<DealerMenuPages.Spares />} />
+              <Route path="spares/:productId" element={<ProductDetailPage />} />
               <Route path="staff" element={<AdminStaffList />} />
               <Route path="dealers" element={<AdminDealersList />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
@@ -82,6 +84,8 @@ const App: React.FC = () => (
               <Route index element={<StaffDashboard />} />
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="products/:productId" element={<ProductDetailPage />} />
+              <Route path="spares" element={<DealerMenuPages.Spares />} />
+              <Route path="spares/:productId" element={<ProductDetailPage />} />
               <Route path="dealers" element={<AdminDealersList />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
               <Route path="profile" element={<ProfilePage />} />
@@ -101,6 +105,8 @@ const App: React.FC = () => (
               <Route path="returns" element={<DealerMenuPages.Returns />} />
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="products/:productId" element={<ProductDetailPage />} />
+              <Route path="spares" element={<DealerMenuPages.Spares />} />
+              <Route path="spares/:productId" element={<ProductDetailPage />} />
               <Route path="orders" element={<DealerMenuPages.Orders />} />
               <Route path="verification" element={<DealerMenuPages.Verification />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />

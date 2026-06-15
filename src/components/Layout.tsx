@@ -75,6 +75,7 @@ export const Layout: React.FC = () => {
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/products', icon: <Package size={20} />, label: 'Products' },
+          { path: '/super-admin/spares', icon: <Boxes size={20} />, label: 'Spares' },
           { path: '/super-admin/staff', icon: <Users size={20} />, label: 'Staff' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
@@ -83,6 +84,7 @@ export const Layout: React.FC = () => {
         return [
           { path: '/staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/staff/products', icon: <Package size={20} />, label: 'Products' },
+          { path: '/staff/spares', icon: <Boxes size={20} />, label: 'Spares' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
         ];
@@ -122,6 +124,7 @@ export const Layout: React.FC = () => {
           { path: '/dealer-staff/service', icon: <Wrench size={20} />, label: 'Service' },
           { path: '/dealer-staff/returns', icon: <RotateCcw size={20} />, label: 'Returns' },
           { path: '/dealer-staff/products', icon: <Package size={20} />, label: 'Products' },
+          { path: '/dealer-staff/spares', icon: <Boxes size={20} />, label: 'Spares' },
           {
             path: '/dealer-staff/orders',
             icon: <ShoppingCart size={20} />,

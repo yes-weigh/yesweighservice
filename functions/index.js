@@ -17,6 +17,12 @@ import {
   saveCategoryOrder,
   uploadCategoryThumbnail,
 } from './lib/catalog-sync.js';
+import {
+  getLinkedSparesForProduct,
+  getLinkedProductsForSpare,
+  saveProductSpareMap,
+  saveSpareProductMap,
+} from './lib/spare-links.js';
 
 initializeApp();
 
@@ -283,6 +289,70 @@ export const assignCatalogProductCategory = onCall(
     await patchProductCategory(productId, categoryId, categoryName);
 
     return { ok: true };
+  },
+);
+
+/** Read product↔spare links (dealers read; staff manage). */
+export const getCatalogSpareLinks = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    const spareId = String(request.data?.spareId ?? '').trim();
+
+    if (Boolean(productId) === Boolean(spareId)) {
+      throw new HttpsError('invalid-argument', 'Provide exactly one of productId or spareId.');
+    }
+
+    try {
+      if (productId) {
+        const items = await getLinkedSparesForProduct(productId);
+        return { kind: 'spares', items };
+      }
+      const items = await getLinkedProductsForSpare(spareId);
+      return { kind: 'products', items };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not load spare links.');
+    }
+  },
+);
+
+/** Save product↔spare links from product or spare context. */
+export const saveCatalogSpareLinks = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SYNC_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    const spareId = String(request.data?.spareId ?? '').trim();
+    const spareIds = Array.isArray(request.data?.spareIds) ? request.data.spareIds : null;
+    const productIds = Array.isArray(request.data?.productIds) ? request.data.productIds : null;
+
+    try {
+      if (productId && spareIds) {
+        return await saveProductSpareMap(productId, spareIds, uid);
+      }
+      if (spareId && productIds) {
+        return await saveSpareProductMap(spareId, productIds, uid);
+      }
+      throw new HttpsError(
+        'invalid-argument',
+        'Provide productId+spareIds or spareId+productIds.',
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not save spare links.');
+    }
   },
 );
 

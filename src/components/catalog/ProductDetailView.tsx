@@ -1,19 +1,32 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   ChevronRight,
   IndianRupee,
+  Link2,
   Package,
   ShoppingCart,
   Tag,
 } from 'lucide-react';
-import { fetchCatalogProductDetail, formatCurrency } from '../../lib/catalog';
+import {
+  fetchCatalog,
+  fetchCatalogProductDetail,
+  fetchCatalogSpareLinks,
+  formatCurrency,
+  getCategorizedProducts,
+  getUncategorizedProducts,
+  hasCatalogCategory,
+  saveCatalogProductSpareLinks,
+  saveCatalogSpareProductLinks,
+} from '../../lib/catalog';
 import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import { CategoryThumbnail } from './CategoryThumbnail';
+import { RelatedCatalogItems } from './RelatedCatalogItems';
+import { SpareLinkEditor } from './SpareLinkEditor';
 import { StockBadge } from './StockBadge';
 
 function formatProductTitle(name: string): string {
@@ -41,6 +54,10 @@ export const ProductDetailView: React.FC<{
   showWarehouseStock?: boolean;
   showCartActions?: boolean;
   ordersPath?: string;
+  showRelatedLinks?: boolean;
+  manageSpareLinks?: boolean;
+  productsBasePath?: string;
+  sparesBasePath?: string;
 }> = ({
   productId,
   backPath,
@@ -50,6 +67,10 @@ export const ProductDetailView: React.FC<{
   showWarehouseStock = false,
   showCartActions = false,
   ordersPath = '/dealer/orders',
+  showRelatedLinks = false,
+  manageSpareLinks = false,
+  productsBasePath = '/dealer/products',
+  sparesBasePath = '/dealer/spares',
 }) => {
   const navigate = useNavigate();
   const { addItem, getQuantity } = useCart();
@@ -59,6 +80,13 @@ export const ProductDetailView: React.FC<{
   const [product, setProduct] = useState<CatalogProductDetail | CatalogProduct | null>(preview);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [relatedItems, setRelatedItems] = useState<CatalogProduct[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [relatedKind, setRelatedKind] = useState<'spares' | 'products'>('spares');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorPool, setEditorPool] = useState<CatalogProduct[]>([]);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const theme = useMemo(
     () => getCategoryTheme(themeIndexFromId(productId)),
@@ -100,6 +128,66 @@ export const ProductDetailView: React.FC<{
       active = false;
     };
   }, [productId, preview]);
+
+  const isGroupedProduct = product ? hasCatalogCategory(product) : false;
+  const isSpareItem = product ? !hasCatalogCategory(product) : false;
+  const showLinksSection = showRelatedLinks || manageSpareLinks;
+
+  const loadRelatedLinks = useCallback(async () => {
+    if (!product || !showLinksSection) return;
+    setRelatedLoading(true);
+    setLinkError(null);
+    try {
+      const response = isGroupedProduct
+        ? await fetchCatalogSpareLinks({ productId: product.id })
+        : await fetchCatalogSpareLinks({ spareId: product.id });
+      setRelatedKind(response.kind);
+      setRelatedItems(response.items);
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Could not load related items.');
+      setRelatedItems([]);
+    } finally {
+      setRelatedLoading(false);
+    }
+  }, [product, showLinksSection, isGroupedProduct]);
+
+  useEffect(() => {
+    void loadRelatedLinks();
+  }, [loadRelatedLinks]);
+
+  const openLinkEditor = async () => {
+    if (!product) return;
+    setLinkError(null);
+    try {
+      const catalog = await fetchCatalog();
+      const pool = isGroupedProduct
+        ? getUncategorizedProducts(catalog.items)
+        : getCategorizedProducts(catalog.items);
+      setEditorPool(pool);
+      setEditorOpen(true);
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Could not load catalog for mapping.');
+    }
+  };
+
+  const handleSaveLinks = async (ids: string[]) => {
+    if (!product) return;
+    setEditorSaving(true);
+    setLinkError(null);
+    try {
+      if (isGroupedProduct) {
+        await saveCatalogProductSpareLinks(product.id, ids);
+      } else {
+        await saveCatalogSpareProductLinks(product.id, ids);
+      }
+      setEditorOpen(false);
+      await loadRelatedLinks();
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Could not save mapping.');
+    } finally {
+      setEditorSaving(false);
+    }
+  };
 
   const detail = product as CatalogProductDetail | null;
   const outOfStock = product?.stockStatus === 'out_of_stock';
@@ -184,7 +272,14 @@ export const ProductDetailView: React.FC<{
               <Tag size={13} aria-hidden />
               <span>{product.categoryName}</span>
               <ChevronRight size={14} aria-hidden />
-              <span>Product</span>
+              <span>{isSpareItem ? 'Spare' : 'Product'}</span>
+            </p>
+          )}
+
+          {!product.categoryName && isSpareItem && (
+            <p className="product-detail-page__breadcrumb">
+              <Tag size={13} aria-hidden />
+              <span>Spare part</span>
             </p>
           )}
 
@@ -288,8 +383,51 @@ export const ProductDetailView: React.FC<{
               </ul>
             </div>
           )}
+
+          {showLinksSection && (isGroupedProduct || isSpareItem) && (
+            <>
+              <RelatedCatalogItems
+                items={relatedItems}
+                title={relatedKind === 'spares' ? 'Compatible spares' : 'Compatible products'}
+                emptyMessage={
+                  relatedKind === 'spares'
+                    ? 'No spares mapped yet for this product.'
+                    : 'No products mapped yet for this spare.'
+                }
+                detailBasePath={relatedKind === 'spares' ? sparesBasePath : productsBasePath}
+                loading={relatedLoading}
+                headerAction={
+                  manageSpareLinks ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void openLinkEditor()}
+                    >
+                      <Link2 size={15} />
+                      {relatedKind === 'spares' ? 'Map spares' : 'Map products'}
+                    </button>
+                  ) : undefined
+                }
+              />
+              {linkError && (
+                <p className="related-catalog-section__error text-sm">{linkError}</p>
+              )}
+            </>
+          )}
         </section>
       </div>
+
+      {editorOpen && product && (
+        <SpareLinkEditor
+          mode={isGroupedProduct ? 'product' : 'spare'}
+          itemName={product.name}
+          pool={editorPool}
+          selectedIds={relatedItems.map(item => item.id)}
+          saving={editorSaving}
+          onClose={() => setEditorOpen(false)}
+          onSave={handleSaveLinks}
+        />
+      )}
     </div>
   );
 };

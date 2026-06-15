@@ -10,6 +10,8 @@ import { auth, db } from '../firebase';
 import type { User, FirestoreUserDoc } from '../types';
 import { normalizeRole, readDealerId } from '../types';
 import { AuthContext } from './auth-context';
+import { authEmailForLoginId, parseLoginId } from '../lib/loginAuth';
+import { contactFieldsForLogin, resolveProfileLogin } from '../lib/profileLogin';
 import { authErrorMessage } from '../lib/authErrors';
 
 const INACTIVE_MESSAGE = 'Your account is inactive. Contact YesWeigh super admin.';
@@ -21,15 +23,21 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
 
     const data = snap.data() as FirestoreUserDoc;
     const role = normalizeRole(String(data.role ?? ''));
-    if (!role || !data.active) return null;
+    const login = resolveProfileLogin(data);
+    if (!role || !data.active || !login) return null;
+
+    const contacts = contactFieldsForLogin(login);
 
     return {
       uid: fbUser.uid,
-      email: data.email.trim().toLowerCase(),
+      loginId: login.value,
+      loginIdType: login.type,
       displayName: data.displayName.trim() || 'User',
       role,
+      email: data.email?.trim().toLowerCase() || contacts.email,
+      phone: data.phone?.trim() || contacts.phone,
+      aadhar: data.aadhar || contacts.aadhar,
       dealerId: readDealerId(data),
-      phone: data.phone?.trim() || undefined,
       active: true,
     };
   } catch {
@@ -54,19 +62,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return unsub;
   }, []);
 
-  const login = async (emailInput: string, password: string) => {
+  const login = async (loginIdInput: string, password: string) => {
     setError(null);
     setLoading(true);
-    const email = emailInput.trim().toLowerCase();
-    if (!email.includes('@')) {
-      const msg = 'Enter a valid email address.';
+    const parsed = parseLoginId(loginIdInput);
+    if (!parsed) {
+      const msg = 'Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.';
       setError(msg);
       setLoading(false);
       throw new Error(msg);
     }
 
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const cred = await signInWithEmailAndPassword(
+        auth,
+        authEmailForLoginId(parsed.type, parsed.value),
+        password,
+      );
       const snap = await getDoc(doc(db, 'users', cred.user.uid));
       if (snap.exists()) {
         const data = snap.data() as FirestoreUserDoc;

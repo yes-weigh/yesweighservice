@@ -12,12 +12,19 @@ import {
 } from '../../lib/userAdmin';
 import type { FirestoreUserDoc, Role, UserRecord } from '../../types';
 import { ROLE_LABELS, canManageRole, normalizeRole, readDealerId } from '../../types';
+import {
+  formatLoginIdDisplay,
+  loginIdTypeLabel,
+  parseLoginId,
+} from '../../lib/loginAuth';
+import { resolveProfileLogin } from '../../lib/profileLogin';
 
 const EMPTY_FORM = {
-  email: '',
+  loginId: '',
   password: '',
   displayName: '',
   phone: '',
+  email: '',
   dealerId: '',
 };
 
@@ -29,6 +36,15 @@ type UserManagementProps = {
   scopedDealerId?: string;
   showDealerPicker?: boolean;
 };
+
+function displayLoginForRecord(record: UserRecord): { label: string; value: string } {
+  const login = resolveProfileLogin(record);
+  if (!login) return { label: '—', value: '—' };
+  return {
+    label: loginIdTypeLabel(login.type),
+    value: formatLoginIdDisplay(login.type, login.value),
+  };
+}
 
 export const UserManagement: React.FC<UserManagementProps> = ({
   role,
@@ -94,11 +110,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   };
 
   const openEdit = (record: UserRecord) => {
+    const login = resolveProfileLogin(record);
     setForm({
-      email: record.email,
+      loginId: login?.value ?? '',
       password: '',
       displayName: record.displayName,
       phone: record.phone ?? '',
+      email: record.email ?? '',
       dealerId: readDealerId(record) ?? scopedDealerId ?? '',
     });
     setEditingUid(record.uid);
@@ -117,6 +135,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         await updateUserProfile(db, editingUid, {
           displayName: form.displayName,
           phone: form.phone || undefined,
+          email: form.email || undefined,
           dealerId:
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
         });
@@ -124,12 +143,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         if (form.password.length < 6) {
           throw new Error('Password must be at least 6 characters.');
         }
+        if (!parseLoginId(form.loginId)) {
+          throw new Error('Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.');
+        }
         await registerUser(db, {
-          email: form.email,
+          loginId: form.loginId,
           password: form.password,
           displayName: form.displayName,
           role,
           phone: form.phone || undefined,
+          email: form.email || undefined,
           dealerId:
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           createdByUid: user.uid,
@@ -200,15 +223,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
               {!editingUid && (
                 <div className="form-group">
-                  <label htmlFor="user-email">Email</label>
+                  <label htmlFor="user-login-id">Login ID</label>
                   <input
-                    id="user-email"
-                    type="email"
+                    id="user-login-id"
+                    type="text"
                     className="input-field"
-                    value={form.email}
-                    onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                    placeholder="Email, phone, or Aadhaar"
+                    value={form.loginId}
+                    onChange={e => setForm(f => ({ ...f, loginId: e.target.value }))}
                     required
                   />
+                  <p className="text-muted text-sm">
+                    Email, 10-digit mobile, or 12-digit Aadhaar — used to sign in
+                  </p>
                 </div>
               )}
 
@@ -232,6 +259,17 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   className="input-field"
                   value={form.phone}
                   onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="user-email">Contact email (optional)</label>
+                <input
+                  id="user-email"
+                  type="email"
+                  className="input-field"
+                  value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                 />
               </div>
 
@@ -302,7 +340,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Email</th>
+                  <th>Login ID</th>
                   <th>Phone</th>
                   {role === 'dealer_staff' && !scopedDealerId && <th>Dealer</th>}
                   <th>Status</th>
@@ -310,41 +348,48 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {records.map(record => (
-                  <tr key={record.uid}>
-                    <td>{record.displayName}</td>
-                    <td>{record.email}</td>
-                    <td>{record.phone || '—'}</td>
-                    {role === 'dealer_staff' && !scopedDealerId && (
-                      <td>{dealerName(readDealerId(record))}</td>
-                    )}
-                    <td>
-                      <span className={`status-badge ${record.active === false ? 'inactive' : 'active'}`}>
-                        {record.active === false ? 'Inactive' : 'Active'}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      <button
-                        type="button"
-                        className="btn-icon"
-                        title="Edit"
-                        onClick={() => openEdit(record)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      {record.uid !== user?.uid && record.active !== false && (
+                {records.map(record => {
+                  const loginDisplay = displayLoginForRecord(record);
+                  return (
+                    <tr key={record.uid}>
+                      <td>{record.displayName}</td>
+                      <td>
+                        <span className="text-muted text-sm">{loginDisplay.label}</span>
+                        <br />
+                        {loginDisplay.value}
+                      </td>
+                      <td>{record.phone || '—'}</td>
+                      {role === 'dealer_staff' && !scopedDealerId && (
+                        <td>{dealerName(readDealerId(record))}</td>
+                      )}
+                      <td>
+                        <span className={`status-badge ${record.active === false ? 'inactive' : 'active'}`}>
+                          {record.active === false ? 'Inactive' : 'Active'}
+                        </span>
+                      </td>
+                      <td className="text-right">
                         <button
                           type="button"
-                          className="btn-icon text-red"
-                          title="Deactivate"
-                          onClick={() => void handleDeactivate(record)}
+                          className="btn-icon"
+                          title="Edit"
+                          onClick={() => openEdit(record)}
                         >
-                          <Trash2 size={16} />
+                          <Pencil size={16} />
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        {record.uid !== user?.uid && record.active !== false && (
+                          <button
+                            type="button"
+                            className="btn-icon text-red"
+                            title="Deactivate"
+                            onClick={() => void handleDeactivate(record)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

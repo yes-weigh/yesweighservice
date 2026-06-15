@@ -52,6 +52,35 @@ service cloud.firestore {
       return r == 'dealer_staff' || r == 'director_staff';
     }
 
+    function validLoginIdType(t) {
+      return t == 'aadhar' || t == 'phone' || t == 'email';
+    }
+
+    function validLoginId(data) {
+      return data.loginId is string
+        && data.loginIdType is string
+        && validLoginIdType(data.loginIdType)
+        && (
+          (data.loginIdType == 'aadhar' && data.loginId.size() == 12)
+          || (data.loginIdType == 'phone' && data.loginId.size() == 10)
+          || (data.loginIdType == 'email' && data.loginId.matches('^[^@]+@[^@]+\\.[^@]+$'))
+        );
+    }
+
+    function validAadhar(data) {
+      return validLoginId(data) || (data.aadhar is string && data.aadhar.size() == 12);
+    }
+
+    function loginIdUnchanged() {
+      return !resource.data.keys().hasAny(['loginId'])
+        || (request.resource.data.loginId == resource.data.loginId
+            && request.resource.data.loginIdType == resource.data.loginIdType);
+    }
+
+    function validAadharId(aadhar) {
+      return aadhar is string && aadhar.size() == 12;
+    }
+
     match /appSettings/{docId} {
       allow read: if signedIn();
       allow write: if signedIn() && bootstrapOpen();
@@ -72,6 +101,32 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /catalogProductSpareMap/{productId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /aadharIndex/{aadhar} {
+      allow read: if isActiveUser() && (isOpsUser() || isDealer());
+      allow create: if validAadharId(aadhar)
+        && isActiveUser()
+        && (isOpsUser() || isDealer())
+        && request.resource.data.uid is string
+        && request.resource.data.role is string;
+      allow delete: if isSuperAdmin();
+    }
+
+    match /loginIndex/{loginKey} {
+      allow read: if isActiveUser() && (isOpsUser() || isDealer());
+      allow create: if isActiveUser()
+        && (isOpsUser() || isDealer())
+        && request.resource.data.uid is string
+        && request.resource.data.role is string
+        && request.resource.data.loginIdType is string
+        && validLoginIdType(request.resource.data.loginIdType);
+      allow delete: if isSuperAdmin();
+    }
+
     match /users/{userId} {
       allow read: if isActiveUser() && (
         isOpsUser()
@@ -84,17 +139,20 @@ service cloud.firestore {
         (bootstrapOpen()
           && request.auth.uid == userId
           && (request.resource.data.role == 'super_admin' || request.resource.data.role == 'admin')
-          && request.resource.data.active == true)
-        || (isActiveUser() && isSuperAdmin())
+          && request.resource.data.active == true
+          && validAadhar(request.resource.data))
+        || (isActiveUser() && isSuperAdmin() && validAadhar(request.resource.data))
         || (isActiveUser()
             && isStaff()
             && staffCanManageRole(request.resource.data.role)
-            && request.resource.data.active == true)
+            && request.resource.data.active == true
+            && validAadhar(request.resource.data))
         || (isActiveUser()
             && isDealer()
             && isDealerStaffRole(request.resource.data.role)
             && userDealerId(request.resource.data) == request.auth.uid
-            && request.resource.data.active == true)
+            && request.resource.data.active == true
+            && validAadhar(request.resource.data))
       );
 
       allow update: if isActiveUser() && (
@@ -102,10 +160,11 @@ service cloud.firestore {
         || (isStaff()
             && staffCanManageRole(resource.data.role)
             && staffCanManageRole(request.resource.data.role)
-            && resource.data.role == request.resource.data.role)
+            && resource.data.role == request.resource.data.role
+            && loginIdUnchanged())
         || (request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()
-                .hasAny(['role', 'email', 'dealerId', 'directorId', 'active', 'createdAt', 'createdByUid']))
+                .hasAny(['role', 'loginId', 'loginIdType', 'aadhar', 'email', 'dealerId', 'directorId', 'active', 'createdAt', 'createdByUid']))
         || (isDealer()
             && isDealerStaffRole(resource.data.role)
             && userDealerId(resource.data) == request.auth.uid

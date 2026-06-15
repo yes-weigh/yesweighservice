@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, Lock, Mail, Eye, EyeOff } from 'lucide-react';
+import { LogIn, Lock, UserRound, Eye, EyeOff } from 'lucide-react';
 import { Logo } from '../components/Logo';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole } from '../types';
+import { parseLoginId } from '../lib/loginAuth';
 
 export const Login: React.FC = () => {
   const { login, user, loading } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -23,9 +24,13 @@ export const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!parseLoginId(loginId)) {
+      setError('Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.');
+      return;
+    }
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(loginId, password);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -49,28 +54,31 @@ export const Login: React.FC = () => {
             <Logo size="lg" />
             <h2>YesWeigh Service</h2>
           </div>
-          <p>Sign in with your work email</p>
+          <p>Sign in with your ID and password</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
           {error && <div className="login-error">{error}</div>}
 
           <div className="form-group">
-            <label htmlFor="login-email">Email</label>
+            <label htmlFor="login-id">Login ID</label>
             <div className="input-icon-wrap">
-              <Mail size={18} className="input-icon" />
+              <UserRound size={18} className="input-icon" />
               <input
-                id="login-email"
-                type="email"
+                id="login-id"
+                type="text"
                 className="input-field input-with-icon"
-                placeholder="you@yesweigh.in"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
+                placeholder="Email, phone, or Aadhaar"
+                value={loginId}
+                onChange={e => setLoginId(e.target.value)}
                 required
                 autoFocus
                 autoComplete="username"
               />
             </div>
+            <p className="text-muted text-sm login-id-hint">
+              Use your email, 10-digit mobile number, or 12-digit Aadhaar
+            </p>
           </div>
 
           <div className="form-group">

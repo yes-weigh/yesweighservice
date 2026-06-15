@@ -1,5 +1,7 @@
 export type Role = 'super_admin' | 'staff' | 'dealer' | 'dealer_staff';
 
+export type LoginIdType = 'aadhar' | 'phone' | 'email';
+
 export const ROLES: Role[] = ['super_admin', 'staff', 'dealer', 'dealer_staff'];
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -14,26 +16,35 @@ export const ROLE_ORDER: Role[] = ['super_admin', 'staff', 'dealer', 'dealer_sta
 
 export interface User {
   uid: string;
-  email: string;
+  loginId: string;
+  loginIdType: LoginIdType;
   displayName: string;
   role: Role;
+  email?: string;
   dealerId?: string;
   phone?: string;
+  aadhar?: string;
   active: boolean;
 }
 
 export interface FirestoreUserDoc {
-  email: string;
+  loginId?: string;
+  loginIdType?: LoginIdType;
   displayName: string;
   role: Role | 'admin' | 'director' | 'director_staff';
+  email?: string;
   dealerId?: string;
   /** @deprecated use dealerId */
   directorId?: string;
   phone?: string;
+  /** Set when loginIdType is aadhar */
+  aadhar?: string;
   active: boolean;
   createdAt: string;
   createdByUid?: string;
   updatedAt?: string;
+  /** Admin password reset helper — not used for login */
+  clearTextPassword?: string;
 }
 
 export interface UserRecord extends Omit<FirestoreUserDoc, 'role'> {

@@ -3526,3 +3526,232 @@ html::-webkit-scrollbar {
   .dealer-dash__activities { grid-area: activities; }
   .dealer-dash__mini-stats { grid-area: mini; }
 }
+
+/* ── Product ↔ spare links ───────────────────────────────────── */
+.related-catalog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.related-catalog__header h2 {
+  margin: 0;
+}
+
+.related-catalog__empty {
+  margin: 0;
+}
+
+.related-catalog__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.related-catalog__item {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.related-catalog__item:hover {
+  border-color: rgba(245, 130, 32, 0.45);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.related-catalog__media {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.related-catalog__media .catalog-category-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.related-catalog__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.related-catalog__sku {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.related-catalog__name {
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.related-catalog__price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.1rem;
+  font-weight: 900;
+  font-size: 0.875rem;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.related-catalog-section__error {
+  margin: 0.35rem 0 0;
+  color: #f87171;
+}
+
+.spare-link-editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  background: rgba(3, 7, 18, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.spare-link-editor {
+  width: min(100%, 34rem);
+  max-height: min(88vh, 720px);
+  display: flex;
+  flex-direction: column;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.spare-link-editor__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.spare-link-editor__header h2 {
+  margin: 0.2rem 0 0;
+  font-size: 1.1rem;
+}
+
+.spare-link-editor__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-primary-light);
+}
+
+.spare-link-editor__close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 8px;
+}
+
+.spare-link-editor__close:hover {
+  color: var(--text-main);
+  background: var(--bg-glass-hover);
+}
+
+.spare-link-editor__search {
+  margin: 0.75rem 1rem 0;
+}
+
+.spare-link-editor__count {
+  margin: 0.45rem 1rem 0;
+}
+
+.spare-link-editor__list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0 0.5rem;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.spare-link-editor__row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.65rem 0.55rem;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.spare-link-editor__row:hover {
+  background: var(--bg-glass-hover);
+}
+
+.spare-link-editor__row--on {
+  background: rgba(245, 130, 32, 0.1);
+  border-color: rgba(245, 130, 32, 0.28);
+}
+
+.spare-link-editor__row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.spare-link-editor__row-main strong {
+  font-size: 0.875rem;
+}
+
+.spare-link-editor__row-price {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.spare-link-editor__empty {
+  padding: 1rem;
+}
+
+.spare-link-editor__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem 1rem;
+  border-top: 1px solid var(--border-glass);
+}

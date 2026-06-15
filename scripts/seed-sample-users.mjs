@@ -24,35 +24,68 @@ const firebaseConfig = {
   appId: '1:108990753929:web:564393f84ecd0347c3aa58',
 };
 
+const AUTH_EMAIL_DOMAIN = 'yesweigh.auth';
 const DEFAULT_PASSWORD = process.argv[2] ?? 'YesWeigh@2026';
+
+function authEmailForLoginId(type, value) {
+  if (type === 'email') return value;
+  if (type === 'phone') return `p${value}@${AUTH_EMAIL_DOMAIN}`;
+  return `${value}@${AUTH_EMAIL_DOMAIN}`;
+}
+
+function loginIndexDocId(type, value) {
+  if (type === 'email') return `e_${value}`;
+  if (type === 'phone') return `p_${value}`;
+  return `a_${value}`;
+}
+
+function buildProfile(sample) {
+  const profile = {
+    loginId: sample.loginId,
+    loginIdType: sample.loginIdType,
+    displayName: sample.displayName,
+    role: sample.role,
+    phone: sample.phone,
+    email: sample.email,
+  };
+  if (sample.loginIdType === 'aadhar') profile.aadhar = sample.loginId;
+  return profile;
+}
 
 const SAMPLES = [
   {
-    email: 'superadmin@yesweigh.in',
+    loginId: '9000000001',
+    loginIdType: 'phone',
     displayName: 'Sample Super Admin',
     role: 'super_admin',
     phone: '9000000001',
   },
   {
-    email: 'staff@yesweigh.in',
+    loginId: '9000000002',
+    loginIdType: 'phone',
     displayName: 'Sample Staff',
     role: 'staff',
     phone: '9000000002',
   },
   {
-    email: 'dealer@yesweigh.in',
+    loginId: '9000000003',
+    loginIdType: 'phone',
     displayName: 'Sample Dealer',
     role: 'dealer',
     phone: '9000000003',
   },
   {
-    email: 'dealerstaff@yesweigh.in',
+    loginId: '9000000004',
+    loginIdType: 'phone',
     displayName: 'Sample Dealer Staff',
     role: 'dealer_staff',
     phone: '9000000004',
-    dealerEmail: 'dealer@yesweigh.in',
+    dealerLoginId: '9000000003',
   },
 ];
+
+const ADMIN_LOGIN_ID = '111111111111';
+const ADMIN_LOGIN_TYPE = 'aadhar';
 
 const primaryApp = initializeApp(firebaseConfig);
 const secondaryApp = initializeApp(firebaseConfig, 'SeedSecondary');
@@ -60,7 +93,8 @@ const primaryAuth = getAuth(primaryApp);
 const secondaryAuth = getAuth(secondaryApp);
 const db = getFirestore(primaryApp);
 
-async function ensureAuthUser(email, password) {
+async function ensureAuthUser(loginIdType, loginId, password) {
+  const email = authEmailForLoginId(loginIdType, loginId);
   try {
     const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
     await signOut(secondaryAuth);
@@ -85,64 +119,80 @@ async function upsertProfile(uid, profile) {
       active: true,
       createdAt: new Date().toISOString(),
       createdByUid: 'seed-script',
+      clearTextPassword: DEFAULT_PASSWORD,
     },
     { merge: true },
   );
 }
 
-console.log('Signing in as bootstrap super admin (admin@yesweigh.in)...');
+async function reserveLoginIndex(loginIdType, loginId, uid, role) {
+  await setDoc(doc(db, 'loginIndex', loginIndexDocId(loginIdType, loginId)), {
+    uid,
+    role,
+    loginIdType,
+    createdAt: new Date().toISOString(),
+  }, { merge: true });
+}
+
+console.log(`Signing in as bootstrap super admin (${ADMIN_LOGIN_TYPE}: ${ADMIN_LOGIN_ID})...`);
 try {
-  await signInWithEmailAndPassword(primaryAuth, 'admin@yesweigh.in', DEFAULT_PASSWORD);
+  await signInWithEmailAndPassword(
+    primaryAuth,
+    authEmailForLoginId(ADMIN_LOGIN_TYPE, ADMIN_LOGIN_ID),
+    DEFAULT_PASSWORD,
+  );
 } catch {
   console.error(
-    'Could not sign in as admin@yesweigh.in. Run: npm run seed:admin -- admin@yesweigh.in',
-    DEFAULT_PASSWORD,
-    '"YesWeigh Admin"',
+    'Could not sign in as bootstrap admin. Run:',
+    `npm run seed:admin -- ${ADMIN_LOGIN_ID} ${DEFAULT_PASSWORD} "YesWeigh Admin"`,
   );
   process.exit(1);
 }
 
 await upsertProfile(primaryAuth.currentUser.uid, {
-  email: 'admin@yesweigh.in',
+  loginId: ADMIN_LOGIN_ID,
+  loginIdType: ADMIN_LOGIN_TYPE,
+  aadhar: ADMIN_LOGIN_ID,
   displayName: 'YesWeigh Admin',
   role: 'super_admin',
   phone: '9000000000',
 });
+await reserveLoginIndex(
+  ADMIN_LOGIN_TYPE,
+  ADMIN_LOGIN_ID,
+  primaryAuth.currentUser.uid,
+  'super_admin',
+);
 
-const uidByEmail = new Map([['admin@yesweigh.in', primaryAuth.currentUser.uid]]);
+const uidByLoginId = new Map([[ADMIN_LOGIN_ID, primaryAuth.currentUser.uid]]);
 
 for (const sample of SAMPLES) {
-  const email = sample.email.toLowerCase();
-  console.log(`\n→ ${sample.role}: ${email}`);
+  console.log(`\n→ ${sample.role}: ${sample.loginIdType} ${sample.loginId}`);
 
-  const uid = await ensureAuthUser(email, DEFAULT_PASSWORD);
-  uidByEmail.set(email, uid);
+  const uid = await ensureAuthUser(sample.loginIdType, sample.loginId, DEFAULT_PASSWORD);
+  uidByLoginId.set(sample.loginId, uid);
 
-  const profile = {
-    email,
-    displayName: sample.displayName,
-    role: sample.role,
-    phone: sample.phone,
-  };
+  const profile = buildProfile(sample);
 
   if (sample.role === 'dealer_staff') {
-    const dealerUid = uidByEmail.get(sample.dealerEmail);
+    const dealerUid = uidByLoginId.get(sample.dealerLoginId);
     if (!dealerUid) {
-      throw new Error(`Dealer uid missing for ${email}`);
+      throw new Error(`Dealer uid missing for ${sample.loginId}`);
     }
     profile.dealerId = dealerUid;
   }
 
   await upsertProfile(uid, profile);
+  await reserveLoginIndex(sample.loginIdType, sample.loginId, uid, sample.role);
   console.log(`  ✓ ${sample.displayName} (${uid})`);
 }
 
 await signOut(primaryAuth);
 
 console.log('\nSample users ready. Shared password:', DEFAULT_PASSWORD);
-console.log('\n| Role           | Email                      |');
-console.log('|----------------|----------------------------|');
+console.log('\n| Role           | Login ID       | Type   |');
+console.log('|----------------|----------------|--------|');
 for (const s of SAMPLES) {
-  console.log(`| ${s.role.padEnd(14)} | ${s.email.padEnd(26)} |`);
+  console.log(`| ${s.role.padEnd(14)} | ${s.loginId.padEnd(14)} | ${s.loginIdType.padEnd(6)} |`);
 }
-console.log('| super_admin    | admin@yesweigh.in          | (bootstrap)');
+console.log(`| super_admin    | ${ADMIN_LOGIN_ID} | aadhar | (bootstrap)`);

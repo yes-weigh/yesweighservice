@@ -323,6 +323,58 @@ export async function assignProductCategory(
   }
 }
 
+export type CatalogSpareLinkKind = 'spares' | 'products';
+
+export interface CatalogSpareLinksResponse {
+  kind: CatalogSpareLinkKind;
+  items: CatalogProduct[];
+}
+
+export async function fetchCatalogSpareLinks(
+  opts: { productId: string } | { spareId: string },
+): Promise<CatalogSpareLinksResponse> {
+  const callable = httpsCallable<
+    { productId?: string; spareId?: string },
+    CatalogSpareLinksResponse
+  >(functions, 'getCatalogSpareLinks');
+  try {
+    const result = await callable(opts);
+    return result.data;
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export async function saveCatalogProductSpareLinks(
+  productId: string,
+  spareIds: string[],
+): Promise<void> {
+  const callable = httpsCallable<
+    { productId: string; spareIds: string[] },
+    { ok: boolean }
+  >(functions, 'saveCatalogSpareLinks');
+  try {
+    await callable({ productId, spareIds });
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export async function saveCatalogSpareProductLinks(
+  spareId: string,
+  productIds: string[],
+): Promise<void> {
+  const callable = httpsCallable<
+    { spareId: string; productIds: string[] },
+    { ok: boolean }
+  >(functions, 'saveCatalogSpareLinks');
+  try {
+    await callable({ spareId, productIds });
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',

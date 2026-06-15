@@ -15,7 +15,14 @@ export const ProductDetailPage: React.FC = () => {
   const preview = (location.state as { preview?: CatalogProduct } | null)?.preview ?? null;
   const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin';
   const showCartActions = user?.role === 'dealer' || user?.role === 'dealer_staff';
+  const manageSpareLinks = user?.role === 'staff' || user?.role === 'super_admin';
+  const showRelatedLinks =
+    !isPublic
+    && (manageSpareLinks || user?.role === 'dealer' || user?.role === 'dealer_staff');
   const ordersPath = user ? `${homePathForRole(user.role)}/orders` : '/dealer/orders';
+  const base = user ? homePathForRole(user.role) : '/dealer';
+  const productsBasePath = `${base}/products`;
+  const sparesBasePath = `${base}/spares`;
   const backLabel = isPublic
     ? 'Back to catalog'
     : isSpares
@@ -36,6 +43,10 @@ export const ProductDetailPage: React.FC = () => {
         variant={isPublic ? 'public' : 'app'}
         showWarehouseStock={showWarehouseStock}
         showCartActions={showCartActions}
+        showRelatedLinks={showRelatedLinks}
+        manageSpareLinks={manageSpareLinks}
+        productsBasePath={productsBasePath}
+        sparesBasePath={sparesBasePath}
         ordersPath={ordersPath}
       />
     </div>
