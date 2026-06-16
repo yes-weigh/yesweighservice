@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -25,17 +26,23 @@ const emptyConfig: PageHeaderConfig = {
   onBack: null,
 };
 
+function configsEqual(a: PageHeaderConfig, b: PageHeaderConfig): boolean {
+  return a.title === b.title
+    && a.showBack === b.showBack
+    && a.onBack === b.onBack;
+}
+
 const PageHeaderContext = createContext<PageHeaderContextValue | null>(null);
 
 export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [config, setConfig] = useState<PageHeaderConfig>(emptyConfig);
 
   const setPageHeader = useCallback((next: PageHeaderConfig) => {
-    setConfig(next);
+    setConfig(prev => (configsEqual(prev, next) ? prev : next));
   }, []);
 
   const clearPageHeader = useCallback(() => {
-    setConfig(emptyConfig);
+    setConfig(prev => (configsEqual(prev, emptyConfig) ? prev : emptyConfig));
   }, []);
 
   const value = useMemo(
@@ -60,18 +67,25 @@ export function usePageHeader() {
 
 export function useCatalogPageHeader(config: PageHeaderConfig) {
   const ctx = useContext(PageHeaderContext);
+  const setPageHeader = ctx?.setPageHeader;
+  const clearPageHeader = ctx?.clearPageHeader;
   const { title = null, showBack = false, onBack = null } = config;
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
 
   useEffect(() => {
-    if (!ctx) return undefined;
+    if (!setPageHeader || !clearPageHeader) return undefined;
 
-    const { setPageHeader, clearPageHeader } = ctx;
     if (!title && !showBack) {
       clearPageHeader();
       return undefined;
     }
 
-    setPageHeader({ title, showBack, onBack });
+    const stableOnBack = showBack
+      ? () => onBackRef.current?.()
+      : null;
+
+    setPageHeader({ title, showBack, onBack: stableOnBack });
     return () => clearPageHeader();
-  }, [ctx, title, showBack, onBack]);
+  }, [setPageHeader, clearPageHeader, title, showBack]);
 }
