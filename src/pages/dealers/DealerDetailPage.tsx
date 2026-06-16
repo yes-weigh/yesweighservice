@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft,
   ExternalLink,
   Lock,
   Phone,
@@ -8,7 +7,7 @@ import {
   Save,
   UserPlus,
 } from 'lucide-react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { CreateDealerUserModal } from '../../components/dealers/CreateDealerUserModal';
 import { DealerStatusIndicator } from '../../components/dealers/DealerStatusIndicator';
 import { FetchingLoader } from '../../components/FetchingLoader';
@@ -335,12 +334,13 @@ function ToggleField({
   );
 }
 
+const PULL_REFRESH_THRESHOLD = 72;
+const PULL_REFRESH_MAX = 96;
+
 export const DealerDetailPage: React.FC = () => {
   const { dealerId } = useParams<{ dealerId: string }>();
   const location = useLocation();
-  const navigate = useNavigate();
   const { user } = useAuth();
-  const listPath = location.pathname.replace(/\/[^/]+$/, '');
   const preview = (location.state as { dealer?: ZohoDealer } | null)?.dealer;
 
   const [dealer, setDealer] = useState<ZohoDealer | null>(
@@ -364,6 +364,8 @@ export const DealerDetailPage: React.FC = () => {
     preview && preview.id === dealerId ? blankFillableFieldKeys(preview) : [],
   );
   const [showCreateUser, setShowCreateUser] = useState(false);
+  const [pullOffset, setPullOffset] = useState(0);
+  const pullStateRef = useRef({ startY: 0, pulling: false, distance: 0 });
 
   const loadDealer = useCallback(async () => {
     if (!dealerId) return;
@@ -389,7 +391,7 @@ export const DealerDetailPage: React.FC = () => {
     }
   }, [dealerId]);
 
-  const refreshZoho = async () => {
+  const refreshZoho = useCallback(async () => {
     if (!dealerId) return;
     setRefreshingZoho(true);
     setError('');
@@ -404,7 +406,57 @@ export const DealerDetailPage: React.FC = () => {
     } finally {
       setRefreshingZoho(false);
     }
-  };
+  }, [dealerId]);
+
+  const refreshZohoRef = useRef(refreshZoho);
+  refreshZohoRef.current = refreshZoho;
+
+  useEffect(() => {
+    const onTouchStart = (event: TouchEvent) => {
+      if (refreshingZoho || window.scrollY > 4) return;
+      pullStateRef.current.startY = event.touches[0]?.clientY ?? 0;
+      pullStateRef.current.pulling = true;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (!pullStateRef.current.pulling || window.scrollY > 4) return;
+      const currentY = event.touches[0]?.clientY ?? 0;
+      const delta = currentY - pullStateRef.current.startY;
+      if (delta <= 0) {
+        pullStateRef.current.distance = 0;
+        setPullOffset(0);
+        return;
+      }
+      const distance = Math.min(delta * 0.55, PULL_REFRESH_MAX);
+      pullStateRef.current.distance = distance;
+      setPullOffset(distance);
+      if (distance > 8) {
+        event.preventDefault();
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (!pullStateRef.current.pulling) return;
+      const shouldRefresh = pullStateRef.current.distance >= PULL_REFRESH_THRESHOLD;
+      pullStateRef.current.pulling = false;
+      pullStateRef.current.distance = 0;
+      setPullOffset(0);
+      if (shouldRefresh) {
+        void refreshZohoRef.current();
+      }
+    };
+
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchEnd);
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [refreshingZoho]);
 
   useEffect(() => {
     void loadDealer();
@@ -447,12 +499,6 @@ export const DealerDetailPage: React.FC = () => {
     if (saving) return zohoDirty ? 'Pushing & saving…' : 'Saving…';
     if (zohoDirty) return 'Push to Zoho and save';
     return 'Save changes';
-  }, [saving, zohoDirty]);
-
-  const saveButtonLabelShort = useMemo(() => {
-    if (saving) return zohoDirty ? 'Pushing…' : 'Saving…';
-    if (zohoDirty) return 'Push & save';
-    return 'Save';
   }, [saving, zohoDirty]);
 
   const saveDraft = async () => {
@@ -535,31 +581,31 @@ export const DealerDetailPage: React.FC = () => {
   };
 
   const otherZohoContactPersons = (dealer?.zohoContactPersons ?? []).filter(p => !p.isPrimary);
+  const pullRefreshLabel = refreshingZoho
+    ? 'Refreshing from Zoho…'
+    : pullOffset >= PULL_REFRESH_THRESHOLD
+      ? 'Release to refresh'
+      : 'Pull down to refresh';
 
   return (
-    <div className={`page-content fade-in dealers-detail-page${dirty ? ' dealers-detail-page--dirty' : ''}`}>
-      <div className="dealers-detail__topbar">
-        <button
-          type="button"
-          className="dealers-detail__back catalog-filters__back-btn"
-          onClick={() => navigate(listPath)}
+    <div
+      className={`page-content fade-in dealers-detail-page${dirty ? ' dealers-detail-page--dirty' : ''}`}
+    >
+      {(pullOffset > 0 || refreshingZoho) && (
+        <div
+          className="dealers-detail__pull-refresh"
+          style={{ height: refreshingZoho ? PULL_REFRESH_MAX : Math.max(pullOffset, 32) }}
+          aria-live="polite"
         >
-          <ArrowLeft size={18} aria-hidden />
-          <span>Back to dealers</span>
-        </button>
-        {dealer && (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm dealers-detail__save-top"
-            disabled={saving || refreshingZoho || !dirty}
-            onClick={() => void saveDraft()}
-          >
-            <Save size={15} />
-            {saveButtonLabelShort}
-          </button>
-        )}
-      </div>
+          <RefreshCw size={18} className={refreshingZoho ? 'spin-icon' : undefined} />
+          <span>{pullRefreshLabel}</span>
+        </div>
+      )}
 
+      <div
+        className="dealers-detail-page__body"
+        style={pullOffset > 0 && !refreshingZoho ? { transform: `translateY(${pullOffset}px)` } : undefined}
+      >
       {error && (
         <div className="products-inline-error panel glass">
           <span>{error}</span>
@@ -610,17 +656,6 @@ export const DealerDetailPage: React.FC = () => {
               <section className="dealers-detail panel glass">
                 <div className="dealers-detail__section-head">
                   <h3 className="dealers-detail__section-title">From Zoho · updatables</h3>
-                  <div className="dealers-detail__section-actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={refreshingZoho || saving}
-                      onClick={() => void refreshZoho()}
-                    >
-                      <RefreshCw size={14} className={refreshingZoho ? 'spin-icon' : undefined} />
-                      {refreshingZoho ? 'Refreshing…' : 'Refresh from Zoho'}
-                    </button>
-                  </div>
                 </div>
                 <div className="dealers-detail__form">
                   <label className="dealers-detail__field">
@@ -1044,6 +1079,7 @@ export const DealerDetailPage: React.FC = () => {
           onSubmit={handleCreatePortalUser}
         />
       )}
+      </div>
 
       {dirty && dealer && (
         <div className="dealers-detail__save-float" role="region" aria-label="Unsaved changes">

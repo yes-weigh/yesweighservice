@@ -23,7 +23,6 @@ export type DealerOtpVerifyResult = {
 };
 
 export type DealerSignupResult = {
-  customToken: string;
   uid: string;
   displayName: string;
 };

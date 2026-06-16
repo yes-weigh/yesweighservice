@@ -235,9 +235,7 @@ export async function completeDealerSignup(phone10, setupToken, password) {
     await linkDealerPortalUser(dealer.id, userRecord.uid);
     await sessionRef.delete().catch(() => undefined);
 
-    const customToken = await auth.createCustomToken(userRecord.uid, { role: 'dealer' });
     return {
-      customToken,
       uid: userRecord.uid,
       displayName,
     };

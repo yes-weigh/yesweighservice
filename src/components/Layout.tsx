@@ -209,6 +209,9 @@ const LayoutShell: React.FC = () => {
     || /^\/oc\/[^/]+$/.test(location.pathname);
   const isSpareMapDetail = /\/spares\/product\/[^/]+$/.test(location.pathname);
   const isDealerDetail = /\/dealers\/[^/]+$/.test(location.pathname);
+  const dealerListPath = isDealerDetail
+    ? location.pathname.replace(/\/[^/]+$/, '')
+    : null;
   const pageTitle = isProfileActive
     ? 'Profile'
     : isDealerDetail
@@ -332,7 +335,17 @@ const LayoutShell: React.FC = () => {
               <Menu size={22} />
             </button>
           ) : null}
-          <h1 className="page-title">{displayTitle}</h1>
+          {dealerListPath ? (
+            <button
+              type="button"
+              className="page-title page-title--nav-back"
+              onClick={() => navigate(dealerListPath)}
+            >
+              {displayTitle}
+            </button>
+          ) : (
+            <h1 className="page-title">{displayTitle}</h1>
+          )}
           {showCartFlyTarget && (
             <button
               ref={cartBtnRef}

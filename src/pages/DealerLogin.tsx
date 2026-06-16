@@ -16,7 +16,7 @@ import {
 type Step = 'phone' | 'otp' | 'password';
 
 export const DealerLogin: React.FC = () => {
-  const { user, loading, loginWithCustomToken } = useAuth();
+  const { user, loading, login } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>('phone');
@@ -118,8 +118,8 @@ export const DealerLogin: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const result = await completeDealerSignup(normalizedPhone, setupToken, password);
-      await loginWithCustomToken(result.customToken);
+      await completeDealerSignup(normalizedPhone, setupToken, password);
+      await login(normalizedPhone, password);
       navigate('/dealer', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not complete signup.');
