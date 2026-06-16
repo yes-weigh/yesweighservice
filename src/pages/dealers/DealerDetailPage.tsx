@@ -4,23 +4,19 @@ import {
   Lock,
   Phone,
   RefreshCw,
+  RotateCcw,
   Save,
-  UserPlus,
 } from 'lucide-react';
 import { useLocation, useParams } from 'react-router-dom';
-import { CreateDealerUserModal } from '../../components/dealers/CreateDealerUserModal';
 import { DealerStatusIndicator } from '../../components/dealers/DealerStatusIndicator';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
-import { useAuth } from '../../context/AuthContext';
-import { db } from '../../firebase';
 import {
   dealerErrorMessage,
   fetchDealerById,
   fetchDealerCategories,
-  fetchDealerLocations,
   fetchKams,
-  linkDealerPortalUser,
+  lookupDealerPincode,
   patchDealer,
   pushDealerChangesToZoho,
   refreshDealerFromZoho,
@@ -34,6 +30,8 @@ import {
   buildZohoPushPayload,
   fillableFieldsToDraft,
   hasZohoPushChanges,
+  topZohoContactFields,
+  topZohoEmailField,
   visibleFillableFields,
   type ZohoFillableDraft,
   type ZohoFillableFieldDef,
@@ -41,12 +39,9 @@ import {
 } from '../../lib/dealerZohoFillable';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { buildContactLinks } from '../../lib/phoneLinks';
-import { registerUser } from '../../lib/userAdmin';
 import type { Kam, ZohoDealer } from '../../types/dealers';
 import {
   DEALER_STAGES,
-  DEALER_TYPES,
-  FIRM_TYPES,
   PRICE_LEVELS,
 } from '../../types/dealers';
 
@@ -70,8 +65,6 @@ type OverlayDraft = Pick<
   | 'firmType'
   | 'creditLimit'
   | 'priceLevel'
-  | 'billingAddress'
-  | 'shippingAddress'
   | 'googleMapsUrl'
   | 'billingState'
   | 'district'
@@ -98,8 +91,6 @@ function dealerToDraft(dealer: ZohoDealer): OverlayDraft {
     firmType: dealer.firmType ?? null,
     creditLimit: dealer.creditLimit ?? null,
     priceLevel: dealer.priceLevel ?? null,
-    billingAddress: dealer.billingAddress ?? null,
-    shippingAddress: dealer.shippingAddress ?? null,
     googleMapsUrl: dealer.googleMapsUrl ?? null,
     billingState: dealer.billingState,
     district: dealer.district,
@@ -128,13 +119,6 @@ function contactPersonDisplayName(dealer: ZohoDealer): string | null {
     || dealer.zohoContactPersons?.find(p => p.isPrimary)?.name?.trim()
     || dealer.zohoContactPersons?.[0]?.name?.trim();
   return zohoName || null;
-}
-
-function dealerInitials(dealer: ZohoDealer): string {
-  const name = dealer.companyName || dealer.contactName || '?';
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return `${parts[0]![0]}${parts[1]![0]}`.toUpperCase();
-  return name.slice(0, 2).toUpperCase();
 }
 
 function FieldLabel({
@@ -172,7 +156,7 @@ function ContactNumberField({
   onChange,
   disabled,
   showCall = true,
-  showWhatsApp = false,
+  showWhatsApp = true,
   full,
 }: {
   label: string;
@@ -225,7 +209,7 @@ function ContactNumberField({
   );
 }
 
-function ReadOnlyTileField({
+function FlatReadOnlyField({
   label,
   value,
   full,
@@ -236,15 +220,27 @@ function ReadOnlyTileField({
   full?: boolean;
   multiline?: boolean;
 }) {
+  const isPlainText = typeof value === 'string' || typeof value === 'number' || value == null;
   const empty = value == null || value === '';
+  const text = empty ? '—' : String(value);
+
   return (
-    <div className={`dealers-detail__field dealers-detail__tile-field${full ? ' dealers-detail__field--full' : ''}`}>
+    <div className={`dealers-detail__field${full ? ' dealers-detail__field--full' : ''}`}>
       <span>{label}</span>
-      <div
-        className={`dealers-detail__tile-value${multiline ? ' dealers-detail__tile-value--block' : ''}${empty ? ' dealers-detail__tile-value--empty' : ''}`}
-      >
-        {empty ? '—' : value}
-      </div>
+      {isPlainText ? (
+        multiline ? (
+          <textarea
+            className="input-field dealers-detail__textarea"
+            readOnly
+            disabled
+            value={text}
+          />
+        ) : (
+          <input className="input-field" readOnly disabled value={text} />
+        )
+      ) : (
+        <div className="dealers-detail__readonly-value">{value}</div>
+      )}
     </div>
   );
 }
@@ -271,7 +267,7 @@ function BlankOrReadOnlyZohoField({
 
   if (!editable) {
     return (
-      <ReadOnlyTileField
+      <FlatReadOnlyField
         label={field.label}
         value={displayValue}
         full={field.full}
@@ -322,7 +318,7 @@ function ToggleField({
   disabled?: boolean;
 }) {
   return (
-    <label className="dealers-detail__toggle">
+    <label className="dealers-detail__field dealers-detail__toggle">
       <span>{label}</span>
       <button
         type="button"
@@ -344,7 +340,6 @@ const PULL_REFRESH_MAX = 96;
 export const DealerDetailPage: React.FC = () => {
   const { dealerId } = useParams<{ dealerId: string }>();
   const location = useLocation();
-  const { user } = useAuth();
   const preview = (location.state as { dealer?: ZohoDealer } | null)?.dealer;
 
   const [dealer, setDealer] = useState<ZohoDealer | null>(
@@ -355,10 +350,10 @@ export const DealerDetailPage: React.FC = () => {
   );
   const [kams, setKams] = useState<Kam[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
-  const [states, setStates] = useState<string[]>([]);
-  const [districts, setDistricts] = useState<string[]>([]);
   const [loading, setLoading] = useState(!dealer);
   const [error, setError] = useState('');
+  const [pincodeError, setPincodeError] = useState('');
+  const [pincodeLookup, setPincodeLookup] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshingZoho, setRefreshingZoho] = useState(false);
   const [zohoBaseline, setZohoBaseline] = useState<ZohoPushableFields | null>(
@@ -367,7 +362,6 @@ export const DealerDetailPage: React.FC = () => {
   const [blankFillableKeys, setBlankFillableKeys] = useState<ZohoFillableFieldKey[]>(
     preview && preview.id === dealerId ? blankFillableFieldKeys(preview) : [],
   );
-  const [showCreateUser, setShowCreateUser] = useState(false);
   const [pullOffset, setPullOffset] = useState(0);
   const pullStateRef = useRef({ startY: 0, pulling: false, distance: 0 });
 
@@ -470,23 +464,37 @@ export const DealerDetailPage: React.FC = () => {
     void Promise.all([
       fetchKams().then(setKams),
       fetchDealerCategories().then(setCategories),
-      fetchDealerLocations().then(res => {
-        setStates(res.states);
-        return res;
-      }),
     ]).catch(err => console.error('Dealer detail meta load failed:', err));
   }, []);
 
-  useEffect(() => {
-    const state = draft?.billingState ?? dealer?.billingState;
-    if (!state) {
-      setDistricts([]);
-      return;
-    }
-    void fetchDealerLocations().then(res => {
-      setDistricts(res.districtsByState[state] ?? []);
+  const handlePincodeChange = useCallback(async (raw: string) => {
+    const pin = raw.replace(/\D/g, '').slice(0, 6);
+    setDraft(d => {
+      if (!d) return d;
+      if (!pin) {
+        return { ...d, zipCode: null, billingState: null, district: null };
+      }
+      return { ...d, zipCode: pin };
     });
-  }, [draft?.billingState, dealer?.billingState]);
+    setPincodeError('');
+
+    if (pin.length !== 6) return;
+
+    setPincodeLookup(true);
+    try {
+      const location = await lookupDealerPincode(pin);
+      setDraft(d => d ? {
+        ...d,
+        zipCode: pin,
+        billingState: location.state,
+        district: location.district,
+      } : d);
+    } catch (err) {
+      setPincodeError(err instanceof Error ? err.message : 'PIN code lookup failed.');
+    } finally {
+      setPincodeLookup(false);
+    }
+  }, []);
 
   const dirty = useMemo(() => {
     if (!dealer || !draft) return false;
@@ -498,11 +506,6 @@ export const DealerDetailPage: React.FC = () => {
     const payload = buildZohoPushPayload(draft, dealer, zohoBaseline, blankFillableKeys);
     return hasZohoPushChanges(payload);
   }, [dealer, draft, zohoBaseline, blankFillableKeys]);
-
-  const saveButtonLabel = useMemo(() => {
-    if (saving) return 'Saving…';
-    return 'Save changes';
-  }, [saving]);
 
   const saveDraft = async () => {
     if (!dealer || !draft || !dirty) return;
@@ -526,6 +529,13 @@ export const DealerDetailPage: React.FC = () => {
     }
   };
 
+  const revertDraft = () => {
+    if (!dealer || !dirty) return;
+    setDraft(dealerToDraft(dealer));
+    setPincodeError('');
+    setError('');
+  };
+
   const blockDealer = async () => {
     if (!dealer) return;
     if (!window.confirm(`Block ${dealer.companyName || dealer.contactName}?`)) return;
@@ -545,28 +555,6 @@ export const DealerDetailPage: React.FC = () => {
     }
   };
 
-  const handleCreatePortalUser = async (payload: {
-    loginId: string;
-    password: string;
-    displayName: string;
-    phone?: string;
-    email?: string;
-  }) => {
-    if (!dealer || !user) return;
-    const uid = await registerUser(db, {
-      loginId: payload.loginId,
-      password: payload.password,
-      displayName: payload.displayName,
-      role: 'dealer',
-      phone: payload.phone,
-      email: payload.email,
-      zohoCustomerId: dealer.id,
-      createdByUid: user.uid,
-    });
-    await linkDealerPortalUser(dealer.id, uid);
-    await loadDealer();
-  };
-
   if (!dealerId) return null;
 
   const name = dealer ? (dealer.companyName || dealer.contactName) : '';
@@ -583,7 +571,7 @@ export const DealerDetailPage: React.FC = () => {
     });
   };
 
-  const otherZohoContactPersons = (dealer?.zohoContactPersons ?? []).filter(p => !p.isPrimary);
+  const zohoEmailField = topZohoEmailField();
   const pullRefreshLabel = refreshingZoho
     ? 'Refreshing from Zoho…'
     : pullOffset >= PULL_REFRESH_THRESHOLD
@@ -610,491 +598,272 @@ export const DealerDetailPage: React.FC = () => {
         style={pullOffset > 0 && !refreshingZoho ? { transform: `translateY(${pullOffset}px)` } : undefined}
       >
       {error && (
-        <div className="products-inline-error panel glass">
+        <div className="products-inline-error">
           <span>{error}</span>
         </div>
       )}
 
       {loading && !dealer ? (
-        <div className="dealers-detail panel glass">
-          <FetchingLoader label="Fetching dealer" />
-        </div>
+        <FetchingLoader label="Fetching dealer" />
       ) : !dealer || !draft ? (
-        <div className="dealers-detail panel glass">
-          <p className="text-muted">Dealer not found.</p>
-        </div>
+        <p className="text-muted">Dealer not found.</p>
       ) : (
-        <>
-          <header className="dealers-detail__hero panel glass">
-            <div className="dealers-detail__hero-top">
-              <div className="dealers-detail__hero-main">
-                <div className="dealers-detail__avatar" aria-hidden>
-                  {dealerInitials(dealer)}
-                  {dealer.signedIn && (
-                    <span className="dealers-detail__avatar-badge" title="Portal user linked">✓</span>
-                  )}
-                </div>
-                <div className="dealers-detail__hero-body">
-                  <h1 className="dealers-detail__hero-title">{name}</h1>
-                  <p className="dealers-detail__hero-id">ID {dealer.id}</p>
-                  {contactPersonName && (
-                    <p className="dealers-detail__hero-meta">{contactPersonName}</p>
-                  )}
-                  {zohoCreatedOn && (
-                    <p className="dealers-detail__hero-meta">
-                      Zoho created {zohoCreatedOn}
-                    </p>
-                  )}
-                </div>
-              </div>
-              {statusMeta && (
-                <DealerStatusIndicator
-                  meta={statusMeta}
-                  className="dealers-detail__hero-status"
-                />
+        <div className="dealers-detail__form dealers-detail__form--page">
+          <div className="dealers-detail__field dealers-detail__field--full dealers-detail__summary">
+            <div className="dealers-detail__summary-main">
+              <strong className="dealers-detail__summary-name">{name}</strong>
+              <span className="dealers-detail__summary-id">ID {dealer.id}</span>
+              {contactPersonName && (
+                <span className="dealers-detail__summary-meta">{contactPersonName}</span>
+              )}
+              {zohoCreatedOn && (
+                <span className="dealers-detail__summary-meta">Created {zohoCreatedOn}</span>
               )}
             </div>
-          </header>
+            {statusMeta && (
+              <DealerStatusIndicator
+                meta={statusMeta}
+                className="dealers-detail__summary-status"
+              />
+            )}
+          </div>
 
-              <section className="dealers-detail panel glass">
-                <div className="dealers-detail__section-head">
-                  <h3 className="dealers-detail__section-title">From Zoho · updatables</h3>
-                </div>
-                <div className="dealers-detail__form">
-                  <label className="dealers-detail__field">
-                    <FieldLabel label="Contact / owner name" source="zoho" />
-                    <input
-                      className="input-field"
-                      value={draft.firstName ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, firstName: e.target.value || null } : d)}
-                    />
-                  </label>
-                  <ContactNumberField
-                    label="Phone"
-                    fieldSource="zoho"
-                    value={draft.phone ?? ''}
-                    disabled={saving}
-                    showCall
-                    showWhatsApp
-                    onChange={v => setDraft(d => d ? { ...d, phone: v || null } : d)}
-                  />
-                  <label className="dealers-detail__field">
-                    <FieldLabel label="Email" source="zoho" />
-                    <input
-                      type="email"
-                      className="input-field"
-                      value={draft.email ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, email: e.target.value || null } : d)}
-                    />
-                  </label>
-                  <label className="dealers-detail__field">
-                    <FieldLabel label="Designation" source="zoho" />
-                    <input
-                      className="input-field"
-                      value={draft.designation ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, designation: e.target.value || null } : d)}
-                    />
-                  </label>
-                  <ContactNumberField
-                    label="Alternate mobile"
-                    fieldSource="zoho"
-                    value={draft.alternateMobile ?? ''}
-                    disabled={saving}
-                    showCall
-                    showWhatsApp
-                    onChange={v => setDraft(d => d ? { ...d, alternateMobile: v || null } : d)}
-                  />
+          <label className="dealers-detail__field">
+            <FieldLabel label="Contact / owner name" source="zoho" />
+            <input
+              className="input-field"
+              value={draft.firstName ?? ''}
+              disabled={saving}
+              onChange={e => setDraft(d => d ? { ...d, firstName: e.target.value || null } : d)}
+            />
+          </label>
+          {topZohoContactFields().map(field => (
+            <ContactNumberField
+              key={field.key}
+              label={field.label}
+              fieldSource="zoho"
+              value={field.getDraftValue(draft) ?? ''}
+              disabled={saving || !blankFillableKeys.includes(field.key)}
+              showCall
+              showWhatsApp
+              onChange={v => setFillableDraftField(field.key, v)}
+            />
+          ))}
+          {zohoEmailField && (
+            <BlankOrReadOnlyZohoField
+              field={zohoEmailField}
+              dealer={dealer}
+              editable={blankFillableKeys.includes('zohoEmail')}
+              draftValue={zohoEmailField.getDraftValue(draft) ?? ''}
+              disabled={saving}
+              onChange={value => setFillableDraftField('zohoEmail', value)}
+            />
+          )}
 
-                  <div className="dealers-detail__form-split dealers-detail__field--full">
-                    <span className="dealers-detail__form-split-label">App only · not synced to Zoho</span>
-                  </div>
+          <label className="dealers-detail__field">
+            <FieldLabel label="Status" source="local" />
+            <select
+              className="catalog-select"
+              value={draft.dealerStage ?? ''}
+              disabled={saving}
+              onChange={e => setDraft(d => d ? { ...d, dealerStage: e.target.value || null } : d)}
+            >
+              <option value="">Unset</option>
+              {DEALER_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <div className="dealers-detail__field dealers-detail__field--full">
+            <FieldLabel label="Categories" source="local" />
+            <MultiSelect
+              placeholder="Select categories"
+              menuPortal
+              value={draft.categories}
+              options={categories.map(c => ({ value: c, label: c }))}
+              onChange={next => setDraft(d => d ? { ...d, categories: next } : d)}
+            />
+          </div>
+          <label className="dealers-detail__field dealers-detail__field--full">
+            <FieldLabel label="Key account manager" source="local" />
+            <select
+              className="catalog-select"
+              value={draft.kamId ?? ''}
+              disabled={saving}
+              onChange={e => setDraft(d => d ? { ...d, kamId: e.target.value || null } : d)}
+            >
+              <option value="">Unassigned</option>
+              {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+            </select>
+          </label>
 
-                  <ContactNumberField
-                    label="WhatsApp number"
-                    fieldSource="local"
-                    value={draft.whatsappNumber ?? ''}
-                    disabled={saving}
-                    showCall
-                    showWhatsApp
-                    full
-                    onChange={v => setDraft(d => d ? { ...d, whatsappNumber: v || null } : d)}
-                  />
-                  <label className="dealers-detail__field">
-                    <FieldLabel label="Status" source="local" />
-                    <select
-                      className="catalog-select"
-                      value={draft.dealerStage ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, dealerStage: e.target.value || null } : d)}
-                    >
-                      <option value="">Unset</option>
-                      {DEALER_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </label>
-                  <div className="dealers-detail__field dealers-detail__field--full">
-                    <FieldLabel label="Categories" source="local" />
-                    <MultiSelect
-                      placeholder="Select categories"
-                      menuPortal
-                      value={draft.categories}
-                      options={categories.map(c => ({ value: c, label: c }))}
-                      onChange={next => setDraft(d => d ? { ...d, categories: next } : d)}
-                    />
-                  </div>
-                  <label className="dealers-detail__field dealers-detail__field--full">
-                    <FieldLabel label="Key account manager" source="local" />
-                    <select
-                      className="catalog-select"
-                      value={draft.kamId ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, kamId: e.target.value || null } : d)}
-                    >
-                      <option value="">Unassigned</option>
-                      {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-                    </select>
-                  </label>
+          {visibleFillableFields(dealer).map(field => (
+            <BlankOrReadOnlyZohoField
+              key={field.key}
+              field={field}
+              dealer={dealer}
+              editable={blankFillableKeys.includes(field.key)}
+              draftValue={field.getDraftValue(draft) ?? ''}
+              disabled={saving}
+              onChange={value => setFillableDraftField(field.key, value)}
+            />
+          ))}
 
-                  <div className="dealers-detail__form-split dealers-detail__field--full">
-                    <span className="dealers-detail__form-split-label">
-                      Synced from Zoho · blank fields can be filled once
-                    </span>
-                  </div>
+          <FlatReadOnlyField
+            label="Place of supply"
+            value={dealer.zohoPlaceOfContactLabel || dealer.zohoPlaceOfContact}
+          />
+          <FlatReadOnlyField
+            label="Tax"
+            value={dealer.zohoTaxName
+              ? `${dealer.zohoTaxName}${dealer.zohoTaxPercentage != null ? ` (${dealer.zohoTaxPercentage}%)` : ''}`
+              : null}
+          />
 
-                  {visibleFillableFields(dealer).map(field => (
-                    <BlankOrReadOnlyZohoField
-                      key={field.key}
-                      field={field}
-                      dealer={dealer}
-                      editable={blankFillableKeys.includes(field.key)}
-                      draftValue={field.getDraftValue(draft) ?? ''}
-                      disabled={saving}
-                      onChange={value => setFillableDraftField(field.key, value)}
-                    />
+          {(dealer.zohoTags?.length ?? 0) > 0 && (
+            <FlatReadOnlyField
+              label="Tags"
+              full
+              value={(
+                <div className="dealers-detail__tag-list">
+                  {dealer.zohoTags!.map(tag => (
+                    <span key={tag} className="dealers-detail__tag">{tag}</span>
                   ))}
-
-                  <ReadOnlyTileField
-                    label="Place of supply"
-                    value={dealer.zohoPlaceOfContactLabel || dealer.zohoPlaceOfContact}
-                  />
-                  <ReadOnlyTileField
-                    label="Tax"
-                    value={dealer.zohoTaxName
-                      ? `${dealer.zohoTaxName}${dealer.zohoTaxPercentage != null ? ` (${dealer.zohoTaxPercentage}%)` : ''}`
-                      : null}
-                  />
-                  {otherZohoContactPersons.length > 0 && (
-                    <div className="dealers-detail__field dealers-detail__field--full dealers-detail__tile-group">
-                      <span>Other contact persons · Zoho</span>
-                      <div className="dealers-detail__contact-persons">
-                        {otherZohoContactPersons.map(person => (
-                          <div key={person.id ?? person.name ?? 'unknown'} className="dealers-detail__contact-person">
-                            <div className="dealers-detail__contact-person-head">
-                              <strong>{person.name || 'Unnamed contact'}</strong>
-                            </div>
-                            <div className="dealers-detail__form dealers-detail__form--readonly dealers-detail__form--nested">
-                              <ReadOnlyTileField label="Designation" value={person.designation} />
-                              <ReadOnlyTileField label="Department" value={person.department} />
-                              <ReadOnlyTileField label="Phone" value={person.phone || person.mobile} />
-                              <ReadOnlyTileField label="Email" value={person.email} />
-                              <ReadOnlyTileField
-                                label="Portal"
-                                value={person.isAddedInPortal ? 'Added' : 'Not added'}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {(dealer.zohoTags?.length ?? 0) > 0 && (
-                    <ReadOnlyTileField
-                      label="Tags · Zoho"
-                      full
-                      value={(
-                        <div className="dealers-detail__tag-list">
-                          {dealer.zohoTags!.map(tag => (
-                            <span key={tag} className="dealers-detail__tag">{tag}</span>
-                          ))}
-                        </div>
-                      )}
-                    />
-                  )}
-                  {dealer.zohoCustomFields?.map((field, index) => {
-                    const row = field as { label?: string; value?: unknown; api_name?: string };
-                    const label = row.label || row.api_name || `Custom field ${index + 1}`;
-                    const value = row.value != null ? String(row.value) : null;
-                    return (
-                      <ReadOnlyTileField key={`${label}-${index}`} label={label} value={value} />
-                    );
-                  })}
                 </div>
-              </section>
+              )}
+            />
+          )}
+          {dealer.zohoCustomFields?.map((field, index) => {
+            const row = field as { label?: string; value?: unknown; api_name?: string };
+            const label = row.label || row.api_name || `Custom field ${index + 1}`;
+            const value = row.value != null ? String(row.value) : null;
+            return (
+              <FlatReadOnlyField key={`${label}-${index}`} label={label} value={value} />
+            );
+          })}
 
-              <section className="dealers-detail panel glass">
-                <h3 className="dealers-detail__section-title">Portal login</h3>
-                {dealer.signedIn ? (
-                  <div className="dealers-detail__form dealers-detail__form--readonly">
-                    <ReadOnlyTileField label="Portal user" value={dealer.portalUserName} />
-                    <ReadOnlyTileField label="Login ID" value={dealer.portalLoginId} />
-                  </div>
-                ) : (
-                  <div className="dealers-detail__portal-empty">
-                    <p className="text-muted text-sm">No portal account linked yet.</p>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setShowCreateUser(true)}
-                    >
-                      <UserPlus size={15} />
-                      Create portal user
-                    </button>
-                  </div>
-                )}
-              </section>
+          <label className="dealers-detail__field">
+            <FieldLabel label="Price level" source="local" />
+            <select
+              className="catalog-select"
+              value={draft.priceLevel ?? ''}
+              disabled={saving}
+              onChange={e => setDraft(d => d ? { ...d, priceLevel: e.target.value || null } : d)}
+            >
+              <option value="">—</option>
+              {PRICE_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
 
-              <section className="dealers-detail panel glass">
-                <h3 className="dealers-detail__section-title">Business · local edits</h3>
-                <div className="dealers-detail__form">
-                  <label className="dealers-detail__field">
-                    <span>Dealer type</span>
-                    <select
-                      className="catalog-select"
-                      value={draft.dealerType ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, dealerType: e.target.value || null } : d)}
-                    >
-                      <option value="">—</option>
-                      {DEALER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </label>
-                  <label className="dealers-detail__field">
-                    <span>Firm type</span>
-                    <select
-                      className="catalog-select"
-                      value={draft.firmType ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, firmType: e.target.value || null } : d)}
-                    >
-                      <option value="">—</option>
-                      {FIRM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </label>
-                  <label className="dealers-detail__field">
-                    <span>Credit limit (₹) · local</span>
-                    <input
-                      type="number"
-                      min={0}
-                      className="input-field"
-                      value={draft.creditLimit ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? {
-                        ...d,
-                        creditLimit: e.target.value === '' ? null : Number(e.target.value),
-                      } : d)}
-                    />
-                  </label>
-                  <label className="dealers-detail__field">
-                    <span>Price level · local</span>
-                    <select
-                      className="catalog-select"
-                      value={draft.priceLevel ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, priceLevel: e.target.value || null } : d)}
-                    >
-                      <option value="">—</option>
-                      {PRICE_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </label>
-                </div>
-              </section>
+          <label className="dealers-detail__field">
+            <span>PIN code</span>
+            <input
+              className="input-field"
+              inputMode="numeric"
+              maxLength={6}
+              value={draft.zipCode ?? ''}
+              disabled={saving || pincodeLookup}
+              onChange={e => void handlePincodeChange(e.target.value)}
+              placeholder="6-digit PIN"
+            />
+            {pincodeLookup && (
+              <span className="dealers-detail__pincode-hint">Looking up state and district…</span>
+            )}
+            {pincodeError && (
+              <span className="dealers-detail__pincode-error">{pincodeError}</span>
+            )}
+          </label>
+          <FlatReadOnlyField label="State" value={draft.billingState} />
+          <FlatReadOnlyField label="District" value={draft.district} />
+          <label className="dealers-detail__field dealers-detail__field--full">
+            <span>Google Maps link</span>
+            <div className="dealers-detail__link-field">
+              <input
+                className="input-field"
+                value={draft.googleMapsUrl ?? ''}
+                disabled={saving}
+                onChange={e => setDraft(d => d ? { ...d, googleMapsUrl: e.target.value || null } : d)}
+                placeholder="https://maps.google.com/…"
+              />
+              {draft.googleMapsUrl && (
+                <a
+                  href={draft.googleMapsUrl}
+                  className="dealers-detail__link-open"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open map"
+                >
+                  <ExternalLink size={16} />
+                </a>
+              )}
+            </div>
+          </label>
 
-              <section className="dealers-detail panel glass">
-                <h3 className="dealers-detail__section-title">Address · local edits</h3>
-                <div className="dealers-detail__form">
-                  <label className="dealers-detail__field dealers-detail__field--full">
-                    <span>Billing address</span>
-                    <textarea
-                      className="input-field dealers-detail__textarea"
-                      rows={3}
-                      value={draft.billingAddress ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, billingAddress: e.target.value || null } : d)}
-                    />
-                  </label>
-                  <label className="dealers-detail__field dealers-detail__field--full">
-                    <span>Shipping address</span>
-                    <textarea
-                      className="input-field dealers-detail__textarea"
-                      rows={3}
-                      value={draft.shippingAddress ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, shippingAddress: e.target.value || null } : d)}
-                    />
-                  </label>
-                  <label className="dealers-detail__field">
-                    <span>State</span>
-                    <select
-                      className="catalog-select"
-                      value={draft.billingState ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? {
-                        ...d,
-                        billingState: e.target.value || null,
-                        district: null,
-                      } : d)}
-                    >
-                      <option value="">—</option>
-                      {states.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </label>
-                  <label className="dealers-detail__field">
-                    <span>District</span>
-                    <select
-                      className="catalog-select"
-                      value={draft.district ?? ''}
-                      disabled={saving || !draft.billingState}
-                      onChange={e => setDraft(d => d ? { ...d, district: e.target.value || null } : d)}
-                    >
-                      <option value="">—</option>
-                      {districts.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </label>
-                  <label className="dealers-detail__field">
-                    <span>PIN code</span>
-                    <input
-                      className="input-field"
-                      value={draft.zipCode ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, zipCode: e.target.value || null } : d)}
-                    />
-                  </label>
-                  <label className="dealers-detail__field dealers-detail__field--full">
-                    <span>Google Maps link</span>
-                    <div className="dealers-detail__link-field">
-                      <input
-                        className="input-field"
-                        value={draft.googleMapsUrl ?? ''}
-                        disabled={saving}
-                        onChange={e => setDraft(d => d ? { ...d, googleMapsUrl: e.target.value || null } : d)}
-                        placeholder="https://maps.google.com/…"
-                      />
-                      {draft.googleMapsUrl && (
-                        <a
-                          href={draft.googleMapsUrl}
-                          className="dealers-detail__link-open"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          aria-label="Open map"
-                        >
-                          <ExternalLink size={16} />
-                        </a>
-                      )}
-                    </div>
-                  </label>
-                </div>
-              </section>
+          <ToggleField
+            label="Can buy spare parts"
+            checked={draft.canBuySpares ?? true}
+            disabled={saving}
+            onChange={v => setDraft(d => d ? { ...d, canBuySpares: v } : d)}
+          />
+          <ToggleField
+            label="Order online · pay offline"
+            checked={draft.orderPayOffline ?? true}
+            disabled={saving}
+            onChange={v => setDraft(d => d ? { ...d, orderPayOffline: v } : d)}
+          />
+          <ToggleField
+            label="Order and pay online"
+            checked={draft.orderPayOnline ?? false}
+            disabled={saving}
+            onChange={v => setDraft(d => d ? { ...d, orderPayOnline: v } : d)}
+          />
 
-              <section className="dealers-detail panel glass">
-                <h3 className="dealers-detail__section-title">Purchase &amp; order settings</h3>
-                <div className="dealers-detail__toggles">
-                  <ToggleField
-                    label="Can buy spare parts"
-                    checked={draft.canBuySpares ?? true}
-                    disabled={saving}
-                    onChange={v => setDraft(d => d ? { ...d, canBuySpares: v } : d)}
-                  />
-                  <ToggleField
-                    label="Order online · pay offline"
-                    checked={draft.orderPayOffline ?? true}
-                    disabled={saving}
-                    onChange={v => setDraft(d => d ? { ...d, orderPayOffline: v } : d)}
-                  />
-                  <ToggleField
-                    label="Order and pay online"
-                    checked={draft.orderPayOnline ?? false}
-                    disabled={saving}
-                    onChange={v => setDraft(d => d ? { ...d, orderPayOnline: v } : d)}
-                  />
-                  <ToggleField
-                    label="Admin approval required"
-                    checked={draft.adminApprovalRequired ?? false}
-                    disabled={saving}
-                    onChange={v => setDraft(d => d ? { ...d, adminApprovalRequired: v } : d)}
-                  />
-                </div>
-                <label className="dealers-detail__field dealers-detail__field--limit">
-                  <span>Maximum order limit (₹)</span>
-                  <input
-                    type="number"
-                    min={0}
-                    className="input-field"
-                    value={draft.maxOrderLimit ?? ''}
-                    disabled={saving}
-                    onChange={e => setDraft(d => d ? {
-                      ...d,
-                      maxOrderLimit: e.target.value === '' ? null : Number(e.target.value),
-                    } : d)}
-                  />
-                </label>
-              </section>
-
-              <section className="dealers-detail panel glass dealers-detail__actions">
-                <h3 className="dealers-detail__section-title">Actions</h3>
-                <div className="dealers-detail__action-stack">
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={saving || refreshingZoho || !dirty}
-                    onClick={() => void saveDraft()}
-                  >
-                    <Save size={16} />
-                    {saveButtonLabel}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary dealers-detail__action--warn"
-                    disabled={saving}
-                    onClick={() => void blockDealer()}
-                  >
-                    <Lock size={16} />
-                    Block dealer
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled
-                    title="Order history per dealer coming soon"
-                  >
-                    View orders
-                  </button>
-                </div>
-              </section>
-        </>
+          <div className="dealers-detail__field dealers-detail__field--full dealers-detail__actions-row">
+            <button
+              type="button"
+              className="btn btn-secondary dealers-detail__action--warn"
+              disabled={saving}
+              onClick={() => void blockDealer()}
+            >
+              <Lock size={16} />
+              Block dealer
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled
+              title="Order history per dealer coming soon"
+            >
+              View orders
+            </button>
+          </div>
+        </div>
       )}
 
-      {showCreateUser && dealer && (
-        <CreateDealerUserModal
-          dealer={dealer}
-          onClose={() => setShowCreateUser(false)}
-          onSubmit={handleCreatePortalUser}
-        />
-      )}
       </div>
 
       {dirty && dealer && (
         <div className="dealers-detail__save-float" role="region" aria-label="Unsaved changes">
-          <button
-            type="button"
-            className="btn btn-primary dealers-detail__save-float-btn"
-            disabled={saving || refreshingZoho}
-            onClick={() => void saveDraft()}
-          >
-            <Save size={16} />
-            {saveButtonLabel}
-          </button>
+          <div className="dealers-detail__save-float-actions">
+            <button
+              type="button"
+              className="btn btn-secondary dealers-detail__save-float-btn dealers-detail__save-float-btn--revert"
+              disabled={saving || refreshingZoho}
+              onClick={revertDraft}
+              aria-label="Revert changes"
+              title="Revert changes"
+            >
+              <RotateCcw size={18} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary dealers-detail__save-float-btn"
+              disabled={saving || refreshingZoho}
+              onClick={() => void saveDraft()}
+              aria-label={saving ? 'Saving changes' : 'Save changes'}
+              title={saving ? 'Saving…' : 'Save changes'}
+            >
+              <Save size={18} />
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -85,6 +85,27 @@ export async function fetchDealerLocations(): Promise<{
   return result.data as { states: string[]; districtsByState: Record<string, string[]> };
 }
 
+export async function lookupDealerPincode(
+  pincode: string,
+): Promise<{ state: string; district: string }> {
+  const fn = httpsCallable<
+    { pincode: string },
+    { state: string; district: string }
+  >(functions, 'lookupDealerPincode');
+  try {
+    const result = await fn({ pincode: pincode.replace(/\D/g, '').slice(0, 6) });
+    return result.data;
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'message' in err) {
+      const fbErr = err as { code?: string; message: string };
+      if (fbErr.code?.startsWith('functions/') && fbErr.message) {
+        throw new Error(fbErr.message);
+      }
+    }
+    throw new Error('Could not look up PIN code.');
+  }
+}
+
 export async function exportDealersCsv(params: DealerListParams): Promise<string> {
   const fn = httpsCallable(functions, 'exportDealers');
   const result = await fn(params);

@@ -43,6 +43,7 @@ import {
   importCrmDealerOverlay,
   backfillDealerLocations,
 } from './lib/dealer-legacy-import.js';
+import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
   lookupDealerForLogin,
@@ -657,6 +658,24 @@ export const getDealerLocations = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     return getDealerLocationsSummary();
+  },
+);
+
+/** Resolve state and district from a 6-digit Indian PIN code. */
+export const lookupDealerPincode = onCall(
+  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const pincode = String(request.data?.pincode ?? '').replace(/\D/g, '').slice(0, 6);
+    if (pincode.length !== 6) {
+      throw new HttpsError('invalid-argument', 'Enter a valid 6-digit PIN code.');
+    }
+    const zipCache = await readDealerSetting('zip_codes', {});
+    const location = await lookupPincodeLocation(pincode, zipCache);
+    if (!location?.state || !location?.district) {
+      throw new HttpsError('not-found', 'Could not find state and district for this PIN code.');
+    }
+    return location;
   },
 );
 

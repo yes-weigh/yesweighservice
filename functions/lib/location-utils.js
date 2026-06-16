@@ -30,10 +30,16 @@ export function normalizeDistrictName(rawDistrict) {
   return String(rawDistrict).trim().replace(/\s+/g, ' ') || null;
 }
 
-export async function resolveLiveZipDistrict(zip, zipCache = {}) {
-  const key = String(zip ?? '').trim();
-  if (!key) return null;
-  if (zipCache[key]) return zipCache[key];
+export async function lookupPincodeLocation(zip, zipCache = {}) {
+  const key = String(zip ?? '').replace(/\D/g, '').slice(0, 6);
+  if (key.length !== 6) return null;
+
+  if (zipCache[key] && typeof zipCache[key] === 'object' && zipCache[key].state && zipCache[key].district) {
+    return {
+      state: normalizeStateName(zipCache[key].state),
+      district: normalizeDistrictName(zipCache[key].district),
+    };
+  }
 
   try {
     const controller = new AbortController();
@@ -45,11 +51,24 @@ export async function resolveLiveZipDistrict(zip, zipCache = {}) {
     clearTimeout(timeoutId);
     if (!res.ok) return null;
     const data = await res.json();
-    if (data?.[0]?.Status === 'Success' && data[0].PostOffice?.[0]?.District) {
-      return data[0].PostOffice[0].District;
+    if (data?.[0]?.Status === 'Success' && data[0].PostOffice?.[0]) {
+      const office = data[0].PostOffice[0];
+      return {
+        state: normalizeStateName(office.State),
+        district: normalizeDistrictName(office.District),
+      };
     }
   } catch {
     return null;
   }
   return null;
+}
+
+export async function resolveLiveZipDistrict(zip, zipCache = {}) {
+  const cached = zipCache[String(zip ?? '').trim()];
+  if (typeof cached === 'string' && cached.trim()) {
+    return normalizeDistrictName(cached);
+  }
+  const location = await lookupPincodeLocation(zip, zipCache);
+  return location?.district ?? null;
 }

@@ -2,8 +2,6 @@ import type { ZohoDealer } from '../types/dealers';
 import { normField, type ZohoPushableFields, zohoPushableFromDraft } from './dealerZohoPush';
 
 export type ZohoFillableFieldKey =
-  | 'zohoLegalName'
-  | 'zohoCustomerSubType'
   | 'zohoEmail'
   | 'mobile'
   | 'zohoContactPhone'
@@ -26,8 +24,6 @@ export interface ZohoFillableFieldDef {
 }
 
 export type ZohoFillableDraft = {
-  zohoLegalName?: string | null;
-  zohoCustomerSubType?: string | null;
   zohoEmail?: string | null;
   mobile?: string | null;
   zohoContactPhone?: string | null;
@@ -42,36 +38,22 @@ export type ZohoFillableDraft = {
 
 export const ZOHO_FILLABLE_FIELDS: ZohoFillableFieldDef[] = [
   {
-    key: 'zohoLegalName',
-    label: 'Legal name',
-    pushKey: 'legal_name',
-    getValue: d => d.zohoLegalName,
-    getDraftValue: d => d.zohoLegalName,
-  },
-  {
-    key: 'zohoCustomerSubType',
-    label: 'Customer type',
-    pushKey: 'customer_sub_type',
-    getValue: d => d.zohoCustomerSubType,
-    getDraftValue: d => d.zohoCustomerSubType,
-  },
-  {
     key: 'zohoEmail',
-    label: 'Email (Zoho)',
+    label: 'Email',
     pushKey: 'zoho_email',
     getValue: d => d.zohoEmail,
     getDraftValue: d => d.zohoEmail,
   },
   {
     key: 'mobile',
-    label: 'Mobile (Zoho)',
+    label: 'Mobile',
     pushKey: 'mobile',
     getValue: d => d.mobile,
     getDraftValue: d => d.mobile,
   },
   {
     key: 'zohoContactPhone',
-    label: 'Phone (Zoho)',
+    label: 'Phone',
     pushKey: 'zoho_phone',
     getValue: d => d.zohoPrimaryContact?.phone ?? null,
     getDraftValue: d => d.zohoContactPhone,
@@ -106,7 +88,7 @@ export const ZOHO_FILLABLE_FIELDS: ZohoFillableFieldDef[] = [
   },
   {
     key: 'zohoNotes',
-    label: 'Notes (Zoho)',
+    label: 'Notes',
     pushKey: 'notes',
     full: true,
     multiline: true,
@@ -115,7 +97,7 @@ export const ZOHO_FILLABLE_FIELDS: ZohoFillableFieldDef[] = [
   },
   {
     key: 'zohoBillingAddress',
-    label: 'Billing address (Zoho)',
+    label: 'Billing address',
     pushKey: 'billing_address',
     full: true,
     multiline: true,
@@ -124,7 +106,7 @@ export const ZOHO_FILLABLE_FIELDS: ZohoFillableFieldDef[] = [
   },
   {
     key: 'zohoShippingAddress',
-    label: 'Shipping address (Zoho)',
+    label: 'Shipping address',
     pushKey: 'shipping_address',
     full: true,
     multiline: true,
@@ -132,6 +114,12 @@ export const ZOHO_FILLABLE_FIELDS: ZohoFillableFieldDef[] = [
     getDraftValue: d => d.zohoShippingAddress,
   },
 ];
+
+export const TOP_ZOHO_CONTACT_FIELD_KEYS: ZohoFillableFieldKey[] = ['mobile', 'zohoContactPhone'];
+
+export function topZohoEmailField(): ZohoFillableFieldDef | undefined {
+  return ZOHO_FILLABLE_FIELDS.find(field => field.key === 'zohoEmail');
+}
 
 export function zohoAddressesMatch(dealer: ZohoDealer): boolean {
   const billing = normField(dealer.zohoBillingAddress);
@@ -143,12 +131,19 @@ export function zohoAddressesMatch(dealer: ZohoDealer): boolean {
 export function visibleFillableFields(dealer: ZohoDealer): ZohoFillableFieldDef[] {
   const sameAddress = zohoAddressesMatch(dealer);
   return ZOHO_FILLABLE_FIELDS.flatMap(field => {
+    if (TOP_ZOHO_CONTACT_FIELD_KEYS.includes(field.key) || field.key === 'zohoEmail') return [];
     if (field.key === 'zohoShippingAddress' && sameAddress) return [];
     if (field.key === 'zohoBillingAddress' && sameAddress) {
-      return [{ ...field, label: 'Billing & shipping address (Zoho)' }];
+      return [{ ...field, label: 'Billing & shipping address' }];
     }
     return [field];
   });
+}
+
+export function topZohoContactFields(): ZohoFillableFieldDef[] {
+  return TOP_ZOHO_CONTACT_FIELD_KEYS
+    .map(key => ZOHO_FILLABLE_FIELDS.find(field => field.key === key))
+    .filter((field): field is ZohoFillableFieldDef => Boolean(field));
 }
 
 export function isZohoFieldBlank(value: string | null | undefined): boolean {
