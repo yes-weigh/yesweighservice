@@ -1,6 +1,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { app, db } from '../firebase';
+import { compressImageForUpload } from './compressImage';
 import type {
   CatalogCategory,
   CatalogProduct,
@@ -19,9 +20,16 @@ export interface CatalogFilters {
 
 const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl']);
 
+const SPARES_EXCLUDED_CATEGORY_NAMES = new Set(['software keys', 'sanoft']);
+
 /** Categories excluded from the browse grid (still in catalog data). */
 export function isHiddenCatalogCategory(category: Pick<CatalogCategory, 'name'>): boolean {
   return HIDDEN_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
+}
+
+/** Categories hidden on Spares → By product (software keys / SANOFT). */
+export function isSparesExcludedCategory(category: Pick<CatalogCategory, 'name'>): boolean {
+  return SPARES_EXCLUDED_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
 }
 
 /** Product synced with a Zoho item group (has categoryId). */
@@ -280,14 +288,38 @@ export async function uploadCatalogCategoryThumbnail(
   >(functions, 'uploadCatalogCategoryThumbnail', { timeout: 120_000 });
 
   try {
-    const imageBase64 = await fileToBase64(file);
+    const compressed = await compressImageForUpload(file);
+    const imageBase64 = await fileToBase64(compressed);
     const result = await callable({
       categoryId,
       categoryName,
-      contentType: file.type || 'image/jpeg',
+      contentType: compressed.type || 'image/jpeg',
       imageBase64,
     });
     return result.data.thumbnailUrl;
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export async function uploadCatalogProductImage(
+  productId: string,
+  file: File,
+): Promise<string> {
+  const callable = httpsCallable<
+    { productId: string; contentType: string; imageBase64: string },
+    { imageUrl: string }
+  >(functions, 'uploadCatalogProductImage', { timeout: 120_000 });
+
+  try {
+    const compressed = await compressImageForUpload(file);
+    const imageBase64 = await fileToBase64(compressed);
+    const result = await callable({
+      productId,
+      contentType: compressed.type || 'image/jpeg',
+      imageBase64,
+    });
+    return result.data.imageUrl;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

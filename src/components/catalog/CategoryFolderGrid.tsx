@@ -8,6 +8,7 @@ export interface CategoryFolderGridProps {
   onCategoryClick: (categoryId: string) => void;
   onReorder: (categories: CatalogCategory[]) => void;
   onUploadThumbnail: (categoryId: string, categoryName: string, file: File) => Promise<string | null>;
+  simpleCategoryTiles?: boolean;
 }
 
 export const CategoryFolderGrid: React.FC<CategoryFolderGridProps> = ({
@@ -15,6 +16,7 @@ export const CategoryFolderGrid: React.FC<CategoryFolderGridProps> = ({
   onCategoryClick,
   onReorder,
   onUploadThumbnail,
+  simpleCategoryTiles = false,
 }) => {
   const [localCategories, setLocalCategories] = useState<CatalogCategory[]>(categories);
   const dragIdx = useRef<number | null>(null);
@@ -77,6 +79,7 @@ export const CategoryFolderGrid: React.FC<CategoryFolderGridProps> = ({
             onDrop: handleDrop(idx),
             onDragEnd: handleDragEnd,
           }}
+          simple={simpleCategoryTiles}
         />
       ))}
     </CategoryBrowseSection>

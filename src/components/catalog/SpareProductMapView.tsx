@@ -6,6 +6,7 @@ import {
   IndianRupee,
   Link2,
   Package,
+  Plus,
   Search,
   X,
 } from 'lucide-react';
@@ -134,6 +135,49 @@ function SpareMapCard({
   );
 }
 
+function SpareSuggestionRow({
+  item,
+  showStockQuantity = false,
+  onSelect,
+}: {
+  item: CatalogProduct;
+  showStockQuantity?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="spare-product-map__suggestion"
+      onClick={onSelect}
+    >
+      <div className="spare-product-map__suggestion-media">
+        <SpareImageStage src={item.imageUrl} alt={item.name} size="card" />
+      </div>
+      <div className="spare-product-map__suggestion-body">
+        <strong>{formatProductTitle(item.name)}</strong>
+        <div className="spare-product-map__suggestion-meta">
+          {item.sku && <span className="spare-product-map__suggestion-sku">{item.sku}</span>}
+          <StockBadge status={item.stockStatus} variant="tile" />
+        </div>
+        <div className="spare-product-map__suggestion-meta spare-product-map__suggestion-meta--price">
+          <span className="spare-product-map__suggestion-price">
+            <IndianRupee size={13} />
+            {item.rate.toLocaleString('en-IN')}
+          </span>
+          {showStockQuantity && (
+            <span className="spare-product-map__suggestion-stock">
+              {item.stock} {item.unit}
+            </span>
+          )}
+        </div>
+      </div>
+      <span className="spare-product-map__suggestion-add" aria-hidden>
+        <Plus size={16} />
+      </span>
+    </button>
+  );
+}
+
 export const SpareProductMapView: React.FC<{
   productId: string;
   backPath: string;
@@ -158,10 +202,12 @@ export const SpareProductMapView: React.FC<{
   const [pool, setPool] = useState<CatalogProduct[]>([]);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const lastSavedRef = useRef('');
   const skipAutoSaveRef = useRef(true);
   const saveTimerRef = useRef<number | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -214,20 +260,44 @@ export const SpareProductMapView: React.FC<{
     void loadMappingData();
   }, [loadMappingData]);
 
-  const filteredPool = useMemo(() => {
-    if (!search.trim()) return pool;
+  const suggestions = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return pool.filter(
-      item =>
-        item.name.toLowerCase().includes(q)
-        || (item.sku ?? '').toLowerCase().includes(q),
-    );
-  }, [pool, search]);
+    if (!q) return [];
+    return pool
+      .filter(item => !picked.has(item.id))
+      .filter(
+        item =>
+          item.name.toLowerCase().includes(q)
+          || (item.sku ?? '').toLowerCase().includes(q),
+      )
+      .slice(0, 12);
+  }, [pool, search, picked]);
 
   const mappedItems = useMemo(
     () => pool.filter(item => picked.has(item.id)),
     [pool, picked],
   );
+
+  const openPicker = () => {
+    setPickerOpen(true);
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+  };
+
+  const closePicker = () => {
+    setPickerOpen(false);
+    setSearch('');
+  };
+
+  const addSpare = (id: string) => {
+    if (!canManage) return;
+    setPicked(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    setSearch('');
+    searchInputRef.current?.focus();
+  };
 
   const toggle = (id: string) => {
     if (!canManage) return;
@@ -339,9 +409,10 @@ export const SpareProductMapView: React.FC<{
         </div>
       </section>
 
-      {mappedItems.length > 0 && (
-        <section className="spare-product-map__mapped panel glass">
-          <h2>Mapped spares</h2>
+      <section className="spare-product-map__mapped panel glass">
+        <h2>Mapped spares</h2>
+
+        {mappedItems.length > 0 ? (
           <ul className="spare-product-map__grid spare-product-map__grid--mapped">
             {mappedItems.map(item => (
               <li key={item.id}>
@@ -357,49 +428,65 @@ export const SpareProductMapView: React.FC<{
               </li>
             ))}
           </ul>
-        </section>
-      )}
-
-      <section className="spare-product-map__picker panel glass">
-        <header className="spare-product-map__picker-header">
-          <div>
-            <h2>{canManage ? 'Search & map spares' : 'Compatible spares'}</h2>
-            <p className="text-muted text-sm">
-              Ungrouped Zoho items — select spares that fit this product.
-            </p>
-          </div>
-          <div className="spare-product-map__search catalog-search">
-            <Search size={16} />
-            <input
-              type="search"
-              placeholder="Search spare name or SKU…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
-        </header>
-
-        <p className="spare-product-map__count text-muted text-sm">
-          {picked.size} selected · {filteredPool.length} shown
-        </p>
-
-        {filteredPool.length === 0 ? (
-          <p className="spare-product-map__empty text-muted">No spares match your search.</p>
         ) : (
-          <ul className="spare-product-map__grid">
-            {filteredPool.map(item => (
-              <li key={item.id}>
-                <SpareMapCard
-                  item={item}
-                  selected={picked.has(item.id)}
-                  mode="picker"
-                  canManage={canManage}
-                  showStockQuantity={showStockQuantity}
-                  onToggle={() => toggle(item.id)}
+          <p className="spare-product-map__empty-mapped text-muted text-sm">
+            No spares mapped yet.
+          </p>
+        )}
+
+        {canManage && !pickerOpen && (
+          <button
+            type="button"
+            className="spare-product-map__map-btn btn btn-secondary"
+            onClick={openPicker}
+          >
+            <Plus size={16} aria-hidden />
+            <span>Map spare</span>
+          </button>
+        )}
+
+        {canManage && pickerOpen && (
+          <div className="spare-product-map__picker-inline">
+            <div className="spare-product-map__search-row">
+              <div className="spare-product-map__search catalog-search">
+                <Search size={16} />
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  placeholder="Search spare name or SKU…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
                 />
-              </li>
-            ))}
-          </ul>
+              </div>
+              <button
+                type="button"
+                className="spare-product-map__picker-cancel"
+                aria-label="Cancel search"
+                onClick={closePicker}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {search.trim() && (
+              <div className="spare-product-map__suggestions" role="listbox" aria-label="Spare suggestions">
+                {suggestions.length === 0 ? (
+                  <p className="spare-product-map__suggestions-empty text-muted text-sm">
+                    No matching spares found.
+                  </p>
+                ) : (
+                  suggestions.map(item => (
+                    <SpareSuggestionRow
+                      key={item.id}
+                      item={item}
+                      showStockQuantity={showStockQuantity}
+                      onSelect={() => addSpare(item.id)}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         )}
       </section>
 

@@ -16,6 +16,7 @@ import {
   patchProductCategory,
   saveCategoryOrder,
   uploadCategoryThumbnail,
+  uploadProductImage,
 } from './lib/catalog-sync.js';
 import {
   getLinkedSparesForProduct,
@@ -275,6 +276,48 @@ export const uploadCatalogCategoryThumbnail = onCall(
       return await uploadCategoryThumbnail(categoryId, categoryName, buffer, contentType);
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Thumbnail upload failed.');
+    }
+  },
+);
+
+/** Upload product/spare image to Zoho + Firebase cache — staff / super admin only. */
+export const uploadCatalogProductImage = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    const contentType = String(request.data?.contentType ?? 'image/jpeg').trim();
+    const imageBase64 = String(request.data?.imageBase64 ?? '').trim();
+
+    if (!productId || !imageBase64) {
+      throw new HttpsError('invalid-argument', 'productId and imageBase64 are required.');
+    }
+
+    let buffer;
+    try {
+      buffer = Buffer.from(imageBase64, 'base64');
+    } catch {
+      throw new HttpsError('invalid-argument', 'Invalid image data.');
+    }
+
+    if (!buffer.length) {
+      throw new HttpsError('invalid-argument', 'Empty image data.');
+    }
+
+    const secrets = zohoSecrets();
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+
+    try {
+      return await uploadProductImage(productId, buffer, contentType, accessToken, organizationId);
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Product image upload failed.');
     }
   },
 );

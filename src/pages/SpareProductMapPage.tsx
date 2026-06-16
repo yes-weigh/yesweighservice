@@ -11,7 +11,7 @@ export const SpareProductMapPage: React.FC = () => {
   const location = useLocation();
   const preview = (location.state as { preview?: CatalogProduct } | null)?.preview ?? null;
   const base = user ? homePathForRole(user.role) : '/staff';
-  const listPath = `${base}/spares?view=product`;
+  const listPath = `${base}/spares`;
   const sparesBasePath = `${base}/spares`;
   const canManage = user?.role === 'staff' || user?.role === 'super_admin';
   const showStockQuantity = canManage;

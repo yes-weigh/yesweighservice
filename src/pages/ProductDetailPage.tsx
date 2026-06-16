@@ -22,6 +22,7 @@ export const ProductDetailPage: React.FC = () => {
   const showStockQuantity = showWarehouseStock;
   const showCartActions = canUseCart(user?.role);
   const manageSpareLinks = user?.role === 'staff' || user?.role === 'super_admin';
+  const canUploadImage = manageSpareLinks;
   const showRelatedLinks =
     !isPublic
     && (manageSpareLinks || user?.role === 'dealer' || user?.role === 'dealer_staff');
@@ -52,6 +53,7 @@ export const ProductDetailPage: React.FC = () => {
         showCartActions={showCartActions}
         showRelatedLinks={showRelatedLinks}
         manageSpareLinks={manageSpareLinks}
+        canUploadImage={canUploadImage}
         productsBasePath={productsBasePath}
         sparesBasePath={sparesBasePath}
         ordersPath={ordersPath}

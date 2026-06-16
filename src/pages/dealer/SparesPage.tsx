@@ -8,6 +8,7 @@ import {
   getCategorizedProducts,
   getCategoriesForProducts,
   getUncategorizedProducts,
+  isSparesExcludedCategory,
   saveCatalogCategoryOrder,
   syncCatalog,
   uploadCatalogCategoryThumbnail,
@@ -18,7 +19,7 @@ import type { CatalogCategory, CatalogResponse } from '../../types/catalog';
 type SparesViewMode = 'product' | 'spares';
 
 function parseViewMode(value: string | null): SparesViewMode {
-  return value === 'product' ? 'product' : 'spares';
+  return value === 'spares' ? 'spares' : 'product';
 }
 
 export const SparesPage: React.FC = () => {
@@ -56,19 +57,24 @@ export const SparesPage: React.FC = () => {
   );
 
   const catalogProducts = useMemo(
-    () => getCategorizedProducts(catalog?.items ?? []),
-    [catalog?.items],
+    () => getCategorizedProducts(catalog?.items ?? [])
+      .filter(p => {
+        const cat = catalog?.categories?.find(c => c.id === p.categoryId);
+        return !cat || !isSparesExcludedCategory(cat);
+      }),
+    [catalog?.items, catalog?.categories],
   );
 
   const catalogCategories = useMemo(
-    () => getCategoriesForProducts(catalog?.categories ?? [], catalogProducts),
+    () => getCategoriesForProducts(catalog?.categories ?? [], catalogProducts)
+      .filter(c => !isSparesExcludedCategory(c)),
     [catalog?.categories, catalogProducts],
   );
 
   const setViewMode = (mode: SparesViewMode) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
-      if (mode === 'spares') next.delete('view');
+      if (mode === 'product') next.delete('view');
       else next.set('view', mode);
       return next;
     }, { replace: true });
@@ -258,6 +264,7 @@ export const SparesPage: React.FC = () => {
           enableCart={canUseCart(user?.role)}
           showStockQuantity={canSync}
           searchPlaceholder="Search products to map spares…"
+          simpleCategoryTiles
         />
       ) : (
         <CatalogBrowse

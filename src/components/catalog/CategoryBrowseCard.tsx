@@ -22,6 +22,8 @@ export interface CategoryBrowseCardProps {
     onDrop: React.DragEventHandler;
     onDragEnd: React.DragEventHandler;
   };
+  /** Title + image only — no subtitle or item count */
+  simple?: boolean;
 }
 
 export const CategoryBrowseCard: React.FC<CategoryBrowseCardProps> = ({
@@ -31,6 +33,7 @@ export const CategoryBrowseCard: React.FC<CategoryBrowseCardProps> = ({
   editable = false,
   onUploadThumb,
   dragProps,
+  simple = false,
 }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -57,6 +60,7 @@ export const CategoryBrowseCard: React.FC<CategoryBrowseCardProps> = ({
 
   const sharedClass = [
     'catalog-category-card',
+    simple ? 'catalog-category-card--simple' : '',
     editable ? 'catalog-category-card--editable' : '',
     dragOver ? 'catalog-category-card--drag-over' : '',
   ].filter(Boolean).join(' ');
@@ -66,15 +70,26 @@ export const CategoryBrowseCard: React.FC<CategoryBrowseCardProps> = ({
       <div className="catalog-category-card__body">
         <div className="catalog-category-card__text">
           <h4 className="catalog-category-card__title">{category.name}</h4>
-          <p className="catalog-category-card__desc">
-            {getCategoryDescription(category.name)}
-          </p>
+          {!simple && (
+            <p className="catalog-category-card__desc">
+              {getCategoryDescription(category.name)}
+            </p>
+          )}
         </div>
-        <span className="catalog-category-card__count">
-          {formatCategoryItemCount(category.productCount)}
-          <ChevronRight size={12} strokeWidth={2.5} aria-hidden />
-        </span>
+        {!simple && (
+          <span className="catalog-category-card__count">
+            {formatCategoryItemCount(category.productCount)}
+            <ChevronRight size={12} strokeWidth={2.5} aria-hidden />
+          </span>
+        )}
       </div>
+      {simple && (
+        <img
+          src="/genuinelogo.png"
+          alt="Genuine spare parts"
+          className="catalog-category-card__genuine-badge"
+        />
+      )}
       <div className="catalog-category-card__visual" aria-hidden>
         {category.thumbnailUrl ? (
           <CategoryThumbnail src={category.thumbnailUrl} />

@@ -8,6 +8,7 @@ import {
   getAccessToken,
   resolveOrganizationId,
   downloadProductImage,
+  uploadProductImageToZoho,
 } from './zoho.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
@@ -443,4 +444,39 @@ export async function uploadCategoryThumbnail(categoryId, categoryName, buffer, 
   }, { merge: true });
 
   return { thumbnailUrl };
+}
+
+export async function uploadProductImage(productId, buffer, contentType, accessToken, organizationId) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+
+  const type = String(contentType ?? 'image/jpeg').toLowerCase();
+  if (!ALLOWED_IMAGE_TYPES.has(type)) {
+    throw new Error('Unsupported image type. Use JPEG, PNG, WebP, or GIF.');
+  }
+  if (buffer.length > 5 * 1024 * 1024) {
+    throw new Error('Image must be 5 MB or smaller.');
+  }
+
+  await uploadProductImageToZoho(accessToken, organizationId, id, buffer, type);
+
+  const ext = type.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+  const storagePath = `catalog/products/${id}.${ext}`;
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+
+  await file.save(buffer, {
+    metadata: { contentType: type, cacheControl: 'public, max-age=31536000' },
+  });
+  await file.makePublic();
+
+  const imageUrl = publicStorageUrl(bucket.name, storagePath);
+  const now = new Date().toISOString();
+
+  await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set({
+    imageUrl,
+    syncedAt: now,
+  }, { merge: true });
+
+  return { imageUrl };
 }

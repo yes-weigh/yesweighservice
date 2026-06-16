@@ -52,6 +52,8 @@ export interface CatalogBrowseProps {
   searchPlaceholder?: string;
   /** Staff / super admin — show numeric stock on product tiles */
   showStockQuantity?: boolean;
+  /** Title + image only on category tiles (no subtitle or item count) */
+  simpleCategoryTiles?: boolean;
 }
 
 function ProductListRow({
@@ -180,6 +182,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   flatBrowse = false,
   searchPlaceholder,
   showStockQuantity = false,
+  simpleCategoryTiles = false,
 }) => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -323,6 +326,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
           onCategoryClick={setActiveCategory}
           onReorder={onCategoriesReorder}
           onUploadThumbnail={onCategoryThumbnail}
+          simpleCategoryTiles={simpleCategoryTiles}
         />
       )}
 
@@ -334,6 +338,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               category={category}
               index={idx}
               onClick={() => setActiveCategory(category.id)}
+              simple={simpleCategoryTiles}
             />
           ))}
         </CategoryBrowseSection>

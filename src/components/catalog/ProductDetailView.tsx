@@ -1,11 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
+  Camera,
   ChevronRight,
   IndianRupee,
   Link2,
   Package,
+  RefreshCw,
   ShoppingCart,
   Tag,
 } from 'lucide-react';
@@ -19,6 +21,7 @@ import {
   hasCatalogCategory,
   saveCatalogProductSpareLinks,
   saveCatalogSpareProductLinks,
+  uploadCatalogProductImage,
 } from '../../lib/catalog';
 import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
@@ -57,6 +60,7 @@ export const ProductDetailView: React.FC<{
   ordersPath?: string;
   showRelatedLinks?: boolean;
   manageSpareLinks?: boolean;
+  canUploadImage?: boolean;
   productsBasePath?: string;
   sparesBasePath?: string;
 }> = ({
@@ -71,6 +75,7 @@ export const ProductDetailView: React.FC<{
   ordersPath = '/dealer/orders',
   showRelatedLinks = false,
   manageSpareLinks = false,
+  canUploadImage = false,
   productsBasePath = '/dealer/products',
   sparesBasePath = '/dealer/spares',
 }) => {
@@ -89,6 +94,9 @@ export const ProductDetailView: React.FC<{
   const [editorPool, setEditorPool] = useState<CatalogProduct[]>([]);
   const [editorSaving, setEditorSaving] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const theme = useMemo(
     () => getCategoryTheme(themeIndexFromId(productId)),
@@ -204,6 +212,23 @@ export const ProductDetailView: React.FC<{
     }
   };
 
+  const handleImagePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !product || !canUploadImage) return;
+
+    setImageUploading(true);
+    setImageError(null);
+    try {
+      const imageUrl = await uploadCatalogProductImage(product.id, file);
+      setProduct(prev => (prev ? { ...prev, imageUrl } : prev));
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Could not upload image.');
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
   if (error && !product) {
     return (
       <div className={`product-detail-page product-detail-page--${variant}`}>
@@ -268,7 +293,35 @@ export const ProductDetailView: React.FC<{
             ) : (
               <Package size={72} className="product-detail-page__placeholder" aria-hidden />
             )}
+            {canUploadImage && (
+              <>
+                <button
+                  type="button"
+                  className="product-detail-page__image-upload"
+                  title="Capture or upload product photo"
+                  aria-label="Capture or upload product photo"
+                  disabled={imageUploading}
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  {imageUploading
+                    ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                    : <Camera size={18} aria-hidden />}
+                </button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="product-detail-page__image-input"
+                  aria-label="Product photo"
+                  onChange={e => void handleImagePick(e)}
+                />
+              </>
+            )}
           </div>
+          {imageError && (
+            <p className="product-detail-page__image-error text-sm">{imageError}</p>
+          )}
         </section>
 
         <section className="product-detail-page__info">

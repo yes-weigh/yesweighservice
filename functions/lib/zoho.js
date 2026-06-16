@@ -289,6 +289,45 @@ export async function downloadProductImage(accessToken, orgId, itemId, retryCoun
   };
 }
 
+/** Upload or replace the primary item image in Zoho Inventory. */
+export async function uploadProductImageToZoho(accessToken, orgId, itemId, buffer, contentType) {
+  const url = `${ZOHO_API_BASE}/items/${itemId}/image?organization_id=${orgId}`;
+  const ext = contentType.includes('png')
+    ? 'png'
+    : contentType.includes('webp')
+      ? 'webp'
+      : 'jpg';
+  const filename = `product-${itemId}.${ext}`;
+
+  const form = new FormData();
+  form.append('image', new Blob([buffer], { type: contentType }), filename);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+    body: form,
+  });
+
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (payload?.code !== undefined && payload.code !== 0) {
+    throw new Error(payload.message || 'Zoho image upload failed.');
+  }
+  if (!response.ok) {
+    throw new Error(payload?.message || `Zoho image upload failed (${response.status}).`);
+  }
+
+  return payload ?? { ok: true };
+}
+
 /**
  * Zoho internal API — move item to a different item group.
  * PUT /inventory/v1/items/move/{itemId}
