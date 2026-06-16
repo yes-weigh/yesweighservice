@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Ban,
@@ -38,7 +38,7 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
-export const ZohoDealersPage: React.FC = () => {
+export function ZohoDealersPage() {
   const confirm = useConfirm();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -327,7 +327,7 @@ export const ZohoDealersPage: React.FC = () => {
             />
           </div>
           <div className="dealers-toolbar__actions">
-            <button type="button" className="btn btn-primary btn-sm" disabled={syncing} onClick={() => void handleSync()}>
+            <button type="button" className="btn btn-primary btn-sm zoho-sync-btn" disabled={syncing} onClick={() => void handleSync()}>
               <RefreshCw size={15} className={syncing ? 'spin-icon' : undefined} />
               <span className="dealers-toolbar__btn-label">{syncing ? 'Syncing…' : 'Sync from Zoho'}</span>
             </button>
@@ -528,4 +528,6 @@ export const ZohoDealersPage: React.FC = () => {
 
     </div>
   );
-};
+}
+
+export default ZohoDealersPage;

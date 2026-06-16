@@ -5,6 +5,7 @@ import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
 import { homePathForRole, canUseCart } from '../types';
 import {
+  ArrowLeft,
   LayoutDashboard,
   Package,
   Boxes,
@@ -28,6 +29,7 @@ import {
   ListTodo,
 } from 'lucide-react';
 import { Logo } from './Logo';
+import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
 
 type NavItem = {
   path: string;
@@ -91,10 +93,17 @@ function portalNavItems(home: string, itemCount: number, order: 'default' | 'sta
   return sequence.map((key) => items[key]);
 }
 
-export const Layout: React.FC = () => {
+export const Layout: React.FC = () => (
+  <PageHeaderProvider>
+    <LayoutShell />
+  </PageHeaderProvider>
+);
+
+const LayoutShell: React.FC = () => {
   const { user } = useAuth();
   const { itemCount } = useCart();
   const { registerCartTarget, cartBump } = useCartFly();
+  const { config: pageHeader } = usePageHeader();
   const cartBtnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -209,6 +218,8 @@ export const Layout: React.FC = () => {
     : isProductDetail
       ? 'Product Details'
       : (currentNavItem?.label ?? 'Dashboard');
+  const displayTitle = pageHeader.title ?? pageTitle;
+  const showHeaderBack = Boolean(pageHeader.showBack && pageHeader.onBack);
 
   const handleNavClick = (path: string) => {
     if (location.pathname === path) {
@@ -302,7 +313,16 @@ export const Layout: React.FC = () => {
 
       <main className={`main-content ${collapsed && !isMobile ? 'expanded' : ''}`}>
         <header className="top-bar">
-          {isMobile && (
+          {showHeaderBack ? (
+            <button
+              type="button"
+              className="top-bar__back-btn"
+              onClick={() => pageHeader.onBack?.()}
+              aria-label="Back"
+            >
+              <ArrowLeft size={22} />
+            </button>
+          ) : isMobile ? (
             <button
               type="button"
               className="mobile-menu-btn"
@@ -311,8 +331,8 @@ export const Layout: React.FC = () => {
             >
               <Menu size={22} />
             </button>
-          )}
-          <h1 className="page-title">{pageTitle}</h1>
+          ) : null}
+          <h1 className="page-title">{displayTitle}</h1>
           {showCartFlyTarget && (
             <button
               ref={cartBtnRef}

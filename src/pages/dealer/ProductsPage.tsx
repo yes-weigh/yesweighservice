@@ -137,7 +137,7 @@ export const ProductsPage: React.FC = () => {
               Try again
             </button>
             {canSync && (
-              <button type="button" className="btn btn-secondary" onClick={() => void handleSync()}>
+              <button type="button" className="btn btn-secondary zoho-sync-btn" onClick={() => void handleSync()}>
                 Sync from Zoho
               </button>
             )}
@@ -169,7 +169,7 @@ export const ProductsPage: React.FC = () => {
           canSync ? (
             <button
               type="button"
-              className="btn btn-primary catalog-sync-btn"
+              className="btn btn-primary catalog-sync-btn zoho-sync-btn"
               disabled={syncing || loading}
               onClick={() => void handleSync()}
             >

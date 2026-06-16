@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   Search,
 } from 'lucide-react';
 import { isHiddenCatalogCategory } from '../../lib/catalog';
+import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import { CategoryBrowseCard } from './CategoryBrowseCard';
 import { CategoryBrowseSection } from './CategoryBrowseSection';
@@ -120,7 +121,7 @@ function CatalogFilters({
       </div>
 
       {mode === 'full' && (
-        <>
+        <div className="catalog-filters__desktop-only">
           <select
             title="Filter stock status"
             aria-label="Filter stock status"
@@ -152,7 +153,7 @@ function CatalogFilters({
               <List size={15} />
             </button>
           </div>
-        </>
+        </div>
       )}
     </>
   );
@@ -226,14 +227,28 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   const showProducts = flatBrowse || Boolean(activeCategory || search.trim() || stockFilter);
   const activeCategoryName = filteredCategories.find(c => c.id === activeCategory)?.name;
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setActiveCategory('');
     setSearch('');
     setStockFilter('');
     onReset?.();
-  };
+  }, [onReset]);
 
-  const resetToCategories = () => clearFilters();
+  const resetToCategories = useCallback(() => clearFilters(), [clearFilters]);
+
+  const browseHeaderTitle = useMemo(() => {
+    if (!showProducts) return null;
+    if (activeCategory) return activeCategoryName ?? 'Category';
+    if (search.trim()) return search.trim();
+    if (stockFilter) return stockFilter.replace(/_/g, ' ');
+    return null;
+  }, [showProducts, activeCategory, activeCategoryName, search, stockFilter]);
+
+  useCatalogPageHeader({
+    title: browseHeaderTitle,
+    showBack: Boolean(browseHeaderTitle),
+    onBack: clearFilters,
+  });
 
   const filterProps = {
     search,
@@ -247,29 +262,20 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   };
 
   const showFilterBar = filterMode === 'full' || filterMode === 'minimal';
-  const showMinimalBack = filterMode === 'minimal' && showProducts;
 
   const filterBarClass = [
     'catalog-filters',
     filterMode === 'minimal' ? 'catalog-filters--minimal catalog-filters--sticky' : 'panel glass',
-    showMinimalBack ? 'catalog-filters--with-back' : '',
   ].filter(Boolean).join(' ');
 
   const filterBar = showFilterBar ? (
     <div className={filterBarClass}>
-      {showMinimalBack && (
-        <button
-          type="button"
-          className="catalog-filters__back-btn"
-          onClick={clearFilters}
-          aria-label="All categories"
-        >
-          <ArrowLeft size={18} aria-hidden />
-          <span>All categories</span>
-        </button>
-      )}
       <CatalogFilters {...filterProps} />
-      {filterExtra}
+      {filterExtra ? (
+        <div className="catalog-filters__desktop-only catalog-filters__extras">
+          {filterExtra}
+        </div>
+      ) : null}
     </div>
   ) : null;
 
@@ -287,7 +293,11 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
           </button>
           <div className="catalog-public-header__filters">
             <CatalogFilters {...filterProps} />
-            {filterExtra}
+            {filterExtra ? (
+              <div className="catalog-filters__desktop-only catalog-filters__extras">
+                {filterExtra}
+              </div>
+            ) : null}
           </div>
         </header>
       ) : showToolbar ? (
@@ -339,20 +349,18 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
 
       {showProducts && (
         <div className="catalog-results">
-          {filterMode === 'full' && (
+          {variant === 'public' && browseHeaderTitle && (
             <div className="catalog-results__bar panel glass">
-              <span>
-                {activeCategory
-                  ? `Category: ${activeCategoryName ?? 'Selected'}`
-                  : stockFilter
-                    ? `Stock: ${stockFilter.replace(/_/g, ' ')}`
-                    : search.trim()
-                      ? `Search: "${search.trim()}"`
-                      : 'Filtered products'}
-              </span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={clearFilters}>
-                Clear filters
+              <button
+                type="button"
+                className="catalog-filters__back-btn"
+                onClick={clearFilters}
+                aria-label="All categories"
+              >
+                <ArrowLeft size={18} aria-hidden />
+                <span>All categories</span>
               </button>
+              <span className="catalog-results__context">{browseHeaderTitle}</span>
             </div>
           )}
 

@@ -1,6 +1,6 @@
 import { Route, Routes } from 'react-router-dom';
 import { DealerDetailPage } from '../dealers/DealerDetailPage';
-import { ZohoDealersPage } from '../dealers/ZohoDealersPage';
+import ZohoDealersPage from '../dealers/ZohoDealersPage';
 
 export const AdminDealersList = () => (
   <Routes>

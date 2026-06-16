@@ -140,7 +140,7 @@ export const SparesPage: React.FC = () => {
   const syncButton = canSync ? (
     <button
       type="button"
-      className="btn btn-primary catalog-sync-btn"
+      className="btn btn-primary catalog-sync-btn zoho-sync-btn"
       disabled={syncing || loading}
       onClick={() => void handleSync()}
     >
@@ -151,35 +151,37 @@ export const SparesPage: React.FC = () => {
 
   const modeHint = viewMode === 'product'
     ? (canSync
-      ? 'Find a product, then map compatible spares'
-      : 'Find a product and view compatible spares')
+      ? 'Pick a product, then map compatible spares'
+      : 'Pick a product to see compatible spares')
     : (canSync
-      ? 'All ungrouped Zoho items'
-      : 'Browse all spare parts from the catalog');
+      ? 'Ungrouped Zoho items — flat spare list'
+      : 'Browse all spare parts');
 
   const modeToggle = (
-    <div className="spares-mode-toggle" role="tablist" aria-label="Spares catalog view">
+    <div className="spares-mode-toggle" role="tablist" aria-label="Spares browse mode">
       <button
         type="button"
         role="tab"
         aria-selected={viewMode === 'product'}
         aria-controls="spares-mode-hint"
+        title="Browse products by category to map spares"
         className={`spares-mode-toggle__btn ${viewMode === 'product' ? 'spares-mode-toggle__btn--active' : ''}`}
         onClick={() => setViewMode('product')}
       >
         <Package size={16} aria-hidden />
-        <span className="spares-mode-toggle__label">Product catalog</span>
+        <span className="spares-mode-toggle__label">By product</span>
       </button>
       <button
         type="button"
         role="tab"
         aria-selected={viewMode === 'spares'}
         aria-controls="spares-mode-hint"
+        title="Browse all spare parts in one list"
         className={`spares-mode-toggle__btn ${viewMode === 'spares' ? 'spares-mode-toggle__btn--active' : ''}`}
         onClick={() => setViewMode('spares')}
       >
         <Boxes size={16} aria-hidden />
-        <span className="spares-mode-toggle__label">Spare parts</span>
+        <span className="spares-mode-toggle__label">All spares</span>
       </button>
     </div>
   );
@@ -221,7 +223,7 @@ export const SparesPage: React.FC = () => {
               Try again
             </button>
             {canSync && (
-              <button type="button" className="btn btn-secondary" onClick={() => void handleSync()}>
+              <button type="button" className="btn btn-secondary zoho-sync-btn" onClick={() => void handleSync()}>
                 Sync from Zoho
               </button>
             )}
@@ -255,6 +257,7 @@ export const SparesPage: React.FC = () => {
           productsBasePath={`${pathname}/product`}
           enableCart={canUseCart(user?.role)}
           showStockQuantity={canSync}
+          searchPlaceholder="Search products to map spares…"
         />
       ) : (
         <CatalogBrowse
