@@ -148,14 +148,18 @@ function FieldLabel({
     <span className="dealers-detail__field-label">
       {label}
       {source === 'zoho' && (
-        <span className="dealers-detail__field-source dealers-detail__field-source--zoho">
-          Push to Zoho
-        </span>
+        <span
+          className="dealers-detail__field-source dealers-detail__field-source--zoho"
+          title="Syncs to Zoho"
+          aria-label="Syncs to Zoho"
+        />
       )}
       {source === 'local' && (
-        <span className="dealers-detail__field-source dealers-detail__field-source--local">
-          App only
-        </span>
+        <span
+          className="dealers-detail__field-source dealers-detail__field-source--local"
+          title="App only"
+          aria-label="App only"
+        />
       )}
     </span>
   );
@@ -496,10 +500,9 @@ export const DealerDetailPage: React.FC = () => {
   }, [dealer, draft, zohoBaseline, blankFillableKeys]);
 
   const saveButtonLabel = useMemo(() => {
-    if (saving) return zohoDirty ? 'Pushing & saving…' : 'Saving…';
-    if (zohoDirty) return 'Push to Zoho and save';
+    if (saving) return 'Saving…';
     return 'Save changes';
-  }, [saving, zohoDirty]);
+  }, [saving]);
 
   const saveDraft = async () => {
     if (!dealer || !draft || !dirty) return;
