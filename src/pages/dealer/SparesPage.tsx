@@ -1,20 +1,32 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import { AlertCircle, Boxes, Package, RefreshCw } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { useAuth } from '../../context/AuthContext';
 import {
   fetchCatalog,
+  getCategorizedProducts,
+  getCategoriesForProducts,
   getUncategorizedProducts,
+  saveCatalogCategoryOrder,
   syncCatalog,
+  uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
 import { canUseCart } from '../../types';
-import type { CatalogResponse } from '../../types/catalog';
+import type { CatalogCategory, CatalogResponse } from '../../types/catalog';
+
+type SparesViewMode = 'product' | 'spares';
+
+function parseViewMode(value: string | null): SparesViewMode {
+  return value === 'product' ? 'product' : 'spares';
+}
 
 export const SparesPage: React.FC = () => {
   const { pathname } = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const canSync = user?.role === 'staff' || user?.role === 'super_admin';
+  const viewMode = parseViewMode(searchParams.get('view'));
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +55,75 @@ export const SparesPage: React.FC = () => {
     [catalog?.items],
   );
 
+  const catalogProducts = useMemo(
+    () => getCategorizedProducts(catalog?.items ?? []),
+    [catalog?.items],
+  );
+
+  const catalogCategories = useMemo(
+    () => getCategoriesForProducts(catalog?.categories ?? [], catalogProducts),
+    [catalog?.categories, catalogProducts],
+  );
+
+  const setViewMode = (mode: SparesViewMode) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (mode === 'spares') next.delete('view');
+      else next.set('view', mode);
+      return next;
+    }, { replace: true });
+  };
+
+  const handleCategoriesReorder = async (nextCategories: CatalogCategory[]) => {
+    const orderById = new Map(nextCategories.map((cat, index) => [cat.id, index]));
+    setCatalog(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        categories: prev.categories.map(cat => {
+          const order = orderById.get(cat.id);
+          return order !== undefined ? { ...cat, displayOrder: order } : cat;
+        }),
+      };
+    });
+    try {
+      await saveCatalogCategoryOrder(
+        nextCategories.map((cat, index) => ({
+          id: cat.id,
+          name: cat.name,
+          displayOrder: index,
+        })),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save category order.');
+      await loadCatalog();
+    }
+  };
+
+  const handleCategoryThumbnail = async (
+    categoryId: string,
+    categoryName: string,
+    file: File,
+  ): Promise<string | null> => {
+    setError(null);
+    try {
+      const thumbnailUrl = await uploadCatalogCategoryThumbnail(categoryId, categoryName, file);
+      setCatalog(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          categories: prev.categories.map(cat =>
+            cat.id === categoryId ? { ...cat, thumbnailUrl } : cat,
+          ),
+        };
+      });
+      return thumbnailUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Category image upload failed.');
+      return null;
+    }
+  };
+
   const handleSync = async () => {
     setSyncing(true);
     setError(null);
@@ -55,6 +136,67 @@ export const SparesPage: React.FC = () => {
       setSyncing(false);
     }
   };
+
+  const syncButton = canSync ? (
+    <button
+      type="button"
+      className="btn btn-primary catalog-sync-btn"
+      disabled={syncing || loading}
+      onClick={() => void handleSync()}
+    >
+      <RefreshCw size={16} className={syncing ? 'spin-icon' : undefined} />
+      {syncing ? 'Syncing catalog…' : 'Sync from Zoho'}
+    </button>
+  ) : undefined;
+
+  const modeHint = viewMode === 'product'
+    ? (canSync
+      ? 'Find a product, then map compatible spares'
+      : 'Find a product and view compatible spares')
+    : (canSync
+      ? 'All ungrouped Zoho items'
+      : 'Browse all spare parts from the catalog');
+
+  const modeToggle = (
+    <div className="spares-mode-toggle" role="tablist" aria-label="Spares catalog view">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={viewMode === 'product'}
+        aria-controls="spares-mode-hint"
+        className={`spares-mode-toggle__btn ${viewMode === 'product' ? 'spares-mode-toggle__btn--active' : ''}`}
+        onClick={() => setViewMode('product')}
+      >
+        <Package size={16} aria-hidden />
+        <span className="spares-mode-toggle__label">Product catalog</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={viewMode === 'spares'}
+        aria-controls="spares-mode-hint"
+        className={`spares-mode-toggle__btn ${viewMode === 'spares' ? 'spares-mode-toggle__btn--active' : ''}`}
+        onClick={() => setViewMode('spares')}
+      >
+        <Boxes size={16} aria-hidden />
+        <span className="spares-mode-toggle__label">Spare parts</span>
+      </button>
+    </div>
+  );
+
+  const modeBar = (
+    <div className="spares-mode-bar">
+      <div className="spares-mode-bar__controls">
+        {modeToggle}
+        <p id="spares-mode-hint" className="spares-mode-bar__hint">{modeHint}</p>
+      </div>
+      {syncButton && (
+        <div className="spares-mode-bar__actions">
+          {syncButton}
+        </div>
+      )}
+    </div>
+  );
 
   if (loading && !catalog) {
     return (
@@ -98,32 +240,37 @@ export const SparesPage: React.FC = () => {
         </div>
       )}
 
-      <CatalogBrowse
-        products={sparesProducts}
-        categories={[]}
-        isLoading={loading}
-        showToolbar={false}
-        showCategoryGrid={false}
-        flatBrowse
-        filterMode="minimal"
-        searchPlaceholder="Search spare parts, components, accessories…"
-        filterExtra={
-          canSync ? (
-            <button
-              type="button"
-              className="btn btn-primary catalog-sync-btn"
-              disabled={syncing || loading}
-              onClick={() => void handleSync()}
-            >
-              <RefreshCw size={16} className={syncing ? 'spin-icon' : undefined} />
-              {syncing ? 'Syncing catalog…' : 'Sync from Zoho'}
-            </button>
-          ) : undefined
-        }
-        productsBasePath={pathname}
-        enableCart={canUseCart(user?.role)}
-        showStockQuantity={canSync}
-      />
+      {modeBar}
+
+      {viewMode === 'product' ? (
+        <CatalogBrowse
+          products={catalogProducts}
+          categories={catalogCategories}
+          isLoading={loading}
+          showToolbar={false}
+          filterMode={canSync ? 'full' : 'minimal'}
+          manageCategories={canSync}
+          onCategoriesReorder={canSync ? cats => void handleCategoriesReorder(cats) : undefined}
+          onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
+          productsBasePath={`${pathname}/product`}
+          enableCart={canUseCart(user?.role)}
+          showStockQuantity={canSync}
+        />
+      ) : (
+        <CatalogBrowse
+          products={sparesProducts}
+          categories={[]}
+          isLoading={loading}
+          showToolbar={false}
+          showCategoryGrid={false}
+          flatBrowse
+          filterMode="minimal"
+          searchPlaceholder="Search spare parts, components, accessories…"
+          productsBasePath={pathname}
+          enableCart={canUseCart(user?.role)}
+          showStockQuantity={canSync}
+        />
+      )}
     </div>
   );
 };

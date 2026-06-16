@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
+import { FetchingLoader } from '../../components/FetchingLoader';
 import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
@@ -420,7 +421,11 @@ export const ZohoDealersPage: React.FC = () => {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={10} className="dealers-table__empty">Loading dealers…</td></tr>
+              <tr>
+                <td colSpan={10} className="dealers-table__empty">
+                  <FetchingLoader label="Fetching dealers" />
+                </td>
+              </tr>
             ) : dealers.length === 0 ? (
               <tr><td colSpan={10} className="dealers-table__empty">No dealers found. Sync from Zoho to get started.</td></tr>
             ) : (
@@ -476,7 +481,7 @@ export const ZohoDealersPage: React.FC = () => {
 
         <div className="dealers-tiles dealers-tiles--mobile" aria-label="Dealer list">
           {loading ? (
-            <p className="dealers-tiles__empty">Loading dealers…</p>
+            <FetchingLoader label="Fetching dealers" className="dealers-tiles__loading" />
           ) : dealers.length === 0 ? (
             <p className="dealers-tiles__empty">No dealers found. Sync from Zoho to get started.</p>
           ) : (

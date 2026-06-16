@@ -17,6 +17,7 @@ import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
+import { SpareProductMapPage } from './pages/SpareProductMapPage';
 
 const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }) => {
   const { pathname } = useLocation();
@@ -34,6 +35,7 @@ const portalMenuRoutes = (
     <Route path="products" element={<DealerMenuPages.Products />} />
     <Route path="products/:productId" element={<ProductDetailPage />} />
     <Route path="spares" element={<DealerMenuPages.Spares />} />
+    <Route path="spares/product/:productId" element={<SpareProductMapPage />} />
     <Route path="spares/:productId" element={<ProductDetailPage />} />
     <Route path="verification" element={<DealerMenuPages.Verification />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
@@ -77,6 +79,7 @@ const App: React.FC = () => (
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="products/:productId" element={<ProductDetailPage />} />
               <Route path="spares" element={<DealerMenuPages.Spares />} />
+              <Route path="spares/product/:productId" element={<SpareProductMapPage />} />
               <Route path="spares/:productId" element={<ProductDetailPage />} />
               <Route path="staff" element={<AdminStaffList />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
@@ -110,6 +113,7 @@ const App: React.FC = () => (
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="products/:productId" element={<ProductDetailPage />} />
               <Route path="spares" element={<DealerMenuPages.Spares />} />
+              <Route path="spares/product/:productId" element={<SpareProductMapPage />} />
               <Route path="spares/:productId" element={<ProductDetailPage />} />
               <Route path="orders" element={<DealerMenuPages.Orders />} />
               <Route path="verification" element={<DealerMenuPages.Verification />} />

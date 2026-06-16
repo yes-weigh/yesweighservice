@@ -10,8 +10,13 @@ export const ProductDetailPage: React.FC = () => {
   const { productId } = useParams<{ productId: string }>();
   const location = useLocation();
   const isPublic = location.pathname.startsWith('/oc/');
-  const isSpares = /\/spares\/[^/]+$/.test(location.pathname);
-  const backPath = isPublic ? '/oc' : location.pathname.replace(/\/[^/]+$/, '');
+  const isSpares = /\/spares\/[^/]+$/.test(location.pathname)
+    && !/\/spares\/product\//.test(location.pathname);
+  const backPath = isPublic
+    ? '/oc'
+    : isSpares
+      ? location.pathname.replace(/\/[^/]+$/, '') + '?view=spares'
+      : location.pathname.replace(/\/[^/]+$/, '');
   const preview = (location.state as { preview?: CatalogProduct } | null)?.preview ?? null;
   const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin';
   const showStockQuantity = showWarehouseStock;

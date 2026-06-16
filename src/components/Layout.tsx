@@ -195,13 +195,17 @@ export const Layout: React.FC = () => {
 
   const isProfileActive = profilePath !== null && location.pathname === profilePath;
   const isProductDetail = /\/products\/[^/]+$/.test(location.pathname)
+    || /\/spares\/product\/[^/]+$/.test(location.pathname)
     || /\/spares\/[^/]+$/.test(location.pathname)
     || /^\/oc\/[^/]+$/.test(location.pathname);
+  const isSpareMapDetail = /\/spares\/product\/[^/]+$/.test(location.pathname);
   const isDealerDetail = /\/dealers\/[^/]+$/.test(location.pathname);
   const pageTitle = isProfileActive
     ? 'Profile'
     : isDealerDetail
       ? 'Dealer'
+    : isSpareMapDetail
+      ? 'Map spares'
     : isProductDetail
       ? 'Product Details'
       : (currentNavItem?.label ?? 'Dashboard');
