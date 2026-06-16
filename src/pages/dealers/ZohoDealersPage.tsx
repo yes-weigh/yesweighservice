@@ -55,7 +55,17 @@ export function ZohoDealersPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
   const [paginationOn, setPaginationOn] = useState(true);
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= 768,
+  );
   const limit = 25;
+  const effectivePaginationOn = isMobileViewport ? true : paginationOn;
+
+  useEffect(() => {
+    const onResize = () => setIsMobileViewport(window.innerWidth <= 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
   const [total, setTotal] = useState(0);
@@ -70,8 +80,8 @@ export function ZohoDealersPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const queryParams = useMemo((): DealerListParams => ({
-    page: paginationOn ? page : 1,
-    limit: paginationOn ? limit : 99999,
+    page: effectivePaginationOn ? page : 1,
+    limit: effectivePaginationOn ? limit : 99999,
     status: 'all',
     ...(debouncedSearch ? { q: debouncedSearch } : {}),
     ...(kamFilter.length ? { kamId: kamFilter.join(',') } : {}),
@@ -82,7 +92,7 @@ export function ZohoDealersPage() {
     sortField,
     sortDir,
   }), [
-    paginationOn, page, debouncedSearch, kamFilter, statusFilter, stateFilter,
+    effectivePaginationOn, page, debouncedSearch, kamFilter, statusFilter, stateFilter,
     districtFilter, categoryFilter, sortField, sortDir,
   ]);
 
@@ -253,18 +263,20 @@ export function ZohoDealersPage() {
       className={`dealers-pagination dealers-pagination--inset dealers-pagination--${position}`}
       aria-label={position === 'top' ? 'Table pagination' : 'Table pagination footer'}
     >
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        onClick={() => {
-          setPage(1);
-          setPaginationOn(v => !v);
-        }}
-      >
-        {paginationOn ? 'Pagination on' : 'Show all'}
-      </button>
+      {!isMobileViewport && (
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm dealers-pagination__mode-toggle"
+          onClick={() => {
+            setPage(1);
+            setPaginationOn(v => !v);
+          }}
+        >
+          {paginationOn ? 'Pagination on' : 'Show all'}
+        </button>
+      )}
 
-      {paginationOn ? (
+      {effectivePaginationOn ? (
         <>
           <span className="dealers-pagination__info text-muted text-sm">
             {total > 0
@@ -439,7 +451,7 @@ export function ZohoDealersPage() {
                       aria-label={`Select ${dealer.contactName}`}
                     />
                   </td>
-                  <td>{paginationOn ? (page - 1) * limit + idx + 1 : idx + 1}</td>
+                  <td>{effectivePaginationOn ? (page - 1) * limit + idx + 1 : idx + 1}</td>
                   <td>{dealer.companyName || dealer.contactName}</td>
                   <td>{dealer.firstName || '—'}</td>
                   <td>{dealer.phone || dealer.mobile || '—'}</td>

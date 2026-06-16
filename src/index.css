@@ -5484,6 +5484,14 @@ html::-webkit-scrollbar {
     gap: 0.35rem;
   }
 
+  .dealers-pagination--top {
+    display: none;
+  }
+
+  .dealers-pagination__mode-toggle {
+    display: none;
+  }
+
   .dealers-pagination__info {
     flex: 1 1 100%;
     text-align: left;
