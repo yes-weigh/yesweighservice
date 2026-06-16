@@ -13,9 +13,13 @@ export type DealerStatusKey =
 
 export interface DealerStatusMeta {
   key: DealerStatusKey;
+  /** @deprecated Use stageLabel + loginLabel in UI */
   symbol: string;
   label: string;
   badgeClass: string;
+  toneClass: string;
+  stageLabel: string;
+  loginLabel: string;
   stage: string | null;
   signedIn: boolean;
 }
@@ -40,43 +44,67 @@ export function getDealerStatusKey(dealer: Pick<ZohoDealer, 'dealerStage' | 'sig
 const STATUS_META: Record<DealerStatusKey, Omit<DealerStatusMeta, 'key' | 'stage' | 'signedIn'>> = {
   'active-yes': {
     symbol: '◉',
-    label: 'Active · Signed in',
+    label: 'Active · Logged in',
+    stageLabel: 'Active',
+    loginLabel: 'Logged in',
     badgeClass: 'dealers-status-badge dealers-status-badge--active-yes',
+    toneClass: 'dealers-status-indicator--active-yes',
   },
   'active-no': {
     symbol: '○',
-    label: 'Active · Not signed in',
+    label: 'Active · Not logged in',
+    stageLabel: 'Active',
+    loginLabel: 'Not logged in',
     badgeClass: 'dealers-status-badge dealers-status-badge--active-no',
+    toneClass: 'dealers-status-indicator--active-no',
   },
   'non-active-yes': {
     symbol: '◐',
-    label: 'Non Active · Signed in',
+    label: 'Non Active · Logged in',
+    stageLabel: 'Non Active',
+    loginLabel: 'Logged in',
     badgeClass: 'dealers-status-badge dealers-status-badge--non-active-yes',
+    toneClass: 'dealers-status-indicator--non-active-yes',
   },
   'non-active-no': {
     symbol: '◔',
-    label: 'Non Active · Not signed in',
+    label: 'Non Active · Not logged in',
+    stageLabel: 'Non Active',
+    loginLabel: 'Not logged in',
     badgeClass: 'dealers-status-badge dealers-status-badge--non-active-no',
+    toneClass: 'dealers-status-indicator--non-active-no',
   },
   'blacklisted-yes': {
     symbol: '⊗',
-    label: 'Blacklisted · Signed in',
+    label: 'Blacklisted · Logged in',
+    stageLabel: 'Blacklisted',
+    loginLabel: 'Logged in',
     badgeClass: 'dealers-status-badge dealers-status-badge--blacklisted-yes',
+    toneClass: 'dealers-status-indicator--blacklisted-yes',
   },
   'blacklisted-no': {
     symbol: '⊘',
-    label: 'Blacklisted · Not signed in',
+    label: 'Blacklisted · Not logged in',
+    stageLabel: 'Blacklisted',
+    loginLabel: 'Not logged in',
     badgeClass: 'dealers-status-badge dealers-status-badge--blacklisted-no',
+    toneClass: 'dealers-status-indicator--blacklisted-no',
   },
   'unset-yes': {
     symbol: '◎',
-    label: 'Unset · Signed in',
+    label: 'Unset · Logged in',
+    stageLabel: 'Unset',
+    loginLabel: 'Logged in',
     badgeClass: 'dealers-status-badge dealers-status-badge--unset-yes',
+    toneClass: 'dealers-status-indicator--unset-yes',
   },
   'unset-no': {
     symbol: '◌',
-    label: 'Unset · Not signed in',
+    label: 'Unset · Not logged in',
+    stageLabel: 'Unset',
+    loginLabel: 'Not logged in',
     badgeClass: 'dealers-status-badge dealers-status-badge--unset-no',
+    toneClass: 'dealers-status-indicator--unset-no',
   },
 };
 

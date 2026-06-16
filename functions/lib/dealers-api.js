@@ -5,6 +5,7 @@ import {
   readDealerSetting,
   writeDealerSetting,
   refreshDealerFromZoho,
+  pushDealerChangesToZoho,
 } from './zoho-customers.js';
 import {
   filterDealers,
@@ -116,6 +117,7 @@ export async function patchDealerRecord(id, body = {}) {
   if ('isFiltered' in body) data.isFiltered = Boolean(body.isFiltered);
   if ('filterReason' in body) data.filterReason = body.filterReason ?? null;
   if ('firstName' in body) data.firstName = body.firstName || null;
+  if ('email' in body) data.email = body.email || null;
   if ('phone' in body) data.phone = body.phone || null;
   if ('portalUserId' in body) data.portalUserId = body.portalUserId || null;
   if ('designation' in body) data.designation = body.designation || null;
@@ -169,6 +171,11 @@ export async function linkDealerPortalUser(zohoCustomerId, portalUserId) {
 
 export async function refreshDealerZohoRecord(id, secrets, orgId, { force = true } = {}) {
   await refreshDealerFromZoho(id, secrets, orgId, { force });
+  return getDealerRecord(id);
+}
+
+export async function pushDealerToZohoRecord(id, changes, secrets, orgId) {
+  await pushDealerChangesToZoho(id, changes, secrets, orgId);
   return getDealerRecord(id);
 }
 

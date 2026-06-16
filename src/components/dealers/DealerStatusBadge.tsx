@@ -1,16 +1,16 @@
 import React from 'react';
 import type { DealerStatusMeta } from '../../lib/dealerStatus';
+import { DealerStatusIndicator } from './DealerStatusIndicator';
 
 interface DealerStatusBadgeProps {
-  meta: Pick<DealerStatusMeta, 'symbol' | 'label' | 'badgeClass'>;
+  meta: Pick<
+    DealerStatusMeta,
+    'symbol' | 'label' | 'badgeClass' | 'toneClass' | 'stageLabel' | 'loginLabel'
+  >;
+  compact?: boolean;
 }
 
-export const DealerStatusBadge: React.FC<DealerStatusBadgeProps> = ({ meta }) => (
-  <span
-    className={meta.badgeClass}
-    title={meta.label}
-    aria-label={meta.label}
-  >
-    <span className="dealers-status-badge__symbol" aria-hidden>{meta.symbol}</span>
-  </span>
+/** @deprecated Prefer DealerStatusIndicator — kept for legend/picker compatibility */
+export const DealerStatusBadge: React.FC<DealerStatusBadgeProps> = ({ meta, compact }) => (
+  <DealerStatusIndicator meta={meta} compact={compact} />
 );

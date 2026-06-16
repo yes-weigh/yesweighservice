@@ -130,7 +130,8 @@ export async function syncCustomersToFirestore(secrets, orgId) {
     const base = {
       contactName: customer.contactName,
       companyName: customer.companyName,
-      email: customer.email,
+      email: existing?.email ?? customer.email,
+      zohoEmail: customer.email,
       phone: existing?.phone ?? customer.phone,
       mobile: existing?.mobile ?? customer.mobile,
       firstName: existing?.firstName ?? customer.firstName,
@@ -227,10 +228,13 @@ export async function refreshDealerFromZoho(id, secrets, orgId, { force = false 
   const contact = await fetchRawCustomerDetail(accessToken, organizationId, id);
   const zohoDetailFields = extractZohoDetailFields(contact);
   const coreFields = extractZohoCoreFields(contact);
+  const zohoEmail = coreFields.email ?? null;
 
   const patch = {
     ...coreFields,
     ...zohoDetailFields,
+    zohoEmail,
+    email: existing.email ?? zohoEmail,
     phone: existing.phone ?? coreFields.phone,
     mobile: existing.mobile ?? coreFields.mobile,
     firstName: existing.firstName ?? coreFields.firstName,
@@ -256,4 +260,145 @@ export async function refreshDealerFromZoho(id, secrets, orgId, { force = false 
   await ref.set(patch, { merge: true });
   const updated = await ref.get();
   return { id: updated.id, ...updated.data() };
+}
+
+function cleanStr(value) {
+  if (value == null) return undefined;
+  const s = String(value).trim();
+  return s || undefined;
+}
+
+function mapContactPersonForUpdate(person, primaryId, changes) {
+  const isPrimary = Boolean(person.is_primary_contact)
+    || (primaryId && String(person.contact_person_id) === String(primaryId));
+
+  const base = {
+    contact_person_id: person.contact_person_id,
+    salutation: person.salutation || undefined,
+    last_name: person.last_name || undefined,
+    department: person.department || undefined,
+    is_primary_contact: Boolean(person.is_primary_contact),
+  };
+
+  if (!isPrimary) {
+    return {
+      ...base,
+      first_name: person.first_name || undefined,
+      email: person.email || undefined,
+      phone: person.phone || undefined,
+      mobile: person.mobile || undefined,
+      designation: person.designation || undefined,
+    };
+  }
+
+  return {
+    ...base,
+    first_name: cleanStr(changes.firstName) ?? person.first_name ?? undefined,
+    email: cleanStr(changes.email) ?? person.email ?? undefined,
+    phone: cleanStr(changes.phone) ?? person.phone ?? undefined,
+    mobile: cleanStr(changes.alternateMobile) ?? person.mobile ?? undefined,
+    designation: cleanStr(changes.designation) ?? person.designation ?? undefined,
+    is_primary_contact: true,
+  };
+}
+
+export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
+  const db = getFirestore();
+  const ref = db.collection(CUSTOMERS_COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Dealer not found.');
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const contact = await fetchRawCustomerDetail(accessToken, organizationId, id);
+
+  const contactName = contact.contact_name;
+  if (!contactName) throw new Error('Zoho contact is missing contact_name.');
+
+  const primaryId = contact.primary_contact_id;
+  let contactPersons = (contact.contact_persons ?? []).map(p =>
+    mapContactPersonForUpdate(p, primaryId, changes),
+  );
+
+  if (!contactPersons.length) {
+    contactPersons = [{
+      first_name: cleanStr(changes.firstName),
+      email: cleanStr(changes.email ?? changes.zoho_email),
+      phone: cleanStr(changes.phone ?? changes.zoho_phone),
+      mobile: cleanStr(changes.alternateMobile),
+      designation: cleanStr(changes.designation),
+      is_primary_contact: true,
+    }];
+  } else if (cleanStr(changes.zoho_phone)) {
+    contactPersons = contactPersons.map(p => {
+      const isPrimary = Boolean(p.is_primary_contact)
+        || (primaryId && String(p.contact_person_id) === String(primaryId));
+      if (!isPrimary) return p;
+      return { ...p, phone: cleanStr(changes.zoho_phone) };
+    });
+  }
+
+  const contactEmail = cleanStr(changes.email) ?? cleanStr(changes.zoho_email);
+  const contactPhone = cleanStr(changes.phone) ?? cleanStr(changes.zoho_phone);
+
+  const body = {
+    contact_name: contactName,
+    contact_type: contact.contact_type || 'customer',
+    email: contactEmail ?? contact.email ?? undefined,
+    phone: contactPhone ?? contact.phone ?? undefined,
+    first_name: cleanStr(changes.firstName) ?? contact.first_name ?? undefined,
+    mobile: cleanStr(changes.mobile) ?? cleanStr(changes.alternateMobile) ?? contact.mobile ?? undefined,
+    legal_name: cleanStr(changes.legal_name) ?? undefined,
+    customer_sub_type: cleanStr(changes.customer_sub_type) ?? undefined,
+    website: cleanStr(changes.website) ?? undefined,
+    gst_no: cleanStr(changes.gst_no) ?? undefined,
+    gst_treatment: cleanStr(changes.gst_treatment) ?? undefined,
+    pan_no: cleanStr(changes.pan_no) ?? undefined,
+    notes: cleanStr(changes.notes) ?? undefined,
+    contact_persons: contactPersons,
+  };
+
+  if (cleanStr(changes.billing_address)) {
+    body.billing_address = {
+      ...(contact.billing_address || {}),
+      address: cleanStr(changes.billing_address),
+    };
+  }
+  if (cleanStr(changes.shipping_address)) {
+    body.shipping_address = {
+      ...(contact.shipping_address || {}),
+      address: cleanStr(changes.shipping_address),
+    };
+  }
+
+  Object.keys(body).forEach(key => {
+    if (body[key] === undefined) delete body[key];
+  });
+
+  const url = `${ZOHO_API_BASE}/contacts/${id}?organization_id=${organizationId}`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      ...authHeaders(accessToken, organizationId),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.code !== 0) {
+    throw new Error(data.message || `Zoho contact update failed (${res.status}).`);
+  }
+
+  const localPatch = {
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if ('firstName' in changes) localPatch.firstName = cleanStr(changes.firstName) ?? null;
+  if ('email' in changes) localPatch.email = cleanStr(changes.email) ?? null;
+  if ('phone' in changes) localPatch.phone = cleanStr(changes.phone) ?? null;
+  if ('designation' in changes) localPatch.designation = cleanStr(changes.designation) ?? null;
+  if ('alternateMobile' in changes) localPatch.alternateMobile = cleanStr(changes.alternateMobile) ?? null;
+  await ref.set(localPatch, { merge: true });
+
+  return refreshDealerFromZoho(id, secrets, orgId, { force: true });
 }

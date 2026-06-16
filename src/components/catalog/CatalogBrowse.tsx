@@ -54,6 +54,9 @@ export interface CatalogBrowseProps {
   showStockQuantity?: boolean;
   /** Title + image only on category tiles (no subtitle or item count) */
   simpleCategoryTiles?: boolean;
+  /** When set, category selection is controlled by the parent (e.g. URL on spares page). */
+  activeCategoryId?: string;
+  onActiveCategoryChange?: (categoryId: string) => void;
 }
 
 function ProductListRow({
@@ -183,16 +186,26 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   searchPlaceholder,
   showStockQuantity = false,
   simpleCategoryTiles = false,
+  activeCategoryId: controlledCategoryId,
+  onActiveCategoryChange,
 }) => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [activeCategory, setActiveCategory] = useState('');
+  const [internalCategory, setInternalCategory] = useState('');
+  const activeCategory = controlledCategoryId !== undefined ? controlledCategoryId : internalCategory;
+  const setActiveCategory = useCallback((categoryId: string) => {
+    if (onActiveCategoryChange) onActiveCategoryChange(categoryId);
+    else setInternalCategory(categoryId);
+  }, [onActiveCategoryChange]);
   const [stockFilter, setStockFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const openProduct = (product: CatalogProduct) => {
     if (productsBasePath) {
-      navigate(`${productsBasePath}/${product.id}`, { state: { preview: product } });
+      const returnCategoryId = activeCategory || product.categoryId || '';
+      navigate(`${productsBasePath}/${product.id}`, {
+        state: { preview: product, returnCategoryId },
+      });
       return;
     }
   };
@@ -235,7 +248,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     setSearch('');
     setStockFilter('');
     onReset?.();
-  }, [onReset]);
+  }, [onReset, setActiveCategory]);
 
   const resetToCategories = useCallback(() => clearFilters(), [clearFilters]);
 

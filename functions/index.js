@@ -35,6 +35,7 @@ import {
   patchDealerRecord,
   linkDealerPortalUser,
   refreshDealerZohoRecord,
+  pushDealerToZohoRecord,
   readDealerSetting,
   writeDealerSetting,
 } from './lib/dealers-api.js';
@@ -587,6 +588,37 @@ export const refreshZohoDealer = onCall(
       }
       console.error('refreshZohoDealer failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Zoho dealer refresh failed.');
+    }
+  },
+);
+
+/** Push editable contact fields to Zoho Inventory — staff / super admin. */
+export const pushDealerToZoho = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const id = String(request.data?.id ?? '').trim();
+    if (!id) throw new HttpsError('invalid-argument', 'id is required.');
+    const changes = request.data?.changes ?? {};
+    try {
+      const dealer = await pushDealerToZohoRecord(
+        id,
+        changes,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+      return { dealer };
+    } catch (err) {
+      if (err?.message === 'Dealer not found.') {
+        throw new HttpsError('not-found', err.message);
+      }
+      console.error('pushDealerToZoho failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Push to Zoho failed.');
     }
   },
 );

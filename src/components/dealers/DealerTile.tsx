@@ -3,7 +3,7 @@ import { MapPin, Phone, Store } from 'lucide-react';
 import type { ZohoDealer } from '../../types/dealers';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { buildContactLinks } from '../../lib/phoneLinks';
-import { DealerStatusBadge } from './DealerStatusBadge';
+import { DealerStatusIndicator } from './DealerStatusIndicator';
 
 function WhatsAppIcon() {
   return (
@@ -46,35 +46,36 @@ export const DealerTile: React.FC<DealerTileProps> = ({
       tabIndex={0}
       aria-label={`Open ${name}`}
     >
-      <div className="dealers-tile__main">
-        <div className="dealers-tile__avatar" aria-hidden>
-          <Store size={22} strokeWidth={1.75} />
-        </div>
-
-        <div className="dealers-tile__body">
-          <div className="dealers-tile__name-row">
-            <h3 className="dealers-tile__name">{name}</h3>
-            <DealerStatusBadge meta={statusMeta} />
+      <div className="dealers-tile__header">
+        <div className="dealers-tile__main">
+          <div className="dealers-tile__avatar" aria-hidden>
+            <Store size={22} strokeWidth={1.75} />
           </div>
 
-          {dealer.firstName && (
-            <p className="dealers-tile__contact">{dealer.firstName}</p>
-          )}
+          <div className="dealers-tile__body">
+            <h3 className="dealers-tile__name">{name}</h3>
 
-          {phone && (
-            <p className="dealers-tile__line">
-              <Phone size={14} className="dealers-tile__line-icon" strokeWidth={2} />
-              <span>{phone}</span>
-            </p>
-          )}
+            {dealer.firstName && (
+              <p className="dealers-tile__contact">{dealer.firstName}</p>
+            )}
 
-          {location && (
-            <p className="dealers-tile__line">
-              <MapPin size={14} className="dealers-tile__line-icon" strokeWidth={2} />
-              <span>{location}</span>
-            </p>
-          )}
+            {phone && (
+              <p className="dealers-tile__line">
+                <Phone size={14} className="dealers-tile__line-icon" strokeWidth={2} />
+                <span>{phone}</span>
+              </p>
+            )}
+
+            {location && (
+              <p className="dealers-tile__line">
+                <MapPin size={14} className="dealers-tile__line-icon" strokeWidth={2} />
+                <span>{location}</span>
+              </p>
+            )}
+          </div>
         </div>
+
+        <DealerStatusIndicator meta={statusMeta} className="dealers-tile__status" />
       </div>
 
       {contactLinks && (

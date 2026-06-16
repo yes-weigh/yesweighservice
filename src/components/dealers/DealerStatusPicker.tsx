@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { DealerStatusMeta } from '../../lib/dealerStatus';
 import { getStageOptionsForSignedIn } from '../../lib/dealerStatus';
-import { DealerStatusBadge } from './DealerStatusBadge';
+import { DealerStatusIndicator } from './DealerStatusIndicator';
 
 interface DealerStatusPickerProps {
   meta: DealerStatusMeta;
@@ -94,7 +94,7 @@ export const DealerStatusPicker: React.FC<DealerStatusPickerProps> = ({
               setOpen(false);
             }}
           >
-            <DealerStatusBadge meta={opt.meta} />
+            <DealerStatusIndicator meta={opt.meta} />
           </button>
         );
       })}
@@ -106,14 +106,14 @@ export const DealerStatusPicker: React.FC<DealerStatusPickerProps> = ({
       <button
         ref={triggerRef}
         type="button"
-        className={`dealers-status-picker__trigger ${meta.badgeClass}`}
+        className="dealers-status-picker__trigger"
         onClick={() => setOpen(v => !v)}
         aria-label={ariaLabel}
         title={meta.label}
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span className="dealers-status-badge__symbol" aria-hidden>{meta.symbol}</span>
+        <DealerStatusIndicator meta={meta} />
       </button>
       {menu && createPortal(menu, document.body)}
     </div>

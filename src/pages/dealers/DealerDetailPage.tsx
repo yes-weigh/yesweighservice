@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
-  ChevronRight,
   ExternalLink,
   Lock,
   Phone,
@@ -11,12 +10,11 @@ import {
 } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { CreateDealerUserModal } from '../../components/dealers/CreateDealerUserModal';
-import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
+import { DealerStatusIndicator } from '../../components/dealers/DealerStatusIndicator';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebase';
-import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import {
   dealerErrorMessage,
   fetchDealerById,
@@ -25,8 +23,24 @@ import {
   fetchKams,
   linkDealerPortalUser,
   patchDealer,
+  pushDealerChangesToZoho,
   refreshDealerFromZoho,
 } from '../../lib/dealers';
+import {
+  zohoPushableBaseline,
+  type ZohoPushableFields,
+} from '../../lib/dealerZohoPush';
+import {
+  blankFillableFieldKeys,
+  buildZohoPushPayload,
+  fillableFieldsToDraft,
+  hasZohoPushChanges,
+  visibleFillableFields,
+  type ZohoFillableDraft,
+  type ZohoFillableFieldDef,
+  type ZohoFillableFieldKey,
+} from '../../lib/dealerZohoFillable';
+import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { buildContactLinks } from '../../lib/phoneLinks';
 import { registerUser } from '../../lib/userAdmin';
 import type { Kam, ZohoDealer } from '../../types/dealers';
@@ -48,6 +62,7 @@ function WhatsAppIcon() {
 type OverlayDraft = Pick<
   ZohoDealer,
   | 'firstName'
+  | 'email'
   | 'phone'
   | 'designation'
   | 'alternateMobile'
@@ -70,11 +85,12 @@ type OverlayDraft = Pick<
   | 'orderPayOnline'
   | 'adminApprovalRequired'
   | 'maxOrderLimit'
->;
+> & ZohoFillableDraft;
 
 function dealerToDraft(dealer: ZohoDealer): OverlayDraft {
   return {
     firstName: dealer.firstName,
+    email: dealer.email,
     phone: dealer.phone,
     designation: dealer.designation ?? null,
     alternateMobile: dealer.alternateMobile ?? null,
@@ -97,15 +113,22 @@ function dealerToDraft(dealer: ZohoDealer): OverlayDraft {
     orderPayOnline: Boolean(dealer.orderPayOnline),
     adminApprovalRequired: Boolean(dealer.adminApprovalRequired),
     maxOrderLimit: dealer.maxOrderLimit ?? null,
+    ...fillableFieldsToDraft(dealer),
   };
 }
 
-function formatInr(value: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 2,
-  }).format(value);
+function formatZohoDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function contactPersonDisplayName(dealer: ZohoDealer): string | null {
+  const zohoName = dealer.zohoPrimaryContact?.name?.trim()
+    || dealer.zohoContactPersons?.find(p => p.isPrimary)?.name?.trim()
+    || dealer.zohoContactPersons?.[0]?.name?.trim();
+  return zohoName || null;
 }
 
 function dealerInitials(dealer: ZohoDealer): string {
@@ -115,36 +138,173 @@ function dealerInitials(dealer: ZohoDealer): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-function ZohoField({ label, value }: { label: string; value: React.ReactNode }) {
+function FieldLabel({
+  label,
+  source,
+}: {
+  label: string;
+  source?: 'zoho' | 'local';
+}) {
   return (
-    <div className="dealers-detail__zoho-field">
-      <span className="dealers-detail__zoho-label">{label}</span>
-      <span className="dealers-detail__zoho-value">{value ?? '—'}</span>
+    <span className="dealers-detail__field-label">
+      {label}
+      {source === 'zoho' && (
+        <span className="dealers-detail__field-source dealers-detail__field-source--zoho">
+          Push to Zoho
+        </span>
+      )}
+      {source === 'local' && (
+        <span className="dealers-detail__field-source dealers-detail__field-source--local">
+          App only
+        </span>
+      )}
+    </span>
+  );
+}
+
+function ContactNumberField({
+  label,
+  fieldSource,
+  value,
+  onChange,
+  disabled,
+  showCall = true,
+  showWhatsApp = false,
+  full,
+}: {
+  label: string;
+  fieldSource?: 'zoho' | 'local';
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  showCall?: boolean;
+  showWhatsApp?: boolean;
+  full?: boolean;
+}) {
+  const links = value.trim() ? buildContactLinks(value) : null;
+
+  return (
+    <label className={`dealers-detail__field${full ? ' dealers-detail__field--full' : ''}`}>
+      <FieldLabel label={label} source={fieldSource} />
+      <div className="dealers-detail__input-actions">
+        <input
+          className="input-field"
+          value={value}
+          disabled={disabled}
+          onChange={e => onChange(e.target.value)}
+        />
+        {(showCall || showWhatsApp) && (
+          <div className="dealers-detail__input-action-btns">
+            {showCall && links && (
+              <a
+                href={links.tel}
+                className="dealers-detail__icon-action dealers-detail__icon-action--call"
+                aria-label={`Call ${label}`}
+              >
+                <Phone size={16} strokeWidth={2.25} />
+              </a>
+            )}
+            {showWhatsApp && links && (
+              <a
+                href={links.whatsapp}
+                className="dealers-detail__icon-action dealers-detail__icon-action--whatsapp"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`WhatsApp ${label}`}
+              >
+                <WhatsAppIcon />
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </label>
+  );
+}
+
+function ReadOnlyTileField({
+  label,
+  value,
+  full,
+  multiline,
+}: {
+  label: string;
+  value: React.ReactNode;
+  full?: boolean;
+  multiline?: boolean;
+}) {
+  const empty = value == null || value === '';
+  return (
+    <div className={`dealers-detail__field dealers-detail__tile-field${full ? ' dealers-detail__field--full' : ''}`}>
+      <span>{label}</span>
+      <div
+        className={`dealers-detail__tile-value${multiline ? ' dealers-detail__tile-value--block' : ''}${empty ? ' dealers-detail__tile-value--empty' : ''}`}
+      >
+        {empty ? '—' : value}
+      </div>
     </div>
   );
 }
 
-function ZohoFieldBlock({ label, value }: { label: string; value: string | null | undefined }) {
-  if (!value) {
-    return <ZohoField label={label} value={null} />;
+function BlankOrReadOnlyZohoField({
+  field,
+  dealer,
+  draftValue,
+  editable,
+  disabled,
+  onChange,
+}: {
+  field: ZohoFillableFieldDef;
+  dealer: ZohoDealer;
+  draftValue: string;
+  editable: boolean;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const storedValue = field.getValue(dealer);
+  const displayValue = field.key === 'zohoGstTreatment'
+    ? formatGstTreatment(storedValue)
+    : storedValue;
+
+  if (!editable) {
+    return (
+      <ReadOnlyTileField
+        label={field.label}
+        value={displayValue}
+        full={field.full}
+        multiline={field.multiline}
+      />
+    );
   }
+
+  const input = field.multiline ? (
+    <textarea
+      className="input-field dealers-detail__textarea"
+      rows={3}
+      value={draftValue}
+      disabled={disabled}
+      onChange={e => onChange(e.target.value)}
+    />
+  ) : (
+    <input
+      className="input-field"
+      value={draftValue}
+      disabled={disabled}
+      onChange={e => onChange(e.target.value)}
+    />
+  );
+
   return (
-    <div className="dealers-detail__zoho-field dealers-detail__zoho-field--block">
-      <span className="dealers-detail__zoho-label">{label}</span>
-      <p className="dealers-detail__zoho-block">{value}</p>
-    </div>
+    <label className={`dealers-detail__field${field.full ? ' dealers-detail__field--full' : ''}`}>
+      <FieldLabel label={field.label} source="zoho" />
+      {input}
+    </label>
   );
 }
 
 function formatGstTreatment(value: string | null | undefined): string | null {
   if (!value) return null;
   return value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
-
-function formatZohoTime(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function ToggleField({
@@ -197,7 +357,12 @@ export const DealerDetailPage: React.FC = () => {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [refreshingZoho, setRefreshingZoho] = useState(false);
-  const [page, setPage] = useState<1 | 2>(1);
+  const [zohoBaseline, setZohoBaseline] = useState<ZohoPushableFields | null>(
+    preview && preview.id === dealerId ? zohoPushableBaseline(preview) : null,
+  );
+  const [blankFillableKeys, setBlankFillableKeys] = useState<ZohoFillableFieldKey[]>(
+    preview && preview.id === dealerId ? blankFillableFieldKeys(preview) : [],
+  );
   const [showCreateUser, setShowCreateUser] = useState(false);
 
   const loadDealer = useCallback(async () => {
@@ -211,6 +376,8 @@ export const DealerDetailPage: React.FC = () => {
       const data = await fetchDealerById(dealerId);
       setDealer(data);
       setDraft(dealerToDraft(data));
+      setZohoBaseline(zohoPushableBaseline(data));
+      setBlankFillableKeys(blankFillableFieldKeys(data));
       setError('');
     } catch (err) {
       setDealer(prev => {
@@ -230,6 +397,8 @@ export const DealerDetailPage: React.FC = () => {
       const data = await refreshDealerFromZoho(dealerId);
       setDealer(data);
       setDraft(dealerToDraft(data));
+      setZohoBaseline(zohoPushableBaseline(data));
+      setBlankFillableKeys(blankFillableFieldKeys(data));
     } catch (err) {
       setError(dealerErrorMessage(err));
     } finally {
@@ -268,15 +437,39 @@ export const DealerDetailPage: React.FC = () => {
     return JSON.stringify(dealerToDraft(dealer)) !== JSON.stringify(draft);
   }, [dealer, draft]);
 
+  const zohoDirty = useMemo(() => {
+    if (!dealer || !draft || !zohoBaseline) return false;
+    const payload = buildZohoPushPayload(draft, dealer, zohoBaseline, blankFillableKeys);
+    return hasZohoPushChanges(payload);
+  }, [dealer, draft, zohoBaseline, blankFillableKeys]);
+
+  const saveButtonLabel = useMemo(() => {
+    if (saving) return zohoDirty ? 'Pushing & saving…' : 'Saving…';
+    if (zohoDirty) return 'Push to Zoho and save';
+    return 'Save changes';
+  }, [saving, zohoDirty]);
+
+  const saveButtonLabelShort = useMemo(() => {
+    if (saving) return zohoDirty ? 'Pushing…' : 'Saving…';
+    if (zohoDirty) return 'Push & save';
+    return 'Save';
+  }, [saving, zohoDirty]);
+
   const saveDraft = async () => {
-    if (!dealer || !draft) return;
+    if (!dealer || !draft || !dirty) return;
     setSaving(true);
     setError('');
     try {
+      if (zohoDirty && zohoBaseline) {
+        const payload = buildZohoPushPayload(draft, dealer, zohoBaseline, blankFillableKeys);
+        await pushDealerChangesToZoho(dealer.id, payload);
+      }
       await patchDealer(dealer.id, draft);
       const refreshed = await fetchDealerById(dealer.id);
       setDealer(refreshed);
       setDraft(dealerToDraft(refreshed));
+      setZohoBaseline(zohoPushableBaseline(refreshed));
+      setBlankFillableKeys(blankFillableFieldKeys(refreshed));
     } catch (err) {
       setError(dealerErrorMessage(err));
     } finally {
@@ -328,15 +521,23 @@ export const DealerDetailPage: React.FC = () => {
   if (!dealerId) return null;
 
   const name = dealer ? (dealer.companyName || dealer.contactName) : '';
-  const phone = dealer ? (draft?.phone || dealer.phone || dealer.mobile) : null;
-  const whatsapp = dealer ? (draft?.whatsappNumber || dealer.whatsappNumber || phone) : null;
-  const contactLinks = phone ? buildContactLinks(phone) : null;
-  const whatsappLinks = whatsapp ? buildContactLinks(whatsapp) : null;
-  const statusMeta = dealer ? getDealerStatusMeta(dealer) : null;
-  const isActiveStage = dealer?.dealerStage === 'Active';
+  const statusMeta = dealer && draft
+    ? getDealerStatusMeta({ dealerStage: draft.dealerStage, signedIn: dealer.signedIn })
+    : null;
+  const contactPersonName = dealer ? contactPersonDisplayName(dealer) : null;
+  const zohoCreatedOn = dealer ? formatZohoDate(dealer.zohoCreatedTime) : null;
+
+  const setFillableDraftField = (key: ZohoFillableFieldKey, value: string) => {
+    setDraft(d => {
+      if (!d) return d;
+      return { ...d, [key]: value || null };
+    });
+  };
+
+  const otherZohoContactPersons = (dealer?.zohoContactPersons ?? []).filter(p => !p.isPrimary);
 
   return (
-    <div className="page-content fade-in dealers-detail-page">
+    <div className={`page-content fade-in dealers-detail-page${dirty ? ' dealers-detail-page--dirty' : ''}`}>
       <div className="dealers-detail__topbar">
         <button
           type="button"
@@ -350,11 +551,11 @@ export const DealerDetailPage: React.FC = () => {
           <button
             type="button"
             className="btn btn-primary btn-sm dealers-detail__save-top"
-            disabled={saving || !dirty}
+            disabled={saving || refreshingZoho || !dirty}
             onClick={() => void saveDraft()}
           >
             <Save size={15} />
-            {saving ? 'Saving…' : 'Save'}
+            {saveButtonLabelShort}
           </button>
         )}
       </div>
@@ -376,182 +577,54 @@ export const DealerDetailPage: React.FC = () => {
       ) : (
         <>
           <header className="dealers-detail__hero panel glass">
-            <div className="dealers-detail__avatar" aria-hidden>
-              {dealerInitials(dealer)}
-              {dealer.signedIn && (
-                <span className="dealers-detail__avatar-badge" title="Portal user linked">✓</span>
-              )}
-            </div>
-            <div className="dealers-detail__hero-body">
-              <h1 className="dealers-detail__hero-title">{name}</h1>
-              <div className="dealers-detail__hero-badges">
-                {isActiveStage && (
-                  <span className="dealers-detail__badge dealers-detail__badge--auth">
-                    Authorized YesWeigh dealer
-                  </span>
-                )}
-                <span className={`dealers-detail__badge dealers-detail__badge--${dealer.status}`}>
-                  {dealer.status}
-                </span>
+            <div className="dealers-detail__hero-top">
+              <div className="dealers-detail__hero-main">
+                <div className="dealers-detail__avatar" aria-hidden>
+                  {dealerInitials(dealer)}
+                  {dealer.signedIn && (
+                    <span className="dealers-detail__avatar-badge" title="Portal user linked">✓</span>
+                  )}
+                </div>
+                <div className="dealers-detail__hero-body">
+                  <h1 className="dealers-detail__hero-title">{name}</h1>
+                  <p className="dealers-detail__hero-id">ID {dealer.id}</p>
+                  {contactPersonName && (
+                    <p className="dealers-detail__hero-meta">{contactPersonName}</p>
+                  )}
+                  {zohoCreatedOn && (
+                    <p className="dealers-detail__hero-meta">
+                      Zoho created {zohoCreatedOn}
+                    </p>
+                  )}
+                </div>
               </div>
-              <p className="dealers-detail__hero-id">ID {dealer.id}</p>
-            </div>
-            <div className="dealers-detail__hero-status">
-              <DealerStatusCell
-                dealer={dealer}
-                onStageChange={stage => setDraft(d => d ? { ...d, dealerStage: stage } : d)}
-              />
-              <span className="text-muted text-sm">{statusMeta?.label}</span>
+              {statusMeta && (
+                <DealerStatusIndicator
+                  meta={statusMeta}
+                  className="dealers-detail__hero-status"
+                />
+              )}
             </div>
           </header>
 
-          {page === 1 ? (
-            <>
               <section className="dealers-detail panel glass">
                 <div className="dealers-detail__section-head">
-                  <h3 className="dealers-detail__section-title">From Zoho · read only</h3>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    disabled={refreshingZoho || saving}
-                    onClick={() => void refreshZoho()}
-                  >
-                    <RefreshCw size={14} className={refreshingZoho ? 'spin-icon' : undefined} />
-                    {refreshingZoho ? 'Refreshing…' : 'Refresh from Zoho'}
-                  </button>
+                  <h3 className="dealers-detail__section-title">From Zoho · updatables</h3>
+                  <div className="dealers-detail__section-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={refreshingZoho || saving}
+                      onClick={() => void refreshZoho()}
+                    >
+                      <RefreshCw size={14} className={refreshingZoho ? 'spin-icon' : undefined} />
+                      {refreshingZoho ? 'Refreshing…' : 'Refresh from Zoho'}
+                    </button>
+                  </div>
                 </div>
-                <div className="dealers-detail__zoho-grid">
-                  <ZohoField label="Company" value={dealer.companyName || dealer.contactName} />
-                  <ZohoField label="Legal name" value={dealer.zohoLegalName} />
-                  <ZohoField label="Zoho contact ID" value={dealer.id} />
-                  <ZohoField label="Zoho contact name" value={dealer.contactName} />
-                  <ZohoField label="Zoho status" value={dealer.status} />
-                  <ZohoField label="Customer type" value={dealer.zohoCustomerSubType} />
-                  <ZohoField label="Email" value={dealer.email} />
-                  <ZohoField label="Mobile (Zoho)" value={dealer.mobile} />
-                  <ZohoField label="Phone (Zoho)" value={dealer.phone} />
-                  <ZohoField label="Website" value={dealer.zohoWebsite} />
-                  <ZohoField label="GST number" value={dealer.zohoGstNo} />
-                  <ZohoField label="GST treatment" value={formatGstTreatment(dealer.zohoGstTreatment)} />
-                  <ZohoField label="PAN" value={dealer.zohoPanNo} />
-                  <ZohoField
-                    label="Place of supply"
-                    value={dealer.zohoPlaceOfContactLabel || dealer.zohoPlaceOfContact}
-                  />
-                  <ZohoField
-                    label="Tax"
-                    value={dealer.zohoTaxName
-                      ? `${dealer.zohoTaxName}${dealer.zohoTaxPercentage != null ? ` (${dealer.zohoTaxPercentage}%)` : ''}`
-                      : null}
-                  />
-                  <ZohoField label="Payment terms" value={dealer.zohoPaymentTermsLabel} />
-                  <ZohoField label="Currency" value={dealer.zohoCurrencyCode} />
-                  <ZohoField
-                    label="Credit limit (Zoho)"
-                    value={dealer.zohoCreditLimit != null ? formatInr(dealer.zohoCreditLimit) : null}
-                  />
-                  <ZohoField label="Price book" value={dealer.zohoPricebookName} />
-                  <ZohoField label="Zoho owner" value={dealer.zohoOwnerName} />
-                  <ZohoField label="Branch" value={dealer.zohoBranchName} />
-                  <ZohoField label="Location" value={dealer.zohoLocationName} />
-                  <ZohoField
-                    label="Portal (Zoho)"
-                    value={dealer.zohoPortalStatusLabel || dealer.zohoPortalStatus}
-                  />
-                  <ZohoField label="Outstanding due" value={formatInr(dealer.outstandingReceivable)} />
-                  <ZohoField label="Unused credits" value={formatInr(dealer.unusedCredits)} />
-                  <ZohoField
-                    label="Has transactions"
-                    value={dealer.zohoHasTransaction ? 'Yes' : dealer.zohoDetailSyncedAt ? 'No' : null}
-                  />
-                  <ZohoField
-                    label="Linked to Zoho CRM"
-                    value={dealer.zohoIsLinkedWithZohoCrm ? 'Yes' : dealer.zohoDetailSyncedAt ? 'No' : null}
-                  />
-                  <ZohoField label="Created in Zoho" value={formatZohoTime(dealer.zohoCreatedTime)} />
-                  <ZohoField label="Modified in Zoho" value={formatZohoTime(dealer.zohoLastModifiedTime)} />
-                  <ZohoField
-                    label="Last list sync"
-                    value={dealer.syncedAt ? new Date(dealer.syncedAt).toLocaleString() : null}
-                  />
-                  <ZohoField
-                    label="Last detail sync"
-                    value={dealer.zohoDetailSyncedAt
-                      ? new Date(dealer.zohoDetailSyncedAt).toLocaleString()
-                      : null}
-                  />
-                </div>
-                {(dealer.zohoBillingAddress || dealer.zohoShippingAddress) && (
-                  <div className="dealers-detail__zoho-addresses">
-                    <ZohoFieldBlock label="Billing address (Zoho)" value={dealer.zohoBillingAddress} />
-                    <ZohoFieldBlock label="Shipping address (Zoho)" value={dealer.zohoShippingAddress} />
-                  </div>
-                )}
-                {dealer.zohoNotes && (
-                  <div className="dealers-detail__zoho-notes">
-                    <ZohoFieldBlock label="Notes (Zoho)" value={dealer.zohoNotes} />
-                  </div>
-                )}
-              </section>
-
-              {(dealer.zohoContactPersons?.length ?? 0) > 0 && (
-                <section className="dealers-detail panel glass">
-                  <h3 className="dealers-detail__section-title">Contact persons · Zoho</h3>
-                  <div className="dealers-detail__contact-persons">
-                    {dealer.zohoContactPersons!.map(person => (
-                      <div key={person.id ?? person.name ?? 'unknown'} className="dealers-detail__contact-person">
-                        <div className="dealers-detail__contact-person-head">
-                          <strong>{person.name || 'Unnamed contact'}</strong>
-                          {person.isPrimary && (
-                            <span className="dealers-detail__badge dealers-detail__badge--auth">Primary</span>
-                          )}
-                        </div>
-                        <div className="dealers-detail__zoho-grid dealers-detail__zoho-grid--compact">
-                          <ZohoField label="Designation" value={person.designation} />
-                          <ZohoField label="Department" value={person.department} />
-                          <ZohoField label="Phone" value={person.phone || person.mobile} />
-                          <ZohoField label="Email" value={person.email} />
-                          <ZohoField
-                            label="Portal"
-                            value={person.isAddedInPortal ? 'Added' : 'Not added'}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {(dealer.zohoTags?.length ?? 0) > 0 && (
-                <section className="dealers-detail panel glass">
-                  <h3 className="dealers-detail__section-title">Tags · Zoho</h3>
-                  <div className="dealers-detail__tag-list">
-                    {dealer.zohoTags!.map(tag => (
-                      <span key={tag} className="dealers-detail__tag">{tag}</span>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {(dealer.zohoCustomFields?.length ?? 0) > 0 && (
-                <section className="dealers-detail panel glass">
-                  <h3 className="dealers-detail__section-title">Custom fields · Zoho</h3>
-                  <div className="dealers-detail__zoho-grid">
-                    {dealer.zohoCustomFields!.map((field, index) => {
-                      const row = field as { label?: string; value?: unknown; api_name?: string };
-                      const label = row.label || row.api_name || `Field ${index + 1}`;
-                      const value = row.value != null ? String(row.value) : null;
-                      return <ZohoField key={`${label}-${index}`} label={label} value={value} />;
-                    })}
-                  </div>
-                </section>
-              )}
-
-              <section className="dealers-detail panel glass">
-                <h3 className="dealers-detail__section-title">Contact · local edits</h3>
                 <div className="dealers-detail__form">
                   <label className="dealers-detail__field">
-                    <span>Contact / owner name</span>
+                    <FieldLabel label="Contact / owner name" source="zoho" />
                     <input
                       className="input-field"
                       value={draft.firstName ?? ''}
@@ -559,17 +632,27 @@ export const DealerDetailPage: React.FC = () => {
                       onChange={e => setDraft(d => d ? { ...d, firstName: e.target.value || null } : d)}
                     />
                   </label>
+                  <ContactNumberField
+                    label="Phone"
+                    fieldSource="zoho"
+                    value={draft.phone ?? ''}
+                    disabled={saving}
+                    showCall
+                    showWhatsApp
+                    onChange={v => setDraft(d => d ? { ...d, phone: v || null } : d)}
+                  />
                   <label className="dealers-detail__field">
-                    <span>Phone</span>
+                    <FieldLabel label="Email" source="zoho" />
                     <input
+                      type="email"
                       className="input-field"
-                      value={draft.phone ?? ''}
+                      value={draft.email ?? ''}
                       disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, phone: e.target.value || null } : d)}
+                      onChange={e => setDraft(d => d ? { ...d, email: e.target.value || null } : d)}
                     />
                   </label>
                   <label className="dealers-detail__field">
-                    <span>Designation</span>
+                    <FieldLabel label="Designation" source="zoho" />
                     <input
                       className="input-field"
                       value={draft.designation ?? ''}
@@ -577,65 +660,32 @@ export const DealerDetailPage: React.FC = () => {
                       onChange={e => setDraft(d => d ? { ...d, designation: e.target.value || null } : d)}
                     />
                   </label>
-                  <label className="dealers-detail__field">
-                    <span>Alternate mobile</span>
-                    <input
-                      className="input-field"
-                      value={draft.alternateMobile ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, alternateMobile: e.target.value || null } : d)}
-                    />
-                  </label>
-                  <label className="dealers-detail__field dealers-detail__field--full">
-                    <span>WhatsApp number</span>
-                    <input
-                      className="input-field"
-                      value={draft.whatsappNumber ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, whatsappNumber: e.target.value || null } : d)}
-                    />
-                  </label>
-                </div>
-                {(contactLinks || whatsappLinks) && (
-                  <div className="dealers-detail__contact-actions">
-                    {contactLinks && (
-                      <a href={contactLinks.tel} className="btn btn-secondary btn-sm">
-                        <Phone size={15} />
-                        Call
-                      </a>
-                    )}
-                    {whatsappLinks && (
-                      <a
-                        href={whatsappLinks.whatsapp}
-                        className="btn btn-secondary btn-sm"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <WhatsAppIcon />
-                        WhatsApp
-                      </a>
-                    )}
-                  </div>
-                )}
-              </section>
+                  <ContactNumberField
+                    label="Alternate mobile"
+                    fieldSource="zoho"
+                    value={draft.alternateMobile ?? ''}
+                    disabled={saving}
+                    showCall
+                    showWhatsApp
+                    onChange={v => setDraft(d => d ? { ...d, alternateMobile: v || null } : d)}
+                  />
 
-              <section className="dealers-detail panel glass">
-                <h3 className="dealers-detail__section-title">Assignment</h3>
-                <div className="dealers-detail__form">
+                  <div className="dealers-detail__form-split dealers-detail__field--full">
+                    <span className="dealers-detail__form-split-label">App only · not synced to Zoho</span>
+                  </div>
+
+                  <ContactNumberField
+                    label="WhatsApp number"
+                    fieldSource="local"
+                    value={draft.whatsappNumber ?? ''}
+                    disabled={saving}
+                    showCall
+                    showWhatsApp
+                    full
+                    onChange={v => setDraft(d => d ? { ...d, whatsappNumber: v || null } : d)}
+                  />
                   <label className="dealers-detail__field">
-                    <span>KAM</span>
-                    <select
-                      className="catalog-select"
-                      value={draft.kamId ?? ''}
-                      disabled={saving}
-                      onChange={e => setDraft(d => d ? { ...d, kamId: e.target.value || null } : d)}
-                    >
-                      <option value="">Unassigned</option>
-                      {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-                    </select>
-                  </label>
-                  <label className="dealers-detail__field">
-                    <span>Stage</span>
+                    <FieldLabel label="Status" source="local" />
                     <select
                       className="catalog-select"
                       value={draft.dealerStage ?? ''}
@@ -646,8 +696,8 @@ export const DealerDetailPage: React.FC = () => {
                       {DEALER_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </label>
-                  <label className="dealers-detail__field dealers-detail__field--full">
-                    <span>Categories</span>
+                  <div className="dealers-detail__field dealers-detail__field--full">
+                    <FieldLabel label="Categories" source="local" />
                     <MultiSelect
                       placeholder="Select categories"
                       menuPortal
@@ -655,16 +705,102 @@ export const DealerDetailPage: React.FC = () => {
                       options={categories.map(c => ({ value: c, label: c }))}
                       onChange={next => setDraft(d => d ? { ...d, categories: next } : d)}
                     />
+                  </div>
+                  <label className="dealers-detail__field dealers-detail__field--full">
+                    <FieldLabel label="Key account manager" source="local" />
+                    <select
+                      className="catalog-select"
+                      value={draft.kamId ?? ''}
+                      disabled={saving}
+                      onChange={e => setDraft(d => d ? { ...d, kamId: e.target.value || null } : d)}
+                    >
+                      <option value="">Unassigned</option>
+                      {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+                    </select>
                   </label>
+
+                  <div className="dealers-detail__form-split dealers-detail__field--full">
+                    <span className="dealers-detail__form-split-label">
+                      Synced from Zoho · blank fields can be filled once
+                    </span>
+                  </div>
+
+                  {visibleFillableFields(dealer).map(field => (
+                    <BlankOrReadOnlyZohoField
+                      key={field.key}
+                      field={field}
+                      dealer={dealer}
+                      editable={blankFillableKeys.includes(field.key)}
+                      draftValue={field.getDraftValue(draft) ?? ''}
+                      disabled={saving}
+                      onChange={value => setFillableDraftField(field.key, value)}
+                    />
+                  ))}
+
+                  <ReadOnlyTileField
+                    label="Place of supply"
+                    value={dealer.zohoPlaceOfContactLabel || dealer.zohoPlaceOfContact}
+                  />
+                  <ReadOnlyTileField
+                    label="Tax"
+                    value={dealer.zohoTaxName
+                      ? `${dealer.zohoTaxName}${dealer.zohoTaxPercentage != null ? ` (${dealer.zohoTaxPercentage}%)` : ''}`
+                      : null}
+                  />
+                  {otherZohoContactPersons.length > 0 && (
+                    <div className="dealers-detail__field dealers-detail__field--full dealers-detail__tile-group">
+                      <span>Other contact persons · Zoho</span>
+                      <div className="dealers-detail__contact-persons">
+                        {otherZohoContactPersons.map(person => (
+                          <div key={person.id ?? person.name ?? 'unknown'} className="dealers-detail__contact-person">
+                            <div className="dealers-detail__contact-person-head">
+                              <strong>{person.name || 'Unnamed contact'}</strong>
+                            </div>
+                            <div className="dealers-detail__form dealers-detail__form--readonly dealers-detail__form--nested">
+                              <ReadOnlyTileField label="Designation" value={person.designation} />
+                              <ReadOnlyTileField label="Department" value={person.department} />
+                              <ReadOnlyTileField label="Phone" value={person.phone || person.mobile} />
+                              <ReadOnlyTileField label="Email" value={person.email} />
+                              <ReadOnlyTileField
+                                label="Portal"
+                                value={person.isAddedInPortal ? 'Added' : 'Not added'}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(dealer.zohoTags?.length ?? 0) > 0 && (
+                    <ReadOnlyTileField
+                      label="Tags · Zoho"
+                      full
+                      value={(
+                        <div className="dealers-detail__tag-list">
+                          {dealer.zohoTags!.map(tag => (
+                            <span key={tag} className="dealers-detail__tag">{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                    />
+                  )}
+                  {dealer.zohoCustomFields?.map((field, index) => {
+                    const row = field as { label?: string; value?: unknown; api_name?: string };
+                    const label = row.label || row.api_name || `Custom field ${index + 1}`;
+                    const value = row.value != null ? String(row.value) : null;
+                    return (
+                      <ReadOnlyTileField key={`${label}-${index}`} label={label} value={value} />
+                    );
+                  })}
                 </div>
               </section>
 
               <section className="dealers-detail panel glass">
                 <h3 className="dealers-detail__section-title">Portal login</h3>
                 {dealer.signedIn ? (
-                  <div className="dealers-detail__portal">
-                    <ZohoField label="Portal user" value={dealer.portalUserName} />
-                    <ZohoField label="Login ID" value={dealer.portalLoginId} />
+                  <div className="dealers-detail__form dealers-detail__form--readonly">
+                    <ReadOnlyTileField label="Portal user" value={dealer.portalUserName} />
+                    <ReadOnlyTileField label="Login ID" value={dealer.portalLoginId} />
                   </div>
                 ) : (
                   <div className="dealers-detail__portal-empty">
@@ -680,9 +816,7 @@ export const DealerDetailPage: React.FC = () => {
                   </div>
                 )}
               </section>
-            </>
-          ) : (
-            <>
+
               <section className="dealers-detail panel glass">
                 <h3 className="dealers-detail__section-title">Business · local edits</h3>
                 <div className="dealers-detail__form">
@@ -736,34 +870,8 @@ export const DealerDetailPage: React.FC = () => {
                       {PRICE_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </label>
-                  <div className="dealers-detail__field">
-                    <span className="dealers-detail__zoho-label">Outstanding due (Zoho)</span>
-                    <p className="dealers-detail__zoho-readout">{formatInr(dealer.outstandingReceivable)}</p>
-                  </div>
-                  {dealer.zohoCreditLimit != null && (
-                    <div className="dealers-detail__field">
-                      <span className="dealers-detail__zoho-label">Credit limit (Zoho)</span>
-                      <p className="dealers-detail__zoho-readout">{formatInr(dealer.zohoCreditLimit)}</p>
-                    </div>
-                  )}
-                  {dealer.zohoPricebookName && (
-                    <div className="dealers-detail__field">
-                      <span className="dealers-detail__zoho-label">Price book (Zoho)</span>
-                      <p className="dealers-detail__zoho-readout">{dealer.zohoPricebookName}</p>
-                    </div>
-                  )}
                 </div>
               </section>
-
-              {(dealer.zohoBillingAddress || dealer.zohoShippingAddress) && (
-                <section className="dealers-detail panel glass">
-                  <h3 className="dealers-detail__section-title">Addresses · Zoho (read only)</h3>
-                  <div className="dealers-detail__zoho-addresses">
-                    <ZohoFieldBlock label="Billing" value={dealer.zohoBillingAddress} />
-                    <ZohoFieldBlock label="Shipping" value={dealer.zohoShippingAddress} />
-                  </div>
-                </section>
-              )}
 
               <section className="dealers-detail panel glass">
                 <h3 className="dealers-detail__section-title">Address · local edits</h3>
@@ -901,11 +1009,11 @@ export const DealerDetailPage: React.FC = () => {
                   <button
                     type="button"
                     className="btn btn-primary"
-                    disabled={saving || !dirty}
+                    disabled={saving || refreshingZoho || !dirty}
                     onClick={() => void saveDraft()}
                   >
                     <Save size={16} />
-                    Save changes
+                    {saveButtonLabel}
                   </button>
                   <button
                     type="button"
@@ -926,31 +1034,6 @@ export const DealerDetailPage: React.FC = () => {
                   </button>
                 </div>
               </section>
-            </>
-          )}
-
-          <footer className="dealers-detail__pager panel glass">
-            <span className="text-muted text-sm">Page {page} of 2</span>
-            {page === 1 ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setPage(2)}
-              >
-                Next
-                <ChevronRight size={16} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setPage(1)}
-              >
-                <ArrowLeft size={16} />
-                Back
-              </button>
-            )}
-          </footer>
         </>
       )}
 
@@ -960,6 +1043,20 @@ export const DealerDetailPage: React.FC = () => {
           onClose={() => setShowCreateUser(false)}
           onSubmit={handleCreatePortalUser}
         />
+      )}
+
+      {dirty && dealer && (
+        <div className="dealers-detail__save-float" role="region" aria-label="Unsaved changes">
+          <button
+            type="button"
+            className="btn btn-primary dealers-detail__save-float-btn"
+            disabled={saving || refreshingZoho}
+            onClick={() => void saveDraft()}
+          >
+            <Save size={16} />
+            {saveButtonLabel}
+          </button>
+        </div>
       )}
     </div>
   );

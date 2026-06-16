@@ -9,9 +9,16 @@ export const SpareProductMapPage: React.FC = () => {
   const { user } = useAuth();
   const { productId } = useParams<{ productId: string }>();
   const location = useLocation();
-  const preview = (location.state as { preview?: CatalogProduct } | null)?.preview ?? null;
+  const navState = location.state as {
+    preview?: CatalogProduct;
+    returnCategoryId?: string;
+  } | null;
+  const preview = navState?.preview ?? null;
+  const returnCategoryId = navState?.returnCategoryId ?? preview?.categoryId ?? '';
   const base = user ? homePathForRole(user.role) : '/staff';
-  const listPath = `${base}/spares`;
+  const listPath = returnCategoryId
+    ? `${base}/spares?category=${encodeURIComponent(returnCategoryId)}`
+    : `${base}/spares`;
   const sparesBasePath = `${base}/spares`;
   const canManage = user?.role === 'staff' || user?.role === 'super_admin';
   const showStockQuantity = canManage;

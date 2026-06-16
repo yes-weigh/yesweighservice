@@ -61,6 +61,15 @@ export async function refreshDealerFromZoho(id: string): Promise<ZohoDealer> {
   return (result.data as { dealer: ZohoDealer }).dealer;
 }
 
+export async function pushDealerChangesToZoho(
+  id: string,
+  changes: Record<string, string | null | undefined>,
+): Promise<ZohoDealer> {
+  const fn = httpsCallable(functions, 'pushDealerToZoho', { timeout: 120_000 });
+  const result = await fn({ id, changes });
+  return (result.data as { dealer: ZohoDealer }).dealer;
+}
+
 export async function fetchDealerStats(): Promise<DealerStats> {
   const fn = httpsCallable(functions, 'getDealerStats');
   const result = await fn();

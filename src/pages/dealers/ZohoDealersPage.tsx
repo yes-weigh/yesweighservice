@@ -428,7 +428,7 @@ export function ZohoDealersPage() {
               <th><button type="button" onClick={() => handleSort('billingState')}>State <SortMark field="billingState" /></button></th>
               <th><button type="button" onClick={() => handleSort('district')}>District <SortMark field="district" /></button></th>
               <th>Categories</th>
-              <th><button type="button" onClick={() => handleSort('dealerStage')}>Status <SortMark field="dealerStage" /></button></th>
+              <th className="dealers-table__status-col"><button type="button" onClick={() => handleSort('dealerStage')}>Status <SortMark field="dealerStage" /></button></th>
             </tr>
           </thead>
           <tbody>
@@ -478,7 +478,7 @@ export function ZohoDealersPage() {
                       onChange={next => void updateField(dealer.id, { categories: next })}
                     />
                   </td>
-                  <td>
+                  <td className="dealers-table__status-col">
                     <DealerStatusCell
                       dealer={dealer}
                       onStageChange={stage => void updateField(dealer.id, { dealerStage: stage })}

@@ -29,7 +29,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
 
   const updateMenuPosition = () => {
     const trigger = triggerRef.current;
@@ -47,7 +47,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   useLayoutEffect(() => {
     if (!open || !menuPortal) return;
     updateMenuPosition();
-  }, [open, menuPortal]);
+  }, [open, menuPortal, value]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -81,12 +81,34 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
     }
   };
 
-  const label =
-    value.length === 0
-      ? placeholder
-      : value.length === 1
-        ? options.find(o => o.value === value[0])?.label ?? value[0]
-        : `${value.length} selected`;
+  const removeChip = (val: string, e: React.SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onChange(value.filter(v => v !== val));
+  };
+
+  const clearAll = (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onChange([]);
+  };
+
+  const isInteractiveChild = (target: Element) =>
+    Boolean(
+      target.closest('.dealers-multiselect__chip-remove')
+      || target.closest('.dealers-multiselect__clear'),
+    );
+
+  const handleTriggerMouseDown = (e: React.MouseEvent) => {
+    if (isInteractiveChild(e.target as Element)) return;
+    // Prevent parent <label> from forwarding the click to nested buttons.
+    e.preventDefault();
+  };
+
+  const handleTriggerClick = (e: React.MouseEvent) => {
+    if (disabled || isInteractiveChild(e.target as Element)) return;
+    setOpen(v => !v);
+  };
 
   const menu = open ? (
     <div
@@ -107,30 +129,76 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   ) : null;
 
   return (
-    <div className={`dealers-multiselect ${className}`.trim()} ref={rootRef}>
-      <button
+    <div
+      className={`dealers-multiselect${value.length > 0 ? ' dealers-multiselect--has-value' : ''} ${className}`.trim()}
+      ref={rootRef}
+    >
+      <div
         ref={triggerRef}
-        type="button"
+        role="combobox"
+        tabIndex={disabled ? -1 : 0}
         className="dealers-multiselect__trigger catalog-select"
-        onClick={() => !disabled && setOpen(v => !v)}
         aria-expanded={open}
         aria-haspopup="listbox"
-        disabled={disabled}
+        aria-disabled={disabled}
+        onMouseDown={handleTriggerMouseDown}
+        onClick={handleTriggerClick}
+        onKeyDown={e => {
+          if (disabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen(v => !v);
+          }
+        }}
       >
-        <span className="dealers-multiselect__label">{label}</span>
-        <ChevronDown size={14} />
-      </button>
+        <span className="dealers-multiselect__value">
+          {value.length === 0 ? (
+            <span className="dealers-multiselect__placeholder">{placeholder}</span>
+          ) : (
+            <span className="dealers-multiselect__chips">
+              {value.map(val => (
+                <span key={val} className="dealers-multiselect__chip">
+                  <span className="dealers-multiselect__chip-label">
+                    {options.find(o => o.value === val)?.label ?? val}
+                  </span>
+                  {!disabled && (
+                    <span
+                      role="button"
+                      tabIndex={-1}
+                      className="dealers-multiselect__chip-remove"
+                      aria-label={`Remove ${options.find(o => o.value === val)?.label ?? val}`}
+                      onMouseDown={e => e.stopPropagation()}
+                      onClick={e => removeChip(val, e)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') removeChip(val, e);
+                      }}
+                    >
+                      <X size={11} />
+                    </span>
+                  )}
+                </span>
+              ))}
+            </span>
+          )}
+        </span>
+        <div className="dealers-multiselect__controls">
+          {value.length > 0 && !disabled && (
+            <button
+              type="button"
+              className="dealers-multiselect__clear"
+              aria-label="Clear all categories"
+              onMouseDown={e => e.stopPropagation()}
+              onClick={clearAll}
+            >
+              <X size={12} />
+            </button>
+          )}
+          <span className="dealers-multiselect__toggle" aria-hidden="true">
+            <ChevronDown size={14} className={open ? 'dealers-multiselect__chevron--open' : undefined} />
+          </span>
+        </div>
+      </div>
       {menu && (menuPortal ? createPortal(menu, document.body) : menu)}
-      {value.length > 0 && !disabled && (
-        <button
-          type="button"
-          className="dealers-multiselect__clear"
-          onClick={() => onChange([])}
-          aria-label="Clear selection"
-        >
-          <X size={12} />
-        </button>
-      )}
     </div>
   );
 };

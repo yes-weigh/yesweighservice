@@ -31,6 +31,7 @@ export interface ZohoDealer {
   firstName: string | null;
   companyName: string | null;
   email: string | null;
+  zohoEmail?: string | null;
   phone: string | null;
   mobile: string | null;
   status: string;

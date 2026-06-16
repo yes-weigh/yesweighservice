@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Check,
+  Copy,
   IndianRupee,
   Link2,
   Package,
@@ -15,7 +16,9 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   formatCurrency,
+  getCategorizedProducts,
   getUncategorizedProducts,
+  isSparesExcludedCategory,
   saveCatalogProductSpareLinks,
 } from '../../lib/catalog';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
@@ -178,6 +181,41 @@ function SpareSuggestionRow({
   );
 }
 
+function ProductCopySuggestionRow({
+  item,
+  onSelect,
+  disabled = false,
+}: {
+  item: CatalogProduct;
+  onSelect: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="spare-product-map__suggestion spare-product-map__suggestion--product"
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      <div className="spare-product-map__suggestion-media">
+        <SpareImageStage src={item.imageUrl} alt={item.name} size="card" />
+      </div>
+      <div className="spare-product-map__suggestion-body">
+        <strong>{formatProductTitle(item.name)}</strong>
+        <div className="spare-product-map__suggestion-meta">
+          {item.sku && <span className="spare-product-map__suggestion-sku">{item.sku}</span>}
+          {item.categoryName && (
+            <span className="spare-product-map__suggestion-category">{item.categoryName}</span>
+          )}
+        </div>
+      </div>
+      <span className="spare-product-map__suggestion-add" aria-hidden>
+        <Copy size={15} />
+      </span>
+    </button>
+  );
+}
+
 export const SpareProductMapView: React.FC<{
   productId: string;
   backPath: string;
@@ -200,14 +238,27 @@ export const SpareProductMapView: React.FC<{
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pool, setPool] = useState<CatalogProduct[]>([]);
+  const [productPool, setProductPool] = useState<CatalogProduct[]>([]);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState('');
+  const [copySearch, setCopySearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [copyPickerOpen, setCopyPickerOpen] = useState(false);
+  const [copyLoading, setCopyLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const lastSavedRef = useRef('');
   const skipAutoSaveRef = useRef(true);
   const saveTimerRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const copySearchInputRef = useRef<HTMLInputElement>(null);
+
+  const listBackPath = useMemo(() => {
+    if (backPath.includes('category=')) return backPath;
+    const categoryId = product?.categoryId;
+    if (!categoryId) return backPath;
+    const base = backPath.split('?')[0] ?? backPath;
+    return `${base}?category=${encodeURIComponent(categoryId)}`;
+  }, [backPath, product?.categoryId]);
 
   useEffect(() => {
     let active = true;
@@ -244,7 +295,14 @@ export const SpareProductMapView: React.FC<{
       ]);
       const sparePool = getUncategorizedProducts(catalog.items);
       const linkedIds = links.items.map(item => item.id);
+      const catalogProducts = getCategorizedProducts(catalog.items)
+        .filter(item => item.id !== productId)
+        .filter(item => {
+          const cat = catalog.categories?.find(c => c.id === item.categoryId);
+          return !cat || !isSparesExcludedCategory(cat);
+        });
       setPool(sparePool);
+      setProductPool(catalogProducts);
       setPicked(new Set(linkedIds));
       lastSavedRef.current = idsKey(linkedIds);
       skipAutoSaveRef.current = true;
@@ -273,12 +331,27 @@ export const SpareProductMapView: React.FC<{
       .slice(0, 12);
   }, [pool, search, picked]);
 
+  const productSuggestions = useMemo(() => {
+    const q = copySearch.trim().toLowerCase();
+    if (!q) return [];
+    return productPool
+      .filter(
+        item =>
+          item.name.toLowerCase().includes(q)
+          || (item.sku ?? '').toLowerCase().includes(q)
+          || (item.categoryName ?? '').toLowerCase().includes(q),
+      )
+      .slice(0, 12);
+  }, [productPool, copySearch]);
+
   const mappedItems = useMemo(
     () => pool.filter(item => picked.has(item.id)),
     [pool, picked],
   );
 
   const openPicker = () => {
+    setCopyPickerOpen(false);
+    setCopySearch('');
     setPickerOpen(true);
     window.setTimeout(() => searchInputRef.current?.focus(), 0);
   };
@@ -286,6 +359,50 @@ export const SpareProductMapView: React.FC<{
   const closePicker = () => {
     setPickerOpen(false);
     setSearch('');
+  };
+
+  const openCopyPicker = () => {
+    setPickerOpen(false);
+    setSearch('');
+    setCopyPickerOpen(true);
+    window.setTimeout(() => copySearchInputRef.current?.focus(), 0);
+  };
+
+  const closeCopyPicker = () => {
+    setCopyPickerOpen(false);
+    setCopySearch('');
+  };
+
+  const copyFromProduct = async (source: CatalogProduct) => {
+    if (!canManage || source.id === productId) return;
+    setCopyLoading(true);
+    setError(null);
+    try {
+      const links = await fetchCatalogSpareLinks({ productId: source.id });
+      const spareIds = links.items.map(item => item.id);
+      if (spareIds.length === 0) {
+        setError(`${formatProductTitle(source.name)} has no mapped spares.`);
+        return;
+      }
+      let added = 0;
+      setPicked(prev => {
+        const next = new Set(prev);
+        for (const id of spareIds) {
+          if (!next.has(id)) added += 1;
+          next.add(id);
+        }
+        return next;
+      });
+      if (added === 0) {
+        setError('All spares from that product are already mapped here.');
+      } else {
+        closeCopyPicker();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not copy spare mapping.');
+    } finally {
+      setCopyLoading(false);
+    }
   };
 
   const addSpare = (id: string) => {
@@ -359,7 +476,7 @@ export const SpareProductMapView: React.FC<{
   if (error && !product) {
     return (
       <div className="spare-product-map">
-        <button type="button" className="spare-product-map__back" onClick={() => navigate(backPath)}>
+        <button type="button" className="spare-product-map__back" onClick={() => navigate(listBackPath)}>
           <ArrowLeft size={18} />
           <span>{backLabel}</span>
         </button>
@@ -376,7 +493,7 @@ export const SpareProductMapView: React.FC<{
 
   return (
     <div className="spare-product-map">
-      <button type="button" className="spare-product-map__back" onClick={() => navigate(backPath)}>
+      <button type="button" className="spare-product-map__back" onClick={() => navigate(listBackPath)}>
         <ArrowLeft size={18} />
         <span>{backLabel}</span>
       </button>
@@ -434,15 +551,25 @@ export const SpareProductMapView: React.FC<{
           </p>
         )}
 
-        {canManage && !pickerOpen && (
-          <button
-            type="button"
-            className="spare-product-map__map-btn btn btn-secondary"
-            onClick={openPicker}
-          >
-            <Plus size={16} aria-hidden />
-            <span>Map spare</span>
-          </button>
+        {canManage && !pickerOpen && !copyPickerOpen && (
+          <div className="spare-product-map__actions">
+            <button
+              type="button"
+              className="spare-product-map__map-btn btn btn-secondary"
+              onClick={openPicker}
+            >
+              <Plus size={16} aria-hidden />
+              <span>Map spare</span>
+            </button>
+            <button
+              type="button"
+              className="spare-product-map__map-btn btn btn-secondary"
+              onClick={openCopyPicker}
+            >
+              <Copy size={16} aria-hidden />
+              <span>Copy from product</span>
+            </button>
+          </div>
         )}
 
         {canManage && pickerOpen && (
@@ -481,6 +608,59 @@ export const SpareProductMapView: React.FC<{
                       item={item}
                       showStockQuantity={showStockQuantity}
                       onSelect={() => addSpare(item.id)}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {canManage && copyPickerOpen && (
+          <div className="spare-product-map__picker-inline">
+            <p className="spare-product-map__picker-hint text-muted text-sm">
+              Search a product — its mapped spares will be added here (existing links kept).
+            </p>
+            <div className="spare-product-map__search-row">
+              <div className="spare-product-map__search catalog-search">
+                <Search size={16} />
+                <input
+                  ref={copySearchInputRef}
+                  type="search"
+                  placeholder="Search product name, SKU, or category…"
+                  value={copySearch}
+                  disabled={copyLoading}
+                  onChange={e => setCopySearch(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                className="spare-product-map__picker-cancel"
+                aria-label="Cancel copy"
+                disabled={copyLoading}
+                onClick={closeCopyPicker}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {copySearch.trim() && (
+              <div className="spare-product-map__suggestions" role="listbox" aria-label="Product suggestions">
+                {copyLoading ? (
+                  <p className="spare-product-map__suggestions-empty text-muted text-sm">
+                    Copying spares…
+                  </p>
+                ) : productSuggestions.length === 0 ? (
+                  <p className="spare-product-map__suggestions-empty text-muted text-sm">
+                    No matching products found.
+                  </p>
+                ) : (
+                  productSuggestions.map(item => (
+                    <ProductCopySuggestionRow
+                      key={item.id}
+                      item={item}
+                      disabled={copyLoading}
+                      onSelect={() => void copyFromProduct(item)}
                     />
                   ))
                 )}

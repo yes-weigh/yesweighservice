@@ -80,6 +80,17 @@ export const SparesPage: React.FC = () => {
     }, { replace: true });
   };
 
+  const categoryId = searchParams.get('category') ?? '';
+
+  const setCategoryId = useCallback((id: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (id) next.set('category', id);
+      else next.delete('category');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const handleCategoriesReorder = async (nextCategories: CatalogCategory[]) => {
     const orderById = new Map(nextCategories.map((cat, index) => [cat.id, index]));
     setCatalog(prev => {
@@ -265,6 +276,8 @@ export const SparesPage: React.FC = () => {
           showStockQuantity={canSync}
           searchPlaceholder="Search products to map spares…"
           simpleCategoryTiles
+          activeCategoryId={categoryId}
+          onActiveCategoryChange={setCategoryId}
         />
       ) : (
         <CatalogBrowse
