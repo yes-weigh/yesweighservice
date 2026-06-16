@@ -13,6 +13,7 @@ import {
   dealerLocations,
   dealersToCsv,
   mapDealerForClient,
+  mapDealerDetailForClient,
 } from './dealer-query.js';
 
 async function loadPortalUserMap(portalUserIds) {
@@ -89,7 +90,7 @@ export async function getDealerRecord(id) {
     loadPortalUserMap([raw.portalUserId]),
   ]);
   const kamsById = new Map(kams.map(k => [k.id, k]));
-  return mapDealerForClient(raw, kamsById, usersById);
+  return mapDealerDetailForClient(raw, kamsById, usersById);
 }
 
 export async function patchDealerRecord(id, body = {}) {

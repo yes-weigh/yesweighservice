@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Phone } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
+import { DealerFullRecord } from '../../components/dealers/DealerFullRecord';
+import { FetchingLoader } from '../../components/FetchingLoader';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import {
@@ -144,7 +146,7 @@ export const DealerDetailPage: React.FC = () => {
 
       {loading && !dealer ? (
         <div className="dealers-detail panel glass">
-          <p className="text-muted">Loading dealer…</p>
+          <FetchingLoader label="Fetching dealer" />
         </div>
       ) : !dealer ? (
         <div className="dealers-detail panel glass">
@@ -256,6 +258,7 @@ export const DealerDetailPage: React.FC = () => {
             )}
             <div className="dealers-detail__readonly">
               <DetailRow label="Email" value={dealer.email} />
+              <DetailRow label="Mobile (Zoho)" value={dealer.mobile} />
               <DetailRow label="Zoho contact" value={dealer.contactName} />
             </div>
           </div>
@@ -304,18 +307,8 @@ export const DealerDetailPage: React.FC = () => {
           </div>
 
           <div className="dealers-detail panel glass">
-            <h3 className="dealers-detail__section-title">Account</h3>
-            <div className="dealers-detail__readonly">
-              <DetailRow label="Signed in" value={dealer.signedIn ? 'Yes' : 'No'} />
-              <DetailRow label="Portal user" value={dealer.portalUserName} />
-              <DetailRow label="Zoho status" value={dealer.status} />
-              <DetailRow
-                label="Outstanding"
-                value={dealer.outstandingReceivable?.toLocaleString('en-IN')}
-              />
-              <DetailRow label="Last synced" value={dealer.syncedAt ? new Date(dealer.syncedAt).toLocaleString() : null} />
-              <DetailRow label="Zoho ID" value={dealer.id} />
-            </div>
+            <h3 className="dealers-detail__section-title">Complete record</h3>
+            <DealerFullRecord dealer={dealer} />
           </div>
         </>
       )}

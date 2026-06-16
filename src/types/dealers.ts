@@ -22,6 +22,9 @@ export interface ZohoDealer {
   portalUserId: string | null;
   portalUserName: string | null;
   signedIn: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  extraFields?: Record<string, unknown>;
 }
 
 export interface Kam {

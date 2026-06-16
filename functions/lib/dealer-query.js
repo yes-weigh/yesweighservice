@@ -186,6 +186,58 @@ export function dealersToCsv(dealers, kamsById = new Map()) {
   return rows.join('\n');
 }
 
+const KNOWN_DEALER_DOC_KEYS = new Set([
+  'id',
+  'contactName',
+  'firstName',
+  'companyName',
+  'email',
+  'phone',
+  'mobile',
+  'status',
+  'outstandingReceivable',
+  'unusedCredits',
+  'syncedAt',
+  'isFiltered',
+  'filterReason',
+  'kamId',
+  'dealerStage',
+  'billingState',
+  'district',
+  'zipCode',
+  'categories',
+  'portalUserId',
+  'createdAt',
+  'updatedAt',
+]);
+
+function serializeTimestamp(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value.toDate === 'function') {
+    return value.toDate().toISOString();
+  }
+  return String(value);
+}
+
+function serializeFirestoreValue(value) {
+  if (value == null) return value;
+  if (typeof value.toDate === 'function') {
+    return value.toDate().toISOString();
+  }
+  if (Array.isArray(value)) {
+    return value.map(serializeFirestoreValue);
+  }
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [key, nested] of Object.entries(value)) {
+      out[key] = serializeFirestoreValue(nested);
+    }
+    return out;
+  }
+  return value;
+}
+
 export function mapDealerForClient(dealer, kamsById, usersById) {
   const kam = dealer.kamId ? kamsById.get(dealer.kamId) : null;
   const portalUser = dealer.portalUserId ? usersById.get(dealer.portalUserId) : null;
@@ -213,5 +265,22 @@ export function mapDealerForClient(dealer, kamsById, usersById) {
     portalUserId: dealer.portalUserId ?? null,
     portalUserName: portalUser?.displayName ?? null,
     signedIn: Boolean(dealer.portalUserId),
+  };
+}
+
+export function mapDealerDetailForClient(dealer, kamsById, usersById) {
+  const base = mapDealerForClient(dealer, kamsById, usersById);
+  const extraFields = {};
+
+  for (const [key, value] of Object.entries(dealer)) {
+    if (key === 'id' || KNOWN_DEALER_DOC_KEYS.has(key)) continue;
+    extraFields[key] = serializeFirestoreValue(value);
+  }
+
+  return {
+    ...base,
+    createdAt: serializeTimestamp(dealer.createdAt),
+    updatedAt: serializeTimestamp(dealer.updatedAt),
+    extraFields,
   };
 }

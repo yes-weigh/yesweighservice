@@ -5379,9 +5379,114 @@ html::-webkit-scrollbar {
   word-break: break-word;
 }
 
+.dealers-detail__record-intro {
+  margin: 0 0 1rem;
+  line-height: 1.45;
+}
+
+.dealers-detail__record-section + .dealers-detail__record-section {
+  margin-top: 1.15rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--border-glass);
+}
+
+.dealers-detail__record-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.65rem;
+}
+
+.dealers-detail__record-heading h4 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dealers-detail__data-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.dealers-detail__data-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.dealers-detail__data-row:last-child {
+  border-bottom: none;
+}
+
+.dealers-detail__data-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.dealers-detail__source {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dealers-detail__source--zoho {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+.dealers-detail__source--overlay {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fdba74;
+}
+
+.dealers-detail__source--computed {
+  background: rgba(16, 185, 129, 0.16);
+  color: #6ee7b7;
+}
+
+.dealers-detail__source--system {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+
+.dealers-detail__data-row .dealers-detail__value {
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.dealers-detail__value--code {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 640px) {
   .dealers-detail__form {
     grid-template-columns: 1fr;
+  }
+
+  .dealers-detail__data-row {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
   }
 }
 
