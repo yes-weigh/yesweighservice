@@ -131,6 +131,10 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    match /dealer_otp_sessions/{phone} {
+      allow read, write: if false;
+    }
+
     match /loginIndex/{loginKey} {
       allow read: if isActiveUser() && (isOpsUser() || isDealer());
       allow create: if isActiveUser()

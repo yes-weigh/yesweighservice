@@ -7,6 +7,7 @@ import { ConfirmProvider } from './context/ConfirmContext';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
+import { DealerLogin } from './pages/DealerLogin';
 import { SuperAdminDashboard } from './pages/admin/SuperAdminDashboard';
 import { StaffDashboard } from './pages/staff/StaffDashboard';
 import { AdminStaffList } from './pages/admin/AdminStaffList';
@@ -62,6 +63,7 @@ const App: React.FC = () => (
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/dealer-login" element={<DealerLogin />} />
           <Route path="/oc" element={<OpenCatalogPage />} />
           <Route path="/oc/:productId" element={<ProductDetailPage />} />
           <Route path="/" element={<Navigate to="/login" replace />} />

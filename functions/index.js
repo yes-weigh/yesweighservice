@@ -43,12 +43,21 @@ import {
   importCrmDealerOverlay,
   backfillDealerLocations,
 } from './lib/dealer-legacy-import.js';
+import {
+  normalizePhone10,
+  lookupDealerForLogin,
+  sendDealerLoginOtp as dispatchDealerLoginOtp,
+  verifyDealerLoginOtp as validateDealerLoginOtp,
+  completeDealerSignup as finalizeDealerSignup,
+} from './lib/dealer-otp.js';
 
 initializeApp();
 
 const zohoClientId = defineSecret('ZOHO_CLIENT_ID');
 const zohoClientSecret = defineSecret('ZOHO_CLIENT_SECRET');
 const zohoRefreshToken = defineSecret('ZOHO_REFRESH_TOKEN');
+const watiToken = defineSecret('WATI_TOKEN');
+const watiEndpoint = defineSecret('WATI_ENDPOINT');
 const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
@@ -779,6 +788,95 @@ export const backfillDealerLocationsFn = onCall(
     } catch (err) {
       console.error('backfillDealerLocations failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Location backfill failed.');
+    }
+  },
+);
+
+// ============================================================================
+// DEALER OTP LOGIN (Wati WhatsApp)
+// ============================================================================
+
+function parseDealerPhoneInput(raw) {
+  const phone = normalizePhone10(raw);
+  if (!phone) {
+    throw new HttpsError('invalid-argument', 'Enter a valid 10-digit mobile number.');
+  }
+  return phone;
+}
+
+function dealerOtpError(err, fallback) {
+  const message = err?.message ?? fallback;
+  if (message.includes('already') || message.includes('Invalid') || message.includes('expired')) {
+    throw new HttpsError('failed-precondition', message);
+  }
+  if (message.includes('not found') || message.includes('No dealer')) {
+    throw new HttpsError('not-found', message);
+  }
+  throw new HttpsError('internal', message);
+}
+
+/** Public — match dealer by 10-digit phone against synced Zoho customers. */
+export const dealerLoginLookup = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const phone = parseDealerPhoneInput(request.data?.phone);
+    try {
+      return await lookupDealerForLogin(phone);
+    } catch (err) {
+      dealerOtpError(err, 'Dealer lookup failed.');
+    }
+  },
+);
+
+/** Public — send WhatsApp OTP via Wati for first-time dealer portal signup. */
+export const sendDealerLoginOtp = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    secrets: [watiToken, watiEndpoint],
+  },
+  async request => {
+    const phone = parseDealerPhoneInput(request.data?.phone);
+    try {
+      return await dispatchDealerLoginOtp(phone, watiToken.value(), watiEndpoint.value());
+    } catch (err) {
+      dealerOtpError(err, 'Could not send OTP.');
+    }
+  },
+);
+
+/** Public — verify OTP and issue a short-lived setup token. */
+export const verifyDealerLoginOtp = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const phone = parseDealerPhoneInput(request.data?.phone);
+    const code = String(request.data?.code ?? '').trim();
+    if (!/^\d{6}$/.test(code)) {
+      throw new HttpsError('invalid-argument', 'Enter the 6-digit OTP.');
+    }
+    try {
+      return await validateDealerLoginOtp(phone, code);
+    } catch (err) {
+      dealerOtpError(err, 'OTP verification failed.');
+    }
+  },
+);
+
+/** Public — create dealer portal account after OTP verification. */
+export const completeDealerSignup = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const phone = parseDealerPhoneInput(request.data?.phone);
+    const setupToken = String(request.data?.setupToken ?? '').trim();
+    const password = String(request.data?.password ?? '');
+    if (!setupToken) {
+      throw new HttpsError('invalid-argument', 'Verification session is missing.');
+    }
+    try {
+      return await finalizeDealerSignup(phone, setupToken, password);
+    } catch (err) {
+      dealerOtpError(err, 'Signup failed.');
     }
   },
 );

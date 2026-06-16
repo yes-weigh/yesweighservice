@@ -6,6 +6,7 @@ export interface AuthContextType {
   loading: boolean;
   error: string | null;
   login: (loginId: string, password: string) => Promise<void>;
+  loginWithCustomToken: (token: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 

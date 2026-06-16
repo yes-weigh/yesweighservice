@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   signInWithEmailAndPassword,
+  signInWithCustomToken,
   signOut,
   onAuthStateChanged,
   type User as FirebaseUser,
@@ -102,13 +103,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithCustomToken = async (token: string) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const cred = await signInWithCustomToken(auth, token);
+      const snap = await getDoc(doc(db, 'users', cred.user.uid));
+      if (snap.exists()) {
+        const data = snap.data() as FirestoreUserDoc;
+        if (data.active === false) {
+          await signOut(auth);
+          throw new Error(INACTIVE_MESSAGE);
+        }
+      }
+      const resolved = await resolveUser(cred.user);
+      if (!resolved) {
+        await signOut(auth);
+        throw new Error('No profile found for this account. Contact YesWeigh super admin.');
+      }
+      setUser(resolved);
+    } catch (err: unknown) {
+      const friendly = authErrorMessage(err, 'Login failed');
+      setError(friendly);
+      throw new Error(friendly, { cause: err });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = async () => {
     await signOut(auth);
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, error, login, loginWithCustomToken, logout }}>
       {children}
     </AuthContext.Provider>
   );

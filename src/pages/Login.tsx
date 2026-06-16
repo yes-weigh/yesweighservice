@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { LogIn, Lock, UserRound, Eye, EyeOff } from 'lucide-react';
 import { Logo } from '../components/Logo';
 import { useAuth } from '../context/AuthContext';
@@ -111,6 +111,9 @@ export const Login: React.FC = () => {
         </form>
 
         <div className="login-footer">
+          <p className="text-muted text-sm">
+            Dealer? <Link to="/dealer-login">Activate or verify your account</Link>
+          </p>
           <p className="text-muted text-sm">© YesWeigh · service.yesweigh.in</p>
         </div>
       </div>
