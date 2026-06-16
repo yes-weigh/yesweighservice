@@ -5,6 +5,7 @@ import {
   ExternalLink,
   Lock,
   Phone,
+  RefreshCw,
   Save,
   UserPlus,
 } from 'lucide-react';
@@ -24,6 +25,7 @@ import {
   fetchKams,
   linkDealerPortalUser,
   patchDealer,
+  refreshDealerFromZoho,
 } from '../../lib/dealers';
 import { buildContactLinks } from '../../lib/phoneLinks';
 import { registerUser } from '../../lib/userAdmin';
@@ -122,6 +124,29 @@ function ZohoField({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
+function ZohoFieldBlock({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value) {
+    return <ZohoField label={label} value={null} />;
+  }
+  return (
+    <div className="dealers-detail__zoho-field dealers-detail__zoho-field--block">
+      <span className="dealers-detail__zoho-label">{label}</span>
+      <p className="dealers-detail__zoho-block">{value}</p>
+    </div>
+  );
+}
+
+function formatGstTreatment(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatZohoTime(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
 function ToggleField({
   label,
   checked,
@@ -171,6 +196,7 @@ export const DealerDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(!dealer);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [refreshingZoho, setRefreshingZoho] = useState(false);
   const [page, setPage] = useState<1 | 2>(1);
   const [showCreateUser, setShowCreateUser] = useState(false);
 
@@ -195,6 +221,21 @@ export const DealerDetailPage: React.FC = () => {
       setLoading(false);
     }
   }, [dealerId]);
+
+  const refreshZoho = async () => {
+    if (!dealerId) return;
+    setRefreshingZoho(true);
+    setError('');
+    try {
+      const data = await refreshDealerFromZoho(dealerId);
+      setDealer(data);
+      setDraft(dealerToDraft(data));
+    } catch (err) {
+      setError(dealerErrorMessage(err));
+    } finally {
+      setRefreshingZoho(false);
+    }
+  };
 
   useEffect(() => {
     void loadDealer();
@@ -367,23 +408,144 @@ export const DealerDetailPage: React.FC = () => {
           {page === 1 ? (
             <>
               <section className="dealers-detail panel glass">
-                <h3 className="dealers-detail__section-title">From Zoho · read only</h3>
+                <div className="dealers-detail__section-head">
+                  <h3 className="dealers-detail__section-title">From Zoho · read only</h3>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={refreshingZoho || saving}
+                    onClick={() => void refreshZoho()}
+                  >
+                    <RefreshCw size={14} className={refreshingZoho ? 'spin-icon' : undefined} />
+                    {refreshingZoho ? 'Refreshing…' : 'Refresh from Zoho'}
+                  </button>
+                </div>
                 <div className="dealers-detail__zoho-grid">
                   <ZohoField label="Company" value={dealer.companyName || dealer.contactName} />
+                  <ZohoField label="Legal name" value={dealer.zohoLegalName} />
                   <ZohoField label="Zoho contact ID" value={dealer.id} />
                   <ZohoField label="Zoho contact name" value={dealer.contactName} />
                   <ZohoField label="Zoho status" value={dealer.status} />
+                  <ZohoField label="Customer type" value={dealer.zohoCustomerSubType} />
                   <ZohoField label="Email" value={dealer.email} />
                   <ZohoField label="Mobile (Zoho)" value={dealer.mobile} />
                   <ZohoField label="Phone (Zoho)" value={dealer.phone} />
+                  <ZohoField label="Website" value={dealer.zohoWebsite} />
+                  <ZohoField label="GST number" value={dealer.zohoGstNo} />
+                  <ZohoField label="GST treatment" value={formatGstTreatment(dealer.zohoGstTreatment)} />
+                  <ZohoField label="PAN" value={dealer.zohoPanNo} />
+                  <ZohoField
+                    label="Place of supply"
+                    value={dealer.zohoPlaceOfContactLabel || dealer.zohoPlaceOfContact}
+                  />
+                  <ZohoField
+                    label="Tax"
+                    value={dealer.zohoTaxName
+                      ? `${dealer.zohoTaxName}${dealer.zohoTaxPercentage != null ? ` (${dealer.zohoTaxPercentage}%)` : ''}`
+                      : null}
+                  />
+                  <ZohoField label="Payment terms" value={dealer.zohoPaymentTermsLabel} />
+                  <ZohoField label="Currency" value={dealer.zohoCurrencyCode} />
+                  <ZohoField
+                    label="Credit limit (Zoho)"
+                    value={dealer.zohoCreditLimit != null ? formatInr(dealer.zohoCreditLimit) : null}
+                  />
+                  <ZohoField label="Price book" value={dealer.zohoPricebookName} />
+                  <ZohoField label="Zoho owner" value={dealer.zohoOwnerName} />
+                  <ZohoField label="Branch" value={dealer.zohoBranchName} />
+                  <ZohoField label="Location" value={dealer.zohoLocationName} />
+                  <ZohoField
+                    label="Portal (Zoho)"
+                    value={dealer.zohoPortalStatusLabel || dealer.zohoPortalStatus}
+                  />
                   <ZohoField label="Outstanding due" value={formatInr(dealer.outstandingReceivable)} />
                   <ZohoField label="Unused credits" value={formatInr(dealer.unusedCredits)} />
                   <ZohoField
-                    label="Last synced"
+                    label="Has transactions"
+                    value={dealer.zohoHasTransaction ? 'Yes' : dealer.zohoDetailSyncedAt ? 'No' : null}
+                  />
+                  <ZohoField
+                    label="Linked to Zoho CRM"
+                    value={dealer.zohoIsLinkedWithZohoCrm ? 'Yes' : dealer.zohoDetailSyncedAt ? 'No' : null}
+                  />
+                  <ZohoField label="Created in Zoho" value={formatZohoTime(dealer.zohoCreatedTime)} />
+                  <ZohoField label="Modified in Zoho" value={formatZohoTime(dealer.zohoLastModifiedTime)} />
+                  <ZohoField
+                    label="Last list sync"
                     value={dealer.syncedAt ? new Date(dealer.syncedAt).toLocaleString() : null}
                   />
+                  <ZohoField
+                    label="Last detail sync"
+                    value={dealer.zohoDetailSyncedAt
+                      ? new Date(dealer.zohoDetailSyncedAt).toLocaleString()
+                      : null}
+                  />
                 </div>
+                {(dealer.zohoBillingAddress || dealer.zohoShippingAddress) && (
+                  <div className="dealers-detail__zoho-addresses">
+                    <ZohoFieldBlock label="Billing address (Zoho)" value={dealer.zohoBillingAddress} />
+                    <ZohoFieldBlock label="Shipping address (Zoho)" value={dealer.zohoShippingAddress} />
+                  </div>
+                )}
+                {dealer.zohoNotes && (
+                  <div className="dealers-detail__zoho-notes">
+                    <ZohoFieldBlock label="Notes (Zoho)" value={dealer.zohoNotes} />
+                  </div>
+                )}
               </section>
+
+              {(dealer.zohoContactPersons?.length ?? 0) > 0 && (
+                <section className="dealers-detail panel glass">
+                  <h3 className="dealers-detail__section-title">Contact persons · Zoho</h3>
+                  <div className="dealers-detail__contact-persons">
+                    {dealer.zohoContactPersons!.map(person => (
+                      <div key={person.id ?? person.name ?? 'unknown'} className="dealers-detail__contact-person">
+                        <div className="dealers-detail__contact-person-head">
+                          <strong>{person.name || 'Unnamed contact'}</strong>
+                          {person.isPrimary && (
+                            <span className="dealers-detail__badge dealers-detail__badge--auth">Primary</span>
+                          )}
+                        </div>
+                        <div className="dealers-detail__zoho-grid dealers-detail__zoho-grid--compact">
+                          <ZohoField label="Designation" value={person.designation} />
+                          <ZohoField label="Department" value={person.department} />
+                          <ZohoField label="Phone" value={person.phone || person.mobile} />
+                          <ZohoField label="Email" value={person.email} />
+                          <ZohoField
+                            label="Portal"
+                            value={person.isAddedInPortal ? 'Added' : 'Not added'}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {(dealer.zohoTags?.length ?? 0) > 0 && (
+                <section className="dealers-detail panel glass">
+                  <h3 className="dealers-detail__section-title">Tags · Zoho</h3>
+                  <div className="dealers-detail__tag-list">
+                    {dealer.zohoTags!.map(tag => (
+                      <span key={tag} className="dealers-detail__tag">{tag}</span>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {(dealer.zohoCustomFields?.length ?? 0) > 0 && (
+                <section className="dealers-detail panel glass">
+                  <h3 className="dealers-detail__section-title">Custom fields · Zoho</h3>
+                  <div className="dealers-detail__zoho-grid">
+                    {dealer.zohoCustomFields!.map((field, index) => {
+                      const row = field as { label?: string; value?: unknown; api_name?: string };
+                      const label = row.label || row.api_name || `Field ${index + 1}`;
+                      const value = row.value != null ? String(row.value) : null;
+                      return <ZohoField key={`${label}-${index}`} label={label} value={value} />;
+                    })}
+                  </div>
+                </section>
+              )}
 
               <section className="dealers-detail panel glass">
                 <h3 className="dealers-detail__section-title">Contact · local edits</h3>
@@ -549,7 +711,7 @@ export const DealerDetailPage: React.FC = () => {
                     </select>
                   </label>
                   <label className="dealers-detail__field">
-                    <span>Credit limit (₹)</span>
+                    <span>Credit limit (₹) · local</span>
                     <input
                       type="number"
                       min={0}
@@ -563,7 +725,7 @@ export const DealerDetailPage: React.FC = () => {
                     />
                   </label>
                   <label className="dealers-detail__field">
-                    <span>Price level</span>
+                    <span>Price level · local</span>
                     <select
                       className="catalog-select"
                       value={draft.priceLevel ?? ''}
@@ -574,12 +736,34 @@ export const DealerDetailPage: React.FC = () => {
                       {PRICE_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </label>
-                  <div className="dealers-detail__field dealers-detail__field--full">
+                  <div className="dealers-detail__field">
                     <span className="dealers-detail__zoho-label">Outstanding due (Zoho)</span>
                     <p className="dealers-detail__zoho-readout">{formatInr(dealer.outstandingReceivable)}</p>
                   </div>
+                  {dealer.zohoCreditLimit != null && (
+                    <div className="dealers-detail__field">
+                      <span className="dealers-detail__zoho-label">Credit limit (Zoho)</span>
+                      <p className="dealers-detail__zoho-readout">{formatInr(dealer.zohoCreditLimit)}</p>
+                    </div>
+                  )}
+                  {dealer.zohoPricebookName && (
+                    <div className="dealers-detail__field">
+                      <span className="dealers-detail__zoho-label">Price book (Zoho)</span>
+                      <p className="dealers-detail__zoho-readout">{dealer.zohoPricebookName}</p>
+                    </div>
+                  )}
                 </div>
               </section>
+
+              {(dealer.zohoBillingAddress || dealer.zohoShippingAddress) && (
+                <section className="dealers-detail panel glass">
+                  <h3 className="dealers-detail__section-title">Addresses · Zoho (read only)</h3>
+                  <div className="dealers-detail__zoho-addresses">
+                    <ZohoFieldBlock label="Billing" value={dealer.zohoBillingAddress} />
+                    <ZohoFieldBlock label="Shipping" value={dealer.zohoShippingAddress} />
+                  </div>
+                </section>
+              )}
 
               <section className="dealers-detail panel glass">
                 <h3 className="dealers-detail__section-title">Address · local edits</h3>

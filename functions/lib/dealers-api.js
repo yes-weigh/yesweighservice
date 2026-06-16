@@ -4,6 +4,7 @@ import {
   readKamsFromFirestore,
   readDealerSetting,
   writeDealerSetting,
+  refreshDealerFromZoho,
 } from './zoho-customers.js';
 import {
   filterDealers,
@@ -79,7 +80,13 @@ export async function getDealerLocationsSummary() {
   return dealerLocations(rawDealers);
 }
 
-export async function getDealerRecord(id) {
+export async function getDealerRecord(id, { refreshFromZoho, secrets, orgId } = {}) {
+  if (refreshFromZoho && secrets) {
+    await refreshDealerFromZoho(id, secrets, orgId, {
+      force: Boolean(refreshFromZoho.force),
+    });
+  }
+
   const db = getFirestore();
   const snap = await db.collection('zohoCustomers').doc(id).get();
   if (!snap.exists) throw new Error('Dealer not found.');
@@ -158,6 +165,11 @@ export async function linkDealerPortalUser(zohoCustomerId, portalUserId) {
     portalUserId: portalUserId || null,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
+}
+
+export async function refreshDealerZohoRecord(id, secrets, orgId, { force = true } = {}) {
+  await refreshDealerFromZoho(id, secrets, orgId, { force });
+  return getDealerRecord(id);
 }
 
 export {

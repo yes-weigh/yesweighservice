@@ -1,3 +1,30 @@
+export interface ZohoContactPerson {
+  id: string | null;
+  salutation: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  mobile: string | null;
+  designation: string | null;
+  department: string | null;
+  isPrimary: boolean;
+  isAddedInPortal: boolean;
+}
+
+export interface ZohoAddressRaw {
+  address?: string;
+  street2?: string;
+  city?: string;
+  state?: string;
+  state_code?: string;
+  zip?: string;
+  country?: string;
+  country_code?: string;
+  phone?: string;
+}
+
 export interface ZohoDealer {
   id: string;
   contactName: string;
@@ -39,6 +66,42 @@ export interface ZohoDealer {
   orderPayOnline?: boolean;
   adminApprovalRequired?: boolean;
   maxOrderLimit?: number | null;
+  /** Read-only fields synced from Zoho Inventory */
+  zohoGstNo?: string | null;
+  zohoGstTreatment?: string | null;
+  zohoPanNo?: string | null;
+  zohoPlaceOfContact?: string | null;
+  zohoPlaceOfContactLabel?: string | null;
+  zohoPaymentTermsLabel?: string | null;
+  zohoCurrencyCode?: string | null;
+  zohoPortalStatus?: string | null;
+  zohoPortalStatusLabel?: string | null;
+  zohoWebsite?: string | null;
+  zohoCustomFields?: unknown[];
+  zohoTags?: string[];
+  zohoCreatedTime?: string | null;
+  zohoLastModifiedTime?: string | null;
+  zohoCustomerSubType?: string | null;
+  zohoCustomerCreditLimit?: number | null;
+  zohoLegalName?: string | null;
+  zohoBillingAddress?: string | null;
+  zohoShippingAddress?: string | null;
+  zohoBillingAddressRaw?: ZohoAddressRaw | null;
+  zohoShippingAddressRaw?: ZohoAddressRaw | null;
+  zohoContactPersons?: ZohoContactPerson[];
+  zohoPrimaryContact?: ZohoContactPerson | null;
+  zohoCreditLimit?: number | null;
+  zohoPricebookName?: string | null;
+  zohoOwnerName?: string | null;
+  zohoTaxName?: string | null;
+  zohoTaxPercentage?: number | null;
+  zohoBranchName?: string | null;
+  zohoLocationName?: string | null;
+  zohoNotes?: string | null;
+  zohoIsLinkedWithZohoCrm?: boolean;
+  zohoPrimaryContactId?: string | null;
+  zohoHasTransaction?: boolean;
+  zohoDetailSyncedAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   extraFields?: Record<string, unknown>;

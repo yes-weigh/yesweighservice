@@ -34,6 +34,7 @@ import {
   getDealerRecord,
   patchDealerRecord,
   linkDealerPortalUser,
+  refreshDealerZohoRecord,
   readDealerSetting,
   writeDealerSetting,
 } from './lib/dealers-api.js';
@@ -530,21 +531,62 @@ export const getDealers = onCall(
   },
 );
 
-/** Single dealer by id — staff / super admin. */
+/** Single dealer by id — staff / super admin. Refreshes Zoho detail when stale. */
 export const getDealer = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     const id = String(request.data?.id ?? '').trim();
     if (!id) throw new HttpsError('invalid-argument', 'id is required.');
     try {
-      const dealer = await getDealerRecord(id);
+      const dealer = await getDealerRecord(id, {
+        refreshFromZoho: {
+          force: Boolean(request.data?.forceRefresh),
+        },
+        secrets: zohoSecrets(),
+        orgId: zohoOrganizationId.value(),
+      });
       return { dealer };
     } catch (err) {
       if (err?.message === 'Dealer not found.') {
         throw new HttpsError('not-found', err.message);
       }
       throw err;
+    }
+  },
+);
+
+/** Force refresh one dealer from Zoho detail API — staff / super admin. */
+export const refreshZohoDealer = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const id = String(request.data?.id ?? '').trim();
+    if (!id) throw new HttpsError('invalid-argument', 'id is required.');
+    try {
+      const dealer = await refreshDealerZohoRecord(
+        id,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { force: true },
+      );
+      return { dealer };
+    } catch (err) {
+      if (err?.message === 'Dealer not found.') {
+        throw new HttpsError('not-found', err.message);
+      }
+      console.error('refreshZohoDealer failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Zoho dealer refresh failed.');
     }
   },
 );

@@ -1,5 +1,10 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
+import {
+  extractZohoCoreFields,
+  extractZohoDetailFields,
+  extractZohoListFields,
+} from './zoho-contact-fields.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const SETTINGS_COLLECTION = 'dealerSettings';
@@ -24,15 +29,8 @@ async function fetchCustomersPage(accessToken, orgId, page = 1, perPage = 200) {
 
   const contacts = (data.contacts ?? []).map(c => ({
     id: String(c.contact_id),
-    contactName: String(c.contact_name || ''),
-    firstName: c.first_name ? String(c.first_name) : null,
-    companyName: c.company_name ? String(c.company_name) : null,
-    email: c.email ? String(c.email) : null,
-    phone: c.phone ? String(c.phone) : null,
-    mobile: c.mobile ? String(c.mobile) : null,
-    status: String(c.status || 'active'),
-    outstandingReceivable: Number(c.outstanding_receivable_amount) || 0,
-    unusedCredits: Number(c.unused_credits_receivable_amount) || 0,
+    ...extractZohoCoreFields(c),
+    ...extractZohoListFields(c),
   }));
 
   const hasMore = Boolean(data.page_context?.has_more_page);
@@ -128,6 +126,7 @@ export async function syncCustomersToFirestore(secrets, orgId) {
     // import (one API call + delay per new customer). Location can be edited later.
 
     const ref = db.collection(CUSTOMERS_COLLECTION).doc(customer.id);
+    const zohoListFields = extractZohoListFields(customer);
     const base = {
       contactName: customer.contactName,
       companyName: customer.companyName,
@@ -142,6 +141,7 @@ export async function syncCustomersToFirestore(secrets, orgId) {
       filterReason: filterReasonVal,
       syncedAt: new Date().toISOString(),
       updatedAt: FieldValue.serverTimestamp(),
+      ...zohoListFields,
     };
 
     if (existing) {
@@ -203,4 +203,57 @@ export async function writeDealerSetting(key, value) {
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   return value;
+}
+
+const DETAIL_REFRESH_MAX_AGE_MS = 60 * 60 * 1000;
+
+export async function refreshDealerFromZoho(id, secrets, orgId, { force = false } = {}) {
+  const db = getFirestore();
+  const ref = db.collection(CUSTOMERS_COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Dealer not found.');
+
+  const existing = snap.data();
+  const syncedAt = existing.zohoDetailSyncedAt;
+  if (!force && syncedAt) {
+    const age = Date.now() - new Date(syncedAt).getTime();
+    if (age < DETAIL_REFRESH_MAX_AGE_MS) {
+      return { id: snap.id, ...existing };
+    }
+  }
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const contact = await fetchRawCustomerDetail(accessToken, organizationId, id);
+  const zohoDetailFields = extractZohoDetailFields(contact);
+  const coreFields = extractZohoCoreFields(contact);
+
+  const patch = {
+    ...coreFields,
+    ...zohoDetailFields,
+    phone: existing.phone ?? coreFields.phone,
+    mobile: existing.mobile ?? coreFields.mobile,
+    firstName: existing.firstName ?? coreFields.firstName,
+    syncedAt: new Date().toISOString(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  const billing = contact.billing_address;
+  const shipping = contact.shipping_address;
+  const address = (shipping?.state || shipping?.city) ? shipping : billing;
+  if (address) {
+    if (!existing.billingState && (address.state || address.state_code)) {
+      patch.billingState = address.state || address.state_code;
+    }
+    if (!existing.district && address.city) {
+      patch.district = address.city;
+    }
+    if (!existing.zipCode && address.zip) {
+      patch.zipCode = address.zip;
+    }
+  }
+
+  await ref.set(patch, { merge: true });
+  const updated = await ref.get();
+  return { id: updated.id, ...updated.data() };
 }
