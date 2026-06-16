@@ -111,6 +111,29 @@ export async function patchDealerRecord(id, body = {}) {
   if ('firstName' in body) data.firstName = body.firstName || null;
   if ('phone' in body) data.phone = body.phone || null;
   if ('portalUserId' in body) data.portalUserId = body.portalUserId || null;
+  if ('designation' in body) data.designation = body.designation || null;
+  if ('alternateMobile' in body) data.alternateMobile = body.alternateMobile || null;
+  if ('whatsappNumber' in body) data.whatsappNumber = body.whatsappNumber || null;
+  if ('dealerType' in body) data.dealerType = body.dealerType || null;
+  if ('firmType' in body) data.firmType = body.firmType || null;
+  if ('creditLimit' in body) {
+    data.creditLimit = body.creditLimit === '' || body.creditLimit == null
+      ? null
+      : Number(body.creditLimit);
+  }
+  if ('priceLevel' in body) data.priceLevel = body.priceLevel || null;
+  if ('billingAddress' in body) data.billingAddress = body.billingAddress || null;
+  if ('shippingAddress' in body) data.shippingAddress = body.shippingAddress || null;
+  if ('googleMapsUrl' in body) data.googleMapsUrl = body.googleMapsUrl || null;
+  if ('canBuySpares' in body) data.canBuySpares = Boolean(body.canBuySpares);
+  if ('orderPayOffline' in body) data.orderPayOffline = Boolean(body.orderPayOffline);
+  if ('orderPayOnline' in body) data.orderPayOnline = Boolean(body.orderPayOnline);
+  if ('adminApprovalRequired' in body) data.adminApprovalRequired = Boolean(body.adminApprovalRequired);
+  if ('maxOrderLimit' in body) {
+    data.maxOrderLimit = body.maxOrderLimit === '' || body.maxOrderLimit == null
+      ? null
+      : Number(body.maxOrderLimit);
+  }
 
   data.updatedAt = FieldValue.serverTimestamp();
   await ref.set(data, { merge: true });

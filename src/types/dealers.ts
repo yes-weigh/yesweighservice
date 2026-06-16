@@ -21,7 +21,24 @@ export interface ZohoDealer {
   categories: string[];
   portalUserId: string | null;
   portalUserName: string | null;
+  portalLoginId?: string | null;
   signedIn: boolean;
+  /** Local overlay — not synced back to Zoho */
+  designation?: string | null;
+  alternateMobile?: string | null;
+  whatsappNumber?: string | null;
+  dealerType?: string | null;
+  firmType?: string | null;
+  creditLimit?: number | null;
+  priceLevel?: string | null;
+  billingAddress?: string | null;
+  shippingAddress?: string | null;
+  googleMapsUrl?: string | null;
+  canBuySpares?: boolean;
+  orderPayOffline?: boolean;
+  orderPayOnline?: boolean;
+  adminApprovalRequired?: boolean;
+  maxOrderLimit?: number | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   extraFields?: Record<string, unknown>;
@@ -75,3 +92,15 @@ export const DEFAULT_DEALER_CATEGORIES = [
 ];
 
 export const DEALER_STAGES = ['Active', 'Non Active', 'Black listed'] as const;
+
+export const DEALER_TYPES = ['Authorized Dealer', 'Distributor', 'Retailer', 'Enterprise'] as const;
+
+export const FIRM_TYPES = [
+  'Proprietorship',
+  'Partnership',
+  'Private Limited',
+  'LLP',
+  'Other',
+] as const;
+
+export const PRICE_LEVELS = ['Dealer Price', 'Wholesale Price', 'Retail Price'] as const;
