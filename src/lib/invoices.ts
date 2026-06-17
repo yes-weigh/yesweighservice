@@ -1,6 +1,6 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
-import type { InvoiceListParams, InvoiceListResponse } from '../types/invoices';
+import type { InvoiceDashboardSummary, InvoiceListParams, InvoiceListResponse } from '../types/invoices';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -36,6 +36,20 @@ export async function fetchDealerInvoices(params: InvoiceListParams = {}): Promi
   }
 }
 
+export async function fetchDealerInvoiceDashboard(): Promise<InvoiceDashboardSummary> {
+  const callable = httpsCallable<undefined, InvoiceDashboardSummary>(
+    functions,
+    'getDealerInvoiceDashboard',
+    { timeout: 120_000 },
+  );
+  try {
+    const result = await callable();
+    return result.data;
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+}
+
 export function formatInvoiceDate(value: string | null | undefined): string {
   if (!value) return '—';
   const parsed = Date.parse(value);
@@ -51,4 +65,16 @@ export function invoiceStatusLabel(status: string): string {
   return status
     .replace(/_/g, ' ')
     .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+export function formatInvoiceRelativeTime(value: string | null | undefined): string {
+  if (!value) return '';
+  const ts = Date.parse(value);
+  if (Number.isNaN(ts)) return '';
+  const diffMs = Date.now() - ts;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return formatInvoiceDate(value);
 }

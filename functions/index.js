@@ -43,7 +43,7 @@ import {
   importCrmDealerOverlay,
   backfillDealerLocations,
 } from './lib/dealer-legacy-import.js';
-import { listDealerInvoices } from './lib/zoho-invoices.js';
+import { listDealerInvoices, getDealerInvoiceDashboard as buildDealerInvoiceDashboard } from './lib/zoho-invoices.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
@@ -537,6 +537,30 @@ export const syncZohoCustomers = onCall(
     } catch (err) {
       console.error('syncZohoCustomers failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Zoho customer sync failed.');
+    }
+  },
+);
+
+/** Invoice aggregates + recent list for dealer dashboard. */
+export const getDealerInvoiceDashboard = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    try {
+      return await buildDealerInvoiceDashboard(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        uid,
+        role,
+      );
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not load invoice dashboard.');
     }
   },
 );

@@ -166,6 +166,105 @@ export function paginateInvoices(invoices, page = 1, limit = 25) {
   };
 }
 
+function invoiceTimestamp(inv) {
+  const d = inv.date ? Date.parse(inv.date) : NaN;
+  return Number.isNaN(d) ? 0 : d;
+}
+
+export function computeInvoiceDashboardSummary(invoices) {
+  const now = new Date();
+  const periodEnd = new Date(now);
+  const periodStart = new Date(now);
+  periodStart.setDate(periodEnd.getDate() - 30);
+
+  const prevPeriodEnd = new Date(periodStart);
+  const prevPeriodStart = new Date(periodStart);
+  prevPeriodStart.setDate(prevPeriodStart.getDate() - 30);
+
+  let totalSales = 0;
+  let previousSales = 0;
+  let outstandingBalance = 0;
+  let unpaidCount = 0;
+  let overdueCount = 0;
+  let paidCount = 0;
+
+  for (const inv of invoices) {
+    const ts = invoiceTimestamp(inv);
+    const status = String(inv.status ?? '').toLowerCase();
+
+    outstandingBalance += Number(inv.balance ?? 0);
+    if (status === 'paid') paidCount += 1;
+    if (status === 'unpaid' || status === 'partially_paid') unpaidCount += 1;
+    if (status === 'overdue') overdueCount += 1;
+
+    if (ts >= periodStart.getTime() && ts <= periodEnd.getTime()) {
+      totalSales += Number(inv.total ?? 0);
+    } else if (ts >= prevPeriodStart.getTime() && ts < periodStart.getTime()) {
+      previousSales += Number(inv.total ?? 0);
+    }
+  }
+
+  let salesTrendPct = null;
+  if (previousSales > 0) {
+    salesTrendPct = ((totalSales - previousSales) / previousSales) * 100;
+  } else if (totalSales > 0) {
+    salesTrendPct = 100;
+  }
+
+  const weeklySales = [];
+  for (let i = 6; i >= 0; i -= 1) {
+    const weekEnd = new Date(now);
+    weekEnd.setHours(23, 59, 59, 999);
+    weekEnd.setDate(weekEnd.getDate() - i * 7);
+    const weekStart = new Date(weekEnd);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(weekStart.getDate() - 6);
+
+    let weekTotal = 0;
+    for (const inv of invoices) {
+      const ts = invoiceTimestamp(inv);
+      if (ts >= weekStart.getTime() && ts <= weekEnd.getTime()) {
+        weekTotal += Number(inv.total ?? 0);
+      }
+    }
+
+    weeklySales.push({
+      label: weekEnd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+      total: weekTotal,
+    });
+  }
+
+  const recentInvoices = sortInvoices(invoices, 'date', 'desc').slice(0, 5);
+
+  return {
+    periodStart: periodStart.toISOString(),
+    periodEnd: periodEnd.toISOString(),
+    totalSales,
+    previousSales,
+    salesTrendPct,
+    outstandingBalance,
+    unpaidCount,
+    overdueCount,
+    paidCount,
+    totalInvoiceCount: invoices.length,
+    weeklySales,
+    recentInvoices,
+  };
+}
+
+export async function getDealerInvoiceDashboard(secrets, orgId, uid, role) {
+  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const invoices = await fetchAllCustomerInvoices(accessToken, organizationId, customerId, {
+    sortColumn: 'date',
+  });
+  return {
+    ...computeInvoiceDashboardSummary(invoices),
+    customerId,
+  };
+}
+
 export async function listDealerInvoices(secrets, orgId, uid, role, query = {}) {
   const customerId = await resolveZohoCustomerIdForUser(uid, role);
   const accessToken = await getAccessToken(secrets);

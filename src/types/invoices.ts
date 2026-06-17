@@ -54,3 +54,24 @@ export const INVOICE_STATUS_OPTIONS: Array<{ value: InvoiceStatus | 'all'; label
   { value: 'draft', label: 'Draft' },
   { value: 'void', label: 'Void' },
 ];
+
+export interface InvoiceWeeklySales {
+  label: string;
+  total: number;
+}
+
+export interface InvoiceDashboardSummary {
+  periodStart: string;
+  periodEnd: string;
+  totalSales: number;
+  previousSales: number;
+  salesTrendPct: number | null;
+  outstandingBalance: number;
+  unpaidCount: number;
+  overdueCount: number;
+  paidCount: number;
+  totalInvoiceCount: number;
+  weeklySales: InvoiceWeeklySales[];
+  recentInvoices: DealerInvoice[];
+  customerId?: string;
+}
