@@ -57,6 +57,11 @@ export interface CatalogBrowseProps {
   /** When set, category selection is controlled by the parent (e.g. URL on spares page). */
   activeCategoryId?: string;
   onActiveCategoryChange?: (categoryId: string) => void;
+  /** Controlled search — pair with onSearchChange when the parent renders its own search UI. */
+  searchQuery?: string;
+  onSearchChange?: (value: string) => void;
+  /** Hide the built-in search/filter bar (e.g. spares page mode bar search). */
+  hideFilterBar?: boolean;
 }
 
 function ProductListRow({
@@ -188,9 +193,14 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   simpleCategoryTiles = false,
   activeCategoryId: controlledCategoryId,
   onActiveCategoryChange,
+  searchQuery: controlledSearch,
+  onSearchChange,
+  hideFilterBar = false,
 }) => {
   const navigate = useNavigate();
-  const [search, setSearch] = useState('');
+  const [internalSearch, setInternalSearch] = useState('');
+  const search = controlledSearch ?? internalSearch;
+  const setSearch = onSearchChange ?? setInternalSearch;
   const [internalCategory, setInternalCategory] = useState('');
   const activeCategory = controlledCategoryId !== undefined ? controlledCategoryId : internalCategory;
   const setActiveCategory = useCallback((categoryId: string) => {
@@ -277,7 +287,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     searchPlaceholder,
   };
 
-  const showFilterBar = filterMode === 'full' || filterMode === 'minimal';
+  const showFilterBar = !hideFilterBar && (filterMode === 'full' || filterMode === 'minimal');
 
   const filterBarClass = [
     'catalog-filters',

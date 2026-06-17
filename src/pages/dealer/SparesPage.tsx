@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Boxes, Package, RefreshCw } from 'lucide-react';
+import { AlertCircle, Boxes, Package, RefreshCw, Search } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -33,6 +33,7 @@ export const SparesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sparesSearch, setSparesSearch] = useState('');
 
   const loadCatalog = useCallback(async () => {
     setLoading(true);
@@ -72,6 +73,7 @@ export const SparesPage: React.FC = () => {
   );
 
   const setViewMode = (mode: SparesViewMode) => {
+    if (mode === 'product') setSparesSearch('');
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       if (mode === 'product') next.delete('view');
@@ -204,10 +206,25 @@ export const SparesPage: React.FC = () => {
   );
 
   const modeBar = (
-    <div className="spares-mode-bar">
+    <div
+      className={`spares-mode-bar ${viewMode === 'spares' ? 'spares-mode-bar--all-spares' : ''}`}
+    >
       <div className="spares-mode-bar__controls">
         {modeToggle}
-        <p id="spares-mode-hint" className="spares-mode-bar__hint">{modeHint}</p>
+        {viewMode === 'spares' ? (
+          <div className="spares-mode-bar__search catalog-search">
+            <Search size={16} aria-hidden />
+            <input
+              type="search"
+              placeholder="Search spares by name or SKU…"
+              value={sparesSearch}
+              onChange={e => setSparesSearch(e.target.value)}
+              aria-label="Search spare parts"
+            />
+          </div>
+        ) : (
+          <p id="spares-mode-hint" className="spares-mode-bar__hint">{modeHint}</p>
+        )}
       </div>
       {syncButton && (
         <div className="spares-mode-bar__actions">
@@ -251,7 +268,9 @@ export const SparesPage: React.FC = () => {
   }
 
   return (
-    <div className="page-content fade-in products-page spares-page">
+    <div
+      className={`page-content fade-in products-page spares-page ${viewMode === 'spares' ? 'spares-page--all-spares' : ''}`}
+    >
       {error && (
         <div className="products-inline-error panel glass">
           <AlertCircle size={18} />
@@ -288,7 +307,9 @@ export const SparesPage: React.FC = () => {
           showCategoryGrid={false}
           flatBrowse
           filterMode="minimal"
-          searchPlaceholder="Search spare parts, components, accessories…"
+          hideFilterBar
+          searchQuery={sparesSearch}
+          onSearchChange={setSparesSearch}
           productsBasePath={pathname}
           enableCart={canUseCart(user?.role)}
           showStockQuantity={canSync}
