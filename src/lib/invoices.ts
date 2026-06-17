@@ -1,6 +1,13 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
-import type { InvoiceDashboardSummary, InvoiceListParams, InvoiceListResponse } from '../types/invoices';
+import type {
+  DealerInvoice,
+  InvoiceDashboardSummary,
+  InvoiceListParams,
+  InvoiceListResponse,
+  InvoiceSalesEntry,
+  KpiPeriod,
+} from '../types/invoices';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -50,6 +57,36 @@ export async function fetchDealerInvoiceDashboard(): Promise<InvoiceDashboardSum
   }
 }
 
+export function buildSalesEntriesFromInvoices(invoices: DealerInvoice[]): InvoiceSalesEntry[] {
+  return invoices
+    .filter(inv => inv.date)
+    .map(inv => ({
+      date: inv.date!,
+      total: inv.total,
+    }));
+}
+
+export async function fetchAllDealerInvoices(): Promise<DealerInvoice[]> {
+  const limit = 100;
+  let page = 1;
+  let totalPages = 1;
+  const all: DealerInvoice[] = [];
+
+  while (page <= totalPages) {
+    const res = await fetchDealerInvoices({
+      page,
+      limit,
+      sortField: 'date',
+      sortDir: 'desc',
+    });
+    all.push(...res.data);
+    totalPages = res.pagination.totalPages;
+    page += 1;
+  }
+
+  return all;
+}
+
 export function formatInvoiceDate(value: string | null | undefined): string {
   if (!value) return '—';
   const parsed = Date.parse(value);
@@ -77,4 +114,112 @@ export function formatInvoiceRelativeTime(value: string | null | undefined): str
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return `${diffDays}d ago`;
   return formatInvoiceDate(value);
+}
+
+function parseInvoiceDate(value: string): number {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (match) {
+    return new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+    ).getTime();
+  }
+  const ts = Date.parse(value);
+  return Number.isNaN(ts) ? NaN : ts;
+}
+
+function startOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+export interface PeriodSalesSummary {
+  periodStart: string | null;
+  periodEnd: string;
+  totalSales: number;
+  previousSales: number;
+  salesTrendPct: number | null;
+}
+
+export function computeSalesForPeriod(entries: InvoiceSalesEntry[], period: KpiPeriod): PeriodSalesSummary {
+  const now = new Date();
+  const periodEnd = endOfDay(now);
+
+  if (period === 'lifetime') {
+    let totalSales = 0;
+    for (const entry of entries) {
+      totalSales += entry.total;
+    }
+    return {
+      periodStart: null,
+      periodEnd: periodEnd.toISOString(),
+      totalSales,
+      previousSales: 0,
+      salesTrendPct: null,
+    };
+  }
+
+  const days = period;
+  const periodStart = startOfDay(now);
+  periodStart.setDate(periodStart.getDate() - (days - 1));
+
+  const prevPeriodEnd = new Date(periodStart);
+  prevPeriodEnd.setDate(prevPeriodEnd.getDate() - 1);
+  prevPeriodEnd.setHours(23, 59, 59, 999);
+  const prevPeriodStart = startOfDay(prevPeriodEnd);
+  prevPeriodStart.setDate(prevPeriodStart.getDate() - (days - 1));
+
+  let totalSales = 0;
+  let previousSales = 0;
+
+  for (const entry of entries) {
+    const ts = parseInvoiceDate(entry.date);
+    if (Number.isNaN(ts)) continue;
+    if (ts >= periodStart.getTime() && ts <= periodEnd.getTime()) {
+      totalSales += entry.total;
+    } else if (ts >= prevPeriodStart.getTime() && ts <= prevPeriodEnd.getTime()) {
+      previousSales += entry.total;
+    }
+  }
+
+  let salesTrendPct: number | null = null;
+  if (previousSales > 0) {
+    salesTrendPct = ((totalSales - previousSales) / previousSales) * 100;
+  } else if (totalSales > 0) {
+    salesTrendPct = 100;
+  }
+
+  return {
+    periodStart: periodStart.toISOString(),
+    periodEnd: periodEnd.toISOString(),
+    totalSales,
+    previousSales,
+    salesTrendPct,
+  };
+}
+
+export function formatKpiPeriodLabel(period: KpiPeriod): string {
+  if (period === 'lifetime') return 'Lifetime';
+  if (period === 365) return '1 year';
+  return `${period} days`;
+}
+
+export function formatKpiTrendLabel(period: KpiPeriod): string {
+  if (period === 'lifetime') return '';
+  return `vs previous ${formatKpiPeriodLabel(period).toLowerCase()}`;
+}
+
+export function formatKpiPeriodRange(periodStart: string | null, periodEnd: string): string {
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  if (!periodStart) return 'All time';
+  return `${fmt(new Date(periodStart))} – ${fmt(new Date(periodEnd))}`;
 }

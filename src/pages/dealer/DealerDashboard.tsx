@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowDownRight,
@@ -24,11 +24,17 @@ import { useAuth } from '../../context/AuthContext';
 import { SalesChart } from '../../components/dashboard/SalesChart';
 import { formatCurrency } from '../../lib/catalog';
 import {
+  buildSalesEntriesFromInvoices,
+  computeSalesForPeriod,
+  fetchAllDealerInvoices,
   fetchDealerInvoiceDashboard,
   formatInvoiceRelativeTime,
+  formatKpiPeriodRange,
+  formatKpiTrendLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
-import type { DealerInvoice, InvoiceDashboardSummary } from '../../types/invoices';
+import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, KpiPeriod } from '../../types/invoices';
+import { KPI_PERIOD_OPTIONS } from '../../types/invoices';
 
 type Trend = 'up' | 'down';
 
@@ -69,32 +75,6 @@ interface MiniStat {
   path?: string;
 }
 
-function formatDateRange(): string {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(end.getDate() - 30);
-  const fmt = (d: Date) =>
-    d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  return `${fmt(start)} – ${fmt(end)}`;
-}
-
-function formatPeriodRange(startIso: string, endIso: string): string {
-  const start = new Date(startIso);
-  const end = new Date(endIso);
-  const fmt = (d: Date) =>
-    d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  return `${fmt(start)} – ${fmt(end)}`;
-}
-
-function salesTrendFromSummary(summary: InvoiceDashboardSummary): { trend: Trend; label: string } | null {
-  const pct = summary.salesTrendPct;
-  if (pct === null) return null;
-  return {
-    trend: pct >= 0 ? 'up' : 'down',
-    label: `${Math.abs(pct).toFixed(1)}% vs previous 30 days`,
-  };
-}
-
 function invoiceActivityTone(status: string): ActivityItem['tone'] {
   const s = status.toLowerCase();
   if (s === 'overdue' || s === 'void') return 'red';
@@ -103,25 +83,8 @@ function invoiceActivityTone(status: string): ActivityItem['tone'] {
   return 'blue';
 }
 
-function buildKpis(
-  base: string,
-  isDealerStaff: boolean,
-  summary: InvoiceDashboardSummary | null,
-): KpiCard[] {
-  const salesTrend = summary ? salesTrendFromSummary(summary) : null;
-  const invoicesPath = `${base}/invoices`;
-
+function buildSecondaryKpis(base: string, isDealerStaff: boolean): KpiCard[] {
   const cards: KpiCard[] = [
-    {
-      id: 'sales',
-      label: 'Total Sales',
-      value: summary ? formatCurrency(summary.totalSales) : '',
-      trend: salesTrend?.trend,
-      trendLabel: salesTrend?.label,
-      path: invoicesPath,
-      tone: 'blue',
-      icon: <IndianRupee size={22} strokeWidth={2.5} />,
-    },
     {
       id: 'services',
       label: 'Pending Services',
@@ -263,27 +226,43 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
   const isDealerStaff = user?.role === 'dealer_staff';
 
   const [summary, setSummary] = useState<InvoiceDashboardSummary | null>(null);
+  const [salesEntries, setSalesEntries] = useState<InvoiceSalesEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [salesPeriod, setSalesPeriod] = useState<KpiPeriod>(30);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
-    fetchDealerInvoiceDashboard()
-      .then(data => {
-        if (!cancelled) setSummary(data);
-      })
-      .catch(err => {
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await fetchDealerInvoiceDashboard();
+        if (cancelled) return;
+        setSummary(data);
+
+        if (data.salesEntries?.length) {
+          setSalesEntries(data.salesEntries);
+        } else {
+          const invoices = await fetchAllDealerInvoices();
+          if (!cancelled) {
+            setSalesEntries(buildSalesEntriesFromInvoices(invoices));
+          }
+        }
+      } catch (err) {
         if (!cancelled) {
           setSummary(null);
+          setSalesEntries([]);
           setError(err instanceof Error ? err.message : 'Could not load dashboard data.');
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+
+    load();
 
     return () => {
       cancelled = true;
@@ -291,14 +270,38 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
   }, []);
 
   const invoicesPath = `${basePath}/invoices`;
-  const kpis = buildKpis(basePath, isDealerStaff, summary);
+  const secondaryKpis = buildSecondaryKpis(basePath, isDealerStaff);
   const quickActions = buildQuickActions(basePath, isDealerStaff);
   const activities = summary ? buildActivitiesFromInvoices(summary.recentInvoices, invoicesPath) : [];
   const miniStats = buildMiniStats(basePath);
 
+  const salesSummary = useMemo(() => {
+    if (!salesEntries.length) {
+      if (!summary || salesPeriod !== 30) return null;
+      return {
+        periodStart: summary.periodStart,
+        periodEnd: summary.periodEnd,
+        totalSales: summary.totalSales,
+        previousSales: summary.previousSales,
+        salesTrendPct: summary.salesTrendPct,
+      };
+    }
+    return computeSalesForPeriod(salesEntries, salesPeriod);
+  }, [salesEntries, salesPeriod, summary]);
+
+  const salesTrend = useMemo(() => {
+    if (!salesSummary || salesSummary.salesTrendPct === null) return null;
+    return {
+      trend: salesSummary.salesTrendPct >= 0 ? 'up' as Trend : 'down' as Trend,
+      label: `${Math.abs(salesSummary.salesTrendPct).toFixed(1)}% ${formatKpiTrendLabel(salesPeriod)}`,
+    };
+  }, [salesSummary, salesPeriod]);
+
+  const dateRange = salesSummary
+    ? formatKpiPeriodRange(salesSummary.periodStart, salesSummary.periodEnd)
+    : 'Last 30 days';
+
   const firstName = user?.displayName?.split(/\s+/)[0] ?? 'Dealer';
-  const dateRange =
-    summary ? formatPeriodRange(summary.periodStart, summary.periodEnd) : formatDateRange();
 
   return (
     <div className="page-content fade-in dealer-dashboard">
@@ -313,10 +316,10 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
             Your operations snapshot — sales, service, complaints, and orders at a glance.
           </p>
         </div>
-        <button type="button" className="dealer-dash__date-pill" aria-label="Date range">
+        <div className="dealer-dash__date-pill" aria-label="Sales period">
           <CalendarRange size={16} />
           <span>{dateRange}</span>
-        </button>
+        </div>
       </header>
 
       {error && (
@@ -325,30 +328,65 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
         </p>
       )}
 
-      <section className="dealer-dash__kpis" aria-label="Key metrics">
-        {kpis.map(card => (
-          <button
-            key={card.id}
-            type="button"
-            className={`dealer-dash-kpi dealer-dash-kpi--${card.tone}`}
-            onClick={() => navigate(card.path)}
-          >
-            <div className="dealer-dash-kpi__icon">{card.icon}</div>
-            <div className="dealer-dash-kpi__body">
-              <span className="dealer-dash-kpi__label">{card.label}</span>
-              <strong className="dealer-dash-kpi__value">
-                {loading && card.id === 'sales' ? '…' : card.value}
-              </strong>
-              {card.trend && card.trendLabel && (
-                <span className={`dealer-dash-kpi__trend dealer-dash-kpi__trend--${card.trend}`}>
-                  {card.trend === 'up' ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                  {card.trendLabel}
-                </span>
-              )}
+      <section className="dealer-dash__kpis-layout" aria-label="Key metrics">
+        <div className="dealer-dash-kpi dealer-dash-kpi--blue dealer-dash-kpi--featured">
+          <div className="dealer-dash-kpi__icon">
+            <IndianRupee size={24} strokeWidth={2.5} />
+          </div>
+          <div className="dealer-dash-kpi__body">
+            <div className="dealer-dash-kpi__head">
+              <span className="dealer-dash-kpi__label">Total Sales</span>
+              <div className="dealer-dash-kpi__periods" role="group" aria-label="Sales timeframe">
+                {KPI_PERIOD_OPTIONS.map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`dealer-dash-kpi__period${salesPeriod === option.value ? ' is-active' : ''}`}
+                    onClick={() => setSalesPeriod(option.value)}
+                    aria-pressed={salesPeriod === option.value}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
+            <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
+              {loading ? '…' : salesSummary ? formatCurrency(salesSummary.totalSales) : ''}
+            </strong>
+            {salesTrend && (
+              <span className={`dealer-dash-kpi__trend dealer-dash-kpi__trend--${salesTrend.trend}`}>
+                {salesTrend.trend === 'up' ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+                {salesTrend.label}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="dealer-dash-kpi__chevron-btn"
+            onClick={() => navigate(invoicesPath)}
+            aria-label="View invoices"
+          >
             <ChevronRight size={18} className="dealer-dash-kpi__chevron" aria-hidden />
           </button>
-        ))}
+        </div>
+
+        <div className="dealer-dash__kpis-grid">
+          {secondaryKpis.map(card => (
+            <button
+              key={card.id}
+              type="button"
+              className={`dealer-dash-kpi dealer-dash-kpi--${card.tone}`}
+              onClick={() => navigate(card.path)}
+            >
+              <div className="dealer-dash-kpi__icon">{card.icon}</div>
+              <div className="dealer-dash-kpi__body">
+                <span className="dealer-dash-kpi__label">{card.label}</span>
+                <strong className="dealer-dash-kpi__value">{card.value}</strong>
+              </div>
+              <ChevronRight size={18} className="dealer-dash-kpi__chevron" aria-hidden />
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="dealer-dash__chart-panel">
@@ -358,10 +396,10 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
               <TrendingUp size={18} />
               Sales Overview
             </h3>
-            <p className="dealer-dash__section-sub">Weekly invoice totals (last 7 weeks)</p>
+            <p className="dealer-dash__section-sub">Daily invoice totals (last 30 days)</p>
           </div>
         </div>
-        <SalesChart weeklySales={summary?.weeklySales} />
+        <SalesChart dailySales={summary?.dailySales} />
       </section>
 
       <section className="dealer-dash__quick-actions">

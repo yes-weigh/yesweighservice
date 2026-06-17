@@ -1,5 +1,5 @@
 import React from 'react';
-import type { InvoiceWeeklySales } from '../../types/invoices';
+import type { InvoiceChartPoint } from '../../types/invoices';
 
 const WIDTH = 640;
 const HEIGHT = 200;
@@ -26,16 +26,22 @@ function formatAxisValue(value: number): string {
   return String(Math.round(value));
 }
 
-interface SalesChartProps {
-  weeklySales?: InvoiceWeeklySales[];
+function shouldShowLabel(index: number, total: number): boolean {
+  if (total <= 7) return true;
+  if (index === 0 || index === total - 1) return true;
+  return index % 5 === 0;
 }
 
-export const SalesChart: React.FC<SalesChartProps> = ({ weeklySales = [] }) => {
-  const values = weeklySales.map(w => w.total);
-  const labels = weeklySales.map(w => w.label);
+interface SalesChartProps {
+  dailySales?: InvoiceChartPoint[];
+}
+
+export const SalesChart: React.FC<SalesChartProps> = ({ dailySales = [] }) => {
+  const values = dailySales.map(d => d.total);
+  const labels = dailySales.map(d => d.label);
   const hasData = values.some(v => v > 0);
 
-  if (!weeklySales.length) {
+  if (!dailySales.length) {
     return (
       <div className="dealer-dash-chart dealer-dash-chart--empty">
         <p className="dealer-dash-chart__empty">No invoice data yet.</p>
@@ -54,7 +60,7 @@ export const SalesChart: React.FC<SalesChartProps> = ({ weeklySales = [] }) => {
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="dealer-dash-chart__svg"
         role="img"
-        aria-label="Weekly invoice totals chart"
+        aria-label="Daily invoice totals for the last 30 days"
       >
         <defs>
           <linearGradient id="dealerChartFill" x1="0" y1="0" x2="0" y2="1">
@@ -99,13 +105,15 @@ export const SalesChart: React.FC<SalesChartProps> = ({ weeklySales = [] }) => {
           <g key={`${labels[i]}-${i}`}>
             {hasData && values[i]! > 0 && (
               <>
-                <circle cx={p.x} cy={p.y} r="5" className="dealer-dash-chart__dot" />
-                <circle cx={p.x} cy={p.y} r="9" className="dealer-dash-chart__dot-glow" />
+                <circle cx={p.x} cy={p.y} r="4" className="dealer-dash-chart__dot" />
+                <circle cx={p.x} cy={p.y} r="7" className="dealer-dash-chart__dot-glow" />
               </>
             )}
-            <text x={p.x} y={HEIGHT - 8} textAnchor="middle" className="dealer-dash-chart__label">
-              {labels[i]}
-            </text>
+            {shouldShowLabel(i, labels.length) && (
+              <text x={p.x} y={HEIGHT - 8} textAnchor="middle" className="dealer-dash-chart__label">
+                {labels[i]}
+              </text>
+            )}
           </g>
         ))}
 
@@ -117,7 +125,7 @@ export const SalesChart: React.FC<SalesChartProps> = ({ weeklySales = [] }) => {
         <text x={4} y={HEIGHT - PAD.bottom} className="dealer-dash-chart__axis">0</text>
       </svg>
       {!hasData && (
-        <p className="dealer-dash-chart__empty-inline">No sales in the last 7 weeks.</p>
+        <p className="dealer-dash-chart__empty-inline">No sales in the last 30 days.</p>
       )}
     </div>
   );

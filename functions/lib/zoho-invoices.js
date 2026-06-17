@@ -167,40 +167,101 @@ export function paginateInvoices(invoices, page = 1, limit = 25) {
 }
 
 function invoiceTimestamp(inv) {
-  const d = inv.date ? Date.parse(inv.date) : NaN;
+  const raw = inv.date ? String(inv.date).trim() : '';
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
+  }
+  const d = raw ? Date.parse(raw) : NaN;
   return Number.isNaN(d) ? 0 : d;
 }
 
-export function computeInvoiceDashboardSummary(invoices) {
+function startOfDay(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(date) {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+export function buildSalesEntries(invoices) {
+  return invoices
+    .filter(inv => inv.date)
+    .map(inv => ({
+      date: inv.date,
+      total: Number(inv.total ?? 0),
+    }));
+}
+
+export function computeDailySales(invoices, dayCount = 30) {
   const now = new Date();
-  const periodEnd = new Date(now);
-  const periodStart = new Date(now);
-  periodStart.setDate(periodEnd.getDate() - 30);
+  const dailySales = [];
+
+  for (let i = dayCount - 1; i >= 0; i -= 1) {
+    const day = new Date(now);
+    day.setDate(now.getDate() - i);
+    const dayStart = startOfDay(day);
+    const dayEnd = endOfDay(day);
+
+    let dayTotal = 0;
+    for (const inv of invoices) {
+      const ts = invoiceTimestamp(inv);
+      if (ts >= dayStart.getTime() && ts <= dayEnd.getTime()) {
+        dayTotal += Number(inv.total ?? 0);
+      }
+    }
+
+    dailySales.push({
+      label: day.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+      total: dayTotal,
+    });
+  }
+
+  return dailySales;
+}
+
+export function computeSalesForPeriod(invoices, periodDays = 30) {
+  const now = new Date();
+  const periodEnd = endOfDay(now);
+
+  if (periodDays === null || periodDays === 'lifetime') {
+    let totalSales = 0;
+    for (const inv of invoices) {
+      totalSales += Number(inv.total ?? 0);
+    }
+    return {
+      periodStart: null,
+      periodEnd: periodEnd.toISOString(),
+      totalSales,
+      previousSales: 0,
+      salesTrendPct: null,
+    };
+  }
+
+  const days = Number(periodDays) || 30;
+  const periodStart = startOfDay(now);
+  periodStart.setDate(periodStart.getDate() - (days - 1));
 
   const prevPeriodEnd = new Date(periodStart);
-  const prevPeriodStart = new Date(periodStart);
-  prevPeriodStart.setDate(prevPeriodStart.getDate() - 30);
+  prevPeriodEnd.setDate(prevPeriodEnd.getDate() - 1);
+  prevPeriodEnd.setHours(23, 59, 59, 999);
+  const prevPeriodStart = startOfDay(prevPeriodEnd);
+  prevPeriodStart.setDate(prevPeriodStart.getDate() - (days - 1));
 
   let totalSales = 0;
   let previousSales = 0;
-  let outstandingBalance = 0;
-  let unpaidCount = 0;
-  let overdueCount = 0;
-  let paidCount = 0;
 
   for (const inv of invoices) {
     const ts = invoiceTimestamp(inv);
-    const status = String(inv.status ?? '').toLowerCase();
-
-    outstandingBalance += Number(inv.balance ?? 0);
-    if (status === 'paid') paidCount += 1;
-    if (status === 'unpaid' || status === 'partially_paid') unpaidCount += 1;
-    if (status === 'overdue') overdueCount += 1;
-
+    const amount = Number(inv.total ?? 0);
     if (ts >= periodStart.getTime() && ts <= periodEnd.getTime()) {
-      totalSales += Number(inv.total ?? 0);
-    } else if (ts >= prevPeriodStart.getTime() && ts < periodStart.getTime()) {
-      previousSales += Number(inv.total ?? 0);
+      totalSales += amount;
+    } else if (ts >= prevPeriodStart.getTime() && ts <= prevPeriodEnd.getTime()) {
+      previousSales += amount;
     }
   }
 
@@ -211,43 +272,48 @@ export function computeInvoiceDashboardSummary(invoices) {
     salesTrendPct = 100;
   }
 
-  const weeklySales = [];
-  for (let i = 6; i >= 0; i -= 1) {
-    const weekEnd = new Date(now);
-    weekEnd.setHours(23, 59, 59, 999);
-    weekEnd.setDate(weekEnd.getDate() - i * 7);
-    const weekStart = new Date(weekEnd);
-    weekStart.setHours(0, 0, 0, 0);
-    weekStart.setDate(weekStart.getDate() - 6);
-
-    let weekTotal = 0;
-    for (const inv of invoices) {
-      const ts = invoiceTimestamp(inv);
-      if (ts >= weekStart.getTime() && ts <= weekEnd.getTime()) {
-        weekTotal += Number(inv.total ?? 0);
-      }
-    }
-
-    weeklySales.push({
-      label: weekEnd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-      total: weekTotal,
-    });
-  }
-
-  const recentInvoices = sortInvoices(invoices, 'date', 'desc').slice(0, 5);
-
   return {
     periodStart: periodStart.toISOString(),
     periodEnd: periodEnd.toISOString(),
     totalSales,
     previousSales,
     salesTrendPct,
+  };
+}
+
+export function computeInvoiceDashboardSummary(invoices) {
+  const salesPeriod = computeSalesForPeriod(invoices, 30);
+  const dailySales = computeDailySales(invoices, 30);
+
+  let outstandingBalance = 0;
+  let unpaidCount = 0;
+  let overdueCount = 0;
+  let paidCount = 0;
+
+  for (const inv of invoices) {
+    const status = String(inv.status ?? '').toLowerCase();
+
+    outstandingBalance += Number(inv.balance ?? 0);
+    if (status === 'paid') paidCount += 1;
+    if (status === 'unpaid' || status === 'partially_paid') unpaidCount += 1;
+    if (status === 'overdue') overdueCount += 1;
+  }
+
+  const recentInvoices = sortInvoices(invoices, 'date', 'desc').slice(0, 5);
+
+  return {
+    periodStart: salesPeriod.periodStart,
+    periodEnd: salesPeriod.periodEnd,
+    totalSales: salesPeriod.totalSales,
+    previousSales: salesPeriod.previousSales,
+    salesTrendPct: salesPeriod.salesTrendPct,
     outstandingBalance,
     unpaidCount,
     overdueCount,
     paidCount,
     totalInvoiceCount: invoices.length,
-    weeklySales,
+    dailySales,
+    salesEntries: buildSalesEntries(invoices),
     recentInvoices,
   };
 }

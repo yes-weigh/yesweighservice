@@ -3776,6 +3776,73 @@ html::-webkit-scrollbar {
   color: var(--text-primary);
 }
 
+.dealer-dash__kpis-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dealer-dash__kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.dealer-dash-kpi--featured {
+  padding: 1.1rem 0.95rem;
+}
+
+.dealer-dash-kpi__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dealer-dash-kpi__periods {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.3rem;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.dealer-dash-kpi__periods::-webkit-scrollbar {
+  display: none;
+}
+
+.dealer-dash-kpi__period {
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.dealer-dash-kpi__period:hover {
+  border-color: color-mix(in srgb, var(--kpi-accent) 45%, transparent);
+  color: var(--text-primary);
+}
+
+.dealer-dash-kpi__period.is-active {
+  border-color: color-mix(in srgb, var(--kpi-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--kpi-accent) 18%, transparent);
+  color: var(--text-primary);
+}
+
+.dealer-dash-kpi__value--featured {
+  font-size: clamp(1.35rem, 4.5vw, 1.75rem);
+}
+
 .dealer-dash__kpis {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3869,6 +3936,30 @@ html::-webkit-scrollbar {
   flex-shrink: 0;
   color: var(--text-muted);
   opacity: 0.7;
+}
+
+.dealer-dash-kpi__chevron-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.dealer-dash-kpi__chevron-btn:hover {
+  opacity: 1;
+  color: var(--text-primary);
+}
+
+.dealer-dash-kpi--featured {
+  cursor: default;
 }
 
 .dealer-dash__chart-panel,
@@ -4241,9 +4332,13 @@ html::-webkit-scrollbar {
     gap: 1.5rem;
   }
 
-  .dealer-dash__kpis {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .dealer-dash__kpis-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1rem;
+  }
+
+  .dealer-dash-kpi--featured {
+    padding: 1.25rem 1.1rem;
   }
 
   .dealer-dash-kpi {
@@ -4276,6 +4371,7 @@ html::-webkit-scrollbar {
   }
 
   .dealer-dash__hero { grid-area: hero; }
+  .dealer-dash__kpis-layout { grid-area: kpis; }
   .dealer-dash__kpis { grid-area: kpis; }
   .dealer-dash__chart-panel { grid-area: chart; }
   .dealer-dash__quick-actions { grid-area: quick; }

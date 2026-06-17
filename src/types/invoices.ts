@@ -55,13 +55,28 @@ export const INVOICE_STATUS_OPTIONS: Array<{ value: InvoiceStatus | 'all'; label
   { value: 'void', label: 'Void' },
 ];
 
-export interface InvoiceWeeklySales {
+export interface InvoiceChartPoint {
   label: string;
   total: number;
 }
 
+export interface InvoiceSalesEntry {
+  date: string;
+  total: number;
+}
+
+export type KpiPeriod = 7 | 30 | 90 | 365 | 'lifetime';
+
+export const KPI_PERIOD_OPTIONS: Array<{ value: KpiPeriod; label: string }> = [
+  { value: 7, label: '7 days' },
+  { value: 30, label: '30 days' },
+  { value: 90, label: '90 days' },
+  { value: 365, label: '1 year' },
+  { value: 'lifetime', label: 'Lifetime' },
+];
+
 export interface InvoiceDashboardSummary {
-  periodStart: string;
+  periodStart: string | null;
   periodEnd: string;
   totalSales: number;
   previousSales: number;
@@ -71,7 +86,8 @@ export interface InvoiceDashboardSummary {
   overdueCount: number;
   paidCount: number;
   totalInvoiceCount: number;
-  weeklySales: InvoiceWeeklySales[];
+  dailySales: InvoiceChartPoint[];
+  salesEntries: InvoiceSalesEntry[];
   recentInvoices: DealerInvoice[];
   customerId?: string;
 }
