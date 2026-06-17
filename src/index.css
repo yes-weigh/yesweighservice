@@ -7158,3 +7158,260 @@ html::-webkit-scrollbar {
   margin-left: 0.2rem;
   opacity: 0.8;
 }
+
+/* ─── Dealer invoices page ─── */
+.invoices-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.invoices-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.85rem 1rem !important;
+}
+
+.invoices-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.invoices-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.invoices-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.invoices-status-filter {
+  min-width: 9.5rem;
+}
+
+.invoices-toolbar__hint {
+  margin: 0;
+}
+
+.invoices-empty {
+  text-align: center;
+  padding: 2.5rem 1.25rem;
+}
+
+.invoices-empty svg {
+  margin: 0 auto 0.75rem;
+  color: var(--accent-primary);
+}
+
+.invoices-table-panel {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.invoices-table-wrap {
+  overflow-x: auto;
+}
+
+.invoices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.invoices-table th,
+.invoices-table td {
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid var(--border-glass);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.invoices-table th button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.invoices-table__num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.invoices-table__num button {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.invoices-table__ref {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.invoices-table__actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.invoices-sort-mark {
+  opacity: 0.75;
+}
+
+.invoices-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.invoices-status--paid {
+  background: rgba(16, 185, 129, 0.16);
+  color: #6ee7b7;
+}
+
+.invoices-status--due {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
+
+.invoices-status--partial {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+}
+
+.invoices-status--void {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+
+.invoices-status--default {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+.invoices-cards {
+  display: none;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.invoices-card {
+  padding: 0.85rem 0.95rem !important;
+}
+
+.invoices-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.65rem;
+}
+
+.invoices-card__ref {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.invoices-card__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.invoices-card__meta dt {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 0.1rem;
+}
+
+.invoices-card__meta dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.invoices-card__link {
+  width: 100%;
+  justify-content: center;
+}
+
+.invoices-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem !important;
+}
+
+.invoices-pagination__btns {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.invoices-page .catalog-search {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  padding: 0.55rem 0.95rem;
+}
+
+.invoices-page .catalog-search svg {
+  color: #64748b;
+}
+
+.invoices-page .catalog-search input {
+  color: #0f172a;
+}
+
+.invoices-page .catalog-search input::placeholder {
+  color: #94a3b8;
+}
+
+@media (max-width: 768px) {
+  .invoices-table-wrap--desktop {
+    display: none;
+  }
+
+  .invoices-cards--mobile {
+    display: flex;
+  }
+
+  .invoices-toolbar__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .invoices-toolbar__actions {
+    width: 100%;
+  }
+
+  .invoices-status-filter {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+@media (min-width: 769px) {
+  .invoices-cards--mobile {
+    display: none;
+  }
+}

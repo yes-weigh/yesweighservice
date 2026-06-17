@@ -43,6 +43,7 @@ import {
   importCrmDealerOverlay,
   backfillDealerLocations,
 } from './lib/dealer-legacy-import.js';
+import { listDealerInvoices } from './lib/zoho-invoices.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
@@ -63,6 +64,7 @@ const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
+const DEALER_INVOICE_ROLES = new Set(['dealer', 'dealer_staff']);
 
 function zohoSecrets() {
   return {
@@ -535,6 +537,31 @@ export const syncZohoCustomers = onCall(
     } catch (err) {
       console.error('syncZohoCustomers failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Zoho customer sync failed.');
+    }
+  },
+);
+
+/** List Zoho invoices for the signed-in dealer's customer account. */
+export const getDealerInvoices = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    try {
+      return await listDealerInvoices(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        uid,
+        role,
+        request.data ?? {},
+      );
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not load invoices.');
     }
   },
 );

@@ -6,6 +6,20 @@ import { DealerDashboard } from './DealerDashboard';
 import { OrdersPage } from './OrdersPage';
 import { ProductsPage } from './ProductsPage';
 import { SparesPage } from './SparesPage';
+import { InvoicesPage } from './InvoicesPage';
+
+function DealerInvoicesRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
+    return <InvoicesPage />;
+  }
+  return (
+    <PagePlaceholder
+      title="Invoice"
+      description="Create, send, and manage customer invoices and billing records."
+    />
+  );
+}
 
 export const RoleDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -46,12 +60,7 @@ export const DealerMenuPages = {
       description="Track and resolve customer complaints and follow-up actions."
     />
   ),
-  Invoices: () => (
-    <PagePlaceholder
-      title="Invoice"
-      description="Create, send, and manage customer invoices and billing records."
-    />
-  ),
+  Invoices: DealerInvoicesRoute,
   Products: ProductsPage,
   Orders: OrdersPage,
   Spares: SparesPage,
