@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ExternalLink, FileText, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ChevronRight, ExternalLink, FileText, RefreshCw, Search } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { formatCurrency } from '../../lib/catalog';
 import {
@@ -10,6 +10,21 @@ import {
 } from '../../lib/invoices';
 import type { DealerInvoice, InvoiceListParams } from '../../types/invoices';
 import { INVOICE_STATUS_OPTIONS } from '../../types/invoices';
+
+const MOBILE_SORT_OPTIONS: Array<{
+  value: string;
+  label: string;
+  sortField: NonNullable<InvoiceListParams['sortField']>;
+  sortDir: 'asc' | 'desc';
+}> = [
+  { value: 'date:desc', label: 'Newest first', sortField: 'date', sortDir: 'desc' },
+  { value: 'date:asc', label: 'Oldest first', sortField: 'date', sortDir: 'asc' },
+  { value: 'dueDate:asc', label: 'Due soon', sortField: 'dueDate', sortDir: 'asc' },
+  { value: 'dueDate:desc', label: 'Due later', sortField: 'dueDate', sortDir: 'desc' },
+  { value: 'total:desc', label: 'Highest amount', sortField: 'total', sortDir: 'desc' },
+  { value: 'balance:desc', label: 'Highest balance', sortField: 'balance', sortDir: 'desc' },
+  { value: 'invoiceNumber:asc', label: 'Invoice #', sortField: 'invoiceNumber', sortDir: 'asc' },
+];
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -37,47 +52,59 @@ function InvoiceStatusBadge({ status }: { status: string }) {
   );
 }
 
-function InvoiceCard({ invoice }: { invoice: DealerInvoice }) {
-  return (
-    <article className="invoices-card panel glass">
+function InvoiceMobileCard({ invoice }: { invoice: DealerInvoice }) {
+  const body = (
+  <>
+    <div className="invoices-card__main">
       <div className="invoices-card__head">
-        <div>
-          <strong>{invoice.invoiceNumber || '—'}</strong>
+        <div className="invoices-card__title-block">
+          <strong className="invoices-card__number">{invoice.invoiceNumber || '—'}</strong>
           {invoice.referenceNumber && (
-            <span className="invoices-card__ref text-muted text-sm">Ref: {invoice.referenceNumber}</span>
+            <span className="invoices-card__ref">Ref {invoice.referenceNumber}</span>
           )}
         </div>
         <InvoiceStatusBadge status={invoice.status} />
       </div>
-      <dl className="invoices-card__meta">
-        <div>
-          <dt>Date</dt>
-          <dd>{formatInvoiceDate(invoice.date)}</dd>
-        </div>
-        <div>
-          <dt>Due</dt>
-          <dd>{formatInvoiceDate(invoice.dueDate)}</dd>
-        </div>
-        <div>
-          <dt>Total</dt>
-          <dd>{formatCurrency(invoice.total)}</dd>
-        </div>
-        <div>
-          <dt>Balance</dt>
-          <dd>{formatCurrency(invoice.balance)}</dd>
-        </div>
-      </dl>
-      {invoice.invoiceUrl && (
-        <a
-          href={invoice.invoiceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="invoices-card__link btn btn-secondary btn-sm"
-        >
-          <ExternalLink size={14} />
-          View invoice
-        </a>
-      )}
+      <div className="invoices-card__row">
+        <span className="invoices-card__dates text-muted text-sm">
+          {formatInvoiceDate(invoice.date)}
+          <span className="invoices-card__dot" aria-hidden>·</span>
+          Due {formatInvoiceDate(invoice.dueDate)}
+        </span>
+      </div>
+      <div className="invoices-card__amounts">
+        <span className="invoices-card__total">{formatCurrency(invoice.total)}</span>
+        {invoice.balance > 0 && (
+          <span className="invoices-card__balance">
+            Balance {formatCurrency(invoice.balance)}
+          </span>
+        )}
+      </div>
+    </div>
+    {invoice.invoiceUrl && (
+      <span className="invoices-card__chevron" aria-hidden>
+        <ChevronRight size={18} />
+      </span>
+    )}
+  </>
+  );
+
+  if (invoice.invoiceUrl) {
+    return (
+      <a
+        href={invoice.invoiceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="invoices-card invoices-card--link panel glass"
+      >
+        {body}
+      </a>
+    );
+  }
+
+  return (
+    <article className="invoices-card panel glass">
+      {body}
     </article>
   );
 }
@@ -95,6 +122,8 @@ export const InvoicesPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const mobileSortValue = `${sortField}:${sortDir}`;
 
   const queryParams = useMemo((): InvoiceListParams => ({
     page,
@@ -138,165 +167,195 @@ export const InvoicesPage: React.FC = () => {
     }
   };
 
+  const handleMobileSort = (value: string) => {
+    const option = MOBILE_SORT_OPTIONS.find(o => o.value === value);
+    if (!option) return;
+    setSortField(option.sortField);
+    setSortDir(option.sortDir);
+  };
+
   const SortMark = ({ field }: { field: NonNullable<InvoiceListParams['sortField']> }) => (
     <span className="invoices-sort-mark">{sortField === field ? (sortDir === 'asc' ? '↑' : '↓') : ''}</span>
   );
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const showInitialLoader = loading && invoices.length === 0;
+  const showList = !showInitialLoader && invoices.length > 0;
 
   return (
     <div className="page-content fade-in invoices-page">
       {error && (
-        <div className="products-inline-error panel glass">
+        <div className="products-inline-error panel glass invoices-page__error">
           <AlertCircle size={18} />
           <span>{error}</span>
         </div>
       )}
 
-      <div className="invoices-toolbar panel glass">
-        <div className="invoices-toolbar__row">
+      <header className="invoices-toolbar invoices-toolbar--sticky">
+        <div className="invoices-toolbar__search-row">
           <div className="catalog-search invoices-search">
-            <Search size={16} aria-hidden />
+            <Search size={15} aria-hidden />
             <input
               type="search"
-              placeholder="Search invoice no., reference, PO…"
+              placeholder="Search invoices…"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               aria-label="Search invoices"
             />
           </div>
-          <div className="invoices-toolbar__actions">
-            <select
-              className="catalog-select invoices-status-filter"
-              value={statusFilter ?? 'all'}
-              onChange={e => setStatusFilter(e.target.value as InvoiceListParams['status'])}
-              aria-label="Filter by status"
-            >
-              {INVOICE_STATUS_OPTIONS.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={loading}
-              onClick={() => void loadInvoices()}
-            >
-              <RefreshCw size={15} className={loading ? 'spin-icon' : undefined} />
-              Refresh
-            </button>
-          </div>
+          <button
+            type="button"
+            className="invoices-toolbar__refresh"
+            disabled={loading}
+            aria-label="Refresh invoices"
+            onClick={() => void loadInvoices()}
+          >
+            <RefreshCw size={17} className={loading ? 'spin-icon' : undefined} />
+          </button>
         </div>
-        <p className="invoices-toolbar__hint text-muted text-sm">
-          Invoices from your YesWeigh Zoho account
-          {total > 0 ? ` · ${total} total` : ''}
-        </p>
+
+        <div className="invoices-toolbar__filters">
+          <select
+            className="catalog-select invoices-status-filter"
+            value={statusFilter ?? 'all'}
+            onChange={e => setStatusFilter(e.target.value as InvoiceListParams['status'])}
+            aria-label="Filter by status"
+          >
+            {INVOICE_STATUS_OPTIONS.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="catalog-select invoices-toolbar__sort-mobile"
+            value={mobileSortValue}
+            onChange={e => handleMobileSort(e.target.value)}
+            aria-label="Sort invoices"
+          >
+            {MOBILE_SORT_OPTIONS.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <span className="invoices-toolbar__count" aria-live="polite">
+            {total > 0 ? `${total.toLocaleString('en-IN')} invoices` : 'No invoices'}
+          </span>
+        </div>
+      </header>
+
+      <div className="invoices-page__body">
+        {showInitialLoader ? (
+          <FetchingLoader label="Loading invoices…" />
+        ) : invoices.length === 0 ? (
+          <div className="invoices-empty panel glass">
+            <FileText size={36} aria-hidden />
+            <h2>No invoices found</h2>
+            <p className="text-muted text-sm">
+              {debouncedSearch || (statusFilter && statusFilter !== 'all')
+                ? 'Try adjusting your search or status filter.'
+                : 'Invoices issued to your dealer account in Zoho will appear here.'}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div
+              className={`invoices-list ${loading ? 'invoices-list--loading' : ''}`}
+              aria-busy={loading}
+            >
+              <div className="invoices-table-panel panel glass invoices-table-wrap--desktop">
+                <div className="invoices-table-wrap">
+                  <table className="invoices-table">
+                    <thead>
+                      <tr>
+                        <th>
+                          <button type="button" onClick={() => handleSort('invoiceNumber')}>
+                            Invoice <SortMark field="invoiceNumber" />
+                          </button>
+                        </th>
+                        <th>
+                          <button type="button" onClick={() => handleSort('date')}>
+                            Date <SortMark field="date" />
+                          </button>
+                        </th>
+                        <th>
+                          <button type="button" onClick={() => handleSort('dueDate')}>
+                            Due <SortMark field="dueDate" />
+                          </button>
+                        </th>
+                        <th>
+                          <button type="button" onClick={() => handleSort('status')}>
+                            Status <SortMark field="status" />
+                          </button>
+                        </th>
+                        <th className="invoices-table__num">
+                          <button type="button" onClick={() => handleSort('total')}>
+                            Total <SortMark field="total" />
+                          </button>
+                        </th>
+                        <th className="invoices-table__num">
+                          <button type="button" onClick={() => handleSort('balance')}>
+                            Balance <SortMark field="balance" />
+                          </button>
+                        </th>
+                        <th aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map(invoice => (
+                        <tr key={invoice.id}>
+                          <td>
+                            <strong>{invoice.invoiceNumber || '—'}</strong>
+                            {invoice.referenceNumber && (
+                              <span className="invoices-table__ref text-muted text-sm">
+                                {invoice.referenceNumber}
+                              </span>
+                            )}
+                          </td>
+                          <td>{formatInvoiceDate(invoice.date)}</td>
+                          <td>{formatInvoiceDate(invoice.dueDate)}</td>
+                          <td><InvoiceStatusBadge status={invoice.status} /></td>
+                          <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
+                          <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
+                          <td className="invoices-table__actions">
+                            {invoice.invoiceUrl ? (
+                              <a
+                                href={invoice.invoiceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-secondary btn-sm"
+                              >
+                                <ExternalLink size={14} />
+                                View
+                              </a>
+                            ) : (
+                              <span className="text-muted text-sm">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="invoices-cards invoices-cards--mobile">
+                {invoices.map(invoice => (
+                  <InvoiceMobileCard key={invoice.id} invoice={invoice} />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
-      {loading && invoices.length === 0 ? (
-        <FetchingLoader label="Loading invoices…" />
-      ) : invoices.length === 0 ? (
-        <div className="invoices-empty panel glass">
-          <FileText size={40} aria-hidden />
-          <h2>No invoices found</h2>
-          <p className="text-muted">
-            {debouncedSearch || (statusFilter && statusFilter !== 'all')
-              ? 'Try adjusting your search or status filter.'
-              : 'Invoices issued to your dealer account in Zoho will appear here.'}
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="invoices-table-panel panel glass invoices-table-wrap--desktop">
-            <div className="invoices-table-wrap">
-              <table className="invoices-table">
-                <thead>
-                  <tr>
-                    <th>
-                      <button type="button" onClick={() => handleSort('invoiceNumber')}>
-                        Invoice <SortMark field="invoiceNumber" />
-                      </button>
-                    </th>
-                    <th>
-                      <button type="button" onClick={() => handleSort('date')}>
-                        Date <SortMark field="date" />
-                      </button>
-                    </th>
-                    <th>
-                      <button type="button" onClick={() => handleSort('dueDate')}>
-                        Due <SortMark field="dueDate" />
-                      </button>
-                    </th>
-                    <th>
-                      <button type="button" onClick={() => handleSort('status')}>
-                        Status <SortMark field="status" />
-                      </button>
-                    </th>
-                    <th className="invoices-table__num">
-                      <button type="button" onClick={() => handleSort('total')}>
-                        Total <SortMark field="total" />
-                      </button>
-                    </th>
-                    <th className="invoices-table__num">
-                      <button type="button" onClick={() => handleSort('balance')}>
-                        Balance <SortMark field="balance" />
-                      </button>
-                    </th>
-                    <th aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map(invoice => (
-                    <tr key={invoice.id}>
-                      <td>
-                        <strong>{invoice.invoiceNumber || '—'}</strong>
-                        {invoice.referenceNumber && (
-                          <span className="invoices-table__ref text-muted text-sm">
-                            {invoice.referenceNumber}
-                          </span>
-                        )}
-                      </td>
-                      <td>{formatInvoiceDate(invoice.date)}</td>
-                      <td>{formatInvoiceDate(invoice.dueDate)}</td>
-                      <td><InvoiceStatusBadge status={invoice.status} /></td>
-                      <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
-                      <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
-                      <td className="invoices-table__actions">
-                        {invoice.invoiceUrl ? (
-                          <a
-                            href={invoice.invoiceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn btn-secondary btn-sm"
-                          >
-                            <ExternalLink size={14} />
-                            View
-                          </a>
-                        ) : (
-                          <span className="text-muted text-sm">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="invoices-cards invoices-cards--mobile">
-            {invoices.map(invoice => (
-              <InvoiceCard key={invoice.id} invoice={invoice} />
-            ))}
-          </div>
-        </>
-      )}
-
-      {totalPages > 1 && (
-        <div className="invoices-pagination panel glass">
-          <span className="text-muted text-sm">
-            Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}
+      {showList && totalPages > 1 && (
+        <footer className="invoices-pagination invoices-pagination--sticky panel glass">
+          <span className="invoices-pagination__info text-muted text-sm">
+            {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total.toLocaleString('en-IN')}
           </span>
           <div className="invoices-pagination__btns">
             <button
@@ -305,9 +364,11 @@ export const InvoicesPage: React.FC = () => {
               disabled={page <= 1 || loading}
               onClick={() => setPage(p => p - 1)}
             >
-              Previous
+              Prev
             </button>
-            <span className="text-sm">Page {page} of {totalPages}</span>
+            <span className="invoices-pagination__page text-sm">
+              {page}/{totalPages}
+            </span>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -317,7 +378,7 @@ export const InvoicesPage: React.FC = () => {
               Next
             </button>
           </div>
-        </div>
+        </footer>
       )}
     </div>
   );
