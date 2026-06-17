@@ -25,6 +25,7 @@ function toClientProduct(data) {
     hsn: data.hsn ?? null,
     taxName: data.taxName ?? null,
     taxPercentage: Number(data.taxPercentage ?? 0),
+    syncedAt: data.syncedAt ?? undefined,
   };
 }
 

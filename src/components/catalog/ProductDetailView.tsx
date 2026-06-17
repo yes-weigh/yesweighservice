@@ -221,7 +221,8 @@ export const ProductDetailView: React.FC<{
     setImageError(null);
     try {
       const imageUrl = await uploadCatalogProductImage(product.id, file);
-      setProduct(prev => (prev ? { ...prev, imageUrl } : prev));
+      const syncedAt = new Date().toISOString();
+      setProduct(prev => (prev ? { ...prev, imageUrl, syncedAt } : prev));
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Could not upload image.');
     } finally {

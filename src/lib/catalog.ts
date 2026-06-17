@@ -20,6 +20,21 @@ export interface CatalogFilters {
 
 const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl']);
 
+/** Replaced product images keep the same Storage path with a long cache TTL — bust with syncedAt. */
+export function withCatalogImageCacheBust(
+  url: string | null | undefined,
+  version?: string | number | null,
+): string | null {
+  if (!url) return null;
+  const v = version ?? null;
+  if (!v) return url;
+  const qIndex = url.indexOf('?');
+  const base = qIndex === -1 ? url : url.slice(0, qIndex);
+  const params = new URLSearchParams(qIndex === -1 ? '' : url.slice(qIndex + 1));
+  params.set('v', String(v));
+  return `${base}?${params.toString()}`;
+}
+
 const SPARES_EXCLUDED_CATEGORY_NAMES = new Set(['software keys', 'sanoft']);
 
 /** Categories excluded from the browse grid (still in catalog data). */
@@ -76,6 +91,8 @@ function catalogErrorMessage(err: unknown): string {
 }
 
 function mapProduct(data: Record<string, unknown>): CatalogProduct {
+  const syncedAt = data.syncedAt as string | undefined;
+  const rawImageUrl = (data.imageUrl as string | null) ?? null;
   return {
     id: String(data.id ?? ''),
     name: String(data.name ?? ''),
@@ -85,7 +102,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     rate: Number(data.rate ?? 0),
     stock: Number(data.stock ?? 0),
     stockStatus: (data.stockStatus as CatalogProduct['stockStatus']) ?? 'out_of_stock',
-    imageUrl: (data.imageUrl as string | null) ?? null,
+    imageUrl: withCatalogImageCacheBust(rawImageUrl, syncedAt),
     categoryId: (data.categoryId as string | null) ?? null,
     categoryName: (data.categoryName as string | null) ?? null,
     status: String(data.status ?? 'active'),
@@ -93,7 +110,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     taxName: (data.taxName as string | null) ?? null,
     taxPercentage: Number(data.taxPercentage ?? 0),
     reorderLevel: Number(data.reorderLevel ?? 0),
-    syncedAt: data.syncedAt as string | undefined,
+    syncedAt,
   };
 }
 
@@ -233,7 +250,11 @@ export async function fetchCatalogProductDetail(productId: string): Promise<Cata
   );
   try {
     const result = await callable({ productId });
-    return result.data;
+    const detail = result.data;
+    return {
+      ...detail,
+      imageUrl: withCatalogImageCacheBust(detail.imageUrl, detail.syncedAt),
+    };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -296,7 +317,7 @@ export async function uploadCatalogCategoryThumbnail(
       contentType: compressed.type || 'image/jpeg',
       imageBase64,
     });
-    return result.data.thumbnailUrl;
+    return withCatalogImageCacheBust(result.data.thumbnailUrl, Date.now()) ?? result.data.thumbnailUrl;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -319,7 +340,7 @@ export async function uploadCatalogProductImage(
       contentType: compressed.type || 'image/jpeg',
       imageBase64,
     });
-    return result.data.imageUrl;
+    return withCatalogImageCacheBust(result.data.imageUrl, Date.now()) ?? result.data.imageUrl;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -371,7 +392,13 @@ export async function fetchCatalogSpareLinks(
   >(functions, 'getCatalogSpareLinks');
   try {
     const result = await callable(opts);
-    return result.data;
+    return {
+      kind: result.data.kind,
+      items: result.data.items.map(item => ({
+        ...item,
+        imageUrl: withCatalogImageCacheBust(item.imageUrl, item.syncedAt),
+      })),
+    };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

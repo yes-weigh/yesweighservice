@@ -21,6 +21,12 @@ function publicStorageUrl(bucketName, storagePath) {
   return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encoded}?alt=media`;
 }
 
+/** Same Storage path is reused on re-upload — bust browser cache with a version query param. */
+function versionedPublicStorageUrl(bucketName, storagePath, version) {
+  const v = encodeURIComponent(String(version));
+  return `${publicStorageUrl(bucketName, storagePath)}&v=${v}`;
+}
+
 async function cacheProductImage(accessToken, orgId, productId, existingImageUrl) {
   if (existingImageUrl) return existingImageUrl;
 
@@ -433,8 +439,8 @@ export async function uploadCategoryThumbnail(categoryId, categoryName, buffer, 
   });
   await file.makePublic();
 
-  const thumbnailUrl = publicStorageUrl(bucket.name, storagePath);
   const now = new Date().toISOString();
+  const thumbnailUrl = versionedPublicStorageUrl(bucket.name, storagePath, now);
 
   await getFirestore().collection(CATEGORIES_COLLECTION).doc(id).set({
     id,
@@ -470,8 +476,8 @@ export async function uploadProductImage(productId, buffer, contentType, accessT
   });
   await file.makePublic();
 
-  const imageUrl = publicStorageUrl(bucket.name, storagePath);
   const now = new Date().toISOString();
+  const imageUrl = versionedPublicStorageUrl(bucket.name, storagePath, now);
 
   await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set({
     imageUrl,

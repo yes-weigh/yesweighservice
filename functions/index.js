@@ -167,8 +167,14 @@ export const getCatalogProductDetail = onCall(
     const detail = await fetchProductDetail(accessToken, organizationId, productId);
 
     const cached = await getFirestore().collection('catalogProducts').doc(productId).get();
-    if (!detail.imageUrl && cached.exists) {
-      detail.imageUrl = cached.data()?.imageUrl ?? null;
+    if (cached.exists) {
+      const data = cached.data();
+      if (!detail.imageUrl) {
+        detail.imageUrl = data?.imageUrl ?? null;
+      }
+      if (data?.syncedAt) {
+        detail.syncedAt = data.syncedAt;
+      }
     }
 
     return detail;
