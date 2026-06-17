@@ -2,7 +2,10 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import type {
   DealerInvoice,
+  DealerInvoiceDetail,
   InvoiceDashboardSummary,
+  InvoiceDocumentDownload,
+  InvoiceDocumentType,
   InvoiceListParams,
   InvoiceListResponse,
   InvoiceSalesEntry,
@@ -55,6 +58,55 @@ export async function fetchDealerInvoiceDashboard(): Promise<InvoiceDashboardSum
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
   }
+}
+
+export async function fetchDealerInvoiceDetail(invoiceId: string): Promise<DealerInvoiceDetail> {
+  const callable = httpsCallable<{ invoiceId: string }, DealerInvoiceDetail>(
+    functions,
+    'getDealerInvoiceDetail',
+    { timeout: 120_000 },
+  );
+  try {
+    const result = await callable({ invoiceId });
+    return result.data;
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+}
+
+export async function downloadDealerInvoiceDocument(
+  invoiceId: string,
+  documentType: InvoiceDocumentType,
+): Promise<InvoiceDocumentDownload> {
+  const callable = httpsCallable<
+    { invoiceId: string; documentType: InvoiceDocumentType },
+    InvoiceDocumentDownload
+  >(
+    functions,
+    'downloadDealerInvoiceDocument',
+    { timeout: 120_000 },
+  );
+  try {
+    const result = await callable({ invoiceId, documentType });
+    return result.data;
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+}
+
+export function saveInvoiceDocumentFile(doc: InvoiceDocumentDownload): void {
+  const binary = atob(doc.contentBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: doc.mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = doc.filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function buildSalesEntriesFromInvoices(invoices: DealerInvoice[]): InvoiceSalesEntry[] {

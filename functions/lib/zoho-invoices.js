@@ -331,6 +331,213 @@ export async function getDealerInvoiceDashboard(secrets, orgId, uid, role) {
   };
 }
 
+export function mapInvoiceLineItem(raw, imageUrl = null) {
+  return {
+    id: String(raw.line_item_id ?? raw.item_id ?? ''),
+    itemId: raw.item_id ? String(raw.item_id) : null,
+    name: String(raw.name ?? raw.item_name ?? 'Item'),
+    description: raw.description ? String(raw.description) : null,
+    sku: raw.sku ? String(raw.sku) : null,
+    quantity: Number(raw.quantity ?? 0),
+    rate: Number(raw.rate ?? 0),
+    total: Number(raw.item_total ?? raw.total ?? 0),
+    imageUrl,
+  };
+}
+
+async function zohoJsonRequest(accessToken, orgId, path, options = {}) {
+  const url = new URL(`${ZOHO_API_BASE}${path}`);
+  url.searchParams.set('organization_id', orgId);
+  const res = await fetch(url.toString(), {
+    headers: {
+      ...authHeaders(accessToken, orgId),
+      ...(options.headers ?? {}),
+    },
+  });
+  const text = await res.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+  if (!res.ok) {
+    throw new Error(payload?.message || `Zoho API error (${res.status}).`);
+  }
+  if (payload?.code !== undefined && payload.code !== 0) {
+    throw new Error(payload.message || 'Zoho API error.');
+  }
+  return payload;
+}
+
+async function fetchInvoiceRaw(accessToken, orgId, invoiceId) {
+  const payload = await zohoJsonRequest(accessToken, orgId, `/invoices/${invoiceId}`);
+  return payload?.invoice ?? null;
+}
+
+async function getCatalogImagesForItems(itemIds) {
+  const unique = [...new Set(itemIds.filter(Boolean))];
+  const map = new Map();
+  if (!unique.length) return map;
+
+  const db = getFirestore();
+  const refs = unique.map(id => db.collection('catalogProducts').doc(id));
+  const snaps = await db.getAll(...refs);
+  for (const snap of snaps) {
+    if (snap.exists) {
+      map.set(snap.id, snap.data()?.imageUrl ?? null);
+    }
+  }
+  return map;
+}
+
+async function resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw) {
+  const salesOrderId = invoiceRaw.salesorder_id ? String(invoiceRaw.salesorder_id) : null;
+  const referenceNumber = invoiceRaw.reference_number ? String(invoiceRaw.reference_number) : null;
+
+  if (salesOrderId) {
+    try {
+      const payload = await zohoJsonRequest(accessToken, orgId, `/salesorders/${salesOrderId}`);
+      const so = payload?.salesorder;
+      if (so && String(so.customer_id) === customerId) {
+        return {
+          id: String(so.salesorder_id),
+          number: so.salesorder_number ? String(so.salesorder_number) : referenceNumber,
+        };
+      }
+    } catch {
+      // Fall back to search by reference number.
+    }
+  }
+
+  if (!referenceNumber) return null;
+
+  const url = new URL(`${ZOHO_API_BASE}/salesorders`);
+  url.searchParams.set('organization_id', orgId);
+  url.searchParams.set('customer_id', customerId);
+  url.searchParams.set('search_text', referenceNumber);
+  const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
+  const text = await res.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+  if (!res.ok || payload?.code !== 0) return null;
+
+  const orders = payload?.salesorders ?? [];
+  const match =
+    orders.find(so => String(so.salesorder_number) === referenceNumber)
+    ?? orders.find(so => String(so.reference_number) === referenceNumber)
+    ?? orders[0];
+
+  if (!match) return null;
+  return {
+    id: String(match.salesorder_id),
+    number: match.salesorder_number ? String(match.salesorder_number) : referenceNumber,
+  };
+}
+
+export async function getDealerInvoiceDetail(secrets, orgId, uid, role, invoiceId) {
+  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+
+  const invoiceRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+  if (!invoiceRaw) {
+    throw new Error('Invoice not found.');
+  }
+  if (String(invoiceRaw.customer_id) !== customerId) {
+    throw new Error('Invoice not found.');
+  }
+
+  const lineItemsRaw = invoiceRaw.line_items ?? [];
+  const itemIds = lineItemsRaw.map(item => item.item_id ? String(item.item_id) : null);
+  const imageMap = await getCatalogImagesForItems(itemIds);
+  const lineItems = lineItemsRaw.map(item =>
+    mapInvoiceLineItem(item, item.item_id ? imageMap.get(String(item.item_id)) ?? null : null),
+  );
+
+  const salesOrder = await resolveSalesOrder(accessToken, organizationId, customerId, invoiceRaw);
+
+  return {
+    ...mapInvoice(invoiceRaw),
+    salesOrderId: salesOrder?.id ?? null,
+    salesOrderNumber: salesOrder?.number ?? (invoiceRaw.reference_number ? String(invoiceRaw.reference_number) : null),
+    subtotal: Number(invoiceRaw.sub_total ?? 0),
+    taxTotal: Number(invoiceRaw.tax_total ?? 0),
+    notes: invoiceRaw.notes ? String(invoiceRaw.notes) : null,
+    lineItems,
+  };
+}
+
+async function fetchZohoPdf(accessToken, orgId, resource, id) {
+  const url = new URL(`${ZOHO_API_BASE}/${resource}/${id}`);
+  url.searchParams.set('organization_id', orgId);
+  const res = await fetch(url.toString(), {
+    headers: {
+      ...authHeaders(accessToken, orgId),
+      Accept: 'application/pdf',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = `Could not download ${resource} PDF (${res.status}).`;
+    try {
+      const payload = JSON.parse(text);
+      if (payload?.message) message = payload.message;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (!buffer.length) throw new Error('PDF file is empty.');
+  return buffer;
+}
+
+export async function downloadDealerInvoiceDocument(secrets, orgId, uid, role, invoiceId, documentType) {
+  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+
+  const invoiceRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+  if (!invoiceRaw || String(invoiceRaw.customer_id) !== customerId) {
+    throw new Error('Invoice not found.');
+  }
+
+  if (documentType === 'invoice') {
+    const buffer = await fetchZohoPdf(accessToken, organizationId, 'invoices', invoiceId);
+    const number = invoiceRaw.invoice_number ? String(invoiceRaw.invoice_number) : invoiceId;
+    return {
+      contentBase64: buffer.toString('base64'),
+      filename: `${number.replace(/[^\w.-]+/g, '_')}.pdf`,
+      mimeType: 'application/pdf',
+    };
+  }
+
+  if (documentType === 'salesorder') {
+    const salesOrder = await resolveSalesOrder(accessToken, organizationId, customerId, invoiceRaw);
+    if (!salesOrder?.id) {
+      throw new Error('Sales order not found for this invoice.');
+    }
+    const buffer = await fetchZohoPdf(accessToken, organizationId, 'salesorders', salesOrder.id);
+    const number = salesOrder.number ? String(salesOrder.number) : salesOrder.id;
+    return {
+      contentBase64: buffer.toString('base64'),
+      filename: `${number.replace(/[^\w.-]+/g, '_')}.pdf`,
+      mimeType: 'application/pdf',
+    };
+  }
+
+  throw new Error('Unsupported document type.');
+}
+
 export async function listDealerInvoices(secrets, orgId, uid, role, query = {}) {
   const customerId = await resolveZohoCustomerIdForUser(uid, role);
   const accessToken = await getAccessToken(secrets);

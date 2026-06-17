@@ -23,6 +23,35 @@ export interface DealerInvoice {
   invoiceUrl: string | null;
 }
 
+export interface DealerInvoiceLineItem {
+  id: string;
+  itemId: string | null;
+  name: string;
+  description: string | null;
+  sku: string | null;
+  quantity: number;
+  rate: number;
+  total: number;
+  imageUrl: string | null;
+}
+
+export interface DealerInvoiceDetail extends DealerInvoice {
+  salesOrderId: string | null;
+  salesOrderNumber: string | null;
+  subtotal: number;
+  taxTotal: number;
+  notes: string | null;
+  lineItems: DealerInvoiceLineItem[];
+}
+
+export type InvoiceDocumentType = 'invoice' | 'salesorder';
+
+export interface InvoiceDocumentDownload {
+  contentBase64: string;
+  filename: string;
+  mimeType: string;
+}
+
 export interface InvoiceListParams {
   page?: number;
   limit?: number;

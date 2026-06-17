@@ -43,7 +43,12 @@ import {
   importCrmDealerOverlay,
   backfillDealerLocations,
 } from './lib/dealer-legacy-import.js';
-import { listDealerInvoices, getDealerInvoiceDashboard as buildDealerInvoiceDashboard } from './lib/zoho-invoices.js';
+import {
+  listDealerInvoices,
+  getDealerInvoiceDashboard as buildDealerInvoiceDashboard,
+  getDealerInvoiceDetail as fetchDealerInvoiceDetail,
+  downloadDealerInvoiceDocument as fetchDealerInvoiceDocument,
+} from './lib/zoho-invoices.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
@@ -561,6 +566,69 @@ export const getDealerInvoiceDashboard = onCall(
       );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not load invoice dashboard.');
+    }
+  },
+);
+
+/** Single invoice with line items for dealer detail view. */
+export const getDealerInvoiceDetail = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    if (!invoiceId) {
+      throw new HttpsError('invalid-argument', 'Invoice id is required.');
+    }
+    try {
+      return await fetchDealerInvoiceDetail(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        uid,
+        role,
+        invoiceId,
+      );
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not load invoice.');
+    }
+  },
+);
+
+/** Download invoice or linked sales order PDF for a dealer invoice. */
+export const downloadDealerInvoiceDocument = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    const documentType = String(request.data?.documentType ?? '').trim().toLowerCase();
+    if (!invoiceId) {
+      throw new HttpsError('invalid-argument', 'Invoice id is required.');
+    }
+    if (documentType !== 'invoice' && documentType !== 'salesorder') {
+      throw new HttpsError('invalid-argument', 'documentType must be invoice or salesorder.');
+    }
+    try {
+      return await fetchDealerInvoiceDocument(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        uid,
+        role,
+        invoiceId,
+        documentType,
+      );
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not download document.');
     }
   },
 );

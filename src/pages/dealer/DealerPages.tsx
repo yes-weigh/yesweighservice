@@ -7,11 +7,25 @@ import { OrdersPage } from './OrdersPage';
 import { ProductsPage } from './ProductsPage';
 import { SparesPage } from './SparesPage';
 import { InvoicesPage } from './InvoicesPage';
+import { InvoiceDetailPage } from './InvoiceDetailPage';
 
 function DealerInvoicesRoute() {
   const { user } = useAuth();
   if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
     return <InvoicesPage />;
+  }
+  return (
+    <PagePlaceholder
+      title="Invoice"
+      description="Create, send, and manage customer invoices and billing records."
+    />
+  );
+}
+
+function DealerInvoiceDetailRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
+    return <InvoiceDetailPage />;
   }
   return (
     <PagePlaceholder
@@ -61,6 +75,7 @@ export const DealerMenuPages = {
     />
   ),
   Invoices: DealerInvoicesRoute,
+  InvoiceDetail: DealerInvoiceDetailRoute,
   Products: ProductsPage,
   Orders: OrdersPage,
   Spares: SparesPage,

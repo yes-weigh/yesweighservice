@@ -32,6 +32,7 @@ const portalMenuRoutes = (
     <Route path="returns" element={<DealerMenuPages.Returns />} />
     <Route path="complaints" element={<DealerMenuPages.Complaints />} />
     <Route path="invoices" element={<DealerMenuPages.Invoices />} />
+    <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />} />
     <Route path="orders" element={<DealerMenuPages.Orders />} />
     <Route path="products" element={<DealerMenuPages.Products />} />
     <Route path="products/:productId" element={<ProductDetailPage />} />

@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ChevronRight, ExternalLink, FileText, RefreshCw, Search } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, ChevronRight, FileText, RefreshCw, Search } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
+import { homePathForRole } from '../../types';
 import {
   fetchDealerInvoices,
   formatInvoiceDate,
@@ -52,9 +55,13 @@ function InvoiceStatusBadge({ status }: { status: string }) {
   );
 }
 
-function InvoiceMobileCard({ invoice }: { invoice: DealerInvoice }) {
-  const body = (
-    <>
+function InvoiceMobileCard({ invoice, onOpen }: { invoice: DealerInvoice; onOpen: (id: string) => void }) {
+  return (
+    <button
+      type="button"
+      className="invoices-card invoices-card--link panel glass"
+      onClick={() => onOpen(invoice.id)}
+    >
       <div className="invoices-card__main">
         <div className="invoices-card__head">
           <strong className="invoices-card__number">{invoice.invoiceNumber || '—'}</strong>
@@ -68,35 +75,17 @@ function InvoiceMobileCard({ invoice }: { invoice: DealerInvoice }) {
         </div>
         <span className="invoices-card__total">{formatCurrency(invoice.total)}</span>
       </div>
-      {invoice.invoiceUrl && (
-        <span className="invoices-card__chevron" aria-hidden>
-          <ChevronRight size={18} />
-        </span>
-      )}
-    </>
-  );
-
-  if (invoice.invoiceUrl) {
-    return (
-      <a
-        href={invoice.invoiceUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="invoices-card invoices-card--link panel glass"
-      >
-        {body}
-      </a>
-    );
-  }
-
-  return (
-    <article className="invoices-card panel glass">
-      {body}
-    </article>
+      <span className="invoices-card__chevron" aria-hidden>
+        <ChevronRight size={18} />
+      </span>
+    </button>
   );
 }
 
 export const InvoicesPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const basePath = user ? homePathForRole(user.role) : '/dealer';
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 400);
   const [statusFilter, setStatusFilter] = useState<InvoiceListParams['status']>('all');
@@ -111,6 +100,8 @@ export const InvoicesPage: React.FC = () => {
   const [error, setError] = useState('');
 
   const mobileSortValue = `${sortField}:${sortDir}`;
+
+  const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}`);
 
   const queryParams = useMemo((): InvoiceListParams => ({
     page,
@@ -308,19 +299,13 @@ export const InvoicesPage: React.FC = () => {
                           <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
                           <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
                           <td className="invoices-table__actions">
-                            {invoice.invoiceUrl ? (
-                              <a
-                                href={invoice.invoiceUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="btn btn-secondary btn-sm"
-                              >
-                                <ExternalLink size={14} />
-                                View
-                              </a>
-                            ) : (
-                              <span className="text-muted text-sm">—</span>
-                            )}
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => openInvoice(invoice.id)}
+                            >
+                              View
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -331,7 +316,7 @@ export const InvoicesPage: React.FC = () => {
 
               <div className="invoices-cards invoices-cards--mobile">
                 {invoices.map(invoice => (
-                  <InvoiceMobileCard key={invoice.id} invoice={invoice} />
+                  <InvoiceMobileCard key={invoice.id} invoice={invoice} onOpen={openInvoice} />
                 ))}
               </div>
             </div>

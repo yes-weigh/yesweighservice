@@ -402,21 +402,23 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
 
       <section className="dealer-dash__kpis-layout" aria-label="Key metrics">
         <div className="dealer-dash-kpi dealer-dash-kpi--blue dealer-dash-kpi--featured">
-          <div className="dealer-dash-kpi__icon">
-            <IndianRupee size={24} strokeWidth={2.5} />
+          <div className="dealer-dash-kpi__featured-main">
+            <div className="dealer-dash-kpi__icon dealer-dash-kpi__icon--featured">
+              <IndianRupee strokeWidth={2.5} />
+            </div>
+            <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
+              <span className="dealer-dash-kpi__label">Total Sales</span>
+              {salesTrend && (
+                <span className={`dealer-dash-kpi__trend dealer-dash-kpi__trend--${salesTrend.trend}`}>
+                  {salesTrend.trend === 'up' ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+                  {salesTrend.label}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="dealer-dash-kpi__body">
-            <span className="dealer-dash-kpi__label">Total Sales</span>
-            <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
-              {loading ? '…' : salesSummary ? formatCurrency(salesSummary.totalSales) : ''}
-            </strong>
-            {salesTrend && (
-              <span className={`dealer-dash-kpi__trend dealer-dash-kpi__trend--${salesTrend.trend}`}>
-                {salesTrend.trend === 'up' ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                {salesTrend.label}
-              </span>
-            )}
-          </div>
+          <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
+            {loading ? '…' : salesSummary ? formatCurrency(salesSummary.totalSales) : ''}
+          </strong>
           <button
             type="button"
             className="dealer-dash-kpi__chevron-btn"
