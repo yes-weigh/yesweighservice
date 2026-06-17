@@ -206,6 +206,73 @@ export function computeSalesForPeriod(entries: InvoiceSalesEntry[], period: KpiP
   };
 }
 
+export function toDateInputValue(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function defaultCustomRange(): { start: string; end: string } {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 29);
+  return { start: toDateInputValue(start), end: toDateInputValue(end) };
+}
+
+export function parseDateInput(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+export function computeSalesForDateRange(
+  entries: InvoiceSalesEntry[],
+  periodStart: Date,
+  periodEnd: Date,
+): PeriodSalesSummary {
+  const start = startOfDay(periodStart);
+  const end = endOfDay(periodEnd);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const dayCount = Math.max(1, Math.round((end.getTime() - start.getTime()) / dayMs) + 1);
+
+  const prevPeriodEnd = new Date(start);
+  prevPeriodEnd.setDate(prevPeriodEnd.getDate() - 1);
+  prevPeriodEnd.setHours(23, 59, 59, 999);
+  const prevPeriodStart = startOfDay(prevPeriodEnd);
+  prevPeriodStart.setDate(prevPeriodStart.getDate() - (dayCount - 1));
+
+  let totalSales = 0;
+  let previousSales = 0;
+
+  for (const entry of entries) {
+    const ts = parseInvoiceDate(entry.date);
+    if (Number.isNaN(ts)) continue;
+    if (ts >= start.getTime() && ts <= end.getTime()) {
+      totalSales += entry.total;
+    } else if (ts >= prevPeriodStart.getTime() && ts <= prevPeriodEnd.getTime()) {
+      previousSales += entry.total;
+    }
+  }
+
+  let salesTrendPct: number | null = null;
+  if (previousSales > 0) {
+    salesTrendPct = ((totalSales - previousSales) / previousSales) * 100;
+  } else if (totalSales > 0) {
+    salesTrendPct = 100;
+  }
+
+  return {
+    periodStart: start.toISOString(),
+    periodEnd: end.toISOString(),
+    totalSales,
+    previousSales,
+    salesTrendPct,
+  };
+}
+
 export function formatKpiPeriodLabel(period: KpiPeriod): string {
   if (period === 'lifetime') return 'Lifetime';
   if (period === 365) return '1 year';

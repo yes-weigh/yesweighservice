@@ -22,19 +22,23 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { SalesChart } from '../../components/dashboard/SalesChart';
+import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
 import { formatCurrency } from '../../lib/catalog';
 import {
   buildSalesEntriesFromInvoices,
+  computeSalesForDateRange,
   computeSalesForPeriod,
+  defaultCustomRange,
   fetchAllDealerInvoices,
   fetchDealerInvoiceDashboard,
   formatInvoiceRelativeTime,
   formatKpiPeriodRange,
   formatKpiTrendLabel,
   invoiceStatusLabel,
+  parseDateInput,
+  toDateInputValue,
 } from '../../lib/invoices';
-import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, KpiPeriod } from '../../types/invoices';
-import { KPI_PERIOD_OPTIONS } from '../../types/invoices';
+import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, KpiPeriod, SalesRangePreset } from '../../types/invoices';
 
 type Trend = 'up' | 'down';
 
@@ -229,7 +233,11 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
   const [salesEntries, setSalesEntries] = useState<InvoiceSalesEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [salesPeriod, setSalesPeriod] = useState<KpiPeriod>(30);
+  const [rangePreset, setRangePreset] = useState<SalesRangePreset>(30);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
+  const todayInput = toDateInputValue(new Date());
 
   useEffect(() => {
     let cancelled = false;
@@ -277,7 +285,7 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
 
   const salesSummary = useMemo(() => {
     if (!salesEntries.length) {
-      if (!summary || salesPeriod !== 30) return null;
+      if (!summary || rangePreset !== 30) return null;
       return {
         periodStart: summary.periodStart,
         periodEnd: summary.periodEnd,
@@ -286,20 +294,56 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
         salesTrendPct: summary.salesTrendPct,
       };
     }
-    return computeSalesForPeriod(salesEntries, salesPeriod);
-  }, [salesEntries, salesPeriod, summary]);
+
+    if (rangePreset === 'custom') {
+      const start = parseDateInput(customStart);
+      const end = parseDateInput(customEnd);
+      if (!start || !end || start > end) return null;
+      return computeSalesForDateRange(salesEntries, start, end);
+    }
+
+    return computeSalesForPeriod(salesEntries, rangePreset);
+  }, [salesEntries, rangePreset, customStart, customEnd, summary]);
 
   const salesTrend = useMemo(() => {
     if (!salesSummary || salesSummary.salesTrendPct === null) return null;
+
+    let trendLabel: string;
+    if (rangePreset === 'custom' && salesSummary.periodStart) {
+      const days =
+        Math.round(
+          (new Date(salesSummary.periodEnd).getTime() - new Date(salesSummary.periodStart).getTime()) /
+            (24 * 60 * 60 * 1000),
+        ) + 1;
+      trendLabel = `${Math.abs(salesSummary.salesTrendPct).toFixed(1)}% vs previous ${days} days`;
+    } else {
+      trendLabel = `${Math.abs(salesSummary.salesTrendPct).toFixed(1)}% ${formatKpiTrendLabel(rangePreset as KpiPeriod)}`;
+    }
+
     return {
       trend: salesSummary.salesTrendPct >= 0 ? 'up' as Trend : 'down' as Trend,
-      label: `${Math.abs(salesSummary.salesTrendPct).toFixed(1)}% ${formatKpiTrendLabel(salesPeriod)}`,
+      label: trendLabel,
     };
-  }, [salesSummary, salesPeriod]);
+  }, [salesSummary, rangePreset]);
 
   const dateRange = salesSummary
     ? formatKpiPeriodRange(salesSummary.periodStart, salesSummary.periodEnd)
-    : 'Last 30 days';
+    : rangePreset === 'custom'
+      ? 'Custom range'
+      : 'Last 30 days';
+
+  const handleRangePresetChange = (preset: SalesRangePreset) => {
+    if (preset === 'custom') {
+      setRangePreset('custom');
+      if (!customStart || !customEnd) {
+        const defaults = defaultCustomRange();
+        setCustomStart(defaults.start);
+        setCustomEnd(defaults.end);
+      }
+      return;
+    }
+    setRangePreset(preset);
+  };
 
   const firstName = user?.displayName?.split(/\s+/)[0] ?? 'Dealer';
 
@@ -316,9 +360,37 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
             Your operations snapshot — sales, service, complaints, and orders at a glance.
           </p>
         </div>
-        <div className="dealer-dash__date-pill" aria-label="Sales period">
-          <CalendarRange size={16} />
-          <span>{dateRange}</span>
+        <div className="dealer-dash__range-tile panel glass">
+          <div className="dealer-dash__range-icon" aria-hidden>
+            <CalendarRange size={18} strokeWidth={2.25} />
+          </div>
+          <div className="dealer-dash__range-body">
+            <span className="dealer-dash__range-label">Sales period</span>
+            <SalesRangeSelect value={rangePreset} onChange={handleRangePresetChange} />
+            {rangePreset === 'custom' && (
+              <div className="dealer-dash__range-custom">
+                <input
+                  type="date"
+                  className="dealer-dash__range-date catalog-select"
+                  value={customStart}
+                  max={customEnd || todayInput}
+                  onChange={e => setCustomStart(e.target.value)}
+                  aria-label="Start date"
+                />
+                <span className="dealer-dash__range-sep" aria-hidden>–</span>
+                <input
+                  type="date"
+                  className="dealer-dash__range-date catalog-select"
+                  value={customEnd}
+                  min={customStart}
+                  max={todayInput}
+                  onChange={e => setCustomEnd(e.target.value)}
+                  aria-label="End date"
+                />
+              </div>
+            )}
+            <span className="dealer-dash__range-display">{dateRange}</span>
+          </div>
         </div>
       </header>
 
@@ -334,22 +406,7 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
             <IndianRupee size={24} strokeWidth={2.5} />
           </div>
           <div className="dealer-dash-kpi__body">
-            <div className="dealer-dash-kpi__head">
-              <span className="dealer-dash-kpi__label">Total Sales</span>
-              <div className="dealer-dash-kpi__periods" role="group" aria-label="Sales timeframe">
-                {KPI_PERIOD_OPTIONS.map(option => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`dealer-dash-kpi__period${salesPeriod === option.value ? ' is-active' : ''}`}
-                    onClick={() => setSalesPeriod(option.value)}
-                    aria-pressed={salesPeriod === option.value}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <span className="dealer-dash-kpi__label">Total Sales</span>
             <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
               {loading ? '…' : salesSummary ? formatCurrency(salesSummary.totalSales) : ''}
             </strong>

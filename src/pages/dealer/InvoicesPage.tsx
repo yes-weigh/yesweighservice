@@ -54,39 +54,26 @@ function InvoiceStatusBadge({ status }: { status: string }) {
 
 function InvoiceMobileCard({ invoice }: { invoice: DealerInvoice }) {
   const body = (
-  <>
-    <div className="invoices-card__main">
-      <div className="invoices-card__head">
-        <div className="invoices-card__title-block">
+    <>
+      <div className="invoices-card__main">
+        <div className="invoices-card__head">
           <strong className="invoices-card__number">{invoice.invoiceNumber || '—'}</strong>
+          <InvoiceStatusBadge status={invoice.status} />
+        </div>
+        <div className="invoices-card__meta">
+          <span className="invoices-card__date">{formatInvoiceDate(invoice.date)}</span>
           {invoice.referenceNumber && (
-            <span className="invoices-card__ref">Ref {invoice.referenceNumber}</span>
+            <span className="invoices-card__so">{invoice.referenceNumber}</span>
           )}
         </div>
-        <InvoiceStatusBadge status={invoice.status} />
-      </div>
-      <div className="invoices-card__row">
-        <span className="invoices-card__dates text-muted text-sm">
-          {formatInvoiceDate(invoice.date)}
-          <span className="invoices-card__dot" aria-hidden>·</span>
-          Due {formatInvoiceDate(invoice.dueDate)}
-        </span>
-      </div>
-      <div className="invoices-card__amounts">
         <span className="invoices-card__total">{formatCurrency(invoice.total)}</span>
-        {invoice.balance > 0 && (
-          <span className="invoices-card__balance">
-            Balance {formatCurrency(invoice.balance)}
-          </span>
-        )}
       </div>
-    </div>
-    {invoice.invoiceUrl && (
-      <span className="invoices-card__chevron" aria-hidden>
-        <ChevronRight size={18} />
-      </span>
-    )}
-  </>
+      {invoice.invoiceUrl && (
+        <span className="invoices-card__chevron" aria-hidden>
+          <ChevronRight size={18} />
+        </span>
+      )}
+    </>
   );
 
   if (invoice.invoiceUrl) {
