@@ -8472,33 +8472,32 @@ html::-webkit-scrollbar {
   border-color: rgba(245, 130, 32, 0.55);
 }
 
-.invoice-detail-summary {
-  margin-top: 1rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--border-glass);
+.invoice-detail-footer {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem !important;
 }
 
-.invoice-detail-summary__row {
+.invoice-detail-footer__row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: var(--text-muted);
 }
 
-.invoice-detail-summary__row--total {
-  margin-top: 0.25rem;
-  padding-top: 0.5rem;
+.invoice-detail-footer__row--total {
+  margin-top: 0.15rem;
+  padding-top: 0.55rem;
   border-top: 1px dashed var(--border-glass);
   color: var(--text-primary);
+  font-weight: 600;
 }
 
-.invoice-detail-summary__row--total strong {
-  font-size: 1.05rem;
+.invoice-detail-footer__row--total strong {
+  font-size: 1.1rem;
   font-weight: 800;
   color: var(--text-primary);
 }

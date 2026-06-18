@@ -234,26 +234,24 @@ export const InvoiceDetailPage: React.FC = () => {
                 ) : (
                   <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>
                 )}
-
-                {invoice.lineItems.length > 0 && (
-                  <div className="invoice-detail-summary">
-                    <div className="invoice-detail-summary__row">
-                      <span>Sub Total</span>
-                      <span>{formatCurrency(invoice.subtotal)}</span>
-                    </div>
-                    {invoice.taxTotal > 0 && (
-                      <div className="invoice-detail-summary__row">
-                        <span>Tax</span>
-                        <span>{formatCurrency(invoice.taxTotal)}</span>
-                      </div>
-                    )}
-                    <div className="invoice-detail-summary__row invoice-detail-summary__row--total">
-                      <span>Grand Total</span>
-                      <strong>{formatCurrency(invoice.total)}</strong>
-                    </div>
-                  </div>
-                )}
               </section>
+
+              {invoice.lineItems.length > 0 && (
+                <footer className="invoice-detail-footer panel glass">
+                  <div className="invoice-detail-footer__row">
+                    <span>Sub Total</span>
+                    <span>{formatCurrency(invoice.subtotal)}</span>
+                  </div>
+                  <div className="invoice-detail-footer__row">
+                    <span>GST</span>
+                    <span>{formatCurrency(invoice.taxTotal)}</span>
+                  </div>
+                  <div className="invoice-detail-footer__row invoice-detail-footer__row--total">
+                    <span>Grand Total</span>
+                    <strong>{formatCurrency(invoice.total)}</strong>
+                  </div>
+                </footer>
+              )}
             </>
           )}
 
