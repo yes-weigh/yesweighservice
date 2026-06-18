@@ -48,6 +48,7 @@ import {
   getDealerInvoiceDashboard as buildDealerInvoiceDashboard,
   getDealerInvoiceDetail as fetchDealerInvoiceDetail,
   downloadDealerInvoiceDocument as fetchDealerInvoiceDocument,
+  resolveZohoCustomerIdForUser,
 } from './lib/zoho-invoices.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
@@ -664,6 +665,34 @@ export const getDealers = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     return listDealers(request.data ?? {});
+  },
+);
+
+/** Dealer's own Zoho customer record — dealer / dealer_staff. */
+export const getMyDealerProfile = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    try {
+      const customerId = await resolveZohoCustomerIdForUser(uid, role);
+      const dealer = await getDealerRecord(customerId, {
+        refreshFromZoho: { force: false },
+        secrets: zohoSecrets(),
+        orgId: zohoOrganizationId.value(),
+      });
+      return { dealer };
+    } catch (err) {
+      if (err?.message === 'Dealer not found.') {
+        throw new HttpsError('not-found', err.message);
+      }
+      throw new HttpsError('internal', err?.message ?? 'Could not load dealer profile.');
+    }
   },
 );
 

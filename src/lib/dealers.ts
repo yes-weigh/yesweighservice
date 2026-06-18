@@ -55,6 +55,12 @@ export async function fetchDealerById(id: string, options?: { forceRefresh?: boo
   return (result.data as { dealer: ZohoDealer }).dealer;
 }
 
+export async function fetchMyDealerProfile(): Promise<ZohoDealer> {
+  const fn = httpsCallable(functions, 'getMyDealerProfile', { timeout: 120_000 });
+  const result = await fn();
+  return (result.data as { dealer: ZohoDealer }).dealer;
+}
+
 export async function refreshDealerFromZoho(id: string): Promise<ZohoDealer> {
   const fn = httpsCallable(functions, 'refreshZohoDealer', { timeout: 120_000 });
   const result = await fn({ id });

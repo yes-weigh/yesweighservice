@@ -336,6 +336,35 @@ html::-webkit-scrollbar {
   border-top: 1px solid var(--border-glass);
 }
 
+.profile-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 56rem;
+}
+
+.profile-page__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.profile-page__account .profile-actions {
+  border-top: 0;
+  padding: 0.75rem 0 0;
+}
+
+.profile-page__dealer {
+  padding-bottom: 1rem;
+}
+
+.profile-page__dealer .dealers-detail__form--readonly {
+  margin-top: 0;
+}
+
+.profile-page__error {
+  margin-bottom: 1rem;
+}
+
 .sidebar-profile .nav-item {
   min-height: 44px;
 }
