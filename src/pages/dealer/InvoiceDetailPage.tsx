@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Download, FileText, Headphones, Package } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { InvoiceDetailTop, type InvoiceDetailSection } from '../../components/invoices/InvoiceDetailTop';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
@@ -39,6 +40,7 @@ export const InvoiceDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState<InvoiceDocumentType | null>(null);
+  const [activeSection, setActiveSection] = useState<InvoiceDetailSection>('invoice');
 
   const handleBack = useCallback(() => navigate(invoicesPath), [navigate, invoicesPath]);
 
@@ -144,122 +146,146 @@ export const InvoiceDetailPage: React.FC = () => {
         </div>
       ) : (
         <>
-          <section className="invoice-detail-hero panel glass">
-            <div className="invoice-detail-hero__head">
-              <div>
-                <h2 className="invoice-detail-hero__title">{invoice.invoiceNumber || '—'}</h2>
-                <p className="invoice-detail-hero__meta">
-                  {formatInvoiceDate(invoice.date)}
-                  {invoice.salesOrderNumber && (
-                    <span className="invoice-detail-hero__so">{invoice.salesOrderNumber}</span>
+          <InvoiceDetailTop active={activeSection} onChange={setActiveSection} />
+
+          {activeSection === 'invoice' && (
+            <>
+              <section className="invoice-detail-hero panel glass">
+                <div className="invoice-detail-hero__head">
+                  <div>
+                    <p className="invoice-detail-hero__meta">
+                      {formatInvoiceDate(invoice.date)}
+                      {invoice.dueDate && (
+                        <span>Due {formatInvoiceDate(invoice.dueDate)}</span>
+                      )}
+                    </p>
+                  </div>
+                  <span className={`invoices-status ${statusClass(invoice.status)}`}>
+                    {invoiceStatusLabel(invoice.status)}
+                  </span>
+                </div>
+
+                <div className="invoice-detail-hero__totals">
+                  <div>
+                    <span className="invoice-detail-hero__label">Total</span>
+                    <strong>{formatCurrency(invoice.total)}</strong>
+                  </div>
+                  {invoice.balance > 0 && (
+                    <div>
+                      <span className="invoice-detail-hero__label">Balance</span>
+                      <strong className="invoice-detail-hero__balance">{formatCurrency(invoice.balance)}</strong>
+                    </div>
                   )}
-                </p>
-              </div>
-              <span className={`invoices-status ${statusClass(invoice.status)}`}>
-                {invoiceStatusLabel(invoice.status)}
-              </span>
-            </div>
-
-            <div className="invoice-detail-hero__totals">
-              <div>
-                <span className="invoice-detail-hero__label">Total</span>
-                <strong>{formatCurrency(invoice.total)}</strong>
-              </div>
-              {invoice.balance > 0 && (
-                <div>
-                  <span className="invoice-detail-hero__label">Balance</span>
-                  <strong className="invoice-detail-hero__balance">{formatCurrency(invoice.balance)}</strong>
                 </div>
-              )}
-            </div>
 
-            <div className="invoice-detail-actions">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={downloading !== null}
-                onClick={() => void handleDownload('invoice')}
-              >
-                <Download size={16} />
-                {downloading === 'invoice' ? 'Downloading…' : 'Download invoice'}
-              </button>
-              {invoice.salesOrderId && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={downloading !== null}
-                  onClick={() => void handleDownload('salesorder')}
-                >
-                  <Download size={16} />
-                  {downloading === 'salesorder' ? 'Downloading…' : 'Download SO'}
-                </button>
-              )}
-            </div>
-          </section>
+                <div className="invoice-detail-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={downloading !== null}
+                    onClick={() => void handleDownload('invoice')}
+                  >
+                    <Download size={16} />
+                    {downloading === 'invoice' ? 'Downloading…' : 'Download PDF'}
+                  </button>
+                </div>
+              </section>
 
-          <section className="invoice-detail-items panel glass">
-            <h3 className="invoice-detail-items__title">
-              Items{invoice.lineItems.length ? ` (${invoice.lineItems.length})` : ''}
-            </h3>
-            {invoice.lineItems.length ? (
-              <ul className="invoice-detail-item-list">
-                {invoice.lineItems.map(item => (
-                  <li key={item.id} className="invoice-detail-item">
-                    <div className="invoice-detail-item__image-wrap">
-                      {item.imageUrl ? (
-                        <img src={item.imageUrl} alt="" className="invoice-detail-item__image" />
-                      ) : (
-                        <span className="invoice-detail-item__placeholder" aria-hidden>
-                          <Package size={22} />
-                        </span>
-                      )}
+              <section className="invoice-detail-items panel glass">
+                <h3 className="invoice-detail-items__title">
+                  Items{invoice.lineItems.length ? ` (${invoice.lineItems.length})` : ''}
+                </h3>
+                {invoice.lineItems.length ? (
+                  <ul className="invoice-detail-item-list">
+                    {invoice.lineItems.map(item => (
+                      <li key={item.id} className="invoice-detail-item">
+                        <div className="invoice-detail-item__image-wrap">
+                          {item.imageUrl ? (
+                            <img src={item.imageUrl} alt="" className="invoice-detail-item__image" />
+                          ) : (
+                            <span className="invoice-detail-item__placeholder" aria-hidden>
+                              <Package size={22} />
+                            </span>
+                          )}
+                        </div>
+                        <div className="invoice-detail-item__body">
+                          <strong className="invoice-detail-item__name">{item.name}</strong>
+                          {item.sku && <span className="invoice-detail-item__sku">{item.sku}</span>}
+                          {item.description && (
+                            <p className="invoice-detail-item__desc">{item.description}</p>
+                          )}
+                          <div className="invoice-detail-item__pricing">
+                            <span>{formatCurrency(item.rate)} × {item.quantity}</span>
+                            <strong>{formatCurrency(item.total)}</strong>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="invoice-detail-item__service"
+                          aria-label={`Request service for ${item.name}`}
+                          onClick={() => handleServiceRequest(item)}
+                        >
+                          <Headphones size={18} aria-hidden />
+                          <span>Service</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>
+                )}
+
+                {invoice.lineItems.length > 0 && (
+                  <div className="invoice-detail-summary">
+                    <div className="invoice-detail-summary__row">
+                      <span>Sub Total</span>
+                      <span>{formatCurrency(invoice.subtotal)}</span>
                     </div>
-                    <div className="invoice-detail-item__body">
-                      <strong className="invoice-detail-item__name">{item.name}</strong>
-                      {item.sku && <span className="invoice-detail-item__sku">{item.sku}</span>}
-                      {item.description && (
-                        <p className="invoice-detail-item__desc">{item.description}</p>
-                      )}
-                      <div className="invoice-detail-item__pricing">
-                        <span>{formatCurrency(item.rate)} × {item.quantity}</span>
-                        <strong>{formatCurrency(item.total)}</strong>
+                    {invoice.taxTotal > 0 && (
+                      <div className="invoice-detail-summary__row">
+                        <span>Tax</span>
+                        <span>{formatCurrency(invoice.taxTotal)}</span>
                       </div>
+                    )}
+                    <div className="invoice-detail-summary__row invoice-detail-summary__row--total">
+                      <span>Grand Total</span>
+                      <strong>{formatCurrency(invoice.total)}</strong>
                     </div>
-                    <button
-                      type="button"
-                      className="invoice-detail-item__service"
-                      aria-label={`Request service for ${item.name}`}
-                      onClick={() => handleServiceRequest(item)}
-                    >
-                      <Headphones size={18} aria-hidden />
-                      <span>Service</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>
-            )}
-
-            {invoice.lineItems.length > 0 && (
-              <div className="invoice-detail-summary">
-                <div className="invoice-detail-summary__row">
-                  <span>Sub Total</span>
-                  <span>{formatCurrency(invoice.subtotal)}</span>
-                </div>
-                {invoice.taxTotal > 0 && (
-                  <div className="invoice-detail-summary__row">
-                    <span>Tax</span>
-                    <span>{formatCurrency(invoice.taxTotal)}</span>
                   </div>
                 )}
-                <div className="invoice-detail-summary__row invoice-detail-summary__row--total">
-                  <span>Grand Total</span>
-                  <strong>{formatCurrency(invoice.total)}</strong>
-                </div>
+              </section>
+            </>
+          )}
+
+          {activeSection === 'payments' && (
+            <section className="invoice-detail-panel panel glass invoice-detail-panel--placeholder">
+              <h3 className="invoice-detail-panel__title">Payments</h3>
+              <p className="invoice-detail-panel__empty text-muted text-sm">
+                Payment history is not available in the portal yet. Contact YesWeigh accounts for payment details.
+              </p>
+            </section>
+          )}
+
+          {activeSection === 'logistic' && (
+            <section className="invoice-detail-panel panel glass invoice-detail-panel--placeholder">
+              <h3 className="invoice-detail-panel__title">Logistics</h3>
+              <p className="invoice-detail-panel__empty text-muted text-sm">
+                Shipment tracking is not available in the portal yet. Contact YesWeigh support for delivery updates.
+              </p>
+            </section>
+          )}
+
+          {activeSection === 'qc' && (
+            <section className="invoice-detail-panel panel glass invoice-detail-panel--placeholder">
+              <h3 className="invoice-detail-panel__title">Quality control</h3>
+              <div className="invoice-detail-qc-hero">
+                <img src="/icons/qc-checked.png" alt="" className="invoice-detail-qc-hero__badge" />
               </div>
-            )}
-          </section>
+              <p className="invoice-detail-panel__empty text-muted text-sm">
+                QC records for this invoice are not available in the portal yet. Contact YesWeigh support for inspection details.
+              </p>
+            </section>
+          )}
         </>
       )}
     </div>

@@ -1,0 +1,75 @@
+import React from 'react';
+import { FileText, IndianRupee, Truck, Wallet } from 'lucide-react';
+
+export type InvoiceDetailSection = 'invoice' | 'payments' | 'logistic' | 'qc';
+
+const QC_ICON_SRC = '/icons/qc-checked.png';
+
+const SECTIONS: Array<{
+  id: InvoiceDetailSection;
+  label: string;
+  icon: React.ReactNode;
+  tone: string;
+}> = [
+  {
+    id: 'invoice',
+    label: 'Invoice',
+    icon: <FileText size={28} strokeWidth={1.75} aria-hidden />,
+    tone: 'blue',
+  },
+  {
+    id: 'payments',
+    label: 'Payments',
+    icon: (
+      <span className="invoice-detail-top__wallet-icon" aria-hidden>
+        <Wallet size={24} strokeWidth={1.75} />
+        <IndianRupee size={11} strokeWidth={2.5} />
+      </span>
+    ),
+    tone: 'purple',
+  },
+  {
+    id: 'logistic',
+    label: 'Logistic',
+    icon: <Truck size={28} strokeWidth={1.75} aria-hidden />,
+    tone: 'orange',
+  },
+  {
+    id: 'qc',
+    label: 'QC',
+    icon: (
+      <img
+        src={QC_ICON_SRC}
+        alt=""
+        className="invoice-detail-top__qc-icon"
+        width={48}
+        height={48}
+        draggable={false}
+      />
+    ),
+    tone: 'qc',
+  },
+];
+
+export const InvoiceDetailTop: React.FC<{
+  active: InvoiceDetailSection;
+  onChange: (section: InvoiceDetailSection) => void;
+}> = ({ active, onChange }) => (
+  <div className="invoice-detail-top">
+    <div className="invoice-detail-top__actions" role="tablist" aria-label="Invoice sections">
+      {SECTIONS.map(section => (
+        <button
+          key={section.id}
+          type="button"
+          role="tab"
+          aria-selected={active === section.id}
+          className={`invoice-detail-top__card invoice-detail-top__card--${section.tone} ${active === section.id ? 'is-active' : ''}`}
+          onClick={() => onChange(section.id)}
+        >
+          <span className="invoice-detail-top__card-icon">{section.icon}</span>
+          <span className="invoice-detail-top__card-label">{section.label}</span>
+        </button>
+      ))}
+    </div>
+  </div>
+);
