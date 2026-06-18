@@ -380,6 +380,58 @@ export async function uploadCatalogProductImage(
   }
 }
 
+function sanitizeDownloadFilename(value: string): string {
+  return value.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'product';
+}
+
+function extensionFromMime(mime: string): string | null {
+  if (mime === 'image/jpeg') return 'jpg';
+  if (mime === 'image/png') return 'png';
+  if (mime === 'image/webp') return 'webp';
+  if (mime === 'image/gif') return 'gif';
+  return null;
+}
+
+function extensionFromUrl(url: string): string | null {
+  try {
+    const pathname = new URL(url).pathname;
+    const match = pathname.match(/\.([a-zA-Z0-9]+)$/);
+    return match ? match[1].toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function downloadCatalogProductImage(
+  imageUrl: string,
+  opts: { productName?: string; sku?: string | null; productId?: string },
+): Promise<void> {
+  const baseName = sanitizeDownloadFilename(
+    opts.sku?.trim() || opts.productName?.trim() || opts.productId || 'product',
+  );
+
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error('Could not download image.');
+    const blob = await response.blob();
+    const ext = extensionFromMime(blob.type) || extensionFromUrl(imageUrl) || 'jpg';
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${baseName}.${ext}`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch {
+    const ext = extensionFromUrl(imageUrl) || 'jpg';
+    const link = document.createElement('a');
+    link.href = imageUrl;
+    link.download = `${baseName}.${ext}`;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.click();
+  }
+}
+
 export async function syncCatalog(): Promise<{ syncedCount: number; syncedAt: string }> {
   const callable = httpsCallable<undefined, { syncedCount: number; syncedAt: string }>(
     functions,

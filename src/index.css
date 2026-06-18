@@ -3216,11 +3216,17 @@ html::-webkit-scrollbar {
   color: color-mix(in srgb, var(--cat-accent) 35%, #94a3b8);
 }
 
-.product-detail-page__image-upload {
+.product-detail-page__image-actions {
   position: absolute;
   right: 0.65rem;
   bottom: 0.65rem;
   z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.product-detail-page__image-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3235,12 +3241,12 @@ html::-webkit-scrollbar {
   transition: background 0.15s ease, transform 0.15s ease;
 }
 
-.product-detail-page__image-upload:hover:not(:disabled) {
+.product-detail-page__image-action:hover:not(:disabled) {
   background: rgba(15, 23, 42, 0.9);
   transform: scale(1.04);
 }
 
-.product-detail-page__image-upload:disabled {
+.product-detail-page__image-action:disabled {
   opacity: 0.7;
   cursor: wait;
 }

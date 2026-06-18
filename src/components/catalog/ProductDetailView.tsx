@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Camera,
   ChevronRight,
+  Download,
   IndianRupee,
   Link2,
   Package,
@@ -12,6 +13,7 @@ import {
   Tag,
 } from 'lucide-react';
 import {
+  downloadCatalogProductImage,
   fetchCatalog,
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
@@ -95,6 +97,7 @@ export const ProductDetailView: React.FC<{
   const [editorSaving, setEditorSaving] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
+  const [imageDownloading, setImageDownloading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -230,6 +233,23 @@ export const ProductDetailView: React.FC<{
     }
   };
 
+  const handleImageDownload = async () => {
+    if (!product?.imageUrl) return;
+    setImageDownloading(true);
+    setImageError(null);
+    try {
+      await downloadCatalogProductImage(product.imageUrl, {
+        productName: product.name,
+        sku: product.sku,
+        productId: product.id,
+      });
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Could not download image.');
+    } finally {
+      setImageDownloading(false);
+    }
+  };
+
   if (error && !product) {
     return (
       <div className={`product-detail-page product-detail-page--${variant}`}>
@@ -295,13 +315,27 @@ export const ProductDetailView: React.FC<{
               <Package size={72} className="product-detail-page__placeholder" aria-hidden />
             )}
             {canUploadImage && (
-              <>
+              <div className="product-detail-page__image-actions">
+                {product.imageUrl && (
+                  <button
+                    type="button"
+                    className="product-detail-page__image-action"
+                    title="Download product photo"
+                    aria-label="Download product photo"
+                    disabled={imageDownloading || imageUploading}
+                    onClick={() => void handleImageDownload()}
+                  >
+                    {imageDownloading
+                      ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                      : <Download size={18} aria-hidden />}
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="product-detail-page__image-upload"
+                  className="product-detail-page__image-action"
                   title="Capture or upload product photo"
                   aria-label="Capture or upload product photo"
-                  disabled={imageUploading}
+                  disabled={imageUploading || imageDownloading}
                   onClick={() => imageInputRef.current?.click()}
                 >
                   {imageUploading
@@ -317,7 +351,7 @@ export const ProductDetailView: React.FC<{
                   aria-label="Product photo"
                   onChange={e => void handleImagePick(e)}
                 />
-              </>
+              </div>
             )}
           </div>
           {imageError && (
