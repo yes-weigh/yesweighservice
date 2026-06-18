@@ -5,7 +5,6 @@ import { AlertCircle, LogOut } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import type { FirestoreUserDoc } from '../../types';
-import { ROLE_LABELS, normalizeRole } from '../../types';
 import { formatLoginIdDisplay, loginIdTypeLabel } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import { DealerDetailReadView } from '../../components/dealers/DealerDetailReadView';
@@ -75,47 +74,59 @@ export const ProfilePage: React.FC = () => {
 
   return (
     <div className="page-content fade-in profile-page">
-      <div className="panel glass profile-page__account">
-        <h2 className="profile-page__title">Account</h2>
-        <div className="config-box">
-          <p><span className="text-muted">Name:</span> <span className="highlight">{profile.displayName}</span></p>
-          <p>
-            <span className="text-muted">Login ID ({loginIdTypeLabel(login.type)}):</span>{' '}
-            {formatLoginIdDisplay(login.type, login.value)}
-          </p>
-          {profile.email && (
-            <p><span className="text-muted">Email:</span> {profile.email}</p>
-          )}
-          <p><span className="text-muted">Role:</span> {ROLE_LABELS[normalizeRole(String(profile.role)) ?? 'staff']}</p>
-          <p><span className="text-muted">Phone:</span> {profile.phone || '—'}</p>
-        </div>
+      <div className="panel glass profile-page__panel">
+        {isDealerPortalUser ? (
+          <>
+            {dealerError && (
+              <div className="products-inline-error profile-page__error">
+                <AlertCircle size={18} />
+                <span>{dealerError}</span>
+              </div>
+            )}
+            {dealerLoading && !dealer ? (
+              <FetchingLoader label="Loading profile…" />
+            ) : dealer ? (
+              <DealerDetailReadView
+                dealer={dealer}
+                portalAccount={{
+                  loginLabel: `Login ID (${loginIdTypeLabel(login.type)})`,
+                  loginValue: formatLoginIdDisplay(login.type, login.value),
+                }}
+              />
+            ) : (
+              <div className="config-box">
+                <p><span className="text-muted">Name:</span> <span className="highlight">{profile.displayName}</span></p>
+                <p>
+                  <span className="text-muted">Login ID ({loginIdTypeLabel(login.type)}):</span>{' '}
+                  {formatLoginIdDisplay(login.type, login.value)}
+                </p>
+                {!dealerError && (
+                  <p className="text-muted text-sm">Dealer details are not available for this account.</p>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="config-box">
+            <p><span className="text-muted">Name:</span> <span className="highlight">{profile.displayName}</span></p>
+            <p>
+              <span className="text-muted">Login ID ({loginIdTypeLabel(login.type)}):</span>{' '}
+              {formatLoginIdDisplay(login.type, login.value)}
+            </p>
+            {profile.email && (
+              <p><span className="text-muted">Email:</span> {profile.email}</p>
+            )}
+            <p><span className="text-muted">Phone:</span> {profile.phone || '—'}</p>
+          </div>
+        )}
 
-        <div className="profile-actions">
+        <div className="profile-page__signout">
           <button type="button" className="logout-btn" onClick={handleLogout}>
             <LogOut size={16} />
             Sign out
           </button>
         </div>
       </div>
-
-      {isDealerPortalUser && (
-        <div className="panel glass profile-page__dealer">
-          <h2 className="profile-page__title">Dealer details</h2>
-          {dealerError && (
-            <div className="products-inline-error profile-page__error">
-              <AlertCircle size={18} />
-              <span>{dealerError}</span>
-            </div>
-          )}
-          {dealerLoading && !dealer ? (
-            <FetchingLoader label="Loading dealer details…" />
-          ) : dealer ? (
-            <DealerDetailReadView dealer={dealer} />
-          ) : !dealerError ? (
-            <p className="text-muted text-sm">Dealer details are not available for this account.</p>
-          ) : null}
-        </div>
-      )}
     </div>
   );
 };

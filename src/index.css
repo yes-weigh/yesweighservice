@@ -339,30 +339,27 @@ html::-webkit-scrollbar {
 .profile-page {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
   max-width: 56rem;
 }
 
-.profile-page__title {
-  margin: 0 0 0.75rem;
-  font-size: 1.1rem;
+.profile-page__panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.profile-page__account .profile-actions {
-  border-top: 0;
-  padding: 0.75rem 0 0;
-}
-
-.profile-page__dealer {
-  padding-bottom: 1rem;
-}
-
-.profile-page__dealer .dealers-detail__form--readonly {
+.profile-page__panel .dealers-detail__form--readonly {
   margin-top: 0;
 }
 
 .profile-page__error {
   margin-bottom: 1rem;
+}
+
+.profile-page__signout {
+  margin-top: auto;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-glass);
 }
 
 .sidebar-profile .nav-item {
@@ -6616,12 +6613,20 @@ html::-webkit-scrollbar {
 
 .dealers-detail__summary {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.dealers-detail__field.dealers-detail__summary {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .dealers-detail__summary-main {
@@ -6645,6 +6650,8 @@ html::-webkit-scrollbar {
 
 .dealers-detail__summary-status {
   flex-shrink: 0;
+  margin-left: auto;
+  align-self: flex-start;
 }
 
 .dealers-detail__readonly-value {

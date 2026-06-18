@@ -86,7 +86,13 @@ function ReadOnlyToggle({ label, checked }: { label: string; checked: boolean })
   );
 }
 
-export const DealerDetailReadView: React.FC<{ dealer: ZohoDealer }> = ({ dealer }) => {
+export const DealerDetailReadView: React.FC<{
+  dealer: ZohoDealer;
+  portalAccount?: {
+    loginLabel: string;
+    loginValue: string;
+  };
+}> = ({ dealer, portalAccount }) => {
   const name = dealer.companyName || dealer.contactName;
   const statusMeta = getDealerStatusMeta({ dealerStage: dealer.dealerStage, signedIn: dealer.signedIn });
   const contactPersonName = contactPersonDisplayName(dealer);
@@ -211,6 +217,10 @@ export const DealerDetailReadView: React.FC<{ dealer: ZohoDealer }> = ({ dealer 
       <ReadOnlyToggle label="Can buy spare parts" checked={dealer.canBuySpares !== false} />
       <ReadOnlyToggle label="Order online · pay offline" checked={dealer.orderPayOffline !== false} />
       <ReadOnlyToggle label="Order and pay online" checked={Boolean(dealer.orderPayOnline)} />
+
+      {portalAccount && (
+        <ReadOnlyField label={portalAccount.loginLabel} value={portalAccount.loginValue} />
+      )}
     </div>
   );
 };
