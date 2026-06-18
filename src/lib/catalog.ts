@@ -62,6 +62,40 @@ export function getUncategorizedProducts(products: CatalogProduct[]): CatalogPro
   return products.filter(p => !hasCatalogCategory(p));
 }
 
+/** Spare link data from catalogProductSpareMap. */
+export interface SpareLinkIndex {
+  linkedSpareIds: Set<string>;
+  spareCountByProductId: Map<string, number>;
+}
+
+export async function fetchSpareLinkIndex(): Promise<SpareLinkIndex> {
+  const snap = await getDocs(collection(db, 'catalogProductSpareMap'));
+  const linkedSpareIds = new Set<string>();
+  const spareCountByProductId = new Map<string, number>();
+  for (const docSnap of snap.docs) {
+    const spareIds = docSnap.data().spareIds;
+    if (!Array.isArray(spareIds)) continue;
+    const valid = spareIds.filter(id => id).map(String);
+    spareCountByProductId.set(docSnap.id, valid.length);
+    for (const id of valid) linkedSpareIds.add(id);
+  }
+  return { linkedSpareIds, spareCountByProductId };
+}
+
+/** Spare IDs referenced in any product spare map. */
+export async function fetchLinkedSpareIds(): Promise<Set<string>> {
+  const { linkedSpareIds } = await fetchSpareLinkIndex();
+  return linkedSpareIds;
+}
+
+/** Ungrouped catalog items not mapped to any product. */
+export function getUnlinkedSpares(
+  products: CatalogProduct[],
+  linkedSpareIds: Set<string>,
+): CatalogProduct[] {
+  return getUncategorizedProducts(products).filter(p => !linkedSpareIds.has(p.id));
+}
+
 export function getCategoriesForProducts(
   categories: CatalogCategory[],
   products: CatalogProduct[],

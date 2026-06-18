@@ -62,6 +62,15 @@ export interface CatalogBrowseProps {
   onSearchChange?: (value: string) => void;
   /** Hide the built-in search/filter bar (e.g. spares page mode bar search). */
   hideFilterBar?: boolean;
+  /** Passed through navigation state so detail pages can return to the correct spares tab. */
+  returnView?: string;
+  /** Staff — quick action on product tiles (e.g. link unlinked spare to products). */
+  manageItemLabel?: string;
+  onManageItem?: (product: CatalogProduct) => void;
+  emptyTitle?: string;
+  emptyHint?: string;
+  /** Staff spares view — linked spare count per product id. */
+  spareLinkCountByProductId?: Map<string, number>;
 }
 
 function ProductListRow({
@@ -196,6 +205,12 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   searchQuery: controlledSearch,
   onSearchChange,
   hideFilterBar = false,
+  returnView,
+  manageItemLabel,
+  onManageItem,
+  emptyTitle,
+  emptyHint,
+  spareLinkCountByProductId,
 }) => {
   const navigate = useNavigate();
   const [internalSearch, setInternalSearch] = useState('');
@@ -214,7 +229,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     if (productsBasePath) {
       const returnCategoryId = activeCategory || product.categoryId || '';
       navigate(`${productsBasePath}/${product.id}`, {
-        state: { preview: product, returnCategoryId },
+        state: { preview: product, returnCategoryId, returnView },
       });
       return;
     }
@@ -400,11 +415,11 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
           ) : filteredProducts.length === 0 ? (
             <div className="catalog-empty panel glass">
               <Package size={40} />
-              <p>{flatBrowse && !search.trim() ? 'No spares in catalog' : 'No products found'}</p>
+              <p>{emptyTitle ?? (flatBrowse && !search.trim() ? 'No spares in catalog' : 'No products found')}</p>
               <span className="text-muted text-sm">
-                {flatBrowse && !search.trim()
+                {emptyHint ?? (flatBrowse && !search.trim()
                   ? 'Ungrouped Zoho items appear here after catalog sync.'
-                  : 'Try adjusting your filters or search term.'}
+                  : 'Try adjusting your filters or search term.')}
               </span>
             </div>
           ) : filterMode === 'minimal' || viewMode === 'grid' ? (
@@ -417,6 +432,20 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   onSelect={() => openProduct(product)}
                   enableCart={enableCart}
                   showStockQuantity={showStockQuantity}
+                  manageLabel={onManageItem ? manageItemLabel : undefined}
+                  onManage={
+                    onManageItem
+                      ? event => {
+                          event.stopPropagation();
+                          onManageItem(product);
+                        }
+                      : undefined
+                  }
+                  linkedSpareCount={
+                    spareLinkCountByProductId !== undefined
+                      ? spareLinkCountByProductId.get(product.id) ?? 0
+                      : undefined
+                  }
                 />
               ))}
             </div>

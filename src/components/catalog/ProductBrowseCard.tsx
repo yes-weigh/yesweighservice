@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { IndianRupee, Package, ShoppingCart } from 'lucide-react';
+import { IndianRupee, Link2, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
@@ -13,6 +13,9 @@ export interface ProductBrowseCardProps {
   onSelect: () => void;
   enableCart?: boolean;
   showStockQuantity?: boolean;
+  manageLabel?: string;
+  onManage?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  linkedSpareCount?: number;
 }
 
 function formatProductTitle(name: string): string {
@@ -29,6 +32,9 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   onSelect,
   enableCart = false,
   showStockQuantity = false,
+  manageLabel,
+  onManage,
+  linkedSpareCount,
 }) => {
   const { addItem, isInCart } = useCart();
   const { flyToCart } = useCartFly();
@@ -87,8 +93,30 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
               compact
             />
           )}
+          {linkedSpareCount !== undefined && (
+            <span
+              className={`catalog-product-card__spare-count ${linkedSpareCount === 0 ? 'catalog-product-card__spare-count--none' : ''}`}
+            >
+              <Link2 size={12} aria-hidden />
+              {linkedSpareCount === 0
+                ? 'No spares linked'
+                : `${linkedSpareCount} spare${linkedSpareCount === 1 ? '' : 's'} linked`}
+            </span>
+          )}
         </div>
       </button>
+
+      {onManage && manageLabel && (
+        <button
+          type="button"
+          className="catalog-product-card__manage-btn"
+          onClick={onManage}
+          aria-label={manageLabel}
+          title={manageLabel}
+        >
+          <Link2 size={16} />
+        </button>
+      )}
 
       {enableCart && (
         <button

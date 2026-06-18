@@ -12,12 +12,14 @@ export const ProductDetailPage: React.FC = () => {
   const isPublic = location.pathname.startsWith('/oc/');
   const isSpares = /\/spares\/[^/]+$/.test(location.pathname)
     && !/\/spares\/product\//.test(location.pathname);
+  const navState = location.state as { preview?: CatalogProduct; returnView?: string } | null;
+  const preview = navState?.preview ?? null;
+  const returnView = navState?.returnView;
   const backPath = isPublic
     ? '/oc'
     : isSpares
-      ? location.pathname.replace(/\/[^/]+$/, '') + '?view=spares'
+      ? `${location.pathname.replace(/\/[^/]+$/, '')}?view=${returnView === 'unlinked' ? 'unlinked' : 'spares'}`
       : location.pathname.replace(/\/[^/]+$/, '');
-  const preview = (location.state as { preview?: CatalogProduct } | null)?.preview ?? null;
   const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin';
   const showStockQuantity = showWarehouseStock;
   const showCartActions = canUseCart(user?.role);
