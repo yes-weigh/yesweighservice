@@ -11,14 +11,13 @@ import {
   FileText,
   GraduationCap,
   IndianRupee,
-  MessageSquareWarning,
+  LifeBuoy,
   Package,
   Plus,
   ShieldCheck,
   ShoppingCart,
   TrendingUp,
   Users,
-  Wrench,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { SalesChart } from '../../components/dashboard/SalesChart';
@@ -30,12 +29,14 @@ import {
   computeSalesForPeriod,
   defaultCustomRange,
   fetchAllDealerInvoices,
-  fetchDealerInvoiceDashboard,
+  fetchDealerInvoiceDashboardWithCache,
   formatInvoiceRelativeTime,
   formatKpiPeriodRange,
   formatKpiTrendLabel,
   invoiceStatusLabel,
   parseDateInput,
+  readCachedAllDealerInvoices,
+  readCachedDealerInvoiceDashboard,
   toDateInputValue,
 } from '../../lib/invoices';
 import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, KpiPeriod, SalesRangePreset } from '../../types/invoices';
@@ -87,79 +88,43 @@ function invoiceActivityTone(status: string): ActivityItem['tone'] {
   return 'blue';
 }
 
-function buildSecondaryKpis(base: string, isDealerStaff: boolean): KpiCard[] {
-  const cards: KpiCard[] = [
+function buildSecondaryKpis(base: string): KpiCard[] {
+  return [
     {
-      id: 'services',
-      label: 'Pending Services',
+      id: 'support',
+      label: 'Warranty & Support',
       value: '',
-      path: `${base}/${isDealerStaff ? 'service' : 'services'}`,
+      path: `${base}/warranty-support`,
       tone: 'green',
-      icon: <Wrench size={22} strokeWidth={2.5} />,
+      icon: <LifeBuoy size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'orders',
+      label: 'Pending Orders',
+      value: '',
+      path: `${base}/orders`,
+      tone: 'orange',
+      icon: <ShoppingCart size={22} strokeWidth={2.5} />,
     },
   ];
-
-  if (!isDealerStaff) {
-    cards.push(
-      {
-        id: 'complaints',
-        label: 'Pending Complaints',
-        value: '',
-        path: `${base}/complaints`,
-        tone: 'red',
-        icon: <MessageSquareWarning size={22} strokeWidth={2.5} />,
-      },
-      {
-        id: 'orders',
-        label: 'Pending Orders',
-        value: '',
-        path: `${base}/orders`,
-        tone: 'orange',
-        icon: <ShoppingCart size={22} strokeWidth={2.5} />,
-      },
-    );
-  } else {
-    cards.push(
-      {
-        id: 'returns',
-        label: 'Pending Returns',
-        value: '',
-        path: `${base}/returns`,
-        tone: 'red',
-        icon: <MessageSquareWarning size={22} strokeWidth={2.5} />,
-      },
-      {
-        id: 'orders',
-        label: 'Cart & Orders',
-        value: '',
-        path: `${base}/orders`,
-        tone: 'orange',
-        icon: <ShoppingCart size={22} strokeWidth={2.5} />,
-      },
-    );
-  }
-
-  return cards;
 }
 
 function buildQuickActions(base: string, isDealerStaff: boolean): QuickAction[] {
   const actions: QuickAction[] = [
     {
-      label: 'New Service',
-      path: `${base}/${isDealerStaff ? 'service' : 'services'}`,
-      icon: <Wrench size={20} />,
+      label: 'Warranty & Support',
+      path: `${base}/warranty-support`,
+      icon: <LifeBuoy size={20} />,
     },
   ];
   if (!isDealerStaff) {
     actions.push(
-      { label: 'New Complaint', path: `${base}/complaints`, icon: <MessageSquareWarning size={20} /> },
       { label: 'New Order', path: `${base}/products`, icon: <Boxes size={20} /> },
       { label: 'Verification', path: `${base}/verification`, icon: <ShieldCheck size={20} /> },
       { label: 'View Invoices', path: `${base}/invoices`, icon: <FileText size={20} /> },
     );
   } else {
     actions.push(
-      { label: 'Returns', path: `${base}/returns`, icon: <Boxes size={20} /> },
       { label: 'Verification', path: `${base}/verification`, icon: <ShieldCheck size={20} /> },
       { label: 'Products', path: `${base}/products`, icon: <Package size={20} /> },
       { label: 'View Invoices', path: `${base}/invoices`, icon: <FileText size={20} /> },
@@ -241,44 +206,71 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
 
   useEffect(() => {
     let cancelled = false;
+    const uid = user?.uid;
 
     const load = async () => {
-      setLoading(true);
-      setError(null);
+      let usedCache = false;
+
+      if (uid) {
+        const cached = readCachedDealerInvoiceDashboard(uid);
+        if (cached) {
+          setSummary(cached);
+          if (cached.salesEntries?.length) {
+            setSalesEntries(cached.salesEntries);
+          } else {
+            const cachedAll = readCachedAllDealerInvoices(uid);
+            if (cachedAll?.length) {
+              setSalesEntries(buildSalesEntriesFromInvoices(cachedAll));
+            }
+          }
+          setLoading(false);
+          usedCache = true;
+        } else {
+          setLoading(true);
+        }
+      } else {
+        setLoading(true);
+      }
+
+      if (!usedCache) setError(null);
 
       try {
-        const data = await fetchDealerInvoiceDashboard();
+        const data = await fetchDealerInvoiceDashboardWithCache(uid);
         if (cancelled) return;
         setSummary(data);
 
         if (data.salesEntries?.length) {
           setSalesEntries(data.salesEntries);
         } else {
-          const invoices = await fetchAllDealerInvoices();
+          const invoices = await fetchAllDealerInvoices(uid);
           if (!cancelled) {
             setSalesEntries(buildSalesEntriesFromInvoices(invoices));
           }
         }
+        setError(null);
       } catch (err) {
-        if (!cancelled) {
+        if (cancelled) return;
+        if (!usedCache) {
           setSummary(null);
           setSalesEntries([]);
           setError(err instanceof Error ? err.message : 'Could not load dashboard data.');
+        } else {
+          setError('Could not refresh dashboard. Showing saved data.');
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
 
-    load();
+    void load();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user?.uid]);
 
   const invoicesPath = `${basePath}/invoices`;
-  const secondaryKpis = buildSecondaryKpis(basePath, isDealerStaff);
+  const secondaryKpis = buildSecondaryKpis(basePath);
   const quickActions = buildQuickActions(basePath, isDealerStaff);
   const activities = summary ? buildActivitiesFromInvoices(summary.recentInvoices, invoicesPath) : [];
   const miniStats = buildMiniStats(basePath);

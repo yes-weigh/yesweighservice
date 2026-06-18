@@ -6,10 +6,11 @@ import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
 import { homePathForRole } from '../../types';
 import {
-  fetchDealerInvoices,
+  fetchDealerInvoicesWithCache,
   formatInvoiceDate,
   invoiceErrorMessage,
   invoiceStatusLabel,
+  readCachedDealerInvoices,
 } from '../../lib/invoices';
 import type { DealerInvoice, InvoiceListParams } from '../../types/invoices';
 import { INVOICE_STATUS_OPTIONS } from '../../types/invoices';
@@ -97,6 +98,7 @@ export const InvoicesPage: React.FC = () => {
   const [invoices, setInvoices] = useState<DealerInvoice[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
   const mobileSortValue = `${sortField}:${sortDir}`;
@@ -113,20 +115,44 @@ export const InvoicesPage: React.FC = () => {
   }), [page, debouncedSearch, statusFilter, sortField, sortDir]);
 
   const loadInvoices = useCallback(async () => {
-    setLoading(true);
-    setError('');
+    const uid = user?.uid;
+    let usedCache = false;
+
+    if (uid) {
+      const cached = readCachedDealerInvoices(uid, queryParams);
+      if (cached) {
+        setInvoices(cached.data);
+        setTotal(cached.pagination.total);
+        setLoading(false);
+        setRefreshing(true);
+        usedCache = true;
+      } else {
+        setLoading(true);
+      }
+    } else {
+      setLoading(true);
+    }
+
+    if (!usedCache) setError('');
+
     try {
-      const res = await fetchDealerInvoices(queryParams);
+      const res = await fetchDealerInvoicesWithCache(uid, queryParams);
       setInvoices(res.data);
       setTotal(res.pagination.total);
+      setError('');
     } catch (err) {
-      setError(invoiceErrorMessage(err));
-      setInvoices([]);
-      setTotal(0);
+      if (!usedCache) {
+        setError(invoiceErrorMessage(err));
+        setInvoices([]);
+        setTotal(0);
+      } else {
+        setError('Could not refresh. Showing saved invoices.');
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [queryParams]);
+  }, [queryParams, user?.uid]);
 
   useEffect(() => {
     void loadInvoices();
@@ -184,11 +210,11 @@ export const InvoicesPage: React.FC = () => {
           <button
             type="button"
             className="invoices-toolbar__refresh"
-            disabled={loading}
+            disabled={loading && invoices.length === 0}
             aria-label="Refresh invoices"
             onClick={() => void loadInvoices()}
           >
-            <RefreshCw size={17} className={loading ? 'spin-icon' : undefined} />
+            <RefreshCw size={17} className={loading || refreshing ? 'spin-icon' : undefined} />
           </button>
         </div>
 
@@ -220,7 +246,11 @@ export const InvoicesPage: React.FC = () => {
           </select>
 
           <span className="invoices-toolbar__count" aria-live="polite">
-            {total > 0 ? `${total.toLocaleString('en-IN')} invoices` : 'No invoices'}
+            {loading && invoices.length === 0
+              ? 'Loading…'
+              : total > 0
+                ? `${total.toLocaleString('en-IN')} invoices`
+                : 'No invoices'}
           </span>
         </div>
       </header>

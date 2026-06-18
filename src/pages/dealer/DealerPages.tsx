@@ -8,6 +8,8 @@ import { ProductsPage } from './ProductsPage';
 import { SparesPage } from './SparesPage';
 import { InvoicesPage } from './InvoicesPage';
 import { InvoiceDetailPage } from './InvoiceDetailPage';
+import { WarrantySupportPage } from './WarrantySupportPage';
+import { SupportRequestDetailPage } from './SupportRequestDetailPage';
 
 function DealerInvoicesRoute() {
   const { user } = useAuth();
@@ -56,24 +58,16 @@ export const RoleDashboard: React.FC = () => {
 };
 
 export const DealerMenuPages = {
-  Services: () => (
-    <PagePlaceholder
-      title="Services"
-      description="Manage service jobs, appointments, and customer service requests."
-    />
-  ),
-  Returns: () => (
-    <PagePlaceholder
-      title="Returns"
-      description="Process product returns, RMA requests, and return-to-vendor workflows."
-    />
-  ),
-  Complaints: () => (
-    <PagePlaceholder
-      title="Complaints"
-      description="Track and resolve customer complaints and follow-up actions."
-    />
-  ),
+  WarrantySupport: WarrantySupportPage,
+  SupportRequestDetail: SupportRequestDetailPage,
+  /** @deprecated Use WarrantySupport */
+  Services: WarrantySupportPage,
+  /** @deprecated Use WarrantySupport */
+  ServiceRequestNew: WarrantySupportPage,
+  /** @deprecated Redirects to WarrantySupport */
+  Returns: WarrantySupportPage,
+  /** @deprecated Redirects to WarrantySupport */
+  Complaints: WarrantySupportPage,
   Invoices: DealerInvoicesRoute,
   InvoiceDetail: DealerInvoiceDetailRoute,
   Products: ProductsPage,

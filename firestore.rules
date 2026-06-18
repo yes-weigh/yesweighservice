@@ -193,5 +193,129 @@ service cloud.firestore {
 
       allow delete: if isSuperAdmin();
     }
+
+    function isDealerStaff() {
+      return signedIn() && isDealerStaffRole(role());
+    }
+
+    function validServiceRequestCreate() {
+      let data = request.resource.data;
+      return data.requestNumber is string
+        && data.requestNumber.size() > 0
+        && data.status == 'pending'
+        && data.invoiceId is string
+        && data.invoiceNumber is string
+        && data.item is map
+        && data.item.lineItemId is string
+        && data.item.name is string
+        && data.issue is string
+        && data.issue.size() > 0
+        && data.createdAt is string
+        && data.createdByUid == request.auth.uid
+        && data.createdByName is string
+        && data.dealerId is string
+        && (
+          (isDealer() && data.dealerId == request.auth.uid)
+          || (isDealerStaff() && data.dealerId == userDealerId(userDoc()))
+        );
+    }
+
+    function validDealerSupportCreate() {
+      let data = request.resource.data;
+      return data.type is string
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && data.requestNumber is string
+        && data.requestNumber.size() > 0
+        && data.status == 'pending'
+        && data.category is string
+        && data.category.size() > 0
+        && data.description is string
+        && data.description.size() > 0
+        && data.createdAt is string
+        && data.createdByUid == request.auth.uid
+        && data.createdByName is string
+        && data.dealerId is string
+        && (
+          (isDealer() && data.dealerId == request.auth.uid)
+          || (isDealerStaff() && data.dealerId == userDealerId(userDoc()))
+        );
+    }
+
+    match /dealerSupportRequests/{requestId} {
+      allow read: if isActiveUser() && (
+        isOpsUser()
+        || (isDealer() && resource.data.dealerId == request.auth.uid)
+        || (isDealerStaff() && resource.data.dealerId == userDealerId(userDoc()))
+      );
+
+      allow create: if isActiveUser()
+        && (isDealer() || isDealerStaff())
+        && validDealerSupportCreate();
+
+      allow update: if isActiveUser() && (
+        isOpsUser()
+        || (
+          isSupportRequestDealerAccess(resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['updatedAt', 'lastMessageAt', 'lastMessagePreview'])
+        )
+      );
+
+      allow delete: if isSuperAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isActiveUser() && canReadSupportRequest(requestId);
+
+        allow create: if isActiveUser()
+          && canReadSupportRequest(requestId)
+          && canWriteSupportMessage(requestId)
+          && validSupportMessageCreate();
+
+        allow update, delete: if false;
+      }
+    }
+
+    function canReadSupportRequest(requestId) {
+      let req = get(/databases/$(database)/documents/dealerSupportRequests/$(requestId)).data;
+      return isOpsUser()
+        || (isDealer() && req.dealerId == request.auth.uid)
+        || (isDealerStaff() && req.dealerId == userDealerId(userDoc()));
+    }
+
+    function isSupportRequestDealerAccess(data) {
+      return (isDealer() && data.dealerId == request.auth.uid)
+        || (isDealerStaff() && data.dealerId == userDealerId(userDoc()));
+    }
+
+    function canWriteSupportMessage(requestId) {
+      let req = get(/databases/$(database)/documents/dealerSupportRequests/$(requestId)).data;
+      return isOpsUser() || req.status != 'cancelled';
+    }
+
+    function validSupportMessageCreate() {
+      let data = request.resource.data;
+      return data.authorUid == request.auth.uid
+        && data.authorName is string
+        && data.authorRole is string
+        && data.createdAt is string
+        && data.text is string
+        && data.attachments is list;
+    }
+
+    match /serviceRequests/{requestId} {
+      allow read: if isActiveUser() && (
+        isOpsUser()
+        || (isDealer() && resource.data.dealerId == request.auth.uid)
+        || (isDealerStaff() && resource.data.dealerId == userDealerId(userDoc()))
+      );
+
+      allow create: if isActiveUser()
+        && (isDealer() || isDealerStaff())
+        && validServiceRequestCreate();
+
+      allow update: if isActiveUser() && isOpsUser();
+
+      allow delete: if isSuperAdmin();
+    }
   }
 }

@@ -11,6 +11,16 @@ import type {
   InvoiceSalesEntry,
   KpiPeriod,
 } from '../types/invoices';
+import {
+  getCachedAllInvoices,
+  getCachedInvoiceDashboard,
+  getCachedInvoiceDetail,
+  getCachedInvoiceList,
+  setCachedAllInvoices,
+  setCachedInvoiceDashboard,
+  setCachedInvoiceDetail,
+  setCachedInvoiceList,
+} from './invoice-cache';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -46,6 +56,23 @@ export async function fetchDealerInvoices(params: InvoiceListParams = {}): Promi
   }
 }
 
+export async function fetchDealerInvoicesWithCache(
+  userId: string | undefined,
+  params: InvoiceListParams = {},
+): Promise<InvoiceListResponse> {
+  const res = await fetchDealerInvoices(params);
+  if (userId) setCachedInvoiceList(userId, params, res);
+  return res;
+}
+
+export function readCachedDealerInvoices(
+  userId: string | undefined,
+  params: InvoiceListParams = {},
+): InvoiceListResponse | null {
+  if (!userId) return null;
+  return getCachedInvoiceList(userId, params)?.data ?? null;
+}
+
 export async function fetchDealerInvoiceDashboard(): Promise<InvoiceDashboardSummary> {
   const callable = httpsCallable<undefined, InvoiceDashboardSummary>(
     functions,
@@ -60,6 +87,21 @@ export async function fetchDealerInvoiceDashboard(): Promise<InvoiceDashboardSum
   }
 }
 
+export async function fetchDealerInvoiceDashboardWithCache(
+  userId: string | undefined,
+): Promise<InvoiceDashboardSummary> {
+  const res = await fetchDealerInvoiceDashboard();
+  if (userId) setCachedInvoiceDashboard(userId, res);
+  return res;
+}
+
+export function readCachedDealerInvoiceDashboard(
+  userId: string | undefined,
+): InvoiceDashboardSummary | null {
+  if (!userId) return null;
+  return getCachedInvoiceDashboard(userId)?.data ?? null;
+}
+
 export async function fetchDealerInvoiceDetail(invoiceId: string): Promise<DealerInvoiceDetail> {
   const callable = httpsCallable<{ invoiceId: string }, DealerInvoiceDetail>(
     functions,
@@ -72,6 +114,23 @@ export async function fetchDealerInvoiceDetail(invoiceId: string): Promise<Deale
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
   }
+}
+
+export async function fetchDealerInvoiceDetailWithCache(
+  userId: string | undefined,
+  invoiceId: string,
+): Promise<DealerInvoiceDetail> {
+  const res = await fetchDealerInvoiceDetail(invoiceId);
+  if (userId) setCachedInvoiceDetail(userId, invoiceId, res);
+  return res;
+}
+
+export function readCachedDealerInvoiceDetail(
+  userId: string | undefined,
+  invoiceId: string,
+): DealerInvoiceDetail | null {
+  if (!userId) return null;
+  return getCachedInvoiceDetail(userId, invoiceId)?.data ?? null;
 }
 
 export async function downloadDealerInvoiceDocument(
@@ -118,14 +177,14 @@ export function buildSalesEntriesFromInvoices(invoices: DealerInvoice[]): Invoic
     }));
 }
 
-export async function fetchAllDealerInvoices(): Promise<DealerInvoice[]> {
+export async function fetchAllDealerInvoices(userId?: string): Promise<DealerInvoice[]> {
   const limit = 100;
   let page = 1;
   let totalPages = 1;
   const all: DealerInvoice[] = [];
 
   while (page <= totalPages) {
-    const res = await fetchDealerInvoices({
+    const res = await fetchDealerInvoicesWithCache(userId, {
       page,
       limit,
       sortField: 'date',
@@ -136,7 +195,13 @@ export async function fetchAllDealerInvoices(): Promise<DealerInvoice[]> {
     page += 1;
   }
 
+  if (userId) setCachedAllInvoices(userId, all);
   return all;
+}
+
+export function readCachedAllDealerInvoices(userId: string | undefined): DealerInvoice[] | null {
+  if (!userId) return null;
+  return getCachedAllInvoices(userId)?.data ?? null;
 }
 
 export function formatInvoiceDate(value: string | null | undefined): string {

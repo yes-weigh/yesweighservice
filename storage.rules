@@ -2,9 +2,68 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return userDoc().role;
+    }
+
+    function isSuperAdmin() {
+      return signedIn() && (role() == 'super_admin' || role() == 'admin');
+    }
+
+    function isStaff() {
+      return signedIn() && role() == 'staff';
+    }
+
+    function isOpsUser() {
+      return isSuperAdmin() || isStaff();
+    }
+
+    function isDealer() {
+      return signedIn() && (role() == 'dealer' || role() == 'director');
+    }
+
+    function isDealerStaffRole(r) {
+      return r == 'dealer_staff' || r == 'director_staff';
+    }
+
+    function userDealerId(data) {
+      return data.dealerId != null ? data.dealerId : data.directorId;
+    }
+
+    function isActiveUser() {
+      return signedIn() && userDoc().active != false;
+    }
+
+    function canAccessSupportRequest(requestId) {
+      let req = firestore.get(/databases/(default)/documents/dealerSupportRequests/$(requestId)).data;
+      return isActiveUser() && (
+        isOpsUser()
+        || (isDealer() && req.dealerId == request.auth.uid)
+        || (isDealerStaffRole(role()) && req.dealerId == userDealerId(userDoc()))
+      );
+    }
+
     match /catalog/{allPaths=**} {
       allow read: if true;
       allow write: if false;
+    }
+
+    match /support/{requestId}/{messageId}/{fileName} {
+      allow read: if canAccessSupportRequest(requestId);
+      allow write: if canAccessSupportRequest(requestId)
+        && request.resource.size < 52 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType.matches('video/.*')
+        );
     }
   }
 }

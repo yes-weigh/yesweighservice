@@ -14,6 +14,7 @@ import { AdminStaffList } from './pages/admin/AdminStaffList';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
 import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
+import { LegacySupportNewRedirect, LegacySupportRedirect } from './pages/dealer/LegacySupportRedirect';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -27,10 +28,13 @@ const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }
 
 const portalMenuRoutes = (
   <>
-    <Route path="service" element={<Navigate to="../services" replace />} />
-    <Route path="services" element={<DealerMenuPages.Services />} />
-    <Route path="returns" element={<DealerMenuPages.Returns />} />
-    <Route path="complaints" element={<DealerMenuPages.Complaints />} />
+    <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
+    <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
+    <Route path="service" element={<LegacySupportRedirect />} />
+    <Route path="services" element={<LegacySupportRedirect />} />
+    <Route path="services/new" element={<LegacySupportNewRedirect />} />
+    <Route path="returns" element={<LegacySupportRedirect />} />
+    <Route path="complaints" element={<LegacySupportRedirect />} />
     <Route path="invoices" element={<DealerMenuPages.Invoices />} />
     <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />} />
     <Route path="orders" element={<DealerMenuPages.Orders />} />
@@ -111,8 +115,14 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['dealer_staff']} />}>
             <Route path="/dealer-staff" element={<Layout />}>
               <Route index element={<RoleDashboard />} />
-              <Route path="service" element={<DealerMenuPages.Services />} />
-              <Route path="returns" element={<DealerMenuPages.Returns />} />
+              <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
+              <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
+              <Route path="service" element={<LegacySupportRedirect />} />
+              <Route path="service/new" element={<LegacySupportNewRedirect />} />
+              <Route path="returns" element={<LegacySupportRedirect />} />
+              <Route path="complaints" element={<LegacySupportRedirect />} />
+              <Route path="invoices" element={<DealerMenuPages.Invoices />} />
+              <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />} />
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="products/:productId" element={<ProductDetailPage />} />
               <Route path="spares" element={<DealerMenuPages.Spares />} />

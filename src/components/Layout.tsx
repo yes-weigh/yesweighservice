@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Package,
   Boxes,
+  LifeBuoy,
   ShieldCheck,
   GraduationCap,
   Bell,
@@ -49,6 +50,11 @@ function portalNavItems(home: string, itemCount: number, order: 'default' | 'sta
     },
     spares: { path: `${home}/spares`, icon: <Boxes size={20} />, label: 'Spares' },
     complaints: { path: `${home}/complaints`, icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
+    warrantySupport: {
+      path: `${home}/warranty-support`,
+      icon: <LifeBuoy size={20} />,
+      label: 'Warranty & Support',
+    },
     services: { path: `${home}/services`, icon: <Wrench size={20} />, label: 'Services' },
     returns: { path: `${home}/returns`, icon: <RotateCcw size={20} />, label: 'Returns' },
     verification: { path: `${home}/verification`, icon: <ShieldCheck size={20} />, label: 'Verifications' },
@@ -65,9 +71,7 @@ function portalNavItems(home: string, itemCount: number, order: 'default' | 'sta
           'orders',
           'products',
           'spares',
-          'complaints',
-          'services',
-          'returns',
+          'warrantySupport',
           'verification',
           'advertisements',
           'invoices',
@@ -79,9 +83,7 @@ function portalNavItems(home: string, itemCount: number, order: 'default' | 'sta
           'products',
           'orders',
           'spares',
-          'complaints',
-          'services',
-          'returns',
+          'warrantySupport',
           'verification',
           'advertisements',
           'invoices',
@@ -164,8 +166,7 @@ const LayoutShell: React.FC = () => {
       case 'dealer_staff':
         return [
           { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/dealer-staff/service', icon: <Wrench size={20} />, label: 'Service' },
-          { path: '/dealer-staff/returns', icon: <RotateCcw size={20} />, label: 'Returns' },
+          { path: '/dealer-staff/warranty-support', icon: <LifeBuoy size={20} />, label: 'Warranty & Support' },
           { path: '/dealer-staff/products', icon: <Package size={20} />, label: 'Products' },
           { path: '/dealer-staff/spares', icon: <Boxes size={20} />, label: 'Spares' },
           {
@@ -213,12 +214,15 @@ const LayoutShell: React.FC = () => {
     ? location.pathname.replace(/\/[^/]+$/, '')
     : null;
   const isInvoiceDetail = /\/invoices\/[^/]+$/.test(location.pathname);
+  const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname);
   const pageTitle = isProfileActive
     ? 'Profile'
     : isDealerDetail
       ? 'Dealer'
     : isInvoiceDetail
       ? 'Invoice'
+    : isSupportDetail
+      ? 'Support'
     : isSpareMapDetail
       ? 'Map spares'
     : isProductDetail

@@ -10,6 +10,7 @@ import {
   CalendarRange,
   ChevronRight,
   ClipboardList,
+  LifeBuoy,
   ListTodo,
   MessageSquareWarning,
   Package,
@@ -19,7 +20,6 @@ import {
   TrendingUp,
   UserCheck,
   UserRoundPlus,
-  Wrench,
 } from 'lucide-react';
 import { SalesChart } from '../../components/dashboard/SalesChart';
 import { useAuth } from '../../context/AuthContext';
@@ -88,24 +88,14 @@ function buildKpis(stats: DealerStats | null): KpiCard[] {
       icon: <Building2 size={22} strokeWidth={2.5} />,
     },
     {
-      id: 'services',
-      label: 'Pending Services',
-      value: '18',
+      id: 'support',
+      label: 'Warranty & Support',
+      value: '—',
       trend: 'up',
-      trendLabel: '5 vs last 30 days',
-      path: `${BASE}/services`,
+      trendLabel: 'Dealer tickets',
+      path: `${BASE}/warranty-support`,
       tone: 'green',
-      icon: <Wrench size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'complaints',
-      label: 'Pending Complaints',
-      value: '12',
-      trend: 'down',
-      trendLabel: '3 vs last 30 days',
-      path: `${BASE}/complaints`,
-      tone: 'red',
-      icon: <MessageSquareWarning size={22} strokeWidth={2.5} />,
+      icon: <LifeBuoy size={22} strokeWidth={2.5} />,
     },
     {
       id: 'orders',
@@ -124,7 +114,7 @@ const QUICK_ACTIONS: QuickAction[] = [
   { label: 'Manage Dealers', path: `${BASE}/dealers`, icon: <Building2 size={20} /> },
   { label: 'Leads', path: `${BASE}/leads`, icon: <UserRoundPlus size={20} /> },
   { label: 'Tasks', path: `${BASE}/tasks`, icon: <ListTodo size={20} /> },
-  { label: 'New Service', path: `${BASE}/services`, icon: <Wrench size={20} /> },
+  { label: 'Warranty & Support', path: `${BASE}/warranty-support`, icon: <LifeBuoy size={20} /> },
   { label: 'Products', path: `${BASE}/products`, icon: <Package size={20} /> },
   { label: 'Verification', path: `${BASE}/verification`, icon: <ShieldCheck size={20} /> },
 ];
@@ -152,7 +142,7 @@ const ACTIVITIES: ActivityItem[] = [
     description: 'Annual maintenance scheduled for dealer in Korba.',
     time: '4h ago',
     tone: 'green',
-    icon: <Wrench size={16} />,
+    icon: <LifeBuoy size={16} />,
   },
   {
     id: '4',

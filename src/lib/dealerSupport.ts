@@ -1,0 +1,359 @@
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+  type DocumentData,
+  type Unsubscribe,
+} from 'firebase/firestore';
+import { db } from '../firebase';
+import type { User } from '../types';
+import { isOpsRole } from '../types';
+import type {
+  CreateSupportRequestInput,
+  DealerSupportRequest,
+  SendSupportMessageInput,
+  SupportMessage,
+  SupportRequestStatus,
+  SupportRequestType,
+} from '../types/dealer-support';
+import { uploadSupportAttachments } from './supportAttachments';
+
+const REQUEST_PREFIX: Record<SupportRequestType, string> = {
+  service: 'SRV',
+  return: 'RMA',
+  complaint: 'CMP',
+};
+
+function resolveDealerId(user: User): string {
+  if (user.role === 'dealer') return user.uid;
+  if (user.dealerId) return user.dealerId;
+  return user.uid;
+}
+
+function buildRequestNumber(type: SupportRequestType): string {
+  const year = new Date().getFullYear();
+  const suffix = String(Math.floor(Math.random() * 900000) + 100000);
+  return `${REQUEST_PREFIX[type]}-${year}-${suffix}`;
+}
+
+function previewText(text: string, attachmentCount: number): string {
+  const trimmed = text.trim();
+  if (trimmed) return trimmed.slice(0, 140);
+  if (attachmentCount > 0) return `${attachmentCount} attachment${attachmentCount > 1 ? 's' : ''}`;
+  return 'New message';
+}
+
+function mapAttachment(raw: DocumentData): SupportMessage['attachments'][number] {
+  return {
+    id: String(raw.id ?? ''),
+    kind: raw.kind === 'video' ? 'video' : 'image',
+    url: String(raw.url ?? ''),
+    storagePath: String(raw.storagePath ?? ''),
+    fileName: String(raw.fileName ?? 'file'),
+    mimeType: String(raw.mimeType ?? ''),
+    size: Number(raw.size ?? 0),
+  };
+}
+
+function mapMessage(id: string, data: DocumentData): SupportMessage {
+  const attachmentsRaw = Array.isArray(data.attachments) ? data.attachments : [];
+  return {
+    id,
+    text: String(data.text ?? ''),
+    attachments: attachmentsRaw.map(item => mapAttachment(item as DocumentData)),
+    authorUid: String(data.authorUid ?? ''),
+    authorName: String(data.authorName ?? ''),
+    authorRole: String(data.authorRole ?? ''),
+    createdAt: String(data.createdAt ?? ''),
+    isInitial: data.isInitial === true,
+  };
+}
+
+export function mapSupportRequest(id: string, data: DocumentData): DealerSupportRequest {
+  const legacyItem = data.item as DocumentData | undefined;
+  const product = data.product as DocumentData | undefined;
+
+  return {
+    id,
+    type: (data.type ?? 'service') as SupportRequestType,
+    requestNumber: String(data.requestNumber ?? ''),
+    status: (data.status ?? 'pending') as SupportRequestStatus,
+    invoiceId: data.invoiceId ? String(data.invoiceId) : null,
+    invoiceNumber: data.invoiceNumber ? String(data.invoiceNumber) : null,
+    salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
+    product: product || legacyItem
+      ? {
+          lineItemId: product?.lineItemId || legacyItem?.lineItemId
+            ? String(product?.lineItemId ?? legacyItem?.lineItemId)
+            : null,
+          itemId: product?.itemId || legacyItem?.itemId
+            ? String(product?.itemId ?? legacyItem?.itemId)
+            : null,
+          name: String(product?.name ?? legacyItem?.name ?? 'Product'),
+          sku: product?.sku || legacyItem?.sku ? String(product?.sku ?? legacyItem?.sku) : null,
+          quantity: Number(product?.quantity ?? legacyItem?.quantity ?? 1),
+        }
+      : null,
+    category: String(data.category ?? data.issue ?? ''),
+    subject: data.subject ? String(data.subject) : null,
+    description: String(data.description ?? data.notes ?? ''),
+    notes: data.notes ? String(data.notes) : null,
+    createdAt: String(data.createdAt ?? ''),
+    updatedAt: String(data.updatedAt ?? data.createdAt ?? ''),
+    lastMessageAt: data.lastMessageAt ? String(data.lastMessageAt) : null,
+    lastMessagePreview: data.lastMessagePreview ? String(data.lastMessagePreview) : null,
+    createdByUid: String(data.createdByUid ?? ''),
+    createdByName: String(data.createdByName ?? ''),
+    dealerId: String(data.dealerId ?? ''),
+    dealerName: data.dealerName ? String(data.dealerName) : null,
+    legacyCollection: data.legacyCollection as DealerSupportRequest['legacyCollection'],
+  };
+}
+
+export function supportBasePath(role: User['role']): string {
+  const base = role === 'dealer_staff' ? '/dealer-staff' : role === 'staff' ? '/staff' : '/dealer';
+  return `${base}/warranty-support`;
+}
+
+export function supportDetailPath(role: User['role'], requestId: string): string {
+  return `${supportBasePath(role)}/${requestId}`;
+}
+
+/** @deprecated Use supportBasePath */
+export function servicesBasePath(role: User['role']): string {
+  return supportBasePath(role);
+}
+
+export function canUserAccessSupportRequest(user: User, request: DealerSupportRequest): boolean {
+  if (isOpsRole(user.role)) return true;
+  const dealerId = resolveDealerId(user);
+  return request.dealerId === dealerId;
+}
+
+export async function getSupportRequest(requestId: string): Promise<DealerSupportRequest | null> {
+  const current = await getDoc(doc(db, 'dealerSupportRequests', requestId));
+  if (current.exists()) {
+    return mapSupportRequest(current.id, current.data());
+  }
+  const legacy = await getDoc(doc(db, 'serviceRequests', requestId));
+  if (legacy.exists()) {
+    return mapSupportRequest(legacy.id, {
+      ...legacy.data(),
+      type: 'service',
+      legacyCollection: 'serviceRequests',
+    });
+  }
+  return null;
+}
+
+export async function sendSupportMessage(
+  user: User,
+  requestId: string,
+  input: SendSupportMessageInput,
+): Promise<SupportMessage> {
+  const request = await getSupportRequest(requestId);
+  if (!request) throw new Error('Support request not found.');
+  if (!canUserAccessSupportRequest(user, request)) {
+    throw new Error('You do not have permission to message this request.');
+  }
+  if (request.legacyCollection) {
+    throw new Error('Chat is not available for older requests.');
+  }
+  if (!isOpsRole(user.role) && request.status === 'cancelled') {
+    throw new Error('This request is closed and cannot receive new messages.');
+  }
+
+  const text = input.text.trim();
+  const files = input.files ?? [];
+  if (!text && files.length === 0) {
+    throw new Error('Enter a message or attach a file.');
+  }
+
+  const messageRef = doc(collection(db, 'dealerSupportRequests', requestId, 'messages'));
+  const attachments = files.length
+    ? await uploadSupportAttachments(requestId, messageRef.id, files)
+    : [];
+
+  const now = new Date().toISOString();
+  const payload = {
+    text,
+    attachments,
+    authorUid: user.uid,
+    authorName: user.displayName,
+    authorRole: user.role,
+    createdAt: now,
+    isInitial: input.isInitial === true,
+  };
+
+  await setDoc(messageRef, payload);
+
+  const updates: Record<string, string> = {
+    updatedAt: now,
+    lastMessageAt: now,
+    lastMessagePreview: previewText(text, attachments.length),
+  };
+
+  if (isOpsRole(user.role) && request.status === 'pending') {
+    updates.status = 'in_progress';
+  }
+
+  await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
+
+  return mapMessage(messageRef.id, payload);
+}
+
+export async function createSupportRequest(
+  user: User,
+  input: CreateSupportRequestInput,
+): Promise<DealerSupportRequest> {
+  const now = new Date().toISOString();
+  const hasProduct = Boolean(input.itemName?.trim() || input.invoiceNumber?.trim());
+
+  const data = {
+    type: input.type,
+    requestNumber: buildRequestNumber(input.type),
+    status: 'pending' as const,
+    invoiceId: input.invoiceId ?? null,
+    invoiceNumber: input.invoiceNumber?.trim() || null,
+    salesOrderNumber: input.salesOrderNumber ?? null,
+    product: hasProduct
+      ? {
+          lineItemId: input.lineItemId ?? null,
+          itemId: input.itemId ?? null,
+          name: input.itemName?.trim() || 'Product',
+          sku: input.itemSku ?? null,
+          quantity: input.quantity ?? 1,
+        }
+      : null,
+    category: input.category.trim(),
+    subject: input.subject?.trim() || null,
+    description: input.description.trim(),
+    notes: input.notes?.trim() || null,
+    createdAt: now,
+    updatedAt: now,
+    lastMessageAt: null,
+    lastMessagePreview: null,
+    createdByUid: user.uid,
+    createdByName: user.displayName,
+    dealerId: resolveDealerId(user),
+    dealerName: user.displayName,
+  };
+
+  const docRef = await addDoc(collection(db, 'dealerSupportRequests'), data);
+  const request = mapSupportRequest(docRef.id, data);
+
+  await sendSupportMessage(user, docRef.id, {
+    text: input.description.trim(),
+    files: input.attachmentFiles,
+    isInitial: true,
+  });
+
+  return request;
+}
+
+export function subscribeSupportMessages(
+  requestId: string,
+  onData: (messages: SupportMessage[]) => void,
+  onError?: (err: Error) => void,
+): Unsubscribe {
+  const q = query(
+    collection(db, 'dealerSupportRequests', requestId, 'messages'),
+    orderBy('createdAt', 'asc'),
+  );
+  return onSnapshot(
+    q,
+    snap => {
+      onData(snap.docs.map(docSnap => mapMessage(docSnap.id, docSnap.data())));
+    },
+    err => onError?.(err instanceof Error ? err : new Error('Could not load messages.')),
+  );
+}
+
+export function subscribeSupportRequest(
+  requestId: string,
+  onData: (request: DealerSupportRequest | null) => void,
+): Unsubscribe {
+  return onSnapshot(doc(db, 'dealerSupportRequests', requestId), snap => {
+    if (!snap.exists()) {
+      onData(null);
+      return;
+    }
+    onData(mapSupportRequest(snap.id, snap.data()));
+  });
+}
+
+export async function fetchDealerSupportRequests(user: User): Promise<DealerSupportRequest[]> {
+  const dealerId = resolveDealerId(user);
+
+  const [currentSnap, legacySnap] = await Promise.all([
+    getDocs(
+      query(
+        collection(db, 'dealerSupportRequests'),
+        where('dealerId', '==', dealerId),
+        orderBy('updatedAt', 'desc'),
+        limit(100),
+      ),
+    ),
+    getDocs(
+      query(
+        collection(db, 'serviceRequests'),
+        where('dealerId', '==', dealerId),
+        orderBy('createdAt', 'desc'),
+        limit(100),
+      ),
+    ),
+  ]);
+
+  const current = currentSnap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
+  const legacy = legacySnap.docs.map(docSnap =>
+    mapSupportRequest(docSnap.id, { ...docSnap.data(), type: 'service', legacyCollection: 'serviceRequests' }),
+  );
+
+  const seen = new Set<string>();
+  return [...current, ...legacy]
+    .filter(item => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    })
+    .sort((a, b) => {
+      const aTs = a.lastMessageAt ?? a.createdAt;
+      const bTs = b.lastMessageAt ?? b.createdAt;
+      return bTs.localeCompare(aTs);
+    })
+    .slice(0, 100);
+}
+
+export async function fetchOpsSupportRequests(): Promise<DealerSupportRequest[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, 'dealerSupportRequests'),
+      orderBy('updatedAt', 'desc'),
+      limit(200),
+    ),
+  );
+  return snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
+}
+
+export async function updateSupportRequestStatus(
+  user: User,
+  requestId: string,
+  status: SupportRequestStatus,
+): Promise<void> {
+  if (!isOpsRole(user.role)) {
+    throw new Error('Only staff can update request status.');
+  }
+  await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
+    status,
+    updatedAt: new Date().toISOString(),
+  });
+}

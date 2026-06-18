@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, Download, FileText, Package } from 'lucide-react';
+import { AlertCircle, Download, FileText, Headphones, Package } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
@@ -8,13 +8,16 @@ import { formatCurrency } from '../../lib/catalog';
 import { homePathForRole } from '../../types';
 import {
   downloadDealerInvoiceDocument,
-  fetchDealerInvoiceDetail,
+  fetchDealerInvoiceDetailWithCache,
   formatInvoiceDate,
   invoiceErrorMessage,
   invoiceStatusLabel,
+  readCachedDealerInvoiceDetail,
   saveInvoiceDocumentFile,
 } from '../../lib/invoices';
-import type { DealerInvoiceDetail, InvoiceDocumentType } from '../../types/invoices';
+import { supportBasePath } from '../../lib/dealerSupport';
+import type { DealerInvoiceDetail, DealerInvoiceLineItem, InvoiceDocumentType } from '../../types/invoices';
+import type { SupportProductDraft } from '../../types/dealer-support';
 
 function statusClass(status: string): string {
   const key = status.toLowerCase();
@@ -48,17 +51,38 @@ export const InvoiceDetailPage: React.FC = () => {
   useEffect(() => {
     if (!invoiceId) return;
     let cancelled = false;
-    setLoading(true);
-    setError('');
+    const uid = user?.uid;
+    let usedCache = false;
 
-    fetchDealerInvoiceDetail(invoiceId)
+    if (uid) {
+      const cached = readCachedDealerInvoiceDetail(uid, invoiceId);
+      if (cached) {
+        setInvoice(cached);
+        setLoading(false);
+        usedCache = true;
+      } else {
+        setLoading(true);
+      }
+    } else {
+      setLoading(true);
+    }
+
+    if (!usedCache) setError('');
+
+    fetchDealerInvoiceDetailWithCache(uid, invoiceId)
       .then(data => {
-        if (!cancelled) setInvoice(data);
+        if (!cancelled) {
+          setInvoice(data);
+          setError('');
+        }
       })
       .catch(err => {
-        if (!cancelled) {
+        if (cancelled) return;
+        if (!usedCache) {
           setInvoice(null);
           setError(invoiceErrorMessage(err));
+        } else {
+          setError('Could not refresh. Showing saved invoice.');
         }
       })
       .finally(() => {
@@ -68,7 +92,7 @@ export const InvoiceDetailPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [invoiceId]);
+  }, [invoiceId, user?.uid]);
 
   const handleDownload = async (documentType: InvoiceDocumentType) => {
     if (!invoiceId || downloading) return;
@@ -84,6 +108,21 @@ export const InvoiceDetailPage: React.FC = () => {
     }
   };
 
+  const handleServiceRequest = (item: DealerInvoiceLineItem) => {
+    if (!invoice || !invoiceId || !user) return;
+    const draft: SupportProductDraft = {
+      invoiceId,
+      invoiceNumber: invoice.invoiceNumber,
+      salesOrderNumber: invoice.salesOrderNumber,
+      lineItemId: item.id,
+      itemId: item.itemId,
+      itemName: item.name,
+      itemSku: item.sku,
+      quantity: item.quantity,
+    };
+    navigate(supportBasePath(user.role), { state: { draft, intent: 'service' as const } });
+  };
+
   if (!invoiceId) return null;
 
   return (
@@ -95,7 +134,7 @@ export const InvoiceDetailPage: React.FC = () => {
         </div>
       )}
 
-      {loading ? (
+      {loading && !invoice ? (
         <FetchingLoader label="Loading invoice…" />
       ) : !invoice ? (
         <div className="invoices-empty panel glass">
@@ -159,7 +198,9 @@ export const InvoiceDetailPage: React.FC = () => {
           </section>
 
           <section className="invoice-detail-items panel glass">
-            <h3 className="invoice-detail-items__title">Items</h3>
+            <h3 className="invoice-detail-items__title">
+              Items{invoice.lineItems.length ? ` (${invoice.lineItems.length})` : ''}
+            </h3>
             {invoice.lineItems.length ? (
               <ul className="invoice-detail-item-list">
                 {invoice.lineItems.map(item => (
@@ -184,11 +225,39 @@ export const InvoiceDetailPage: React.FC = () => {
                         <strong>{formatCurrency(item.total)}</strong>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      className="invoice-detail-item__service"
+                      aria-label={`Request service for ${item.name}`}
+                      onClick={() => handleServiceRequest(item)}
+                    >
+                      <Headphones size={18} aria-hidden />
+                      <span>Service</span>
+                    </button>
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>
+            )}
+
+            {invoice.lineItems.length > 0 && (
+              <div className="invoice-detail-summary">
+                <div className="invoice-detail-summary__row">
+                  <span>Sub Total</span>
+                  <span>{formatCurrency(invoice.subtotal)}</span>
+                </div>
+                {invoice.taxTotal > 0 && (
+                  <div className="invoice-detail-summary__row">
+                    <span>Tax</span>
+                    <span>{formatCurrency(invoice.taxTotal)}</span>
+                  </div>
+                )}
+                <div className="invoice-detail-summary__row invoice-detail-summary__row--total">
+                  <span>Grand Total</span>
+                  <strong>{formatCurrency(invoice.total)}</strong>
+                </div>
+              </div>
             )}
           </section>
         </>

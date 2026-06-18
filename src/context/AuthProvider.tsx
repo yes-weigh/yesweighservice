@@ -14,6 +14,7 @@ import { AuthContext } from './auth-context';
 import { authEmailForLoginId, parseLoginId } from '../lib/loginAuth';
 import { contactFieldsForLogin, resolveProfileLogin } from '../lib/profileLogin';
 import { authErrorMessage } from '../lib/authErrors';
+import { clearInvoiceCacheForUser } from '../lib/invoice-cache';
 
 const INACTIVE_MESSAGE = 'Your account is inactive. Contact YesWeigh super admin.';
 
@@ -132,6 +133,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    const uid = auth.currentUser?.uid;
+    if (uid) clearInvoiceCacheForUser(uid);
     await signOut(auth);
     setUser(null);
   };
