@@ -7,7 +7,10 @@ import { OrdersPage } from './OrdersPage';
 import { ProductsPage } from './ProductsPage';
 import { SparesPage } from './SparesPage';
 import { InvoicesPage } from './InvoicesPage';
-import { InvoiceDetailPage } from './InvoiceDetailPage';
+import { InvoiceDetailLayout } from './InvoiceDetailLayout';
+import { InvoiceDocumentPage } from './InvoiceDocumentPage';
+import { InvoicePdfViewerPage } from './InvoicePdfViewerPage';
+import { InvoiceSectionPlaceholderPage } from './InvoiceSectionPlaceholderPage';
 import { WarrantySupportPage } from './WarrantySupportPage';
 import { SupportRequestDetailPage } from './SupportRequestDetailPage';
 
@@ -27,7 +30,7 @@ function DealerInvoicesRoute() {
 function DealerInvoiceDetailRoute() {
   const { user } = useAuth();
   if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
-    return <InvoiceDetailPage />;
+    return <InvoiceDetailLayout />;
   }
   return (
     <PagePlaceholder
@@ -70,6 +73,11 @@ export const DealerMenuPages = {
   Complaints: WarrantySupportPage,
   Invoices: DealerInvoicesRoute,
   InvoiceDetail: DealerInvoiceDetailRoute,
+  InvoiceDocument: InvoiceDocumentPage,
+  InvoicePdfViewer: InvoicePdfViewerPage,
+  InvoicePayments: () => <InvoiceSectionPlaceholderPage section="payments" />,
+  InvoiceLogistic: () => <InvoiceSectionPlaceholderPage section="logistic" />,
+  InvoiceQc: () => <InvoiceSectionPlaceholderPage section="qc" />,
   Products: ProductsPage,
   Orders: OrdersPage,
   Spares: SparesPage,

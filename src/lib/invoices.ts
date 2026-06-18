@@ -154,18 +154,28 @@ export async function downloadDealerInvoiceDocument(
 }
 
 export function saveInvoiceDocumentFile(doc: InvoiceDocumentDownload): void {
-  const binary = atob(doc.contentBase64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  const blob = new Blob([bytes], { type: doc.mimeType });
+  const blob = invoiceDocumentToBlob(doc);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = doc.filename;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function invoiceDocumentToBlob(doc: InvoiceDocumentDownload): Blob {
+  const binary = atob(doc.contentBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: doc.mimeType });
+}
+
+export async function loadInvoiceDocumentObjectUrl(invoiceId: string): Promise<string> {
+  const doc = await downloadDealerInvoiceDocument(invoiceId, 'invoice');
+  const blob = invoiceDocumentToBlob(doc);
+  return URL.createObjectURL(blob);
 }
 
 export function buildSalesEntriesFromInvoices(invoices: DealerInvoice[]): InvoiceSalesEntry[] {
@@ -258,6 +268,82 @@ function endOfDay(date: Date): Date {
   return d;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function financialYearStart(date: Date): Date {
+  const month = date.getMonth();
+  const year = date.getFullYear();
+  const startYear = month >= 3 ? year : year - 1;
+  return startOfDay(new Date(startYear, 3, 1));
+}
+
+function resolvePeriodBounds(
+  period: KpiPeriod,
+  now = new Date(),
+): {
+  periodStart: Date;
+  periodEnd: Date;
+  prevPeriodStart: Date;
+  prevPeriodEnd: Date;
+} | null {
+  const periodEnd = endOfDay(now);
+
+  if (typeof period === 'number') {
+    const periodStart = startOfDay(now);
+    periodStart.setDate(periodStart.getDate() - (period - 1));
+    const prevPeriodEnd = endOfDay(addDays(periodStart, -1));
+    const prevPeriodStart = startOfDay(addDays(prevPeriodEnd, -(period - 1)));
+    return { periodStart, periodEnd, prevPeriodStart, prevPeriodEnd };
+  }
+
+  if (period === 'lifetime') {
+    return null;
+  }
+
+  if (period === 'current_month') {
+    const periodStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
+    const prevPeriodStart = startOfDay(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    const prevPeriodEnd = endOfDay(new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()));
+    return { periodStart, periodEnd, prevPeriodStart, prevPeriodEnd };
+  }
+
+  if (period === 'current_year') {
+    const periodStart = startOfDay(new Date(now.getFullYear(), 0, 1));
+    const prevPeriodStart = startOfDay(new Date(now.getFullYear() - 1, 0, 1));
+    const prevPeriodEnd = endOfDay(new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()));
+    return { periodStart, periodEnd, prevPeriodStart, prevPeriodEnd };
+  }
+
+  const periodStart = financialYearStart(now);
+  const prevPeriodStart = startOfDay(new Date(periodStart));
+  prevPeriodStart.setFullYear(prevPeriodStart.getFullYear() - 1);
+  const dayCount = Math.floor((periodEnd.getTime() - periodStart.getTime()) / DAY_MS) + 1;
+  const prevPeriodEnd = endOfDay(addDays(prevPeriodStart, dayCount - 1));
+  return { periodStart, periodEnd, prevPeriodStart, prevPeriodEnd };
+}
+
+function sumSalesInWindow(
+  entries: InvoiceSalesEntry[],
+  periodStart: Date,
+  periodEnd: Date,
+): number {
+  let total = 0;
+  for (const entry of entries) {
+    const ts = parseInvoiceDate(entry.date);
+    if (Number.isNaN(ts)) continue;
+    if (ts >= periodStart.getTime() && ts <= periodEnd.getTime()) {
+      total += entry.total;
+    }
+  }
+  return total;
+}
+
 export interface PeriodSalesSummary {
   periodStart: string | null;
   periodEnd: string;
@@ -269,8 +355,9 @@ export interface PeriodSalesSummary {
 export function computeSalesForPeriod(entries: InvoiceSalesEntry[], period: KpiPeriod): PeriodSalesSummary {
   const now = new Date();
   const periodEnd = endOfDay(now);
+  const bounds = resolvePeriodBounds(period, now);
 
-  if (period === 'lifetime') {
+  if (!bounds) {
     let totalSales = 0;
     for (const entry of entries) {
       totalSales += entry.total;
@@ -284,28 +371,8 @@ export function computeSalesForPeriod(entries: InvoiceSalesEntry[], period: KpiP
     };
   }
 
-  const days = period;
-  const periodStart = startOfDay(now);
-  periodStart.setDate(periodStart.getDate() - (days - 1));
-
-  const prevPeriodEnd = new Date(periodStart);
-  prevPeriodEnd.setDate(prevPeriodEnd.getDate() - 1);
-  prevPeriodEnd.setHours(23, 59, 59, 999);
-  const prevPeriodStart = startOfDay(prevPeriodEnd);
-  prevPeriodStart.setDate(prevPeriodStart.getDate() - (days - 1));
-
-  let totalSales = 0;
-  let previousSales = 0;
-
-  for (const entry of entries) {
-    const ts = parseInvoiceDate(entry.date);
-    if (Number.isNaN(ts)) continue;
-    if (ts >= periodStart.getTime() && ts <= periodEnd.getTime()) {
-      totalSales += entry.total;
-    } else if (ts >= prevPeriodStart.getTime() && ts <= prevPeriodEnd.getTime()) {
-      previousSales += entry.total;
-    }
-  }
+  const totalSales = sumSalesInWindow(entries, bounds.periodStart, bounds.periodEnd);
+  const previousSales = sumSalesInWindow(entries, bounds.prevPeriodStart, bounds.prevPeriodEnd);
 
   let salesTrendPct: number | null = null;
   if (previousSales > 0) {
@@ -315,8 +382,8 @@ export function computeSalesForPeriod(entries: InvoiceSalesEntry[], period: KpiP
   }
 
   return {
-    periodStart: periodStart.toISOString(),
-    periodEnd: periodEnd.toISOString(),
+    periodStart: bounds.periodStart.toISOString(),
+    periodEnd: bounds.periodEnd.toISOString(),
     totalSales,
     previousSales,
     salesTrendPct,
@@ -392,12 +459,18 @@ export function computeSalesForDateRange(
 
 export function formatKpiPeriodLabel(period: KpiPeriod): string {
   if (period === 'lifetime') return 'Lifetime';
-  if (period === 365) return '1 year';
+  if (period === 'current_month') return 'Current month';
+  if (period === 'current_year') return 'Current year';
+  if (period === 'financial_year') return 'Financial year';
+  if (period === 365) return '365 days';
   return `${period} days`;
 }
 
 export function formatKpiTrendLabel(period: KpiPeriod): string {
   if (period === 'lifetime') return '';
+  if (period === 'current_month') return 'vs previous month';
+  if (period === 'current_year') return 'vs previous year';
+  if (period === 'financial_year') return 'vs previous financial year';
   return `vs previous ${formatKpiPeriodLabel(period).toLowerCase()}`;
 }
 

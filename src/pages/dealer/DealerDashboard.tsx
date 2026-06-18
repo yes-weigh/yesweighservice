@@ -25,21 +25,17 @@ import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
 import { formatCurrency } from '../../lib/catalog';
 import {
   buildSalesEntriesFromInvoices,
-  computeSalesForDateRange,
   computeSalesForPeriod,
-  defaultCustomRange,
   fetchAllDealerInvoices,
   fetchDealerInvoiceDashboardWithCache,
   formatInvoiceRelativeTime,
   formatKpiPeriodRange,
   formatKpiTrendLabel,
   invoiceStatusLabel,
-  parseDateInput,
   readCachedAllDealerInvoices,
   readCachedDealerInvoiceDashboard,
-  toDateInputValue,
 } from '../../lib/invoices';
-import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, KpiPeriod, SalesRangePreset } from '../../types/invoices';
+import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, SalesRangePreset } from '../../types/invoices';
 
 type Trend = 'up' | 'down';
 
@@ -199,10 +195,6 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(30);
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
-
-  const todayInput = toDateInputValue(new Date());
 
   useEffect(() => {
     let cancelled = false;
@@ -287,30 +279,13 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
       };
     }
 
-    if (rangePreset === 'custom') {
-      const start = parseDateInput(customStart);
-      const end = parseDateInput(customEnd);
-      if (!start || !end || start > end) return null;
-      return computeSalesForDateRange(salesEntries, start, end);
-    }
-
     return computeSalesForPeriod(salesEntries, rangePreset);
-  }, [salesEntries, rangePreset, customStart, customEnd, summary]);
+  }, [salesEntries, rangePreset, summary]);
 
   const salesTrend = useMemo(() => {
     if (!salesSummary || salesSummary.salesTrendPct === null) return null;
 
-    let trendLabel: string;
-    if (rangePreset === 'custom' && salesSummary.periodStart) {
-      const days =
-        Math.round(
-          (new Date(salesSummary.periodEnd).getTime() - new Date(salesSummary.periodStart).getTime()) /
-            (24 * 60 * 60 * 1000),
-        ) + 1;
-      trendLabel = `${Math.abs(salesSummary.salesTrendPct).toFixed(1)}% vs previous ${days} days`;
-    } else {
-      trendLabel = `${Math.abs(salesSummary.salesTrendPct).toFixed(1)}% ${formatKpiTrendLabel(rangePreset as KpiPeriod)}`;
-    }
+    const trendLabel = `${Math.abs(salesSummary.salesTrendPct).toFixed(1)}% ${formatKpiTrendLabel(rangePreset)}`;
 
     return {
       trend: salesSummary.salesTrendPct >= 0 ? 'up' as Trend : 'down' as Trend,
@@ -320,22 +295,7 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
 
   const dateRange = salesSummary
     ? formatKpiPeriodRange(salesSummary.periodStart, salesSummary.periodEnd)
-    : rangePreset === 'custom'
-      ? 'Custom range'
-      : 'Last 30 days';
-
-  const handleRangePresetChange = (preset: SalesRangePreset) => {
-    if (preset === 'custom') {
-      setRangePreset('custom');
-      if (!customStart || !customEnd) {
-        const defaults = defaultCustomRange();
-        setCustomStart(defaults.start);
-        setCustomEnd(defaults.end);
-      }
-      return;
-    }
-    setRangePreset(preset);
-  };
+    : 'Last 30 days';
 
   const firstName = user?.displayName?.split(/\s+/)[0] ?? 'Dealer';
 
@@ -358,29 +318,7 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
           </div>
           <div className="dealer-dash__range-body">
             <span className="dealer-dash__range-label">Sales period</span>
-            <SalesRangeSelect value={rangePreset} onChange={handleRangePresetChange} />
-            {rangePreset === 'custom' && (
-              <div className="dealer-dash__range-custom">
-                <input
-                  type="date"
-                  className="dealer-dash__range-date catalog-select"
-                  value={customStart}
-                  max={customEnd || todayInput}
-                  onChange={e => setCustomStart(e.target.value)}
-                  aria-label="Start date"
-                />
-                <span className="dealer-dash__range-sep" aria-hidden>–</span>
-                <input
-                  type="date"
-                  className="dealer-dash__range-date catalog-select"
-                  value={customEnd}
-                  min={customStart}
-                  max={todayInput}
-                  onChange={e => setCustomEnd(e.target.value)}
-                  aria-label="End date"
-                />
-              </div>
-            )}
+            <SalesRangeSelect value={rangePreset} onChange={setRangePreset} />
             <span className="dealer-dash__range-display">{dateRange}</span>
           </div>
         </div>

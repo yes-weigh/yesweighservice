@@ -213,7 +213,7 @@ const LayoutShell: React.FC = () => {
   const dealerListPath = isDealerDetail
     ? location.pathname.replace(/\/[^/]+$/, '')
     : null;
-  const isInvoiceDetail = /\/invoices\/[^/]+$/.test(location.pathname);
+  const isInvoiceDetail = /\/invoices\/[^/]+(\/(invoice(\/view)?|payments|logistic|qc))?$/.test(location.pathname);
   const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname);
   const pageTitle = isProfileActive
     ? 'Profile'

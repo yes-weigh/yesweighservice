@@ -1,5 +1,8 @@
 import React from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { FileText, IndianRupee, Truck, Wallet } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { homePathForRole } from '../../types';
 
 export type InvoiceDetailSection = 'invoice' | 'payments' | 'logistic' | 'qc';
 
@@ -51,25 +54,43 @@ const SECTIONS: Array<{
   },
 ];
 
-export const InvoiceDetailTop: React.FC<{
-  active: InvoiceDetailSection;
-  onChange: (section: InvoiceDetailSection) => void;
-}> = ({ active, onChange }) => (
-  <div className="invoice-detail-top">
-    <div className="invoice-detail-top__actions" role="tablist" aria-label="Invoice sections">
-      {SECTIONS.map(section => (
-        <button
-          key={section.id}
-          type="button"
-          role="tab"
-          aria-selected={active === section.id}
-          className={`invoice-detail-top__card invoice-detail-top__card--${section.tone} ${active === section.id ? 'is-active' : ''}`}
-          onClick={() => onChange(section.id)}
-        >
-          <span className="invoice-detail-top__card-icon">{section.icon}</span>
-          <span className="invoice-detail-top__card-label">{section.label}</span>
-        </button>
-      ))}
+function parseActiveSection(pathname: string): InvoiceDetailSection {
+  if (pathname.endsWith('/payments')) return 'payments';
+  if (pathname.endsWith('/logistic')) return 'logistic';
+  if (pathname.endsWith('/qc')) return 'qc';
+  return 'invoice';
+}
+
+export const InvoiceDetailTop: React.FC<{ invoiceId: string }> = ({ invoiceId }) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const base = user ? homePathForRole(user.role) : '/dealer';
+  const active = parseActiveSection(pathname);
+
+  return (
+    <div className="invoice-detail-top">
+      <div className="invoice-detail-top__actions" role="tablist" aria-label="Invoice sections">
+        {SECTIONS.map(section => (
+          <button
+            key={section.id}
+            type="button"
+            role="tab"
+            aria-selected={active === section.id}
+            className={`invoice-detail-top__card invoice-detail-top__card--${section.tone} ${active === section.id ? 'is-active' : ''}`}
+            onClick={() => {
+              if (section.id === 'invoice') {
+                navigate(`${base}/invoices/${invoiceId}/invoice/view`);
+                return;
+              }
+              navigate(`${base}/invoices/${invoiceId}/${section.id}`);
+            }}
+          >
+            <span className="invoice-detail-top__card-icon">{section.icon}</span>
+            <span className="invoice-detail-top__card-label">{section.label}</span>
+          </button>
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+};

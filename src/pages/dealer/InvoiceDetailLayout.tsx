@@ -1,0 +1,126 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { AlertCircle, FileText } from 'lucide-react';
+import { FetchingLoader } from '../../components/FetchingLoader';
+import { InvoiceDetailTop } from '../../components/invoices/InvoiceDetailTop';
+import { useCatalogPageHeader } from '../../context/PageHeaderContext';
+import { useAuth } from '../../context/AuthContext';
+import { homePathForRole } from '../../types';
+import {
+  fetchDealerInvoiceDetailWithCache,
+  invoiceErrorMessage,
+  readCachedDealerInvoiceDetail,
+} from '../../lib/invoices';
+import type { DealerInvoiceDetail } from '../../types/invoices';
+import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
+
+export const InvoiceDetailLayout: React.FC = () => {
+  const { invoiceId } = useParams<{ invoiceId: string }>();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const { user } = useAuth();
+  const base = user ? homePathForRole(user.role) : '/dealer';
+  const invoicesPath = `${base}/invoices`;
+  const invoiceSummaryPath = `${base}/invoices/${invoiceId}/invoice`;
+  const isPdfView = pathname.endsWith('/invoice/view');
+
+  const [invoice, setInvoice] = useState<DealerInvoiceDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const handleBack = useCallback(() => {
+    if (isPdfView) {
+      navigate(invoiceSummaryPath);
+      return;
+    }
+    navigate(invoicesPath);
+  }, [isPdfView, navigate, invoiceSummaryPath, invoicesPath]);
+
+  useCatalogPageHeader({
+    title: invoice?.invoiceNumber ?? 'Invoice',
+    showBack: true,
+    onBack: handleBack,
+  });
+
+  useEffect(() => {
+    if (!invoiceId) return;
+    let cancelled = false;
+    const uid = user?.uid;
+    let usedCache = false;
+
+    if (uid) {
+      const cached = readCachedDealerInvoiceDetail(uid, invoiceId);
+      if (cached) {
+        setInvoice(cached);
+        setLoading(false);
+        usedCache = true;
+      } else {
+        setLoading(true);
+      }
+    } else {
+      setLoading(true);
+    }
+
+    if (!usedCache) setError('');
+
+    fetchDealerInvoiceDetailWithCache(uid, invoiceId)
+      .then(data => {
+        if (!cancelled) {
+          setInvoice(data);
+          setError('');
+        }
+      })
+      .catch(err => {
+        if (cancelled) return;
+        if (!usedCache) {
+          setInvoice(null);
+          setError(invoiceErrorMessage(err));
+        } else {
+          setError('Could not refresh. Showing saved invoice.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [invoiceId, user?.uid]);
+
+  if (!invoiceId) return null;
+
+  const outletContext: InvoiceDetailOutletContext = {
+    invoice,
+    loading,
+    error,
+    invoiceId,
+    invoicesPath,
+  };
+
+  return (
+    <div className={`page-content fade-in invoice-detail-page ${isPdfView ? 'invoice-detail-page--pdf-view' : ''}`}>
+      {error && (
+        <div className="products-inline-error panel glass invoice-detail-page__error">
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {loading && !invoice ? (
+        <FetchingLoader label="Loading invoice…" />
+      ) : !invoice ? (
+        <div className="invoices-empty panel glass">
+          <FileText size={36} aria-hidden />
+          <h2>Invoice not found</h2>
+          <p className="text-muted text-sm">This invoice may have been removed or you do not have access.</p>
+        </div>
+      ) : (
+        <>
+          {!isPdfView && <InvoiceDetailTop invoiceId={invoiceId} />}
+          <Outlet context={outletContext} />
+        </>
+      )}
+    </div>
+  );
+};

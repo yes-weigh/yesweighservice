@@ -94,26 +94,30 @@ export interface InvoiceSalesEntry {
   total: number;
 }
 
-export type KpiPeriod = 7 | 30 | 90 | 365 | 'lifetime';
+export type KpiPeriod =
+  | 7
+  | 30
+  | 90
+  | 365
+  | 'lifetime'
+  | 'current_month'
+  | 'current_year'
+  | 'financial_year';
 
-export type SalesRangePreset = KpiPeriod | 'custom';
+export type SalesRangePreset = KpiPeriod;
 
 export const KPI_PERIOD_OPTIONS: Array<{ value: KpiPeriod; label: string }> = [
-  { value: 7, label: '7 days' },
-  { value: 30, label: '30 days' },
-  { value: 90, label: '90 days' },
-  { value: 365, label: '1 year' },
-  { value: 'lifetime', label: 'Lifetime' },
-];
-
-export const SALES_RANGE_OPTIONS: Array<{ value: SalesRangePreset; label: string }> = [
   { value: 7, label: 'Last 7 days' },
   { value: 30, label: 'Last 30 days' },
   { value: 90, label: 'Last 90 days' },
-  { value: 365, label: 'Last 1 year' },
+  { value: 365, label: 'Last 365 days' },
   { value: 'lifetime', label: 'Lifetime' },
-  { value: 'custom', label: 'Custom range' },
+  { value: 'current_month', label: 'Current month' },
+  { value: 'current_year', label: 'Current year' },
+  { value: 'financial_year', label: 'Current year (financial year)' },
 ];
+
+export const SALES_RANGE_OPTIONS = KPI_PERIOD_OPTIONS;
 
 export interface InvoiceDashboardSummary {
   periodStart: string | null;

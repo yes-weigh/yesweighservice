@@ -36,7 +36,16 @@ const portalMenuRoutes = (
     <Route path="returns" element={<LegacySupportRedirect />} />
     <Route path="complaints" element={<LegacySupportRedirect />} />
     <Route path="invoices" element={<DealerMenuPages.Invoices />} />
-    <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />} />
+    <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />}>
+      <Route index element={<Navigate to="invoice" replace />} />
+      <Route path="invoice">
+        <Route index element={<DealerMenuPages.InvoiceDocument />} />
+        <Route path="view" element={<DealerMenuPages.InvoicePdfViewer />} />
+      </Route>
+      <Route path="payments" element={<DealerMenuPages.InvoicePayments />} />
+      <Route path="logistic" element={<DealerMenuPages.InvoiceLogistic />} />
+      <Route path="qc" element={<DealerMenuPages.InvoiceQc />} />
+    </Route>
     <Route path="orders" element={<DealerMenuPages.Orders />} />
     <Route path="products" element={<DealerMenuPages.Products />} />
     <Route path="products/:productId" element={<ProductDetailPage />} />
@@ -122,7 +131,16 @@ const App: React.FC = () => (
               <Route path="returns" element={<LegacySupportRedirect />} />
               <Route path="complaints" element={<LegacySupportRedirect />} />
               <Route path="invoices" element={<DealerMenuPages.Invoices />} />
-              <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />} />
+              <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />}>
+                <Route index element={<Navigate to="invoice" replace />} />
+                <Route path="invoice">
+                  <Route index element={<DealerMenuPages.InvoiceDocument />} />
+                  <Route path="view" element={<DealerMenuPages.InvoicePdfViewer />} />
+                </Route>
+                <Route path="payments" element={<DealerMenuPages.InvoicePayments />} />
+                <Route path="logistic" element={<DealerMenuPages.InvoiceLogistic />} />
+                <Route path="qc" element={<DealerMenuPages.InvoiceQc />} />
+              </Route>
               <Route path="products" element={<DealerMenuPages.Products />} />
               <Route path="products/:productId" element={<ProductDetailPage />} />
               <Route path="spares" element={<DealerMenuPages.Spares />} />

@@ -103,7 +103,7 @@ export const InvoicesPage: React.FC = () => {
 
   const mobileSortValue = `${sortField}:${sortDir}`;
 
-  const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}`);
+  const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}/invoice`);
 
   const queryParams = useMemo((): InvoiceListParams => ({
     page,
