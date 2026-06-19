@@ -64,13 +64,13 @@ export const SupportRequestDetailPage: React.FC = () => {
   }, [requestId, user]);
 
   useEffect(() => {
-    if (!requestId || !user || request?.legacyCollection) return undefined;
+    if (!requestId || !user) return undefined;
     return subscribeSupportRequest(requestId, data => {
       if (data && canUserAccessSupportRequest(user, data)) {
         setRequest(data);
       }
     });
-  }, [requestId, user, request?.legacyCollection]);
+  }, [requestId, user]);
 
   const handleStatusChange = async (status: SupportRequestStatus) => {
     if (!user || !requestId || !request) return;
@@ -133,7 +133,7 @@ export const SupportRequestDetailPage: React.FC = () => {
             <select
               className="catalog-select support-detail-summary__status"
               value={request.status}
-              disabled={statusUpdating || Boolean(request.legacyCollection)}
+              disabled={statusUpdating}
               onChange={e => void handleStatusChange(e.target.value as SupportRequestStatus)}
             >
               {(Object.keys(SUPPORT_REQUEST_STATUS_LABELS) as SupportRequestStatus[]).map(status => (
@@ -160,7 +160,7 @@ export const SupportRequestDetailPage: React.FC = () => {
 
       <SupportChat request={request} />
 
-      {showCourier && !request.legacyCollection && (
+      {showCourier && (
         <SupportCourierInstructions requestNumber={request.requestNumber} compact />
       )}
     </div>

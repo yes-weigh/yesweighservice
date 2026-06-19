@@ -1,14 +1,6 @@
 {
   "indexes": [
     {
-      "collectionGroup": "serviceRequests",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "dealerId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "dealerSupportRequests",
       "queryScope": "COLLECTION",
       "fields": [

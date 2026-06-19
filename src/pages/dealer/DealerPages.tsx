@@ -63,14 +63,6 @@ export const RoleDashboard: React.FC = () => {
 export const DealerMenuPages = {
   WarrantySupport: WarrantySupportPage,
   SupportRequestDetail: SupportRequestDetailPage,
-  /** @deprecated Use WarrantySupport */
-  Services: WarrantySupportPage,
-  /** @deprecated Use WarrantySupport */
-  ServiceRequestNew: WarrantySupportPage,
-  /** @deprecated Redirects to WarrantySupport */
-  Returns: WarrantySupportPage,
-  /** @deprecated Redirects to WarrantySupport */
-  Complaints: WarrantySupportPage,
   Invoices: DealerInvoicesRoute,
   InvoiceDetail: DealerInvoiceDetailRoute,
   InvoiceDocument: InvoiceDocumentPage,

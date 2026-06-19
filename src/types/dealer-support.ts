@@ -31,7 +31,6 @@ export interface DealerSupportRequest {
   createdByName: string;
   dealerId: string;
   dealerName: string | null;
-  legacyCollection?: 'serviceRequests';
 }
 
 export type SupportAttachmentKind = 'image' | 'video';
@@ -159,6 +158,3 @@ export const COMPLAINT_CATEGORY_OPTIONS = [
   { value: 'warranty_process', label: 'Warranty or RMA process delay' },
   { value: 'other', label: 'Other complaint' },
 ] as const;
-
-/** @deprecated Use SupportProductDraft */
-export type ServiceRequestDraft = SupportProductDraft;

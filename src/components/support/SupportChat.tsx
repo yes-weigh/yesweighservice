@@ -69,14 +69,9 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const chatDisabled = readOnly
-    || request.legacyCollection
     || (!isOpsRole(user?.role ?? 'dealer_staff') && request.status === 'cancelled');
 
   useEffect(() => {
-    if (request.legacyCollection) {
-      setLoading(false);
-      return undefined;
-    }
     setLoading(true);
     const unsub = subscribeSupportMessages(
       request.id,
@@ -90,7 +85,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
       },
     );
     return unsub;
-  }, [request.id, request.legacyCollection]);
+  }, [request.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -127,7 +122,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
         <p className="text-muted text-sm">
           {chatDisabled && !readOnly && request.status === 'cancelled'
             ? 'This request is cancelled. History is read-only.'
-            : readOnly || request.legacyCollection
+            : readOnly
               ? 'Read-only history'
               : 'Messages are saved permanently — you can return anytime.'}
         </p>
@@ -143,11 +138,6 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
       <div className="support-chat__thread" aria-live="polite">
         {loading ? (
           <p className="support-chat__loading text-muted text-sm">Loading messages…</p>
-        ) : request.legacyCollection ? (
-          <div className="support-chat__legacy">
-            <p className="support-chat__text">{request.description}</p>
-            <p className="text-muted text-sm">Chat is available for new warranty &amp; support requests.</p>
-          </div>
         ) : messages.length === 0 ? (
           <p className="support-chat__loading text-muted text-sm">No messages yet.</p>
         ) : (

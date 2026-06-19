@@ -79,7 +79,6 @@ function mapMessage(id: string, data: DocumentData): SupportMessage {
 }
 
 export function mapSupportRequest(id: string, data: DocumentData): DealerSupportRequest {
-  const legacyItem = data.item as DocumentData | undefined;
   const product = data.product as DocumentData | undefined;
 
   return {
@@ -90,22 +89,18 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
     invoiceId: data.invoiceId ? String(data.invoiceId) : null,
     invoiceNumber: data.invoiceNumber ? String(data.invoiceNumber) : null,
     salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
-    product: product || legacyItem
+    product: product
       ? {
-          lineItemId: product?.lineItemId || legacyItem?.lineItemId
-            ? String(product?.lineItemId ?? legacyItem?.lineItemId)
-            : null,
-          itemId: product?.itemId || legacyItem?.itemId
-            ? String(product?.itemId ?? legacyItem?.itemId)
-            : null,
-          name: String(product?.name ?? legacyItem?.name ?? 'Product'),
-          sku: product?.sku || legacyItem?.sku ? String(product?.sku ?? legacyItem?.sku) : null,
-          quantity: Number(product?.quantity ?? legacyItem?.quantity ?? 1),
+          lineItemId: product.lineItemId ? String(product.lineItemId) : null,
+          itemId: product.itemId ? String(product.itemId) : null,
+          name: String(product.name ?? 'Product'),
+          sku: product.sku ? String(product.sku) : null,
+          quantity: Number(product.quantity ?? 1),
         }
       : null,
-    category: String(data.category ?? data.issue ?? ''),
+    category: String(data.category ?? ''),
     subject: data.subject ? String(data.subject) : null,
-    description: String(data.description ?? data.notes ?? ''),
+    description: String(data.description ?? ''),
     notes: data.notes ? String(data.notes) : null,
     createdAt: String(data.createdAt ?? ''),
     updatedAt: String(data.updatedAt ?? data.createdAt ?? ''),
@@ -115,7 +110,6 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
     createdByName: String(data.createdByName ?? ''),
     dealerId: String(data.dealerId ?? ''),
     dealerName: data.dealerName ? String(data.dealerName) : null,
-    legacyCollection: data.legacyCollection as DealerSupportRequest['legacyCollection'],
   };
 }
 
@@ -128,11 +122,6 @@ export function supportDetailPath(role: User['role'], requestId: string): string
   return `${supportBasePath(role)}/${requestId}`;
 }
 
-/** @deprecated Use supportBasePath */
-export function servicesBasePath(role: User['role']): string {
-  return supportBasePath(role);
-}
-
 export function canUserAccessSupportRequest(user: User, request: DealerSupportRequest): boolean {
   if (isOpsRole(user.role)) return true;
   const dealerId = resolveDealerId(user);
@@ -141,18 +130,8 @@ export function canUserAccessSupportRequest(user: User, request: DealerSupportRe
 
 export async function getSupportRequest(requestId: string): Promise<DealerSupportRequest | null> {
   const current = await getDoc(doc(db, 'dealerSupportRequests', requestId));
-  if (current.exists()) {
-    return mapSupportRequest(current.id, current.data());
-  }
-  const legacy = await getDoc(doc(db, 'serviceRequests', requestId));
-  if (legacy.exists()) {
-    return mapSupportRequest(legacy.id, {
-      ...legacy.data(),
-      type: 'service',
-      legacyCollection: 'serviceRequests',
-    });
-  }
-  return null;
+  if (!current.exists()) return null;
+  return mapSupportRequest(current.id, current.data());
 }
 
 export async function sendSupportMessage(
@@ -164,9 +143,6 @@ export async function sendSupportMessage(
   if (!request) throw new Error('Support request not found.');
   if (!canUserAccessSupportRequest(user, request)) {
     throw new Error('You do not have permission to message this request.');
-  }
-  if (request.legacyCollection) {
-    throw new Error('Chat is not available for older requests.');
   }
   if (!isOpsRole(user.role) && request.status === 'cancelled') {
     throw new Error('This request is closed and cannot receive new messages.');
@@ -294,43 +270,16 @@ export function subscribeSupportRequest(
 export async function fetchDealerSupportRequests(user: User): Promise<DealerSupportRequest[]> {
   const dealerId = resolveDealerId(user);
 
-  const [currentSnap, legacySnap] = await Promise.all([
-    getDocs(
-      query(
-        collection(db, 'dealerSupportRequests'),
-        where('dealerId', '==', dealerId),
-        orderBy('updatedAt', 'desc'),
-        limit(100),
-      ),
+  const snap = await getDocs(
+    query(
+      collection(db, 'dealerSupportRequests'),
+      where('dealerId', '==', dealerId),
+      orderBy('updatedAt', 'desc'),
+      limit(100),
     ),
-    getDocs(
-      query(
-        collection(db, 'serviceRequests'),
-        where('dealerId', '==', dealerId),
-        orderBy('createdAt', 'desc'),
-        limit(100),
-      ),
-    ),
-  ]);
-
-  const current = currentSnap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
-  const legacy = legacySnap.docs.map(docSnap =>
-    mapSupportRequest(docSnap.id, { ...docSnap.data(), type: 'service', legacyCollection: 'serviceRequests' }),
   );
 
-  const seen = new Set<string>();
-  return [...current, ...legacy]
-    .filter(item => {
-      if (seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    })
-    .sort((a, b) => {
-      const aTs = a.lastMessageAt ?? a.createdAt;
-      const bTs = b.lastMessageAt ?? b.createdAt;
-      return bTs.localeCompare(aTs);
-    })
-    .slice(0, 100);
+  return snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
 }
 
 export async function fetchOpsSupportRequests(): Promise<DealerSupportRequest[]> {
