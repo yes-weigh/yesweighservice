@@ -528,6 +528,7 @@ export const ProductDetailView: React.FC<{
                 detailBasePath={relatedKind === 'spares' ? sparesBasePath : productsBasePath}
                 loading={relatedLoading}
                 showStockQuantity={showStockQuantity}
+                enableCart={showCartActions && relatedKind === 'spares'}
                 getLinkState={relatedLinkState}
                 headerAction={
                   manageSpareLinks ? (

@@ -392,13 +392,23 @@ const LayoutShell: React.FC = () => {
           {dealerListPath ? (
             <button
               type="button"
-              className="page-title page-title--nav-back"
+              className="top-bar__title-block page-title page-title--nav-back"
               onClick={() => navigate(dealerListPath)}
             >
-              {displayTitle}
+              <span className="page-title__text">{displayTitle}</span>
+              {pageHeader.subtitle && (
+                <span className="page-subtitle">{pageHeader.subtitle}</span>
+              )}
             </button>
           ) : (
-            <h1 className="page-title">{displayTitle}</h1>
+            <div className="top-bar__title-block">
+              <h1 className="page-title">
+                <span className="page-title__text">{displayTitle}</span>
+              </h1>
+              {pageHeader.subtitle && (
+                <p className="page-subtitle">{pageHeader.subtitle}</p>
+              )}
+            </div>
           )}
           {showCartFlyTarget && (
             <button

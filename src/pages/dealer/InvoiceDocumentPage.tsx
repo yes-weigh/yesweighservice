@@ -3,23 +3,10 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Headphones, Package } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
-import {
-  formatInvoiceDate,
-  invoiceStatusLabel,
-} from '../../lib/invoices';
 import { supportBasePath } from '../../lib/dealerSupport';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import type { SupportProductDraft } from '../../types/dealer-support';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
-
-function statusClass(status: string): string {
-  const key = status.toLowerCase();
-  if (key === 'paid') return 'invoices-status--paid';
-  if (key === 'overdue' || key === 'unpaid') return 'invoices-status--due';
-  if (key === 'partially_paid') return 'invoices-status--partial';
-  if (key === 'void') return 'invoices-status--void';
-  return 'invoices-status--default';
-}
 
 export const InvoiceDocumentPage: React.FC = () => {
   const { user } = useAuth();
@@ -45,29 +32,18 @@ export const InvoiceDocumentPage: React.FC = () => {
 
   return (
     <>
-      <section className="invoice-detail-hero panel glass">
-        <div className="invoice-detail-hero__head">
-          <div>
-            <p className="invoice-detail-hero__meta">
-              {formatInvoiceDate(invoice.date)}
-            </p>
-          </div>
-          <span className={`invoices-status ${statusClass(invoice.status)}`}>
-            {invoiceStatusLabel(invoice.status)}
-          </span>
+      <section className="invoice-detail-footer panel glass">
+        <div className="invoice-detail-footer__row">
+          <span>Sub Total</span>
+          <span>{formatCurrency(invoice.subtotal)}</span>
         </div>
-
-        <div className="invoice-detail-hero__totals">
-          <div>
-            <span className="invoice-detail-hero__label">Total</span>
-            <strong>{formatCurrency(invoice.total)}</strong>
-          </div>
-          {invoice.balance > 0 && (
-            <div>
-              <span className="invoice-detail-hero__label">Balance</span>
-              <strong className="invoice-detail-hero__balance">{formatCurrency(invoice.balance)}</strong>
-            </div>
-          )}
+        <div className="invoice-detail-footer__row">
+          <span>GST</span>
+          <span>{formatCurrency(invoice.taxTotal)}</span>
+        </div>
+        <div className="invoice-detail-footer__row invoice-detail-footer__row--total">
+          <span>Grand Total</span>
+          <strong>{formatCurrency(invoice.total)}</strong>
         </div>
       </section>
 
@@ -115,23 +91,6 @@ export const InvoiceDocumentPage: React.FC = () => {
           <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>
         )}
       </section>
-
-      {invoice.lineItems.length > 0 && (
-        <footer className="invoice-detail-footer panel glass">
-          <div className="invoice-detail-footer__row">
-            <span>Sub Total</span>
-            <span>{formatCurrency(invoice.subtotal)}</span>
-          </div>
-          <div className="invoice-detail-footer__row">
-            <span>GST</span>
-            <span>{formatCurrency(invoice.taxTotal)}</span>
-          </div>
-          <div className="invoice-detail-footer__row invoice-detail-footer__row--total">
-            <span>Grand Total</span>
-            <strong>{formatCurrency(invoice.total)}</strong>
-          </div>
-        </footer>
-      )}
     </>
   );
 };

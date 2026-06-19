@@ -13,22 +13,6 @@ import {
   readCachedDealerInvoices,
 } from '../../lib/invoices';
 import type { DealerInvoice, InvoiceListParams } from '../../types/invoices';
-import { INVOICE_STATUS_OPTIONS } from '../../types/invoices';
-
-const MOBILE_SORT_OPTIONS: Array<{
-  value: string;
-  label: string;
-  sortField: NonNullable<InvoiceListParams['sortField']>;
-  sortDir: 'asc' | 'desc';
-}> = [
-  { value: 'date:desc', label: 'Newest first', sortField: 'date', sortDir: 'desc' },
-  { value: 'date:asc', label: 'Oldest first', sortField: 'date', sortDir: 'asc' },
-  { value: 'dueDate:asc', label: 'Due soon', sortField: 'dueDate', sortDir: 'asc' },
-  { value: 'dueDate:desc', label: 'Due later', sortField: 'dueDate', sortDir: 'desc' },
-  { value: 'total:desc', label: 'Highest amount', sortField: 'total', sortDir: 'desc' },
-  { value: 'balance:desc', label: 'Highest balance', sortField: 'balance', sortDir: 'desc' },
-  { value: 'invoiceNumber:asc', label: 'Invoice #', sortField: 'invoiceNumber', sortDir: 'asc' },
-];
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -83,13 +67,66 @@ function InvoiceMobileCard({ invoice, onOpen }: { invoice: DealerInvoice; onOpen
   );
 }
 
+function InvoicePagination({
+  page,
+  totalPages,
+  total,
+  limit,
+  loading,
+  onPageChange,
+  sticky = false,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  limit: number;
+  loading: boolean;
+  onPageChange: (updater: (current: number) => number) => void;
+  sticky?: boolean;
+}) {
+  const className = `invoices-pagination panel glass${sticky ? ' invoices-pagination--sticky' : ' invoices-pagination--top'}`;
+  const content = (
+    <>
+      <span className="invoices-pagination__info text-muted text-sm">
+        {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total.toLocaleString('en-IN')}
+      </span>
+      <div className="invoices-pagination__btns">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={page <= 1 || loading}
+          onClick={() => onPageChange(p => p - 1)}
+        >
+          Prev
+        </button>
+        <span className="invoices-pagination__page text-sm">
+          {page}/{totalPages}
+        </span>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={page >= totalPages || loading}
+          onClick={() => onPageChange(p => p + 1)}
+        >
+          Next
+        </button>
+      </div>
+    </>
+  );
+
+  if (sticky) {
+    return <footer className={className}>{content}</footer>;
+  }
+
+  return <div className={className} role="navigation" aria-label="Invoice list pagination">{content}</div>;
+}
+
 export const InvoicesPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 400);
-  const [statusFilter, setStatusFilter] = useState<InvoiceListParams['status']>('all');
   const [sortField, setSortField] = useState<NonNullable<InvoiceListParams['sortField']>>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
@@ -101,8 +138,6 @@ export const InvoicesPage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const mobileSortValue = `${sortField}:${sortDir}`;
-
   const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}/invoice`);
 
   const queryParams = useMemo((): InvoiceListParams => ({
@@ -111,8 +146,7 @@ export const InvoicesPage: React.FC = () => {
     sortField,
     sortDir,
     ...(debouncedSearch.trim() ? { q: debouncedSearch.trim() } : {}),
-    ...(statusFilter && statusFilter !== 'all' ? { status: statusFilter } : {}),
-  }), [page, debouncedSearch, statusFilter, sortField, sortDir]);
+  }), [page, debouncedSearch, sortField, sortDir]);
 
   const loadInvoices = useCallback(async () => {
     const uid = user?.uid;
@@ -160,7 +194,7 @@ export const InvoicesPage: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, statusFilter, sortField, sortDir]);
+  }, [debouncedSearch, sortField, sortDir]);
 
   const handleSort = (field: NonNullable<InvoiceListParams['sortField']>) => {
     if (sortField === field) {
@@ -169,13 +203,6 @@ export const InvoicesPage: React.FC = () => {
       setSortField(field);
       setSortDir(field === 'invoiceNumber' ? 'asc' : 'desc');
     }
-  };
-
-  const handleMobileSort = (value: string) => {
-    const option = MOBILE_SORT_OPTIONS.find(o => o.value === value);
-    if (!option) return;
-    setSortField(option.sortField);
-    setSortDir(option.sortDir);
   };
 
   const SortMark = ({ field }: { field: NonNullable<InvoiceListParams['sortField']> }) => (
@@ -219,32 +246,6 @@ export const InvoicesPage: React.FC = () => {
         </div>
 
         <div className="invoices-toolbar__filters">
-          <select
-            className="catalog-select invoices-status-filter"
-            value={statusFilter ?? 'all'}
-            onChange={e => setStatusFilter(e.target.value as InvoiceListParams['status'])}
-            aria-label="Filter by status"
-          >
-            {INVOICE_STATUS_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="catalog-select invoices-toolbar__sort-mobile"
-            value={mobileSortValue}
-            onChange={e => handleMobileSort(e.target.value)}
-            aria-label="Sort invoices"
-          >
-            {MOBILE_SORT_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-
           <span className="invoices-toolbar__count" aria-live="polite">
             {loading && invoices.length === 0
               ? 'Loading…'
@@ -263,13 +264,24 @@ export const InvoicesPage: React.FC = () => {
             <FileText size={36} aria-hidden />
             <h2>No invoices found</h2>
             <p className="text-muted text-sm">
-              {debouncedSearch || (statusFilter && statusFilter !== 'all')
-                ? 'Try adjusting your search or status filter.'
+              {debouncedSearch
+                ? 'Try a different search term.'
                 : 'Invoices issued to your dealer account in Zoho will appear here.'}
             </p>
           </div>
         ) : (
           <>
+            {showList && totalPages > 1 && (
+              <InvoicePagination
+                page={page}
+                totalPages={totalPages}
+                total={total}
+                limit={limit}
+                loading={loading}
+                onPageChange={setPage}
+              />
+            )}
+
             <div
               className={`invoices-list ${loading ? 'invoices-list--loading' : ''}`}
               aria-busy={loading}
@@ -355,32 +367,15 @@ export const InvoicesPage: React.FC = () => {
       </div>
 
       {showList && totalPages > 1 && (
-        <footer className="invoices-pagination invoices-pagination--sticky panel glass">
-          <span className="invoices-pagination__info text-muted text-sm">
-            {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total.toLocaleString('en-IN')}
-          </span>
-          <div className="invoices-pagination__btns">
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage(p => p - 1)}
-            >
-              Prev
-            </button>
-            <span className="invoices-pagination__page text-sm">
-              {page}/{totalPages}
-            </span>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage(p => p + 1)}
-            >
-              Next
-            </button>
-          </div>
-        </footer>
+        <InvoicePagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          loading={loading}
+          onPageChange={setPage}
+          sticky
+        />
       )}
     </div>
   );

@@ -10,6 +10,7 @@ import React, {
 
 export type PageHeaderConfig = {
   title?: string | null;
+  subtitle?: string | null;
   showBack?: boolean;
   onBack?: (() => void) | null;
 };
@@ -22,12 +23,14 @@ type PageHeaderContextValue = {
 
 const emptyConfig: PageHeaderConfig = {
   title: null,
+  subtitle: null,
   showBack: false,
   onBack: null,
 };
 
 function configsEqual(a: PageHeaderConfig, b: PageHeaderConfig): boolean {
   return a.title === b.title
+    && a.subtitle === b.subtitle
     && a.showBack === b.showBack
     && a.onBack === b.onBack;
 }
@@ -69,7 +72,7 @@ export function useCatalogPageHeader(config: PageHeaderConfig) {
   const ctx = useContext(PageHeaderContext);
   const setPageHeader = ctx?.setPageHeader;
   const clearPageHeader = ctx?.clearPageHeader;
-  const { title = null, showBack = false, onBack = null } = config;
+  const { title = null, subtitle = null, showBack = false, onBack = null } = config;
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
 
@@ -85,7 +88,7 @@ export function useCatalogPageHeader(config: PageHeaderConfig) {
       ? () => onBackRef.current?.()
       : null;
 
-    setPageHeader({ title, showBack, onBack: stableOnBack });
+    setPageHeader({ title, subtitle, showBack, onBack: stableOnBack });
     return () => clearPageHeader();
-  }, [setPageHeader, clearPageHeader, title, showBack]);
+  }, [setPageHeader, clearPageHeader, title, subtitle, showBack]);
 }

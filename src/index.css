@@ -409,9 +409,41 @@ html::-webkit-scrollbar {
   font-weight: 600;
   flex: 1;
   min-width: 0;
+  margin: 0;
+}
+
+.top-bar__title-block {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.05rem;
+}
+
+.top-bar__title-block.page-title--nav-back {
+  text-align: left;
+}
+
+.page-title__text {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.page-subtitle {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  line-height: 1.2;
 }
 
 .page-title--nav-back {
@@ -3498,6 +3530,25 @@ html::-webkit-scrollbar {
     padding-right: max(0.625rem, env(safe-area-inset-right, 0px));
   }
 
+  .top-bar:has(.page-subtitle) {
+    height: auto;
+    min-height: var(--header-height);
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .top-bar:has(.page-subtitle) .page-title__text {
+    font-size: 1.05rem;
+  }
+
+  .top-bar:has(.page-subtitle) .page-subtitle {
+    font-size: 0.6875rem;
+  }
+
+  .main-content:has(.top-bar .page-subtitle) {
+    padding-top: calc(var(--header-height) + 0.35rem);
+  }
+
   .catalog-categories__grid,
   .catalog-grid.catalog-grid--tiles {
     gap: 0.5rem;
@@ -5035,19 +5086,15 @@ html::-webkit-scrollbar {
 }
 
 .related-catalog__item {
-  display: grid;
-  grid-template-columns: 56px 1fr auto;
-  gap: 0.75rem;
-  align-items: center;
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
   width: 100%;
   padding: 0.65rem 0.75rem;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #f8fafc;
   color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -5056,22 +5103,60 @@ html::-webkit-scrollbar {
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
 
+.related-catalog__main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .related-catalog__media {
   position: relative;
   width: 56px;
   height: 56px;
   border-radius: 10px;
-  background: #fff;
+  background: #f1f5f9;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   overflow: hidden;
+  isolation: isolate;
+  flex-shrink: 0;
 }
 
-.related-catalog__media .catalog-category-card__img {
+.related-catalog__visual {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   width: 100%;
   height: 100%;
+  background: #f8fafc;
+}
+
+.related-catalog .catalog-category-card__img {
+  width: auto;
+  height: 88%;
+  max-width: 96%;
   object-fit: contain;
+  object-position: center bottom;
+  filter: brightness(1.14) contrast(1.08) saturate(1.02);
+}
+
+.related-catalog .catalog-category-card__img--blend {
+  mix-blend-mode: darken;
+}
+
+.related-catalog__media > svg {
+  color: #94a3b8;
 }
 
 .related-catalog__info {
@@ -5103,6 +5188,79 @@ html::-webkit-scrollbar {
   font-size: 0.875rem;
   color: #0f172a;
   white-space: nowrap;
+}
+
+.related-catalog__cart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.related-catalog__cart--disabled {
+  min-width: 4.5rem;
+}
+
+.related-catalog__cart-unavailable {
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.related-catalog__add-cart {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid rgba(245, 130, 32, 0.45);
+  border-radius: 999px;
+  background: rgba(245, 130, 32, 0.1);
+  color: var(--accent-primary-light);
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.related-catalog__add-cart:hover {
+  background: rgba(245, 130, 32, 0.18);
+  border-color: rgba(245, 130, 32, 0.65);
+}
+
+.related-catalog__qty {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.related-catalog__qty-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: #f8fafc;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.related-catalog__qty-btn:hover {
+  background: #f1f5f9;
+}
+
+.related-catalog__qty-value {
+  min-width: 1.75rem;
+  text-align: center;
+  font-weight: 800;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .related-catalog-section__error {
@@ -8267,6 +8425,11 @@ html::-webkit-scrollbar {
   box-shadow: 0 -4px 14px rgba(3, 7, 18, 0.28);
 }
 
+.invoices-pagination--top {
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .invoices-pagination__btns {
   display: flex;
   align-items: center;
@@ -8934,6 +9097,62 @@ html::-webkit-scrollbar {
 .invoice-detail-pdf--fullscreen .invoice-detail-pdf__frame {
   flex: 1;
   min-height: 0;
+}
+
+.invoice-detail-pdf__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(3, 7, 18, 0.55);
+}
+
+.invoice-detail-pdf__toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.invoice-detail-pdf__canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: #525659;
+}
+
+.invoice-detail-pdf__canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
+.invoice-detail-pdf__page {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+}
+
+.invoice-detail-pdf__canvas-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 7, 18, 0.45);
+  z-index: 1;
+}
+
+.invoice-detail-pdf__canvas-error {
+  padding: 0.75rem 1rem;
+  color: #fca5a5;
+  text-align: center;
 }
 
 /* ── Service requests ─────────────────────────────────────────── */

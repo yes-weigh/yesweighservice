@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
 import {
   fetchDealerInvoiceDetailWithCache,
+  formatInvoiceDate,
   invoiceErrorMessage,
   readCachedDealerInvoiceDetail,
 } from '../../lib/invoices';
@@ -38,6 +39,7 @@ export const InvoiceDetailLayout: React.FC = () => {
 
   useCatalogPageHeader({
     title: invoice?.invoiceNumber ?? 'Invoice',
+    subtitle: invoice?.date ? formatInvoiceDate(invoice.date) : null,
     showBack: true,
     onBack: handleBack,
   });
