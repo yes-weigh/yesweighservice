@@ -18,6 +18,7 @@ import { reserveLoginIndex } from './loginIndex';
 import { contactFieldsForLogin } from './profileLogin';
 import type { FirestoreUserDoc, Role } from '../types';
 import type { StaffDepartment, StaffPermission } from '../types/staff-access';
+import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
 
 function omitUndefined<T extends Record<string, unknown>>(data: T): Partial<T> {
   return Object.fromEntries(
@@ -52,6 +53,9 @@ export type CreateUserInput = {
   staffPermissions?: StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  dealerTier?: DealerTier;
+  dealerAccessMode?: DealerAccessMode;
+  dealerPermissions?: DealerPermission[];
   createdByUid: string;
 };
 
@@ -85,6 +89,9 @@ export async function createUserProfile(
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
     staffKamId: input.role === 'staff' ? input.staffKamId ?? null : undefined,
     staffTeamId: input.role === 'staff' ? input.staffTeamId ?? null : undefined,
+    dealerTier: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerTier ?? 'standard' : undefined,
+    dealerAccessMode: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerAccessMode ?? 'tier' : undefined,
+    dealerPermissions: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerPermissions ?? [] : undefined,
     active: true,
     createdAt: new Date().toISOString(),
     createdByUid: input.createdByUid,
@@ -128,6 +135,9 @@ export type UpdateUserProfilePatch = Partial<
     | 'staffPermissions'
     | 'staffKamId'
     | 'staffTeamId'
+    | 'dealerTier'
+    | 'dealerAccessMode'
+    | 'dealerPermissions'
   >
 >;
 

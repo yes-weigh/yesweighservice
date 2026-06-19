@@ -2,6 +2,7 @@ import React from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole, canUseCart } from '../types';
+import { canViewCatalogStock, canViewWarehouseStock } from '../lib/dealerAccess';
 import type { CatalogProduct } from '../types/catalog';
 import { ProductDetailView } from '../components/catalog/ProductDetailView';
 
@@ -38,8 +39,8 @@ export const ProductDetailPage: React.FC = () => {
         returnCategoryId: navState?.returnCategoryId ?? navState?.parentProductPreview?.categoryId ?? '',
       }
     : null;
-  const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin';
-  const showStockQuantity = showWarehouseStock;
+  const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin' || canViewWarehouseStock(user);
+  const showStockQuantity = showWarehouseStock || canViewCatalogStock(user);
   const showCartActions = canUseCart(user?.role);
   const manageSpareLinks = user?.role === 'staff' || user?.role === 'super_admin';
   const canUploadImage = manageSpareLinks;

@@ -15,8 +15,28 @@ import { authEmailForLoginId, parseLoginId } from '../lib/loginAuth';
 import { contactFieldsForLogin, resolveProfileLogin } from '../lib/profileLogin';
 import { authErrorMessage } from '../lib/authErrors';
 import { clearInvoiceCacheForUser } from '../lib/invoice-cache';
+import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
 
 const INACTIVE_MESSAGE = 'Your account is inactive. Contact YesWeigh super admin.';
+
+async function readParentDealerAccess(dealerId: string): Promise<{
+  dealerTier?: DealerTier;
+  dealerAccessMode?: DealerAccessMode;
+  dealerPermissions?: DealerPermission[];
+} | null> {
+  try {
+    const parentSnap = await getDoc(doc(db, 'users', dealerId));
+    if (!parentSnap.exists()) return null;
+    const parent = parentSnap.data() as FirestoreUserDoc;
+    return {
+      dealerTier: parent.dealerTier,
+      dealerAccessMode: parent.dealerAccessMode,
+      dealerPermissions: parent.dealerPermissions,
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
   try {
@@ -29,6 +49,22 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
     if (!role || !data.active || !login) return null;
 
     const contacts = contactFieldsForLogin(login);
+
+    let dealerTier = data.dealerTier;
+    let dealerAccessMode = data.dealerAccessMode;
+    let dealerPermissions = data.dealerPermissions;
+
+    if (role === 'dealer_staff' && !dealerTier) {
+      const parentId = readDealerId(data);
+      if (parentId) {
+        const inherited = await readParentDealerAccess(parentId);
+        if (inherited) {
+          dealerTier = inherited.dealerTier;
+          dealerAccessMode = inherited.dealerAccessMode;
+          dealerPermissions = inherited.dealerPermissions;
+        }
+      }
+    }
 
     return {
       uid: fbUser.uid,
@@ -45,6 +81,9 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       staffPermissions: data.staffPermissions,
       staffKamId: data.staffKamId ?? null,
       staffTeamId: data.staffTeamId ?? null,
+      dealerTier,
+      dealerAccessMode,
+      dealerPermissions,
       active: true,
     };
   } catch {

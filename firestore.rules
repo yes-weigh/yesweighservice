@@ -93,8 +93,27 @@ service cloud.firestore {
         && (!('staffTeamId' in data) || data.staffTeamId == null || data.staffTeamId is string);
     }
 
-    function validStaffUserWrite(data) {
-      return data.role != 'staff' || validStaffAccessFields(data);
+    function validDealerTier(t) {
+      return t == 'standard' || t == 'director';
+    }
+
+    function validDealerAccessMode(m) {
+      return m == 'tier' || m == 'custom';
+    }
+
+    function validDealerAccessFields(data) {
+      return (!('dealerTier' in data) || validDealerTier(data.dealerTier))
+        && (!('dealerAccessMode' in data) || validDealerAccessMode(data.dealerAccessMode))
+        && (!('dealerPermissions' in data) || data.dealerPermissions is list);
+    }
+
+    function validDealerPortalUserWrite(data) {
+      return (data.role != 'dealer' && data.role != 'dealer_staff' && data.role != 'director' && data.role != 'director_staff')
+        || validDealerAccessFields(data);
+    }
+
+    function validManagedUserWrite(data) {
+      return validStaffUserWrite(data) && validDealerPortalUserWrite(data);
     }
 
     match /appSettings/{docId} {
@@ -176,27 +195,29 @@ service cloud.firestore {
           && (request.resource.data.role == 'super_admin' || request.resource.data.role == 'admin')
           && request.resource.data.active == true
           && validAadhar(request.resource.data))
-        || (isActiveUser() && isSuperAdmin() && validAadhar(request.resource.data) && validStaffUserWrite(request.resource.data))
+        || (isActiveUser() && isSuperAdmin() && validAadhar(request.resource.data) && validManagedUserWrite(request.resource.data))
         || (isActiveUser()
             && isStaff()
             && staffCanManageRole(request.resource.data.role)
             && request.resource.data.active == true
-            && validAadhar(request.resource.data))
-        || (isActiveUser()
-            && isDealer()
+            && validAadhar(request.resource.data)
+            && validDealerPortalUserWrite(request.resource.data))
+        || (isDealer()
             && isDealerStaffRole(request.resource.data.role)
             && userDealerId(request.resource.data) == request.auth.uid
             && request.resource.data.active == true
-            && validAadhar(request.resource.data))
+            && validAadhar(request.resource.data)
+            && validDealerPortalUserWrite(request.resource.data))
       );
 
       allow update: if isActiveUser() && (
-        (isSuperAdmin() && validStaffUserWrite(request.resource.data))
+        (isSuperAdmin() && validManagedUserWrite(request.resource.data))
         || (isStaff()
             && staffCanManageRole(resource.data.role)
             && staffCanManageRole(request.resource.data.role)
             && resource.data.role == request.resource.data.role
-            && loginIdUnchanged())
+            && loginIdUnchanged()
+            && validDealerPortalUserWrite(request.resource.data))
         || (request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()
                 .hasAny(['role', 'loginId', 'loginIdType', 'aadhar', 'email', 'dealerId', 'directorId', 'active', 'createdAt', 'createdByUid']))
@@ -204,7 +225,8 @@ service cloud.firestore {
             && isDealerStaffRole(resource.data.role)
             && userDealerId(resource.data) == request.auth.uid
             && isDealerStaffRole(request.resource.data.role)
-            && userDealerId(request.resource.data) == request.auth.uid)
+            && userDealerId(request.resource.data) == request.auth.uid
+            && validDealerPortalUserWrite(request.resource.data))
       );
 
       allow delete: if isSuperAdmin();

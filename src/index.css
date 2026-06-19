@@ -9996,3 +9996,226 @@ html::-webkit-scrollbar {
     grid-template-columns: 1fr;
   }
 }
+
+/* Dealer portal access editor */
+.dealer-role-editor,
+.user-management__access {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.user-management__access {
+  padding: 1rem 1.15rem;
+}
+
+.user-management__access-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.user-management__tier {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+}
+
+.user-management__tier--standard {
+  background: rgba(96, 165, 250, 0.15);
+  color: #93c5fd;
+}
+
+.user-management__tier--director {
+  background: rgba(167, 139, 250, 0.15);
+  color: #c4b5fd;
+}
+
+.dealer-role-editor__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dealer-role-editor__heading {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.dealer-role-editor__hint {
+  margin: 0;
+}
+
+.dealer-role-editor__tiers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.65rem;
+}
+
+.dealer-role-editor__tier {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.35);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dealer-role-editor__tier:hover {
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.dealer-role-editor__tier.is-active {
+  border-color: rgba(99, 102, 241, 0.55);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.dealer-role-editor__tier--blue.is-active {
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.dealer-role-editor__tier--purple.is-active {
+  border-color: rgba(167, 139, 250, 0.55);
+  background: rgba(167, 139, 250, 0.08);
+}
+
+.dealer-role-editor__tier-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.dealer-role-editor__tier-label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.dealer-role-editor__tier-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.35;
+}
+
+.dealer-role-editor__perm-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.dealer-role-editor__customize {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dealer-role-editor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.dealer-role-editor__chip {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #c7d2fe;
+}
+
+.dealer-role-editor__chip--muted {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-muted, #94a3b8);
+}
+
+.dealer-role-editor__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.65rem;
+}
+
+.dealer-role-editor__group {
+  padding: 0.75rem 0.85rem;
+}
+
+.dealer-role-editor__group h5 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.dealer-role-editor__perm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dealer-role-editor__perm {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.dealer-role-editor__perm.is-on {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.dealer-role-editor__perm-check {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  flex-shrink: 0;
+}
+
+.dealer-role-editor__perm.is-on .dealer-role-editor__perm-check {
+  background: #6366f1;
+  border-color: #6366f1;
+  box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.85);
+}
+
+.dealer-role-editor__perm-label {
+  flex: 1;
+}
+
+.dealer-role-editor__perm-badge {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #94a3b8);
+}
+
+.dealer-role-editor__preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #94a3b8);
+}

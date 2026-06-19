@@ -4,6 +4,7 @@ import { AlertCircle, Boxes, Link2, Package, RefreshCw, Search } from 'lucide-re
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { useAuth } from '../../context/AuthContext';
+import { canViewCatalogStock } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   fetchCatalog,
@@ -35,6 +36,7 @@ export const SparesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
+  const showStockQuantity = canSync || canViewCatalogStock(user);
   const viewMode = parseViewMode(searchParams.get('view'), canSync);
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -387,7 +389,7 @@ export const SparesPage: React.FC = () => {
           onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
           productsBasePath={`${pathname}/product`}
           enableCart={canUseCart(user?.role)}
-          showStockQuantity={canSync}
+          showStockQuantity={showStockQuantity}
           spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
           searchPlaceholder="Search products to map spares…"
           simpleCategoryTiles
@@ -407,7 +409,7 @@ export const SparesPage: React.FC = () => {
           searchQuery={sparesSearch}
           onSearchChange={setSparesSearch}
           productsBasePath={pathname}
-          showStockQuantity
+          showStockQuantity={showStockQuantity}
           returnView="unlinked"
           manageItemLabel="Link to products"
           onManageItem={spare => void openLinkEditor(spare)}
@@ -436,7 +438,7 @@ export const SparesPage: React.FC = () => {
           onSearchChange={setSparesSearch}
           productsBasePath={pathname}
           enableCart={canUseCart(user?.role)}
-          showStockQuantity={canSync}
+          showStockQuantity={showStockQuantity}
           returnView="spares"
         />
       )}

@@ -9,7 +9,7 @@ export const DealerTeamPage = () => {
     <UserManagement
       role="dealer_staff"
       title="Dealer Staff"
-      description="Add and manage staff who work under your dealership."
+      description="Add staff under your dealership and choose whether they see warehouse stock levels."
       scopedDealerId={user.uid}
     />
   );

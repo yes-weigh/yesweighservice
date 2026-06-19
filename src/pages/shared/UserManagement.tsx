@@ -19,6 +19,14 @@ import {
   parseLoginId,
 } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
+import {
+  DealerRoleEditor,
+  EMPTY_DEALER_ROLE_DRAFT,
+  dealerRoleDraftFromRecord,
+  dealerRoleDraftToPayload,
+  type DealerRoleDraft,
+} from '../../components/admin/DealerRoleEditor';
+import { DEALER_TIER_LABELS } from '../../types';
 
 const EMPTY_FORM = {
   loginId: '',
@@ -65,6 +73,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [showPw, setShowPw] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [roleDraft, setRoleDraft] = useState<DealerRoleDraft>(EMPTY_DEALER_ROLE_DRAFT);
+  const showDealerAccess = role === 'dealer' || role === 'dealer_staff';
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -95,8 +105,27 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     void fetchUsers();
   }, [fetchUsers]);
 
+  const parentDealerRecord = useCallback((dealerId?: string) => {
+    const id = dealerId || scopedDealerId;
+    if (!id) return null;
+    if (user?.uid === id && user.role === 'dealer') {
+      return {
+        uid: user.uid,
+        displayName: user.displayName,
+        role: user.role,
+        dealerTier: user.dealerTier,
+        dealerAccessMode: user.dealerAccessMode,
+        dealerPermissions: user.dealerPermissions,
+        active: user.active,
+        createdAt: '',
+      } as UserRecord;
+    }
+    return dealers.find(d => d.uid === id) ?? null;
+  }, [dealers, scopedDealerId, user]);
+
   const resetForm = () => {
     setForm({ ...EMPTY_FORM, dealerId: scopedDealerId ?? '' });
+    setRoleDraft(EMPTY_DEALER_ROLE_DRAFT);
     setEditingUid(null);
     setShowForm(false);
     setError('');
@@ -105,6 +134,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
   const openCreate = () => {
     setForm({ ...EMPTY_FORM, dealerId: scopedDealerId ?? '' });
+    const parent = role === 'dealer_staff' ? parentDealerRecord(scopedDealerId) : null;
+    setRoleDraft(parent ? dealerRoleDraftFromRecord(parent) : EMPTY_DEALER_ROLE_DRAFT);
     setEditingUid(null);
     setShowForm(true);
     setError('');
@@ -120,6 +151,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       email: record.email ?? '',
       dealerId: readDealerId(record) ?? scopedDealerId ?? '',
     });
+    setRoleDraft(dealerRoleDraftFromRecord(record));
     setEditingUid(record.uid);
     setShowForm(true);
     setError('');
@@ -132,6 +164,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     setError('');
 
     try {
+      const accessPayload = showDealerAccess ? dealerRoleDraftToPayload(roleDraft) : {};
       if (editingUid) {
         await updateUserProfile(db, editingUid, {
           displayName: form.displayName,
@@ -139,6 +172,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           email: form.email || undefined,
           dealerId:
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
+          ...accessPayload,
         });
       } else {
         if (form.password.length < 6) {
@@ -156,6 +190,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           email: form.email || undefined,
           dealerId:
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
+          ...accessPayload,
           createdByUid: user.uid,
         });
       }
@@ -312,7 +347,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     id="user-dealer"
                     className="input-field"
                     value={form.dealerId}
-                    onChange={e => setForm(f => ({ ...f, dealerId: e.target.value }))}
+                    onChange={e => {
+                      const dealerId = e.target.value;
+                      setForm(f => ({ ...f, dealerId }));
+                      const parent = parentDealerRecord(dealerId);
+                      if (parent) setRoleDraft(dealerRoleDraftFromRecord(parent));
+                    }}
                     required
                   >
                     <option value="">Select dealer</option>
@@ -322,6 +362,17 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       </option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {showDealerAccess && (
+                <div className="col-span-all user-management__access panel glass">
+                  <h3 className="user-management__access-title">Portal access</h3>
+                  <DealerRoleEditor
+                    value={roleDraft}
+                    onChange={setRoleDraft}
+                    disabled={submitting}
+                  />
                 </div>
               )}
 
@@ -374,6 +425,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   <th>Name</th>
                   <th>Login ID</th>
                   <th>Phone</th>
+                  {showDealerAccess && <th>Access</th>}
                   {role === 'dealer_staff' && !scopedDealerId && <th>Dealer</th>}
                   <th>Status</th>
                   <th className="text-right">Actions</th>
@@ -391,6 +443,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         {loginDisplay.value}
                       </td>
                       <td>{record.phone || '—'}</td>
+                      {showDealerAccess && (
+                        <td>
+                          <span className={`user-management__tier user-management__tier--${record.dealerTier ?? 'standard'}`}>
+                            {DEALER_TIER_LABELS[record.dealerTier ?? 'standard']}
+                          </span>
+                          {record.dealerAccessMode === 'custom' && (
+                            <span className="text-muted text-sm"> · Custom</span>
+                          )}
+                        </td>
+                      )}
                       {role === 'dealer_staff' && !scopedDealerId && (
                         <td>{dealerName(readDealerId(record))}</td>
                       )}

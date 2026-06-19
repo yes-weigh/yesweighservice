@@ -9,6 +9,15 @@ export {
   DEPARTMENT_DEFAULT_PERMISSIONS,
 } from './types/staff-access';
 
+export type { DealerTier, DealerPermission, DealerAccessProfile, DealerAccessMode } from './types/dealer-access';
+export {
+  DEALER_TIERS,
+  DEALER_TIER_LABELS,
+  DEALER_PERMISSION_LABELS,
+  DEALER_PERMISSION_GROUPS,
+  DEALER_TIER_DEFAULT_PERMISSIONS,
+} from './types/dealer-access';
+
 export type LoginIdType = 'aadhar' | 'phone' | 'email';
 
 export const ROLES: Role[] = ['super_admin', 'staff', 'dealer', 'dealer_staff'];
@@ -43,6 +52,10 @@ export interface User {
   /** Links sales staff to KAM record for dealer scoping */
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  /** Dealer portal only */
+  dealerTier?: import('./types/dealer-access').DealerTier;
+  dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
+  dealerPermissions?: import('./types/dealer-access').DealerPermission[];
 }
 
 export interface FirestoreUserDoc {
@@ -64,6 +77,9 @@ export interface FirestoreUserDoc {
   staffPermissions?: import('./types/staff-access').StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  dealerTier?: import('./types/dealer-access').DealerTier;
+  dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
+  dealerPermissions?: import('./types/dealer-access').DealerPermission[];
   createdAt: string;
   createdByUid?: string;
   updatedAt?: string;

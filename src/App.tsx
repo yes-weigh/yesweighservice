@@ -13,6 +13,7 @@ import { StaffDashboard } from './pages/staff/StaffDashboard';
 import { AdminStaffList } from './pages/admin/AdminStaffList';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
 import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
+import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
@@ -93,6 +94,7 @@ const App: React.FC = () => (
               <Route path="spares/:productId" element={<ProductDetailPage />} />
               <Route path="staff" element={<AdminStaffList />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
+              <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>

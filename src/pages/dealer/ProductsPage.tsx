@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { useAuth } from '../../context/AuthContext';
+import { canViewCatalogStock } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   fetchCatalog,
@@ -19,6 +20,7 @@ export const ProductsPage: React.FC = () => {
   const { pathname } = useLocation();
   const { user } = useAuth();
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
+  const showStockQuantity = canSync || canViewCatalogStock(user);
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -181,7 +183,7 @@ export const ProductsPage: React.FC = () => {
         }
         productsBasePath={pathname}
         enableCart={canUseCart(user?.role)}
-        showStockQuantity={canSync}
+        showStockQuantity={showStockQuantity}
       />
     </div>
   );

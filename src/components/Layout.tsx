@@ -174,6 +174,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/spares', icon: <Boxes size={20} />, label: 'Spares' },
           { path: '/super-admin/staff', icon: <Users size={20} />, label: 'Staff' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
+          { path: '/super-admin/dealer-accounts', icon: <UserCircle size={20} />, label: 'Dealer Logins' },
           { path: '/super-admin/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
         ];
       case 'staff':
