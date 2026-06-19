@@ -26,6 +26,90 @@ function versionedPublicStorageUrl(bucketName, storagePath, version) {
   return `${publicStorageUrl(bucketName, storagePath)}&v=${v}`;
 }
 
+async function findCategoryThumbnailInStorage(bucket, categoryId) {
+  const id = String(categoryId ?? '').trim();
+  if (!id) return null;
+
+  const [files] = await bucket.getFiles({ prefix: `catalog/categories/${id}.` });
+  const file = files.find(f => /^catalog\/categories\/[^/]+\.[a-z0-9]+$/i.test(f.name));
+  if (!file) return null;
+
+  try {
+    await file.makePublic();
+  } catch {
+    // Already public.
+  }
+
+  const version = file.metadata?.updated ?? new Date().toISOString();
+  return versionedPublicStorageUrl(bucket.name, file.name, version);
+}
+
+async function copyCategoryThumbnailInStorage(bucket, oldId, newId) {
+  const from = String(oldId ?? '').trim();
+  const to = String(newId ?? '').trim();
+  if (!from || !to || from === to) return null;
+
+  const existing = await findCategoryThumbnailInStorage(bucket, to);
+  if (existing) return existing;
+
+  const [files] = await bucket.getFiles({ prefix: `catalog/categories/${from}.` });
+  const source = files.find(f => /^catalog\/categories\/[^/]+\.[a-z0-9]+$/i.test(f.name));
+  if (!source) return null;
+
+  const ext = source.name.split('.').pop();
+  const destPath = `catalog/categories/${to}.${ext}`;
+  const dest = bucket.file(destPath);
+  await source.copy(dest);
+  await dest.makePublic();
+
+  return versionedPublicStorageUrl(bucket.name, destPath, new Date().toISOString());
+}
+
+/** Fill missing thumbnails from Storage — including files keyed by pre-migration group IDs. */
+async function attachStorageThumbnails(categories, legacyCategories, bucket) {
+  const nameToCurrentId = new Map(
+    categories.map(cat => [String(cat.name ?? '').toLowerCase(), String(cat.id)]),
+  );
+  const legacyIdToCurrentId = new Map();
+
+  for (const legacy of legacyCategories ?? []) {
+    const legacyId = String(legacy.id ?? '').trim();
+    if (!legacyId) continue;
+    const byName = nameToCurrentId.get(String(legacy.name ?? '').toLowerCase());
+    if (byName && byName !== legacyId) {
+      legacyIdToCurrentId.set(legacyId, byName);
+    }
+  }
+
+  for (const cat of categories) {
+    if (cat.thumbnailUrl) continue;
+
+    let url = await findCategoryThumbnailInStorage(bucket, cat.id);
+    if (!url) {
+      for (const [oldId, newId] of legacyIdToCurrentId) {
+        if (newId !== String(cat.id)) continue;
+        url = await copyCategoryThumbnailInStorage(bucket, oldId, cat.id);
+        if (url) break;
+      }
+    }
+    if (url) cat.thumbnailUrl = url;
+  }
+
+  return categories;
+}
+
+function categoryDocPayload(category, now) {
+  const payload = {
+    id: category.id,
+    name: category.name,
+    productCount: category.productCount,
+    displayOrder: category.displayOrder,
+    syncedAt: now,
+  };
+  if (category.thumbnailUrl) payload.thumbnailUrl = category.thumbnailUrl;
+  return payload;
+}
+
 async function cacheProductImage(accessToken, orgId, productId, existingImageUrl) {
   if (existingImageUrl) return existingImageUrl;
 
@@ -88,6 +172,7 @@ async function enrichMissingCategoryIds(accessToken, orgId, products) {
 async function remapCategorySettingsAfterSync(db, products, existingCategories) {
   if (!existingCategories.length) return existingCategories;
 
+  const bucket = getStorage().bucket();
   const idByName = new Map();
   for (const product of products) {
     if (product.status !== 'active' || !product.categoryId || !product.categoryName) continue;
@@ -107,11 +192,23 @@ async function remapCategorySettingsAfterSync(db, products, existingCategories) 
     }
 
     const prev = remapped.get(targetId);
+    let thumbnailUrl = cat.thumbnailUrl ?? prev?.thumbnailUrl ?? null;
+
+    if (correctId && correctId !== oldId) {
+      const copied = await copyCategoryThumbnailInStorage(bucket, oldId, targetId);
+      if (copied) {
+        thumbnailUrl = copied;
+      } else if (thumbnailUrl && String(thumbnailUrl).includes(oldId)) {
+        const fromStorage = await findCategoryThumbnailInStorage(bucket, oldId);
+        if (fromStorage) thumbnailUrl = fromStorage;
+      }
+    }
+
     remapped.set(targetId, {
       id: targetId,
       name: cat.name || prev?.name || 'Category',
       displayOrder: cat.displayOrder ?? prev?.displayOrder ?? 999,
-      thumbnailUrl: cat.thumbnailUrl ?? prev?.thumbnailUrl ?? null,
+      thumbnailUrl,
     });
   }
 
@@ -135,7 +232,7 @@ async function remapCategorySettingsAfterSync(db, products, existingCategories) 
 }
 
 /** Aggregate active categorized products — mirrors yesweigh listProductCategories(). */
-function buildCategoryMap(products, existingCategories) {
+function buildCategoryMap(products, existingCategories, existingProductMap) {
   const settingsById = new Map(
     (existingCategories ?? []).map(cat => [String(cat.id), cat]),
   );
@@ -150,6 +247,8 @@ function buildCategoryMap(products, existingCategories) {
     const key = String(product.categoryId);
     const settings = settingsById.get(key)
       ?? settingsByName.get(String(product.categoryName ?? '').toLowerCase());
+    const cachedProduct = existingProductMap?.get(product.id);
+    const imageUrl = cachedProduct?.imageUrl ?? product.imageUrl ?? null;
 
     if (!counts.has(key)) {
       counts.set(key, {
@@ -167,8 +266,8 @@ function buildCategoryMap(products, existingCategories) {
     const customThumb = settings?.thumbnailUrl;
     if (customThumb) {
       cat.thumbnailUrl = customThumb;
-    } else if (!cat.thumbnailUrl && product.imageUrl) {
-      cat.thumbnailUrl = product.imageUrl;
+    } else if (!cat.thumbnailUrl && imageUrl) {
+      cat.thumbnailUrl = imageUrl;
     }
   }
 
@@ -194,7 +293,8 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
   const existingMap = new Map(existingSnap.docs.map(doc => [doc.id, doc.data()]));
 
   const categorySnap = await db.collection(CATEGORIES_COLLECTION).get();
-  let existingCategories = categorySnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const legacyCategories = categorySnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  let existingCategories = [...legacyCategories];
   existingCategories = await remapCategorySettingsAfterSync(db, enrichedProducts, existingCategories);
 
   let skipFurtherImages = false;
@@ -268,15 +368,21 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     await deleteBatch.commit();
   }
 
-  const categories = buildCategoryMap(enrichedProducts, existingCategories);
+  let categories = buildCategoryMap(enrichedProducts, existingCategories, existingMap);
+  categories = await attachStorageThumbnails(
+    categories,
+    legacyCategories,
+    getStorage().bucket(),
+  );
   const categoryBatch = db.batch();
   const categoryIds = new Set(categories.map(c => c.id));
 
   for (const category of categories) {
-    categoryBatch.set(db.collection(CATEGORIES_COLLECTION).doc(category.id), {
-      ...category,
-      syncedAt: now,
-    }, { merge: true });
+    categoryBatch.set(
+      db.collection(CATEGORIES_COLLECTION).doc(category.id),
+      categoryDocPayload(category, now),
+      { merge: true },
+    );
   }
 
   for (const doc of categorySnap.docs) {
@@ -350,7 +456,7 @@ function deriveCategoriesFromProducts(items, storedCategories) {
     merged.set(id, {
       ...cat,
       productCount: Math.max(cat.productCount, prev?.productCount ?? 0),
-      thumbnailUrl: prev?.thumbnailUrl ?? cat.thumbnailUrl,
+      thumbnailUrl: prev?.thumbnailUrl || cat.thumbnailUrl,
       displayOrder: prev?.displayOrder ?? cat.displayOrder,
     });
   }

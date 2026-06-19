@@ -231,7 +231,7 @@ function deriveCategoriesFromProducts(
     merged.set(id, {
       ...cat,
       productCount: Math.max(cat.productCount, prev?.productCount ?? 0),
-      thumbnailUrl: prev?.thumbnailUrl ?? cat.thumbnailUrl,
+      thumbnailUrl: prev?.thumbnailUrl || cat.thumbnailUrl,
       displayOrder: prev?.displayOrder ?? cat.displayOrder,
     });
   }
