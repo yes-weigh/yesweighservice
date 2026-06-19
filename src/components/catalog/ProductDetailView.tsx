@@ -155,7 +155,7 @@ export const ProductDetailView: React.FC<{
     };
   }, [productId, preview]);
 
-  const isGroupedProduct = product ? hasCatalogCategory(product) : false;
+  const isCategorizedProduct = product ? hasCatalogCategory(product) : false;
   const isSpareItem = product ? !hasCatalogCategory(product) : false;
   const showLinksSection = showRelatedLinks || manageSpareLinks;
 
@@ -164,7 +164,7 @@ export const ProductDetailView: React.FC<{
     setRelatedLoading(true);
     setLinkError(null);
     try {
-      const response = isGroupedProduct
+      const response = isCategorizedProduct
         ? await fetchCatalogSpareLinks({ productId: product.id })
         : await fetchCatalogSpareLinks({ spareId: product.id });
       setRelatedKind(response.kind);
@@ -175,7 +175,7 @@ export const ProductDetailView: React.FC<{
     } finally {
       setRelatedLoading(false);
     }
-  }, [product, showLinksSection, isGroupedProduct]);
+  }, [product, showLinksSection, isCategorizedProduct]);
 
   useEffect(() => {
     void loadRelatedLinks();
@@ -186,7 +186,7 @@ export const ProductDetailView: React.FC<{
     setLinkError(null);
     try {
       const catalog = await fetchCatalog();
-      const pool = isGroupedProduct
+      const pool = isCategorizedProduct
         ? getUncategorizedProducts(catalog.items)
         : getCategorizedProducts(catalog.items);
       setEditorPool(pool);
@@ -201,7 +201,7 @@ export const ProductDetailView: React.FC<{
     setEditorSaving(true);
     setLinkError(null);
     try {
-      if (isGroupedProduct) {
+      if (isCategorizedProduct) {
         await saveCatalogProductSpareLinks(product.id, ids);
       } else {
         await saveCatalogSpareProductLinks(product.id, ids);
@@ -515,7 +515,7 @@ export const ProductDetailView: React.FC<{
             </div>
           )}
 
-          {showLinksSection && (isGroupedProduct || isSpareItem) && (
+          {showLinksSection && (isCategorizedProduct || isSpareItem) && (
             <>
               <RelatedCatalogItems
                 items={relatedItems}
@@ -553,7 +553,7 @@ export const ProductDetailView: React.FC<{
 
       {editorOpen && product && (
         <SpareLinkEditor
-          mode={isGroupedProduct ? 'product' : 'spare'}
+          mode={isCategorizedProduct ? 'product' : 'spare'}
           itemName={product.name}
           pool={editorPool}
           selectedIds={relatedItems.map(item => item.id)}

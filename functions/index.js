@@ -212,7 +212,7 @@ export const syncZohoCatalogScheduled = onSchedule(
     );
 
     console.log(
-      `Scheduled catalog sync: ${result.syncedCount} products, ${result.categoryCount} categories (${result.groupedProductCount} grouped).`,
+      `Scheduled catalog sync: ${result.syncedCount} products, ${result.categoryCount} categories (${result.categorizedProductCount} categorized).`,
     );
   },
 );
@@ -348,7 +348,7 @@ export const uploadCatalogProductImage = onCall(
   },
 );
 
-/** Move product to another category via Zoho internal move API. */
+/** Assign product to a Zoho item category (PUT /items with category_id + label_rate). */
 export const assignCatalogProductCategory = onCall(
   {
     region: 'asia-south1',
@@ -485,8 +485,10 @@ export const getZohoCatalog = onCall(
       syncedAt: catalog.syncedAt ?? new Date().toISOString(),
       stats: {
         totalItems: catalog.stats.totalProducts,
-        totalGroups: catalog.stats.totalCategories,
+        totalCategories: catalog.stats.totalCategories,
         activeItems: catalog.stats.totalProducts,
+        activeCategories: catalog.stats.totalCategories,
+        totalGroups: catalog.stats.totalCategories,
         activeGroups: catalog.stats.totalCategories,
       },
       items: catalog.items.map(item => ({
@@ -498,8 +500,34 @@ export const getZohoCatalog = onCall(
         unit: item.unit,
         type: '',
         description: item.description ?? '',
+        categoryId: item.categoryId ?? undefined,
+        categoryName: item.categoryName ?? undefined,
         groupId: item.categoryId ?? undefined,
         groupName: item.categoryName ?? undefined,
+      })),
+      categories: catalog.categories.map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        description: '',
+        status: 'active',
+        unit: '',
+        itemCount: cat.productCount,
+        items: catalog.items
+          .filter(p => p.categoryId === cat.id)
+          .map(item => ({
+            id: item.id,
+            name: item.name,
+            sku: item.sku ?? '',
+            rate: item.rate,
+            status: item.status,
+            unit: item.unit,
+            type: '',
+            description: item.description ?? '',
+            categoryId: item.categoryId ?? undefined,
+            categoryName: item.categoryName ?? undefined,
+            groupId: item.categoryId ?? undefined,
+            groupName: item.categoryName ?? undefined,
+          })),
       })),
       itemGroups: catalog.categories.map(cat => ({
         id: cat.id,

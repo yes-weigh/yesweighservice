@@ -440,7 +440,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               <p>{emptyTitle ?? (flatBrowse && !search.trim() ? 'No spares in catalog' : 'No products found')}</p>
               <span className="text-muted text-sm">
                 {emptyHint ?? (flatBrowse && !search.trim()
-                  ? 'Ungrouped Zoho items appear here after catalog sync.'
+                  ? 'Uncategorized Zoho items appear here after catalog sync.'
                   : 'Try adjusting your filters or search term.')}
               </span>
             </div>

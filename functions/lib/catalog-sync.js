@@ -1,14 +1,13 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import {
-  fetchAllItemGroups,
   fetchAllProducts,
   fetchBulkItemDetails,
-  fetchItemsByGroup,
   getAccessToken,
   resolveOrganizationId,
   downloadProductImage,
   uploadProductImageToZoho,
+  normaliseCategoryId,
 } from './zoho.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
@@ -46,45 +45,17 @@ async function cacheProductImage(accessToken, orgId, productId, existingImageUrl
   return publicStorageUrl(bucket.name, storagePath);
 }
 
-/** Mirror yesweigh: map every active item in each Zoho item group (parallel). */
-async function buildGroupMembership(accessToken, orgId, itemGroups) {
-  const membership = new Map();
-  const groups = (itemGroups ?? []).filter(g => g.id);
-
-  const results = await Promise.all(
-    groups.map(async group => {
-      try {
-        const items = await fetchItemsByGroup(accessToken, orgId, group.id);
-        return { group, items };
-      } catch (err) {
-        console.warn(`Group item fetch failed for ${group.id}:`, err?.message ?? err);
-        return { group, items: [] };
-      }
-    }),
-  );
-
-  for (const { group, items } of results) {
-    for (const item of items) {
-      if (item.status !== 'active') continue;
-      membership.set(item.id, {
-        categoryId: group.id,
-        categoryName: group.name,
-      });
-    }
-  }
-
-  return membership;
+function normaliseProductCategory(product) {
+  const categoryId = normaliseCategoryId(product.categoryId);
+  return {
+    ...product,
+    categoryId: categoryId || null,
+    categoryName: categoryId ? String(product.categoryName ?? '').trim() || null : null,
+  };
 }
 
-function applyGroupMembership(product, membership) {
-  const assigned = membership.get(product.id);
-  const categoryId = product.categoryId || assigned?.categoryId || null;
-  const categoryName = product.categoryName || assigned?.categoryName || null;
-  return { ...product, categoryId, categoryName };
-}
-
-/** Fill group_id via Zoho bulk itemdetails for products still missing a category. */
-async function enrichMissingGroupIds(accessToken, orgId, products) {
+/** Fill category_id via Zoho bulk itemdetails for products still missing a category. */
+async function enrichMissingCategoryIds(accessToken, orgId, products) {
   const missingIds = products
     .filter(p => p.status === 'active' && !p.categoryId)
     .map(p => p.id);
@@ -113,42 +84,87 @@ async function enrichMissingGroupIds(accessToken, orgId, products) {
   return [...byId.values()];
 }
 
-/** Same aggregation pattern as D:\\yesweigh catalog API — groupBy active products. */
-function buildCategoryMap(products, itemGroups, existingCategories) {
-  const existingSettings = new Map(
+/** Re-key catalogCategories settings when Zoho category IDs changed (match by name). */
+async function remapCategorySettingsAfterSync(db, products, existingCategories) {
+  if (!existingCategories.length) return existingCategories;
+
+  const idByName = new Map();
+  for (const product of products) {
+    if (product.status !== 'active' || !product.categoryId || !product.categoryName) continue;
+    idByName.set(String(product.categoryName).toLowerCase(), String(product.categoryId));
+  }
+
+  const remapped = new Map();
+  const staleIds = new Set();
+
+  for (const cat of existingCategories) {
+    const oldId = String(cat.id);
+    const correctId = idByName.get(String(cat.name ?? '').toLowerCase());
+    const targetId = correctId && correctId !== oldId ? correctId : oldId;
+
+    if (correctId && correctId !== oldId) {
+      staleIds.add(oldId);
+    }
+
+    const prev = remapped.get(targetId);
+    remapped.set(targetId, {
+      id: targetId,
+      name: cat.name || prev?.name || 'Category',
+      displayOrder: cat.displayOrder ?? prev?.displayOrder ?? 999,
+      thumbnailUrl: cat.thumbnailUrl ?? prev?.thumbnailUrl ?? null,
+    });
+  }
+
+  if (staleIds.size) {
+    const batch = db.batch();
+    for (const [id, cat] of remapped) {
+      batch.set(db.collection(CATEGORIES_COLLECTION).doc(id), {
+        id,
+        name: cat.name,
+        displayOrder: cat.displayOrder,
+        thumbnailUrl: cat.thumbnailUrl,
+      }, { merge: true });
+    }
+    for (const staleId of staleIds) {
+      batch.delete(db.collection(CATEGORIES_COLLECTION).doc(staleId));
+    }
+    await batch.commit();
+  }
+
+  return [...remapped.values()];
+}
+
+/** Aggregate active categorized products — mirrors yesweigh listProductCategories(). */
+function buildCategoryMap(products, existingCategories) {
+  const settingsById = new Map(
     (existingCategories ?? []).map(cat => [String(cat.id), cat]),
+  );
+  const settingsByName = new Map(
+    (existingCategories ?? []).map(cat => [String(cat.name ?? '').toLowerCase(), cat]),
   );
 
   const counts = new Map();
 
-  for (const group of itemGroups ?? []) {
-    if (!group.id) continue;
-    const id = String(group.id);
-    counts.set(id, {
-      id,
-      name: group.name || 'Category',
-      productCount: 0,
-      displayOrder: existingSettings.get(id)?.displayOrder ?? 999,
-      thumbnailUrl: existingSettings.get(id)?.thumbnailUrl ?? null,
-    });
-  }
-
   for (const product of products) {
     if (product.status !== 'active' || !product.categoryId) continue;
     const key = String(product.categoryId);
+    const settings = settingsById.get(key)
+      ?? settingsByName.get(String(product.categoryName ?? '').toLowerCase());
+
     if (!counts.has(key)) {
       counts.set(key, {
         id: key,
-        name: product.categoryName || 'Category',
+        name: product.categoryName || settings?.name || 'Category',
         productCount: 0,
-        displayOrder: existingSettings.get(key)?.displayOrder ?? 999,
-        thumbnailUrl: existingSettings.get(key)?.thumbnailUrl ?? null,
+        displayOrder: settings?.displayOrder ?? 999,
+        thumbnailUrl: settings?.thumbnailUrl ?? null,
       });
     }
+
     const cat = counts.get(key);
     cat.productCount += 1;
     if (product.categoryName) cat.name = product.categoryName;
-    const customThumb = existingSettings.get(key)?.thumbnailUrl;
+    const customThumb = settings?.thumbnailUrl;
     if (customThumb) {
       cat.thumbnailUrl = customThumb;
     } else if (!cat.thumbnailUrl && product.imageUrl) {
@@ -170,23 +186,16 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
 
-  const [products, itemGroups] = await Promise.all([
-    fetchAllProducts(accessToken, organizationId),
-    fetchAllItemGroups(accessToken, organizationId).catch(err => {
-      console.warn('Item groups fetch failed:', err?.message ?? err);
-      return [];
-    }),
-  ]);
-
-  const groupMembership = await buildGroupMembership(accessToken, organizationId, itemGroups);
-  let enrichedProducts = products.map(product => applyGroupMembership(product, groupMembership));
-  enrichedProducts = await enrichMissingGroupIds(accessToken, organizationId, enrichedProducts);
+  const products = await fetchAllProducts(accessToken, organizationId);
+  let enrichedProducts = products.map(normaliseProductCategory);
+  enrichedProducts = await enrichMissingCategoryIds(accessToken, organizationId, enrichedProducts);
 
   const existingSnap = await db.collection(PRODUCTS_COLLECTION).get();
   const existingMap = new Map(existingSnap.docs.map(doc => [doc.id, doc.data()]));
 
   const categorySnap = await db.collection(CATEGORIES_COLLECTION).get();
-  const existingCategories = categorySnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  let existingCategories = categorySnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  existingCategories = await remapCategorySettingsAfterSync(db, enrichedProducts, existingCategories);
 
   let skipFurtherImages = false;
   let syncedCount = 0;
@@ -259,7 +268,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     await deleteBatch.commit();
   }
 
-  const categories = buildCategoryMap(enrichedProducts, itemGroups, existingCategories);
+  const categories = buildCategoryMap(enrichedProducts, existingCategories);
   const categoryBatch = db.batch();
   const categoryIds = new Set(categories.map(c => c.id));
 
@@ -279,13 +288,13 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
   await categoryBatch.commit();
 
   const activeProducts = enrichedProducts.filter(p => p.status === 'active');
-  const groupedCount = activeProducts.filter(p => p.categoryId).length;
+  const categorizedCount = activeProducts.filter(p => p.categoryId).length;
 
   await db.doc(META_DOC).set({
     lastSyncAt: now,
     productCount: products.length,
     activeProductCount: activeProducts.length,
-    groupedProductCount: groupedCount,
+    categorizedProductCount: categorizedCount,
     categoryCount: categories.length,
     organizationId,
     imageDownloadsSkipped: skipNewImages || skipFurtherImages,
@@ -295,10 +304,15 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
   return {
     syncedCount,
     categoryCount: categories.length,
-    groupedProductCount: groupedCount,
+    categorizedProductCount: categorizedCount,
     syncedAt: now,
     organizationId,
   };
+}
+
+function hasValidCategoryId(product) {
+  const id = String(product?.categoryId ?? '').trim();
+  return Boolean(id && id !== '-1');
 }
 
 function deriveCategoriesFromProducts(items, storedCategories) {
@@ -306,7 +320,7 @@ function deriveCategoriesFromProducts(items, storedCategories) {
   const derived = new Map();
 
   for (const product of items) {
-    if (!product.categoryId) continue;
+    if (!hasValidCategoryId(product)) continue;
     const key = String(product.categoryId);
     if (!derived.has(key)) {
       derived.set(key, {

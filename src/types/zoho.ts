@@ -7,11 +7,11 @@ export interface ZohoCatalogItem {
   unit: string;
   type: string;
   description: string;
-  groupId?: string;
-  groupName?: string;
+  categoryId?: string;
+  categoryName?: string;
 }
 
-export interface ZohoItemGroup {
+export interface ZohoItemCategory {
   id: string;
   name: string;
   description: string;
@@ -23,9 +23,9 @@ export interface ZohoItemGroup {
 
 export interface ZohoCatalogStats {
   totalItems: number;
-  totalGroups: number;
+  totalCategories: number;
   activeItems: number;
-  activeGroups: number;
+  activeCategories: number;
 }
 
 export interface ZohoCatalogResponse {
@@ -33,5 +33,8 @@ export interface ZohoCatalogResponse {
   syncedAt: string;
   stats: ZohoCatalogStats;
   items: ZohoCatalogItem[];
-  itemGroups: ZohoItemGroup[];
+  categories: ZohoItemCategory[];
 }
+
+/** @deprecated Use ZohoItemCategory */
+export type ZohoItemGroup = ZohoItemCategory;

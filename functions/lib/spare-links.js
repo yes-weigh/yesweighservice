@@ -4,8 +4,8 @@ const MAP_COLLECTION = 'catalogProductSpareMap';
 const PRODUCTS_COLLECTION = 'catalogProducts';
 
 function hasCategoryId(product) {
-  const id = product?.categoryId;
-  return Boolean(id && String(id).trim());
+  const id = String(product?.categoryId ?? '').trim();
+  return Boolean(id && id !== '-1');
 }
 
 function toClientProduct(data) {
@@ -81,17 +81,17 @@ export async function getLinkedProductsForSpare(spareId) {
   return products.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function assertGroupedProduct(db, productId) {
+async function assertCategorizedProduct(db, productId) {
   const product = await readActiveProduct(db, productId);
   if (!product) throw new Error('Product not found in catalog.');
-  if (!hasCategoryId(product)) throw new Error('Item is not a grouped product.');
+  if (!hasCategoryId(product)) throw new Error('Item is not a categorized product.');
   return product;
 }
 
-async function assertUngroupedSpare(db, spareId) {
+async function assertUncategorizedSpare(db, spareId) {
   const spare = await readActiveProduct(db, spareId);
   if (!spare) throw new Error('Spare not found in catalog.');
-  if (hasCategoryId(spare)) throw new Error('Item is not an ungrouped spare.');
+  if (hasCategoryId(spare)) throw new Error('Item is not an uncategorized spare.');
   return spare;
 }
 
@@ -100,11 +100,11 @@ export async function saveProductSpareMap(productId, spareIds, uid) {
   const id = String(productId ?? '').trim();
   if (!id) throw new Error('productId is required.');
 
-  await assertGroupedProduct(db, id);
+  await assertCategorizedProduct(db, id);
 
   const uniqueSpareIds = [...new Set((spareIds ?? []).map(s => String(s).trim()).filter(Boolean))];
   for (const spareId of uniqueSpareIds) {
-    await assertUngroupedSpare(db, spareId);
+    await assertUncategorizedSpare(db, spareId);
   }
 
   const now = new Date().toISOString();
@@ -130,11 +130,11 @@ export async function saveSpareProductMap(spareId, productIds, uid) {
   const id = String(spareId ?? '').trim();
   if (!id) throw new Error('spareId is required.');
 
-  await assertUngroupedSpare(db, id);
+  await assertUncategorizedSpare(db, id);
 
   const uniqueProductIds = [...new Set((productIds ?? []).map(p => String(p).trim()).filter(Boolean))];
   for (const productId of uniqueProductIds) {
-    await assertGroupedProduct(db, productId);
+    await assertCategorizedProduct(db, productId);
   }
 
   const targetSet = new Set(uniqueProductIds);

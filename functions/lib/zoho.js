@@ -1,5 +1,33 @@
 const ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.in';
 export const ZOHO_API_BASE = 'https://www.zohoapis.in/inventory/v1';
+const ROOT_CATEGORY_ID = '-1';
+const MRP_MULTIPLIER = Number(process.env.ZOHO_MRP_MULTIPLIER ?? '2.5');
+
+export function normaliseCategoryId(id) {
+  const s = String(id ?? '').trim();
+  return s === '' || s === ROOT_CATEGORY_ID ? '' : s;
+}
+
+function validPositiveRate(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function resolveLabelRate(item) {
+  const existingMrp = validPositiveRate(item.label_rate);
+  if (existingMrp != null) return existingMrp;
+
+  const saleRate =
+    validPositiveRate(item.sales_rate)
+    ?? validPositiveRate(item.rate)
+    ?? validPositiveRate(item.pricebook_rate);
+
+  if (saleRate != null) {
+    return Math.round(saleRate * MRP_MULTIPLIER * 100) / 100;
+  }
+
+  return 1;
+}
 
 /** @type {{ token: string; expiresAt: number } | null} */
 let tokenCache = null;
@@ -31,8 +59,8 @@ export function normaliseItem(raw) {
     stock,
     stockStatus: getStockStatus(stock, reorderLevel),
     hasImage: Boolean(raw.image_url || raw.image_document_id),
-    categoryId: raw.group_id ? String(raw.group_id) : '',
-    categoryName: raw.group_name ? String(raw.group_name) : '',
+    categoryId: normaliseCategoryId(raw.category_id),
+    categoryName: String(raw.category_name ?? '').trim(),
     status: String(raw.status ?? 'active'),
     hsn: String(raw.hsn_or_sac ?? ''),
     taxName: String(raw.tax_name ?? ''),
@@ -102,6 +130,7 @@ export async function resolveOrganizationId(accessToken, configuredOrgId) {
   return String(orgs[0].organization_id);
 }
 
+/** @deprecated Item groups removed from Zoho — use category_id on items. Kept for diagnostics only. */
 export async function fetchAllItemGroups(accessToken, orgId, page = 1, perPage = 200) {
   const url = new URL(`${ZOHO_API_BASE}/itemgroups`);
   url.searchParams.set('organization_id', orgId);
@@ -129,6 +158,7 @@ export async function fetchAllItemGroups(accessToken, orgId, page = 1, perPage =
   return groups;
 }
 
+/** @deprecated Item groups removed from Zoho — use category_id on items. Kept for diagnostics only. */
 export async function fetchItemsByGroup(accessToken, orgId, groupId, page = 1, perPage = 200) {
   const url = new URL(`${ZOHO_API_BASE}/items`);
   url.searchParams.set('organization_id', orgId);
@@ -158,7 +188,7 @@ export async function fetchItemsByGroup(accessToken, orgId, groupId, page = 1, p
   return items;
 }
 
-/** Bulk item details — fills in group_id when the list endpoint omits it. */
+/** Bulk item details — fills in category_id when the list endpoint omits it. */
 export async function fetchBulkItemDetails(accessToken, orgId, itemIds) {
   if (!itemIds.length) return [];
 
@@ -172,12 +202,15 @@ export async function fetchBulkItemDetails(accessToken, orgId, itemIds) {
     throw new Error(payload.message || 'Zoho bulk item details error');
   }
 
-  return (payload.items ?? []).map(raw => ({
-    id: String(raw.item_id ?? ''),
-    categoryId: raw.group_id ? String(raw.group_id) : null,
-    categoryName: raw.group_name ? String(raw.group_name) : null,
-    status: String(raw.status ?? 'active'),
-  })).filter(item => item.id);
+  return (payload.items ?? []).map(raw => {
+    const categoryId = normaliseCategoryId(raw.category_id);
+    return {
+      id: String(raw.item_id ?? ''),
+      categoryId: categoryId || null,
+      categoryName: categoryId ? String(raw.category_name ?? '').trim() || null : null,
+      status: String(raw.status ?? 'active'),
+    };
+  }).filter(item => item.id);
 }
 
 export async function fetchAllProducts(accessToken, orgId, page = 1, perPage = 200) {
@@ -247,8 +280,10 @@ export async function fetchProductDetail(accessToken, orgId, itemId) {
     rate: Number(item.rate ?? 0),
     stock,
     stockStatus: getStockStatus(stock, reorderLevel),
-    categoryId: item.group_id ? String(item.group_id) : null,
-    categoryName: item.group_name || null,
+    categoryId: normaliseCategoryId(item.category_id) || null,
+    categoryName: normaliseCategoryId(item.category_id)
+      ? String(item.category_name ?? '').trim() || null
+      : null,
     status: String(item.status ?? 'active'),
     hsn: item.hsn_or_sac || null,
     taxName: item.tax_name || null,
@@ -328,17 +363,24 @@ export async function uploadProductImageToZoho(accessToken, orgId, itemId, buffe
   return payload ?? { ok: true };
 }
 
-/**
- * Zoho internal API — move item to a different item group.
- * PUT /inventory/v1/items/move/{itemId}
- */
+/** Assign Zoho item category — India org requires label_rate (MRP) on PUT. */
 export async function moveProductToCategory(accessToken, orgId, itemId, categoryId) {
-  const url = `${ZOHO_API_BASE}/items/move/${itemId}`;
+  const detailUrl = `${ZOHO_API_BASE}/items/${itemId}?organization_id=${orgId}`;
+  const detailRes = await fetch(detailUrl, { headers: authHeaders(accessToken, orgId) });
+  const detailData = await detailRes.json();
+  if (detailData.code !== 0 || !detailData.item) {
+    throw new Error(`Zoho item fetch failed: ${detailData.message ?? 'unknown error'}`);
+  }
+
+  const putUrl = `${ZOHO_API_BASE}/items/${itemId}`;
   const params = new URLSearchParams();
   params.set('organization_id', orgId);
-  params.set('JSONString', JSON.stringify({ group_id: categoryId }));
+  params.set('JSONString', JSON.stringify({
+    category_id: categoryId,
+    label_rate: resolveLabelRate(detailData.item),
+  }));
 
-  const response = await fetch(url, {
+  const response = await fetch(putUrl, {
     method: 'PUT',
     headers: {
       Authorization: `Zoho-oauthtoken ${accessToken}`,
@@ -349,6 +391,6 @@ export async function moveProductToCategory(accessToken, orgId, itemId, category
 
   const payload = await response.json();
   if (payload.code !== 0) {
-    throw new Error(payload.message || 'Zoho category move failed');
+    throw new Error(payload.message || 'Zoho category assignment failed');
   }
 }

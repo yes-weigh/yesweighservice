@@ -247,7 +247,7 @@ export const SparesPage: React.FC = () => {
     : viewMode === 'unlinked'
       ? 'Spares not linked to any product — use the link button or open a spare to map products'
       : (canSync
-        ? 'Ungrouped Zoho items — flat spare list'
+        ? 'Uncategorized Zoho items — flat spare list'
         : 'Browse all spare parts');
 
   const isFlatBrowse = viewMode === 'spares' || viewMode === 'unlinked';
@@ -421,7 +421,7 @@ export const SparesPage: React.FC = () => {
           emptyHint={
             sparesSearch.trim()
               ? 'Try a different name or SKU.'
-              : 'Every ungrouped spare in the catalog is mapped to at least one product.'
+              : 'Every uncategorized spare in the catalog is mapped to at least one product.'
           }
         />
       ) : (

@@ -47,17 +47,18 @@ export function isSparesExcludedCategory(category: Pick<CatalogCategory, 'name'>
   return SPARES_EXCLUDED_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
 }
 
-/** Product synced with a Zoho item group (has categoryId). */
+/** Product synced with a Zoho item category (has categoryId, excluding ROOT -1). */
 export function hasCatalogCategory(product: Pick<CatalogProduct, 'categoryId'>): boolean {
-  return Boolean(product.categoryId?.trim());
+  const id = product.categoryId?.trim();
+  return Boolean(id && id !== '-1');
 }
 
-/** Active products assigned to a Zoho item group — shown on Products. */
+/** Active products assigned to a Zoho category — shown on Products. */
 export function getCategorizedProducts(products: CatalogProduct[]): CatalogProduct[] {
   return products.filter(hasCatalogCategory);
 }
 
-/** Zoho ungrouped items (no item group) — shown on Spares. */
+/** Zoho uncategorized items (no category_id) — shown on Spares. */
 export function getUncategorizedProducts(products: CatalogProduct[]): CatalogProduct[] {
   return products.filter(p => !hasCatalogCategory(p));
 }
@@ -88,7 +89,7 @@ export async function fetchLinkedSpareIds(): Promise<Set<string>> {
   return linkedSpareIds;
 }
 
-/** Ungrouped catalog items not mapped to any product. */
+/** Uncategorized catalog items not mapped to any product. */
 export function getUnlinkedSpares(
   products: CatalogProduct[],
   linkedSpareIds: Set<string>,
@@ -191,7 +192,7 @@ function buildStats(items: CatalogProduct[], categories: CatalogCategory[]): Cat
   };
 }
 
-/** Build categories from product group fields when catalogCategories is empty or stale. */
+/** Build categories from product category fields when catalogCategories is empty or stale. */
 function deriveCategoriesFromProducts(
   products: CatalogProduct[],
   stored: CatalogCategory[],
@@ -200,21 +201,22 @@ function deriveCategoriesFromProducts(
   const derived = new Map<string, CatalogCategory>();
 
   for (const product of products) {
-    if (!product.categoryId) continue;
-    const existing = storedMap.get(product.categoryId) ?? derived.get(product.categoryId);
+    if (!hasCatalogCategory(product)) continue;
+    const categoryId = product.categoryId as string;
+    const existing = storedMap.get(categoryId) ?? derived.get(categoryId);
     if (!existing) {
-      derived.set(product.categoryId, {
-        id: product.categoryId,
+      derived.set(categoryId, {
+        id: categoryId,
         name: product.categoryName || 'Category',
         productCount: 1,
-        displayOrder: storedMap.get(product.categoryId)?.displayOrder ?? 999,
-        thumbnailUrl: storedMap.get(product.categoryId)?.thumbnailUrl ?? null,
+        displayOrder: storedMap.get(categoryId)?.displayOrder ?? 999,
+        thumbnailUrl: storedMap.get(categoryId)?.thumbnailUrl ?? null,
       });
     } else {
       existing.productCount += 1;
       if (product.categoryName) existing.name = product.categoryName;
     }
-    const cat = derived.get(product.categoryId);
+    const cat = derived.get(categoryId);
     if (cat && !cat.thumbnailUrl && product.imageUrl) {
       cat.thumbnailUrl = product.imageUrl;
     }
