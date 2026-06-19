@@ -1,4 +1,4 @@
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
 
 const STATUS_FILTER_MAP = {
@@ -36,6 +36,129 @@ export function mapInvoice(raw) {
     customerName: raw.customer_name ? String(raw.customer_name) : null,
     invoiceUrl: raw.invoice_url ? String(raw.invoice_url) : null,
   };
+}
+
+function normalizeSearchNeedle(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function invoiceHeaderMatches(invoice, needle) {
+  if (!needle) return true;
+  const fields = [
+    invoice.invoiceNumber,
+    invoice.referenceNumber,
+    invoice.customerName,
+    invoice.id,
+  ];
+  return fields.some(field => field && String(field).toLowerCase().includes(needle));
+}
+
+function buildInvoiceSearchBlob(invoiceRaw) {
+  const parts = [
+    invoiceRaw.invoice_number,
+    invoiceRaw.reference_number,
+    invoiceRaw.customer_name,
+    invoiceRaw.notes,
+  ];
+  for (const item of invoiceRaw.line_items ?? []) {
+    parts.push(item.name, item.item_name, item.description, item.sku);
+  }
+  return parts
+    .filter(Boolean)
+    .map(value => String(value))
+    .join(' ')
+    .toLowerCase();
+}
+
+async function loadInvoiceSearchIndex(customerId) {
+  const snap = await getFirestore()
+    .collection('zohoCustomers')
+    .doc(customerId)
+    .collection('invoiceSearch')
+    .get();
+  const map = new Map();
+  snap.forEach(doc => {
+    map.set(doc.id, String(doc.data()?.blob ?? ''));
+  });
+  return map;
+}
+
+async function upsertInvoiceSearchIndex(customerId, invoiceId, invoiceRaw) {
+  const blob = buildInvoiceSearchBlob(invoiceRaw);
+  await getFirestore()
+    .collection('zohoCustomers')
+    .doc(customerId)
+    .collection('invoiceSearch')
+    .doc(invoiceId)
+    .set({
+      blob,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  return blob;
+}
+
+async function mapConcurrent(items, concurrency, fn) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await fn(items[current], current);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+async function filterInvoicesBySearch(accessToken, orgId, customerId, invoices, searchText) {
+  const needle = normalizeSearchNeedle(searchText);
+  if (!needle) return invoices;
+
+  const headerMatched = [];
+  const index = await loadInvoiceSearchIndex(customerId);
+  const indexMatched = [];
+  const needsFetch = [];
+
+  for (const invoice of invoices) {
+    if (invoiceHeaderMatches(invoice, needle)) {
+      headerMatched.push(invoice);
+      continue;
+    }
+    if (index.has(invoice.id)) {
+      if (index.get(invoice.id).includes(needle)) indexMatched.push(invoice);
+    } else {
+      needsFetch.push(invoice);
+    }
+  }
+
+  const fetchedMatched = [];
+  await mapConcurrent(needsFetch, 12, async invoice => {
+    try {
+      const raw = await fetchInvoiceRaw(accessToken, orgId, invoice.id);
+      if (!raw) return;
+      const blob = await upsertInvoiceSearchIndex(customerId, invoice.id, raw);
+      if (blob.includes(needle)) fetchedMatched.push(invoice);
+    } catch {
+      // Skip invoices that fail to load during search indexing.
+    }
+  });
+
+  const seen = new Set();
+  const merged = [];
+  for (const invoice of [...headerMatched, ...indexMatched, ...fetchedMatched]) {
+    if (seen.has(invoice.id)) continue;
+    seen.add(invoice.id);
+    merged.push(invoice);
+  }
+  return merged;
 }
 
 export async function resolveZohoCustomerIdForUser(uid, role) {
@@ -465,6 +588,8 @@ export async function getDealerInvoiceDetail(secrets, orgId, uid, role, invoiceI
 
   const salesOrder = await resolveSalesOrder(accessToken, organizationId, customerId, invoiceRaw);
 
+  void upsertInvoiceSearchIndex(customerId, invoiceId, invoiceRaw).catch(() => {});
+
   return {
     ...mapInvoice(invoiceRaw),
     salesOrderId: salesOrder?.id ?? null,
@@ -555,11 +680,21 @@ export async function listDealerInvoices(secrets, orgId, uid, role, query = {}) 
 
   let invoices = await fetchAllCustomerInvoices(accessToken, organizationId, customerId, {
     filterBy: status !== 'all' ? filterBy : undefined,
-    searchText: searchText || undefined,
     sortColumn,
   });
 
   invoices = filterInvoices(invoices, { status });
+
+  if (searchText) {
+    invoices = await filterInvoicesBySearch(
+      accessToken,
+      organizationId,
+      customerId,
+      invoices,
+      searchText,
+    );
+  }
+
   invoices = sortInvoices(invoices, sortField, sortDir);
   const paged = paginateInvoices(invoices, page, limit);
 

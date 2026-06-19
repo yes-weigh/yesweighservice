@@ -201,10 +201,10 @@ export const InvoicesPage: React.FC = () => {
             <Search size={15} aria-hidden />
             <input
               type="search"
-              placeholder="Search invoices…"
+              placeholder="Search invoices, serial numbers, SO…"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              aria-label="Search invoices"
+              aria-label="Search invoices and serial numbers"
             />
           </div>
           <button
