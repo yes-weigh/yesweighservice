@@ -54,6 +54,7 @@ export const ProductDetailView: React.FC<{
   productId: string;
   backPath: string;
   backLabel?: string;
+  backState?: Record<string, unknown> | null;
   preview?: CatalogProduct | null;
   variant?: 'app' | 'public';
   showWarehouseStock?: boolean;
@@ -69,6 +70,7 @@ export const ProductDetailView: React.FC<{
   productId,
   backPath,
   backLabel = 'Back to products',
+  backState = null,
   preview = null,
   variant = 'app',
   showWarehouseStock = false,
@@ -82,6 +84,10 @@ export const ProductDetailView: React.FC<{
   sparesBasePath = '/dealer/spares',
 }) => {
   const navigate = useNavigate();
+  const goBack = useCallback(() => {
+    if (backState) navigate(backPath, { state: backState });
+    else navigate(backPath);
+  }, [backPath, backState, navigate]);
   const { addItem, getQuantity } = useCart();
   const { flyToCart } = useCartFly();
   const [quantity, setQuantity] = useState(1);
@@ -253,7 +259,7 @@ export const ProductDetailView: React.FC<{
   if (error && !product) {
     return (
       <div className={`product-detail-page product-detail-page--${variant}`}>
-        <button type="button" className="product-detail-page__back" onClick={() => navigate(backPath)}>
+        <button type="button" className="product-detail-page__back" onClick={goBack}>
           <ArrowLeft size={18} />
           <span>{backLabel}</span>
         </button>
@@ -299,7 +305,7 @@ export const ProductDetailView: React.FC<{
       <button
         type="button"
         className="product-detail-page__back"
-        onClick={() => navigate(backPath)}
+        onClick={goBack}
       >
         <ArrowLeft size={18} />
         <span>{backLabel}</span>

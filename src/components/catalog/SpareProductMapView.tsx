@@ -539,7 +539,14 @@ export const SpareProductMapView: React.FC<{
                   mode="mapped"
                   canManage={canManage}
                   showStockQuantity={showStockQuantity}
-                  onOpen={() => navigate(`${sparesBasePath}/${item.id}`, { state: { preview: item } })}
+                  onOpen={() => navigate(`${sparesBasePath}/${item.id}`, {
+                    state: {
+                      preview: item,
+                      parentProductId: productId,
+                      returnCategoryId: product.categoryId,
+                      parentProductPreview: product,
+                    },
+                  })}
                   onRemove={() => toggle(item.id)}
                 />
               </li>
