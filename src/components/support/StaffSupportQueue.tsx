@@ -8,6 +8,10 @@ import {
   fetchOpsSupportRequests,
   supportDetailPath,
 } from '../../lib/dealerSupport';
+import {
+  filterSupportRequestsForUser,
+  allowedSupportTypesForUser,
+} from '../../lib/staffAccess';
 import type { DealerSupportRequest, SupportRequestType } from '../../types/dealer-support';
 import {
   SUPPORT_REQUEST_STATUS_LABELS,
@@ -36,18 +40,25 @@ export const StaffSupportQueue: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      setRequests(await fetchOpsSupportRequests());
+      setRequests(filterSupportRequestsForUser(user, await fetchOpsSupportRequests()));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load support queue.');
       setRequests([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const allowedTypes = allowedSupportTypesForUser(user);
+  const typeHint = allowedTypes === 'all'
+    ? 'All warranty, replacement, and complaint tickets.'
+    : allowedTypes.length === 0
+      ? 'Your role does not include support queue access.'
+      : `Showing ${allowedTypes.map(t => SUPPORT_TYPE_LABELS[t]).join(', ')} tickets for your team.`;
 
   if (!user) return null;
 
@@ -56,7 +67,7 @@ export const StaffSupportQueue: React.FC = () => {
       <header className="staff-support-queue__header">
         <div>
           <h3>Dealer support queue</h3>
-          <p className="text-muted text-sm">All warranty, replacement, and complaint tickets.</p>
+          <p className="text-muted text-sm">{typeHint}</p>
         </div>
         <button
           type="button"

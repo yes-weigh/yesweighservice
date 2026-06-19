@@ -9523,3 +9523,476 @@ html::-webkit-scrollbar {
     height: 5rem;
   }
 }
+
+/* Staff roles & permissions management */
+.staff-management-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.staff-management-page__hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  flex-wrap: wrap;
+}
+
+.staff-management-page__title {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+}
+
+.staff-management-page__hero-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.staff-management-page__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.75rem;
+}
+
+.staff-management-page__stat {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.staff-management-page__stat:hover {
+  transform: translateY(-1px);
+}
+
+.staff-management-page__stat.is-active {
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
+.staff-management-page__stat-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-management-page__stat strong {
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
+.staff-management-page__stat--blue svg { color: #60a5fa; }
+.staff-management-page__stat--green svg { color: #34d399; }
+.staff-management-page__stat--orange svg { color: #fb923c; }
+.staff-management-page__stat--purple svg { color: #a78bfa; }
+
+.staff-management-page__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  flex-wrap: wrap;
+}
+
+.staff-management-page__search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 14rem;
+}
+
+.staff-management-page__search .input-field {
+  flex: 1;
+}
+
+.staff-management-page__form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.staff-management-page__form-grid {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.staff-management-page__account,
+.staff-management-page__roles {
+  padding: 1rem 1.15rem;
+}
+
+.staff-management-page__account h3,
+.staff-management-page__roles h3 {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+}
+
+.staff-management-page__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.staff-management-page__field span {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-management-page__password {
+  position: relative;
+}
+
+.staff-management-page__password .input-field {
+  width: 100%;
+  padding-right: 2.5rem;
+}
+
+.staff-management-page__pw-toggle {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.staff-management-page__form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.staff-management-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 0.85rem;
+}
+
+.staff-management-page__empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2.5rem 1rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-management-page__card {
+  padding: 1rem 1.1rem;
+  border-left: 3px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.staff-management-page__card--blue { border-left-color: #60a5fa; }
+.staff-management-page__card--green { border-left-color: #34d399; }
+.staff-management-page__card--orange { border-left-color: #fb923c; }
+.staff-management-page__card--purple { border-left-color: #a78bfa; }
+
+.staff-management-page__card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.staff-management-page__card-head strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.staff-management-page__dept-badge {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+}
+
+.staff-management-page__dept-badge--blue { background: rgba(96, 165, 250, 0.15); color: #93c5fd; }
+.staff-management-page__dept-badge--green { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
+.staff-management-page__dept-badge--orange { background: rgba(251, 146, 60, 0.15); color: #fdba74; }
+.staff-management-page__dept-badge--purple { background: rgba(167, 139, 250, 0.15); color: #c4b5fd; }
+
+.staff-management-page__status {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #34d399;
+}
+
+.staff-management-page__status.is-inactive {
+  color: #f87171;
+}
+
+.staff-management-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-management-page__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.staff-management-page__chip {
+  font-size: 0.6875rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-muted, #94a3b8);
+  text-transform: capitalize;
+}
+
+.staff-management-page__card-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.staff-management-page__delete {
+  color: #f87171;
+}
+
+.staff-role-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.staff-role-editor__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.staff-role-editor__heading {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.staff-role-editor__hint {
+  margin: 0;
+}
+
+.staff-role-editor__departments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.65rem;
+}
+
+.staff-role-editor__dept {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.35);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.staff-role-editor__dept:hover {
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.staff-role-editor__dept.is-active {
+  border-color: rgba(99, 102, 241, 0.55);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.staff-role-editor__dept--blue.is-active { border-color: rgba(96, 165, 250, 0.55); background: rgba(96, 165, 250, 0.08); }
+.staff-role-editor__dept--green.is-active { border-color: rgba(52, 211, 153, 0.55); background: rgba(52, 211, 153, 0.08); }
+.staff-role-editor__dept--orange.is-active { border-color: rgba(251, 146, 60, 0.55); background: rgba(251, 146, 60, 0.08); }
+.staff-role-editor__dept--purple.is-active { border-color: rgba(167, 139, 250, 0.55); background: rgba(167, 139, 250, 0.08); }
+
+.staff-role-editor__dept-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.staff-role-editor__dept-label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.staff-role-editor__dept-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.35;
+}
+
+.staff-role-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.staff-role-editor__field span {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-role-editor__perm-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.staff-role-editor__customize {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.staff-role-editor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.staff-role-editor__chip {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #c7d2fe;
+}
+
+.staff-role-editor__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.65rem;
+}
+
+.staff-role-editor__group {
+  padding: 0.75rem 0.85rem;
+}
+
+.staff-role-editor__group h5 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-role-editor__perm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.staff-role-editor__perm {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.8125rem;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.staff-role-editor__perm:hover {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.staff-role-editor__perm.is-on {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.staff-role-editor__perm-check {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  flex-shrink: 0;
+}
+
+.staff-role-editor__perm.is-on .staff-role-editor__perm-check {
+  background: #6366f1;
+  border-color: #6366f1;
+  box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.85);
+}
+
+.staff-role-editor__perm-label {
+  flex: 1;
+}
+
+.staff-role-editor__perm-badge {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-role-editor__preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-kam-scope-banner {
+  padding: 0.65rem 1rem;
+  border-left: 3px solid #60a5fa;
+}
+
+@media (max-width: 900px) {
+  .staff-management-page__form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .staff-role-editor__departments {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .staff-role-editor__departments {
+    grid-template-columns: 1fr;
+  }
+}

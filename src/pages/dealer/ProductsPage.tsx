@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { useAuth } from '../../context/AuthContext';
+import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   fetchCatalog,
   getCategorizedProducts,
@@ -17,7 +18,7 @@ import type { CatalogCategory, CatalogResponse } from '../../types/catalog';
 export const ProductsPage: React.FC = () => {
   const { pathname } = useLocation();
   const { user } = useAuth();
-  const canSync = user?.role === 'staff' || user?.role === 'super_admin';
+  const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);

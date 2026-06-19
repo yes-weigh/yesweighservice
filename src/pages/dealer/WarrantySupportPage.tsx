@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { formatInvoiceDate } from '../../lib/invoices';
 import { fetchDealerSupportRequests, supportBasePath, supportDetailPath } from '../../lib/dealerSupport';
 import { StaffSupportQueue } from '../../components/support/StaffSupportQueue';
-import { isOpsRole } from '../../types';
+import { isInternalOpsUser } from '../../lib/staffAccess';
 import type {
   DealerSupportRequest,
   SupportProductDraft,
@@ -45,7 +45,7 @@ export const WarrantySupportPage: React.FC = () => {
   const location = useLocation();
   const state = (location.state as LocationState | null) ?? {};
 
-  const isOps = isOpsRole(user?.role ?? 'dealer_staff');
+  const isOps = isInternalOpsUser(user);
   const canUseSupport = user?.role === 'dealer' || user?.role === 'dealer_staff';
   const supportPath = user && canUseSupport ? supportBasePath(user.role) : '/dealer/warranty-support';
 

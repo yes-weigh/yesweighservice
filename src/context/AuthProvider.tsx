@@ -40,6 +40,11 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       phone: data.phone?.trim() || contacts.phone,
       aadhar: data.aadhar || contacts.aadhar,
       dealerId: readDealerId(data),
+      staffDepartment: data.staffDepartment,
+      staffAccessMode: data.staffAccessMode,
+      staffPermissions: data.staffPermissions,
+      staffKamId: data.staffKamId ?? null,
+      staffTeamId: data.staffTeamId ?? null,
       active: true,
     };
   } catch {

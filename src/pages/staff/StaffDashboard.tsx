@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { SalesChart } from '../../components/dashboard/SalesChart';
 import { useAuth } from '../../context/AuthContext';
+import { canAccessNavFeature } from '../../lib/staffAccess';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import type { DealerStats } from '../../types/dealers';
 
@@ -38,12 +39,6 @@ interface KpiCard {
   trendLabel: string;
   path: string;
   tone: 'blue' | 'green' | 'red' | 'orange';
-  icon: React.ReactNode;
-}
-
-interface QuickAction {
-  label: string;
-  path: string;
   icon: React.ReactNode;
 }
 
@@ -75,8 +70,8 @@ function formatDateRange(): string {
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
-function buildKpis(stats: DealerStats | null): KpiCard[] {
-  return [
+function buildKpis(stats: DealerStats | null, user: import('../../types').User | null): KpiCard[] {
+  const cards: KpiCard[] = [
     {
       id: 'dealers',
       label: 'Total Dealers',
@@ -108,15 +103,23 @@ function buildKpis(stats: DealerStats | null): KpiCard[] {
       icon: <ShoppingCart size={22} strokeWidth={2.5} />,
     },
   ];
+
+  const featureById: Record<string, import('../../lib/staffAccess').StaffNavFeature> = {
+    dealers: 'dealers',
+    support: 'warranty-support',
+    orders: 'orders',
+  };
+
+  return cards.filter(card => canAccessNavFeature(user, featureById[card.id] ?? 'dashboard'));
 }
 
-const QUICK_ACTIONS: QuickAction[] = [
-  { label: 'Manage Dealers', path: `${BASE}/dealers`, icon: <Building2 size={20} /> },
-  { label: 'Leads', path: `${BASE}/leads`, icon: <UserRoundPlus size={20} /> },
-  { label: 'Tasks', path: `${BASE}/tasks`, icon: <ListTodo size={20} /> },
-  { label: 'Warranty & Support', path: `${BASE}/warranty-support`, icon: <LifeBuoy size={20} /> },
-  { label: 'Products', path: `${BASE}/products`, icon: <Package size={20} /> },
-  { label: 'Verification', path: `${BASE}/verification`, icon: <ShieldCheck size={20} /> },
+const QUICK_ACTIONS: Array<{ label: string; path: string; icon: React.ReactNode; feature: import('../../lib/staffAccess').StaffNavFeature }> = [
+  { label: 'Manage Dealers', path: `${BASE}/dealers`, icon: <Building2 size={20} />, feature: 'dealers' },
+  { label: 'Leads', path: `${BASE}/leads`, icon: <UserRoundPlus size={20} />, feature: 'leads' },
+  { label: 'Tasks', path: `${BASE}/tasks`, icon: <ListTodo size={20} />, feature: 'tasks' },
+  { label: 'Warranty & Support', path: `${BASE}/warranty-support`, icon: <LifeBuoy size={20} />, feature: 'warranty-support' },
+  { label: 'Products', path: `${BASE}/products`, icon: <Package size={20} />, feature: 'products' },
+  { label: 'Verification', path: `${BASE}/verification`, icon: <ShieldCheck size={20} />, feature: 'verification' },
 ];
 
 const ACTIVITIES: ActivityItem[] = [
@@ -162,8 +165,8 @@ const ACTIVITIES: ActivityItem[] = [
   },
 ];
 
-function buildMiniStats(stats: DealerStats | null): MiniStat[] {
-  return [
+function buildMiniStats(stats: DealerStats | null, user: import('../../types').User | null): MiniStat[] {
+  const items: MiniStat[] = [
     {
       label: 'Active Dealers',
       value: stats ? String(stats.active) : '—',
@@ -201,6 +204,13 @@ function buildMiniStats(stats: DealerStats | null): MiniStat[] {
       path: `${BASE}/tasks`,
     },
   ];
+
+  return items.filter(stat => {
+    if (!stat.path) return true;
+    if (stat.path.includes('/dealers')) return canAccessNavFeature(user, 'dealers');
+    if (stat.path.includes('/tasks')) return canAccessNavFeature(user, 'tasks');
+    return true;
+  });
 }
 
 export const StaffDashboard: React.FC = () => {
@@ -215,8 +225,9 @@ export const StaffDashboard: React.FC = () => {
       .catch(err => setStatsError(dealerErrorMessage(err)));
   }, []);
 
-  const kpis = buildKpis(dealerStats);
-  const miniStats = buildMiniStats(dealerStats);
+  const kpis = buildKpis(dealerStats, user);
+  const miniStats = buildMiniStats(dealerStats, user);
+  const quickActions = QUICK_ACTIONS.filter(action => canAccessNavFeature(user, action.feature));
   const firstName = user?.displayName?.split(/\s+/)[0] ?? 'Staff';
 
   return (
@@ -283,7 +294,7 @@ export const StaffDashboard: React.FC = () => {
       <section className="dealer-dash__quick-actions">
         <h3 className="dealer-dash__section-title">Quick Actions</h3>
         <div className="dealer-dash__quick-scroll">
-          {QUICK_ACTIONS.map(action => (
+          {quickActions.map(action => (
             <button
               key={action.label}
               type="button"

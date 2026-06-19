@@ -14,7 +14,7 @@ import {
   supportBasePath,
   updateSupportRequestStatus,
 } from '../../lib/dealerSupport';
-import { isOpsRole } from '../../types';
+import { canManageSupportOps, isInternalOpsUser } from '../../lib/staffAccess';
 import type { DealerSupportRequest, SupportRequestStatus } from '../../types/dealer-support';
 import {
   SUPPORT_REQUEST_STATUS_LABELS,
@@ -123,13 +123,13 @@ export const SupportRequestDetailPage: React.FC = () => {
             <h2>{request.requestNumber}</h2>
             <p className="text-muted text-sm">
               {SUPPORT_TYPE_LABELS[request.type]}
-              {request.dealerName && isOpsRole(user?.role ?? 'dealer_staff') && (
+              {request.dealerName && isInternalOpsUser(user) && (
                 <span> · {request.dealerName}</span>
               )}
               · Opened {formatInvoiceDate(request.createdAt)}
             </p>
           </div>
-          {isOpsRole(user?.role ?? 'dealer_staff') ? (
+          {canManageSupportOps(user) ? (
             <select
               className="catalog-select support-detail-summary__status"
               value={request.status}

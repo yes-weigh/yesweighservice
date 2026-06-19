@@ -1,5 +1,14 @@
 export type Role = 'super_admin' | 'staff' | 'dealer' | 'dealer_staff';
 
+export type { StaffDepartment, StaffPermission, StaffAccessProfile, StaffAccessMode } from './types/staff-access';
+export {
+  STAFF_DEPARTMENTS,
+  STAFF_DEPARTMENT_LABELS,
+  STAFF_PERMISSION_LABELS,
+  STAFF_PERMISSION_GROUPS,
+  DEPARTMENT_DEFAULT_PERMISSIONS,
+} from './types/staff-access';
+
 export type LoginIdType = 'aadhar' | 'phone' | 'email';
 
 export const ROLES: Role[] = ['super_admin', 'staff', 'dealer', 'dealer_staff'];
@@ -26,6 +35,14 @@ export interface User {
   phone?: string;
   aadhar?: string;
   active: boolean;
+  /** YesWeigh staff only */
+  staffDepartment?: import('./types/staff-access').StaffDepartment;
+  staffAccessMode?: import('./types/staff-access').StaffAccessMode;
+  /** Full permission set when staffAccessMode is custom; ignored otherwise */
+  staffPermissions?: import('./types/staff-access').StaffPermission[];
+  /** Links sales staff to KAM record for dealer scoping */
+  staffKamId?: string | null;
+  staffTeamId?: string | null;
 }
 
 export interface FirestoreUserDoc {
@@ -42,6 +59,11 @@ export interface FirestoreUserDoc {
   /** Set when loginIdType is aadhar */
   aadhar?: string;
   active: boolean;
+  staffDepartment?: import('./types/staff-access').StaffDepartment;
+  staffAccessMode?: import('./types/staff-access').StaffAccessMode;
+  staffPermissions?: import('./types/staff-access').StaffPermission[];
+  staffKamId?: string | null;
+  staffTeamId?: string | null;
   createdAt: string;
   createdByUid?: string;
   updatedAt?: string;

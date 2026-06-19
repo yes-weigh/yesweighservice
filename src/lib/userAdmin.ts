@@ -17,6 +17,7 @@ import { authErrorMessage } from './authErrors';
 import { reserveLoginIndex } from './loginIndex';
 import { contactFieldsForLogin } from './profileLogin';
 import type { FirestoreUserDoc, Role } from '../types';
+import type { StaffDepartment, StaffPermission } from '../types/staff-access';
 
 function omitUndefined<T extends Record<string, unknown>>(data: T): Partial<T> {
   return Object.fromEntries(
@@ -46,6 +47,11 @@ export type CreateUserInput = {
   email?: string;
   dealerId?: string;
   zohoCustomerId?: string;
+  staffDepartment?: StaffDepartment;
+  staffAccessMode?: 'department' | 'custom';
+  staffPermissions?: StaffPermission[];
+  staffKamId?: string | null;
+  staffTeamId?: string | null;
   createdByUid: string;
 };
 
@@ -74,6 +80,11 @@ export async function createUserProfile(
     email: contactEmail || undefined,
     dealerId: input.role === 'dealer_staff' ? input.dealerId?.trim() : undefined,
     zohoCustomerId: input.zohoCustomerId?.trim() || undefined,
+    staffDepartment: input.role === 'staff' ? input.staffDepartment : undefined,
+    staffAccessMode: input.role === 'staff' ? input.staffAccessMode ?? 'department' : undefined,
+    staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
+    staffKamId: input.role === 'staff' ? input.staffKamId ?? null : undefined,
+    staffTeamId: input.role === 'staff' ? input.staffTeamId ?? null : undefined,
     active: true,
     createdAt: new Date().toISOString(),
     createdByUid: input.createdByUid,
@@ -104,10 +115,26 @@ export async function registerUser(
   }
 }
 
+export type UpdateUserProfilePatch = Partial<
+  Pick<
+    FirestoreUserDoc,
+    | 'displayName'
+    | 'phone'
+    | 'email'
+    | 'active'
+    | 'dealerId'
+    | 'staffDepartment'
+    | 'staffAccessMode'
+    | 'staffPermissions'
+    | 'staffKamId'
+    | 'staffTeamId'
+  >
+>;
+
 export async function updateUserProfile(
   db: Firestore,
   uid: string,
-  patch: Partial<Pick<FirestoreUserDoc, 'displayName' | 'phone' | 'email' | 'active' | 'dealerId'>>,
+  patch: UpdateUserProfilePatch,
 ): Promise<void> {
   await updateDoc(
     doc(db, 'users', uid),

@@ -28,6 +28,7 @@ import {
 } from '../../lib/dealers';
 import { type DealerListParams, type Kam, type ZohoDealer } from '../../types/dealers';
 import { homePathForRole } from '../../types';
+import { hasStaffPermission } from '../../lib/staffAccess';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -43,6 +44,9 @@ export function ZohoDealersPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const dealersBase = user ? `${homePathForRole(user.role)}/dealers` : '/staff/dealers';
+  const scopedKamId = user?.role === 'staff' && user.staffKamId ? user.staffKamId : null;
+  const canSyncDealers = user?.role === 'super_admin' || hasStaffPermission(user, 'dealers.sync');
+  const canEditDealers = user?.role === 'super_admin' || hasStaffPermission(user, 'dealers.edit');
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
@@ -84,7 +88,9 @@ export function ZohoDealersPage() {
     limit: effectivePaginationOn ? limit : 99999,
     status: 'all',
     ...(debouncedSearch ? { q: debouncedSearch } : {}),
-    ...(kamFilter.length ? { kamId: kamFilter.join(',') } : {}),
+    ...(scopedKamId
+      ? { kamId: scopedKamId }
+      : kamFilter.length ? { kamId: kamFilter.join(',') } : {}),
     ...(statusFilter.length ? { dealerStatus: statusFilter.join(',') } : {}),
     ...(stateFilter.length ? { billingState: stateFilter.join(',') } : {}),
     ...(districtFilter.length ? { district: districtFilter.join(',') } : {}),
@@ -92,7 +98,7 @@ export function ZohoDealersPage() {
     sortField,
     sortDir,
   }), [
-    effectivePaginationOn, page, debouncedSearch, kamFilter, statusFilter, stateFilter,
+    effectivePaginationOn, page, debouncedSearch, scopedKamId, kamFilter, statusFilter, stateFilter,
     districtFilter, categoryFilter, sortField, sortDir,
   ]);
 
@@ -327,6 +333,17 @@ export function ZohoDealersPage() {
         </div>
       )}
 
+      {scopedKamId && (
+        <div className="staff-kam-scope-banner panel glass">
+          <span className="text-sm">
+            Showing dealers assigned to your KAM only.
+            {kams.find(k => k.id === scopedKamId)?.name
+              ? ` (${kams.find(k => k.id === scopedKamId)?.name})`
+              : ''}
+          </span>
+        </div>
+      )}
+
       <div className="dealers-toolbar panel glass">
         <div className="dealers-toolbar__row">
           <div className="catalog-search dealers-search">
@@ -339,10 +356,12 @@ export function ZohoDealersPage() {
             />
           </div>
           <div className="dealers-toolbar__actions">
-            <button type="button" className="btn btn-primary btn-sm zoho-sync-btn" disabled={syncing} onClick={() => void handleSync()}>
-              <RefreshCw size={15} className={syncing ? 'spin-icon' : undefined} />
-              <span className="dealers-toolbar__btn-label">{syncing ? 'Syncing…' : 'Sync from Zoho'}</span>
-            </button>
+            {canSyncDealers && (
+              <button type="button" className="btn btn-primary btn-sm zoho-sync-btn" disabled={syncing} onClick={() => void handleSync()}>
+                <RefreshCw size={15} className={syncing ? 'spin-icon' : undefined} />
+                <span className="dealers-toolbar__btn-label">{syncing ? 'Syncing…' : 'Sync from Zoho'}</span>
+              </button>
+            )}
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => void handleExport()}>
               <Download size={15} />
               <span className="dealers-toolbar__btn-label">Export CSV</span>
@@ -512,7 +531,7 @@ export function ZohoDealersPage() {
 
       <DealerStatusLegend />
 
-      {selectedIds.size > 0 && (
+      {selectedIds.size > 0 && canEditDealers && (
         <div className="dealers-bulk-bar panel glass">
           <span>{selectedIds.size} selected</span>
           <select

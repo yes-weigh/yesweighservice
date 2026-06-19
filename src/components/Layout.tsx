@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import type { User } from '../types';
 import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
 import { homePathForRole, canUseCart } from '../types';
+import { canAccessNavFeature, type StaffNavFeature } from '../lib/staffAccess';
 import {
   ArrowLeft,
   LayoutDashboard,
@@ -95,6 +97,31 @@ function portalNavItems(home: string, itemCount: number, order: 'default' | 'sta
   return sequence.map((key) => items[key]);
 }
 
+function staffPathToFeature(path: string): StaffNavFeature {
+  if (path === '/staff') return 'dashboard';
+  const suffix = path.replace(/^\/staff\/?/, '').split('/')[0];
+  const map: Record<string, StaffNavFeature> = {
+    tasks: 'tasks',
+    dealers: 'dealers',
+    leads: 'leads',
+    products: 'products',
+    orders: 'orders',
+    spares: 'spares',
+    'warranty-support': 'warranty-support',
+    verification: 'verification',
+    advertisements: 'advertisements',
+    invoices: 'invoices',
+    'ai-assistant': 'ai-assistant',
+    notifications: 'notifications',
+    training: 'training',
+  };
+  return map[suffix] ?? 'dashboard';
+}
+
+function filterStaffNavItems(user: User, items: NavItem[]): NavItem[] {
+  return items.filter(item => canAccessNavFeature(user, staffPathToFeature(item.path)));
+}
+
 export const Layout: React.FC = () => (
   <PageHeaderProvider>
     <LayoutShell />
@@ -150,13 +177,13 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
         ];
       case 'staff':
-        return [
+        return filterStaffNavItems(user, [
           { path: '/staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
           ...portalNavItems('/staff', cartBadgeCount, 'staff'),
-        ];
+        ]);
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },

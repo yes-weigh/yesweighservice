@@ -77,8 +77,24 @@ service cloud.firestore {
             && request.resource.data.loginIdType == resource.data.loginIdType);
     }
 
-    function validAadharId(aadhar) {
-      return aadhar is string && aadhar.size() == 12;
+    function validStaffDepartment(d) {
+      return d == 'sales' || d == 'service' || d == 'logistics' || d == 'admin';
+    }
+
+    function validStaffAccessMode(m) {
+      return m == 'department' || m == 'custom';
+    }
+
+    function validStaffAccessFields(data) {
+      return (!('staffDepartment' in data) || validStaffDepartment(data.staffDepartment))
+        && (!('staffAccessMode' in data) || validStaffAccessMode(data.staffAccessMode))
+        && (!('staffPermissions' in data) || data.staffPermissions is list)
+        && (!('staffKamId' in data) || data.staffKamId == null || data.staffKamId is string)
+        && (!('staffTeamId' in data) || data.staffTeamId == null || data.staffTeamId is string);
+    }
+
+    function validStaffUserWrite(data) {
+      return data.role != 'staff' || validStaffAccessFields(data);
     }
 
     match /appSettings/{docId} {
@@ -160,7 +176,7 @@ service cloud.firestore {
           && (request.resource.data.role == 'super_admin' || request.resource.data.role == 'admin')
           && request.resource.data.active == true
           && validAadhar(request.resource.data))
-        || (isActiveUser() && isSuperAdmin() && validAadhar(request.resource.data))
+        || (isActiveUser() && isSuperAdmin() && validAadhar(request.resource.data) && validStaffUserWrite(request.resource.data))
         || (isActiveUser()
             && isStaff()
             && staffCanManageRole(request.resource.data.role)
@@ -175,7 +191,7 @@ service cloud.firestore {
       );
 
       allow update: if isActiveUser() && (
-        isSuperAdmin()
+        (isSuperAdmin() && validStaffUserWrite(request.resource.data))
         || (isStaff()
             && staffCanManageRole(resource.data.role)
             && staffCanManageRole(request.resource.data.role)

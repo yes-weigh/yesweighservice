@@ -1,9 +1,3 @@
-import { UserManagement } from '../shared/UserManagement';
+import { StaffManagementPage } from './StaffManagementPage';
 
-export const AdminStaffList = () => (
-  <UserManagement
-    role="staff"
-    title="Staff"
-    description="YesWeigh internal staff who support service operations."
-  />
-);
+export const AdminStaffList = StaffManagementPage;

@@ -4,6 +4,7 @@ import { AlertCircle, Boxes, Link2, Package, RefreshCw, Search } from 'lucide-re
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { useAuth } from '../../context/AuthContext';
+import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   fetchCatalog,
   fetchCatalogSpareLinks,
@@ -33,7 +34,7 @@ export const SparesPage: React.FC = () => {
   const { pathname } = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const canSync = user?.role === 'staff' || user?.role === 'super_admin';
+  const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
   const viewMode = parseViewMode(searchParams.get('view'), canSync);
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);

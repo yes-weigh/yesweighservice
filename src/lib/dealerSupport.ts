@@ -16,7 +16,11 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { User } from '../types';
-import { isOpsRole } from '../types';
+import {
+  allowedSupportTypesForUser,
+  canManageSupportOps,
+  isInternalOpsUser,
+} from '../lib/staffAccess';
 import type {
   CreateSupportRequestInput,
   DealerSupportRequest,
@@ -123,7 +127,13 @@ export function supportDetailPath(role: User['role'], requestId: string): string
 }
 
 export function canUserAccessSupportRequest(user: User, request: DealerSupportRequest): boolean {
-  if (isOpsRole(user.role)) return true;
+  if (user.role === 'super_admin') return true;
+  if (user.role === 'staff') {
+    const allowed = allowedSupportTypesForUser(user);
+    if (allowed === 'all') return true;
+    if (allowed.length === 0) return false;
+    return allowed.includes(request.type);
+  }
   const dealerId = resolveDealerId(user);
   return request.dealerId === dealerId;
 }
@@ -144,7 +154,7 @@ export async function sendSupportMessage(
   if (!canUserAccessSupportRequest(user, request)) {
     throw new Error('You do not have permission to message this request.');
   }
-  if (!isOpsRole(user.role) && request.status === 'cancelled') {
+  if (!isInternalOpsUser(user) && request.status === 'cancelled') {
     throw new Error('This request is closed and cannot receive new messages.');
   }
 
@@ -178,7 +188,7 @@ export async function sendSupportMessage(
     lastMessagePreview: previewText(text, attachments.length),
   };
 
-  if (isOpsRole(user.role) && request.status === 'pending') {
+  if (canManageSupportOps(user) && request.status === 'pending') {
     updates.status = 'in_progress';
   }
 
@@ -298,7 +308,7 @@ export async function updateSupportRequestStatus(
   requestId: string,
   status: SupportRequestStatus,
 ): Promise<void> {
-  if (!isOpsRole(user.role)) {
+  if (!canManageSupportOps(user)) {
     throw new Error('Only staff can update request status.');
   }
   await updateDoc(doc(db, 'dealerSupportRequests', requestId), {

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Send } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { isOpsRole } from '../../types';
+import { isInternalOpsUser } from '../../lib/staffAccess';
 import {
   sendSupportMessage,
   subscribeSupportMessages,
@@ -69,7 +69,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const chatDisabled = readOnly
-    || (!isOpsRole(user?.role ?? 'dealer_staff') && request.status === 'cancelled');
+    || (!isInternalOpsUser(user) && request.status === 'cancelled');
 
   useEffect(() => {
     setLoading(true);
@@ -158,7 +158,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
             className="service-request-form__textarea support-chat__input"
             rows={3}
             placeholder={
-              isOpsRole(user?.role ?? 'dealer_staff')
+              isInternalOpsUser(user)
                 ? 'Write a message to the dealer…'
                 : 'Write a message to YesWeigh support…'
             }
