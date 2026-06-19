@@ -21,7 +21,7 @@ export const OrdersPage: React.FC = () => {
   const [orderPlaced, setOrderPlaced] = useState(false);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
-  const productsPath = `${base}/products`;
+  const productsPath = `${base}/catalog`;
 
   const handlePlaceOrder = () => {
     if (items.length === 0) return;

@@ -10,7 +10,6 @@ import {
   ArrowLeft,
   LayoutDashboard,
   Package,
-  Boxes,
   LifeBuoy,
   ShieldCheck,
   GraduationCap,
@@ -30,6 +29,8 @@ import {
   X,
   UserRoundPlus,
   ListTodo,
+  Truck,
+  Gift,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
@@ -41,16 +42,19 @@ type NavItem = {
   badge?: number;
 };
 
-function portalNavItems(home: string, itemCount: number, order: 'default' | 'staff' = 'default'): NavItem[] {
+function portalNavItems(
+  home: string,
+  itemCount: number,
+  order: 'dealer' | 'staff' = 'dealer',
+): NavItem[] {
   const items: Record<string, NavItem> = {
-    products: { path: `${home}/products`, icon: <Package size={20} />, label: 'Products' },
+    catalog: { path: `${home}/catalog`, icon: <Package size={20} />, label: 'Catalog' },
     orders: {
       path: `${home}/orders`,
       icon: <ShoppingCart size={20} />,
       label: 'Orders',
       badge: itemCount > 0 ? itemCount : undefined,
     },
-    spares: { path: `${home}/spares`, icon: <Boxes size={20} />, label: 'Spares' },
     complaints: { path: `${home}/complaints`, icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
     warrantySupport: {
       path: `${home}/warranty-support`,
@@ -59,9 +63,11 @@ function portalNavItems(home: string, itemCount: number, order: 'default' | 'sta
     },
     services: { path: `${home}/services`, icon: <Wrench size={20} />, label: 'Services' },
     returns: { path: `${home}/returns`, icon: <RotateCcw size={20} />, label: 'Returns' },
-    verification: { path: `${home}/verification`, icon: <ShieldCheck size={20} />, label: 'Verifications' },
-    advertisements: { path: `${home}/advertisements`, icon: <Megaphone size={20} />, label: 'Advertisement' },
+    verification: { path: `${home}/verification`, icon: <ShieldCheck size={20} />, label: 'Verification' },
+    advertisements: { path: `${home}/advertisements`, icon: <Megaphone size={20} />, label: 'Media Center' },
     invoices: { path: `${home}/invoices`, icon: <FileText size={20} />, label: 'Invoice' },
+    logistics: { path: `${home}/logistics`, icon: <Truck size={20} />, label: 'Logistics' },
+    loyalty: { path: `${home}/loyalty`, icon: <Gift size={20} />, label: 'Loyalty' },
     aiAssistant: { path: `${home}/ai-assistant`, icon: <Bot size={20} />, label: 'AI assistance' },
     notifications: { path: `${home}/notifications`, icon: <Bell size={20} />, label: 'Notifications' },
     training: { path: `${home}/training`, icon: <GraduationCap size={20} />, label: 'Trainings' },
@@ -71,8 +77,7 @@ function portalNavItems(home: string, itemCount: number, order: 'default' | 'sta
     order === 'staff'
       ? [
           'orders',
-          'products',
-          'spares',
+          'catalog',
           'warrantySupport',
           'verification',
           'advertisements',
@@ -82,16 +87,17 @@ function portalNavItems(home: string, itemCount: number, order: 'default' | 'sta
           'training',
         ]
       : [
-          'products',
+          'catalog',
           'orders',
-          'spares',
+          'invoices',
           'warrantySupport',
+          'logistics',
           'verification',
           'advertisements',
-          'invoices',
-          'aiAssistant',
-          'notifications',
+          'loyalty',
           'training',
+          'notifications',
+          'aiAssistant',
         ];
 
   return sequence.map((key) => items[key]);
@@ -104,9 +110,10 @@ function staffPathToFeature(path: string): StaffNavFeature {
     tasks: 'tasks',
     dealers: 'dealers',
     leads: 'leads',
-    products: 'products',
+    catalog: 'catalog',
+    products: 'catalog',
     orders: 'orders',
-    spares: 'spares',
+    spares: 'catalog',
     'warranty-support': 'warranty-support',
     verification: 'verification',
     advertisements: 'advertisements',
@@ -170,8 +177,7 @@ const LayoutShell: React.FC = () => {
       case 'super_admin':
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/super-admin/products', icon: <Package size={20} />, label: 'Products' },
-          { path: '/super-admin/spares', icon: <Boxes size={20} />, label: 'Spares' },
+          { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
           { path: '/super-admin/staff', icon: <Users size={20} />, label: 'Staff' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/dealer-accounts', icon: <UserCircle size={20} />, label: 'Dealer Logins' },
@@ -188,15 +194,14 @@ const LayoutShell: React.FC = () => {
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          ...portalNavItems('/dealer', cartBadgeCount),
+          ...portalNavItems('/dealer', cartBadgeCount, 'dealer'),
           { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
         ];
       case 'dealer_staff':
         return [
           { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/dealer-staff/warranty-support', icon: <LifeBuoy size={20} />, label: 'Warranty & Support' },
-          { path: '/dealer-staff/products', icon: <Package size={20} />, label: 'Products' },
-          { path: '/dealer-staff/spares', icon: <Boxes size={20} />, label: 'Spares' },
+          { path: '/dealer-staff/catalog', icon: <Package size={20} />, label: 'Catalog' },
           {
             path: '/dealer-staff/orders',
             icon: <ShoppingCart size={20} />,
@@ -232,11 +237,17 @@ const LayoutShell: React.FC = () => {
   });
 
   const isProfileActive = profilePath !== null && location.pathname === profilePath;
-  const isProductDetail = /\/products\/[^/]+$/.test(location.pathname)
-    || /\/spares\/product\/[^/]+$/.test(location.pathname)
+  const isCatalogSpareDetail = /\/catalog\/spare\/[^/]+$/.test(location.pathname);
+  const isCatalogProductDetail = /\/catalog\/[^/]+$/.test(location.pathname)
+    && !isCatalogSpareDetail
+    && !/\/catalog\/map\//.test(location.pathname);
+  const isProductDetail = isCatalogProductDetail
+    || isCatalogSpareDetail
+    || /\/products\/[^/]+$/.test(location.pathname)
     || /\/spares\/[^/]+$/.test(location.pathname)
     || /^\/oc\/[^/]+$/.test(location.pathname);
-  const isSpareMapDetail = /\/spares\/product\/[^/]+$/.test(location.pathname);
+  const isSpareMapDetail = /\/catalog\/map\/[^/]+$/.test(location.pathname)
+    || /\/spares\/product\/[^/]+$/.test(location.pathname);
   const isDealerDetail = /\/dealers\/[^/]+$/.test(location.pathname);
   const dealerListPath = isDealerDetail
     ? location.pathname.replace(/\/[^/]+$/, '')
@@ -260,8 +271,15 @@ const LayoutShell: React.FC = () => {
   const showHeaderBack = Boolean(pageHeader.showBack && pageHeader.onBack);
 
   const handleNavClick = (path: string) => {
+    const isCatalogRoot = path.endsWith('/catalog');
     if (location.pathname === path) {
-      setPageRefreshKey(k => k + 1);
+      if (isCatalogRoot && location.search) {
+        navigate(path, { replace: true });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        setPageRefreshKey(k => k + 1);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } else {
       navigate(path);
     }
@@ -351,16 +369,7 @@ const LayoutShell: React.FC = () => {
 
       <main className={`main-content ${collapsed && !isMobile ? 'expanded' : ''}`}>
         <header className="top-bar">
-          {showHeaderBack ? (
-            <button
-              type="button"
-              className="top-bar__back-btn"
-              onClick={() => pageHeader.onBack?.()}
-              aria-label="Back"
-            >
-              <ArrowLeft size={22} />
-            </button>
-          ) : isMobile ? (
+          {isMobile && (
             <button
               type="button"
               className="mobile-menu-btn"
@@ -369,7 +378,17 @@ const LayoutShell: React.FC = () => {
             >
               <Menu size={22} />
             </button>
-          ) : null}
+          )}
+          {showHeaderBack && (
+            <button
+              type="button"
+              className="top-bar__back-btn"
+              onClick={() => pageHeader.onBack?.()}
+              aria-label="Back"
+            >
+              <ArrowLeft size={22} />
+            </button>
+          )}
           {dealerListPath ? (
             <button
               type="button"

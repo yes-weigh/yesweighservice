@@ -29,6 +29,11 @@ import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
+import {
+  buildProductNavState,
+  buildSpareNavState,
+  type CatalogNavState,
+} from '../../lib/catalogNav';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { SpareLinkEditor } from './SpareLinkEditor';
@@ -54,7 +59,7 @@ export const ProductDetailView: React.FC<{
   productId: string;
   backPath: string;
   backLabel?: string;
-  backState?: Record<string, unknown> | null;
+  backState?: CatalogNavState | null;
   preview?: CatalogProduct | null;
   variant?: 'app' | 'public';
   showWarehouseStock?: boolean;
@@ -66,6 +71,7 @@ export const ProductDetailView: React.FC<{
   canUploadImage?: boolean;
   productsBasePath?: string;
   sparesBasePath?: string;
+  currentNavState?: CatalogNavState | null;
 }> = ({
   productId,
   backPath,
@@ -80,8 +86,9 @@ export const ProductDetailView: React.FC<{
   showRelatedLinks = false,
   manageSpareLinks = false,
   canUploadImage = false,
-  productsBasePath = '/dealer/products',
-  sparesBasePath = '/dealer/spares',
+  productsBasePath = '/dealer/catalog',
+  sparesBasePath = '/dealer/catalog/spare',
+  currentNavState = null,
 }) => {
   const navigate = useNavigate();
   const goBack = useCallback(() => {
@@ -207,6 +214,24 @@ export const ProductDetailView: React.FC<{
       setEditorSaving(false);
     }
   };
+
+  const relatedLinkState = useCallback((item: CatalogProduct): CatalogNavState => {
+    if (!product) {
+      return { preview: item };
+    }
+    if (relatedKind === 'spares') {
+      return buildSpareNavState(item, {
+        origin: 'product',
+        parentProduct: product,
+        returnCategoryId: product.categoryId ?? undefined,
+      });
+    }
+    return buildProductNavState(item, {
+      origin: 'spare',
+      parentSpare: product,
+      parentSpareNav: currentNavState ?? undefined,
+    });
+  }, [product, relatedKind, currentNavState]);
 
   const detail = product as CatalogProductDetail | null;
   const outOfStock = product?.stockStatus === 'out_of_stock';
@@ -503,6 +528,7 @@ export const ProductDetailView: React.FC<{
                 detailBasePath={relatedKind === 'spares' ? sparesBasePath : productsBasePath}
                 loading={relatedLoading}
                 showStockQuantity={showStockQuantity}
+                getLinkState={relatedLinkState}
                 headerAction={
                   manageSpareLinks ? (
                     <button

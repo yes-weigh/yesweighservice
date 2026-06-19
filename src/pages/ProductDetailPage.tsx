@@ -3,42 +3,31 @@ import { useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole, canUseCart } from '../types';
 import { canViewCatalogStock, canViewWarehouseStock } from '../lib/dealerAccess';
-import type { CatalogProduct } from '../types/catalog';
+import {
+  catalogBaseForRole,
+  isCatalogSpareDetailPath,
+  isLegacySpareDetailPath,
+} from '../lib/catalogRoutes';
+import { resolveCatalogBack, type CatalogNavState } from '../lib/catalogNav';
 import { ProductDetailView } from '../components/catalog/ProductDetailView';
-
-type SpareDetailNavState = {
-  preview?: CatalogProduct;
-  returnView?: string;
-  parentProductId?: string;
-  returnCategoryId?: string;
-  parentProductPreview?: CatalogProduct;
-};
 
 export const ProductDetailPage: React.FC = () => {
   const { user } = useAuth();
   const { productId } = useParams<{ productId: string }>();
   const location = useLocation();
   const isPublic = location.pathname.startsWith('/oc/');
-  const isSpares = /\/spares\/[^/]+$/.test(location.pathname)
-    && !/\/spares\/product\//.test(location.pathname);
-  const navState = location.state as SpareDetailNavState | null;
+  const isSpare = isCatalogSpareDetailPath(location.pathname) || isLegacySpareDetailPath(location.pathname);
+  const navState = location.state as CatalogNavState | null;
   const preview = navState?.preview ?? null;
-  const returnView = navState?.returnView;
-  const parentProductId = navState?.parentProductId;
-  const base = user ? homePathForRole(user.role) : '/dealer';
-  const backPath = isPublic
-    ? '/oc'
-    : isSpares && parentProductId
-      ? `${base}/spares/product/${parentProductId}`
-      : isSpares
-        ? `${location.pathname.replace(/\/[^/]+$/, '')}?view=${returnView === 'unlinked' ? 'unlinked' : 'spares'}`
-        : location.pathname.replace(/\/[^/]+$/, '');
-  const backState = isSpares && parentProductId
-    ? {
-        preview: navState?.parentProductPreview ?? null,
-        returnCategoryId: navState?.returnCategoryId ?? navState?.parentProductPreview?.categoryId ?? '',
-      }
-    : null;
+  const catalogBase = user ? catalogBaseForRole(user.role) : '/dealer/catalog';
+
+  const { path: backPath, state: backState, label: backLabel } = resolveCatalogBack(
+    catalogBase,
+    navState,
+    isSpare ? 'spare' : 'product',
+    isPublic,
+  );
+
   const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin' || canViewWarehouseStock(user);
   const showStockQuantity = showWarehouseStock || canViewCatalogStock(user);
   const showCartActions = canUseCart(user?.role);
@@ -48,15 +37,9 @@ export const ProductDetailPage: React.FC = () => {
     !isPublic
     && (manageSpareLinks || user?.role === 'dealer' || user?.role === 'dealer_staff');
   const ordersPath = user ? `${homePathForRole(user.role)}/orders` : '/dealer/orders';
-  const productsBasePath = `${base}/products`;
-  const sparesBasePath = `${base}/spares`;
-  const backLabel = isPublic
-    ? 'Back to catalog'
-    : isSpares && parentProductId
-      ? 'Back to product'
-    : isSpares
-      ? 'Back to spares'
-      : 'Back to products';
+  const productsBasePath = catalogBase;
+  const sparesBasePath = `${catalogBase}/spare`;
+  const currentNavState = navState;
 
   if (!productId) {
     return null;
@@ -80,6 +63,7 @@ export const ProductDetailPage: React.FC = () => {
         productsBasePath={productsBasePath}
         sparesBasePath={sparesBasePath}
         ordersPath={ordersPath}
+        currentNavState={currentNavState}
       />
     </div>
   );

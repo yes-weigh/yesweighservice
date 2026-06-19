@@ -118,7 +118,7 @@ const QUICK_ACTIONS: Array<{ label: string; path: string; icon: React.ReactNode;
   { label: 'Leads', path: `${BASE}/leads`, icon: <UserRoundPlus size={20} />, feature: 'leads' },
   { label: 'Tasks', path: `${BASE}/tasks`, icon: <ListTodo size={20} />, feature: 'tasks' },
   { label: 'Warranty & Support', path: `${BASE}/warranty-support`, icon: <LifeBuoy size={20} />, feature: 'warranty-support' },
-  { label: 'Products', path: `${BASE}/products`, icon: <Package size={20} />, feature: 'products' },
+  { label: 'Catalog', path: `${BASE}/catalog`, icon: <Package size={20} />, feature: 'catalog' },
   { label: 'Verification', path: `${BASE}/verification`, icon: <ShieldCheck size={20} />, feature: 'verification' },
 ];
 

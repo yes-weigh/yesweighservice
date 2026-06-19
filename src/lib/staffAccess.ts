@@ -108,9 +108,8 @@ export type StaffNavFeature =
   | 'tasks'
   | 'dealers'
   | 'leads'
-  | 'products'
+  | 'catalog'
   | 'orders'
-  | 'spares'
   | 'warranty-support'
   | 'verification'
   | 'advertisements'
@@ -125,9 +124,8 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   tasks: ['tasks.view'],
   dealers: ['dealers.view'],
   leads: ['leads.view'],
-  products: ['catalog.view'],
+  catalog: ['catalog.view'],
   orders: ['orders.view'],
-  spares: ['catalog.view'],
   'warranty-support': ['support.view', 'support.manage'],
   verification: ['verification.view'],
   advertisements: ['advertisements.view'],

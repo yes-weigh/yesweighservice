@@ -20,11 +20,30 @@ import { ProfilePage } from './pages/shared/ProfilePage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { SpareProductMapPage } from './pages/SpareProductMapPage';
+import {
+  LegacyProductDetailRedirect,
+  LegacySpareDetailRedirect,
+  LegacySpareMapRedirect,
+} from './components/catalog/LegacyCatalogRedirects';
 
 const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }) => {
   const { pathname } = useLocation();
   return <Navigate to={pathname.replace(from, to)} replace />;
 };
+
+const catalogRoutes = (
+  <>
+    <Route path="catalog" element={<DealerMenuPages.Catalog />} />
+    <Route path="catalog/map/:productId" element={<SpareProductMapPage />} />
+    <Route path="catalog/spare/:productId" element={<ProductDetailPage />} />
+    <Route path="catalog/:productId" element={<ProductDetailPage />} />
+    <Route path="products" element={<Navigate to="catalog" replace />} />
+    <Route path="products/:productId" element={<LegacyProductDetailRedirect />} />
+    <Route path="spares" element={<Navigate to="catalog?section=spares" replace />} />
+    <Route path="spares/product/:productId" element={<LegacySpareMapRedirect />} />
+    <Route path="spares/:productId" element={<LegacySpareDetailRedirect />} />
+  </>
+);
 
 const portalMenuRoutes = (
   <>
@@ -42,13 +61,11 @@ const portalMenuRoutes = (
       <Route path="qc" element={<DealerMenuPages.InvoiceQc />} />
     </Route>
     <Route path="orders" element={<DealerMenuPages.Orders />} />
-    <Route path="products" element={<DealerMenuPages.Products />} />
-    <Route path="products/:productId" element={<ProductDetailPage />} />
-    <Route path="spares" element={<DealerMenuPages.Spares />} />
-    <Route path="spares/product/:productId" element={<SpareProductMapPage />} />
-    <Route path="spares/:productId" element={<ProductDetailPage />} />
+    {catalogRoutes}
     <Route path="verification" element={<DealerMenuPages.Verification />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
+    <Route path="logistics" element={<DealerMenuPages.Logistics />} />
+    <Route path="loyalty" element={<DealerMenuPages.Loyalty />} />
     <Route path="training" element={<DealerMenuPages.Training />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
     <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
@@ -87,11 +104,7 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['super_admin']} />}>
             <Route path="/super-admin" element={<Layout />}>
               <Route index element={<SuperAdminDashboard />} />
-              <Route path="products" element={<DealerMenuPages.Products />} />
-              <Route path="products/:productId" element={<ProductDetailPage />} />
-              <Route path="spares" element={<DealerMenuPages.Spares />} />
-              <Route path="spares/product/:productId" element={<SpareProductMapPage />} />
-              <Route path="spares/:productId" element={<ProductDetailPage />} />
+              {catalogRoutes}
               <Route path="staff" element={<AdminStaffList />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
@@ -133,11 +146,7 @@ const App: React.FC = () => (
                 <Route path="logistic" element={<DealerMenuPages.InvoiceLogistic />} />
                 <Route path="qc" element={<DealerMenuPages.InvoiceQc />} />
               </Route>
-              <Route path="products" element={<DealerMenuPages.Products />} />
-              <Route path="products/:productId" element={<ProductDetailPage />} />
-              <Route path="spares" element={<DealerMenuPages.Spares />} />
-              <Route path="spares/product/:productId" element={<SpareProductMapPage />} />
-              <Route path="spares/:productId" element={<ProductDetailPage />} />
+              {catalogRoutes}
               <Route path="orders" element={<DealerMenuPages.Orders />} />
               <Route path="verification" element={<DealerMenuPages.Verification />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />

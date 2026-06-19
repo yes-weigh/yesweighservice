@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { IndianRupee, Package } from 'lucide-react';
 import type { CatalogProduct } from '../../types/catalog';
+import type { CatalogNavState } from '../../lib/catalogNav';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { StockBadge, StockQuantity } from './StockBadge';
 
@@ -21,7 +22,8 @@ export const RelatedCatalogItems: React.FC<{
   loading?: boolean;
   headerAction?: React.ReactNode;
   showStockQuantity?: boolean;
-}> = ({ items, title, emptyMessage, detailBasePath, loading = false, headerAction, showStockQuantity = false }) => {
+  getLinkState?: (item: CatalogProduct) => CatalogNavState;
+}> = ({ items, title, emptyMessage, detailBasePath, loading = false, headerAction, showStockQuantity = false, getLinkState }) => {
   const navigate = useNavigate();
 
   if (loading) {
@@ -52,7 +54,9 @@ export const RelatedCatalogItems: React.FC<{
                 type="button"
                 className="related-catalog__item"
                 onClick={() =>
-                  navigate(`${detailBasePath}/${item.id}`, { state: { preview: item } })
+                  navigate(`${detailBasePath}/${item.id}`, {
+                    state: getLinkState?.(item) ?? { preview: item },
+                  })
                 }
               >
                 <div className="related-catalog__media">

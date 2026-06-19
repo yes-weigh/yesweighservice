@@ -4,8 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
 import { DealerDashboard } from './DealerDashboard';
 import { OrdersPage } from './OrdersPage';
-import { ProductsPage } from './ProductsPage';
-import { SparesPage } from './SparesPage';
+import { CatalogPage } from './CatalogPage';
 import { InvoicesPage } from './InvoicesPage';
 import { InvoiceDetailLayout } from './InvoiceDetailLayout';
 import { InvoiceDocumentPage } from './InvoiceDocumentPage';
@@ -70,19 +69,32 @@ export const DealerMenuPages = {
   InvoicePayments: () => <InvoiceSectionPlaceholderPage section="payments" />,
   InvoiceLogistic: () => <InvoiceSectionPlaceholderPage section="logistic" />,
   InvoiceQc: () => <InvoiceSectionPlaceholderPage section="qc" />,
-  Products: ProductsPage,
+  Products: CatalogPage,
+  Spares: CatalogPage,
+  Catalog: CatalogPage,
   Orders: OrdersPage,
-  Spares: SparesPage,
   Verification: () => (
     <PagePlaceholder
-      title="Verifications"
+      title="Verification"
       description="Track verification workflows, stamping records, and compliance checkpoints."
     />
   ),
   Advertisements: () => (
     <PagePlaceholder
-      title="Advertisement"
-      description="Create and manage promotional content and dealership advertisements."
+      title="Media Center"
+      description="Promotional content, dealership media assets, and campaign materials."
+    />
+  ),
+  Logistics: () => (
+    <PagePlaceholder
+      title="Logistics"
+      description="Track shipments, deliveries, and dispatch status for your orders."
+    />
+  ),
+  Loyalty: () => (
+    <PagePlaceholder
+      title="Loyalty"
+      description="Dealer loyalty points, rewards, and tier benefits."
     />
   ),
   Training: () => (

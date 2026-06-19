@@ -10,6 +10,8 @@ import {
   Search,
 } from 'lucide-react';
 import { isHiddenCatalogCategory } from '../../lib/catalog';
+import { buildProductNavState, buildSpareNavState, catalogOriginFromReturnView } from '../../lib/catalogNav';
+import type { CatalogNavState } from '../../lib/catalogNav';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import { CategoryBrowseCard } from './CategoryBrowseCard';
@@ -62,7 +64,7 @@ export interface CatalogBrowseProps {
   onSearchChange?: (value: string) => void;
   /** Hide the built-in search/filter bar (e.g. spares page mode bar search). */
   hideFilterBar?: boolean;
-  /** Passed through navigation state so detail pages can return to the correct spares tab. */
+  /** Passed through navigation state so detail pages can return to the correct list. */
   returnView?: string;
   /** Staff — quick action on product tiles (e.g. link unlinked spare to products). */
   manageItemLabel?: string;
@@ -202,7 +204,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   simpleCategoryTiles = false,
   activeCategoryId: controlledCategoryId,
   onActiveCategoryChange,
-  searchQuery: controlledSearch,
+  searchQuery: catalogSearchQuery,
   onSearchChange,
   hideFilterBar = false,
   returnView,
@@ -214,7 +216,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
 }) => {
   const navigate = useNavigate();
   const [internalSearch, setInternalSearch] = useState('');
-  const search = controlledSearch ?? internalSearch;
+  const search = catalogSearchQuery ?? internalSearch;
   const setSearch = onSearchChange ?? setInternalSearch;
   const [internalCategory, setInternalCategory] = useState('');
   const activeCategory = controlledCategoryId !== undefined ? controlledCategoryId : internalCategory;
@@ -228,9 +230,29 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   const openProduct = (product: CatalogProduct) => {
     if (productsBasePath) {
       const returnCategoryId = activeCategory || product.categoryId || '';
-      navigate(`${productsBasePath}/${product.id}`, {
-        state: { preview: product, returnCategoryId, returnView },
-      });
+      const isSparePath = productsBasePath.endsWith('/spare');
+      const isMapPath = productsBasePath.endsWith('/map');
+
+      let state: CatalogNavState;
+      if (isSparePath) {
+        state = buildSpareNavState(product, {
+          origin: catalogOriginFromReturnView(returnView),
+          searchQuery: catalogSearchQuery,
+        });
+      } else if (isMapPath) {
+        state = buildProductNavState(product, {
+          origin: 'map',
+          returnCategoryId,
+        });
+      } else {
+        state = buildProductNavState(product, {
+          origin: flatBrowse ? 'spares' : 'browse',
+          returnCategoryId,
+          searchQuery: catalogSearchQuery,
+        });
+      }
+
+      navigate(`${productsBasePath}/${product.id}`, { state });
       return;
     }
   };

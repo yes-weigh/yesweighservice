@@ -22,6 +22,7 @@ import {
   saveCatalogProductSpareLinks,
 } from '../../lib/catalog';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
+import { buildSpareNavState } from '../../lib/catalogNav';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { StockBadge } from './StockBadge';
 
@@ -231,7 +232,7 @@ export const SpareProductMapView: React.FC<{
   preview = null,
   canManage = false,
   showStockQuantity = false,
-  sparesBasePath = '/staff/spares',
+  sparesBasePath = '/staff/catalog/spare',
 }) => {
   const navigate = useNavigate();
   const [product, setProduct] = useState<CatalogProductDetail | CatalogProduct | null>(preview);
@@ -257,7 +258,10 @@ export const SpareProductMapView: React.FC<{
     const categoryId = product?.categoryId;
     if (!categoryId) return backPath;
     const base = backPath.split('?')[0] ?? backPath;
-    return `${base}?category=${encodeURIComponent(categoryId)}`;
+    const params = new URLSearchParams(backPath.includes('?') ? backPath.split('?')[1] : '');
+    if (!params.has('section')) params.set('section', 'map');
+    params.set('category', categoryId);
+    return `${base}?${params.toString()}`;
   }, [backPath, product?.categoryId]);
 
   useEffect(() => {
@@ -540,12 +544,11 @@ export const SpareProductMapView: React.FC<{
                   canManage={canManage}
                   showStockQuantity={showStockQuantity}
                   onOpen={() => navigate(`${sparesBasePath}/${item.id}`, {
-                    state: {
-                      preview: item,
-                      parentProductId: productId,
-                      returnCategoryId: product.categoryId,
-                      parentProductPreview: product,
-                    },
+                    state: buildSpareNavState(item, {
+                      origin: 'map',
+                      parentProduct: product,
+                      returnCategoryId: product.categoryId ?? undefined,
+                    }),
                   })}
                   onRemove={() => toggle(item.id)}
                 />
