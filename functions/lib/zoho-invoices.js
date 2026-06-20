@@ -9,7 +9,7 @@ import {
 import {
   readCustomerInvoicesFromFirestore,
   readInvoiceDetailFromFirestore,
-  readInvoiceDocumentFromStorage,
+  ensureInvoiceDocumentPdf,
 } from './invoice-sync.js';
 
 export {
@@ -81,9 +81,9 @@ export async function getDealerInvoiceDetail(_secrets, _orgId, uid, role, invoic
   return detail;
 }
 
-export async function downloadDealerInvoiceDocument(_secrets, _orgId, uid, role, invoiceId, documentType) {
+export async function downloadDealerInvoiceDocument(secrets, orgId, uid, role, invoiceId, documentType) {
   const customerId = await resolveZohoCustomerIdForUser(uid, role);
-  return readInvoiceDocumentFromStorage(customerId, invoiceId, documentType);
+  return ensureInvoiceDocumentPdf(secrets, orgId, customerId, invoiceId, documentType);
 }
 
 export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}) {

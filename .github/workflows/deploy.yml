@@ -133,12 +133,6 @@ jobs:
           ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
         run: node functions/scripts/ci-sync-catalog.mjs
 
-      - name: Post-deploy invoice sync
-        if: env.GOOGLE_APPLICATION_CREDENTIALS != ''
-        env:
-          ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
-        run: node functions/scripts/ci-sync-invoices.mjs
-
       - name: Verify Functions deploy
         if: env.FUNCTIONS_DEPLOY_FAILED == 'true'
         run: |

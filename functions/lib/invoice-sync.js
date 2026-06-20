@@ -96,10 +96,14 @@ async function zohoJsonRequest(accessToken, orgId, path) {
       err.code = 'RATE_LIMITED';
       throw err;
     }
-    throw new Error(payload?.message || `Zoho API error (${res.status}).`);
+    const err = new Error(payload?.message || `Zoho API error (${res.status}).`);
+    if (payload?.code != null) err.zohoCode = payload.code;
+    throw err;
   }
   if (payload?.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.message || 'Zoho API error.');
+    const err = new Error(payload.message || 'Zoho API error.');
+    err.zohoCode = payload.code;
+    throw err;
   }
   return payload;
 }
@@ -165,10 +169,14 @@ async function fetchInvoicesListPage(accessToken, orgId, page, options = {}) {
       err.code = 'RATE_LIMITED';
       throw err;
     }
-    throw new Error(payload?.message || `Zoho invoices API error (${res.status}).`);
+    const err = new Error(payload?.message || `Zoho invoices API error (${res.status}).`);
+    if (payload?.code != null) err.zohoCode = payload.code;
+    throw err;
   }
   if (payload?.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.message || 'Zoho invoices API error.');
+    const err = new Error(payload.message || 'Zoho invoices API error.');
+    err.zohoCode = payload.code;
+    throw err;
   }
 
   return {
@@ -501,17 +509,28 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
     try {
       const invoiceId = String(summary.invoice_id);
       const customerId = String(summary.customer_id);
-      const fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+      let fullRaw;
+      try {
+        fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+      } catch (err) {
+        err.syncPhase = 'zoho-fetch';
+        throw err;
+      }
       if (!fullRaw) {
         skipped += 1;
         return;
       }
-      await upsertInvoiceFromRaw(accessToken, organizationId, fullRaw, {
-        useProvidedRaw: true,
-        skipPdfs,
-        forcePdfs: !skipPdfs,
-        source: 'sync',
-      });
+      try {
+        await upsertInvoiceFromRaw(accessToken, organizationId, fullRaw, {
+          useProvidedRaw: true,
+          skipPdfs,
+          forcePdfs: !skipPdfs,
+          source: 'sync',
+        });
+      } catch (err) {
+        err.syncPhase = 'firestore-upsert';
+        throw err;
+      }
       synced += 1;
       customerCounts.set(customerId, (customerCounts.get(customerId) ?? 0) + 1);
     } catch (err) {
@@ -519,7 +538,11 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
       if (err?.code === 'RATE_LIMITED') {
         await sleep(5000);
       }
-      console.warn('Invoice sync item failed:', err?.message ?? err);
+      const phase = err?.syncPhase ? ` [${err.syncPhase}]` : '';
+      const zohoHint = err?.zohoCode === 57
+        ? ' (Zoho code 57 — wrong data center or missing ZohoInventory.invoices.READ scope)'
+        : '';
+      console.warn('Invoice sync item failed:', `${err?.message ?? err}${phase}${zohoHint}`);
     }
   });
 
@@ -630,6 +653,60 @@ export async function readInvoiceDetailFromFirestore(customerId, invoiceId) {
   return firestoreDocToDetail({ ...data, id: snap.id });
 }
 
+function invoiceDocumentMeta(customerId, invoiceId, data, documentType) {
+  if (documentType === 'invoice') {
+    return {
+      storagePath: data.pdfStoragePath ?? invoicePdfPath(customerId, invoiceId),
+      filename: `${String(data.invoiceNumber || invoiceId).replace(/[^\w.-]+/g, '_')}.pdf`,
+      zohoResource: 'invoices',
+      zohoId: String(invoiceId),
+      firestorePathField: 'pdfStoragePath',
+    };
+  }
+  if (documentType === 'salesorder') {
+    if (!data.salesOrderId) throw new Error('Sales order not found for this invoice.');
+    const salesOrderId = String(data.salesOrderId);
+    return {
+      storagePath: data.salesOrderPdfStoragePath ?? salesOrderPdfPath(customerId, salesOrderId),
+      filename: `${String(data.salesOrderNumber || salesOrderId).replace(/[^\w.-]+/g, '_')}.pdf`,
+      zohoResource: 'salesorders',
+      zohoId: salesOrderId,
+      firestorePathField: 'salesOrderPdfStoragePath',
+    };
+  }
+  throw new Error('Unsupported document type.');
+}
+
+/** Read cached PDF from Storage, or fetch from Zoho once and cache for later views. */
+export async function ensureInvoiceDocumentPdf(secrets, orgId, customerId, invoiceId, documentType) {
+  const snap = await invoicesCollection(String(customerId)).doc(String(invoiceId)).get();
+  if (!snap.exists) throw new Error('Invoice not found.');
+  const data = snap.data() ?? {};
+  if (String(data.customerId ?? customerId) !== String(customerId)) {
+    throw new Error('Invoice not found.');
+  }
+
+  const meta = invoiceDocumentMeta(customerId, invoiceId, data, documentType);
+  let buffer = await readPdfFromStorage(meta.storagePath);
+
+  if (!buffer) {
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, orgId);
+    buffer = await fetchZohoPdf(accessToken, organizationId, meta.zohoResource, meta.zohoId);
+    const savedPath = await uploadPdfToStorage(meta.storagePath, buffer);
+    await invoicesCollection(String(customerId)).doc(String(invoiceId)).set(
+      { [meta.firestorePathField]: savedPath },
+      { merge: true },
+    );
+  }
+
+  return {
+    contentBase64: buffer.toString('base64'),
+    filename: meta.filename,
+    mimeType: 'application/pdf',
+  };
+}
+
 export async function readInvoiceDocumentFromStorage(customerId, invoiceId, documentType) {
   const snap = await invoicesCollection(String(customerId)).doc(String(invoiceId)).get();
   if (!snap.exists) throw new Error('Invoice not found.');
@@ -638,28 +715,14 @@ export async function readInvoiceDocumentFromStorage(customerId, invoiceId, docu
     throw new Error('Invoice not found.');
   }
 
-  let storagePath = null;
-  let filename = null;
-
-  if (documentType === 'invoice') {
-    storagePath = data.pdfStoragePath ?? invoicePdfPath(customerId, invoiceId);
-    const number = data.invoiceNumber || invoiceId;
-    filename = `${String(number).replace(/[^\w.-]+/g, '_')}.pdf`;
-  } else if (documentType === 'salesorder') {
-    if (!data.salesOrderId) throw new Error('Sales order not found for this invoice.');
-    storagePath = data.salesOrderPdfStoragePath
-      ?? salesOrderPdfPath(customerId, data.salesOrderId);
-    const number = data.salesOrderNumber || data.salesOrderId;
-    filename = `${String(number).replace(/[^\w.-]+/g, '_')}.pdf`;
-  } else {
-    throw new Error('Unsupported document type.');
+  const meta = invoiceDocumentMeta(customerId, invoiceId, data, documentType);
+  const buffer = await readPdfFromStorage(meta.storagePath);
+  if (!buffer) {
+    throw new Error('PDF not cached yet. Open the invoice to download it from Zoho.');
   }
-
-  const buffer = await readPdfFromStorage(storagePath);
-  if (!buffer) throw new Error('PDF not available yet. It will appear after the next sync.');
   return {
     contentBase64: buffer.toString('base64'),
-    filename,
+    filename: meta.filename,
     mimeType: 'application/pdf',
   };
 }
@@ -749,7 +812,7 @@ export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
 
   const result = await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
     source: 'webhook',
-    skipPdfs: false,
+    skipPdfs: true,
   });
   return { ok: true, status: 200, action: 'synced', invoiceId, result };
 }

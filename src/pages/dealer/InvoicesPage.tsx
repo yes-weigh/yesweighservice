@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ChevronRight, FileText, Search } from 'lucide-react';
+import { AlertCircle, ChevronRight, FileText, RefreshCw, Search } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
 import { homePathForRole } from '../../types';
+import { clearInvoiceCacheForUser } from '../../lib/invoice-cache';
 import {
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
@@ -12,6 +13,7 @@ import {
   invoiceErrorMessage,
   invoiceStatusLabel,
   readCachedDealerInvoices,
+  syncDealerInvoicesFromZoho,
 } from '../../lib/invoices';
 import type { DealerInvoice, InvoiceListParams } from '../../types/invoices';
 
@@ -138,6 +140,8 @@ export const InvoicesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
 
   const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}/invoice`);
 
@@ -198,6 +202,41 @@ export const InvoicesPage: React.FC = () => {
     setPage(1);
   }, [debouncedSearch, sortField, sortDir]);
 
+  const handleSyncFromZoho = async () => {
+    const uid = user?.uid;
+    setSyncing(true);
+    setSyncMessage('');
+    setError('');
+    try {
+      const result = await syncDealerInvoicesFromZoho();
+      if (uid) clearInvoiceCacheForUser(uid);
+      setPage(1);
+      const res = await fetchDealerInvoicesWithCache(uid, {
+        page: 1,
+        limit,
+        sortField,
+        sortDir,
+        ...(debouncedSearch.trim() ? { q: debouncedSearch.trim() } : {}),
+      });
+      setInvoices(res.data);
+      setTotal(res.pagination.total);
+      setLastSyncedAt(res.lastSyncedAt ?? null);
+      if (result.totalListed === 0) {
+        setSyncMessage('Zoho returned no invoices for your account.');
+      } else if (result.failedCount > 0) {
+        setSyncMessage(
+          `Synced ${result.syncedCount} of ${result.totalListed} invoices. ${result.failedCount} could not be loaded.`,
+        );
+      } else {
+        setSyncMessage(`Synced ${result.syncedCount} invoice${result.syncedCount === 1 ? '' : 's'} from Zoho.`);
+      }
+    } catch (err) {
+      setError(invoiceErrorMessage(err));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleSort = (field: NonNullable<InvoiceListParams['sortField']>) => {
     if (sortField === field) {
       setSortDir(dir => (dir === 'asc' ? 'desc' : 'asc'));
@@ -221,6 +260,12 @@ export const InvoicesPage: React.FC = () => {
         <div className="products-inline-error panel glass invoices-page__error">
           <AlertCircle size={18} />
           <span>{error}</span>
+        </div>
+      )}
+
+      {syncMessage && !error && (
+        <div className="panel glass invoices-page__sync-note text-sm" role="status">
+          {syncMessage}
         </div>
       )}
 
@@ -251,6 +296,15 @@ export const InvoicesPage: React.FC = () => {
               Updated {formatInvoiceRelativeTime(lastSyncedAt)}
             </span>
           )}
+          <button
+            type="button"
+            className="btn btn-primary catalog-sync-btn zoho-sync-btn"
+            disabled={syncing || loading}
+            onClick={() => void handleSyncFromZoho()}
+          >
+            <RefreshCw size={16} className={syncing ? 'spin-icon' : undefined} />
+            {syncing ? 'Syncing from Zoho…' : 'Sync from Zoho'}
+          </button>
         </div>
       </header>
 
@@ -264,8 +318,19 @@ export const InvoicesPage: React.FC = () => {
             <p className="text-muted text-sm">
               {debouncedSearch
                 ? 'Try a different search term.'
-                : 'Invoices synced from your account will appear here.'}
+                : 'Click Sync from Zoho to load invoice details from your account.'}
             </p>
+            {!debouncedSearch && (
+              <button
+                type="button"
+                className="btn btn-primary zoho-sync-btn"
+                disabled={syncing}
+                onClick={() => void handleSyncFromZoho()}
+              >
+                <RefreshCw size={16} className={syncing ? 'spin-icon' : undefined} />
+                {syncing ? 'Syncing…' : 'Sync from Zoho'}
+              </button>
+            )}
           </div>
         ) : (
           <>

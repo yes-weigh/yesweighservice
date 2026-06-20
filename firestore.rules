@@ -112,6 +112,10 @@ service cloud.firestore {
         || validDealerAccessFields(data);
     }
 
+    function validStaffUserWrite(data) {
+      return data.role == 'staff' ? validStaffAccessFields(data) : true;
+    }
+
     function validManagedUserWrite(data) {
       return validStaffUserWrite(data) && validDealerPortalUserWrite(data);
     }

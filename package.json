@@ -9,11 +9,11 @@
     "generate:icons": "npx -p sharp node scripts/generate-icons.mjs",
     "preview": "vite preview",
     "seed:admin": "node scripts/seed-admin.mjs",
+    "complete:admin": "node scripts/complete-super-admin.mjs",
     "seed:sample-users": "node scripts/seed-sample-users.mjs",
     "migrate:dealer-rename": "node scripts/migrate-dealer-rename.mjs",
     "verify:zoho": "node scripts/verify-zoho.mjs",
-    "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs",
-    "sync:invoices": "node functions/scripts/ci-sync-invoices.mjs"
+    "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs"
   },
   "dependencies": {
     "firebase": "^12.13.0",

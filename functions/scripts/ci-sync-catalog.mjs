@@ -23,10 +23,13 @@ if (!orgId) {
 
 try {
   const parsed = JSON.parse(readFileSync(credentialsPath, 'utf8'));
-  initializeApp({ credential: cert(parsed) });
+  const projectId = parsed.project_id || 'yesweigh-service';
+  initializeApp({
+    credential: cert(parsed),
+    storageBucket: `${projectId}.firebasestorage.app`,
+  });
 
   const client = new SecretManagerServiceClient();
-  const projectId = parsed.project_id || 'yesweigh-service';
 
   async function readSecret(name) {
     const [version] = await client.accessSecretVersion({

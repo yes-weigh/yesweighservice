@@ -111,6 +111,8 @@ firebase functions:secrets:set ZOHO_REFRESH_TOKEN --project yesweigh-service
 
 Add a GitHub Actions secret **`ZOHO_ORGANIZATION_ID`** (Zoho Inventory → Settings → Organization Profile → Organization ID). CI writes this into `functions/.env.yesweigh-service` before deploying functions.
 
+**Invoices:** Deploy does not bulk-sync invoices. Dealers use **Sync from Zoho** on the Invoices page (details only, no PDFs). PDFs are fetched from Zoho the first time an invoice is opened, then cached in Firebase Storage. Webhooks keep Firestore updated when invoices change in Zoho.
+
 Cloud Functions (2nd gen) also require the Firebase project on the **Blaze (pay as you go)** plan with a billing account linked. If deploy fails with `cloudbilling.googleapis.com`, enable [Cloud Billing API](https://console.cloud.google.com/apis/library/cloudbilling.googleapis.com?project=yesweigh-service) and upgrade at [Firebase Usage and billing](https://console.firebase.google.com/project/yesweigh-service/usage/details).
 
 CI deploys hosting and Firestore first, then Functions, then Storage rules in separate steps so a Functions or Storage issue does not block the rest. Re-run the workflow after fixing any missing API or IAM permission.

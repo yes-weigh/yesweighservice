@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Package,
   LifeBuoy,
+  Shield,
   ShieldCheck,
   GraduationCap,
   Bell,
@@ -178,6 +179,7 @@ const LayoutShell: React.FC = () => {
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
+          { path: '/super-admin/super-admins', icon: <Shield size={20} />, label: 'Super Admins' },
           { path: '/super-admin/staff', icon: <Users size={20} />, label: 'Staff' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/dealer-accounts', icon: <UserCircle size={20} />, label: 'Dealer Logins' },

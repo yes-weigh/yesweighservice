@@ -94,12 +94,32 @@ async function probe(path, label) {
 
 const itemsPayload = await probe('/items', 'Items API');
 const groupsPayload = await probe('/itemgroups', 'Item groups API');
+const invoicesPayload = await probe('/invoices', 'Invoices API');
 
 const itemCount = itemsPayload.page_context?.total ?? itemsPayload.items?.length ?? 0;
 const groupCount = groupsPayload.page_context?.total ?? groupsPayload.itemgroups?.length ?? 0;
+const invoiceCount = invoicesPayload.page_context?.total ?? invoicesPayload.invoices?.length ?? 0;
 
 ok(`Items API reachable (${itemCount} item(s) reported)`);
 ok(`Item groups API reachable (${groupCount} group(s) reported)`);
+ok(`Invoices API reachable (${invoiceCount} invoice(s) reported)`);
+
+const firstInvoiceId = invoicesPayload.invoices?.[0]?.invoice_id;
+if (firstInvoiceId) {
+  const detailUrl = new URL(`${apiBase}/invoices/${firstInvoiceId}`);
+  detailUrl.searchParams.set('organization_id', orgId);
+  const detailRes = await fetch(detailUrl, {
+    headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+  });
+  const detailPayload = await detailRes.json();
+  if (!detailRes.ok || (detailPayload.code !== undefined && detailPayload.code !== 0)) {
+    fail(
+      `Invoice detail API failed: ${detailPayload.message || detailRes.statusText}\n` +
+        '  → Refresh token may lack ZohoInventory.invoices.READ scope (code 57 = missing scope or wrong data center).',
+    );
+  }
+  ok(`Invoice detail API reachable (invoice ${firstInvoiceId})`);
+}
 
 console.log('\nAll checks passed. Your Zoho credentials and org ID look correct.');
 console.log('\nNext: deploy functions so the Products page can use these credentials:');

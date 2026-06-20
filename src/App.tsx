@@ -11,6 +11,7 @@ import { DealerLogin } from './pages/DealerLogin';
 import { SuperAdminDashboard } from './pages/admin/SuperAdminDashboard';
 import { StaffDashboard } from './pages/staff/StaffDashboard';
 import { AdminStaffList } from './pages/admin/AdminStaffList';
+import { AdminSuperAdminList } from './pages/admin/AdminSuperAdminList';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
 import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
 import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
@@ -105,6 +106,7 @@ const App: React.FC = () => (
             <Route path="/super-admin" element={<Layout />}>
               <Route index element={<SuperAdminDashboard />} />
               {catalogRoutes}
+              <Route path="super-admins" element={<AdminSuperAdminList />} />
               <Route path="staff" element={<AdminStaffList />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />

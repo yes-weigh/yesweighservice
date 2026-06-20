@@ -634,11 +634,12 @@ export const getDealerInvoiceDetail = onCall(
   },
 );
 
-/** Download invoice or linked sales order PDF from Firebase Storage. */
+/** Download invoice or linked sales order PDF (lazy-fetch from Zoho on first view). */
 export const downloadDealerInvoiceDocument = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 60,
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
     memory: '512MiB',
   },
   async request => {
@@ -654,8 +655,8 @@ export const downloadDealerInvoiceDocument = onCall(
     }
     try {
       return await fetchDealerInvoiceDocument(
-        null,
-        null,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
         uid,
         role,
         invoiceId,
@@ -743,7 +744,7 @@ export const syncZohoInvoicesScheduled = onSchedule(
     const result = await syncInvoicesToFirestore(
       zohoSecrets(),
       zohoOrganizationId.value(),
-      { skipPdfs: false, concurrency: 3, delayMs: 400 },
+      { skipPdfs: true, concurrency: 3, delayMs: 400 },
     );
     console.log(
       `Scheduled invoice sync: ${result.syncedCount} synced, ${result.failedCount} failed, ${result.totalListed} listed.`,
@@ -751,7 +752,7 @@ export const syncZohoInvoicesScheduled = onSchedule(
   },
 );
 
-/** Manual invoice sync — staff / super admin. */
+/** Manual invoice sync — staff / super admin (details only; PDFs load on first view). */
 export const syncZohoInvoices = onCall(
   {
     region: 'asia-south1',
@@ -768,7 +769,7 @@ export const syncZohoInvoices = onCall(
         zohoOrganizationId.value(),
         {
           customerId: customerId || undefined,
-          skipPdfs: Boolean(request.data?.skipPdfs),
+          skipPdfs: request.data?.skipPdfs !== false,
           concurrency: 3,
           delayMs: 350,
         },
@@ -776,6 +777,37 @@ export const syncZohoInvoices = onCall(
       return result;
     } catch (err) {
       console.error('syncZohoInvoices failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice sync failed.');
+    }
+  },
+);
+
+/** Pull invoice details from Zoho into Firestore for the signed-in dealer (no PDFs). */
+export const syncDealerInvoicesFromZoho = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    try {
+      const customerId = await resolveZohoCustomerIdForUser(uid, role);
+      const result = await syncInvoicesToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          customerId,
+          skipPdfs: true,
+          concurrency: 3,
+          delayMs: 350,
+        },
+      );
+      return result;
+    } catch (err) {
+      console.error('syncDealerInvoicesFromZoho failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice sync failed.');
     }
   },

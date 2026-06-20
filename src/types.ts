@@ -120,7 +120,7 @@ export function homePathForRole(role: Role): string {
 export function manageableRoles(actor: Role): Role[] {
   switch (actor) {
     case 'super_admin':
-      return ['staff', 'dealer', 'dealer_staff'];
+      return ['super_admin', 'staff', 'dealer', 'dealer_staff'];
     case 'staff':
       return ['dealer', 'dealer_staff'];
     case 'dealer':

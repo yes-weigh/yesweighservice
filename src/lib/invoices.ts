@@ -29,7 +29,7 @@ export function invoiceErrorMessage(err: unknown): string {
     const code = 'code' in err ? String((err as { code: string }).code) : '';
     const message = 'message' in err ? String((err as { message: string }).message) : '';
     if (code === 'functions/deadline-exceeded' || message.includes('deadline-exceeded')) {
-      return 'Invoice request timed out. Try again in a moment.';
+      return 'Invoice sync timed out. Wait a minute and try again.';
     }
     if (code === 'functions/not-found' || message.includes('not-found')) {
       return 'Invoice service is not deployed yet. Push to main or deploy Cloud Functions.';
@@ -40,6 +40,31 @@ export function invoiceErrorMessage(err: unknown): string {
     if (message) return message;
   }
   return 'Could not load invoices.';
+}
+
+export async function syncDealerInvoicesFromZoho(): Promise<{
+  syncedCount: number;
+  failedCount: number;
+  totalListed: number;
+}> {
+  const callable = httpsCallable<
+    undefined,
+    { syncedCount?: number; failedCount?: number; totalListed?: number }
+  >(
+    functions,
+    'syncDealerInvoicesFromZoho',
+    { timeout: 600_000 },
+  );
+  try {
+    const result = await callable();
+    return {
+      syncedCount: result.data.syncedCount ?? 0,
+      failedCount: result.data.failedCount ?? 0,
+      totalListed: result.data.totalListed ?? 0,
+    };
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
 }
 
 export async function fetchDealerInvoices(params: InvoiceListParams = {}): Promise<InvoiceListResponse> {

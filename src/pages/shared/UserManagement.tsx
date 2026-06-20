@@ -241,7 +241,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   };
 
   const canPermanentlyDelete =
-    user?.role === 'super_admin' && (role === 'dealer' || role === 'staff' || role === 'dealer_staff');
+    user?.role === 'super_admin'
+    && (role === 'super_admin' || role === 'dealer' || role === 'staff' || role === 'dealer_staff');
 
   const dealerName = (dealerId?: string) =>
     dealers.find(d => d.uid === dealerId)?.displayName ?? '—';
