@@ -736,14 +736,14 @@ export const zohoInvoiceWebhook = onRequest(
   },
 );
 
-/** Nightly invoice reconciliation from Zoho → Firestore (safety net for missed webhooks). */
+/** Nightly invoice backfill — max 30 min per run (scheduler limit); resumes from checkpoint next night. */
 export const syncZohoInvoicesScheduled = onSchedule(
   {
     schedule: '0 2 * * *',
     timeZone: 'Asia/Kolkata',
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 3600,
+    timeoutSeconds: 1800,
     memory: '2GiB',
   },
   async () => {
