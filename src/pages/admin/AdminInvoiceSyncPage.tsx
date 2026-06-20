@@ -54,7 +54,10 @@ export const AdminInvoiceSyncPage: React.FC = () => {
   const handleSync = async () => {
     setBusy('sync');
     setError('');
-    setNotice('');
+    setNotice('Sync running — this takes up to 8 minutes. Status updates below.');
+    const poll = window.setInterval(() => {
+      void loadStatus();
+    }, 15_000);
     try {
       const result = await runOrgInvoiceSync();
       const parts = [
@@ -69,7 +72,9 @@ export const AdminInvoiceSyncPage: React.FC = () => {
       await loadStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sync failed.');
+      await loadStatus();
     } finally {
+      window.clearInterval(poll);
       setBusy(null);
     }
   };
@@ -200,6 +205,11 @@ export const AdminInvoiceSyncPage: React.FC = () => {
               ? new Date(status.totalCountedAt).toLocaleString('en-IN')
               : 'Not yet — run Count first'}
           </li>
+          {status?.status === 'running' && (
+            <li className="mb-2">
+              <strong className="text-main">In progress:</strong> Pull now runs up to 8 minutes per click — refresh status to watch API use climb.
+            </li>
+          )}
           {status?.status === 'paused_quota' && (
             <li className="mb-2">
               <strong className="text-main">Queued:</strong> Continues automatically tomorrow (2 AM IST scheduled run)

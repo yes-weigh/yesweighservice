@@ -79,6 +79,11 @@ export async function getOrgInvoiceSyncStatus() {
   const totalInRange = meta.totalInRange ?? null;
   const pulledCount = meta.pulledCount ?? 0;
   const remaining = totalInRange == null ? null : Math.max(0, totalInRange - pulledCount);
+  let status = normalizeStatus(meta);
+  const startedAt = meta.runStartedAt?.toDate?.();
+  if (status === 'running' && startedAt && Date.now() - startedAt.getTime() > 15 * 60 * 1000) {
+    status = meta.completedAt ? 'complete' : (remaining === 0 ? 'complete' : 'idle');
+  }
 
   return {
     dateFrom: meta.dateFrom ?? ORG_SYNC_DATE_FROM,
@@ -224,12 +229,27 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   const syncOpts = defaultInvoiceSyncOptions({ ...options, skipPdfs: true });
   const { delayMs, skipSalesOrder, skipImages } = syncOpts;
   const startedAt = Date.now();
+  const source = options.source ?? 'org-sync';
 
-  const priorMeta = await beginOrgSyncRun();
+  let priorMeta;
+  try {
+    priorMeta = await beginOrgSyncRun();
+  } catch (err) {
+    if (err?.code === 'ALREADY_RUNNING') throw err;
+    throw err;
+  }
+
+  console.log(
+    `Org invoice sync started (${source}): range ${dateFrom} → ${dateTo}, `
+    + `checkpoint page ${priorMeta.checkpointPage ?? 1} index ${priorMeta.checkpointIndex ?? 0}, `
+    + `pulled ${priorMeta.pulledCount ?? 0}/${priorMeta.totalInRange ?? '?'}.`,
+  );
+
   const { count: apiUsedBefore } = await readApiUsageToday();
   let apiBudget = ORG_SYNC_DAILY_API_CAP - apiUsedBefore;
   if (apiBudget <= 0) {
     await writeOrgSyncMeta({ status: 'paused_quota' });
+    console.log('Org invoice sync skipped: daily Zoho API cap already reached.');
     return {
       status: 'paused_quota',
       syncedCount: 0,
@@ -242,8 +262,23 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
     };
   }
 
+  let page = Number(priorMeta.checkpointPage ?? 1);
+  let index = Number(priorMeta.checkpointIndex ?? 0);
+  let pulledCount = Number(priorMeta.pulledCount ?? 0);
+  let totalInRange = priorMeta.totalInRange ?? null;
+  let synced = 0;
+  let failed = 0;
+  let skipped = 0;
+  let unchanged = 0;
+  let newlyPulled = 0;
+  let apiCallsUsed = 0;
+  let pausedForQuota = false;
+  let completed = false;
+
+  try {
   const accessToken = await getAccessToken(secrets);
   apiBudget -= 1;
+  apiCallsUsed += 1;
   await reserveApiCalls(1);
 
   const organizationId = await resolveOrganizationId(accessToken, orgId);
@@ -252,22 +287,8 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
     skipSalesOrder,
     skipImages,
     forcePdfs: false,
-    source: options.source ?? 'org-sync',
+    source,
   };
-
-  let page = Number(priorMeta.checkpointPage ?? 1);
-  let index = Number(priorMeta.checkpointIndex ?? 0);
-  let pulledCount = Number(priorMeta.pulledCount ?? 0);
-  let totalInRange = priorMeta.totalInRange ?? null;
-
-  let synced = 0;
-  let failed = 0;
-  let skipped = 0;
-  let unchanged = 0;
-  let newlyPulled = 0;
-  let apiCallsUsed = 1;
-  let pausedForQuota = false;
-  let completed = false;
 
   const processSummary = async summary => {
     if (Date.now() - startedAt > ORG_SYNC_TIME_BUDGET_MS) {
@@ -329,6 +350,9 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
     }
 
     if (delayMs) await sleep(delayMs);
+    if (newlyPulled > 0 && newlyPulled % 50 === 0) {
+      console.log(`Org invoice sync progress: ${newlyPulled} newly pulled this run (${apiCallsUsed} Zoho calls).`);
+    }
     return 'ok';
   };
 
@@ -409,12 +433,24 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       completedAt: completed && !pausedForQuota ? FieldValue.serverTimestamp() : priorMeta.completedAt ?? null,
     });
   }
+  } catch (err) {
+    await writeOrgSyncMeta({ status: 'idle' }).catch(() => {});
+    console.error('Org invoice sync failed:', err?.message ?? err);
+    throw err;
+  }
+
+  const finalStatus = completed && !pausedForQuota
+    ? 'complete'
+    : (pausedForQuota ? 'paused_quota' : 'idle');
+  console.log(
+    `Org invoice sync finished (${source}): status=${finalStatus}, newlyPulled=${newlyPulled}, `
+    + `unchanged=${unchanged}, failed=${failed}, apiCalls=${apiCallsUsed}, `
+    + `pulled=${pulledCount}/${totalInRange ?? priorMeta.totalInRange ?? '?'}.`,
+  );
 
   const { count: apiCallsToday } = await readApiUsageToday();
   return {
-    status: completed && !pausedForQuota
-      ? 'complete'
-      : (pausedForQuota ? 'paused_quota' : 'idle'),
+    status: finalStatus,
     syncedCount: synced,
     failedCount: failed,
     skippedCount: skipped,
