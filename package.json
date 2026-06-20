@@ -11,7 +11,8 @@
     "seed:admin": "node scripts/seed-admin.mjs",
     "seed:sample-users": "node scripts/seed-sample-users.mjs",
     "migrate:dealer-rename": "node scripts/migrate-dealer-rename.mjs",
-    "verify:zoho": "node scripts/verify-zoho.mjs"
+    "verify:zoho": "node scripts/verify-zoho.mjs",
+    "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs"
   },
   "dependencies": {
     "firebase": "^12.13.0",
