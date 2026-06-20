@@ -15,6 +15,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Need the push "before" SHA for selective functions deploy (changed-functions.mjs).
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -88,7 +91,11 @@ jobs:
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             BASE="HEAD~1"
           fi
-          echo "Comparing functions/ against $BASE"
+          if ! git rev-parse --verify "${BASE}^{commit}" >/dev/null 2>&1; then
+            echo "Base commit ${BASE} not in clone — fetching from origin"
+            git fetch --depth=1 origin "${BASE}" || true
+          fi
+          echo "Comparing functions/ against ${BASE}"
           mapfile -t lines < <(node functions/scripts/changed-functions.mjs --base "$BASE")
           for line in "${lines[@]}"; do
             echo "$line"

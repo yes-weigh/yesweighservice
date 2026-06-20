@@ -49,12 +49,37 @@ function normalizePath(filePath) {
   return filePath.replace(/\\/g, '/');
 }
 
-function gitChangedFiles(base) {
+function gitRun(command) {
+  return execSync(command, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function gitCommitExists(ref) {
   try {
-    const out = execSync(`git diff --name-only ${base} HEAD -- functions/`, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    gitRun(`git rev-parse --verify ${ref}^{commit}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureBaseAvailable(base) {
+  if (gitCommitExists(base)) return base;
+  try {
+    gitRun(`git fetch --depth=1 origin ${base}`);
+  } catch {
+    // CI may not have network in some contexts; fall through to other strategies.
+  }
+  if (gitCommitExists(base)) return base;
+  if (base !== 'HEAD~1' && gitCommitExists('HEAD~1')) return 'HEAD~1';
+  return null;
+}
+
+function gitChangedFilesFromCommit() {
+  try {
+    const out = gitRun('git diff-tree --no-commit-id --name-only -r HEAD -- functions/');
     return out
       .trim()
       .split('\n')
@@ -65,12 +90,39 @@ function gitChangedFiles(base) {
   }
 }
 
-function gitChangedIndexLines(base) {
+function gitChangedFiles(base) {
+  const resolvedBase = ensureBaseAvailable(base);
+  if (resolvedBase) {
+    try {
+      const out = gitRun(`git diff --name-only ${resolvedBase} HEAD -- functions/`);
+      return {
+        files: out.trim().split('\n').filter(Boolean).map(normalizePath),
+        diffBase: resolvedBase,
+      };
+    } catch {
+      // fall through
+    }
+  }
+
+  const commitFiles = gitChangedFilesFromCommit();
+  if (commitFiles !== null) {
+    return { files: commitFiles, diffBase: 'HEAD' };
+  }
+
+  return null;
+}
+
+function gitChangedIndexLines(base, diffBase) {
+  const resolvedBase = diffBase === 'HEAD'
+    ? `${base}^`
+    : (ensureBaseAvailable(base) ?? base);
+
+  const diffCmd = diffBase === 'HEAD'
+    ? 'git show -U0 HEAD -- functions/index.js'
+    : `git diff -U0 ${resolvedBase} HEAD -- functions/index.js`;
+
   try {
-    const out = execSync(`git diff -U0 ${base} HEAD -- functions/index.js`, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const out = gitRun(diffCmd);
     const lines = new Set();
     for (const hunk of out.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
       const start = Number(hunk[1]);
@@ -204,14 +256,15 @@ function functionsForIndexChanges(changedLines, exports) {
 
 function main() {
   const { base } = parseArgs();
-  const changedFiles = gitChangedFiles(base);
+  const diffResult = gitChangedFiles(base);
 
-  if (changedFiles === null) {
-    console.log('skip=false');
-    console.log('deploy_all=true');
-    console.log('reason=git diff unavailable');
+  if (diffResult === null) {
+    console.log('skip=true');
+    console.log('reason=could not determine functions changes (skipping deploy)');
     return;
   }
+
+  const { files: changedFiles, diffBase } = diffResult;
 
   const relevant = changedFiles.filter(file => !IGNORE_FILES.some(re => re.test(file)));
   if (relevant.length === 0) {
@@ -247,7 +300,7 @@ function main() {
   }
 
   if (indexChanged) {
-    const changedLines = gitChangedIndexLines(base);
+    const changedLines = gitChangedIndexLines(base, diffBase);
     if (changedLines === null || changedLines.size === 0) {
       console.log('skip=false');
       console.log('deploy_all=true');
