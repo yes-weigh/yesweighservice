@@ -24,6 +24,7 @@ export interface OrgInvoiceSyncStatus {
     unchanged?: number;
     newlyPulled?: number;
     apiCallsUsed?: number;
+    inProgress?: boolean;
   } | null;
   completedAt: string | null;
   totalCountedAt: string | null;

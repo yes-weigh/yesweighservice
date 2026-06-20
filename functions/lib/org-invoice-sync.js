@@ -82,13 +82,16 @@ export async function getOrgInvoiceSyncStatus() {
   let status = normalizeStatus(meta);
   const startedAt = meta.runStartedAt?.toDate?.();
   if (status === 'running' && startedAt && Date.now() - startedAt.getTime() > 15 * 60 * 1000) {
-    status = meta.completedAt ? 'complete' : (remaining === 0 ? 'complete' : 'idle');
+    status = pulledCount >= totalInRange && totalInRange > 0
+      ? 'complete'
+      : (meta.completedAt ? 'complete' : 'idle');
+    await writeOrgSyncMeta({ status }).catch(() => {});
   }
 
   return {
     dateFrom: meta.dateFrom ?? ORG_SYNC_DATE_FROM,
     dateTo: meta.dateTo ?? orgDateTo(),
-    status: normalizeStatus(meta),
+    status,
     totalInRange,
     pulledCount,
     remaining,
@@ -203,16 +206,19 @@ export async function countOrgInvoicesInRange(secrets, orgId, options = {}) {
   }
 
   const now = FieldValue.serverTimestamp();
+  const priorMeta = await readOrgSyncMeta();
   await writeOrgSyncMeta({
     dateFrom,
     dateTo,
     totalInRange,
     pulledCount,
     totalCountedAt: now,
-    status: pulledCount >= totalInRange && totalInRange > 0 ? 'complete' : 'idle',
-    completedAt: pulledCount >= totalInRange && totalInRange > 0 ? now : null,
-    checkpointPage: 1,
-    checkpointIndex: 0,
+    status: priorMeta.status === 'running'
+      ? 'running'
+      : (pulledCount >= totalInRange && totalInRange > 0 ? 'complete' : 'idle'),
+    completedAt: pulledCount >= totalInRange && totalInRange > 0 ? now : priorMeta.completedAt ?? null,
+    checkpointPage: priorMeta.checkpointPage ?? 1,
+    checkpointIndex: priorMeta.checkpointIndex ?? 0,
   });
 
   return {
@@ -264,7 +270,8 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
 
   let page = Number(priorMeta.checkpointPage ?? 1);
   let index = Number(priorMeta.checkpointIndex ?? 0);
-  let pulledCount = Number(priorMeta.pulledCount ?? 0);
+  const baselinePulled = Number(priorMeta.pulledCount ?? 0);
+  let pulledCount = baselinePulled;
   let totalInRange = priorMeta.totalInRange ?? null;
   let synced = 0;
   let failed = 0;
@@ -274,6 +281,22 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   let apiCallsUsed = 0;
   let pausedForQuota = false;
   let completed = false;
+
+  const publishProgress = async (force = false) => {
+    if (!force && newlyPulled > 0 && newlyPulled % 10 !== 0) return;
+    await writeOrgSyncMeta({
+      pulledCount: baselinePulled + newlyPulled,
+      lastRunSummary: {
+        synced,
+        failed,
+        skipped,
+        unchanged,
+        newlyPulled,
+        apiCallsUsed,
+        inProgress: true,
+      },
+    });
+  };
 
   try {
   const accessToken = await getAccessToken(secrets);
@@ -341,6 +364,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       });
       synced += 1;
       newlyPulled += 1;
+      await publishProgress();
       await customerInvoiceMetaRef(customerId).set({
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
@@ -408,7 +432,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       }
     }
   } finally {
-    pulledCount += newlyPulled;
+    pulledCount = baselinePulled + newlyPulled;
     const status = completed && !pausedForQuota
       ? 'complete'
       : (pausedForQuota ? 'paused_quota' : 'idle');
@@ -429,6 +453,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         unchanged,
         newlyPulled,
         apiCallsUsed,
+        inProgress: false,
       },
       completedAt: completed && !pausedForQuota ? FieldValue.serverTimestamp() : priorMeta.completedAt ?? null,
     });

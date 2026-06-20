@@ -33,6 +33,14 @@ export const AdminInvoiceSyncPage: React.FC = () => {
     void loadStatus();
   }, [loadStatus]);
 
+  useEffect(() => {
+    if (status?.status !== 'running') return undefined;
+    const timer = window.setInterval(() => {
+      void loadStatus();
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [status?.status, loadStatus]);
+
   const handleCount = async () => {
     setBusy('count');
     setError('');
@@ -86,6 +94,10 @@ export const AdminInvoiceSyncPage: React.FC = () => {
   const total = status?.totalInRange;
   const pulled = status?.pulledCount ?? 0;
   const remaining = status?.remaining;
+  const runInProgress = status?.status === 'running';
+  const runNewlyPulled = status?.lastRunSummary?.inProgress
+    ? status.lastRunSummary.newlyPulled
+    : null;
   const progressPct = total && total > 0 ? Math.min(100, Math.round((pulled / total) * 100)) : null;
 
   return (
@@ -134,6 +146,11 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           <div>
             <h3>Pulled to Firebase</h3>
             <div className="stat-value">{pulled.toLocaleString()}</div>
+            {runInProgress && runNewlyPulled != null && (
+              <div className="text-muted text-sm mt-1">
+                +{runNewlyPulled.toLocaleString()} this run (updates every ~10 invoices)
+              </div>
+            )}
           </div>
         </div>
         <div className="stat-card glass">
@@ -198,6 +215,13 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           <li className="mb-2">
             <strong className="text-main">Last run:</strong>{' '}
             {status?.lastRunAt ? new Date(status.lastRunAt).toLocaleString('en-IN') : '—'}
+            {status?.lastRunSummary?.newlyPulled != null && (
+              <span className="text-muted">
+                {' '}
+                (+{status.lastRunSummary.newlyPulled.toLocaleString()} new,{' '}
+                {status.lastRunSummary.unchanged?.toLocaleString() ?? 0} already cached)
+              </span>
+            )}
           </li>
           <li className="mb-2">
             <strong className="text-main">Counts updated:</strong>{' '}
@@ -205,9 +229,9 @@ export const AdminInvoiceSyncPage: React.FC = () => {
               ? new Date(status.totalCountedAt).toLocaleString('en-IN')
               : 'Not yet — run Count first'}
           </li>
-          {status?.status === 'running' && (
+          {runInProgress && (
             <li className="mb-2">
-              <strong className="text-main">In progress:</strong> Pull now runs up to 8 minutes per click — refresh status to watch API use climb.
+              <strong className="text-main">In progress:</strong> API use updates live; pulled count updates every ~10 new invoices and when the run finishes (~8 min).
             </li>
           )}
           {status?.status === 'paused_quota' && (
@@ -222,7 +246,9 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         <h2 className="mb-4">Actions</h2>
         <p className="text-muted mb-4">
           Run <strong>Count</strong> once to load total vs pulled from Zoho + Firestore.
-          Then <strong>Pull now</strong> to sync as many invoices as today&apos;s 8,000-call cap allows (~3 days for a full backfill).
+          Then <strong>Pull now</strong> — each click runs up to 8 minutes and only fetches invoices
+          not yet in Firestore (~600 new per run). Pulled updates when the run finishes, not during it.
+          Invoices are stored for <strong>all Zoho customers</strong>, not just portal sign-ups.
         </p>
         <div className="flex gap-3 flex-wrap">
           <button
