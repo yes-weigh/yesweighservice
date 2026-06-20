@@ -35,6 +35,8 @@ export interface OrgInvoiceSyncRunResult {
   pulledCount: number;
   remaining: number | null;
   completed: boolean;
+  rateLimited?: boolean;
+  message?: string;
 }
 
 export interface OrgInvoiceCountResult {
@@ -45,7 +47,11 @@ export interface OrgInvoiceCountResult {
 
 function syncErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
+    const code = 'code' in err ? String((err as { code: string }).code) : '';
     const message = 'message' in err ? String((err as { message: string }).message) : '';
+    if (code === 'functions/resource-exhausted') {
+      return message || 'Zoho API rate limit reached. Wait a few minutes and try again.';
+    }
     if (message) return message;
   }
   return 'Org invoice sync failed.';

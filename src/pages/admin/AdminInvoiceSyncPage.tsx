@@ -73,9 +73,10 @@ export const AdminInvoiceSyncPage: React.FC = () => {
       ];
       if (result.failedCount) parts.push(`${result.failedCount} failed`);
       setNotice(
-        result.completed
+        result.message
+        ?? (result.completed
           ? `Complete — ${parts.join(', ')}. All ${result.pulledCount.toLocaleString()} invoices are in Firestore.`
-          : `${orgSyncStatusLabel(result.status)} — ${parts.join(', ')}. Click Pull now again to continue.`,
+          : `${orgSyncStatusLabel(result.status)} — ${parts.join(', ')}. Click Pull now again to continue.`),
       );
       await loadStatus();
     } catch (err) {

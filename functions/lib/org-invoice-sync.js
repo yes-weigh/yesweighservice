@@ -9,15 +9,35 @@ import {
   customerInvoiceMetaRef,
 } from './invoice-sync.js';
 
-const ORG_SYNC_CONCURRENCY = 6;
+const ORG_SYNC_CONCURRENCY = 2;
 const ORG_SYNC_MAX_LIST_PAGES = 150;
 const STALE_RUN_MS = 70 * 60 * 1000;
+const LIST_PAGE_DELAY_MS = 400;
+const RATE_LIMIT_RETRIES = 6;
+const RATE_LIMIT_BASE_MS = 30_000;
 const LIST_SORT = { sortColumn: 'date', sortOrder: 'D' };
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function orgInvoiceSyncRef() {
   return getFirestore().collection('invoiceMeta').doc('orgSync');
+}
+
+async function zohoCallWithRetry(fn, label) {
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRIES; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err?.code !== 'RATE_LIMITED' || attempt >= RATE_LIMIT_RETRIES) throw err;
+      const waitMs = RATE_LIMIT_BASE_MS * (attempt + 1);
+      console.warn(
+        `Zoho rate limit on ${label}, waiting ${waitMs / 1000}s `
+        + `(retry ${attempt + 1}/${RATE_LIMIT_RETRIES})`,
+      );
+      await sleep(waitMs);
+    }
+  }
+  return null;
 }
 
 async function readOrgSyncMeta() {
@@ -141,16 +161,17 @@ export async function countOrgInvoicesInRange(secrets, orgId) {
   let hasMore = true;
 
   while (hasMore && page <= ORG_SYNC_MAX_LIST_PAGES) {
-    const batch = await fetchInvoicesListPage(accessToken, organizationId, page, {
-      ...LIST_SORT,
-      delayMs: 200,
-    });
+    const batch = await zohoCallWithRetry(
+      () => fetchInvoicesListPage(accessToken, organizationId, page, LIST_SORT),
+      `count list page ${page}`,
+    );
 
     totalInRange += batch.invoices.length;
     pulledCount += await batchHasStoredDetail(batch.invoices);
 
     hasMore = batch.hasMore;
     page += 1;
+    if (hasMore) await sleep(LIST_PAGE_DELAY_MS);
   }
 
   const now = FieldValue.serverTimestamp();
@@ -206,6 +227,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   let unchanged = 0;
   let newlyPulled = 0;
   let completed = false;
+  let rateLimited = false;
 
   const publishProgress = async (force = false) => {
     if (!force && newlyPulled > 0 && newlyPulled % 25 !== 0) return;
@@ -240,19 +262,24 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       const existing = existingSnap.exists ? existingSnap.data() : null;
 
       if (invoiceDetailStillValid(existing, summary)) {
-        return { synced: 1, unchanged: 1, failed: 0, skipped: 0, newlyPulled: 0 };
+        return { synced: 1, unchanged: 1, failed: 0, skipped: 0, newlyPulled: 0, rateLimited: false };
       }
 
       let fullRaw;
       try {
-        fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+        fullRaw = await zohoCallWithRetry(
+          () => fetchInvoiceRaw(accessToken, organizationId, invoiceId),
+          `invoice ${invoiceId}`,
+        );
       } catch (err) {
-        if (err?.code === 'RATE_LIMITED') await sleep(5000);
-        return { synced: 0, unchanged: 0, failed: 1, skipped: 0, newlyPulled: 0 };
+        if (err?.code === 'RATE_LIMITED') {
+          return { synced: 0, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 0, rateLimited: true };
+        }
+        return { synced: 0, unchanged: 0, failed: 1, skipped: 0, newlyPulled: 0, rateLimited: false };
       }
 
       if (!fullRaw) {
-        return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0 };
+        return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0, rateLimited: false };
       }
 
       try {
@@ -264,19 +291,36 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         await customerInvoiceMetaRef(customerId).set({
           updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
-        return { synced: 1, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 1 };
+        await sleep(250);
+        return { synced: 1, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 1, rateLimited: false };
       } catch (err) {
         console.warn('Org invoice sync item failed:', err?.message ?? err);
-        return { synced: 0, unchanged: 0, failed: 1, skipped: 0, newlyPulled: 0 };
+        return { synced: 0, unchanged: 0, failed: 1, skipped: 0, newlyPulled: 0, rateLimited: false };
       }
     };
 
-    while (!completed) {
-      const batch = await fetchInvoicesListPage(accessToken, organizationId, page, LIST_SORT);
-      const slice = batch.invoices.slice(index);
+    while (!completed && !rateLimited) {
+      let batch;
+      try {
+        batch = await zohoCallWithRetry(
+          () => fetchInvoicesListPage(accessToken, organizationId, page, LIST_SORT),
+          `list page ${page}`,
+        );
+      } catch (err) {
+        if (err?.code === 'RATE_LIMITED') {
+          rateLimited = true;
+          break;
+        }
+        throw err;
+      }
 
+      const slice = batch.invoices.slice(index);
       const results = await mapConcurrent(slice, ORG_SYNC_CONCURRENCY, processSummary);
       for (const result of results) {
+        if (result.rateLimited) {
+          rateLimited = true;
+          break;
+        }
         synced += result.synced;
         unchanged += result.unchanged;
         failed += result.failed;
@@ -290,6 +334,8 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         console.log(`Org invoice sync progress: ${newlyPulled} newly pulled this run.`);
       }
 
+      if (rateLimited) break;
+
       index = 0;
       if (!batch.hasMore) {
         completed = true;
@@ -298,6 +344,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       }
       page += 1;
       await writeOrgSyncMeta({ checkpointPage: page, checkpointIndex: 0 });
+      await sleep(LIST_PAGE_DELAY_MS);
     }
   } catch (err) {
     await writeOrgSyncMeta({ status: 'idle' }).catch(() => {});
@@ -333,9 +380,14 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   }
 
   const finalStatus = completed ? 'complete' : 'idle';
+  const message = rateLimited
+    ? 'Zoho API rate limit reached. Wait a few minutes, then click Pull now again — your progress is saved.'
+    : undefined;
+
   console.log(
     `Org invoice sync finished (${source}): status=${finalStatus}, newlyPulled=${newlyPulled}, `
-    + `unchanged=${unchanged}, failed=${failed}, pulled=${pulledCount}/${totalInRange ?? '?'}.`,
+    + `unchanged=${unchanged}, failed=${failed}, rateLimited=${rateLimited}, `
+    + `pulled=${pulledCount}/${totalInRange ?? '?'}.`,
   );
 
   return {
@@ -351,5 +403,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       ? null
       : Math.max(0, totalInRange - pulledCount),
     completed,
+    rateLimited,
+    message,
   };
 }

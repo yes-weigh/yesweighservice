@@ -840,6 +840,12 @@ export const runOrgInvoiceSync = onCall(
       if (err?.code === 'ALREADY_RUNNING') {
         throw new HttpsError('failed-precondition', err.message);
       }
+      if (err?.code === 'RATE_LIMITED') {
+        throw new HttpsError(
+          'resource-exhausted',
+          'Zoho API rate limit reached. Wait a few minutes and click Pull now again.',
+        );
+      }
       console.error('runOrgInvoiceSync failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Org invoice sync failed.');
     }
