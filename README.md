@@ -109,7 +109,7 @@ firebase functions:secrets:set ZOHO_CLIENT_SECRET --project yesweigh-service
 firebase functions:secrets:set ZOHO_REFRESH_TOKEN --project yesweigh-service
 ```
 
-Add a GitHub Actions secret **`ZOHO_ORGANIZATION_ID`** (Zoho Inventory → Settings → Organization Profile → Organization ID). CI writes this into `functions/.env.yesweigh-service` before deploying functions.
+Add GitHub Actions secrets **`ZOHO_ORGANIZATION_ID`** (required; Zoho Inventory → Settings → Organization Profile → Organization ID) and optionally **`ZOHO_WEBHOOK_SECRET`** (Zoho webhook signing secret; leave unset in CI to deploy with signature verification disabled). CI writes both into `functions/.env.yesweigh-service` before deploying functions.
 
 **Invoices:** Deploy does not bulk-sync invoices. Dealers use **Sync from Zoho** on the Invoices page (details only, no PDFs). PDFs are fetched from Zoho the first time an invoice is opened, then cached in Firebase Storage. Webhooks keep Firestore updated when invoices change in Zoho.
 

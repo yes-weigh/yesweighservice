@@ -53,13 +53,17 @@ jobs:
       - name: Prepare functions environment
         env:
           ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
+          ZOHO_WEBHOOK_SECRET: ${{ secrets.ZOHO_WEBHOOK_SECRET }}
         run: |
           if [ -z "$ZOHO_ORGANIZATION_ID" ]; then
             echo "::error::Add GitHub Actions secret ZOHO_ORGANIZATION_ID (Zoho Inventory → Settings → Organization Profile → Organization ID)."
             exit 1
           fi
 
-          printf 'ZOHO_ORGANIZATION_ID=%s\n' "$ZOHO_ORGANIZATION_ID" > functions/.env.yesweigh-service
+          {
+            printf 'ZOHO_ORGANIZATION_ID=%s\n' "$ZOHO_ORGANIZATION_ID"
+            printf 'ZOHO_WEBHOOK_SECRET=%s\n' "${ZOHO_WEBHOOK_SECRET:-}"
+          } > functions/.env.yesweigh-service
 
       - name: Deploy hosting and Firestore
         run: |
@@ -97,6 +101,7 @@ jobs:
           status=$?
           if [ "$status" -ne 0 ]; then
             echo "::warning::Functions deploy had errors."
+            echo "::warning::If the log mentions a missing environment variable, add it to functions/.env.yesweigh-service via the Prepare functions environment step (e.g. ZOHO_WEBHOOK_SECRET)."
             echo "::warning::If syncZohoCatalogScheduled failed with cloudscheduler.jobs.update, grant the CI service account:"
             echo "::warning::  Role: Cloud Scheduler Admin (roles/cloudscheduler.admin)"
             echo "::warning::  IAM: https://console.cloud.google.com/iam-admin/iam?project=yesweigh-service"
@@ -138,5 +143,5 @@ jobs:
         run: |
           echo "::error::Functions deploy failed earlier in this workflow."
           echo "::error::Hosting, Firestore, and Storage may still have deployed successfully."
-          echo "::error::Grant Cloud Scheduler Admin to the FIREBASE_SERVICE_ACCOUNT principal, then re-run."
+          echo "::error::Common fixes: ensure functions/.env.yesweigh-service includes ZOHO_WEBHOOK_SECRET (empty is OK); grant Cloud Scheduler Admin to FIREBASE_SERVICE_ACCOUNT if scheduler jobs fail."
           exit 1
