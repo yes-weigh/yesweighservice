@@ -743,8 +743,8 @@ export const syncZohoInvoicesScheduled = onSchedule(
     timeZone: 'Asia/Kolkata',
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 540,
-    memory: '1GiB',
+    timeoutSeconds: 3600,
+    memory: '2GiB',
   },
   async () => {
     const result = await syncOrgInvoicesToFirestore(
@@ -754,7 +754,7 @@ export const syncZohoInvoicesScheduled = onSchedule(
     );
     console.log(
       `Scheduled org invoice sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
-      + `failed=${result.failedCount}, apiUsed=${result.apiCallsUsed}, remaining=${result.remaining}.`,
+      + `failed=${result.failedCount}, remaining=${result.remaining}.`,
     );
   },
 );
@@ -798,13 +798,13 @@ export const getOrgInvoiceSyncStatusCallable = onCall(
   },
 );
 
-/** Count invoices in date range + how many have details in Firestore — super admin. */
+/** Count every org invoice in Zoho — super admin. */
 export const countOrgInvoicesInRangeCallable = onCall(
   {
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 540,
-    memory: '512MiB',
+    timeoutSeconds: 3600,
+    memory: '1GiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
@@ -812,10 +812,6 @@ export const countOrgInvoicesInRangeCallable = onCall(
       return await countOrgInvoicesInRange(
         zohoSecrets(),
         zohoOrganizationId.value(),
-        {
-          dateFrom: String(request.data?.dateFrom ?? '').trim() || undefined,
-          dateTo: String(request.data?.dateTo ?? '').trim() || undefined,
-        },
       );
     } catch (err) {
       console.error('countOrgInvoicesInRange failed:', err);
@@ -824,13 +820,13 @@ export const countOrgInvoicesInRangeCallable = onCall(
   },
 );
 
-/** Pull org invoices (today → Apr 2025, newest first, 8k/day cap) — super admin. */
+/** Pull all org invoice details into Firestore — super admin. */
 export const runOrgInvoiceSync = onCall(
   {
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 540,
-    memory: '1GiB',
+    timeoutSeconds: 3600,
+    memory: '2GiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
@@ -838,11 +834,7 @@ export const runOrgInvoiceSync = onCall(
       return await syncOrgInvoicesToFirestore(
         zohoSecrets(),
         zohoOrganizationId.value(),
-        {
-          source: 'manual',
-          dateFrom: String(request.data?.dateFrom ?? '').trim() || undefined,
-          dateTo: String(request.data?.dateTo ?? '').trim() || undefined,
-        },
+        { source: 'manual' },
       );
     } catch (err) {
       if (err?.code === 'ALREADY_RUNNING') {

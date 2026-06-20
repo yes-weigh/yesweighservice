@@ -4,7 +4,6 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import {
   countOrgInvoicesInRange,
   fetchOrgInvoiceSyncStatus,
-  formatOrgSyncDate,
   orgSyncStatusLabel,
   runOrgInvoiceSync,
   type OrgInvoiceSyncStatus,
@@ -48,7 +47,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
     try {
       const result = await countOrgInvoicesInRange();
       setNotice(
-        `Counted ${result.totalInRange.toLocaleString()} invoices in range; `
+        `Found ${result.totalInRange.toLocaleString()} invoices in Zoho; `
         + `${result.pulledCount.toLocaleString()} already in Firestore.`,
       );
       await loadStatus();
@@ -62,20 +61,21 @@ export const AdminInvoiceSyncPage: React.FC = () => {
   const handleSync = async () => {
     setBusy('sync');
     setError('');
-    setNotice('Sync running — this takes up to 8 minutes. Status updates below.');
+    setNotice('Pulling all invoice details — keep this tab open until complete (may take up to 60 minutes).');
     const poll = window.setInterval(() => {
       void loadStatus();
-    }, 15_000);
+    }, 10_000);
     try {
       const result = await runOrgInvoiceSync();
       const parts = [
         `${result.newlyPulled.toLocaleString()} newly pulled`,
-        `${result.unchangedCount.toLocaleString()} unchanged`,
+        `${result.unchangedCount.toLocaleString()} already cached`,
       ];
       if (result.failedCount) parts.push(`${result.failedCount} failed`);
       setNotice(
-        `${orgSyncStatusLabel(result.status)} — ${parts.join(', ')} `
-        + `(${result.apiCallsUsed.toLocaleString()} Zoho calls this run).`,
+        result.completed
+          ? `Complete — ${parts.join(', ')}. All ${result.pulledCount.toLocaleString()} invoices are in Firestore.`
+          : `${orgSyncStatusLabel(result.status)} — ${parts.join(', ')}. Click Pull now again to continue.`,
       );
       await loadStatus();
     } catch (err) {
@@ -106,7 +106,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         <h1>Invoice sync</h1>
         <p className="text-muted mt-2">
           Org-wide backfill from Zoho into Firestore — one document per invoice, details only (no PDFs).
-          Newest first, from today back to {formatOrgSyncDate(status?.dateFrom ?? '2025-04-01')}.
+          All organisation invoices, newest first.
         </p>
         <button
           type="button"
@@ -132,11 +132,11 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         </div>
       )}
 
-      <div className="stats-grid stats-grid--4 mb-6">
+      <div className="stats-grid stats-grid--3 mb-6">
         <div className="stat-card glass">
           <div className="stat-icon"><FileText size={28} /></div>
           <div>
-            <h3>Total in range</h3>
+            <h3>Total in Zoho</h3>
             <div className="stat-value">
               {total == null ? '—' : total.toLocaleString()}
             </div>
@@ -148,7 +148,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             <div className="stat-value">{pulled.toLocaleString()}</div>
             {runInProgress && runNewlyPulled != null && (
               <div className="text-muted text-sm mt-1">
-                +{runNewlyPulled.toLocaleString()} this run (updates every ~10 invoices)
+                +{runNewlyPulled.toLocaleString()} this run
               </div>
             )}
           </div>
@@ -158,15 +158,6 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             <h3>Remaining</h3>
             <div className="stat-value">
               {remaining == null ? '—' : remaining.toLocaleString()}
-            </div>
-          </div>
-        </div>
-        <div className="stat-card glass">
-          <div>
-            <h3>Today&apos;s API use</h3>
-            <div className="stat-value">
-              {(status?.apiCallsToday ?? 0).toLocaleString()}
-              <span className="text-muted text-sm"> / {(status?.dailyApiCap ?? 8000).toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -205,17 +196,9 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             <strong className="text-main">State:</strong> {orgSyncStatusLabel(status?.status ?? 'idle')}
           </li>
           <li className="mb-2">
-            <strong className="text-main">Date range:</strong>{' '}
-            {formatOrgSyncDate(status?.dateFrom)} → {formatOrgSyncDate(status?.dateTo)}
-          </li>
-          <li className="mb-2">
-            <strong className="text-main">API remaining today:</strong>{' '}
-            {(status?.apiRemainingToday ?? 0).toLocaleString()} calls
-          </li>
-          <li className="mb-2">
             <strong className="text-main">Last run:</strong>{' '}
             {status?.lastRunAt ? new Date(status.lastRunAt).toLocaleString('en-IN') : '—'}
-            {status?.lastRunSummary?.newlyPulled != null && (
+            {status?.lastRunSummary?.newlyPulled != null && !status.lastRunSummary.inProgress && (
               <span className="text-muted">
                 {' '}
                 (+{status.lastRunSummary.newlyPulled.toLocaleString()} new,{' '}
@@ -231,12 +214,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           </li>
           {runInProgress && (
             <li className="mb-2">
-              <strong className="text-main">In progress:</strong> API use updates live; pulled count updates every ~10 new invoices and when the run finishes (~8 min).
-            </li>
-          )}
-          {status?.status === 'paused_quota' && (
-            <li className="mb-2">
-              <strong className="text-main">Queued:</strong> Continues automatically tomorrow (2 AM IST scheduled run)
+              <strong className="text-main">In progress:</strong> Pulling invoice details until all are stored.
             </li>
           )}
         </ul>
@@ -245,10 +223,9 @@ export const AdminInvoiceSyncPage: React.FC = () => {
       <div className="panel glass">
         <h2 className="mb-4">Actions</h2>
         <p className="text-muted mb-4">
-          Run <strong>Count</strong> once to load total vs pulled from Zoho + Firestore.
-          Then <strong>Pull now</strong> — each click runs up to 8 minutes and only fetches invoices
-          not yet in Firestore (~600 new per run). Pulled updates when the run finishes, not during it.
-          Invoices are stored for <strong>all Zoho customers</strong>, not just portal sign-ups.
+          <strong>Count invoices</strong> lists every invoice in Zoho (~20k) and checks Firestore.
+          <strong> Pull now</strong> fetches missing details and runs until finished or the 60-minute function limit.
+          If interrupted, click Pull now again — it resumes from the last checkpoint.
         </p>
         <div className="flex gap-3 flex-wrap">
           <button

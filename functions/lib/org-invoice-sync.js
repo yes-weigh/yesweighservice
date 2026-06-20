@@ -7,57 +7,17 @@ import {
   invoiceDetailStillValid,
   invoicesCollection,
   customerInvoiceMetaRef,
-  defaultInvoiceSyncOptions,
 } from './invoice-sync.js';
 
-export const ORG_SYNC_DATE_FROM = '2025-04-01';
-export const ORG_SYNC_DAILY_API_CAP = 8000;
-const ORG_SYNC_TIME_BUDGET_MS = 8 * 60 * 1000;
+const ORG_SYNC_CONCURRENCY = 6;
+const ORG_SYNC_MAX_LIST_PAGES = 150;
+const STALE_RUN_MS = 70 * 60 * 1000;
 const LIST_SORT = { sortColumn: 'date', sortOrder: 'D' };
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function orgInvoiceSyncRef() {
   return getFirestore().collection('invoiceMeta').doc('orgSync');
-}
-
-function zohoApiUsageRef() {
-  return getFirestore().collection('invoiceMeta').doc('zohoApiUsage');
-}
-
-function istDateKey(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(date);
-}
-
-function orgDateTo() {
-  return istDateKey();
-}
-
-function invoiceDateValue(summary) {
-  return String(summary?.date ?? '').slice(0, 10);
-}
-
-function invoiceInRange(summary, dateFrom, dateTo) {
-  const date = invoiceDateValue(summary);
-  if (!date) return true;
-  if (dateFrom && date < dateFrom) return false;
-  if (dateTo && date > dateTo) return false;
-  return true;
-}
-
-async function readApiUsageToday() {
-  const key = istDateKey();
-  const snap = await zohoApiUsageRef().get();
-  return { key, count: Number(snap.data()?.[key] ?? 0) };
-}
-
-async function reserveApiCalls(count) {
-  if (count <= 0) return;
-  const { key } = await readApiUsageToday();
-  await zohoApiUsageRef().set({
-    [key]: FieldValue.increment(count),
-    updatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
 }
 
 async function readOrgSyncMeta() {
@@ -69,36 +29,27 @@ function normalizeStatus(meta) {
   const status = String(meta.status ?? 'idle');
   if (status === 'running') return 'running';
   if (status === 'complete') return 'complete';
-  if (status === 'paused_quota') return 'paused_quota';
+  if (status === 'paused_quota') return 'idle';
   return 'idle';
 }
 
 export async function getOrgInvoiceSyncStatus() {
   const meta = await readOrgSyncMeta();
-  const { count: apiCallsToday } = await readApiUsageToday();
   const totalInRange = meta.totalInRange ?? null;
   const pulledCount = meta.pulledCount ?? 0;
   const remaining = totalInRange == null ? null : Math.max(0, totalInRange - pulledCount);
   let status = normalizeStatus(meta);
   const startedAt = meta.runStartedAt?.toDate?.();
-  if (status === 'running' && startedAt && Date.now() - startedAt.getTime() > 15 * 60 * 1000) {
-    status = pulledCount >= totalInRange && totalInRange > 0
-      ? 'complete'
-      : (meta.completedAt ? 'complete' : 'idle');
+  if (status === 'running' && startedAt && Date.now() - startedAt.getTime() > STALE_RUN_MS) {
+    status = pulledCount >= totalInRange && totalInRange > 0 ? 'complete' : 'idle';
     await writeOrgSyncMeta({ status }).catch(() => {});
   }
 
   return {
-    dateFrom: meta.dateFrom ?? ORG_SYNC_DATE_FROM,
-    dateTo: meta.dateTo ?? orgDateTo(),
     status,
     totalInRange,
     pulledCount,
     remaining,
-    queuedCount: remaining,
-    apiCallsToday,
-    dailyApiCap: ORG_SYNC_DAILY_API_CAP,
-    apiRemainingToday: Math.max(0, ORG_SYNC_DAILY_API_CAP - apiCallsToday),
     checkpointPage: meta.checkpointPage ?? 1,
     checkpointIndex: meta.checkpointIndex ?? 0,
     lastRunAt: meta.lastRunAt?.toDate?.()?.toISOString?.() ?? null,
@@ -116,7 +67,7 @@ async function beginOrgSyncRun() {
     const startedAt = data.runStartedAt?.toDate?.();
     const staleRun = data.status === 'running'
       && startedAt
-      && Date.now() - startedAt.getTime() > 15 * 60 * 1000;
+      && Date.now() - startedAt.getTime() > STALE_RUN_MS;
     if (data.status === 'running' && !staleRun) {
       const err = new Error('Org invoice sync is already running.');
       err.code = 'ALREADY_RUNNING';
@@ -160,56 +111,52 @@ async function batchHasStoredDetail(summaries) {
   return pulled;
 }
 
-export async function countOrgInvoicesInRange(secrets, orgId, options = {}) {
-  const dateFrom = options.dateFrom ?? ORG_SYNC_DATE_FROM;
-  const dateTo = options.dateTo ?? orgDateTo();
+async function mapConcurrent(items, concurrency, fn) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await fn(items[current], current);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+  return results;
+}
+
+/** Count every org invoice in Zoho and how many already have details in Firestore. */
+export async function countOrgInvoicesInRange(secrets, orgId) {
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
-
-  let apiCalls = 1;
-  await reserveApiCalls(1);
 
   let page = 1;
   let totalInRange = 0;
   let pulledCount = 0;
   let hasMore = true;
 
-  while (hasMore && page <= 200) {
+  while (hasMore && page <= ORG_SYNC_MAX_LIST_PAGES) {
     const batch = await fetchInvoicesListPage(accessToken, organizationId, page, {
       ...LIST_SORT,
-      delayMs: options.delayMs ?? 250,
+      delayMs: 200,
     });
-    apiCalls += 1;
-    await reserveApiCalls(1);
 
-    const inRange = [];
-    let reachedOlder = false;
-    for (const summary of batch.invoices) {
-      const date = invoiceDateValue(summary);
-      if (date && date < dateFrom) {
-        reachedOlder = true;
-        break;
-      }
-      if (!invoiceInRange(summary, dateFrom, dateTo)) continue;
-      inRange.push(summary);
-    }
+    totalInRange += batch.invoices.length;
+    pulledCount += await batchHasStoredDetail(batch.invoices);
 
-    totalInRange += inRange.length;
-    pulledCount += await batchHasStoredDetail(inRange);
-
-    if (reachedOlder) {
-      hasMore = false;
-    } else {
-      hasMore = batch.hasMore;
-      page += 1;
-    }
+    hasMore = batch.hasMore;
+    page += 1;
   }
 
   const now = FieldValue.serverTimestamp();
   const priorMeta = await readOrgSyncMeta();
+  const scopeChanged = priorMeta.totalInRange != null && priorMeta.totalInRange !== totalInRange;
   await writeOrgSyncMeta({
-    dateFrom,
-    dateTo,
     totalInRange,
     pulledCount,
     totalCountedAt: now,
@@ -217,24 +164,19 @@ export async function countOrgInvoicesInRange(secrets, orgId, options = {}) {
       ? 'running'
       : (pulledCount >= totalInRange && totalInRange > 0 ? 'complete' : 'idle'),
     completedAt: pulledCount >= totalInRange && totalInRange > 0 ? now : priorMeta.completedAt ?? null,
-    checkpointPage: priorMeta.checkpointPage ?? 1,
-    checkpointIndex: priorMeta.checkpointIndex ?? 0,
+    checkpointPage: scopeChanged ? 1 : (priorMeta.checkpointPage ?? 1),
+    checkpointIndex: scopeChanged ? 0 : (priorMeta.checkpointIndex ?? 0),
   });
 
   return {
     totalInRange,
     pulledCount,
     remaining: Math.max(0, totalInRange - pulledCount),
-    apiCallsUsed: apiCalls,
   };
 }
 
+/** Pull invoice details for every org invoice until all are in Firestore. */
 export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
-  const dateFrom = options.dateFrom ?? ORG_SYNC_DATE_FROM;
-  const dateTo = options.dateTo ?? orgDateTo();
-  const syncOpts = defaultInvoiceSyncOptions({ ...options, skipPdfs: true });
-  const { delayMs, skipSalesOrder, skipImages } = syncOpts;
-  const startedAt = Date.now();
   const source = options.source ?? 'org-sync';
 
   let priorMeta;
@@ -246,44 +188,27 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   }
 
   console.log(
-    `Org invoice sync started (${source}): range ${dateFrom} → ${dateTo}, `
-    + `checkpoint page ${priorMeta.checkpointPage ?? 1} index ${priorMeta.checkpointIndex ?? 0}, `
+    `Org invoice sync started (${source}): checkpoint page ${priorMeta.checkpointPage ?? 1} `
+    + `index ${priorMeta.checkpointIndex ?? 0}, `
     + `pulled ${priorMeta.pulledCount ?? 0}/${priorMeta.totalInRange ?? '?'}.`,
   );
 
-  const { count: apiUsedBefore } = await readApiUsageToday();
-  let apiBudget = ORG_SYNC_DAILY_API_CAP - apiUsedBefore;
-  if (apiBudget <= 0) {
-    await writeOrgSyncMeta({ status: 'paused_quota' });
-    console.log('Org invoice sync skipped: daily Zoho API cap already reached.');
-    return {
-      status: 'paused_quota',
-      syncedCount: 0,
-      failedCount: 0,
-      skippedCount: 0,
-      unchangedCount: 0,
-      apiCallsUsed: 0,
-      apiRemainingToday: 0,
-      message: 'Daily Zoho API cap reached. Resumes tomorrow.',
-    };
-  }
-
   let page = Number(priorMeta.checkpointPage ?? 1);
   let index = Number(priorMeta.checkpointIndex ?? 0);
+  const runFromStart = page === 1 && index === 0;
   const baselinePulled = Number(priorMeta.pulledCount ?? 0);
   let pulledCount = baselinePulled;
-  let totalInRange = priorMeta.totalInRange ?? null;
+  const totalInRange = priorMeta.totalInRange ?? null;
+
   let synced = 0;
   let failed = 0;
   let skipped = 0;
   let unchanged = 0;
   let newlyPulled = 0;
-  let apiCallsUsed = 0;
-  let pausedForQuota = false;
   let completed = false;
 
   const publishProgress = async (force = false) => {
-    if (!force && newlyPulled > 0 && newlyPulled % 10 !== 0) return;
+    if (!force && newlyPulled > 0 && newlyPulled % 25 !== 0) return;
     await writeOrgSyncMeta({
       pulledCount: baselinePulled + newlyPulled,
       lastRunSummary: {
@@ -292,154 +217,103 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         skipped,
         unchanged,
         newlyPulled,
-        apiCallsUsed,
         inProgress: true,
       },
     });
   };
 
   try {
-  const accessToken = await getAccessToken(secrets);
-  apiBudget -= 1;
-  apiCallsUsed += 1;
-  await reserveApiCalls(1);
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, orgId);
+    const upsertOptions = {
+      skipPdfs: true,
+      skipSalesOrder: true,
+      skipImages: true,
+      forcePdfs: false,
+      source,
+    };
 
-  const organizationId = await resolveOrganizationId(accessToken, orgId);
-  const upsertOptions = {
-    skipPdfs: true,
-    skipSalesOrder,
-    skipImages,
-    forcePdfs: false,
-    source,
-  };
+    const processSummary = async summary => {
+      const invoiceId = String(summary.invoice_id);
+      const customerId = String(summary.customer_id);
+      const existingSnap = await invoicesCollection(customerId).doc(invoiceId).get();
+      const existing = existingSnap.exists ? existingSnap.data() : null;
 
-  const processSummary = async summary => {
-    if (Date.now() - startedAt > ORG_SYNC_TIME_BUDGET_MS) {
-      pausedForQuota = true;
-      return 'stop';
-    }
-    if (apiBudget <= 0) {
-      pausedForQuota = true;
-      return 'stop';
-    }
-
-    const invoiceId = String(summary.invoice_id);
-    const customerId = String(summary.customer_id);
-    const existingSnap = await invoicesCollection(customerId).doc(invoiceId).get();
-    const existing = existingSnap.exists ? existingSnap.data() : null;
-
-    if (invoiceDetailStillValid(existing, summary)) {
-      unchanged += 1;
-      synced += 1;
-      return 'ok';
-    }
-
-    if (apiBudget <= 0) {
-      pausedForQuota = true;
-      return 'stop';
-    }
-
-    let fullRaw;
-    try {
-      fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
-      apiBudget -= 1;
-      apiCallsUsed += 1;
-      await reserveApiCalls(1);
-    } catch (err) {
-      failed += 1;
-      if (err?.code === 'RATE_LIMITED') await sleep(5000);
-      return 'ok';
-    }
-
-    if (!fullRaw) {
-      skipped += 1;
-      return 'ok';
-    }
-
-    try {
-      await upsertInvoiceFromRaw(accessToken, organizationId, fullRaw, {
-        ...upsertOptions,
-        useProvidedRaw: true,
-        existingDoc: existing,
-      });
-      synced += 1;
-      newlyPulled += 1;
-      await publishProgress();
-      await customerInvoiceMetaRef(customerId).set({
-        updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
-    } catch (err) {
-      failed += 1;
-      console.warn('Org invoice sync item failed:', err?.message ?? err);
-    }
-
-    if (delayMs) await sleep(delayMs);
-    if (newlyPulled > 0 && newlyPulled % 50 === 0) {
-      console.log(`Org invoice sync progress: ${newlyPulled} newly pulled this run (${apiCallsUsed} Zoho calls).`);
-    }
-    return 'ok';
-  };
-
-  try {
-    while (!completed && !pausedForQuota) {
-      if (Date.now() - startedAt > ORG_SYNC_TIME_BUDGET_MS) {
-        pausedForQuota = true;
-        break;
-      }
-      if (apiBudget <= 0) {
-        pausedForQuota = true;
-        break;
+      if (invoiceDetailStillValid(existing, summary)) {
+        return { synced: 1, unchanged: 1, failed: 0, skipped: 0, newlyPulled: 0 };
       }
 
+      let fullRaw;
+      try {
+        fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+      } catch (err) {
+        if (err?.code === 'RATE_LIMITED') await sleep(5000);
+        return { synced: 0, unchanged: 0, failed: 1, skipped: 0, newlyPulled: 0 };
+      }
+
+      if (!fullRaw) {
+        return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0 };
+      }
+
+      try {
+        await upsertInvoiceFromRaw(accessToken, organizationId, fullRaw, {
+          ...upsertOptions,
+          useProvidedRaw: true,
+          existingDoc: existing,
+        });
+        await customerInvoiceMetaRef(customerId).set({
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return { synced: 1, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 1 };
+      } catch (err) {
+        console.warn('Org invoice sync item failed:', err?.message ?? err);
+        return { synced: 0, unchanged: 0, failed: 1, skipped: 0, newlyPulled: 0 };
+      }
+    };
+
+    while (!completed) {
       const batch = await fetchInvoicesListPage(accessToken, organizationId, page, LIST_SORT);
-      apiBudget -= 1;
-      apiCallsUsed += 1;
-      await reserveApiCalls(1);
+      const slice = batch.invoices.slice(index);
 
-      for (let i = index; i < batch.invoices.length; i += 1) {
-        const summary = batch.invoices[i];
-        const date = invoiceDateValue(summary);
-        if (date && date < dateFrom) {
-          completed = true;
-          index = 0;
-          page = 1;
-          break;
-        }
-        if (!invoiceInRange(summary, dateFrom, dateTo)) continue;
-
-        const result = await processSummary(summary);
-        if (result === 'stop') {
-          await writeOrgSyncMeta({
-            checkpointPage: page,
-            checkpointIndex: i,
-          });
-          break;
-        }
-        index = i + 1;
+      const results = await mapConcurrent(slice, ORG_SYNC_CONCURRENCY, processSummary);
+      for (const result of results) {
+        synced += result.synced;
+        unchanged += result.unchanged;
+        failed += result.failed;
+        skipped += result.skipped;
+        newlyPulled += result.newlyPulled;
       }
 
-      if (completed || pausedForQuota) break;
+      await publishProgress(true);
 
-      if (index >= batch.invoices.length) {
-        if (!batch.hasMore) {
-          completed = true;
-          break;
-        }
-        page += 1;
-        index = 0;
-      } else {
+      if (newlyPulled > 0 && newlyPulled % 100 === 0) {
+        console.log(`Org invoice sync progress: ${newlyPulled} newly pulled this run.`);
+      }
+
+      index = 0;
+      if (!batch.hasMore) {
+        completed = true;
+        page = 1;
         break;
       }
+      page += 1;
+      await writeOrgSyncMeta({ checkpointPage: page, checkpointIndex: 0 });
     }
+  } catch (err) {
+    await writeOrgSyncMeta({ status: 'idle' }).catch(() => {});
+    console.error('Org invoice sync failed:', err?.message ?? err);
+    throw err;
   } finally {
-    pulledCount = baselinePulled + newlyPulled;
-    const status = completed && !pausedForQuota
-      ? 'complete'
-      : (pausedForQuota ? 'paused_quota' : 'idle');
+    pulledCount = runFromStart && completed
+      ? newlyPulled + unchanged
+      : baselinePulled + newlyPulled;
+    if (completed && totalInRange != null) {
+      pulledCount = Math.min(totalInRange, Math.max(pulledCount, baselinePulled + newlyPulled + unchanged));
+    }
+    const allDone = completed && (totalInRange == null || pulledCount >= totalInRange);
+    const status = allDone ? 'complete' : 'idle';
 
     await writeOrgSyncMeta({
-      dateFrom,
-      dateTo,
       status,
       totalInRange: totalInRange ?? priorMeta.totalInRange ?? null,
       pulledCount,
@@ -452,28 +326,18 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         skipped,
         unchanged,
         newlyPulled,
-        apiCallsUsed,
         inProgress: false,
       },
-      completedAt: completed && !pausedForQuota ? FieldValue.serverTimestamp() : priorMeta.completedAt ?? null,
+      completedAt: allDone ? FieldValue.serverTimestamp() : priorMeta.completedAt ?? null,
     });
   }
-  } catch (err) {
-    await writeOrgSyncMeta({ status: 'idle' }).catch(() => {});
-    console.error('Org invoice sync failed:', err?.message ?? err);
-    throw err;
-  }
 
-  const finalStatus = completed && !pausedForQuota
-    ? 'complete'
-    : (pausedForQuota ? 'paused_quota' : 'idle');
+  const finalStatus = completed ? 'complete' : 'idle';
   console.log(
     `Org invoice sync finished (${source}): status=${finalStatus}, newlyPulled=${newlyPulled}, `
-    + `unchanged=${unchanged}, failed=${failed}, apiCalls=${apiCallsUsed}, `
-    + `pulled=${pulledCount}/${totalInRange ?? priorMeta.totalInRange ?? '?'}.`,
+    + `unchanged=${unchanged}, failed=${failed}, pulled=${pulledCount}/${totalInRange ?? '?'}.`,
   );
 
-  const { count: apiCallsToday } = await readApiUsageToday();
   return {
     status: finalStatus,
     syncedCount: synced,
@@ -481,14 +345,11 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
     skippedCount: skipped,
     unchangedCount: unchanged,
     newlyPulled,
-    apiCallsUsed,
-    apiCallsToday,
-    apiRemainingToday: Math.max(0, ORG_SYNC_DAILY_API_CAP - apiCallsToday),
     totalInRange: totalInRange ?? priorMeta.totalInRange ?? null,
     pulledCount,
     remaining: totalInRange == null
       ? null
       : Math.max(0, totalInRange - pulledCount),
-    completed: completed && !pausedForQuota,
+    completed,
   };
 }

@@ -2,18 +2,13 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 
 const functions = getFunctions(app, 'asia-south1');
+const LONG_TIMEOUT_MS = 3_600_000;
 
 export interface OrgInvoiceSyncStatus {
-  dateFrom: string;
-  dateTo: string;
-  status: 'idle' | 'running' | 'paused_quota' | 'complete';
+  status: 'idle' | 'running' | 'complete';
   totalInRange: number | null;
   pulledCount: number;
   remaining: number | null;
-  queuedCount: number | null;
-  apiCallsToday: number;
-  dailyApiCap: number;
-  apiRemainingToday: number;
   checkpointPage: number;
   checkpointIndex: number;
   lastRunAt: string | null;
@@ -23,7 +18,6 @@ export interface OrgInvoiceSyncStatus {
     skipped?: number;
     unchanged?: number;
     newlyPulled?: number;
-    apiCallsUsed?: number;
     inProgress?: boolean;
   } | null;
   completedAt: string | null;
@@ -37,21 +31,16 @@ export interface OrgInvoiceSyncRunResult {
   skippedCount: number;
   unchangedCount: number;
   newlyPulled: number;
-  apiCallsUsed: number;
-  apiCallsToday: number;
-  apiRemainingToday: number;
   totalInRange: number | null;
   pulledCount: number;
   remaining: number | null;
   completed: boolean;
-  message?: string;
 }
 
 export interface OrgInvoiceCountResult {
   totalInRange: number;
   pulledCount: number;
   remaining: number;
-  apiCallsUsed: number;
 }
 
 function syncErrorMessage(err: unknown): string {
@@ -76,7 +65,7 @@ export async function countOrgInvoicesInRange(): Promise<OrgInvoiceCountResult> 
   const callable = httpsCallable<undefined, OrgInvoiceCountResult>(
     functions,
     'countOrgInvoicesInRangeCallable',
-    { timeout: 600_000 },
+    { timeout: LONG_TIMEOUT_MS },
   );
   try {
     const result = await callable();
@@ -90,7 +79,7 @@ export async function runOrgInvoiceSync(): Promise<OrgInvoiceSyncRunResult> {
   const callable = httpsCallable<undefined, OrgInvoiceSyncRunResult>(
     functions,
     'runOrgInvoiceSync',
-    { timeout: 600_000 },
+    { timeout: LONG_TIMEOUT_MS },
   );
   try {
     const result = await callable();
@@ -104,23 +93,9 @@ export function orgSyncStatusLabel(status: OrgInvoiceSyncStatus['status']): stri
   switch (status) {
     case 'running':
       return 'Running';
-    case 'paused_quota':
-      return 'Paused (daily API cap)';
     case 'complete':
       return 'Complete';
     default:
       return 'Idle';
   }
-}
-
-export function formatOrgSyncDate(value: string | null | undefined): string {
-  if (!value) return '—';
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  if (!match) return value;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return new Intl.DateTimeFormat('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(date);
 }
