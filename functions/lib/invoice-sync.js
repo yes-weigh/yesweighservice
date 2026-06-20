@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
@@ -12,9 +13,36 @@ import {
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const INVOICES_SUBCOLLECTION = 'invoices';
-const DEFAULT_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || undefined;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function resolveStorageBucketName() {
+  const fromEnv = process.env.FIREBASE_STORAGE_BUCKET?.trim();
+  if (fromEnv) return fromEnv;
+
+  const projectId =
+    process.env.GCLOUD_PROJECT?.trim()
+    ?? process.env.GCP_PROJECT?.trim()
+    ?? process.env.GOOGLE_CLOUD_PROJECT?.trim();
+
+  if (projectId) return `${projectId}.firebasestorage.app`;
+
+  try {
+    const app = getApp();
+    if (app.options.storageBucket) return app.options.storageBucket;
+    if (app.options.projectId) return `${app.options.projectId}.firebasestorage.app`;
+  } catch {
+    // App not initialized yet.
+  }
+
+  return null;
+}
+
+function storageBucket() {
+  const bucketName = resolveStorageBucketName();
+  if (bucketName) return getStorage().bucket(bucketName);
+  return getStorage().bucket();
+}
 
 function invoicesCollection(customerId) {
   return getFirestore()
@@ -45,10 +73,6 @@ function invoicePdfPath(customerId, invoiceId) {
 
 function salesOrderPdfPath(customerId, salesOrderId) {
   return `invoices/${customerId}/so-${salesOrderId}.pdf`;
-}
-
-function storageBucket() {
-  return getStorage().bucket(DEFAULT_BUCKET);
 }
 
 async function zohoJsonRequest(accessToken, orgId, path) {

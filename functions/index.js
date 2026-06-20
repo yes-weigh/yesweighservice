@@ -64,7 +64,9 @@ import {
   completeDealerSignup as finalizeDealerSignup,
 } from './lib/dealer-otp.js';
 
-initializeApp();
+initializeApp({
+  storageBucket: 'yesweigh-service.firebasestorage.app',
+});
 
 const zohoClientId = defineSecret('ZOHO_CLIENT_ID');
 const zohoClientSecret = defineSecret('ZOHO_CLIENT_SECRET');
