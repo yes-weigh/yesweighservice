@@ -55,6 +55,11 @@ import {
   verifyZohoWebhookSignature,
   handleZohoInvoiceWebhook,
 } from './lib/invoice-sync.js';
+import {
+  getOrgInvoiceSyncStatus,
+  countOrgInvoicesInRange,
+  syncOrgInvoicesToFirestore,
+} from './lib/org-invoice-sync.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
@@ -78,6 +83,7 @@ const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
+const SUPER_ADMIN_ROLES = new Set(['super_admin']);
 const DEALER_INVOICE_ROLES = new Set(['dealer', 'dealer_staff']);
 
 function zohoSecrets() {
@@ -741,13 +747,14 @@ export const syncZohoInvoicesScheduled = onSchedule(
     memory: '1GiB',
   },
   async () => {
-    const result = await syncInvoicesToFirestore(
+    const result = await syncOrgInvoicesToFirestore(
       zohoSecrets(),
       zohoOrganizationId.value(),
-      { skipPdfs: true, concurrency: 3, delayMs: 400 },
+      { source: 'scheduled' },
     );
     console.log(
-      `Scheduled invoice sync: ${result.syncedCount} synced, ${result.failedCount} failed, ${result.totalListed} listed.`,
+      `Scheduled org invoice sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
+      + `failed=${result.failedCount}, apiUsed=${result.apiCallsUsed}, remaining=${result.remaining}.`,
     );
   },
 );
@@ -778,6 +785,71 @@ export const syncZohoInvoices = onCall(
     } catch (err) {
       console.error('syncZohoInvoices failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice sync failed.');
+    }
+  },
+);
+
+/** Org-wide invoice backfill status — super admin. */
+export const getOrgInvoiceSyncStatusCallable = onCall(
+  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    return getOrgInvoiceSyncStatus();
+  },
+);
+
+/** Count invoices in date range + how many have details in Firestore — super admin. */
+export const countOrgInvoicesInRangeCallable = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await countOrgInvoicesInRange(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          dateFrom: String(request.data?.dateFrom ?? '').trim() || undefined,
+          dateTo: String(request.data?.dateTo ?? '').trim() || undefined,
+        },
+      );
+    } catch (err) {
+      console.error('countOrgInvoicesInRange failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice count failed.');
+    }
+  },
+);
+
+/** Pull org invoices (today → Apr 2025, newest first, 8k/day cap) — super admin. */
+export const runOrgInvoiceSync = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await syncOrgInvoicesToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          source: 'manual',
+          dateFrom: String(request.data?.dateFrom ?? '').trim() || undefined,
+          dateTo: String(request.data?.dateTo ?? '').trim() || undefined,
+        },
+      );
+    } catch (err) {
+      if (err?.code === 'ALREADY_RUNNING') {
+        throw new HttpsError('failed-precondition', err.message);
+      }
+      console.error('runOrgInvoiceSync failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Org invoice sync failed.');
     }
   },
 );

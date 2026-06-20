@@ -148,8 +148,8 @@ async function fetchInvoicesListPage(accessToken, orgId, page, options = {}) {
   url.searchParams.set('organization_id', orgId);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', '200');
-  url.searchParams.set('sort_column', 'last_modified_time');
-  url.searchParams.set('sort_order', 'D');
+  url.searchParams.set('sort_column', options.sortColumn ?? 'last_modified_time');
+  url.searchParams.set('sort_order', options.sortOrder ?? 'D');
   if (options.customerId) url.searchParams.set('customer_id', options.customerId);
 
   const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
@@ -321,9 +321,11 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
     ...summary,
     customerId,
     searchBlob,
-    salesOrderId: salesOrder?.id ?? null,
-    salesOrderNumber: salesOrder?.number
-      ?? (invoiceRaw.reference_number ? String(invoiceRaw.reference_number) : null),
+    salesOrderId: options.skipSalesOrder ? null : (salesOrder?.id ?? null),
+    salesOrderNumber: options.skipSalesOrder
+      ? (invoiceRaw.reference_number ? String(invoiceRaw.reference_number) : null)
+      : (salesOrder?.number
+        ?? (invoiceRaw.reference_number ? String(invoiceRaw.reference_number) : null)),
     subtotal: Number(invoiceRaw.sub_total ?? 0),
     taxTotal: Number(invoiceRaw.tax_total ?? 0),
     notes: invoiceRaw.notes ? String(invoiceRaw.notes) : null,
@@ -333,6 +335,24 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
       : null,
     contentFingerprint: fingerprint,
     syncedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+function invoiceDetailStillValid(existing, summary) {
+  if (!existing || !Array.isArray(existing.lineItems) || !existing.lineItems.length) {
+    return false;
+  }
+  const modified = summary?.last_modified_time ? String(summary.last_modified_time) : '';
+  return Boolean(modified && modified === String(existing.zohoLastModified ?? ''));
+}
+
+function defaultInvoiceSyncOptions(options = {}) {
+  return {
+    skipPdfs: options.skipPdfs ?? false,
+    skipSalesOrder: options.skipSalesOrder !== false,
+    skipImages: options.skipImages !== false,
+    concurrency: options.concurrency ?? 3,
+    delayMs: options.delayMs ?? 350,
   };
 }
 
@@ -351,7 +371,7 @@ async function cacheInvoicePdfs(accessToken, orgId, customerId, invoiceId, invoi
     console.warn(`Invoice PDF cache failed for ${invoiceId}:`, err?.message ?? err);
   }
 
-  if (salesOrder?.id) {
+  if (salesOrder?.id && !options.skipSalesOrder) {
     try {
       const soBuffer = await fetchZohoPdf(accessToken, orgId, 'salesorders', salesOrder.id);
       paths.salesOrderPdfStoragePath = await uploadPdfToStorage(
@@ -373,19 +393,32 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
 
   const customerId = String(invoiceRaw.customer_id);
   const invoiceId = String(invoiceRaw.invoice_id);
-  const existingSnap = await invoicesCollection(customerId).doc(invoiceId).get();
-  const existing = existingSnap.exists ? existingSnap.data() : null;
+  const existing = options.existingDoc
+    ?? (await invoicesCollection(customerId).doc(invoiceId).get()).data()
+    ?? null;
   const fingerprint = zohoContentFingerprint(invoiceRaw);
 
-  const needsDetail = !existing
+  const needsDetail = !options.summaryRefreshOnly && (
+    !existing
     || existing.contentFingerprint !== fingerprint
     || !Array.isArray(existing.lineItems)
-    || !existing.lineItems.length;
+    || !existing.lineItems.length
+  );
 
   let doc;
   let salesOrder = null;
 
-  if (needsDetail || options.forceDetail) {
+  if (options.summaryRefreshOnly) {
+    if (!existing) {
+      return { skipped: true, reason: 'no cached detail' };
+    }
+    doc = {
+      ...firestoreDocToDetail(existing),
+      ...mapInvoice(invoiceRaw),
+      customerId,
+      syncedAt: FieldValue.serverTimestamp(),
+    };
+  } else if (needsDetail || options.forceDetail) {
     const fullRaw = options.useProvidedRaw
       ? invoiceRaw
       : await fetchInvoiceRaw(accessToken, orgId, invoiceId);
@@ -393,7 +426,9 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       return { skipped: true, reason: 'not found in zoho' };
     }
     doc = await buildFirestoreInvoiceDoc(accessToken, orgId, fullRaw, options);
-    salesOrder = doc.salesOrderId ? { id: doc.salesOrderId, number: doc.salesOrderNumber } : null;
+    if (!options.skipSalesOrder && doc.salesOrderId) {
+      salesOrder = { id: doc.salesOrderId, number: doc.salesOrderNumber };
+    }
   } else {
     doc = {
       ...firestoreDocToDetail(existing),
@@ -403,14 +438,16 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       contentFingerprint: fingerprint,
       syncedAt: FieldValue.serverTimestamp(),
     };
-    if (existing.salesOrderId) {
+    if (!options.skipSalesOrder && existing.salesOrderId) {
       salesOrder = { id: existing.salesOrderId, number: existing.salesOrderNumber };
     }
   }
 
-  const needsPdf = options.forcePdfs
+  const needsPdf = !options.skipPdfs && (
+    options.forcePdfs
     || !existing?.pdfStoragePath
-    || (salesOrder?.id && !existing?.salesOrderPdfStoragePath);
+    || (!options.skipSalesOrder && salesOrder?.id && !existing?.salesOrderPdfStoragePath)
+  );
 
   if (needsPdf && !options.skipPdfs) {
     const fullRaw = needsDetail || options.forceDetail
@@ -489,9 +526,8 @@ async function mapConcurrent(items, concurrency, fn) {
 export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
-  const concurrency = options.concurrency ?? 3;
-  const delayMs = options.delayMs ?? 350;
-  const skipPdfs = options.skipPdfs ?? false;
+  const syncOpts = defaultInvoiceSyncOptions(options);
+  const { concurrency, delayMs, skipPdfs, skipSalesOrder, skipImages } = syncOpts;
   const customerIdFilter = options.customerId ? String(options.customerId) : null;
 
   const summaries = await fetchAllInvoiceSummaries(accessToken, organizationId, {
@@ -502,13 +538,42 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
   let synced = 0;
   let failed = 0;
   let skipped = 0;
+  let unchanged = 0;
   const customerCounts = new Map();
+
+  const upsertOptions = {
+    skipPdfs,
+    skipSalesOrder,
+    skipImages,
+    forcePdfs: !skipPdfs,
+    source: options.source ?? 'sync',
+  };
 
   await mapConcurrent(summaries, concurrency, async summary => {
     if (delayMs) await sleep(delayMs);
     try {
       const invoiceId = String(summary.invoice_id);
       const customerId = String(summary.customer_id);
+      const existingSnap = await invoicesCollection(customerId).doc(invoiceId).get();
+      const existing = existingSnap.exists ? existingSnap.data() : null;
+
+      if (invoiceDetailStillValid(existing, summary)) {
+        const result = await upsertInvoiceFromRaw(accessToken, organizationId, summary, {
+          ...upsertOptions,
+          useProvidedRaw: true,
+          summaryRefreshOnly: true,
+          existingDoc: existing,
+        });
+        if (result.skipped) {
+          skipped += 1;
+          return;
+        }
+        unchanged += 1;
+        synced += 1;
+        customerCounts.set(customerId, (customerCounts.get(customerId) ?? 0) + 1);
+        return;
+      }
+
       let fullRaw;
       try {
         fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
@@ -522,10 +587,9 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
       }
       try {
         await upsertInvoiceFromRaw(accessToken, organizationId, fullRaw, {
+          ...upsertOptions,
           useProvidedRaw: true,
-          skipPdfs,
-          forcePdfs: !skipPdfs,
-          source: 'sync',
+          existingDoc: existing,
         });
       } catch (err) {
         err.syncPhase = 'firestore-upsert';
@@ -574,6 +638,7 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
     syncedCount: synced,
     failedCount: failed,
     skippedCount: skipped,
+    unchangedCount: unchanged,
     totalListed: summaries.length,
     customerCount: touchedCustomers.length,
   };
@@ -582,6 +647,7 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
 export async function syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, options = {}) {
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const syncOpts = defaultInvoiceSyncOptions(options);
   const fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
   if (!fullRaw) {
     return { deleted: false, updated: false, reason: 'not found' };
@@ -589,8 +655,10 @@ export async function syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, optio
   const result = await upsertInvoiceFromRaw(accessToken, organizationId, fullRaw, {
     useProvidedRaw: true,
     forceDetail: true,
-    forcePdfs: !options.skipPdfs,
-    skipPdfs: options.skipPdfs ?? false,
+    forcePdfs: !syncOpts.skipPdfs,
+    skipPdfs: syncOpts.skipPdfs,
+    skipSalesOrder: syncOpts.skipSalesOrder,
+    skipImages: syncOpts.skipImages,
     source: options.source ?? 'webhook',
   });
   return result;
@@ -816,3 +884,12 @@ export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
   });
   return { ok: true, status: 200, action: 'synced', invoiceId, result };
 }
+
+export {
+  fetchInvoicesListPage,
+  fetchInvoiceRaw,
+  invoiceDetailStillValid,
+  invoicesCollection,
+  customerInvoiceMetaRef,
+  defaultInvoiceSyncOptions,
+};

@@ -15,6 +15,7 @@ import { AdminSuperAdminList } from './pages/admin/AdminSuperAdminList';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
 import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
 import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
+import { AdminInvoiceSyncPage } from './pages/admin/AdminInvoiceSyncPage';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
@@ -111,6 +112,7 @@ const App: React.FC = () => (
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
+              <Route path="invoices" element={<AdminInvoiceSyncPage />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>

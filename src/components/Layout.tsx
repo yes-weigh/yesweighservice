@@ -182,6 +182,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/super-admins', icon: <Shield size={20} />, label: 'Super Admins' },
           { path: '/super-admin/staff', icon: <Users size={20} />, label: 'Staff' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
+          { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           { path: '/super-admin/dealer-accounts', icon: <UserCircle size={20} />, label: 'Dealer Logins' },
           { path: '/super-admin/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
         ];

@@ -13,6 +13,7 @@
     "seed:sample-users": "node scripts/seed-sample-users.mjs",
     "migrate:dealer-rename": "node scripts/migrate-dealer-rename.mjs",
     "verify:zoho": "node scripts/verify-zoho.mjs",
+    "measure:invoices": "node scripts/measure-invoice-size.mjs",
     "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs"
   },
   "dependencies": {
