@@ -707,7 +707,8 @@ export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
     return { ok: false, status: 400, message: 'Missing invoice_id' };
   }
 
-  const event = extractWebhookEvent(body);
+  const queryAction = String(req.query?.action ?? '').trim().toLowerCase();
+  const event = queryAction || extractWebhookEvent(body);
   if (event.includes('delete')) {
     const customerId = body.customer_id ?? body.invoice?.customer_id;
     if (customerId) {
