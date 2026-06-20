@@ -33,6 +33,26 @@ function dealerErrorMessage(err: unknown): string {
   return 'Dealer request failed.';
 }
 
+export async function syncZohoInvoices(options?: {
+  customerId?: string;
+  skipPdfs?: boolean;
+}): Promise<{ syncedCount: number; failedCount: number; totalListed: number }> {
+  const fn = httpsCallable<
+    { customerId?: string; skipPdfs?: boolean },
+    { syncedCount?: number; failedCount?: number; totalListed?: number }
+  >(
+    functions,
+    'syncZohoInvoices',
+    { timeout: 600_000 },
+  );
+  const result = await fn(options ?? {});
+  return {
+    syncedCount: result.data.syncedCount ?? 0,
+    failedCount: result.data.failedCount ?? 0,
+    totalListed: result.data.totalListed ?? 0,
+  };
+}
+
 export async function syncZohoCustomers(): Promise<number> {
   const fn = httpsCallable<undefined, { syncedCount?: number }>(
     functions,

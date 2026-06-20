@@ -144,6 +144,26 @@ service cloud.firestore {
     match /zohoCustomers/{customerId} {
       allow read: if isOpsUser();
       allow write: if false;
+
+      match /invoices/{invoiceId} {
+        allow read, write: if false;
+      }
+
+      match /invoiceMeta/{docId} {
+        allow read, write: if false;
+      }
+
+      match /invoiceSearch/{invoiceId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /invoiceIndex/{invoiceId} {
+      allow read, write: if false;
+    }
+
+    match /invoiceMeta/{docId} {
+      allow read, write: if false;
     }
 
     match /kams/{kamId} {

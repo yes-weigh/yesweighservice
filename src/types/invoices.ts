@@ -70,6 +70,7 @@ export interface InvoiceListResponse {
     totalPages: number;
   };
   customerId?: string;
+  lastSyncedAt?: string | null;
 }
 
 export const INVOICE_STATUS_OPTIONS: Array<{ value: InvoiceStatus | 'all'; label: string }> = [

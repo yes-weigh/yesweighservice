@@ -12,7 +12,8 @@
     "seed:sample-users": "node scripts/seed-sample-users.mjs",
     "migrate:dealer-rename": "node scripts/migrate-dealer-rename.mjs",
     "verify:zoho": "node scripts/verify-zoho.mjs",
-    "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs"
+    "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs",
+    "sync:invoices": "node functions/scripts/ci-sync-invoices.mjs"
   },
   "dependencies": {
     "firebase": "^12.13.0",

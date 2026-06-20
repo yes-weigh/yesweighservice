@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { isCatalogSyncWindow } from './lib/business-hours.js';
@@ -50,6 +50,11 @@ import {
   downloadDealerInvoiceDocument as fetchDealerInvoiceDocument,
   resolveZohoCustomerIdForUser,
 } from './lib/zoho-invoices.js';
+import {
+  syncInvoicesToFirestore,
+  verifyZohoWebhookSignature,
+  handleZohoInvoiceWebhook,
+} from './lib/invoice-sync.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
@@ -67,6 +72,7 @@ const zohoRefreshToken = defineSecret('ZOHO_REFRESH_TOKEN');
 const watiToken = defineSecret('WATI_TOKEN');
 const watiEndpoint = defineSecret('WATI_ENDPOINT');
 const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
+const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
@@ -575,12 +581,11 @@ export const syncZohoCustomers = onCall(
   },
 );
 
-/** Invoice aggregates + recent list for dealer dashboard. */
+/** Invoice aggregates + recent list for dealer dashboard (Firestore mirror). */
 export const getDealerInvoiceDashboard = onCall(
   {
     region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
+    timeoutSeconds: 60,
     memory: '256MiB',
   },
   async request => {
@@ -588,8 +593,8 @@ export const getDealerInvoiceDashboard = onCall(
     const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
     try {
       return await buildDealerInvoiceDashboard(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
+        null,
+        null,
         uid,
         role,
       );
@@ -599,12 +604,11 @@ export const getDealerInvoiceDashboard = onCall(
   },
 );
 
-/** Single invoice with line items for dealer detail view. */
+/** Single invoice with line items for dealer detail view (Firestore mirror). */
 export const getDealerInvoiceDetail = onCall(
   {
     region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
+    timeoutSeconds: 60,
     memory: '256MiB',
   },
   async request => {
@@ -616,8 +620,8 @@ export const getDealerInvoiceDetail = onCall(
     }
     try {
       return await fetchDealerInvoiceDetail(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
+        null,
+        null,
         uid,
         role,
         invoiceId,
@@ -628,12 +632,11 @@ export const getDealerInvoiceDetail = onCall(
   },
 );
 
-/** Download invoice or linked sales order PDF for a dealer invoice. */
+/** Download invoice or linked sales order PDF from Firebase Storage. */
 export const downloadDealerInvoiceDocument = onCall(
   {
     region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
+    timeoutSeconds: 60,
     memory: '512MiB',
   },
   async request => {
@@ -649,8 +652,8 @@ export const downloadDealerInvoiceDocument = onCall(
     }
     try {
       return await fetchDealerInvoiceDocument(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
+        null,
+        null,
         uid,
         role,
         invoiceId,
@@ -662,12 +665,11 @@ export const downloadDealerInvoiceDocument = onCall(
   },
 );
 
-/** List Zoho invoices for the signed-in dealer's customer account. */
+/** List dealer invoices from Firestore mirror (fast, no Zoho rate limits). */
 export const getDealerInvoices = onCall(
   {
     region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
+    timeoutSeconds: 60,
     memory: '256MiB',
   },
   async request => {
@@ -675,14 +677,104 @@ export const getDealerInvoices = onCall(
     const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
     try {
       return await listDealerInvoices(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
+        null,
+        null,
         uid,
         role,
         request.data ?? {},
       );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not load invoices.');
+    }
+  },
+);
+
+/** Zoho Books webhook — keeps Firestore invoice mirror up to date. */
+export const zohoInvoiceWebhook = onRequest(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+
+    const secret = zohoWebhookSecret.value()?.trim();
+    if (secret && !verifyZohoWebhookSignature(req, secret)) {
+      console.warn('Zoho invoice webhook rejected: invalid signature.');
+      res.status(401).send('Invalid signature');
+      return;
+    }
+    if (!secret) {
+      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
+    }
+
+    try {
+      const result = await handleZohoInvoiceWebhook(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        req,
+      );
+      res.status(result.status).json(result);
+    } catch (err) {
+      console.error('Zoho invoice webhook failed:', err);
+      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+    }
+  },
+);
+
+/** Nightly invoice reconciliation from Zoho → Firestore (safety net for missed webhooks). */
+export const syncZohoInvoicesScheduled = onSchedule(
+  {
+    schedule: '0 2 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async () => {
+    const result = await syncInvoicesToFirestore(
+      zohoSecrets(),
+      zohoOrganizationId.value(),
+      { skipPdfs: false, concurrency: 3, delayMs: 400 },
+    );
+    console.log(
+      `Scheduled invoice sync: ${result.syncedCount} synced, ${result.failedCount} failed, ${result.totalListed} listed.`,
+    );
+  },
+);
+
+/** Manual invoice sync — staff / super admin. */
+export const syncZohoInvoices = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const customerId = String(request.data?.customerId ?? '').trim();
+    try {
+      const result = await syncInvoicesToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          customerId: customerId || undefined,
+          skipPdfs: Boolean(request.data?.skipPdfs),
+          concurrency: 3,
+          delayMs: 350,
+        },
+      );
+      return result;
+    } catch (err) {
+      console.error('syncZohoInvoices failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice sync failed.');
     }
   },
 );

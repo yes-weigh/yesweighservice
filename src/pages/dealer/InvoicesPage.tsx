@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ChevronRight, FileText, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ChevronRight, FileText, Search } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
@@ -8,6 +8,7 @@ import { homePathForRole } from '../../types';
 import {
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
+  formatInvoiceRelativeTime,
   invoiceErrorMessage,
   invoiceStatusLabel,
   readCachedDealerInvoices,
@@ -135,8 +136,8 @@ export const InvoicesPage: React.FC = () => {
   const [invoices, setInvoices] = useState<DealerInvoice[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}/invoice`);
 
@@ -157,8 +158,8 @@ export const InvoicesPage: React.FC = () => {
       if (cached) {
         setInvoices(cached.data);
         setTotal(cached.pagination.total);
+        setLastSyncedAt(cached.lastSyncedAt ?? null);
         setLoading(false);
-        setRefreshing(true);
         usedCache = true;
       } else {
         setLoading(true);
@@ -173,18 +174,19 @@ export const InvoicesPage: React.FC = () => {
       const res = await fetchDealerInvoicesWithCache(uid, queryParams);
       setInvoices(res.data);
       setTotal(res.pagination.total);
+      setLastSyncedAt(res.lastSyncedAt ?? null);
       setError('');
     } catch (err) {
       if (!usedCache) {
         setError(invoiceErrorMessage(err));
         setInvoices([]);
         setTotal(0);
+        setLastSyncedAt(null);
       } else {
         setError('Could not refresh. Showing saved invoices.');
       }
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [queryParams, user?.uid]);
 
@@ -234,15 +236,6 @@ export const InvoicesPage: React.FC = () => {
               aria-label="Search invoices and serial numbers"
             />
           </div>
-          <button
-            type="button"
-            className="invoices-toolbar__refresh"
-            disabled={loading && invoices.length === 0}
-            aria-label="Refresh invoices"
-            onClick={() => void loadInvoices()}
-          >
-            <RefreshCw size={17} className={loading || refreshing ? 'spin-icon' : undefined} />
-          </button>
         </div>
 
         <div className="invoices-toolbar__filters">
@@ -253,6 +246,11 @@ export const InvoicesPage: React.FC = () => {
                 ? `${total.toLocaleString('en-IN')} invoices`
                 : 'No invoices'}
           </span>
+          {lastSyncedAt && (
+            <span className="invoices-toolbar__sync text-muted text-sm">
+              Updated {formatInvoiceRelativeTime(lastSyncedAt)}
+            </span>
+          )}
         </div>
       </header>
 
@@ -266,7 +264,7 @@ export const InvoicesPage: React.FC = () => {
             <p className="text-muted text-sm">
               {debouncedSearch
                 ? 'Try a different search term.'
-                : 'Invoices issued to your dealer account in Zoho will appear here.'}
+                : 'Invoices synced from your account will appear here.'}
             </p>
           </div>
         ) : (

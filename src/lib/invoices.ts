@@ -46,7 +46,7 @@ export async function fetchDealerInvoices(params: InvoiceListParams = {}): Promi
   const callable = httpsCallable<InvoiceListParams, InvoiceListResponse>(
     functions,
     'getDealerInvoices',
-    { timeout: 120_000 },
+    { timeout: 60_000 },
   );
   try {
     const result = await callable(params);
@@ -77,7 +77,7 @@ export async function fetchDealerInvoiceDashboard(): Promise<InvoiceDashboardSum
   const callable = httpsCallable<undefined, InvoiceDashboardSummary>(
     functions,
     'getDealerInvoiceDashboard',
-    { timeout: 120_000 },
+    { timeout: 60_000 },
   );
   try {
     const result = await callable();
@@ -106,7 +106,7 @@ export async function fetchDealerInvoiceDetail(invoiceId: string): Promise<Deale
   const callable = httpsCallable<{ invoiceId: string }, DealerInvoiceDetail>(
     functions,
     'getDealerInvoiceDetail',
-    { timeout: 120_000 },
+    { timeout: 60_000 },
   );
   try {
     const result = await callable({ invoiceId });
@@ -143,7 +143,7 @@ export async function downloadDealerInvoiceDocument(
   >(
     functions,
     'downloadDealerInvoiceDocument',
-    { timeout: 120_000 },
+    { timeout: 60_000 },
   );
   try {
     const result = await callable({ invoiceId, documentType });
