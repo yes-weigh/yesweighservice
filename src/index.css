@@ -8348,7 +8348,18 @@ html::-webkit-scrollbar {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.35rem;
+}
+
+.invoices-card__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.invoices-card__row--meta {
+  align-items: center;
 }
 
 .invoices-card__head {
@@ -8378,6 +8389,8 @@ html::-webkit-scrollbar {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.65rem;
+  flex: 1;
+  min-width: 0;
   font-size: 0.75rem;
   line-height: 1.3;
 }
@@ -8391,10 +8404,36 @@ html::-webkit-scrollbar {
 }
 
 .invoices-card__total {
-  font-size: 1rem;
+  flex-shrink: 0;
+  font-size: 0.95rem;
   font-weight: 800;
   line-height: 1.2;
   color: var(--accent-primary-light);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.invoices-delivery {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.invoices-delivery--shipped {
+  background: rgba(56, 189, 248, 0.14);
+  color: #7dd3fc;
+}
+
+.invoices-delivery--delivered {
+  background: rgba(52, 211, 153, 0.14);
+  color: #6ee7b7;
 }
 
 .invoices-card__chevron {

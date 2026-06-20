@@ -18,7 +18,7 @@ export interface CatalogFilters {
   stockStatus?: string;
 }
 
-const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl']);
+const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl', 'software keys']);
 
 /** Replaced product images keep the same Storage path with a long cache TTL — bust with syncedAt. */
 export function withCatalogImageCacheBust(
@@ -40,6 +40,28 @@ const SPARES_EXCLUDED_CATEGORY_NAMES = new Set(['software keys', 'sanoft']);
 /** Categories excluded from the browse grid (still in catalog data). */
 export function isHiddenCatalogCategory(category: Pick<CatalogCategory, 'name'>): boolean {
   return HIDDEN_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
+}
+
+/** Products in hidden categories — excluded from dealer catalogue browse and search. */
+export function isHiddenCatalogProduct(
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+  categories: CatalogCategory[] = [],
+): boolean {
+  if (product.categoryName && isHiddenCatalogCategory({ name: product.categoryName })) {
+    return true;
+  }
+  if (product.categoryId) {
+    const cat = categories.find(c => c.id === product.categoryId);
+    if (cat && isHiddenCatalogCategory(cat)) return true;
+  }
+  return false;
+}
+
+export function excludeHiddenCatalogProducts(
+  products: CatalogProduct[],
+  categories: CatalogCategory[] = [],
+): CatalogProduct[] {
+  return products.filter(p => !isHiddenCatalogProduct(p, categories));
 }
 
 /** Categories hidden on Spares → By product (software keys / SANOFT). */

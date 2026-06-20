@@ -270,6 +270,21 @@ export function invoiceStatusLabel(status: string): string {
     .replace(/\b\w/g, char => char.toUpperCase());
 }
 
+export type InvoiceDeliveryStage = 'shipped' | 'delivered';
+
+/** Invoices 7+ days old are delivered; newer ones are still shipped. */
+export function getInvoiceDeliveryStage(date: string | null | undefined): InvoiceDeliveryStage {
+  if (!date) return 'shipped';
+  const ts = parseInvoiceDate(date);
+  if (Number.isNaN(ts)) return 'shipped';
+  const diffDays = Math.floor((startOfDay(new Date()).getTime() - startOfDay(new Date(ts)).getTime()) / DAY_MS);
+  return diffDays >= 7 ? 'delivered' : 'shipped';
+}
+
+export function invoiceDeliveryLabel(stage: InvoiceDeliveryStage): string {
+  return stage === 'delivered' ? 'Delivered' : 'Shipped';
+}
+
 export function formatInvoiceRelativeTime(value: string | null | undefined): string {
   if (!value) return '';
   const ts = Date.parse(value);

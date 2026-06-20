@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
+  excludeHiddenCatalogProducts,
   fetchCatalog,
   getCategorizedProducts,
   getCategoriesForProducts,
@@ -45,8 +46,11 @@ export const ProductsPage: React.FC = () => {
   }, [loadCatalog]);
 
   const catalogProducts = useMemo(
-    () => getCategorizedProducts(catalog?.items ?? []),
-    [catalog?.items],
+    () => excludeHiddenCatalogProducts(
+      getCategorizedProducts(catalog?.items ?? []),
+      catalog?.categories ?? [],
+    ),
+    [catalog?.items, catalog?.categories],
   );
 
   const catalogCategories = useMemo(

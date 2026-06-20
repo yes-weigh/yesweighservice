@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
-import { fetchCatalog } from '../../lib/catalog';
+import { excludeHiddenCatalogProducts, fetchCatalog, isHiddenCatalogCategory } from '../../lib/catalog';
 import type { CatalogResponse } from '../../types/catalog';
 
 export const OpenCatalogPage: React.FC = () => {
@@ -56,8 +56,8 @@ export const OpenCatalogPage: React.FC = () => {
     <div className="open-catalog-page">
       <CatalogBrowse
         variant="public"
-        products={catalog?.items ?? []}
-        categories={catalog?.categories ?? []}
+        products={excludeHiddenCatalogProducts(catalog?.items ?? [], catalog?.categories ?? [])}
+        categories={(catalog?.categories ?? []).filter(c => !isHiddenCatalogCategory(c))}
         isLoading={loading}
         title="Product Catalog"
         subtitle={

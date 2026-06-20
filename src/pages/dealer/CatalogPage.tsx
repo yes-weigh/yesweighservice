@@ -9,6 +9,7 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
+  excludeHiddenCatalogProducts,
   fetchCatalog,
   fetchCatalogSpareLinks,
   fetchSpareLinkIndex,
@@ -110,8 +111,11 @@ export const CatalogPage: React.FC = () => {
   }, [loadLinkedSpareIds]);
 
   const shopProducts = useMemo(
-    () => getCategorizedProducts(catalog?.items ?? []),
-    [catalog?.items],
+    () => excludeHiddenCatalogProducts(
+      getCategorizedProducts(catalog?.items ?? []),
+      catalog?.categories ?? [],
+    ),
+    [catalog?.items, catalog?.categories],
   );
 
   const shopCategories = useMemo(

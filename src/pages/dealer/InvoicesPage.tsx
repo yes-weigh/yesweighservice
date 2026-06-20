@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ChevronRight, FileText, Search } from 'lucide-react';
+import { AlertCircle, ChevronRight, FileText, PackageCheck, Search, Truck } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
@@ -9,8 +9,9 @@ import {
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
   formatInvoiceRelativeTime,
+  getInvoiceDeliveryStage,
+  invoiceDeliveryLabel,
   invoiceErrorMessage,
-  invoiceStatusLabel,
   readCachedDealerInvoices,
 } from '../../lib/invoices';
 import type { DealerInvoice, InvoiceListParams } from '../../types/invoices';
@@ -24,19 +25,13 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
-function statusClass(status: string): string {
-  const key = status.toLowerCase();
-  if (key === 'paid') return 'invoices-status--paid';
-  if (key === 'overdue' || key === 'unpaid') return 'invoices-status--due';
-  if (key === 'partially_paid') return 'invoices-status--partial';
-  if (key === 'void') return 'invoices-status--void';
-  return 'invoices-status--default';
-}
-
-function InvoiceStatusBadge({ status }: { status: string }) {
+function InvoiceDeliveryBadge({ date }: { date: string | null | undefined }) {
+  const stage = getInvoiceDeliveryStage(date);
+  const Icon = stage === 'delivered' ? PackageCheck : Truck;
   return (
-    <span className={`invoices-status ${statusClass(status)}`}>
-      {invoiceStatusLabel(status)}
+    <span className={`invoices-delivery invoices-delivery--${stage}`}>
+      <Icon size={14} strokeWidth={2.25} aria-hidden />
+      {invoiceDeliveryLabel(stage)}
     </span>
   );
 }
@@ -49,17 +44,19 @@ function InvoiceMobileCard({ invoice, onOpen }: { invoice: DealerInvoice; onOpen
       onClick={() => onOpen(invoice.id)}
     >
       <div className="invoices-card__main">
-        <div className="invoices-card__head">
+        <div className="invoices-card__row">
           <strong className="invoices-card__number">{invoice.invoiceNumber || '—'}</strong>
-          <InvoiceStatusBadge status={invoice.status} />
+          <span className="invoices-card__total">{formatCurrency(invoice.total)}</span>
         </div>
-        <div className="invoices-card__meta">
-          <span className="invoices-card__date">{formatInvoiceDate(invoice.date)}</span>
-          {invoice.referenceNumber && (
-            <span className="invoices-card__so">{invoice.referenceNumber}</span>
-          )}
+        <div className="invoices-card__row invoices-card__row--meta">
+          <div className="invoices-card__meta">
+            <span className="invoices-card__date">{formatInvoiceDate(invoice.date)}</span>
+            {invoice.referenceNumber && (
+              <span className="invoices-card__so">{invoice.referenceNumber}</span>
+            )}
+          </div>
+          <InvoiceDeliveryBadge date={invoice.date} />
         </div>
-        <span className="invoices-card__total">{formatCurrency(invoice.total)}</span>
       </div>
       <span className="invoices-card__chevron" aria-hidden>
         <ChevronRight size={18} />
@@ -304,11 +301,7 @@ export const InvoicesPage: React.FC = () => {
                             Due <SortMark field="dueDate" />
                           </button>
                         </th>
-                        <th>
-                          <button type="button" onClick={() => handleSort('status')}>
-                            Status <SortMark field="status" />
-                          </button>
-                        </th>
+                        <th>Delivery</th>
                         <th className="invoices-table__num">
                           <button type="button" onClick={() => handleSort('total')}>
                             Total <SortMark field="total" />
@@ -335,7 +328,7 @@ export const InvoicesPage: React.FC = () => {
                           </td>
                           <td>{formatInvoiceDate(invoice.date)}</td>
                           <td>{formatInvoiceDate(invoice.dueDate)}</td>
-                          <td><InvoiceStatusBadge status={invoice.status} /></td>
+                          <td><InvoiceDeliveryBadge date={invoice.date} /></td>
                           <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
                           <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
                           <td className="invoices-table__actions">
