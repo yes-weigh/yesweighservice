@@ -58,34 +58,38 @@ export const AdminInvoiceSyncPage: React.FC = () => {
     }
   };
 
-  const handleSync = async () => {
-    setBusy('sync');
+  const handleSync = () => {
     setError('');
-    setNotice('Pulling all invoice details — keep this tab open until complete (may take up to 60 minutes).');
+    setNotice(
+      'Sync started on the server (Cloud Functions). You can close this tab — '
+      + 'use Refresh status to see progress.',
+    );
+    void loadStatus();
     const poll = window.setInterval(() => {
       void loadStatus();
     }, 10_000);
-    try {
-      const result = await runOrgInvoiceSync();
-      const parts = [
-        `${result.newlyPulled.toLocaleString()} newly pulled`,
-        `${result.unchangedCount.toLocaleString()} already cached`,
-      ];
-      if (result.failedCount) parts.push(`${result.failedCount} failed`);
-      setNotice(
-        result.message
-        ?? (result.completed
-          ? `Complete — ${parts.join(', ')}. All ${result.pulledCount.toLocaleString()} invoices are in Firestore.`
-          : `${orgSyncStatusLabel(result.status)} — ${parts.join(', ')}. Click Pull now again to continue.`),
-      );
-      await loadStatus();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sync failed.');
-      await loadStatus();
-    } finally {
-      window.clearInterval(poll);
-      setBusy(null);
-    }
+    void runOrgInvoiceSync()
+      .then(result => {
+        const parts = [
+          `${result.newlyPulled.toLocaleString()} newly pulled`,
+          `${result.unchangedCount.toLocaleString()} already cached`,
+        ];
+        if (result.failedCount) parts.push(`${result.failedCount} failed`);
+        setNotice(
+          result.message
+          ?? (result.completed
+            ? `Complete — ${parts.join(', ')}. All ${result.pulledCount.toLocaleString()} invoices are in Firestore.`
+            : `${orgSyncStatusLabel(result.status)} — ${parts.join(', ')}. Click Pull now again to continue.`),
+        );
+        void loadStatus();
+      })
+      .catch(err => {
+        setError(err instanceof Error ? err.message : 'Sync failed.');
+        void loadStatus();
+      })
+      .finally(() => {
+        window.clearInterval(poll);
+      });
   };
 
   if (loading && !status) {
@@ -215,7 +219,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           </li>
           {runInProgress && (
             <li className="mb-2">
-              <strong className="text-main">In progress:</strong> Pulling invoice details until all are stored.
+              <strong className="text-main">In progress:</strong> Running on the server — safe to close this tab; refresh status anytime.
             </li>
           )}
         </ul>
@@ -225,8 +229,8 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         <h2 className="mb-4">Actions</h2>
         <p className="text-muted mb-4">
           <strong>Count invoices</strong> lists every invoice in Zoho (~20k) and checks Firestore.
-          <strong> Pull now</strong> fetches missing details and runs until finished or the 60-minute function limit.
-          If interrupted, click Pull now again — it resumes from the last checkpoint.
+          <strong> Pull now</strong> starts a server-side job that fetches missing details (up to 60 minutes per run).
+          You can close the browser — work continues on Cloud Functions. Refresh status to see progress.
         </p>
         <div className="flex gap-3 flex-wrap">
           <button
