@@ -737,7 +737,7 @@ export const zohoInvoiceWebhook = onRequest(
   },
 );
 
-/** Nightly invoice backfill — max 30 min per run (scheduler limit); resumes from checkpoint next night. */
+/** Nightly invoice backfill — 2 AM IST; uses at most 70% of daily Zoho quota (30% reserved). */
 export const syncZohoInvoicesScheduled = onSchedule(
   {
     schedule: '0 2 * * *',
@@ -752,11 +752,15 @@ export const syncZohoInvoicesScheduled = onSchedule(
       const result = await syncOrgInvoicesToFirestore(
         zohoSecrets(),
         zohoOrganizationId.value(),
-        { source: 'scheduled' },
+        {
+          source: 'scheduled',
+          quotaReserveRatio: 0.30,
+        },
       );
       console.log(
         `Scheduled org invoice sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
-        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}.`,
+        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
+        + `quotaReserved=${result.quotaReserved}.`,
       );
     } catch (err) {
       console.error('Scheduled org invoice sync failed:', err?.message ?? err);

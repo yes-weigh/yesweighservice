@@ -1,6 +1,6 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId } from './zoho.js';
-import { recordZohoApiFailure } from './zoho-api-usage.js';
+import { fetchZohoOrgApiUsage, recordZohoApiFailure } from './zoho-api-usage.js';
 import {
   fetchInvoicesListPage,
   fetchInvoiceRaw,
@@ -17,8 +17,14 @@ const LIST_PAGE_DELAY_MS = 400;
 const RATE_LIMIT_RETRIES = 6;
 const RATE_LIMIT_BASE_MS = 30_000;
 const LIST_SORT = { sortColumn: 'date', sortOrder: 'D' };
+/** Nightly scheduled sync stops before consuming this share of the daily Zoho quota. */
+export const SCHEDULED_API_QUOTA_RESERVE_RATIO = 0.30;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function scheduledQuotaReserveRemaining(dailyLimit) {
+  return Math.ceil(Number(dailyLimit) * SCHEDULED_API_QUOTA_RESERVE_RATIO);
+}
 
 function orgInvoiceSyncRef() {
   return getFirestore().collection('invoiceMeta').doc('orgSync');
@@ -234,6 +240,18 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   let newlyPulled = 0;
   let completed = false;
   let rateLimited = false;
+  let quotaReserved = false;
+
+  const quotaReserveRatio = Number(options.quotaReserveRatio ?? 0);
+  let apiCallsThisRun = 0;
+  let apiBudget = null;
+
+  const shouldStopForQuota = () => apiBudget != null && apiCallsThisRun >= apiBudget;
+
+  const trackZohoCall = () => {
+    apiCallsThisRun += 1;
+    if (shouldStopForQuota()) quotaReserved = true;
+  };
 
   const computePulledCount = () => Math.max(
     Number(priorMeta.pulledCount ?? 0),
@@ -253,6 +271,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         unchanged,
         newlyPulled,
         rateLimited: false,
+        quotaReserved: false,
         inProgress: true,
       },
     });
@@ -261,6 +280,23 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   try {
     const accessToken = await getAccessToken(secrets);
     const organizationId = await resolveOrganizationId(accessToken, orgId);
+
+    if (quotaReserveRatio > 0) {
+      const usage = await fetchZohoOrgApiUsage(accessToken, organizationId);
+      apiCallsThisRun = 1;
+      const reserveRemaining = scheduledQuotaReserveRemaining(usage.dailyLimit);
+      apiBudget = Math.max(0, usage.remaining - reserveRemaining);
+      console.log(
+        `Scheduled sync API budget: ${apiBudget.toLocaleString()} calls `
+        + `(keeping ${Math.round(quotaReserveRatio * 100)}% / `
+        + `${reserveRemaining.toLocaleString()} of ${usage.dailyLimit.toLocaleString()} daily quota).`,
+      );
+      if (apiBudget <= 0) {
+        quotaReserved = true;
+        console.log('Scheduled sync skipped — daily quota already at or below the 30% reserve.');
+      }
+    }
+
     const upsertOptions = {
       skipPdfs: true,
       skipSalesOrder: true,
@@ -270,6 +306,11 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
     };
 
     const processSummary = async summary => {
+      if (shouldStopForQuota()) {
+        quotaReserved = true;
+        return { synced: 0, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 0, rateLimited: false, stopQuota: true };
+      }
+
       const invoiceId = String(summary.invoice_id);
       const customerId = String(summary.customer_id);
       const existingSnap = await invoicesCollection(customerId).doc(invoiceId).get();
@@ -285,6 +326,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
           () => fetchInvoiceRaw(accessToken, organizationId, invoiceId),
           `invoice ${invoiceId}`,
         );
+        trackZohoCall();
       } catch (err) {
         if (err?.code === 'RATE_LIMITED') {
           return { synced: 0, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 0, rateLimited: true };
@@ -313,13 +355,19 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       }
     };
 
-    while (!completed && !rateLimited) {
+    while (!completed && !rateLimited && !quotaReserved) {
+      if (shouldStopForQuota()) {
+        quotaReserved = true;
+        break;
+      }
+
       let batch;
       try {
         batch = await zohoCallWithRetry(
           () => fetchInvoicesListPage(accessToken, organizationId, page, LIST_SORT),
           `list page ${page}`,
         );
+        trackZohoCall();
       } catch (err) {
         if (err?.code === 'RATE_LIMITED') {
           rateLimited = true;
@@ -332,6 +380,11 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       const results = await mapConcurrent(slice, ORG_SYNC_CONCURRENCY, processSummary);
       for (let i = 0; i < results.length; i += 1) {
         const result = results[i];
+        if (result.stopQuota) {
+          quotaReserved = true;
+          index += i;
+          break;
+        }
         if (result.rateLimited) {
           rateLimited = true;
           index += i;
@@ -350,7 +403,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         console.log(`Org invoice sync progress: ${newlyPulled} newly pulled this run.`);
       }
 
-      if (rateLimited) {
+      if (rateLimited || quotaReserved) {
         await writeOrgSyncMeta({ checkpointPage: page, checkpointIndex: index });
         break;
       }
@@ -388,7 +441,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       totalInRange: totalInRange ?? priorMeta.totalInRange ?? null,
       pulledCount,
       checkpointPage: completed ? 1 : page,
-      checkpointIndex: completed ? 0 : (rateLimited ? index : 0),
+      checkpointIndex: completed ? 0 : (rateLimited || quotaReserved ? index : 0),
       lastRunAt: FieldValue.serverTimestamp(),
       lastRunSource: source,
       lastRunSummary: {
@@ -398,6 +451,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         unchanged,
         newlyPulled,
         rateLimited,
+        quotaReserved,
         inProgress: false,
       },
       completedAt: allDone ? FieldValue.serverTimestamp() : priorMeta.completedAt ?? null,
@@ -407,11 +461,13 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   const finalStatus = completed ? 'complete' : 'idle';
   const message = rateLimited
     ? 'Zoho API rate limit reached. Progress is saved at the current checkpoint — wait for quota to recover, then click Pull now again.'
-    : undefined;
+    : quotaReserved
+      ? `Scheduled sync stopped to preserve ${Math.round(quotaReserveRatio * 100)}% of today's Zoho API quota for daytime use. Resume with Pull now or wait for the next 2 AM run.`
+      : undefined;
 
   console.log(
     `Org invoice sync finished (${source}): status=${finalStatus}, newlyPulled=${newlyPulled}, `
-    + `unchanged=${unchanged}, failed=${failed}, rateLimited=${rateLimited}, `
+    + `unchanged=${unchanged}, failed=${failed}, rateLimited=${rateLimited}, quotaReserved=${quotaReserved}, `
     + `pulled=${pulledCount}/${totalInRange ?? '?'}.`,
   );
 
@@ -429,6 +485,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       : Math.max(0, totalInRange - pulledCount),
     completed,
     rateLimited,
+    quotaReserved,
     message,
   };
 }

@@ -21,6 +21,7 @@ function formatLastRunSummary(status: OrgInvoiceSyncStatus | null): string | nul
   if (summary.unchanged != null) parts.push(`${summary.unchanged.toLocaleString()} already cached`);
   if (summary.failed) parts.push(`${summary.failed.toLocaleString()} failed`);
   if (summary.rateLimited) parts.push('stopped — Zoho rate limit');
+  if (summary.quotaReserved) parts.push('stopped — 30% quota reserved for daytime');
   if (!parts.length) return null;
   return parts.join(', ');
 }
@@ -111,6 +112,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         ];
         if (result.failedCount) parts.push(`${result.failedCount} failed`);
         if (result.rateLimited) parts.push('stopped — Zoho rate limit');
+        if (result.quotaReserved) parts.push('stopped — 30% quota reserved for daytime');
         setNotice(
           result.message
           ?? (result.completed
@@ -148,7 +150,8 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         <h1>Invoice sync</h1>
         <p className="text-muted mt-2">
           Org-wide backfill from Zoho into Firestore — one document per invoice, details only (no PDFs).
-          All organisation invoices, newest first.
+          All organisation invoices, newest first. A scheduled run at <strong>2:00 AM IST</strong> resumes
+          from the checkpoint and uses at most <strong>70%</strong> of the daily Zoho API quota (30% kept for daytime).
         </p>
         <button
           type="button"
@@ -368,8 +371,8 @@ export const AdminInvoiceSyncPage: React.FC = () => {
       <div className="panel glass">
         <h2 className="mb-4">Actions</h2>
         <p className="text-muted mb-4">
-          <strong>Count invoices</strong> scans Zoho and Firestore to refresh totals (run after a long Pull).
-          <strong> Pull now</strong> resumes from the saved checkpoint (up to 60 minutes per run).
+          <strong> Count invoices</strong> scans Zoho and Firestore to refresh totals (run after a long Pull).
+          <strong> Pull now</strong> resumes from the saved checkpoint (manual — no 30% reserve; up to 60 minutes per run).
         </p>
         <div className="flex gap-3 flex-wrap">
           <button

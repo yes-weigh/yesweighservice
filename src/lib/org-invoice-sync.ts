@@ -20,6 +20,7 @@ export interface OrgInvoiceSyncStatus {
     unchanged?: number;
     newlyPulled?: number;
     rateLimited?: boolean;
+    quotaReserved?: boolean;
     inProgress?: boolean;
   } | null;
   completedAt: string | null;
@@ -65,6 +66,7 @@ export interface OrgInvoiceSyncRunResult {
   remaining: number | null;
   completed: boolean;
   rateLimited?: boolean;
+  quotaReserved?: boolean;
   message?: string;
 }
 
