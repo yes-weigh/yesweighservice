@@ -206,11 +206,11 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <span className="text-muted text-sm">Per-minute window</span>
+            <span className="text-muted text-sm">Burst limit</span>
             <div className="admin-zoho-usage__value text-base">
               {apiUsage?.windowRemaining != null
-                ? `${apiUsage.windowRemaining.toLocaleString()} left`
-                : '—'}
+                ? `${apiUsage.windowRemaining.toLocaleString()} left this minute`
+                : 'Not reported by Zoho'}
             </div>
           </div>
         </div>

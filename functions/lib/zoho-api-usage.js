@@ -9,10 +9,16 @@ const LIVE_CACHE_MS = 25_000;
 function parseRateLimitHeaders(response) {
   if (!response?.headers) return {};
   const get = name => response.headers.get(name) ?? response.headers.get(name.toLowerCase());
-  const windowLimit = Number(get('x-rate-limit-limit') ?? get('X-Rate-Limit-Limit'));
-  const windowRemaining = Number(get('x-rate-limit-remaining') ?? get('X-RateLimit-Remaining'));
-  const resetSec = Number(get('x-rate-limit-reset') ?? get('X-Rate-Limit-Reset'));
-  const retryAfterSec = Number(get('retry-after') ?? get('Retry-After'));
+  const rawLimit = get('x-rate-limit-limit') ?? get('X-Rate-Limit-Limit');
+  const rawRemaining = get('x-rate-limit-remaining') ?? get('X-RateLimit-Remaining');
+  const rawReset = get('x-rate-limit-reset') ?? get('X-Rate-Limit-Reset');
+  const rawRetry = get('retry-after') ?? get('Retry-After');
+
+  const windowLimit = rawLimit != null && rawLimit !== '' ? Number(rawLimit) : NaN;
+  const windowRemaining = rawRemaining != null && rawRemaining !== '' ? Number(rawRemaining) : NaN;
+  const resetSec = rawReset != null && rawReset !== '' ? Number(rawReset) : NaN;
+  const retryAfterSec = rawRetry != null && rawRetry !== '' ? Number(rawRetry) : NaN;
+
   return {
     windowLimit: Number.isFinite(windowLimit) && windowLimit > 0 ? windowLimit : null,
     windowRemaining: Number.isFinite(windowRemaining) && windowRemaining >= 0 ? windowRemaining : null,
@@ -120,8 +126,8 @@ export async function fetchZohoOrgApiUsage(accessToken, orgId) {
     remaining,
     usagePct: dailyLimit > 0 ? Math.min(100, Math.round((callsToday / dailyLimit) * 100)) : 0,
     status: deriveStatus(remaining, dailyLimit),
-    windowLimit: headers.windowLimit ?? dailyLimit,
-    windowRemaining: headers.windowRemaining ?? remaining,
+    windowLimit: headers.windowLimit,
+    windowRemaining: headers.windowRemaining,
     resetSec: headers.resetSec,
     resetAt: headers.resetSec != null ? new Date(Date.now() + headers.resetSec * 1000).toISOString() : null,
     retryAfterSec: headers.retryAfterSec,
