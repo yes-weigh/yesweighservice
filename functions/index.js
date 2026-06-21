@@ -60,6 +60,7 @@ import {
   countOrgInvoicesInRange,
   syncOrgInvoicesToFirestore,
 } from './lib/org-invoice-sync.js';
+import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
@@ -747,15 +748,19 @@ export const syncZohoInvoicesScheduled = onSchedule(
     memory: '2GiB',
   },
   async () => {
-    const result = await syncOrgInvoicesToFirestore(
-      zohoSecrets(),
-      zohoOrganizationId.value(),
-      { source: 'scheduled' },
-    );
-    console.log(
-      `Scheduled org invoice sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
-      + `failed=${result.failedCount}, remaining=${result.remaining}.`,
-    );
+    try {
+      const result = await syncOrgInvoicesToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { source: 'scheduled' },
+      );
+      console.log(
+        `Scheduled org invoice sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
+        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}.`,
+      );
+    } catch (err) {
+      console.error('Scheduled org invoice sync failed:', err?.message ?? err);
+    }
   },
 );
 
@@ -795,6 +800,28 @@ export const getOrgInvoiceSyncStatusCallable = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
     return getOrgInvoiceSyncStatus();
+  },
+);
+
+/** Zoho API usage today — super admin (polled from admin invoice sync page). */
+export const getZohoApiUsageCallable = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await getZohoApiUsageStatus(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      console.error('getZohoApiUsageStatus failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not load Zoho API usage.');
+    }
   },
 );
 

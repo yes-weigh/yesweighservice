@@ -1,16 +1,39 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, FileText, Play, RefreshCw, RotateCcw } from 'lucide-react';
+import { AlertCircle, Activity, FileText, Play, RefreshCw, RotateCcw } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
   countOrgInvoicesInRange,
   fetchOrgInvoiceSyncStatus,
+  fetchZohoApiUsage,
   orgSyncStatusLabel,
   runOrgInvoiceSync,
+  zohoApiUsageLabel,
+  zohoApiUsageTone,
   type OrgInvoiceSyncStatus,
+  type ZohoApiUsageStatus,
 } from '../../lib/org-invoice-sync';
+
+function formatLastRunSummary(status: OrgInvoiceSyncStatus | null): string | null {
+  const summary = status?.lastRunSummary;
+  if (!summary || summary.inProgress) return null;
+  const parts: string[] = [];
+  if (summary.newlyPulled != null) parts.push(`${summary.newlyPulled.toLocaleString()} newly pulled`);
+  if (summary.unchanged != null) parts.push(`${summary.unchanged.toLocaleString()} already cached`);
+  if (summary.failed) parts.push(`${summary.failed.toLocaleString()} failed`);
+  if (summary.rateLimited) parts.push('stopped — Zoho rate limit');
+  if (!parts.length) return null;
+  return parts.join(', ');
+}
+
+function usageBarColor(tone: 'ok' | 'warn' | 'danger'): string {
+  if (tone === 'danger') return '#ef4444';
+  if (tone === 'warn') return '#f59e0b';
+  return 'var(--accent, #3b82f6)';
+}
 
 export const AdminInvoiceSyncPage: React.FC = () => {
   const [status, setStatus] = useState<OrgInvoiceSyncStatus | null>(null);
+  const [apiUsage, setApiUsage] = useState<ZohoApiUsageStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<'count' | 'sync' | null>(null);
   const [error, setError] = useState('');
@@ -28,17 +51,28 @@ export const AdminInvoiceSyncPage: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => {
-    void loadStatus();
-  }, [loadStatus]);
+  const loadApiUsage = useCallback(async () => {
+    try {
+      const next = await fetchZohoApiUsage();
+      setApiUsage(next);
+    } catch {
+      // Usage panel is optional — don't block the page.
+    }
+  }, []);
 
   useEffect(() => {
-    if (status?.status !== 'running') return undefined;
+    void loadStatus();
+    void loadApiUsage();
+  }, [loadStatus, loadApiUsage]);
+
+  useEffect(() => {
+    const pollMs = status?.status === 'running' ? 5_000 : 10_000;
     const timer = window.setInterval(() => {
       void loadStatus();
-    }, 10_000);
+      void loadApiUsage();
+    }, pollMs);
     return () => window.clearInterval(timer);
-  }, [status?.status, loadStatus]);
+  }, [status?.status, loadStatus, loadApiUsage]);
 
   const handleCount = async () => {
     setBusy('count');
@@ -51,6 +85,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         + `${result.pulledCount.toLocaleString()} already in Firestore.`,
       );
       await loadStatus();
+      await loadApiUsage();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Count failed.');
     } finally {
@@ -62,12 +97,9 @@ export const AdminInvoiceSyncPage: React.FC = () => {
     setError('');
     setNotice(
       'Sync started on the server (Cloud Functions). You can close this tab — '
-      + 'use Refresh status to see progress.',
+      + 'status refreshes automatically.',
     );
     void loadStatus();
-    const poll = window.setInterval(() => {
-      void loadStatus();
-    }, 10_000);
     void runOrgInvoiceSync()
       .then(result => {
         const parts = [
@@ -75,6 +107,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           `${result.unchangedCount.toLocaleString()} already cached`,
         ];
         if (result.failedCount) parts.push(`${result.failedCount} failed`);
+        if (result.rateLimited) parts.push('stopped — Zoho rate limit');
         setNotice(
           result.message
           ?? (result.completed
@@ -82,13 +115,12 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             : `${orgSyncStatusLabel(result.status)} — ${parts.join(', ')}. Click Pull now again to continue.`),
         );
         void loadStatus();
+        void loadApiUsage();
       })
       .catch(err => {
         setError(err instanceof Error ? err.message : 'Sync failed.');
         void loadStatus();
-      })
-      .finally(() => {
-        window.clearInterval(poll);
+        void loadApiUsage();
       });
   };
 
@@ -104,6 +136,9 @@ export const AdminInvoiceSyncPage: React.FC = () => {
     ? status.lastRunSummary.newlyPulled
     : null;
   const progressPct = total && total > 0 ? Math.min(100, Math.round((pulled / total) * 100)) : null;
+  const lastRunText = formatLastRunSummary(status);
+  const usageTone = zohoApiUsageTone(apiUsage?.status ?? 'ok');
+  const usagePct = apiUsage?.usagePct ?? 0;
 
   return (
     <div className="page-content fade-in">
@@ -117,7 +152,10 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           type="button"
           className="btn btn-secondary mt-4"
           disabled={busy !== null}
-          onClick={() => { void loadStatus(); }}
+          onClick={() => {
+            void loadStatus();
+            void loadApiUsage();
+          }}
         >
           <RefreshCw size={16} />
           Refresh status
@@ -136,6 +174,86 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           <span>{notice}</span>
         </div>
       )}
+
+      <div className="panel glass mb-6 admin-zoho-usage">
+        <div className="admin-zoho-usage__head">
+          <div className="admin-zoho-usage__title">
+            <Activity size={20} aria-hidden />
+            <h2 className="mb-0">Zoho API usage (today)</h2>
+          </div>
+          <span className={`admin-zoho-usage__badge admin-zoho-usage__badge--${usageTone}`}>
+            {zohoApiUsageLabel(apiUsage?.status ?? 'ok')}
+          </span>
+        </div>
+        <p className="text-muted text-sm mt-2 mb-4">
+          Live from Zoho Inventory for your organisation (all API clients — portal, scripts, other apps).
+          Resets daily per your Zoho plan.
+        </p>
+        <div className="admin-zoho-usage__stats">
+          <div>
+            <span className="text-muted text-sm">Used today</span>
+            <div className="admin-zoho-usage__value">
+              {(apiUsage?.callsToday ?? 0).toLocaleString()}
+              <span className="text-muted text-sm">
+                {' '}/ {(apiUsage?.dailyLimit ?? 10_000).toLocaleString()}
+              </span>
+            </div>
+          </div>
+          <div>
+            <span className="text-muted text-sm">Remaining</span>
+            <div className="admin-zoho-usage__value">
+              {(apiUsage?.remaining ?? 0).toLocaleString()}
+            </div>
+          </div>
+          <div>
+            <span className="text-muted text-sm">Per-minute window</span>
+            <div className="admin-zoho-usage__value text-base">
+              {apiUsage?.windowRemaining != null
+                ? `${apiUsage.windowRemaining.toLocaleString()} left`
+                : '—'}
+            </div>
+          </div>
+        </div>
+        <div className="mb-2 mt-4" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <strong>Daily quota</strong>
+          <span className="text-muted">{usagePct}%</span>
+        </div>
+        <div className="admin-zoho-usage__bar-track">
+          <div
+            className="admin-zoho-usage__bar-fill"
+            style={{ width: `${usagePct}%`, background: usageBarColor(usageTone) }}
+          />
+        </div>
+        <ul className="text-muted text-sm mt-4" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {apiUsage?.resetAt && (
+            <li>Daily quota resets: {new Date(apiUsage.resetAt).toLocaleString('en-IN')}</li>
+          )}
+          {apiUsage?.fetchedAt && (
+            <li>Last fetched from Zoho: {new Date(apiUsage.fetchedAt).toLocaleString('en-IN')}</li>
+          )}
+          {apiUsage?.lastError && (
+            <li style={{ color: 'var(--warning, #d97706)' }}>Fetch note: {apiUsage.lastError}</li>
+          )}
+        </ul>
+        {apiUsage?.userDetails && apiUsage.userDetails.length > 0 && (
+          <div className="mt-4">
+            <strong className="text-sm">By user</strong>
+            <ul className="text-muted text-sm mt-2" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {apiUsage.userDetails.map(user => (
+                <li key={user.email ?? user.name ?? 'user'} className="mb-2">
+                  {user.name ?? user.email ?? 'User'} — {user.total.toLocaleString()} calls
+                  {user.hosts.length > 0 && (
+                    <span className="text-muted">
+                      {' '}
+                      ({user.hosts.map(h => `${h.ip ?? '?'}: ${h.count.toLocaleString()}`).join(', ')})
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
       <div className="stats-grid stats-grid--3 mb-6">
         <div className="stat-card glass">
@@ -174,21 +292,10 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             <strong>Progress</strong>
             <span className="text-muted">{progressPct}%</span>
           </div>
-          <div
-            style={{
-              height: 8,
-              borderRadius: 4,
-              background: 'var(--border-subtle, rgba(255,255,255,0.08))',
-              overflow: 'hidden',
-            }}
-          >
+          <div className="admin-zoho-usage__bar-track">
             <div
-              style={{
-                height: '100%',
-                width: `${progressPct}%`,
-                background: 'var(--accent, #3b82f6)',
-                transition: 'width 0.3s ease',
-              }}
+              className="admin-zoho-usage__bar-fill"
+              style={{ width: `${progressPct}%`, background: 'var(--accent, #3b82f6)' }}
             />
           </div>
         </div>
@@ -201,14 +308,14 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             <strong className="text-main">State:</strong> {orgSyncStatusLabel(status?.status ?? 'idle')}
           </li>
           <li className="mb-2">
+            <strong className="text-main">Checkpoint:</strong>{' '}
+            page {status?.checkpointPage ?? 1}, index {status?.checkpointIndex ?? 0}
+          </li>
+          <li className="mb-2">
             <strong className="text-main">Last run:</strong>{' '}
             {status?.lastRunAt ? new Date(status.lastRunAt).toLocaleString('en-IN') : '—'}
-            {status?.lastRunSummary?.newlyPulled != null && !status.lastRunSummary.inProgress && (
-              <span className="text-muted">
-                {' '}
-                (+{status.lastRunSummary.newlyPulled.toLocaleString()} new,{' '}
-                {status.lastRunSummary.unchanged?.toLocaleString() ?? 0} already cached)
-              </span>
+            {lastRunText && (
+              <span className="text-muted"> ({lastRunText})</span>
             )}
           </li>
           <li className="mb-2">
@@ -219,7 +326,13 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           </li>
           {runInProgress && (
             <li className="mb-2">
-              <strong className="text-main">In progress:</strong> Running on the server — safe to close this tab; refresh status anytime.
+              <strong className="text-main">In progress:</strong> Running on the server — safe to close this tab.
+            </li>
+          )}
+          {(apiUsage?.status === 'daily_limit' || apiUsage?.status === 'throttled') && (
+            <li className="mb-2">
+              <strong className="text-main">Zoho quota:</strong>{' '}
+              Pull is paused until API usage recovers. Avoid catalog sync while backfilling invoices.
             </li>
           )}
         </ul>
@@ -228,9 +341,8 @@ export const AdminInvoiceSyncPage: React.FC = () => {
       <div className="panel glass">
         <h2 className="mb-4">Actions</h2>
         <p className="text-muted mb-4">
-          <strong>Count invoices</strong> lists every invoice in Zoho (~20k) and checks Firestore.
-          <strong> Pull now</strong> starts a server-side job that fetches missing details (up to 60 minutes per run).
-          You can close the browser — work continues on Cloud Functions. Refresh status to see progress.
+          <strong>Count invoices</strong> scans Zoho and Firestore to refresh totals (run after a long Pull).
+          <strong> Pull now</strong> resumes from the saved checkpoint (up to 60 minutes per run).
         </p>
         <div className="flex gap-3 flex-wrap">
           <button
@@ -245,7 +357,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={busy !== null || status?.status === 'running'}
+            disabled={busy !== null || status?.status === 'running' || apiUsage?.status === 'daily_limit' || (apiUsage?.remaining ?? 1) <= 0}
             onClick={() => { void handleSync(); }}
           >
             {busy === 'sync' ? <RotateCcw size={16} className="spin" /> : <Play size={16} />}

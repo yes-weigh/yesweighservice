@@ -1,5 +1,6 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId } from './zoho.js';
+import { recordZohoApiFailure } from './zoho-api-usage.js';
 import {
   fetchInvoicesListPage,
   fetchInvoiceRaw,
@@ -11,7 +12,7 @@ import {
 
 const ORG_SYNC_CONCURRENCY = 2;
 const ORG_SYNC_MAX_LIST_PAGES = 150;
-const STALE_RUN_MS = 70 * 60 * 1000;
+const STALE_RUN_MS = 75 * 60 * 1000;
 const LIST_PAGE_DELAY_MS = 400;
 const RATE_LIMIT_RETRIES = 6;
 const RATE_LIMIT_BASE_MS = 30_000;
@@ -28,7 +29,10 @@ async function zohoCallWithRetry(fn, label) {
     try {
       return await fn();
     } catch (err) {
-      if (err?.code !== 'RATE_LIMITED' || attempt >= RATE_LIMIT_RETRIES) throw err;
+      if (err?.code !== 'RATE_LIMITED' || attempt >= RATE_LIMIT_RETRIES) {
+        await recordZohoApiFailure(err, { operation: label, source: 'org-invoice-sync' }).catch(() => {});
+        throw err;
+      }
       const waitMs = RATE_LIMIT_BASE_MS * (attempt + 1);
       console.warn(
         `Zoho rate limit on ${label}, waiting ${waitMs / 1000}s `
@@ -73,7 +77,10 @@ export async function getOrgInvoiceSyncStatus() {
     checkpointPage: meta.checkpointPage ?? 1,
     checkpointIndex: meta.checkpointIndex ?? 0,
     lastRunAt: meta.lastRunAt?.toDate?.()?.toISOString?.() ?? null,
-    lastRunSummary: meta.lastRunSummary ?? null,
+    lastRunSummary: meta.status === 'running' || !meta.lastRunSummary?.inProgress
+      ? (meta.lastRunSummary ?? null)
+      : null,
+    lastRunSource: meta.lastRunSource ?? null,
     completedAt: meta.completedAt?.toDate?.()?.toISOString?.() ?? null,
     totalCountedAt: meta.totalCountedAt?.toDate?.()?.toISOString?.() ?? null,
   };
@@ -216,7 +223,6 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
 
   let page = Number(priorMeta.checkpointPage ?? 1);
   let index = Number(priorMeta.checkpointIndex ?? 0);
-  const runFromStart = page === 1 && index === 0;
   const baselinePulled = Number(priorMeta.pulledCount ?? 0);
   let pulledCount = baselinePulled;
   const totalInRange = priorMeta.totalInRange ?? null;
@@ -229,16 +235,24 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
   let completed = false;
   let rateLimited = false;
 
+  const computePulledCount = () => Math.max(
+    Number(priorMeta.pulledCount ?? 0),
+    baselinePulled + newlyPulled + unchanged,
+  );
+
   const publishProgress = async (force = false) => {
     if (!force && newlyPulled > 0 && newlyPulled % 25 !== 0) return;
     await writeOrgSyncMeta({
-      pulledCount: baselinePulled + newlyPulled,
+      pulledCount: computePulledCount(),
+      checkpointPage: page,
+      checkpointIndex: index,
       lastRunSummary: {
         synced,
         failed,
         skipped,
         unchanged,
         newlyPulled,
+        rateLimited: false,
         inProgress: true,
       },
     });
@@ -316,9 +330,11 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
 
       const slice = batch.invoices.slice(index);
       const results = await mapConcurrent(slice, ORG_SYNC_CONCURRENCY, processSummary);
-      for (const result of results) {
+      for (let i = 0; i < results.length; i += 1) {
+        const result = results[i];
         if (result.rateLimited) {
           rateLimited = true;
+          index += i;
           break;
         }
         synced += result.synced;
@@ -334,7 +350,10 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
         console.log(`Org invoice sync progress: ${newlyPulled} newly pulled this run.`);
       }
 
-      if (rateLimited) break;
+      if (rateLimited) {
+        await writeOrgSyncMeta({ checkpointPage: page, checkpointIndex: index });
+        break;
+      }
 
       index = 0;
       if (!batch.hasMore) {
@@ -347,15 +366,19 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       await sleep(LIST_PAGE_DELAY_MS);
     }
   } catch (err) {
-    await writeOrgSyncMeta({ status: 'idle' }).catch(() => {});
+    await writeOrgSyncMeta({
+      status: 'idle',
+      checkpointPage: page,
+      checkpointIndex: index,
+    }).catch(() => {});
     console.error('Org invoice sync failed:', err?.message ?? err);
     throw err;
   } finally {
-    pulledCount = runFromStart && completed
-      ? newlyPulled + unchanged
-      : baselinePulled + newlyPulled;
+    const priorPulled = Number(priorMeta.pulledCount ?? 0);
+    const runEstimate = baselinePulled + newlyPulled + unchanged;
+    pulledCount = Math.max(priorPulled, runEstimate);
     if (completed && totalInRange != null) {
-      pulledCount = Math.min(totalInRange, Math.max(pulledCount, baselinePulled + newlyPulled + unchanged));
+      pulledCount = Math.min(totalInRange, Math.max(pulledCount, runEstimate));
     }
     const allDone = completed && (totalInRange == null || pulledCount >= totalInRange);
     const status = allDone ? 'complete' : 'idle';
@@ -365,14 +388,16 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
       totalInRange: totalInRange ?? priorMeta.totalInRange ?? null,
       pulledCount,
       checkpointPage: completed ? 1 : page,
-      checkpointIndex: completed ? 0 : index,
+      checkpointIndex: completed ? 0 : (rateLimited ? index : 0),
       lastRunAt: FieldValue.serverTimestamp(),
+      lastRunSource: source,
       lastRunSummary: {
         synced,
         failed,
         skipped,
         unchanged,
         newlyPulled,
+        rateLimited,
         inProgress: false,
       },
       completedAt: allDone ? FieldValue.serverTimestamp() : priorMeta.completedAt ?? null,
@@ -381,7 +406,7 @@ export async function syncOrgInvoicesToFirestore(secrets, orgId, options = {}) {
 
   const finalStatus = completed ? 'complete' : 'idle';
   const message = rateLimited
-    ? 'Zoho API rate limit reached. Wait a few minutes, then click Pull now again — your progress is saved.'
+    ? 'Zoho API rate limit reached. Progress is saved at the current checkpoint — wait for quota to recover, then click Pull now again.'
     : undefined;
 
   console.log(

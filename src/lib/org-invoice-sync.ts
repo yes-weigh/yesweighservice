@@ -12,16 +12,45 @@ export interface OrgInvoiceSyncStatus {
   checkpointPage: number;
   checkpointIndex: number;
   lastRunAt: string | null;
+  lastRunSource?: string | null;
   lastRunSummary: {
     synced?: number;
     failed?: number;
     skipped?: number;
     unchanged?: number;
     newlyPulled?: number;
+    rateLimited?: boolean;
     inProgress?: boolean;
   } | null;
   completedAt: string | null;
   totalCountedAt: string | null;
+}
+
+export interface ZohoApiUsageUser {
+  name: string | null;
+  email: string | null;
+  total: number;
+  hosts: { ip: string | null; count: number }[];
+}
+
+export interface ZohoApiUsageStatus {
+  source: 'zoho' | string;
+  dayKey: string | null;
+  callsToday: number;
+  dailyLimit: number;
+  remaining: number;
+  usagePct: number;
+  status: 'ok' | 'low' | 'throttled' | 'daily_limit' | string;
+  windowLimit: number | null;
+  windowRemaining: number | null;
+  resetSec: number | null;
+  resetAt: string | null;
+  retryAfterSec: number | null;
+  userDetails: ZohoApiUsageUser[];
+  lastError: string | null;
+  lastRateLimitAt: string | null;
+  fetchedAt: string | null;
+  updatedAt: string | null;
 }
 
 export interface OrgInvoiceSyncRunResult {
@@ -67,6 +96,16 @@ export async function fetchOrgInvoiceSyncStatus(): Promise<OrgInvoiceSyncStatus>
   return result.data;
 }
 
+export async function fetchZohoApiUsage(): Promise<ZohoApiUsageStatus> {
+  const callable = httpsCallable<undefined, ZohoApiUsageStatus>(
+    functions,
+    'getZohoApiUsageCallable',
+    { timeout: 15_000 },
+  );
+  const result = await callable();
+  return result.data;
+}
+
 export async function countOrgInvoicesInRange(): Promise<OrgInvoiceCountResult> {
   const callable = httpsCallable<undefined, OrgInvoiceCountResult>(
     functions,
@@ -104,4 +143,23 @@ export function orgSyncStatusLabel(status: OrgInvoiceSyncStatus['status']): stri
     default:
       return 'Idle';
   }
+}
+
+export function zohoApiUsageLabel(status: ZohoApiUsageStatus['status']): string {
+  switch (status) {
+    case 'daily_limit':
+      return 'Daily limit reached';
+    case 'throttled':
+      return 'Rate limited';
+    case 'low':
+      return 'Quota low';
+    default:
+      return 'OK';
+  }
+}
+
+export function zohoApiUsageTone(status: ZohoApiUsageStatus['status']): 'ok' | 'warn' | 'danger' {
+  if (status === 'daily_limit') return 'danger';
+  if (status === 'throttled' || status === 'low') return 'warn';
+  return 'ok';
 }

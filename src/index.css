@@ -906,6 +906,72 @@ html::-webkit-scrollbar {
 
 .stats-grid--3 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 
+.admin-zoho-usage__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-zoho-usage__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-zoho-usage__title h2 {
+  font-size: 1.1rem;
+}
+
+.admin-zoho-usage__badge {
+  display: inline-flex;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.admin-zoho-usage__badge--ok {
+  background: rgba(52, 211, 153, 0.14);
+  color: #6ee7b7;
+}
+
+.admin-zoho-usage__badge--warn {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+}
+
+.admin-zoho-usage__badge--danger {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
+
+.admin-zoho-usage__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.admin-zoho-usage__value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 0.15rem;
+}
+
+.admin-zoho-usage__bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border-subtle, rgba(255, 255, 255, 0.08));
+  overflow: hidden;
+}
+
+.admin-zoho-usage__bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
 .stats-grid--4 {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }

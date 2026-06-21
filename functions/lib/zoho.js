@@ -1,3 +1,9 @@
+import {
+  recordZohoApiResponse,
+  recordZohoApiFailure,
+  classifyZohoHttpError,
+} from './zoho-api-usage.js';
+
 const ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.in';
 export const ZOHO_API_BASE = 'https://www.zohoapis.in/inventory/v1';
 const ROOT_CATEGORY_ID = '-1';
@@ -239,8 +245,14 @@ export async function fetchAllProducts(accessToken, orgId, page = 1, perPage = 2
 export async function fetchProductDetail(accessToken, orgId, itemId) {
   const url = `${ZOHO_API_BASE}/items/${itemId}?organization_id=${orgId}`;
   const response = await fetch(url, { headers: authHeaders(accessToken, orgId) });
+  await recordZohoApiResponse(response, { operation: `items/${itemId}`, source: 'catalog' });
   const payload = await response.json();
   if (payload.code !== 0) {
+    const err = classifyZohoHttpError(
+      String(payload.message ?? '').toLowerCase().includes('rate') ? 429 : 400,
+      payload,
+    );
+    await recordZohoApiFailure(err, { operation: `items/${itemId}`, source: 'catalog' });
     throw new Error(payload.message || 'Zoho product detail error');
   }
 

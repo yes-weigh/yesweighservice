@@ -4,6 +4,11 @@ import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
 import {
+  recordZohoApiResponse,
+  recordZohoApiFailure,
+  classifyZohoHttpError,
+} from './zoho-api-usage.js';
+import {
   mapInvoice,
   mapInvoiceLineItem,
   buildInvoiceSearchBlob,
@@ -81,6 +86,7 @@ async function zohoJsonRequest(accessToken, orgId, path) {
   const res = await fetch(url.toString(), {
     headers: authHeaders(accessToken, orgId),
   });
+  await recordZohoApiResponse(res, { operation: path, source: 'invoice-sync' });
   const text = await res.text();
   let payload = null;
   if (text) {
@@ -91,19 +97,18 @@ async function zohoJsonRequest(accessToken, orgId, path) {
     }
   }
   if (!res.ok) {
-    if (res.status === 429) {
-      const err = new Error('Zoho rate limit exceeded.');
-      err.code = 'RATE_LIMITED';
-      throw err;
-    }
-    const err = new Error(payload?.message || `Zoho API error (${res.status}).`);
-    if (payload?.code != null) err.zohoCode = payload.code;
+    const err = classifyZohoHttpError(res.status, payload);
+    await recordZohoApiFailure(err, { operation: path, source: 'invoice-sync' });
     throw err;
   }
   if (payload?.code !== undefined && payload.code !== 0) {
-    const err = new Error(payload.message || 'Zoho API error.');
-    err.zohoCode = payload.code;
-    throw err;
+    const err = classifyZohoHttpError(429, payload);
+    if (payload.code === 43 || String(payload.message ?? '').toLowerCase().includes('rate')) {
+      await recordZohoApiFailure(err, { operation: path, source: 'invoice-sync' });
+    }
+    const apiErr = new Error(payload.message || 'Zoho API error.');
+    apiErr.zohoCode = payload.code;
+    throw apiErr;
   }
   return payload;
 }
@@ -122,10 +127,12 @@ async function fetchZohoPdf(accessToken, orgId, resource, id) {
       Accept: 'application/pdf',
     },
   });
+  await recordZohoApiResponse(res, { operation: `${resource}/${id}/pdf`, source: 'invoice-sync' });
   if (!res.ok) {
     if (res.status === 429) {
       const err = new Error('Zoho rate limit exceeded.');
       err.code = 'RATE_LIMITED';
+      await recordZohoApiFailure(err, { operation: `${resource}/${id}/pdf`, source: 'invoice-sync' });
       throw err;
     }
     const text = await res.text();
@@ -153,6 +160,7 @@ async function fetchInvoicesListPage(accessToken, orgId, page, options = {}) {
   if (options.customerId) url.searchParams.set('customer_id', options.customerId);
 
   const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
+  await recordZohoApiResponse(res, { operation: `invoices/list?page=${page}`, source: 'invoice-sync' });
   const text = await res.text();
   let payload = null;
   if (text) {
@@ -164,19 +172,20 @@ async function fetchInvoicesListPage(accessToken, orgId, page, options = {}) {
   }
 
   if (!res.ok) {
-    if (res.status === 429) {
-      const err = new Error('Zoho rate limit exceeded.');
-      err.code = 'RATE_LIMITED';
-      throw err;
-    }
-    const err = new Error(payload?.message || `Zoho invoices API error (${res.status}).`);
-    if (payload?.code != null) err.zohoCode = payload.code;
+    const err = classifyZohoHttpError(res.status, payload);
+    err.message = payload?.message || err.message;
+    await recordZohoApiFailure(err, { operation: `invoices/list?page=${page}`, source: 'invoice-sync' });
     throw err;
   }
   if (payload?.code !== undefined && payload.code !== 0) {
-    const err = new Error(payload.message || 'Zoho invoices API error.');
-    err.zohoCode = payload.code;
-    throw err;
+    const err = classifyZohoHttpError(429, payload);
+    if (String(payload.message ?? '').toLowerCase().includes('rate')) {
+      await recordZohoApiFailure(err, { operation: `invoices/list?page=${page}`, source: 'invoice-sync' });
+      throw err;
+    }
+    const apiErr = new Error(payload.message || 'Zoho invoices API error.');
+    apiErr.zohoCode = payload.code;
+    throw apiErr;
   }
 
   return {
