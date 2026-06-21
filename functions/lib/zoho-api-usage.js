@@ -136,11 +136,13 @@ export async function fetchZohoOrgApiUsage(accessToken, orgId) {
   };
 }
 
-export async function getZohoApiUsageStatus(secrets, orgId) {
+export async function getZohoApiUsageStatus(secrets, orgId, options = {}) {
   const snap = await USAGE_REF().get();
   const cached = snap.exists ? snap.data() : null;
   const fetchedAtMs = cached?.fetchedAt?.toDate?.()?.getTime?.() ?? 0;
-  const cacheFresh = cached?.source === 'zoho' && Date.now() - fetchedAtMs < LIVE_CACHE_MS;
+  const cacheFresh = !options.forceRefresh
+    && cached?.source === 'zoho'
+    && Date.now() - fetchedAtMs < LIVE_CACHE_MS;
 
   if (cacheFresh) {
     return formatUsageDoc(cached);

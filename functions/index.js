@@ -803,7 +803,7 @@ export const getOrgInvoiceSyncStatusCallable = onCall(
   },
 );
 
-/** Zoho API usage today — super admin (polled from admin invoice sync page). */
+/** Zoho API usage today — super admin (on-demand from admin invoice sync page). */
 export const getZohoApiUsageCallable = onCall(
   {
     region: 'asia-south1',
@@ -817,6 +817,7 @@ export const getZohoApiUsageCallable = onCall(
       return await getZohoApiUsageStatus(
         zohoSecrets(),
         zohoOrganizationId.value(),
+        { forceRefresh: request.data?.forceRefresh === true },
       );
     } catch (err) {
       console.error('getZohoApiUsageStatus failed:', err);

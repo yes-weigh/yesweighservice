@@ -914,6 +914,13 @@ html::-webkit-scrollbar {
   flex-wrap: wrap;
 }
 
+.admin-zoho-usage__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
 .admin-zoho-usage__title {
   display: flex;
   align-items: center;

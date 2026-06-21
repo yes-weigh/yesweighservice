@@ -96,13 +96,15 @@ export async function fetchOrgInvoiceSyncStatus(): Promise<OrgInvoiceSyncStatus>
   return result.data;
 }
 
-export async function fetchZohoApiUsage(): Promise<ZohoApiUsageStatus> {
-  const callable = httpsCallable<undefined, ZohoApiUsageStatus>(
+export async function fetchZohoApiUsage(options?: { forceRefresh?: boolean }): Promise<ZohoApiUsageStatus> {
+  const callable = httpsCallable<{ forceRefresh?: boolean }, ZohoApiUsageStatus>(
     functions,
     'getZohoApiUsageCallable',
     { timeout: 15_000 },
   );
-  const result = await callable();
+  const result = await callable(
+    options?.forceRefresh ? { forceRefresh: true } : {},
+  );
   return result.data;
 }
 
