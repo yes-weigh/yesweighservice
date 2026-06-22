@@ -1,23 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertCircle, FileText, Radio, RefreshCw, Search, Settings2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, FileText, IndianRupee, Search } from 'lucide-react';
+import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
+  buildAdminSalesEntries,
+  fetchAdminCustomerLocations,
   filterAdminInvoices,
+  filterAdminInvoicesByPeriod,
+  formatAdminCustomerLocation,
   subscribeAdminInvoices,
   type AdminFirestoreInvoice,
   type AdminInvoiceSort,
 } from '../../lib/admin-invoices';
-import { fetchOrgInvoiceSyncStatus } from '../../lib/org-invoice-sync';
 import { formatCurrency } from '../../lib/catalog';
-import { formatInvoiceDate, invoiceStatusLabel } from '../../lib/invoices';
+import {
+  computeSalesForPeriod,
+  formatInvoiceDate,
+  formatKpiPeriodRange,
+  invoiceStatusLabel,
+} from '../../lib/invoices';
+import type { SalesRangePreset } from '../../types/invoices';
 
-const PAGE_SIZE = 50;
-
-function formatSyncedAt(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-IN');
-}
+const PAGE_SIZE = 500;
 
 function invoiceStatusClass(status: string): string {
   const key = status.toLowerCase().replace(/\s+/g, '_');
@@ -25,23 +30,16 @@ function invoiceStatusClass(status: string): string {
 }
 
 export const AdminInvoicesPage: React.FC = () => {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<AdminFirestoreInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<AdminInvoiceSort>('syncedAt');
-  const [live, setLive] = useState(false);
-  const [totalInFirestore, setTotalInFirestore] = useState<number | null>(null);
-  const [syncComplete, setSyncComplete] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    void fetchOrgInvoiceSyncStatus()
-      .then(status => {
-        setTotalInFirestore(status.pulledCount ?? null);
-        setSyncComplete(status.status === 'complete');
-      })
-      .catch(() => {});
-  }, []);
+  const [sort, setSort] = useState<AdminInvoiceSort>('date');
+  const [rangePreset, setRangePreset] = useState<SalesRangePreset>('current_month');
+  const [customerLocations, setCustomerLocations] = useState(
+    () => new Map<string, { district: string | null; state: string | null }>(),
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -52,24 +50,61 @@ export const AdminInvoicesPage: React.FC = () => {
       next => {
         setRows(next);
         setLoading(false);
-        setLive(true);
       },
       message => {
         setError(message);
         setLoading(false);
-        setLive(false);
       },
     );
-    return () => {
-      unsubscribe();
-      setLive(false);
-    };
+    return () => unsubscribe();
   }, [sort]);
 
-  const filtered = useMemo(
-    () => filterAdminInvoices(rows, search),
-    [rows, search],
+  const periodRows = useMemo(
+    () => filterAdminInvoicesByPeriod(rows, rangePreset),
+    [rows, rangePreset],
   );
+
+  const filtered = useMemo(
+    () => filterAdminInvoices(periodRows, search),
+    [periodRows, search],
+  );
+
+  useEffect(() => {
+    const customerIds = filtered.map(invoice => invoice.customerId);
+    if (!customerIds.length) {
+      setCustomerLocations(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    void fetchAdminCustomerLocations(customerIds).then(map => {
+      if (!cancelled) setCustomerLocations(map);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filtered]);
+
+  const openInvoice = (invoice: AdminFirestoreInvoice) => {
+    navigate(`/super-admin/invoices/${invoice.customerId}/${invoice.id}/invoice`);
+  };
+
+  const summary = useMemo(() => {
+    const unpaid = filtered.filter(invoice => invoice.balance > 0);
+    const salesEntries = buildAdminSalesEntries(filtered);
+    const sales = salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null;
+    return {
+      invoiceCount: filtered.length,
+      totalSales: sales?.totalSales ?? 0,
+      periodStart: sales?.periodStart ?? null,
+      periodEnd: sales?.periodEnd ?? new Date().toISOString(),
+      unpaidCount: unpaid.length,
+      outstanding: unpaid.reduce((sum, invoice) => sum + invoice.balance, 0),
+    };
+  }, [filtered, rangePreset]);
+
+  const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
 
   return (
     <div className="page-content fade-in">
@@ -77,57 +112,61 @@ export const AdminInvoicesPage: React.FC = () => {
         <div>
           <h1>Invoices</h1>
           <p className="text-muted mt-2">
-            All invoices mirrored in Firestore — updates appear here when Zoho webhooks or sync write new data.
+            Browse and search invoices across all dealers.
           </p>
-        </div>
-        <div className="admin-invoices-head__actions">
-          {live && (
-            <span className="admin-invoices-live" title="Listening to Firestore for changes">
-              <Radio size={14} aria-hidden />
-              Live
-            </span>
-          )}
-          <Link to="/super-admin/invoices/sync" className="btn btn-secondary">
-            <Settings2 size={16} />
-            Sync &amp; API usage
-          </Link>
         </div>
       </div>
 
-      {syncComplete === false && (
-        <div className="panel glass mb-4 admin-invoices-notice" role="status">
-          <AlertCircle size={18} />
-          <span>
-            Org backfill is not complete yet — this list still updates live, but some older invoices may be missing.
-          </span>
+      <section className="dealer-dash__kpis-layout admin-invoices-kpis mb-6" aria-label="Invoice summary">
+        <div className="dealer-dash-kpi dealer-dash-kpi--blue dealer-dash-kpi--featured admin-invoices-kpi--featured">
+          <div className="dealer-dash-kpi__featured-main">
+            <div className="dealer-dash-kpi__icon dealer-dash-kpi__icon--featured">
+              <IndianRupee strokeWidth={2.5} />
+            </div>
+            <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
+              <span className="dealer-dash-kpi__label">Total sales</span>
+              <SalesRangeSelect value={rangePreset} onChange={setRangePreset} />
+              <span className="admin-invoices-kpi__range text-muted text-sm">{dateRange}</span>
+            </div>
+          </div>
+          <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
+            {loading ? '…' : formatCurrency(summary.totalSales)}
+          </strong>
         </div>
-      )}
 
-      <div className="stats-grid stats-grid--3 mb-6">
-        <div className="stat-card glass">
-          <div className="stat-icon"><FileText size={28} /></div>
-          <div>
-            <h3>In Firestore</h3>
-            <div className="stat-value">
-              {totalInFirestore == null ? '—' : totalInFirestore.toLocaleString()}
+        <div className="dealer-dash__kpis-grid admin-invoices-kpis__grid">
+          <div className="dealer-dash-kpi dealer-dash-kpi--blue admin-invoices-kpi--static">
+            <div className="dealer-dash-kpi__icon"><FileText size={22} strokeWidth={2.5} /></div>
+            <div className="dealer-dash-kpi__body">
+              <span className="dealer-dash-kpi__label">Invoices</span>
+              <strong className="dealer-dash-kpi__value">
+                {loading ? '…' : summary.invoiceCount.toLocaleString()}
+              </strong>
+              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">In selected period</span>
+            </div>
+          </div>
+          <div className="dealer-dash-kpi dealer-dash-kpi--orange admin-invoices-kpi--static">
+            <div className="dealer-dash-kpi__icon"><FileText size={22} strokeWidth={2.5} /></div>
+            <div className="dealer-dash-kpi__body">
+              <span className="dealer-dash-kpi__label">Unpaid</span>
+              <strong className="dealer-dash-kpi__value">
+                {loading ? '…' : summary.unpaidCount.toLocaleString()}
+              </strong>
+              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">In selected period</span>
+            </div>
+          </div>
+          <div className="dealer-dash-kpi dealer-dash-kpi--green admin-invoices-kpi--static">
+            <div className="dealer-dash-kpi__icon"><IndianRupee size={22} strokeWidth={2.5} /></div>
+            <div className="dealer-dash-kpi__body">
+              <span className="dealer-dash-kpi__label">Outstanding</span>
+              <strong className="dealer-dash-kpi__value">
+                {loading ? '…' : formatCurrency(summary.outstanding)}
+              </strong>
+              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">Balance due</span>
             </div>
           </div>
         </div>
-        <div className="stat-card glass">
-          <div>
-            <h3>Showing (live window)</h3>
-            <div className="stat-value">{PAGE_SIZE.toLocaleString()}</div>
-            <p className="text-muted text-sm mt-1">Newest by {sort === 'syncedAt' ? 'Firebase update' : 'invoice date'}</p>
-          </div>
-        </div>
-        <div className="stat-card glass">
-          <div>
-            <h3>Matched search</h3>
-            <div className="stat-value">{filtered.length.toLocaleString()}</div>
-            <p className="text-muted text-sm mt-1">Filters the live window only</p>
-          </div>
-        </div>
-      </div>
+      </section>
 
       {error && (
         <div className="products-inline-error panel glass mb-4" role="alert">
@@ -152,22 +191,22 @@ export const AdminInvoicesPage: React.FC = () => {
           <label htmlFor="admin-invoice-sort" className="text-muted text-sm">Sort by</label>
           <select
             id="admin-invoice-sort"
-            className="admin-invoices-sort__select"
+            className="admin-invoices-sort__select catalog-select"
             value={sort}
             onChange={e => setSort(e.target.value as AdminInvoiceSort)}
           >
-            <option value="syncedAt">Recently updated in Firebase</option>
             <option value="date">Invoice date</option>
+            <option value="syncedAt">Most recently updated</option>
           </select>
         </div>
       </div>
 
       {loading && rows.length === 0 ? (
-        <FetchingLoader label="Loading invoices from Firestore…" />
+        <FetchingLoader label="Loading invoices…" />
       ) : filtered.length === 0 ? (
         <div className="invoices-empty panel glass">
           <FileText size={40} className="text-muted" aria-hidden />
-          <p>No invoices match your search in the current live window.</p>
+          <p>No invoices found for this period.</p>
         </div>
       ) : (
         <div className="panel glass invoices-table-panel admin-invoices-table-panel">
@@ -178,72 +217,89 @@ export const AdminInvoicesPage: React.FC = () => {
                   <th>Invoice</th>
                   <th>Customer</th>
                   <th>Date</th>
-                  <th>Status</th>
                   <th className="invoices-table__num">Total</th>
-                  <th className="invoices-table__num">Balance</th>
-                  <th>Updated in Firebase</th>
+                  <th>Status</th>
+                  <th className="invoices-table__actions"> </th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(invoice => (
+                {filtered.map(invoice => {
+                  const locationLabel = formatAdminCustomerLocation(
+                    customerLocations.get(invoice.customerId),
+                  );
+                  return (
                   <tr key={`${invoice.customerId}-${invoice.id}`}>
                     <td>
                       <strong>{invoice.invoiceNumber || invoice.id}</strong>
                       {invoice.referenceNumber && (
                         <div className="invoices-table__ref text-muted text-sm">
-                          SO {invoice.referenceNumber}
+                          Order {invoice.referenceNumber}
                         </div>
                       )}
                     </td>
                     <td>
                       <div>{invoice.customerName ?? '—'}</div>
-                      <div className="text-muted text-sm">ID {invoice.customerId}</div>
+                      {locationLabel && (
+                        <div className="invoices-table__ref text-muted text-sm">{locationLabel}</div>
+                      )}
                     </td>
                     <td>{formatInvoiceDate(invoice.date)}</td>
+                    <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
                     <td>
                       <span className={invoiceStatusClass(invoice.status)}>
                         {invoiceStatusLabel(invoice.status)}
                       </span>
                     </td>
-                    <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
-                    <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
-                    <td className="text-muted text-sm">{formatSyncedAt(invoice.syncedAt)}</td>
+                    <td className="invoices-table__actions">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => openInvoice(invoice)}
+                      >
+                        View
+                      </button>
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           <ul className="admin-invoices-mobile-list">
-            {filtered.map(invoice => (
+            {filtered.map(invoice => {
+              const locationLabel = formatAdminCustomerLocation(
+                customerLocations.get(invoice.customerId),
+              );
+              return (
               <li key={`${invoice.customerId}-${invoice.id}`} className="admin-invoices-mobile-card panel glass">
                 <div className="admin-invoices-mobile-card__row">
                   <strong>{invoice.invoiceNumber || invoice.id}</strong>
                   <span>{formatCurrency(invoice.total)}</span>
                 </div>
-                <div className="text-muted text-sm">{invoice.customerName ?? invoice.customerId}</div>
+                <div>{invoice.customerName ?? '—'}</div>
+                {locationLabel && (
+                  <div className="text-muted text-sm">{locationLabel}</div>
+                )}
                 <div className="admin-invoices-mobile-card__meta text-sm">
                   <span>{formatInvoiceDate(invoice.date)}</span>
                   <span className={invoiceStatusClass(invoice.status)}>
                     {invoiceStatusLabel(invoice.status)}
                   </span>
                 </div>
-                <div className="text-muted text-sm">
-                  Firebase: {formatSyncedAt(invoice.syncedAt)}
-                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm admin-invoices-mobile-card__view"
+                  onClick={() => openInvoice(invoice)}
+                >
+                  View invoice
+                </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       )}
-
-      <p className="text-muted text-sm mt-4 admin-invoices-footnote">
-        <RefreshCw size={14} className="admin-invoices-footnote__icon" aria-hidden />
-        Showing the {PAGE_SIZE} most recent invoices by{' '}
-        {sort === 'syncedAt' ? 'Firebase update time' : 'invoice date'}.
-        Use <strong>Recently updated</strong> to spot webhook activity.
-        Zoho create/edit workflows must not use <code>?action=delete</code> in the webhook URL.
-      </p>
     </div>
   );
 };

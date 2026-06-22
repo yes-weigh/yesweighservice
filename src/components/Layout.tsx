@@ -30,8 +30,6 @@ import {
   ListTodo,
   Truck,
   Gift,
-  UserCog,
-  ChevronDown,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
@@ -41,12 +39,6 @@ type NavItem = {
   icon: React.ReactNode;
   label: string;
   badge?: number;
-};
-
-type NavSection = {
-  id: string;
-  label: string | null;
-  items: NavItem[];
 };
 
 const OPS_PATH_SUFFIXES = [
@@ -189,7 +181,6 @@ const LayoutShell: React.FC = () => {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [opsCollapsed, setOpsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [pageRefreshKey, setPageRefreshKey] = useState(0);
 
@@ -202,15 +193,6 @@ const LayoutShell: React.FC = () => {
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (user?.role !== 'super_admin') return;
-    const opsPaths = operationsNavItems('/super-admin', 0).map(item => item.path);
-    const onOpsPage = opsPaths.some(
-      path => location.pathname === path || location.pathname.startsWith(`${path}/`),
-    );
-    if (onOpsPage) setOpsCollapsed(false);
-  }, [location.pathname, user?.role]);
 
   const showCartFlyTarget = canUseCart(user?.role);
   const cartBadgeCount = showCartFlyTarget ? itemCount : 0;
@@ -226,28 +208,16 @@ const LayoutShell: React.FC = () => {
 
   if (!user) return null;
 
-  const getNavSections = (): NavSection[] => {
+  const getNavItems = (): NavItem[] => {
     switch (user.role) {
       case 'super_admin':
         return [
-          {
-            id: 'admin',
-            label: null,
-            items: [
-              { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-              { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
-              { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
-              { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
-              { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
-              { path: '/super-admin/dealer-accounts', icon: <UserCircle size={20} />, label: 'Dealer Logins' },
-              { path: '/super-admin/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
-            ],
-          },
-          {
-            id: 'ops',
-            label: 'Operations',
-            items: operationsNavItems('/super-admin', cartBadgeCount),
-          },
+          { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
+          { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
+          { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
+          { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
+          ...operationsNavItems('/super-admin', cartBadgeCount),
         ];
       case 'staff': {
         const items: NavItem[] = [
@@ -260,34 +230,25 @@ const LayoutShell: React.FC = () => {
         if (canViewHr(user)) {
           items.splice(1, 0, { path: '/staff/hr', icon: <Users size={20} />, label: 'HR' });
         }
-        return [{ id: 'main', label: null, items: filterStaffNavItems(user, items) }];
+        return filterStaffNavItems(user, items);
       }
       case 'dealer':
-        return [{
-          id: 'main',
-          label: null,
-          items: [
-            { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-            ...portalNavItems('/dealer', cartBadgeCount, 'dealer'),
-            { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
-          ],
-        }];
+        return [
+          { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          ...portalNavItems('/dealer', cartBadgeCount, 'dealer'),
+          { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
+        ];
       case 'dealer_staff':
-        return [{
-          id: 'main',
-          label: null,
-          items: [
-            { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-            ...portalNavItems('/dealer-staff', cartBadgeCount, 'dealer_staff'),
-          ],
-        }];
+        return [
+          { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          ...portalNavItems('/dealer-staff', cartBadgeCount, 'dealer_staff'),
+        ];
       default:
         return [];
     }
   };
 
-  const navSections = getNavSections();
-  const navItems = navSections.flatMap(section => section.items);
+  const navItems = getNavItems();
   const home = homePathForRole(user.role);
   const profilePath = `${home}/profile`;
 
@@ -389,46 +350,25 @@ const LayoutShell: React.FC = () => {
           )}
         </div>
 
-        <nav className={`nav-menu ${navSections.length > 1 ? 'nav-menu--sectioned' : ''}`}>
-          {navSections.map(section => {
-            const sectionCollapsed = section.id === 'ops' && opsCollapsed;
-            return (
-              <div key={section.id} className="nav-section">
-                {section.label && !collapsed && (
-                  <button
-                    type="button"
-                    className="nav-section__toggle"
-                    onClick={() => setOpsCollapsed(c => !c)}
-                    aria-expanded={!sectionCollapsed}
-                  >
-                    <span className="nav-section__label">{section.label}</span>
-                    <ChevronDown
-                      size={14}
-                      className={`nav-section__chevron ${sectionCollapsed ? 'nav-section__chevron--collapsed' : ''}`}
-                    />
-                  </button>
+        <nav className="nav-menu">
+          {navItems.map(item => (
+            <button
+              key={item.path}
+              type="button"
+              className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
+              onClick={() => handleNavClick(item.path)}
+            >
+              <span className="nav-icon">
+                {item.icon}
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="nav-badge" aria-label={`${item.badge} items in cart`}>
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
                 )}
-                {(!section.label || !sectionCollapsed) && section.items.map(item => (
-                  <button
-                    key={item.path}
-                    type="button"
-                    className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
-                    onClick={() => handleNavClick(item.path)}
-                  >
-                    <span className="nav-icon">
-                      {item.icon}
-                      {item.badge !== undefined && item.badge > 0 && (
-                        <span className="nav-badge" aria-label={`${item.badge} items in cart`}>
-                          {item.badge > 99 ? '99+' : item.badge}
-                        </span>
-                      )}
-                    </span>
-                    {!collapsed && <span className="nav-label">{item.label}</span>}
-                  </button>
-                ))}
-              </div>
-            );
-          })}
+              </span>
+              {!collapsed && <span className="nav-label">{item.label}</span>}
+            </button>
+          ))}
         </nav>
 
         {profilePath && (

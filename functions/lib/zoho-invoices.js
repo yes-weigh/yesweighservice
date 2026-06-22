@@ -86,6 +86,15 @@ export async function downloadDealerInvoiceDocument(secrets, orgId, uid, role, i
   return ensureInvoiceDocumentPdf(secrets, orgId, customerId, invoiceId, documentType);
 }
 
+export async function downloadAdminInvoiceDocument(secrets, orgId, customerId, invoiceId, documentType) {
+  const safeCustomerId = String(customerId ?? '').trim();
+  const safeInvoiceId = String(invoiceId ?? '').trim();
+  if (!safeCustomerId || !safeInvoiceId) {
+    throw new Error('Customer id and invoice id are required.');
+  }
+  return ensureInvoiceDocumentPdf(secrets, orgId, safeCustomerId, safeInvoiceId, documentType);
+}
+
 export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}) {
   const customerId = await resolveZohoCustomerIdForUser(uid, role);
 

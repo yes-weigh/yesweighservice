@@ -48,6 +48,7 @@ import {
   getDealerInvoiceDashboard as buildDealerInvoiceDashboard,
   getDealerInvoiceDetail as fetchDealerInvoiceDetail,
   downloadDealerInvoiceDocument as fetchDealerInvoiceDocument,
+  downloadAdminInvoiceDocument as fetchAdminInvoiceDocument,
   resolveZohoCustomerIdForUser,
 } from './lib/zoho-invoices.js';
 import {
@@ -666,6 +667,42 @@ export const downloadDealerInvoiceDocument = onCall(
         zohoOrganizationId.value(),
         uid,
         role,
+        invoiceId,
+        documentType,
+      );
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not download document.');
+    }
+  },
+);
+
+/** Download invoice PDF for super admin (any dealer customer). */
+export const downloadAdminInvoiceDocument = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const customerId = String(request.data?.customerId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    const documentType = String(request.data?.documentType ?? '').trim().toLowerCase();
+    if (!customerId) {
+      throw new HttpsError('invalid-argument', 'Customer id is required.');
+    }
+    if (!invoiceId) {
+      throw new HttpsError('invalid-argument', 'Invoice id is required.');
+    }
+    if (documentType !== 'invoice' && documentType !== 'salesorder') {
+      throw new HttpsError('invalid-argument', 'documentType must be invoice or salesorder.');
+    }
+    try {
+      return await fetchAdminInvoiceDocument(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        customerId,
         invoiceId,
         documentType,
       );

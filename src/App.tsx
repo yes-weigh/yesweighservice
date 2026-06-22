@@ -24,6 +24,9 @@ import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
 import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
 import { AdminInvoicesPage } from './pages/admin/AdminInvoicesPage';
 import { AdminInvoiceSyncPage } from './pages/admin/AdminInvoiceSyncPage';
+import { AdminInvoiceDetailLayout } from './pages/admin/AdminInvoiceDetailLayout';
+import { AdminInvoiceDocumentPage } from './pages/admin/AdminInvoiceDocumentPage';
+import { AdminInvoicePdfViewerPage } from './pages/admin/AdminInvoicePdfViewerPage';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
@@ -148,6 +151,13 @@ const App: React.FC = () => (
               </Route>
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
               <Route path="invoices" element={<AdminInvoicesPage />} />
+              <Route path="invoices/:customerId/:invoiceId" element={<AdminInvoiceDetailLayout />}>
+                <Route index element={<Navigate to="invoice" replace />} />
+                <Route path="invoice">
+                  <Route index element={<AdminInvoiceDocumentPage />} />
+                  <Route path="view" element={<AdminInvoicePdfViewerPage />} />
+                </Route>
+              </Route>
               <Route path="invoices/sync" element={<AdminInvoiceSyncPage />} />
               {superAdminOpsRoutes}
               <Route path="profile" element={<ProfilePage />} />

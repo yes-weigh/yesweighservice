@@ -178,6 +178,27 @@ export async function downloadDealerInvoiceDocument(
   }
 }
 
+export async function downloadAdminInvoiceDocument(
+  customerId: string,
+  invoiceId: string,
+  documentType: InvoiceDocumentType,
+): Promise<InvoiceDocumentDownload> {
+  const callable = httpsCallable<
+    { customerId: string; invoiceId: string; documentType: InvoiceDocumentType },
+    InvoiceDocumentDownload
+  >(
+    functions,
+    'downloadAdminInvoiceDocument',
+    { timeout: 60_000 },
+  );
+  try {
+    const result = await callable({ customerId, invoiceId, documentType });
+    return result.data;
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+}
+
 export function saveInvoiceDocumentFile(doc: InvoiceDocumentDownload): void {
   const blob = invoiceDocumentToBlob(doc);
   const url = URL.createObjectURL(blob);
@@ -380,6 +401,15 @@ function resolvePeriodBounds(
   const dayCount = Math.floor((periodEnd.getTime() - periodStart.getTime()) / DAY_MS) + 1;
   const prevPeriodEnd = endOfDay(addDays(prevPeriodStart, dayCount - 1));
   return { periodStart, periodEnd, prevPeriodStart, prevPeriodEnd };
+}
+
+export function getInvoicePeriodBounds(
+  period: KpiPeriod,
+  now = new Date(),
+): { start: Date; end: Date } | null {
+  const bounds = resolvePeriodBounds(period, now);
+  if (!bounds) return null;
+  return { start: bounds.periodStart, end: bounds.periodEnd };
 }
 
 function sumSalesInWindow(
