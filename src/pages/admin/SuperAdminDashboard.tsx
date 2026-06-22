@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowDownRight,
-  ArrowUpRight,
   Ban,
   Bell,
   Briefcase,
@@ -19,13 +17,12 @@ import {
   ShoppingCart,
   TrendingUp,
   UserCheck,
-  UserX,
+  UserMinus,
   Users,
 } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { SalesChart } from '../../components/dashboard/SalesChart';
 import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
-import { useAuth } from '../../context/AuthContext';
 import {
   buildAdminDailySales,
   buildAdminSalesEntries,
@@ -40,7 +37,6 @@ import { formatCurrency } from '../../lib/catalog';
 import {
   computeSalesForPeriod,
   formatInvoiceRelativeTime,
-  formatKpiTrendLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
 import type { FirestoreUserDoc } from '../../types';
@@ -51,8 +47,6 @@ import type { AdminFirestoreInvoice } from '../../lib/admin-invoices';
 import type { SalesRangePreset } from '../../types/invoices';
 
 const BASE = '/super-admin';
-
-type Trend = 'up' | 'down';
 
 interface ActivityItem {
   id: string;
@@ -121,14 +115,13 @@ function buildActivities(
 
 export const SuperAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [dealerStats, setDealerStats] = useState<DealerStats | null>(null);
   const [invoices, setInvoices] = useState<AdminFirestoreInvoice[]>([]);
   const [supportRequests, setSupportRequests] = useState<DealerSupportRequest[]>([]);
   const [staffCount, setStaffCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rangePreset, setRangePreset] = useState<SalesRangePreset>(30);
+  const [rangePreset, setRangePreset] = useState<SalesRangePreset>('current_month');
 
   useEffect(() => {
     let cancelled = false;
@@ -173,24 +166,8 @@ export const SuperAdminDashboard: React.FC = () => {
   );
   const dailySales = useMemo(() => buildAdminDailySales(invoices, 30), [invoices]);
 
-  const salesTrend = useMemo(() => {
-    if (!salesSummary || salesSummary.salesTrendPct === null) return null;
-    return {
-      trend: salesSummary.salesTrendPct >= 0 ? 'up' as Trend : 'down' as Trend,
-      label: `${Math.abs(salesSummary.salesTrendPct).toFixed(1)}% ${formatKpiTrendLabel(rangePreset)}`,
-    };
-  }, [salesSummary, rangePreset]);
-
   const openSupport = useMemo(
     () => supportRequests.filter(r => r.status === 'pending' || r.status === 'in_progress').length,
-    [supportRequests],
-  );
-
-  const openServiceTickets = useMemo(
-    () => supportRequests.filter(
-      r => (r.status === 'pending' || r.status === 'in_progress')
-        && (r.type === 'service' || r.type === 'complaint'),
-    ).length,
     [supportRequests],
   );
 
@@ -209,14 +186,11 @@ export const SuperAdminDashboard: React.FC = () => {
   const outstanding = useMemo(() => sumAdminOutstanding(invoices), [invoices]);
   const overdueCount = useMemo(() => countAdminInvoicesByStatus(invoices, 'overdue'), [invoices]);
 
-  const firstName = user?.displayName?.split(/\s+/)[0] ?? 'Admin';
-
   const opsKpis = [
     {
       id: 'support',
       label: 'Warranty & Support',
       value: loading ? '…' : String(openSupport),
-      trendLabel: loading ? '' : `${openServiceTickets} service & complaints`,
       path: `${BASE}/warranty-support`,
       tone: 'green' as const,
       icon: <LifeBuoy size={22} strokeWidth={2.5} />,
@@ -225,7 +199,6 @@ export const SuperAdminDashboard: React.FC = () => {
       id: 'orders',
       label: 'Orders',
       value: loading ? '…' : String(openReturnOrders),
-      trendLabel: 'Open returns & RMA',
       path: `${BASE}/orders`,
       tone: 'orange' as const,
       icon: <ShoppingCart size={22} strokeWidth={2.5} />,
@@ -237,7 +210,6 @@ export const SuperAdminDashboard: React.FC = () => {
       id: 'dealers-total',
       label: 'Total Dealers',
       value: loading ? '…' : dealerStats ? String(dealerStats.total) : '—',
-      trendLabel: 'On dealer roster',
       path: `${BASE}/dealers`,
       tone: 'blue' as const,
       icon: <Building2 size={22} strokeWidth={2.5} />,
@@ -246,28 +218,33 @@ export const SuperAdminDashboard: React.FC = () => {
       id: 'dealers-active',
       label: 'Active Dealers',
       value: loading ? '…' : dealerStats ? String(dealerStats.active) : '—',
-      trendLabel: dealerStats ? 'Stage: Active' : '',
       path: `${BASE}/dealers`,
       tone: 'green' as const,
       icon: <UserCheck size={22} strokeWidth={2.5} />,
     },
     {
-      id: 'dealers-inactive',
-      label: 'Inactive Dealers',
-      value: loading ? '…' : dealerStats ? String(dealerStats.inactive) : '—',
-      trendLabel: 'Zoho inactive status',
+      id: 'dealers-non-active',
+      label: 'Non Active Dealers',
+      value: loading ? '…' : dealerStats ? String(dealerStats.nonActive) : '—',
       path: `${BASE}/dealers`,
       tone: 'orange' as const,
-      icon: <UserX size={22} strokeWidth={2.5} />,
+      icon: <UserMinus size={22} strokeWidth={2.5} />,
     },
     {
       id: 'dealers-blacklisted',
       label: 'Blacklisted Dealers',
       value: loading ? '…' : dealerStats ? String(dealerStats.blacklisted) : '—',
-      trendLabel: 'Stage: Blacklisted',
       path: `${BASE}/dealers`,
       tone: 'red' as const,
       icon: <Ban size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'dealers-unstaged',
+      label: 'Unstaged Dealers',
+      value: loading ? '…' : dealerStats ? String(dealerStats.unstaged) : '—',
+      path: `${BASE}/dealers`,
+      tone: 'purple' as const,
+      icon: <Users size={22} strokeWidth={2.5} />,
     },
   ];
 
@@ -312,19 +289,6 @@ export const SuperAdminDashboard: React.FC = () => {
 
   return (
     <div className="page-content fade-in dealer-dashboard">
-      <header className="dealer-dash__hero">
-        <div className="dealer-dash__hero-copy">
-          <p className="dealer-dash__eyebrow">YesOne Platform Admin</p>
-          <h2 className="dealer-dash__title">
-            Welcome, {firstName}
-            <span className="dealer-dash__wave" aria-hidden>👋</span>
-          </h2>
-          <p className="dealer-dash__subtitle">
-            Organisation snapshot — dealers, invoices, support, and staff across YesWeigh.
-          </p>
-        </div>
-      </header>
-
       {error && (
         <p className="dealer-dash__error" role="alert">
           {error}
@@ -340,12 +304,6 @@ export const SuperAdminDashboard: React.FC = () => {
             <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
               <span className="dealer-dash-kpi__label">Total Sales</span>
               <SalesRangeSelect value={rangePreset} onChange={setRangePreset} />
-              {salesTrend && (
-                <span className={`dealer-dash-kpi__trend dealer-dash-kpi__trend--${salesTrend.trend}`}>
-                  {salesTrend.trend === 'up' ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                  {salesTrend.label}
-                </span>
-              )}
             </div>
           </div>
           <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
@@ -373,19 +331,13 @@ export const SuperAdminDashboard: React.FC = () => {
               <div className="dealer-dash-kpi__body">
                 <span className="dealer-dash-kpi__label">{card.label}</span>
                 <strong className="dealer-dash-kpi__value">{card.value}</strong>
-                {card.trendLabel && (
-                  <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">
-                    <ArrowUpRight size={13} />
-                    {card.trendLabel}
-                  </span>
-                )}
               </div>
               <ChevronRight size={18} className="dealer-dash-kpi__chevron" aria-hidden />
             </button>
           ))}
         </div>
 
-        <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--four">
+        <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--dealer-stages">
           {secondaryKpis.map(card => (
             <button
               key={card.id}
@@ -397,12 +349,6 @@ export const SuperAdminDashboard: React.FC = () => {
               <div className="dealer-dash-kpi__body">
                 <span className="dealer-dash-kpi__label">{card.label}</span>
                 <strong className="dealer-dash-kpi__value">{card.value}</strong>
-                {card.trendLabel && (
-                  <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">
-                    <ArrowUpRight size={13} />
-                    {card.trendLabel}
-                  </span>
-                )}
               </div>
               <ChevronRight size={18} className="dealer-dash-kpi__chevron" aria-hidden />
             </button>

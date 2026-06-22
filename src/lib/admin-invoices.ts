@@ -13,7 +13,10 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { getInvoicePeriodBounds } from './invoices';
+import {
+  getInvoicePeriodBounds,
+  sumInvoiceProductQuantity,
+} from './invoices';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
@@ -35,6 +38,7 @@ export interface AdminFirestoreInvoice {
   balance: number;
   referenceNumber: string | null;
   syncedAt: string | null;
+  itemQuantity: number | null;
 }
 
 function timestampToIso(value: unknown): string | null {
@@ -52,6 +56,9 @@ export function mapAdminInvoiceDoc(
 ): AdminFirestoreInvoice {
   const data = docSnap.data();
   const customerId = String(data.customerId ?? docSnap.ref.parent.parent?.id ?? '');
+  const lineItems = Array.isArray(data.lineItems)
+    ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
+    : [];
   return {
     id: docSnap.id,
     customerId,
@@ -63,6 +70,7 @@ export function mapAdminInvoiceDoc(
     balance: Number(data.balance ?? 0),
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
+    itemQuantity: lineItems.length ? sumInvoiceProductQuantity(lineItems) : null,
   };
 }
 

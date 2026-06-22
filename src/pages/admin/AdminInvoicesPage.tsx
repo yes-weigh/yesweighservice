@@ -17,6 +17,7 @@ import { formatCurrency } from '../../lib/catalog';
 import {
   computeSalesForPeriod,
   formatInvoiceDate,
+  formatInvoiceItemQuantity,
   formatKpiPeriodRange,
   invoiceStatusLabel,
 } from '../../lib/invoices';
@@ -217,9 +218,9 @@ export const AdminInvoicesPage: React.FC = () => {
                   <th>Invoice</th>
                   <th>Customer</th>
                   <th>Date</th>
+                  <th className="invoices-table__num">Qty</th>
                   <th className="invoices-table__num">Total</th>
                   <th>Status</th>
-                  <th className="invoices-table__actions"> </th>
                 </tr>
               </thead>
               <tbody>
@@ -228,7 +229,20 @@ export const AdminInvoicesPage: React.FC = () => {
                     customerLocations.get(invoice.customerId),
                   );
                   return (
-                  <tr key={`${invoice.customerId}-${invoice.id}`}>
+                  <tr
+                    key={`${invoice.customerId}-${invoice.id}`}
+                    className="invoices-table__row--clickable"
+                    onClick={() => openInvoice(invoice)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openInvoice(invoice);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
+                  >
                     <td>
                       <strong>{invoice.invoiceNumber || invoice.id}</strong>
                       {invoice.referenceNumber && (
@@ -244,20 +258,12 @@ export const AdminInvoicesPage: React.FC = () => {
                       )}
                     </td>
                     <td>{formatInvoiceDate(invoice.date)}</td>
+                    <td className="invoices-table__num">{formatInvoiceItemQuantity(invoice.itemQuantity)}</td>
                     <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
                     <td>
                       <span className={invoiceStatusClass(invoice.status)}>
                         {invoiceStatusLabel(invoice.status)}
                       </span>
-                    </td>
-                    <td className="invoices-table__actions">
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => openInvoice(invoice)}
-                      >
-                        View
-                      </button>
                     </td>
                   </tr>
                   );
@@ -292,6 +298,9 @@ export const AdminInvoicesPage: React.FC = () => {
                   </strong>
                   <span className="admin-invoices-mobile-card__date text-muted text-sm">
                     {formatInvoiceDate(invoice.date)}
+                  </span>
+                  <span className="admin-invoices-mobile-card__qty text-muted text-sm">
+                    Qty {formatInvoiceItemQuantity(invoice.itemQuantity)}
                   </span>
                   <span className="admin-invoices-mobile-card__total">
                     {formatCurrency(invoice.total)}

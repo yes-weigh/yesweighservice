@@ -77,7 +77,9 @@ function buildKpis(stats: DealerStats | null, user: import('../../types').User |
       label: 'Total Dealers',
       value: stats ? String(stats.total) : '—',
       trend: 'up',
-      trendLabel: stats ? `${stats.active} active` : 'Loading…',
+      trendLabel: stats
+        ? `${stats.active} active · ${stats.nonActive} non active`
+        : 'Loading…',
       path: `${BASE}/dealers`,
       tone: 'blue',
       icon: <Building2 size={22} strokeWidth={2.5} />,

@@ -3,6 +3,7 @@ import { app } from '../firebase';
 import type {
   DealerInvoice,
   DealerInvoiceDetail,
+  DealerInvoiceLineItem,
   InvoiceDashboardSummary,
   InvoiceDocumentDownload,
   InvoiceDocumentType,
@@ -563,4 +564,25 @@ export function formatKpiPeriodRange(periodStart: string | null, periodEnd: stri
     d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   if (!periodStart) return 'All time';
   return `${fmt(new Date(periodStart))} – ${fmt(new Date(periodEnd))}`;
+}
+
+export function isFreightInvoiceLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'>,
+): boolean {
+  const name = item.name.trim().toLowerCase();
+  if (name === 'freight') return true;
+  const sku = item.sku?.trim().toLowerCase() ?? '';
+  return sku === 'freight';
+}
+
+export function sumInvoiceProductQuantity(lineItems: DealerInvoiceLineItem[]): number {
+  return lineItems.reduce((sum, item) => {
+    if (isFreightInvoiceLineItem(item)) return sum;
+    return sum + item.quantity;
+  }, 0);
+}
+
+export function formatInvoiceItemQuantity(quantity: number | null): string {
+  if (quantity === null) return '—';
+  return quantity.toLocaleString('en-IN');
 }

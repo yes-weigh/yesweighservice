@@ -1174,6 +1174,24 @@ html::-webkit-scrollbar {
   overflow: hidden;
 }
 
+.admin-invoices-table-panel .invoices-table__row--clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.admin-invoices-table-panel .invoices-table__row--clickable:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-invoices-table-panel .invoices-table__row--clickable:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.85);
+  outline-offset: -2px;
+}
+
+.admin-invoices-table-panel .invoices-table__row--clickable:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .admin-invoices-mobile-list {
   display: none;
   list-style: none;
@@ -1222,6 +1240,11 @@ html::-webkit-scrollbar {
 }
 
 .admin-invoices-mobile-card__date {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.admin-invoices-mobile-card__qty {
   flex: 0 0 auto;
   white-space: nowrap;
 }
@@ -4858,7 +4881,8 @@ html::-webkit-scrollbar {
   gap: 0.75rem;
 }
 
-.dealer-dash__kpis-grid--four {
+.dealer-dash__kpis-grid--four,
+.dealer-dash__kpis-grid--dealer-stages {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -4956,6 +4980,7 @@ html::-webkit-scrollbar {
 .dealer-dash-kpi--green { --kpi-accent: #10b981; }
 .dealer-dash-kpi--red { --kpi-accent: #ef4444; }
 .dealer-dash-kpi--orange { --kpi-accent: #f58220; }
+.dealer-dash-kpi--purple { --kpi-accent: #a855f7; }
 
 .dealer-dash-kpi__icon {
   flex-shrink: 0;

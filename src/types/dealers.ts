@@ -143,8 +143,9 @@ export interface DealerListResponse {
 export interface DealerStats {
   total: number;
   active: number;
+  nonActive: number;
   blacklisted: number;
-  inactive: number;
+  unstaged: number;
   unassignedKam: number;
 }
 
