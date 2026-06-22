@@ -272,28 +272,42 @@ export const AdminInvoicesPage: React.FC = () => {
                 customerLocations.get(invoice.customerId),
               );
               return (
-              <li key={`${invoice.customerId}-${invoice.id}`} className="admin-invoices-mobile-card panel glass">
-                <div className="admin-invoices-mobile-card__row">
-                  <strong>{invoice.invoiceNumber || invoice.id}</strong>
-                  <span>{formatCurrency(invoice.total)}</span>
+              <li
+                key={`${invoice.customerId}-${invoice.id}`}
+                className="admin-invoices-mobile-card panel glass"
+                onClick={() => openInvoice(invoice)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    openInvoice(invoice);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
+              >
+                <div className="admin-invoices-mobile-card__head">
+                  <strong className="admin-invoices-mobile-card__invoice">
+                    {invoice.invoiceNumber || invoice.id}
+                  </strong>
+                  <span className="admin-invoices-mobile-card__date text-muted text-sm">
+                    {formatInvoiceDate(invoice.date)}
+                  </span>
+                  <span className="admin-invoices-mobile-card__total">
+                    {formatCurrency(invoice.total)}
+                  </span>
                 </div>
-                <div>{invoice.customerName ?? '—'}</div>
-                {locationLabel && (
-                  <div className="text-muted text-sm">{locationLabel}</div>
-                )}
-                <div className="admin-invoices-mobile-card__meta text-sm">
-                  <span>{formatInvoiceDate(invoice.date)}</span>
+                <div className="admin-invoices-mobile-card__customer">
+                  {invoice.customerName ?? '—'}
+                </div>
+                <div className="admin-invoices-mobile-card__foot text-sm">
+                  <span className="admin-invoices-mobile-card__location text-muted">
+                    {locationLabel ?? '—'}
+                  </span>
                   <span className={invoiceStatusClass(invoice.status)}>
                     {invoiceStatusLabel(invoice.status)}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm admin-invoices-mobile-card__view"
-                  onClick={() => openInvoice(invoice)}
-                >
-                  View invoice
-                </button>
               </li>
               );
             })}
