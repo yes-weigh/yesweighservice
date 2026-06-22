@@ -39,6 +39,53 @@ export async function rollbackCreatedAuthUser(): Promise<void> {
   await signOut(secondaryAuth);
 }
 
+export type UpdateUserProfilePatch = Partial<
+  Pick<
+    FirestoreUserDoc,
+    | 'displayName'
+    | 'phone'
+    | 'email'
+    | 'active'
+    | 'dealerId'
+    | 'staffDepartment'
+    | 'staffRoleId'
+    | 'staffAccessMode'
+    | 'staffPermissions'
+    | 'staffKamId'
+    | 'staffTeamId'
+    | 'dealerTier'
+    | 'dealerAccessMode'
+    | 'dealerPermissions'
+    | 'hrPhotoUrl'
+    | 'hrResidentialAddress'
+    | 'hrPostalCode'
+    | 'hrBloodGroup'
+    | 'hrPoliceStation'
+    | 'hrEmergencyContactName'
+    | 'hrEmergencyContactRelationship'
+    | 'hrEmergencyContactPhone'
+    | 'hrJoinDate'
+    | 'hrEmployeeId'
+    | 'hrDesignation'
+    | 'hrDocuments'
+  >
+>;
+
+export type CreateStaffHrInput = {
+  hrPhotoUrl?: string | null;
+  hrResidentialAddress?: string | null;
+  hrPostalCode?: string | null;
+  hrBloodGroup?: string | null;
+  hrPoliceStation?: string | null;
+  hrEmergencyContactName?: string | null;
+  hrEmergencyContactRelationship?: string | null;
+  hrEmergencyContactPhone?: string | null;
+  hrJoinDate?: string | null;
+  hrEmployeeId?: string | null;
+  hrDesignation?: string | null;
+  hrDocuments?: FirestoreUserDoc['hrDocuments'];
+};
+
 export type CreateUserInput = {
   loginId: string;
   password: string;
@@ -49,7 +96,8 @@ export type CreateUserInput = {
   dealerId?: string;
   zohoCustomerId?: string;
   staffDepartment?: StaffDepartment;
-  staffAccessMode?: 'department' | 'custom';
+  staffRoleId?: string | null;
+  staffAccessMode?: 'role' | 'department' | 'custom';
   staffPermissions?: StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
@@ -57,6 +105,7 @@ export type CreateUserInput = {
   dealerAccessMode?: DealerAccessMode;
   dealerPermissions?: DealerPermission[];
   createdByUid: string;
+  hr?: CreateStaffHrInput;
 };
 
 export async function createUserProfile(
@@ -85,7 +134,8 @@ export async function createUserProfile(
     dealerId: input.role === 'dealer_staff' ? input.dealerId?.trim() : undefined,
     zohoCustomerId: input.zohoCustomerId?.trim() || undefined,
     staffDepartment: input.role === 'staff' ? input.staffDepartment : undefined,
-    staffAccessMode: input.role === 'staff' ? input.staffAccessMode ?? 'department' : undefined,
+    staffRoleId: input.role === 'staff' ? input.staffRoleId ?? null : undefined,
+    staffAccessMode: input.role === 'staff' ? input.staffAccessMode ?? 'role' : undefined,
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
     staffKamId: input.role === 'staff' ? input.staffKamId ?? null : undefined,
     staffTeamId: input.role === 'staff' ? input.staffTeamId ?? null : undefined,
@@ -96,6 +146,20 @@ export async function createUserProfile(
     createdAt: new Date().toISOString(),
     createdByUid: input.createdByUid,
     clearTextPassword: input.password,
+    ...(input.role === 'staff' && input.hr ? {
+      hrPhotoUrl: input.hr.hrPhotoUrl ?? null,
+      hrResidentialAddress: input.hr.hrResidentialAddress ?? null,
+      hrPostalCode: input.hr.hrPostalCode ?? null,
+      hrBloodGroup: input.hr.hrBloodGroup ?? null,
+      hrPoliceStation: input.hr.hrPoliceStation ?? null,
+      hrEmergencyContactName: input.hr.hrEmergencyContactName ?? null,
+      hrEmergencyContactRelationship: input.hr.hrEmergencyContactRelationship ?? null,
+      hrEmergencyContactPhone: input.hr.hrEmergencyContactPhone ?? null,
+      hrJoinDate: input.hr.hrJoinDate ?? null,
+      hrEmployeeId: input.hr.hrEmployeeId ?? null,
+      hrDesignation: input.hr.hrDesignation ?? null,
+      hrDocuments: input.hr.hrDocuments ?? {},
+    } : {}),
   });
 
   await setDoc(doc(db, 'users', uid), docData);
@@ -121,25 +185,6 @@ export async function registerUser(
     throw new Error(authErrorMessage(err, 'Failed to create user'), { cause: err });
   }
 }
-
-export type UpdateUserProfilePatch = Partial<
-  Pick<
-    FirestoreUserDoc,
-    | 'displayName'
-    | 'phone'
-    | 'email'
-    | 'active'
-    | 'dealerId'
-    | 'staffDepartment'
-    | 'staffAccessMode'
-    | 'staffPermissions'
-    | 'staffKamId'
-    | 'staffTeamId'
-    | 'dealerTier'
-    | 'dealerAccessMode'
-    | 'dealerPermissions'
-  >
->;
 
 export async function updateUserProfile(
   db: Firestore,

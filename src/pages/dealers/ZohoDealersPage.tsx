@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Ban,
   Download,
@@ -27,8 +27,16 @@ import {
   syncZohoCustomers,
 } from '../../lib/dealers';
 import { type DealerListParams, type Kam, type ZohoDealer } from '../../types/dealers';
-import { homePathForRole } from '../../types';
+import { homePathForRole, type Role } from '../../types';
 import { hasStaffPermission } from '../../lib/staffAccess';
+
+function dealersListBase(role: Role, pathname: string): string {
+  const home = homePathForRole(role);
+  if (role === 'super_admin' || pathname.includes('/hr/dealers')) {
+    return `${home}/hr/dealers`;
+  }
+  return `${home}/dealers`;
+}
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -42,8 +50,9 @@ function useDebounce<T>(value: T, delay: number): T {
 export function ZohoDealersPage() {
   const confirm = useConfirm();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
-  const dealersBase = user ? `${homePathForRole(user.role)}/dealers` : '/staff/dealers';
+  const dealersBase = user ? dealersListBase(user.role, location.pathname) : '/staff/dealers';
   const scopedKamId = user?.role === 'staff' && user.staffKamId ? user.staffKamId : null;
   const canSyncDealers = user?.role === 'super_admin' || hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = user?.role === 'super_admin' || hasStaffPermission(user, 'dealers.edit');

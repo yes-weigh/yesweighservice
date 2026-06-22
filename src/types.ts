@@ -8,6 +8,12 @@ export {
   STAFF_PERMISSION_GROUPS,
   DEPARTMENT_DEFAULT_PERMISSIONS,
 } from './types/staff-access';
+export {
+  HR_DOCUMENT_TYPES,
+  HR_DOCUMENT_LABELS,
+  BLOOD_GROUPS,
+} from './types/staff-hr';
+export type { StaffHrProfile, HrDocuments, HrDocumentType } from './types/staff-hr';
 
 export type { DealerTier, DealerPermission, DealerAccessProfile, DealerAccessMode } from './types/dealer-access';
 export {
@@ -46,6 +52,7 @@ export interface User {
   active: boolean;
   /** YesWeigh staff only */
   staffDepartment?: import('./types/staff-access').StaffDepartment;
+  staffRoleId?: string | null;
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;
   /** Full permission set when staffAccessMode is custom; ignored otherwise */
   staffPermissions?: import('./types/staff-access').StaffPermission[];
@@ -56,6 +63,19 @@ export interface User {
   dealerTier?: import('./types/dealer-access').DealerTier;
   dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
   dealerPermissions?: import('./types/dealer-access').DealerPermission[];
+  /** Company staff HR profile */
+  hrPhotoUrl?: string | null;
+  hrResidentialAddress?: string | null;
+  hrPostalCode?: string | null;
+  hrBloodGroup?: string | null;
+  hrPoliceStation?: string | null;
+  hrEmergencyContactName?: string | null;
+  hrEmergencyContactRelationship?: string | null;
+  hrEmergencyContactPhone?: string | null;
+  hrJoinDate?: string | null;
+  hrEmployeeId?: string | null;
+  hrDesignation?: string | null;
+  hrDocuments?: import('./types/staff-hr').HrDocuments;
 }
 
 export interface FirestoreUserDoc {
@@ -73,6 +93,7 @@ export interface FirestoreUserDoc {
   aadhar?: string;
   active: boolean;
   staffDepartment?: import('./types/staff-access').StaffDepartment;
+  staffRoleId?: string | null;
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;
   staffPermissions?: import('./types/staff-access').StaffPermission[];
   staffKamId?: string | null;
@@ -80,6 +101,18 @@ export interface FirestoreUserDoc {
   dealerTier?: import('./types/dealer-access').DealerTier;
   dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
   dealerPermissions?: import('./types/dealer-access').DealerPermission[];
+  hrPhotoUrl?: string | null;
+  hrResidentialAddress?: string | null;
+  hrPostalCode?: string | null;
+  hrBloodGroup?: string | null;
+  hrPoliceStation?: string | null;
+  hrEmergencyContactName?: string | null;
+  hrEmergencyContactRelationship?: string | null;
+  hrEmergencyContactPhone?: string | null;
+  hrJoinDate?: string | null;
+  hrEmployeeId?: string | null;
+  hrDesignation?: string | null;
+  hrDocuments?: import('./types/staff-hr').HrDocuments;
   createdAt: string;
   createdByUid?: string;
   updatedAt?: string;

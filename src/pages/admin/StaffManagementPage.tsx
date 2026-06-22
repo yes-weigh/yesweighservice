@@ -30,6 +30,8 @@ import {
   updateUserProfile,
 } from '../../lib/userAdmin';
 import { fetchKams } from '../../lib/dealers';
+import { fetchStaffRoles } from '../../lib/staffRoles';
+import type { StaffRoleTemplate } from '../../types/staff-role';
 import {
   effectivePermissionSet,
   resolveStaffPermissions,
@@ -65,6 +67,7 @@ export const StaffManagementPage: React.FC = () => {
   const { user } = useAuth();
   const confirm = useConfirm();
   const [records, setRecords] = useState<UserRecord[]>([]);
+  const [staffRoles, setStaffRoles] = useState<StaffRoleTemplate[]>([]);
   const [kams, setKams] = useState<Kam[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -101,6 +104,7 @@ export const StaffManagementPage: React.FC = () => {
   useEffect(() => {
     void fetchStaff();
     void fetchKams().then(setKams).catch(() => setKams([]));
+    void fetchStaffRoles().then(setStaffRoles).catch(() => setStaffRoles([]));
   }, [fetchStaff]);
 
   const deptCounts = useMemo(() => {
@@ -157,7 +161,7 @@ export const StaffManagementPage: React.FC = () => {
       phone: record.phone ?? '',
       email: record.email ?? '',
     });
-    setRoleDraft(staffRoleDraftFromRecord(record));
+    setRoleDraft(staffRoleDraftFromRecord(record, staffRoles));
     setEditingUid(record.uid);
     setShowForm(true);
     setError('');
@@ -385,6 +389,7 @@ export const StaffManagementPage: React.FC = () => {
                 <StaffRoleEditor
                   value={roleDraft}
                   onChange={setRoleDraft}
+                  roles={staffRoles}
                   kams={kams}
                   disabled={submitting}
                 />
@@ -459,8 +464,8 @@ export const StaffManagementPage: React.FC = () => {
 
                 <div className="staff-management-page__chips">
                   {effectivePermissionSet(
+                    record.staffAccessMode ?? 'role',
                     dept,
-                    record.staffAccessMode ?? 'department',
                     record.staffPermissions ?? [],
                   ).slice(0, 4).map(permission => (
                     <span key={permission} className="staff-management-page__chip">{permission.split('.')[0]}</span>

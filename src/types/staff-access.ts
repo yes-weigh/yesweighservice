@@ -35,6 +35,8 @@ export type StaffPermission =
   | 'catalog.manage'
   | 'catalog.sync'
   | 'staff.manage'
+  | 'hr.view'
+  | 'hr.manage'
   | 'tasks.view'
   | 'invoices.view'
   | 'verification.view'
@@ -58,6 +60,8 @@ export const ALL_STAFF_PERMISSIONS: StaffPermission[] = [
   'catalog.manage',
   'catalog.sync',
   'staff.manage',
+  'hr.view',
+  'hr.manage',
   'tasks.view',
   'invoices.view',
   'verification.view',
@@ -82,6 +86,8 @@ export const STAFF_PERMISSION_LABELS: Record<StaffPermission, string> = {
   'catalog.manage': 'Edit catalog & spares',
   'catalog.sync': 'Sync catalog from Zoho',
   'staff.manage': 'Manage staff roles',
+  'hr.view': 'View HR staff directory',
+  'hr.manage': 'Manage HR staff & documents',
   'tasks.view': 'View tasks',
   'invoices.view': 'View invoices',
   'verification.view': 'View verifications',
@@ -126,9 +132,14 @@ export const STAFF_PERMISSION_GROUPS: Array<{
     permissions: ['catalog.view', 'catalog.manage', 'catalog.sync'],
   },
   {
+    id: 'hr',
+    label: 'Human resources',
+    permissions: ['hr.view', 'hr.manage', 'staff.manage'],
+  },
+  {
     id: 'org',
     label: 'Organisation',
-    permissions: ['staff.manage', 'tasks.view'],
+    permissions: ['tasks.view'],
   },
   {
     id: 'other',
@@ -179,11 +190,12 @@ export const DEPARTMENT_SUPPORT_TYPES: Record<StaffDepartment, SupportRequestTyp
   admin: 'all',
 };
 
-export type StaffAccessMode = 'department' | 'custom';
+export type StaffAccessMode = 'role' | 'custom' | 'department';
 
 export type StaffAccessProfile = {
   department: StaffDepartment;
   accessMode: StaffAccessMode;
+  roleId: string | null;
   permissions: StaffPermission[];
   kamId: string | null;
   teamId: string | null;
@@ -191,7 +203,8 @@ export type StaffAccessProfile = {
 
 export const DEFAULT_STAFF_ACCESS: StaffAccessProfile = {
   department: 'admin',
-  accessMode: 'department',
+  accessMode: 'role',
+  roleId: null,
   permissions: [],
   kamId: null,
   teamId: null,

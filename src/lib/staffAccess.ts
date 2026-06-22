@@ -23,7 +23,8 @@ export function readStaffAccessProfile(user: User | null | undefined): StaffAcce
   if (!user || user.role !== 'staff') return DEFAULT_STAFF_ACCESS;
   return {
     department: user.staffDepartment ?? 'admin',
-    accessMode: user.staffAccessMode ?? 'department',
+    accessMode: user.staffAccessMode ?? 'role',
+    roleId: user.staffRoleId ?? null,
     permissions: user.staffPermissions ?? [],
     kamId: user.staffKamId ?? null,
     teamId: user.staffTeamId ?? null,
@@ -36,9 +37,12 @@ export function resolveStaffPermissions(user: User | null | undefined): StaffPer
   if (user.role !== 'staff') return [];
 
   const profile = readStaffAccessProfile(user);
-  if (profile.accessMode === 'custom' && profile.permissions.length > 0) {
-    const custom = new Set(profile.permissions);
-    return ALL_STAFF_PERMISSIONS.filter(permission => custom.has(permission));
+  if (
+    (profile.accessMode === 'custom' || profile.accessMode === 'role')
+    && profile.permissions.length > 0
+  ) {
+    const set = new Set(profile.permissions);
+    return ALL_STAFF_PERMISSIONS.filter(permission => set.has(permission));
   }
   return DEPARTMENT_DEFAULT_PERMISSIONS[profile.department];
 }
@@ -48,6 +52,35 @@ export function hasStaffPermission(
   permission: StaffPermission,
 ): boolean {
   return resolveStaffPermissions(user).includes(permission);
+}
+
+export function canViewHr(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === 'super_admin') return true;
+  if (user.role !== 'staff') return false;
+  return hasStaffPermission(user, 'hr.view') || hasStaffPermission(user, 'hr.manage');
+}
+
+export function canManageHr(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === 'super_admin') return true;
+  if (user.role !== 'staff') return false;
+  return hasStaffPermission(user, 'hr.manage');
+}
+
+export function canManageStaffRolesInHr(user: User | null | undefined): boolean {
+  return user?.role === 'super_admin';
+}
+
+export function canManageSuperAdminsInHr(user: User | null | undefined): boolean {
+  return user?.role === 'super_admin';
+}
+
+export function canViewDealersInHr(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === 'super_admin') return true;
+  if (user.role !== 'staff') return false;
+  return hasStaffPermission(user, 'dealers.view') || hasStaffPermission(user, 'dealers.edit');
 }
 
 export function hasAnyStaffPermission(
@@ -133,7 +166,7 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   'ai-assistant': 'always',
   notifications: 'always',
   training: 'always',
-  staff: ['staff.manage'],
+  staff: ['staff.manage', 'hr.view', 'hr.manage'],
 };
 
 export function canAccessNavFeature(user: User | null | undefined, feature: StaffNavFeature): boolean {
@@ -153,11 +186,11 @@ export function staffDepartmentLabel(department: StaffDepartment | undefined): s
 }
 
 export function effectivePermissionSet(
+  accessMode: 'role' | 'custom' | 'department',
   department: StaffDepartment,
-  accessMode: 'department' | 'custom',
   permissions: StaffPermission[],
 ): StaffPermission[] {
-  if (accessMode === 'custom' && permissions.length > 0) {
+  if ((accessMode === 'custom' || accessMode === 'role') && permissions.length > 0) {
     const custom = new Set(permissions);
     return ALL_STAFF_PERMISSIONS.filter(permission => custom.has(permission));
   }

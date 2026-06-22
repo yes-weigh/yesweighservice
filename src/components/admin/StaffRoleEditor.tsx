@@ -1,15 +1,8 @@
-import React, { useMemo } from 'react';
-import {
-  Briefcase,
-  Headphones,
-  Shield,
-  Truck,
-  Sparkles,
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ChevronDown, Sparkles } from 'lucide-react';
 import {
   ALL_STAFF_PERMISSIONS,
   DEPARTMENT_DEFAULT_PERMISSIONS,
-  STAFF_DEPARTMENT_DESCRIPTIONS,
   STAFF_DEPARTMENT_LABELS,
   STAFF_PERMISSION_GROUPS,
   STAFF_PERMISSION_LABELS,
@@ -17,10 +10,13 @@ import {
   type StaffDepartment,
   type StaffPermission,
 } from '../../types/staff-access';
+import type { StaffRoleTemplate } from '../../types/staff-role';
 import type { Kam } from '../../types/dealers';
 import { effectivePermissionSet } from '../../lib/staffAccess';
+import { findStaffRole, legacyDepartmentToRoleId } from '../../lib/staffRoles';
 
 export interface StaffRoleDraft {
+  roleId: string | null;
   department: StaffDepartment;
   accessMode: StaffAccessMode;
   permissions: StaffPermission[];
@@ -29,43 +25,45 @@ export interface StaffRoleDraft {
 }
 
 export const EMPTY_STAFF_ROLE_DRAFT: StaffRoleDraft = {
+  roleId: null,
   department: 'sales',
-  accessMode: 'department',
+  accessMode: 'role',
   permissions: [],
   kamId: null,
   teamId: null,
 };
 
-const DEPARTMENT_ICONS: Record<StaffDepartment, React.ReactNode> = {
-  sales: <Briefcase size={22} aria-hidden />,
-  service: <Headphones size={22} aria-hidden />,
-  logistics: <Truck size={22} aria-hidden />,
-  admin: <Shield size={22} aria-hidden />,
-};
+export function staffRoleDraftFromRecord(
+  input: {
+    staffDepartment?: StaffDepartment;
+    staffRoleId?: string | null;
+    staffAccessMode?: StaffAccessMode;
+    staffPermissions?: StaffPermission[];
+    staffKamId?: string | null;
+    staffTeamId?: string | null;
+  },
+  roles: StaffRoleTemplate[],
+): StaffRoleDraft {
+  const accessMode = input.staffAccessMode ?? 'role';
+  const legacyDept = input.staffDepartment ?? 'admin';
+  const roleId = input.staffRoleId
+    ?? (accessMode === 'department' ? legacyDepartmentToRoleId(legacyDept) : null);
+  const role = findStaffRole(roles, roleId);
+  const department = role?.department ?? legacyDept;
 
-const DEPARTMENT_TONES: Record<StaffDepartment, string> = {
-  sales: 'blue',
-  service: 'green',
-  logistics: 'orange',
-  admin: 'purple',
-};
-
-export function staffRoleDraftFromRecord(input: {
-  staffDepartment?: StaffDepartment;
-  staffAccessMode?: StaffAccessMode;
-  staffPermissions?: StaffPermission[];
-  staffKamId?: string | null;
-  staffTeamId?: string | null;
-}): StaffRoleDraft {
-  const department = input.staffDepartment ?? 'admin';
-  const accessMode = input.staffAccessMode ?? 'department';
-  const permissions = accessMode === 'custom' && input.staffPermissions?.length
-    ? input.staffPermissions
-    : DEPARTMENT_DEFAULT_PERMISSIONS[department];
+  let permissions = input.staffPermissions ?? [];
+  if (accessMode === 'custom' && permissions.length > 0) {
+    // keep custom snapshot
+  } else if (role) {
+    permissions = role.permissions;
+  } else {
+    permissions = DEPARTMENT_DEFAULT_PERMISSIONS[department];
+  }
 
   return {
+    roleId: role?.id ?? roleId,
     department,
-    accessMode,
+    accessMode: accessMode === 'custom' ? 'custom' : 'role',
     permissions,
     kamId: input.staffKamId ?? null,
     teamId: input.staffTeamId ?? null,
@@ -73,25 +71,85 @@ export function staffRoleDraftFromRecord(input: {
 }
 
 export function staffRoleDraftToPayload(draft: StaffRoleDraft): {
+  staffRoleId: string | null;
   staffDepartment: StaffDepartment;
   staffAccessMode: StaffAccessMode;
   staffPermissions: StaffPermission[];
   staffKamId: string | null;
   staffTeamId: string | null;
 } {
-  const effective = effectivePermissionSet(draft.department, draft.accessMode, draft.permissions);
+  const effective = effectivePermissionSet(draft.accessMode, draft.department, draft.permissions);
   return {
+    staffRoleId: draft.accessMode === 'role' ? draft.roleId : draft.roleId,
     staffDepartment: draft.department,
     staffAccessMode: draft.accessMode,
-    staffPermissions: draft.accessMode === 'custom' ? effective : [],
+    staffPermissions: effective,
     staffKamId: draft.department === 'sales' ? draft.kamId : null,
     staffTeamId: draft.teamId?.trim() || null,
   };
 }
 
+type StaffRolePermissionsPanelProps = {
+  permissions: StaffPermission[];
+  defaultPermissions?: StaffPermission[];
+  onChange: (permissions: StaffPermission[]) => void;
+  disabled?: boolean;
+};
+
+export const StaffRolePermissionsPanel: React.FC<StaffRolePermissionsPanelProps> = ({
+  permissions,
+  defaultPermissions = [],
+  onChange,
+  disabled,
+}) => {
+  const defaultSet = useMemo(() => new Set(defaultPermissions), [defaultPermissions]);
+
+  const togglePermission = (permission: StaffPermission) => {
+    const next = new Set(permissions);
+    if (next.has(permission)) next.delete(permission);
+    else next.add(permission);
+    onChange(ALL_STAFF_PERMISSIONS.filter(item => next.has(item)));
+  };
+
+  return (
+    <div className="staff-role-editor__groups">
+      {STAFF_PERMISSION_GROUPS.map(group => (
+        <div key={group.id} className="staff-role-editor__group panel glass">
+          <h5>{group.label}</h5>
+          <ul className="staff-role-editor__perm-list">
+            {group.permissions.map(permission => {
+              const on = permissions.includes(permission);
+              const isDefault = defaultSet.has(permission);
+              return (
+                <li key={permission}>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    className={`staff-role-editor__perm ${on ? 'is-on' : ''} ${isDefault ? 'is-default' : ''}`}
+                    onClick={() => togglePermission(permission)}
+                  >
+                    <span className="staff-role-editor__perm-check" aria-hidden />
+                    <span className="staff-role-editor__perm-label">
+                      {STAFF_PERMISSION_LABELS[permission]}
+                    </span>
+                    {isDefault && on && (
+                      <span className="staff-role-editor__perm-badge">Default</span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 interface StaffRoleEditorProps {
   value: StaffRoleDraft;
   onChange: (next: StaffRoleDraft) => void;
+  roles: StaffRoleTemplate[];
   kams: Kam[];
   disabled?: boolean;
 }
@@ -99,31 +157,34 @@ interface StaffRoleEditorProps {
 export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
   value,
   onChange,
+  roles,
   kams,
   disabled,
 }) => {
+  const [advancedOpen, setAdvancedOpen] = useState(value.accessMode === 'custom');
+  const selectedRole = findStaffRole(roles, value.roleId);
+
   const effectivePermissions = useMemo(
-    () => effectivePermissionSet(value.department, value.accessMode, value.permissions),
+    () => effectivePermissionSet(value.accessMode, value.department, value.permissions),
     [value.accessMode, value.department, value.permissions],
   );
 
-  const defaultSet = useMemo(
-    () => new Set(DEPARTMENT_DEFAULT_PERMISSIONS[value.department]),
-    [value.department],
-  );
-
-  const setDepartment = (department: StaffDepartment) => {
-    const nextDefaults = DEPARTMENT_DEFAULT_PERMISSIONS[department];
+  const selectRole = (roleId: string) => {
+    const role = findStaffRole(roles, roleId);
+    if (!role) return;
     onChange({
       ...value,
-      department,
-      accessMode: 'department',
-      permissions: nextDefaults,
-      kamId: department === 'sales' ? value.kamId : null,
+      roleId: role.id,
+      department: role.department,
+      accessMode: 'role',
+      permissions: role.permissions,
+      kamId: role.department === 'sales' ? value.kamId : null,
     });
+    setAdvancedOpen(false);
   };
 
-  const enableCustomize = (enabled: boolean) => {
+  const enableCustom = (enabled: boolean) => {
+    setAdvancedOpen(enabled);
     if (enabled) {
       onChange({
         ...value,
@@ -132,48 +193,43 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
       });
       return;
     }
-    onChange({
-      ...value,
-      accessMode: 'department',
-      permissions: DEPARTMENT_DEFAULT_PERMISSIONS[value.department],
-    });
+    if (selectedRole) {
+      onChange({
+        ...value,
+        accessMode: 'role',
+        permissions: selectedRole.permissions,
+      });
+    }
   };
-
-  const togglePermission = (permission: StaffPermission) => {
-    const next = new Set(effectivePermissions);
-    if (next.has(permission)) next.delete(permission);
-    else next.add(permission);
-    onChange({
-      ...value,
-      accessMode: 'custom',
-      permissions: ALL_STAFF_PERMISSIONS.filter(item => next.has(item)),
-    });
-  };
-
-  const customize = value.accessMode === 'custom';
 
   return (
     <div className="staff-role-editor">
       <div className="staff-role-editor__section">
-        <h4 className="staff-role-editor__heading">Department</h4>
+        <h4 className="staff-role-editor__heading">Role</h4>
         <p className="staff-role-editor__hint text-muted text-sm">
-          Sets the default menu and access for this employee.
+          Pick a job role. Access is applied automatically.
         </p>
-        <div className="staff-role-editor__departments">
-          {(['sales', 'service', 'logistics', 'admin'] as StaffDepartment[]).map(department => (
-            <button
-              key={department}
-              type="button"
-              disabled={disabled}
-              className={`staff-role-editor__dept staff-role-editor__dept--${DEPARTMENT_TONES[department]} ${value.department === department ? 'is-active' : ''}`}
-              onClick={() => setDepartment(department)}
-            >
-              <span className="staff-role-editor__dept-icon">{DEPARTMENT_ICONS[department]}</span>
-              <span className="staff-role-editor__dept-label">{STAFF_DEPARTMENT_LABELS[department]}</span>
-              <span className="staff-role-editor__dept-desc">{STAFF_DEPARTMENT_DESCRIPTIONS[department]}</span>
-            </button>
-          ))}
-        </div>
+        <label className="staff-role-editor__field">
+          <span>Staff role</span>
+          <select
+            className="catalog-select"
+            disabled={disabled || roles.length === 0}
+            value={value.roleId ?? ''}
+            onChange={e => selectRole(e.target.value)}
+            required
+          >
+            <option value="" disabled>Select a role…</option>
+            {roles.map(role => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+                {role.isSystem ? '' : ' (custom)'}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedRole?.description && (
+          <p className="staff-role-editor__hint text-muted text-sm">{selectedRole.description}</p>
+        )}
       </div>
 
       {value.department === 'sales' && (
@@ -192,9 +248,6 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
               ))}
             </select>
           </label>
-          <p className="staff-role-editor__hint text-muted text-sm">
-            When set, this person only sees dealers assigned to this KAM.
-          </p>
         </div>
       )}
 
@@ -211,65 +264,44 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
         </label>
       </div>
 
-      <div className="staff-role-editor__section">
-        <div className="staff-role-editor__perm-head">
-          <div>
-            <h4 className="staff-role-editor__heading">Permissions</h4>
+      <div className="staff-role-editor__section staff-role-editor__advanced">
+        <button
+          type="button"
+          className="staff-role-editor__advanced-toggle"
+          onClick={() => enableCustom(!advancedOpen)}
+          disabled={disabled || !value.roleId}
+        >
+          <ChevronDown size={16} className={advancedOpen ? 'is-open' : ''} aria-hidden />
+          Custom access
+          {value.accessMode === 'custom' && (
+            <span className="staff-role-editor__advanced-badge">Active</span>
+          )}
+        </button>
+        {advancedOpen && (
+          <div className="staff-role-editor__advanced-body">
             <p className="staff-role-editor__hint text-muted text-sm">
-              {effectivePermissions.length} active
-              {!customize && ` · using ${STAFF_DEPARTMENT_LABELS[value.department]} defaults`}
+              Override permissions for this person only. Most staff should use the role above.
             </p>
-          </div>
-          <label className="staff-role-editor__customize">
-            <input
-              type="checkbox"
-              checked={customize}
+            <StaffRolePermissionsPanel
+              permissions={effectivePermissions}
+              defaultPermissions={selectedRole?.permissions ?? []}
               disabled={disabled}
-              onChange={e => enableCustomize(e.target.checked)}
+              onChange={perms => onChange({
+                ...value,
+                accessMode: 'custom',
+                permissions: perms,
+              })}
             />
-            Customize
-          </label>
-        </div>
-
-        {!customize ? (
-          <div className="staff-role-editor__chips">
-            {effectivePermissions.map(permission => (
-              <span key={permission} className="staff-role-editor__chip">
-                {STAFF_PERMISSION_LABELS[permission]}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <div className="staff-role-editor__groups">
-            {STAFF_PERMISSION_GROUPS.map(group => (
-              <div key={group.id} className="staff-role-editor__group panel glass">
-                <h5>{group.label}</h5>
-                <ul className="staff-role-editor__perm-list">
-                  {group.permissions.map(permission => {
-                    const on = effectivePermissions.includes(permission);
-                    const isDefault = defaultSet.has(permission);
-                    return (
-                      <li key={permission}>
-                        <button
-                          type="button"
-                          disabled={disabled}
-                          className={`staff-role-editor__perm ${on ? 'is-on' : ''} ${isDefault ? 'is-default' : ''}`}
-                          onClick={() => togglePermission(permission)}
-                        >
-                          <span className="staff-role-editor__perm-check" aria-hidden />
-                          <span className="staff-role-editor__perm-label">
-                            {STAFF_PERMISSION_LABELS[permission]}
-                          </span>
-                          {isDefault && on && (
-                            <span className="staff-role-editor__perm-badge">Default</span>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+            {value.accessMode === 'custom' && selectedRole && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={disabled}
+                onClick={() => enableCustom(false)}
+              >
+                Reset to role defaults
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -277,7 +309,15 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
       <div className="staff-role-editor__preview panel glass">
         <Sparkles size={16} aria-hidden />
         <span>
-          Effective access: <strong>{STAFF_DEPARTMENT_LABELS[value.department]}</strong>
+          {selectedRole ? (
+            <>
+              Role: <strong>{selectedRole.name}</strong>
+              {' · '}
+              {STAFF_DEPARTMENT_LABELS[value.department]}
+            </>
+          ) : (
+            'Select a role'
+          )}
           {' · '}
           {effectivePermissions.length}/{ALL_STAFF_PERMISSIONS.length} permissions
         </span>

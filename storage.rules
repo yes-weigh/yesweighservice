@@ -69,5 +69,38 @@ service firebase.storage {
           || request.resource.contentType.matches('video/.*')
         );
     }
+
+    function staffHasPermission(perm) {
+      return isStaff()
+        && userDoc().staffPermissions is list
+        && perm in userDoc().staffPermissions;
+    }
+
+    function staffHasHrManage() {
+      let u = userDoc();
+      return isStaff() && (
+        staffHasPermission('hr.manage')
+        || (u.staffDepartment == 'admin' && u.staffAccessMode != 'custom')
+      );
+    }
+
+    function staffHasHrView() {
+      let u = userDoc();
+      return staffHasHrManage()
+        || staffHasPermission('hr.view')
+        || (u.staffDepartment == 'admin' && u.staffAccessMode != 'custom');
+    }
+
+    match /hr/{userId}/{allPaths=**} {
+      allow read: if isActiveUser() && (
+        isSuperAdmin()
+        || request.auth.uid == userId
+        || staffHasHrView()
+      );
+      allow write: if isActiveUser() && (
+        isSuperAdmin()
+        || staffHasHrManage()
+      ) && request.resource.size < 16 * 1024 * 1024;
+    }
   }
 }

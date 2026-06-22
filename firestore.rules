@@ -82,7 +82,7 @@ service cloud.firestore {
     }
 
     function validStaffAccessMode(m) {
-      return m == 'department' || m == 'custom';
+      return m == 'department' || m == 'custom' || m == 'role';
     }
 
     function validStaffAccessFields(data) {
@@ -90,7 +90,8 @@ service cloud.firestore {
         && (!('staffAccessMode' in data) || validStaffAccessMode(data.staffAccessMode))
         && (!('staffPermissions' in data) || data.staffPermissions is list)
         && (!('staffKamId' in data) || data.staffKamId == null || data.staffKamId is string)
-        && (!('staffTeamId' in data) || data.staffTeamId == null || data.staffTeamId is string);
+        && (!('staffTeamId' in data) || data.staffTeamId == null || data.staffTeamId is string)
+        && (!('staffRoleId' in data) || data.staffRoleId == null || data.staffRoleId is string);
     }
 
     function validDealerTier(t) {
@@ -118,6 +119,27 @@ service cloud.firestore {
 
     function validManagedUserWrite(data) {
       return validStaffUserWrite(data) && validDealerPortalUserWrite(data);
+    }
+
+    function staffHasPermission(perm) {
+      return isStaff()
+        && userDoc().staffPermissions is list
+        && perm in userDoc().staffPermissions;
+    }
+
+    function staffHasHrManage() {
+      let u = userDoc();
+      return isStaff() && (
+        staffHasPermission('hr.manage')
+        || (u.staffDepartment == 'admin' && u.staffAccessMode != 'custom')
+      );
+    }
+
+    function staffHasHrView() {
+      let u = userDoc();
+      return staffHasHrManage()
+        || staffHasPermission('hr.view')
+        || (u.staffDepartment == 'admin' && u.staffAccessMode != 'custom');
     }
 
     match /appSettings/{docId} {
@@ -182,6 +204,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /staffRoles/{roleId} {
+      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
+      allow create, update, delete: if isSuperAdmin();
+    }
+
     match /dealerSettings/{docId} {
       allow read: if isOpsUser();
       allow write: if false;
@@ -228,6 +255,12 @@ service cloud.firestore {
           && validAadhar(request.resource.data))
         || (isActiveUser() && isSuperAdmin() && validAadhar(request.resource.data) && validManagedUserWrite(request.resource.data))
         || (isActiveUser()
+            && staffHasHrManage()
+            && request.resource.data.role == 'staff'
+            && request.resource.data.active == true
+            && validAadhar(request.resource.data)
+            && validStaffUserWrite(request.resource.data))
+        || (isActiveUser()
             && isStaff()
             && staffCanManageRole(request.resource.data.role)
             && request.resource.data.active == true
@@ -243,6 +276,11 @@ service cloud.firestore {
 
       allow update: if isActiveUser() && (
         (isSuperAdmin() && validManagedUserWrite(request.resource.data))
+        || (staffHasHrManage()
+            && resource.data.role == 'staff'
+            && request.resource.data.role == 'staff'
+            && loginIdUnchanged()
+            && validStaffUserWrite(request.resource.data))
         || (isStaff()
             && staffCanManageRole(resource.data.role)
             && staffCanManageRole(request.resource.data.role)

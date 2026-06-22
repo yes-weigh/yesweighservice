@@ -5,13 +5,12 @@ import type { User } from '../types';
 import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
 import { homePathForRole, canUseCart } from '../types';
-import { canAccessNavFeature, type StaffNavFeature } from '../lib/staffAccess';
+import { canAccessNavFeature, canViewHr, type StaffNavFeature } from '../lib/staffAccess';
 import {
   ArrowLeft,
   LayoutDashboard,
   Package,
   LifeBuoy,
-  Shield,
   ShieldCheck,
   GraduationCap,
   Bell,
@@ -24,7 +23,6 @@ import {
   ShoppingCart,
   UserCircle,
   Users,
-  UserCog,
   Building2,
   Menu,
   X,
@@ -122,6 +120,7 @@ function staffPathToFeature(path: string): StaffNavFeature {
     'ai-assistant': 'ai-assistant',
     notifications: 'notifications',
     training: 'training',
+    hr: 'staff',
   };
   return map[suffix] ?? 'dashboard';
 }
@@ -179,21 +178,23 @@ const LayoutShell: React.FC = () => {
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
-          { path: '/super-admin/super-admins', icon: <Shield size={20} />, label: 'Super Admins' },
-          { path: '/super-admin/staff', icon: <Users size={20} />, label: 'Staff' },
-          { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
+          { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           { path: '/super-admin/dealer-accounts', icon: <UserCircle size={20} />, label: 'Dealer Logins' },
-          { path: '/super-admin/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
         ];
-      case 'staff':
-        return filterStaffNavItems(user, [
+      case 'staff': {
+        const items: NavItem[] = [
           { path: '/staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
           ...portalNavItems('/staff', cartBadgeCount, 'staff'),
-        ]);
+        ];
+        if (canViewHr(user)) {
+          items.splice(1, 0, { path: '/staff/hr', icon: <Users size={20} />, label: 'HR' });
+        }
+        return filterStaffNavItems(user, items);
+      }
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },

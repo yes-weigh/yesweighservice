@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
+import './hr.css';
 import App from './App';
 
 /** Stale production SW on localhost breaks Vite HMR and causes Workbox noise. */

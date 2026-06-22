@@ -10,10 +10,14 @@ import { Login } from './pages/Login';
 import { DealerLogin } from './pages/DealerLogin';
 import { SuperAdminDashboard } from './pages/admin/SuperAdminDashboard';
 import { StaffDashboard } from './pages/staff/StaffDashboard';
-import { AdminStaffList } from './pages/admin/AdminStaffList';
-import { AdminSuperAdminList } from './pages/admin/AdminSuperAdminList';
+import { HrLayout } from './pages/hr/HrLayout';
+import { HrStaffListPage } from './pages/hr/HrStaffListPage';
+import { HrStaffDetailPage } from './pages/hr/HrStaffDetailPage';
+import { HrStaffFormPage } from './pages/hr/HrStaffFormPage';
+import { HrMyProfilePage } from './pages/hr/HrMyProfilePage';
+import { HrSuperAdminsPage } from './pages/hr/HrSuperAdminsPage';
+import { HrRolesPage } from './pages/hr/HrRolesPage';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
-import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
 import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
 import { AdminInvoicesPage } from './pages/admin/AdminInvoicesPage';
 import { AdminInvoiceSyncPage } from './pages/admin/AdminInvoiceSyncPage';
@@ -99,8 +103,8 @@ const App: React.FC = () => (
           <Route path="/admin/*" element={<Navigate to="/super-admin" replace />} />
           <Route path="/director-staff/*" element={<LegacyPathRedirect from="/director-staff" to="/dealer-staff" />} />
           <Route path="/director/*" element={<LegacyPathRedirect from="/director" to="/dealer" />} />
-          <Route path="/super-admin/directors/*" element={<Navigate to="/super-admin/dealers" replace />} />
-          <Route path="/super-admin/director-staff/*" element={<Navigate to="/super-admin/dealer-staff" replace />} />
+          <Route path="/super-admin/directors/*" element={<Navigate to="/super-admin/hr/dealers" replace />} />
+          <Route path="/super-admin/director-staff/*" element={<Navigate to="/super-admin/hr/dealers" replace />} />
           <Route path="/staff/directors/*" element={<Navigate to="/staff/dealers" replace />} />
           <Route path="/staff/director-staff/*" element={<Navigate to="/staff/dealers" replace />} />
 
@@ -108,11 +112,21 @@ const App: React.FC = () => (
             <Route path="/super-admin" element={<Layout />}>
               <Route index element={<SuperAdminDashboard />} />
               {catalogRoutes}
-              <Route path="super-admins" element={<AdminSuperAdminList />} />
-              <Route path="staff" element={<AdminStaffList />} />
-              <Route path="dealers/*" element={<AdminDealersList />} />
+              <Route path="staff" element={<Navigate to="/super-admin/hr/staff" replace />} />
+              <Route path="super-admins" element={<Navigate to="/super-admin/hr/super-admins" replace />} />
+              <Route path="dealers/*" element={<LegacyPathRedirect from="/super-admin/dealers" to="/super-admin/hr/dealers" />} />
+              <Route path="dealer-staff" element={<Navigate to="/super-admin/hr/dealers" replace />} />
+              <Route path="hr" element={<HrLayout basePath="/super-admin" />}>
+                <Route path="staff" element={<HrStaffListPage basePath="/super-admin" />} />
+                <Route path="staff/new" element={<HrStaffFormPage basePath="/super-admin" />} />
+                <Route path="staff/:uid" element={<HrStaffDetailPage basePath="/super-admin" />} />
+                <Route path="staff/:uid/edit" element={<HrStaffFormPage basePath="/super-admin" />} />
+                <Route path="super-admins" element={<HrSuperAdminsPage basePath="/super-admin" />} />
+                <Route path="roles" element={<HrRolesPage />} />
+                <Route path="dealers/*" element={<AdminDealersList />} />
+                <Route path="me" element={<HrMyProfilePage />} />
+              </Route>
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
-              <Route path="dealer-staff" element={<AdminDealerStaffList />} />
               <Route path="invoices" element={<AdminInvoicesPage />} />
               <Route path="invoices/sync" element={<AdminInvoiceSyncPage />} />
               <Route path="profile" element={<ProfilePage />} />
@@ -126,6 +140,14 @@ const App: React.FC = () => (
               {portalMenuRoutes}
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
+              <Route path="hr" element={<HrLayout basePath="/staff" />}>
+                <Route path="staff" element={<HrStaffListPage basePath="/staff" />} />
+                <Route path="staff/new" element={<HrStaffFormPage basePath="/staff" />} />
+                <Route path="staff/:uid" element={<HrStaffDetailPage basePath="/staff" />} />
+                <Route path="staff/:uid/edit" element={<HrStaffFormPage basePath="/staff" />} />
+                <Route path="dealers/*" element={<AdminDealersList />} />
+                <Route path="me" element={<HrMyProfilePage />} />
+              </Route>
               <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>

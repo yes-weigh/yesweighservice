@@ -1,0 +1,477 @@
+/* HR module */
+.portal-mode-switcher {
+  position: relative;
+  margin-top: 0.5rem;
+}
+
+.portal-mode-switcher__btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.45);
+  color: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.portal-mode-switcher__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: #0f172a;
+  overflow: hidden;
+}
+
+.portal-mode-switcher__option {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.portal-mode-switcher__option.is-active,
+.portal-mode-switcher__option:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.hr-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.hr-hub__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+}
+
+.hr-hub__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.5rem;
+}
+
+.hr-hub__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.875rem;
+}
+
+.hr-hub__tab.is-active {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+.hr-hub__tab--me {
+  margin-left: auto;
+}
+
+.hr-staff-list__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.hr-staff-list__search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hr-staff-list__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.hr-staff-list__filter {
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.hr-staff-list__filter.is-active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.hr-staff-list__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.hr-staff-list__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.85rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.hr-staff-list__card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.hr-staff-list__photo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.hr-staff-list__photo--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.hr-staff-list__status {
+  font-size: 0.7rem;
+  color: #34d399;
+}
+
+.hr-staff-list__status.is-inactive {
+  color: #f87171;
+}
+
+.hr-staff-list__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem;
+}
+
+.hr-profile {
+  padding: 1rem 1.15rem;
+}
+
+.hr-profile__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.hr-profile__avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.hr-profile__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hr-profile__identity {
+  flex: 1;
+}
+
+.hr-profile__name {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.hr-profile__status {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+}
+
+.hr-profile__status.is-active {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+}
+
+.hr-profile__status.is-inactive {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.hr-profile__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.65rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.hr-profile__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.hr-profile__documents-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.hr-profile__doc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+
+.hr-profile__doc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.35);
+  color: inherit;
+  font-size: 0.8rem;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.hr-profile__doc-btn.has-file {
+  border-style: solid;
+  cursor: pointer;
+  opacity: 1;
+}
+
+.hr-staff-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.hr-staff-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.hr-staff-form__section {
+  padding: 1rem;
+}
+
+.hr-staff-form__section--wide {
+  grid-column: 1 / -1;
+}
+
+.hr-staff-form__section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.hr-staff-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.65rem;
+}
+
+.hr-staff-form__field span {
+  font-size: 0.75rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.hr-staff-form__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.65rem;
+}
+
+.hr-staff-form__photo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.hr-staff-form__photo img,
+.hr-staff-form__photo-placeholder {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.hr-staff-form__photo-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.hr-staff-form__password {
+  position: relative;
+}
+
+.hr-staff-form__password .input-field {
+  padding-right: 2.25rem;
+}
+
+.hr-staff-form__pw-toggle {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.hr-staff-form__docs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.65rem;
+}
+
+.hr-staff-form__doc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.hr-staff-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.hr-my-profile__hint {
+  margin-bottom: 0.75rem;
+}
+
+.staff-role-editor__advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.35);
+  color: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.staff-role-editor__advanced-toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.staff-role-editor__advanced-toggle svg.is-open {
+  transform: rotate(180deg);
+}
+
+.staff-role-editor__advanced-badge {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: #93c5fd;
+}
+
+.staff-role-editor__advanced-body {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.hr-roles-page__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+}
+
+.hr-roles-page__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hr-roles-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.hr-roles-page__card {
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.hr-roles-page__card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.hr-roles-page__badge {
+  margin-left: 0.35rem;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.hr-roles-page__card-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.hr-roles-page__form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .hr-staff-form__grid {
+    grid-template-columns: 1fr;
+  }
+}
