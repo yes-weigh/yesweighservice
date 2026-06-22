@@ -53,6 +53,11 @@ export const SupportRequestDetailPage: React.FC = () => {
       } else if (!canUserAccessSupportRequest(user, data)) {
         setError('You do not have access to this request.');
         setRequest(null);
+      } else if (data.status === 'draft' && !isInternalOpsUser(user)) {
+        navigate(supportBasePath(user.role), {
+          replace: true,
+          state: { resumeDraft: data },
+        });
       } else {
         setRequest(data);
         setError('');
@@ -62,16 +67,23 @@ export const SupportRequestDetailPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [requestId, user]);
+  }, [requestId, user, navigate]);
 
   useEffect(() => {
     if (!requestId || !user) return undefined;
     return subscribeSupportRequest(requestId, data => {
       if (data && canUserAccessSupportRequest(user, data)) {
+        if (data.status === 'draft' && !isInternalOpsUser(user)) {
+          navigate(supportBasePath(user.role), {
+            replace: true,
+            state: { resumeDraft: data },
+          });
+          return;
+        }
         setRequest(data);
       }
     });
-  }, [requestId, user]);
+  }, [requestId, user, navigate]);
 
   const handleStatusChange = async (status: SupportRequestStatus) => {
     if (!user || !requestId || !request) return;

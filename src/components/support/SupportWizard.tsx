@@ -7,10 +7,11 @@ import {
   Package,
   RotateCcw,
 } from 'lucide-react';
-import { createSupportRequest } from '../../lib/dealerSupport';
+import { createSupportRequest, saveSupportRequestDraft } from '../../lib/dealerSupport';
 import { SupportCourierInstructions } from './SupportCourierInstructions';
 import type { User } from '../../types';
 import type {
+  DealerSupportRequest,
   SupportProductDraft,
   SupportRequestType,
 } from '../../types/dealer-support';
@@ -21,12 +22,14 @@ import {
   SUPPORT_INTENT_OPTIONS,
   SUPPORT_TYPE_LABELS,
   DEALER_COURIER_NOTICE,
+  supportCategoryValueFromStored,
 } from '../../types/dealer-support';
 import {
-  SupportAttachmentPicker,
+  SupportEvidencePicker,
   cleanupPendingFiles,
   pendingFilesToUpload,
-} from './SupportAttachmentPicker';
+} from './SupportEvidencePicker';
+import { validateEvidenceFiles } from '../../lib/supportAttachments';
 import {
   SupportInvoiceAutocomplete,
   SupportInvoiceProductPicker,
@@ -34,14 +37,59 @@ import {
 } from './SupportInvoiceFields';
 import type { PendingSupportFile } from '../../lib/supportAttachments';
 
-type WizardStep = 'intent' | 'details' | 'success';
+type WizardStep = 'intent' | 'product' | 'details' | 'success';
+
+function requestToProductDraft(request: DealerSupportRequest): SupportProductDraft | null {
+  if (!request.invoiceId || !request.invoiceNumber || !request.product?.lineItemId) {
+    return null;
+  }
+  return {
+    invoiceId: request.invoiceId,
+    invoiceNumber: request.invoiceNumber,
+    salesOrderNumber: request.salesOrderNumber,
+    lineItemId: request.product.lineItemId,
+    itemId: request.product.itemId,
+    itemName: request.product.name,
+    itemSku: request.product.sku,
+    quantity: request.product.quantity,
+  };
+}
+
+function initialWizardStep(
+  initialIntent?: SupportRequestType | null,
+  productDraft?: SupportProductDraft | null,
+  resumeDraft?: DealerSupportRequest | null,
+): WizardStep {
+  if (resumeDraft) return 'details';
+  if (productDraft && initialIntent) return 'details';
+  if (initialIntent) return 'product';
+  return 'intent';
+}
+
+function progressStepState(
+  step: WizardStep,
+  target: 1 | 2 | 3,
+): 'is-active' | 'is-done' | '' {
+  const order: Record<WizardStep, number> = {
+    intent: 1,
+    product: 2,
+    details: 3,
+    success: 4,
+  };
+  const current = order[step];
+  if (target < current) return 'is-done';
+  if (target === current) return 'is-active';
+  return '';
+}
 
 interface SupportWizardProps {
   user: User;
   productDraft: SupportProductDraft | null;
   initialIntent?: SupportRequestType | null;
+  resumeDraft?: DealerSupportRequest | null;
   onCancel: () => void;
   onSuccess: (requestNumber: string, type: SupportRequestType, requestId: string) => void;
+  onDraftSaved?: (requestNumber: string, requestId: string) => void;
 }
 
 const INTENT_ICONS: Record<SupportRequestType, React.ReactNode> = {
@@ -54,27 +102,49 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   user,
   productDraft,
   initialIntent,
+  resumeDraft,
   onCancel,
   onSuccess,
+  onDraftSaved,
 }) => {
-  const [step, setStep] = useState<WizardStep>(initialIntent ? 'details' : 'intent');
-  const [intent, setIntent] = useState<SupportRequestType | null>(initialIntent ?? null);
-  const [category, setCategory] = useState(
-    initialIntent === 'service' ? 'repair' : initialIntent === 'return' ? 'doa' : 'billing',
+  const [step, setStep] = useState<WizardStep>(() =>
+    initialWizardStep(initialIntent, productDraft, resumeDraft),
   );
-  const [subject, setSubject] = useState('');
-  const [description, setDescription] = useState('');
-  const [productSelection, setProductSelection] = useState<SupportProductDraft | null>(productDraft);
-  const [complaintInvoice, setComplaintInvoice] = useState<SupportInvoicePick | null>(
-    productDraft
-      ? {
-          invoiceId: productDraft.invoiceId,
-          invoiceNumber: productDraft.invoiceNumber,
-          salesOrderNumber: productDraft.salesOrderNumber,
-        }
-      : null,
+  const [intent, setIntent] = useState<SupportRequestType | null>(
+    resumeDraft?.type ?? initialIntent ?? null,
   );
+  const [category, setCategory] = useState(() => {
+    if (resumeDraft) {
+      return supportCategoryValueFromStored(resumeDraft.type, resumeDraft.category);
+    }
+    return initialIntent === 'service' ? 'repair' : initialIntent === 'return' ? 'doa' : 'billing';
+  });
+  const [subject, setSubject] = useState(resumeDraft?.subject ?? '');
+  const [description, setDescription] = useState(resumeDraft?.description ?? '');
+  const [serialNumber, setSerialNumber] = useState(resumeDraft?.product?.serialNumber ?? '');
+  const [productSelection, setProductSelection] = useState<SupportProductDraft | null>(
+    productDraft ?? (resumeDraft ? requestToProductDraft(resumeDraft) : null),
+  );
+  const [complaintInvoice, setComplaintInvoice] = useState<SupportInvoicePick | null>(() => {
+    if (productDraft) {
+      return {
+        invoiceId: productDraft.invoiceId,
+        invoiceNumber: productDraft.invoiceNumber,
+        salesOrderNumber: productDraft.salesOrderNumber,
+      };
+    }
+    if (resumeDraft?.invoiceId && resumeDraft.invoiceNumber) {
+      return {
+        invoiceId: resumeDraft.invoiceId,
+        invoiceNumber: resumeDraft.invoiceNumber,
+        salesOrderNumber: resumeDraft.salesOrderNumber,
+      };
+    }
+    return null;
+  });
+  const [draftRequestId, setDraftRequestId] = useState(resumeDraft?.id ?? '');
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState('');
   const [submittedRequestNumber, setSubmittedRequestNumber] = useState('');
   const [createdRequestId, setCreatedRequestId] = useState('');
@@ -103,17 +173,63 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
   const proceedWithIntent = (value: SupportRequestType) => {
     selectIntent(value);
+    setStep('product');
+  };
+
+  const handleProductNext = () => {
+    if (needsProduct && !productDraft && !productSelection) {
+      setError('Select an invoice and product from your invoice.');
+      return;
+    }
+    setError('');
     setStep('details');
+  };
+
+  const buildRequestPayload = () => {
+    const selection = productDraft ?? productSelection;
+    return {
+      type: intent!,
+      requestId: draftRequestId || undefined,
+      invoiceId: selection?.invoiceId ?? complaintInvoice?.invoiceId ?? null,
+      invoiceNumber: selection?.invoiceNumber ?? complaintInvoice?.invoiceNumber ?? null,
+      salesOrderNumber: selection?.salesOrderNumber ?? complaintInvoice?.salesOrderNumber ?? null,
+      lineItemId: selection?.lineItemId ?? null,
+      itemId: selection?.itemId ?? null,
+      itemName: selection?.itemName,
+      itemSku: selection?.itemSku ?? null,
+      serialNumber: serialNumber.trim() || null,
+      quantity: selection?.quantity ?? 1,
+      category: categoryLabel,
+      subject: intent === 'complaint' ? subject.trim() : undefined,
+      description: description.trim(),
+    };
+  };
+
+  const handleSaveDraft = async () => {
+    if (!intent) return;
+
+    if (needsProduct && !productDraft && !productSelection) {
+      setError('Select an invoice and product before saving a draft.');
+      return;
+    }
+
+    setSavingDraft(true);
+    setError('');
+    try {
+      const saved = await saveSupportRequestDraft(user, buildRequestPayload());
+      setDraftRequestId(saved.id);
+      onDraftSaved?.(saved.requestNumber, saved.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save draft.');
+    } finally {
+      setSavingDraft(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!intent) return;
 
-    if (needsProduct && !productDraft && !productSelection) {
-      setError('Select an invoice and product from your invoice.');
-      return;
-    }
     if (intent === 'complaint' && !subject.trim()) {
       setError('Enter a short subject for your complaint.');
       return;
@@ -122,24 +238,17 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setError('Please describe the issue.');
       return;
     }
+    const evidenceError = validateEvidenceFiles(pendingFiles);
+    if (evidenceError) {
+      setError(evidenceError);
+      return;
+    }
 
     setSubmitting(true);
     setError('');
     try {
-      const selection = productDraft ?? productSelection;
       const created = await createSupportRequest(user, {
-        type: intent,
-        invoiceId: selection?.invoiceId ?? complaintInvoice?.invoiceId ?? null,
-        invoiceNumber: selection?.invoiceNumber ?? complaintInvoice?.invoiceNumber ?? null,
-        salesOrderNumber: selection?.salesOrderNumber ?? complaintInvoice?.salesOrderNumber ?? null,
-        lineItemId: selection?.lineItemId ?? null,
-        itemId: selection?.itemId ?? null,
-        itemName: selection?.itemName,
-        itemSku: selection?.itemSku ?? null,
-        quantity: selection?.quantity ?? 1,
-        category: categoryLabel,
-        subject: intent === 'complaint' ? subject.trim() : undefined,
-        description: description.trim(),
+        ...buildRequestPayload(),
         attachmentFiles: pendingFilesToUpload(pendingFiles),
       });
       cleanupPendingFiles(pendingFiles);
@@ -193,12 +302,16 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     );
   }
 
+  const selectedProduct = productDraft ?? productSelection;
+
   return (
     <div className="support-wizard">
-      <div className="support-wizard__progress" aria-hidden>
-        <span className={step === 'intent' ? 'is-active' : 'is-done'}>1</span>
+      <div className="support-wizard__progress support-wizard__progress--three" aria-hidden>
+        <span className={progressStepState(step, 1)}>1</span>
         <span className="support-wizard__progress-line" />
-        <span className={step === 'details' ? 'is-active' : ''}>2</span>
+        <span className={progressStepState(step, 2)}>2</span>
+        <span className="support-wizard__progress-line" />
+        <span className={progressStepState(step, 3)}>3</span>
       </div>
 
       {error && <p className="support-wizard__error">{error}</p>}
@@ -262,6 +375,80 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
         </section>
       )}
 
+      {step === 'product' && intent && (
+        <section className="support-wizard__step support-wizard__step--details panel glass">
+          <div className="support-wizard__step-body">
+            <button
+              type="button"
+              className="support-wizard__back-link"
+              onClick={() => {
+                if (initialIntent) {
+                  onCancel();
+                } else {
+                  setStep('intent');
+                }
+              }}
+            >
+              <ArrowLeft size={15} />
+              {initialIntent ? 'Cancel' : 'Change request type'}
+            </button>
+
+            <h3 className="support-wizard__question">
+              {needsProduct ? 'Select invoice & product' : 'Link invoice (optional)'}
+            </h3>
+
+            {needsProduct && (
+              <p className="support-wizard__courier-note">{DEALER_COURIER_NOTICE}</p>
+            )}
+
+            {productDraft && (
+              <div className="support-wizard__product panel glass">
+                <Package size={18} aria-hidden />
+                <div>
+                  <strong>{productDraft.itemName}</strong>
+                  <span className="text-muted text-sm">
+                    Invoice {productDraft.invoiceNumber}
+                    {productDraft.salesOrderNumber && ` · SO ${productDraft.salesOrderNumber}`}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {!productDraft && needsProduct && (
+              <SupportInvoiceProductPicker
+                userId={user.uid}
+                value={productSelection}
+                onChange={setProductSelection}
+                disabled={submitting || savingDraft}
+                requestType={intent === 'service' || intent === 'return' ? intent : undefined}
+              />
+            )}
+
+            {!productDraft && intent === 'complaint' && (
+              <SupportInvoiceAutocomplete
+                userId={user.uid}
+                value={complaintInvoice}
+                onChange={setComplaintInvoice}
+                disabled={submitting || savingDraft}
+                id="support-invoice-complaint"
+                label="Invoice / order ref (optional)"
+                placeholder="Search invoice if related to an order"
+              />
+            )}
+          </div>
+
+          <div className="support-wizard__actions support-wizard__actions--dock" aria-label="Form actions">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
+              Cancel
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={handleProductNext}>
+              Next
+              <ArrowRight size={16} />
+            </button>
+          </div>
+        </section>
+      )}
+
       {step === 'details' && intent && (
         <form
           className="support-wizard__step support-wizard__step--details panel glass"
@@ -272,15 +459,15 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             type="button"
             className="support-wizard__back-link"
             onClick={() => {
-              if (initialIntent) {
+              if (productDraft) {
                 onCancel();
               } else {
-                setStep('intent');
+                setStep('product');
               }
             }}
           >
             <ArrowLeft size={15} />
-            {initialIntent ? 'Cancel' : 'Change request type'}
+            {productDraft ? 'Cancel' : 'Back to invoice & product'}
           </button>
 
           <h3 className="support-wizard__question">
@@ -293,38 +480,43 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             <p className="support-wizard__courier-note">{DEALER_COURIER_NOTICE}</p>
           )}
 
-          {productDraft && (
+          {selectedProduct && (
             <div className="support-wizard__product panel glass">
               <Package size={18} aria-hidden />
               <div>
-                <strong>{productDraft.itemName}</strong>
+                <strong>{selectedProduct.itemName}</strong>
                 <span className="text-muted text-sm">
-                  Invoice {productDraft.invoiceNumber}
-                  {productDraft.salesOrderNumber && ` · SO ${productDraft.salesOrderNumber}`}
+                  Invoice {selectedProduct.invoiceNumber}
+                  {selectedProduct.salesOrderNumber && ` · SO ${selectedProduct.salesOrderNumber}`}
                 </span>
               </div>
             </div>
           )}
 
-          {!productDraft && needsProduct && (
-            <SupportInvoiceProductPicker
-              userId={user.uid}
-              value={productSelection}
-              onChange={setProductSelection}
-              disabled={submitting}
-            />
+          {!selectedProduct && complaintInvoice && (
+            <div className="support-wizard__product panel glass">
+              <Package size={18} aria-hidden />
+              <div>
+                <strong>Invoice {complaintInvoice.invoiceNumber}</strong>
+                {complaintInvoice.salesOrderNumber && (
+                  <span className="text-muted text-sm">Order {complaintInvoice.salesOrderNumber}</span>
+                )}
+              </div>
+            </div>
           )}
 
-          {!productDraft && intent === 'complaint' && (
-            <SupportInvoiceAutocomplete
-              userId={user.uid}
-              value={complaintInvoice}
-              onChange={setComplaintInvoice}
-              disabled={submitting}
-              id="support-invoice-complaint"
-              label="Invoice / order ref (optional)"
-              placeholder="Search invoice if related to an order"
-            />
+          {needsProduct && (
+            <div className="form-group">
+              <label htmlFor="support-serial">Serial number (optional)</label>
+              <input
+                id="support-serial"
+                className="catalog-select"
+                value={serialNumber}
+                onChange={e => setSerialNumber(e.target.value)}
+                placeholder="Unit serial number, if available"
+                disabled={submitting || savingDraft}
+              />
+            </div>
           )}
 
           <div className="form-group">
@@ -380,22 +572,38 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             />
           </div>
 
-          <div className="form-group">
-            <label>Photos &amp; videos (optional)</label>
-            <SupportAttachmentPicker
+          <div className="form-group form-group--flush">
+            <SupportEvidencePicker
               files={pendingFiles}
               onChange={setPendingFiles}
-              disabled={submitting}
+              disabled={submitting || savingDraft}
             />
           </div>
           </div>
 
           <div className="support-wizard__actions support-wizard__actions--dock" aria-label="Form actions">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={onCancel}
+              disabled={submitting || savingDraft}
+            >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={submitting}>
-              {submitting ? 'Submitting…' : 'Submit request'}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => void handleSaveDraft()}
+              disabled={submitting || savingDraft}
+            >
+              {savingDraft ? 'Saving…' : 'Save draft'}
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm"
+              disabled={submitting || savingDraft}
+            >
+              {submitting ? 'Submitting…' : 'Submit'}
             </button>
           </div>
         </form>

@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { InvoiceDocumentBody } from '../invoices/InvoiceDocumentBody';
+import { FetchingLoader } from '../FetchingLoader';
 import {
   fetchDealerInvoiceDetailWithCache,
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
   isFreightInvoiceLineItem,
+  isServiceExcludedLineItem,
 } from '../../lib/invoices';
-import type { DealerInvoice, DealerInvoiceLineItem } from '../../types/invoices';
-import type { SupportProductDraft } from '../../types/dealer-support';
+import type { DealerInvoice, DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
+import type { SupportProductDraft, SupportRequestType } from '../../types/dealer-support';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -207,6 +210,15 @@ interface SupportInvoiceProductPickerProps {
   value: SupportProductDraft | null;
   onChange: (draft: SupportProductDraft | null) => void;
   disabled?: boolean;
+  requestType?: Extract<SupportRequestType, 'service' | 'return'>;
+}
+
+function isExcludedSupportLineItem(
+  item: DealerInvoiceLineItem,
+  requestType?: Extract<SupportRequestType, 'service' | 'return'>,
+): boolean {
+  if (requestType === 'service') return isServiceExcludedLineItem(item);
+  return isFreightInvoiceLineItem(item);
 }
 
 export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerProps> = ({
@@ -214,6 +226,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
   value,
   onChange,
   disabled = false,
+  requestType,
 }) => {
   const [invoice, setInvoice] = useState<SupportInvoicePick | null>(
     value
@@ -224,18 +237,18 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
         }
       : null,
   );
-  const [lineItems, setLineItems] = useState<DealerInvoiceLineItem[]>([]);
+  const [invoiceDetail, setInvoiceDetail] = useState<DealerInvoiceDetail | null>(null);
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsError, setItemsError] = useState('');
 
   const productLineItems = useMemo(
-    () => lineItems.filter(item => !isFreightInvoiceLineItem(item)),
-    [lineItems],
+    () => (invoiceDetail?.lineItems ?? []).filter(item => !isExcludedSupportLineItem(item, requestType)),
+    [invoiceDetail, requestType],
   );
 
   useEffect(() => {
     if (!invoice) {
-      setLineItems([]);
+      setInvoiceDetail(null);
       setItemsError('');
       return;
     }
@@ -247,14 +260,14 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
     void fetchDealerInvoiceDetailWithCache(userId, invoice.invoiceId)
       .then(detail => {
         if (cancelled) return;
-        setLineItems(detail.lineItems);
-        if (!detail.lineItems.some(item => !isFreightInvoiceLineItem(item))) {
+        setInvoiceDetail(detail);
+        if (!detail.lineItems.some(item => !isExcludedSupportLineItem(item, requestType))) {
           setItemsError('This invoice has no selectable products.');
         }
       })
       .catch(err => {
         if (cancelled) return;
-        setLineItems([]);
+        setInvoiceDetail(null);
         setItemsError(err instanceof Error ? err.message : 'Could not load invoice items.');
       })
       .finally(() => {
@@ -264,7 +277,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
     return () => {
       cancelled = true;
     };
-  }, [invoice, userId]);
+  }, [invoice, userId, requestType]);
 
   const handleInvoiceChange = (pick: SupportInvoicePick | null) => {
     setInvoice(pick);
@@ -281,6 +294,11 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
     onChange(lineItemToDraft(invoice, item));
   };
 
+  const handleProductPick = (item: DealerInvoiceLineItem) => {
+    if (!invoice || isExcludedSupportLineItem(item, requestType)) return;
+    onChange(lineItemToDraft(invoice, item));
+  };
+
   return (
     <div className="support-wizard__fields">
       <SupportInvoiceAutocomplete
@@ -292,6 +310,24 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
         id="support-invoice"
         label="Invoice number"
       />
+
+      {invoice && loadingItems && (
+        <FetchingLoader label="Loading invoice…" />
+      )}
+
+      {invoiceDetail && !loadingItems && (
+        <div className="support-invoice-detail">
+          <InvoiceDocumentBody
+            invoice={invoiceDetail}
+            selectedLineItemId={value?.lineItemId}
+            onSelectLineItem={handleProductPick}
+            hideLineItem={
+              requestType === 'service' ? isServiceExcludedLineItem : undefined
+            }
+            hideTotals={requestType === 'service'}
+          />
+        </div>
+      )}
 
       <div className="form-group">
         <label htmlFor="support-product">Product</label>
@@ -308,7 +344,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
               ? 'Select an invoice first'
               : loadingItems
                 ? 'Loading products…'
-                : 'Select a product from this invoice'}
+                : 'Or pick a product from the list above'}
           </option>
           {productLineItems.map(item => (
             <option key={item.id} value={item.id}>

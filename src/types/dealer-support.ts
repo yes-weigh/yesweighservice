@@ -1,6 +1,6 @@
 export type SupportRequestType = 'service' | 'return' | 'complaint';
 
-export type SupportRequestStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type SupportRequestStatus = 'draft' | 'pending' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface SupportProductRef {
   lineItemId: string | null;
@@ -8,6 +8,7 @@ export interface SupportProductRef {
   name: string;
   sku: string | null;
   quantity: number;
+  serialNumber: string | null;
 }
 
 export interface DealerSupportRequest {
@@ -84,6 +85,7 @@ export interface SupportAssignee {
 
 export interface CreateSupportRequestInput {
   type: SupportRequestType;
+  requestId?: string;
   invoiceId?: string | null;
   invoiceNumber?: string | null;
   salesOrderNumber?: string | null;
@@ -91,6 +93,7 @@ export interface CreateSupportRequestInput {
   itemId?: string | null;
   itemName?: string;
   itemSku?: string | null;
+  serialNumber?: string | null;
   quantity?: number;
   category: string;
   subject?: string;
@@ -99,7 +102,26 @@ export interface CreateSupportRequestInput {
   attachmentFiles?: File[];
 }
 
+export interface SaveSupportRequestDraftInput {
+  requestId?: string;
+  type: SupportRequestType;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  salesOrderNumber?: string | null;
+  lineItemId?: string | null;
+  itemId?: string | null;
+  itemName?: string;
+  itemSku?: string | null;
+  serialNumber?: string | null;
+  quantity?: number;
+  category?: string;
+  subject?: string;
+  description?: string;
+  notes?: string;
+}
+
 export const SUPPORT_REQUEST_STATUS_LABELS: Record<SupportRequestStatus, string> = {
+  draft: 'Draft',
   pending: 'Pending',
   in_progress: 'In progress',
   completed: 'Completed',
@@ -167,3 +189,17 @@ export const COMPLAINT_CATEGORY_OPTIONS = [
   { value: 'warranty_process', label: 'Warranty or RMA process delay' },
   { value: 'other', label: 'Other complaint' },
 ] as const;
+
+export function supportCategoryValueFromStored(
+  type: SupportRequestType,
+  stored: string,
+): string {
+  const options =
+    type === 'return'
+      ? RETURN_REASON_OPTIONS
+      : type === 'complaint'
+        ? COMPLAINT_CATEGORY_OPTIONS
+        : SERVICE_ISSUE_OPTIONS;
+  const match = options.find(option => option.label === stored || option.value === stored);
+  return match?.value ?? options[0].value;
+}

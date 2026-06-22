@@ -1,9 +1,11 @@
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../firebase';
 import { compressImageForUpload } from './compressImage';
+import { applyGpsOverlayToImage, formatGpsLabel, getCurrentGpsCoords } from './supportGeolocation';
 import type { SupportAttachment, SupportAttachmentKind } from '../types/dealer-support';
 
 export const MAX_SUPPORT_ATTACHMENTS = 5;
+export const MAX_EVIDENCE_PHOTOS = 4;
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
 export interface PendingSupportFile {
@@ -11,6 +13,7 @@ export interface PendingSupportFile {
   file: File;
   previewUrl: string;
   kind: SupportAttachmentKind;
+  gpsLabel?: string | null;
 }
 
 export function isVideoFile(file: File): boolean {
@@ -34,14 +37,41 @@ export function validateSupportFile(file: File): string | null {
   return null;
 }
 
-export function createPendingSupportFile(file: File): PendingSupportFile {
+export function createPendingSupportFile(file: File, gpsLabel?: string | null): PendingSupportFile {
   const kind: SupportAttachmentKind = isVideoFile(file) ? 'video' : 'image';
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     file,
     previewUrl: URL.createObjectURL(file),
     kind,
+    gpsLabel: gpsLabel ?? null,
   };
+}
+
+export async function createPendingEvidencePhoto(file: File): Promise<PendingSupportFile> {
+  const err = validateSupportFile(file);
+  if (err) throw new Error(err);
+  if (!isImageFile(file)) throw new Error('Only image files are allowed for photo evidence.');
+
+  const coords = await getCurrentGpsCoords();
+  const gpsLabel = formatGpsLabel(coords);
+  const overlaid = await applyGpsOverlayToImage(file, gpsLabel);
+  return createPendingSupportFile(overlaid, gpsLabel);
+}
+
+export function hasEvidenceVideo(files: PendingSupportFile[]): boolean {
+  return files.some(file => file.kind === 'video');
+}
+
+export function validateEvidenceFiles(files: PendingSupportFile[]): string | null {
+  if (!hasEvidenceVideo(files)) {
+    return 'Record a video for evidence.';
+  }
+  return null;
+}
+
+export function countEvidencePhotos(files: PendingSupportFile[]): number {
+  return files.filter(file => file.kind === 'image').length;
 }
 
 export function revokePendingSupportFiles(files: PendingSupportFile[]): void {

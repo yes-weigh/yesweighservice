@@ -331,6 +331,60 @@ service cloud.firestore {
         );
     }
 
+    function validDealerSupportDraftCreate() {
+      let data = request.resource.data;
+      return data.type is string
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && data.requestNumber is string
+        && data.requestNumber.size() > 0
+        && data.status == 'draft'
+        && data.category is string
+        && data.description is string
+        && data.createdAt is string
+        && data.createdByUid == request.auth.uid
+        && data.createdByName is string
+        && data.dealerId is string
+        && (
+          (isDealer() && data.dealerId == request.auth.uid)
+          || (isDealerStaff() && data.dealerId == userDealerId(userDoc()))
+        );
+    }
+
+    function dealerSupportImmutableFieldsMatch() {
+      let data = request.resource.data;
+      let prev = resource.data;
+      return data.dealerId == prev.dealerId
+        && data.createdByUid == prev.createdByUid
+        && data.createdAt == prev.createdAt
+        && data.requestNumber == prev.requestNumber;
+    }
+
+    function validDealerSupportDraftUpdate() {
+      let data = request.resource.data;
+      return resource.data.status == 'draft'
+        && data.status == 'draft'
+        && dealerSupportImmutableFieldsMatch()
+        && data.type is string
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && data.category is string
+        && data.description is string
+        && data.updatedAt is string;
+    }
+
+    function validDealerSupportSubmit() {
+      let data = request.resource.data;
+      return resource.data.status == 'draft'
+        && data.status == 'pending'
+        && dealerSupportImmutableFieldsMatch()
+        && data.type is string
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && data.category is string
+        && data.category.size() > 0
+        && data.description is string
+        && data.description.size() > 0
+        && data.updatedAt is string;
+    }
+
     match /dealerSupportRequests/{requestId} {
       allow read: if isActiveUser() && (
         isOpsUser()
@@ -340,7 +394,7 @@ service cloud.firestore {
 
       allow create: if isActiveUser()
         && (isDealer() || isDealerStaff())
-        && validDealerSupportCreate();
+        && (validDealerSupportCreate() || validDealerSupportDraftCreate());
 
       allow update: if isActiveUser() && (
         isOpsUser()
@@ -348,6 +402,14 @@ service cloud.firestore {
           isSupportRequestDealerAccess(resource.data)
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['updatedAt', 'lastMessageAt', 'lastMessagePreview'])
+        )
+        || (
+          isSupportRequestDealerAccess(resource.data)
+          && validDealerSupportDraftUpdate()
+        )
+        || (
+          isSupportRequestDealerAccess(resource.data)
+          && validDealerSupportSubmit()
         )
       );
 
@@ -379,7 +441,7 @@ service cloud.firestore {
 
     function canWriteSupportMessage(requestId) {
       let req = get(/databases/$(database)/documents/dealerSupportRequests/$(requestId)).data;
-      return isOpsUser() || req.status != 'cancelled';
+      return isOpsUser() || (req.status != 'cancelled' && req.status != 'draft');
     }
 
     function validSupportMessageCreate() {

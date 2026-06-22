@@ -24,11 +24,13 @@ type FilterType = 'all' | SupportRequestType;
 interface LocationState {
   draft?: SupportProductDraft;
   intent?: SupportRequestType;
+  resumeDraft?: DealerSupportRequest;
   createdRequestNumber?: string;
   createdRequestType?: SupportRequestType;
 }
 
 function statusClass(status: DealerSupportRequest['status']): string {
+  if (status === 'draft') return 'service-request-status--draft';
   if (status === 'completed') return 'service-request-status--done';
   if (status === 'in_progress') return 'service-request-status--active';
   if (status === 'cancelled') return 'service-request-status--cancelled';
@@ -53,8 +55,14 @@ export const WarrantySupportPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
-  const [showWizard, setShowWizard] = useState(Boolean(state.draft || state.intent));
+  const [showWizard, setShowWizard] = useState(
+    Boolean(state.draft || state.intent || state.resumeDraft),
+  );
   const [successMessage, setSuccessMessage] = useState(state.createdRequestNumber ?? '');
+  const [draftMessage, setDraftMessage] = useState('');
+  const [resumeDraft, setResumeDraft] = useState<DealerSupportRequest | null>(
+    state.resumeDraft ?? null,
+  );
 
   const productDraft = state.draft ?? null;
   const initialIntent = state.intent ?? (productDraft ? 'service' : null);
@@ -78,10 +86,13 @@ export const WarrantySupportPage: React.FC = () => {
   }, [load]);
 
   useEffect(() => {
-    if (state.draft || state.intent) {
+    if (state.draft || state.intent || state.resumeDraft) {
       setShowWizard(true);
     }
-  }, [state.draft, state.intent]);
+    if (state.resumeDraft) {
+      setResumeDraft(state.resumeDraft);
+    }
+  }, [state.draft, state.intent, state.resumeDraft]);
 
   const filteredRequests = useMemo(
     () => (filter === 'all' ? requests : requests.filter(r => r.type === filter)),
@@ -97,7 +108,16 @@ export const WarrantySupportPage: React.FC = () => {
 
   const closeWizard = () => {
     setShowWizard(false);
+    setResumeDraft(null);
     navigate(supportPath, { replace: true, state: {} });
+  };
+
+  const handleDraftSaved = (requestNumber: string) => {
+    setDraftMessage(`Draft ${requestNumber} saved. You can continue it anytime from your list.`);
+    setShowWizard(false);
+    setResumeDraft(null);
+    navigate(supportPath, { replace: true, state: {} });
+    void load();
   };
 
   const handleWizardSuccess = (requestNumber: string, type: SupportRequestType, requestId: string) => {
@@ -175,6 +195,7 @@ export const WarrantySupportPage: React.FC = () => {
               onClick={() => {
                 setShowWizard(true);
                 setSuccessMessage('');
+                setDraftMessage('');
               }}
             >
               <Plus size={16} />
@@ -183,6 +204,12 @@ export const WarrantySupportPage: React.FC = () => {
           </div>
         )}
       </header>
+
+      {draftMessage && !showWizard && (
+        <div className="services-page__success panel glass">
+          {draftMessage}
+        </div>
+      )}
 
       {successMessage && !showWizard && (
         <>
@@ -207,8 +234,10 @@ export const WarrantySupportPage: React.FC = () => {
           user={user!}
           productDraft={productDraft}
           initialIntent={initialIntent}
+          resumeDraft={resumeDraft}
           onCancel={closeWizard}
           onSuccess={handleWizardSuccess}
+          onDraftSaved={handleDraftSaved}
         />
       ) : (
         <>
@@ -258,7 +287,17 @@ export const WarrantySupportPage: React.FC = () => {
                   <button
                     type="button"
                     className="services-page__card panel glass warranty-support-page__card-btn"
-                    onClick={() => user && navigate(supportDetailPath(user.role, request.id))}
+                    onClick={() => {
+                      if (!user) return;
+                      if (request.status === 'draft') {
+                        setResumeDraft(request);
+                        setShowWizard(true);
+                        setSuccessMessage('');
+                        setDraftMessage('');
+                        return;
+                      }
+                      navigate(supportDetailPath(user.role, request.id));
+                    }}
                   >
                     <div className="services-page__card-head">
                     <div className="warranty-support-page__card-id">
@@ -283,10 +322,16 @@ export const WarrantySupportPage: React.FC = () => {
                     <span>{formatInvoiceDate(request.createdAt)}</span>
                   </div>
                   <p className="services-page__card-issue text-sm">
-                    {request.lastMessagePreview || request.category}
-                    {!request.lastMessagePreview && request.description
-                      ? ` — ${request.description}`
-                      : ''}
+                    {request.status === 'draft'
+                      ? (request.description || 'Draft — tap to continue and submit')
+                      : (
+                        <>
+                          {request.lastMessagePreview || request.category}
+                          {!request.lastMessagePreview && request.description
+                            ? ` — ${request.description}`
+                            : ''}
+                        </>
+                      )}
                   </p>
                   </button>
                 </li>

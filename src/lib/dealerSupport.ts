@@ -25,6 +25,7 @@ import {
 import type {
   CreateSupportRequestInput,
   DealerSupportRequest,
+  SaveSupportRequestDraftInput,
   SendSupportMessageInput,
   SupportAssignee,
   SupportMessage,
@@ -102,6 +103,7 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
           name: String(product.name ?? 'Product'),
           sku: product.sku ? String(product.sku) : null,
           quantity: Number(product.quantity ?? 1),
+          serialNumber: product.serialNumber ? String(product.serialNumber) : null,
         }
       : null,
     category: String(data.category ?? ''),
@@ -162,6 +164,9 @@ export async function sendSupportMessage(
   if (!isInternalOpsUser(user) && request.status === 'cancelled') {
     throw new Error('This request is closed and cannot receive new messages.');
   }
+  if (!isInternalOpsUser(user) && request.status === 'draft') {
+    throw new Error('Submit the draft before sending messages.');
+  }
 
   const text = input.text.trim();
   const files = input.files ?? [];
@@ -202,37 +207,71 @@ export async function sendSupportMessage(
   return mapMessage(messageRef.id, payload);
 }
 
-export async function createSupportRequest(
-  user: User,
-  input: CreateSupportRequestInput,
-): Promise<DealerSupportRequest> {
-  const now = new Date().toISOString();
+function buildSupportProduct(
+  input: Pick<
+    CreateSupportRequestInput,
+    | 'itemName'
+    | 'invoiceNumber'
+    | 'lineItemId'
+    | 'itemId'
+    | 'itemSku'
+    | 'quantity'
+    | 'serialNumber'
+  >,
+) {
   const hasProduct = Boolean(input.itemName?.trim() || input.invoiceNumber?.trim());
+  if (!hasProduct) return null;
+  return {
+    lineItemId: input.lineItemId ?? null,
+    itemId: input.itemId ?? null,
+    name: input.itemName?.trim() || 'Product',
+    sku: input.itemSku ?? null,
+    quantity: input.quantity ?? 1,
+    serialNumber: input.serialNumber?.trim() || null,
+  };
+}
 
-  const data = {
+function buildSupportRequestDocument(
+  user: User,
+  input: {
+    type: SupportRequestType;
+    status: SupportRequestStatus;
+    requestNumber: string;
+    invoiceId?: string | null;
+    invoiceNumber?: string | null;
+    salesOrderNumber?: string | null;
+    lineItemId?: string | null;
+    itemId?: string | null;
+    itemName?: string;
+    itemSku?: string | null;
+    serialNumber?: string | null;
+    quantity?: number;
+    category: string;
+    subject?: string;
+    description: string;
+    notes?: string;
+    createdAt: string;
+    updatedAt: string;
+    lastMessageAt?: string | null;
+    lastMessagePreview?: string | null;
+  },
+) {
+  return {
     type: input.type,
-    requestNumber: buildRequestNumber(input.type),
-    status: 'pending' as const,
+    requestNumber: input.requestNumber,
+    status: input.status,
     invoiceId: input.invoiceId ?? null,
     invoiceNumber: input.invoiceNumber?.trim() || null,
     salesOrderNumber: input.salesOrderNumber ?? null,
-    product: hasProduct
-      ? {
-          lineItemId: input.lineItemId ?? null,
-          itemId: input.itemId ?? null,
-          name: input.itemName?.trim() || 'Product',
-          sku: input.itemSku ?? null,
-          quantity: input.quantity ?? 1,
-        }
-      : null,
+    product: buildSupportProduct(input),
     category: input.category.trim(),
     subject: input.subject?.trim() || null,
     description: input.description.trim(),
     notes: input.notes?.trim() || null,
-    createdAt: now,
-    updatedAt: now,
-    lastMessageAt: null,
-    lastMessagePreview: null,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    lastMessageAt: input.lastMessageAt ?? null,
+    lastMessagePreview: input.lastMessagePreview ?? null,
     createdByUid: user.uid,
     createdByName: user.displayName,
     dealerId: resolveDealerId(user),
@@ -241,12 +280,139 @@ export async function createSupportRequest(
     assignedToName: null,
     assignedAt: null,
   };
+}
+
+export async function saveSupportRequestDraft(
+  user: User,
+  input: SaveSupportRequestDraftInput,
+): Promise<DealerSupportRequest> {
+  const now = new Date().toISOString();
+
+  if (input.requestId) {
+    const existing = await getSupportRequest(input.requestId);
+    if (!existing) throw new Error('Draft not found.');
+    if (!canUserAccessSupportRequest(user, existing)) {
+      throw new Error('You do not have permission to edit this draft.');
+    }
+    if (existing.status !== 'draft') {
+      throw new Error('Only drafts can be saved this way.');
+    }
+
+    const updates = {
+      type: input.type,
+      invoiceId: input.invoiceId ?? null,
+      invoiceNumber: input.invoiceNumber?.trim() || null,
+      salesOrderNumber: input.salesOrderNumber ?? null,
+      product: buildSupportProduct(input),
+      category: input.category?.trim() ?? '',
+      subject: input.subject?.trim() || null,
+      description: input.description?.trim() ?? '',
+      notes: input.notes?.trim() || null,
+      updatedAt: now,
+    };
+
+    await updateDoc(doc(db, 'dealerSupportRequests', input.requestId), updates);
+    return (await getSupportRequest(input.requestId))!;
+  }
+
+  const data = buildSupportRequestDocument(user, {
+    type: input.type,
+    status: 'draft',
+    requestNumber: buildRequestNumber(input.type),
+    invoiceId: input.invoiceId,
+    invoiceNumber: input.invoiceNumber,
+    salesOrderNumber: input.salesOrderNumber,
+    lineItemId: input.lineItemId,
+    itemId: input.itemId,
+    itemName: input.itemName,
+    itemSku: input.itemSku,
+    serialNumber: input.serialNumber,
+    quantity: input.quantity,
+    category: input.category?.trim() ?? '',
+    subject: input.subject,
+    description: input.description?.trim() ?? '',
+    notes: input.notes,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const docRef = await addDoc(collection(db, 'dealerSupportRequests'), data);
+  return mapSupportRequest(docRef.id, data);
+}
+
+export async function createSupportRequest(
+  user: User,
+  input: CreateSupportRequestInput,
+): Promise<DealerSupportRequest> {
+  const now = new Date().toISOString();
+  const description = input.description.trim();
+
+  if (input.requestId) {
+    const existing = await getSupportRequest(input.requestId);
+    if (!existing) throw new Error('Draft not found.');
+    if (!canUserAccessSupportRequest(user, existing)) {
+      throw new Error('You do not have permission to submit this draft.');
+    }
+    if (existing.status !== 'draft') {
+      throw new Error('This request has already been submitted.');
+    }
+
+    const data = buildSupportRequestDocument(user, {
+      type: input.type,
+      status: 'pending',
+      requestNumber: existing.requestNumber,
+      invoiceId: input.invoiceId,
+      invoiceNumber: input.invoiceNumber,
+      salesOrderNumber: input.salesOrderNumber,
+      lineItemId: input.lineItemId,
+      itemId: input.itemId,
+      itemName: input.itemName,
+      itemSku: input.itemSku,
+      serialNumber: input.serialNumber,
+      quantity: input.quantity,
+      category: input.category.trim(),
+      subject: input.subject,
+      description,
+      notes: input.notes,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+    });
+
+    await updateDoc(doc(db, 'dealerSupportRequests', input.requestId), data);
+    await sendSupportMessage(user, input.requestId, {
+      text: description,
+      files: input.attachmentFiles,
+      isInitial: true,
+    });
+    return (await getSupportRequest(input.requestId))!;
+  }
+
+  const data = buildSupportRequestDocument(user, {
+    type: input.type,
+    status: 'pending',
+    requestNumber: buildRequestNumber(input.type),
+    invoiceId: input.invoiceId,
+    invoiceNumber: input.invoiceNumber,
+    salesOrderNumber: input.salesOrderNumber,
+    lineItemId: input.lineItemId,
+    itemId: input.itemId,
+    itemName: input.itemName,
+    itemSku: input.itemSku,
+    serialNumber: input.serialNumber,
+    quantity: input.quantity,
+    category: input.category.trim(),
+    subject: input.subject,
+    description,
+    notes: input.notes,
+    createdAt: now,
+    updatedAt: now,
+  });
 
   const docRef = await addDoc(collection(db, 'dealerSupportRequests'), data);
   const request = mapSupportRequest(docRef.id, data);
 
   await sendSupportMessage(user, docRef.id, {
-    text: input.description.trim(),
+    text: description,
     files: input.attachmentFiles,
     isInitial: true,
   });
@@ -300,6 +466,10 @@ export async function fetchDealerSupportRequests(user: User): Promise<DealerSupp
   return snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
 }
 
+function excludeDraftSupportRequests(requests: DealerSupportRequest[]): DealerSupportRequest[] {
+  return requests.filter(request => request.status !== 'draft');
+}
+
 export async function fetchOpsSupportRequests(): Promise<DealerSupportRequest[]> {
   const snap = await getDocs(
     query(
@@ -308,7 +478,9 @@ export async function fetchOpsSupportRequests(): Promise<DealerSupportRequest[]>
       limit(200),
     ),
   );
-  return snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
+  return excludeDraftSupportRequests(
+    snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data())),
+  );
 }
 
 export function subscribeOpsSupportRequests(
@@ -323,7 +495,9 @@ export function subscribeOpsSupportRequests(
   return onSnapshot(
     q,
     snap => {
-      onData(snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data())));
+      onData(excludeDraftSupportRequests(
+        snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data())),
+      ));
     },
     err => onError?.(err instanceof Error ? err : new Error('Could not load support queue.')),
   );
@@ -342,7 +516,9 @@ export async function fetchSupportRequestsForInvoice(
       limit(20),
     ),
   );
-  return snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
+  return excludeDraftSupportRequests(
+    snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data())),
+  );
 }
 
 export async function fetchSupportAssignees(): Promise<SupportAssignee[]> {

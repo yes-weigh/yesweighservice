@@ -570,9 +570,23 @@ export function isFreightInvoiceLineItem(
   item: Pick<DealerInvoiceLineItem, 'name' | 'sku'>,
 ): boolean {
   const name = item.name.trim().toLowerCase();
-  if (name === 'freight') return true;
+  if (name === 'freight' || name.includes('freight')) return true;
   const sku = item.sku?.trim().toLowerCase() ?? '';
-  return sku === 'freight';
+  return sku === 'freight' || sku.includes('freight');
+}
+
+export function isStampingInvoiceLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'>,
+): boolean {
+  const name = item.name.trim().toLowerCase();
+  const sku = item.sku?.trim().toLowerCase() ?? '';
+  return name.includes('stamping') || sku.includes('stamping');
+}
+
+export function isServiceExcludedLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'>,
+): boolean {
+  return isFreightInvoiceLineItem(item) || isStampingInvoiceLineItem(item);
 }
 
 export function sumInvoiceProductQuantity(lineItems: DealerInvoiceLineItem[]): number {
