@@ -150,7 +150,8 @@ service cloud.firestore {
       allow write: if false;
 
       match /invoices/{invoiceId} {
-        allow read, write: if false;
+        allow read: if isSuperAdmin();
+        allow write: if false;
       }
 
       match /invoiceMeta/{docId} {

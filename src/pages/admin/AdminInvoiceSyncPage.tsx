@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlertCircle, Activity, FileText, Play, RefreshCw, RotateCcw } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
@@ -147,7 +148,10 @@ export const AdminInvoiceSyncPage: React.FC = () => {
   return (
     <div className="page-content fade-in">
       <div className="mb-6">
-        <h1>Invoice sync</h1>
+        <Link to="/super-admin/invoices" className="text-muted text-sm admin-invoices-back">
+          ← All invoices
+        </Link>
+        <h1 className="mt-2">Invoice sync</h1>
         <p className="text-muted mt-2">
           Org-wide backfill from Zoho into Firestore — one document per invoice, details only (no PDFs).
           All organisation invoices, newest first. A scheduled run at <strong>2:00 AM IST</strong> resumes

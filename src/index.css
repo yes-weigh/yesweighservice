@@ -979,6 +979,142 @@ html::-webkit-scrollbar {
   transition: width 0.3s ease;
 }
 
+.admin-invoices-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-invoices-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.admin-invoices-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.admin-invoices-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.admin-invoices-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-invoices-search {
+  position: relative;
+  flex: 1 1 280px;
+}
+
+.admin-invoices-search__icon {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.admin-invoices-search__input {
+  width: 100%;
+  padding: 0.65rem 0.85rem 0.65rem 2.35rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  background: transparent;
+  color: inherit;
+}
+
+.admin-invoices-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-invoices-sort__select {
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  background: transparent;
+  color: inherit;
+}
+
+.admin-invoices-table-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.admin-invoices-mobile-list {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 1rem;
+  gap: 0.75rem;
+}
+
+.admin-invoices-mobile-card {
+  padding: 1rem;
+}
+
+.admin-invoices-mobile-card__row,
+.admin-invoices-mobile-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.admin-invoices-mobile-card__meta {
+  margin-top: 0.35rem;
+}
+
+.admin-invoices-footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.admin-invoices-footnote__icon {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.admin-invoices-back {
+  text-decoration: none;
+}
+
+.admin-invoices-back:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .admin-invoices-table-panel .invoices-table-wrap--desktop {
+    display: none;
+  }
+
+  .admin-invoices-mobile-list {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
 .stats-grid--4 {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
