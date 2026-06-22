@@ -12,7 +12,6 @@ import { InvoicePdfViewerPage } from './InvoicePdfViewerPage';
 import { InvoiceSectionPlaceholderPage } from './InvoiceSectionPlaceholderPage';
 import { WarrantySupportPage } from './WarrantySupportPage';
 import { SupportRequestDetailPage } from './SupportRequestDetailPage';
-import { NotificationsPage } from '../shared/NotificationsPage';
 
 function DealerInvoicesRoute() {
   const { user } = useAuth();
@@ -104,7 +103,12 @@ export const DealerMenuPages = {
       description="Assign and monitor staff training modules and certification progress."
     />
   ),
-  Notifications: NotificationsPage,
+  Notifications: () => (
+    <PagePlaceholder
+      title="Notifications"
+      description="Service alerts, renewal reminders, and operational updates."
+    />
+  ),
   AiAssistant: () => (
     <PagePlaceholder
       title="AI assistance"

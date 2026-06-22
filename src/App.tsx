@@ -33,7 +33,6 @@ import { ProfilePage } from './pages/shared/ProfilePage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { SpareProductMapPage } from './pages/SpareProductMapPage';
-import { PushNotificationManager } from './components/PushNotificationManager';
 import {
   LegacyProductDetailRedirect,
   LegacySpareDetailRedirect,
@@ -116,7 +115,6 @@ const App: React.FC = () => (
     <CartFlyProvider>
     <ConfirmProvider>
       <Router>
-        <PushNotificationManager />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/dealer-login" element={<DealerLogin />} />

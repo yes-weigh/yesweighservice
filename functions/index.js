@@ -1,7 +1,6 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
-import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { isCatalogSyncWindow } from './lib/business-hours.js';
@@ -64,11 +63,6 @@ import {
 } from './lib/org-invoice-sync.js';
 import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
-import {
-  notifyOnSupportRequestCreated,
-  notifyOnSupportMessageCreated,
-  notifyOnSupportRequestAssigned,
-} from './lib/support-push.js';
 import {
   normalizePhone10,
   lookupDealerForLogin,
@@ -1349,61 +1343,6 @@ export const completeDealerSignup = onCall(
       return await finalizeDealerSignup(phone, setupToken, password);
     } catch (err) {
       dealerOtpError(err, 'Signup failed.');
-    }
-  },
-);
-
-/** Push + in-app notification when a dealer opens a support ticket. */
-export const onDealerSupportRequestCreated = onDocumentCreated(
-  {
-    document: 'dealerSupportRequests/{requestId}',
-    region: 'asia-south1',
-  },
-  async event => {
-    const requestId = event.params.requestId;
-    const data = event.data?.data();
-    if (!data) return;
-    try {
-      await notifyOnSupportRequestCreated(requestId, data);
-    } catch (err) {
-      console.error('onDealerSupportRequestCreated failed:', err);
-    }
-  },
-);
-
-/** Push when someone replies on a support ticket (dealer or staff). */
-export const onDealerSupportMessageCreated = onDocumentCreated(
-  {
-    document: 'dealerSupportRequests/{requestId}/messages/{messageId}',
-    region: 'asia-south1',
-  },
-  async event => {
-    const requestId = event.params.requestId;
-    const data = event.data?.data();
-    if (!data) return;
-    try {
-      await notifyOnSupportMessageCreated(requestId, data);
-    } catch (err) {
-      console.error('onDealerSupportMessageCreated failed:', err);
-    }
-  },
-);
-
-/** Push when a ticket is assigned to a staff member. */
-export const onDealerSupportRequestUpdated = onDocumentUpdated(
-  {
-    document: 'dealerSupportRequests/{requestId}',
-    region: 'asia-south1',
-  },
-  async event => {
-    const requestId = event.params.requestId;
-    const before = event.data?.before.data();
-    const after = event.data?.after.data();
-    if (!before || !after) return;
-    try {
-      await notifyOnSupportRequestAssigned(requestId, before, after);
-    } catch (err) {
-      console.error('onDealerSupportRequestUpdated failed:', err);
     }
   },
 );
