@@ -9966,6 +9966,49 @@ html::-webkit-scrollbar {
   padding: 1rem !important;
 }
 
+.support-wizard__step--details {
+  padding-bottom: 0 !important;
+}
+
+.support-wizard__step-body {
+  padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+.support-wizard__actions--dock {
+  position: fixed;
+  bottom: 0;
+  left: var(--sidebar-width);
+  right: 0;
+  z-index: 35;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0;
+  padding: 0.65rem max(1rem, env(safe-area-inset-left, 0px))
+    calc(0.65rem + env(safe-area-inset-bottom, 0px))
+    max(1rem, env(safe-area-inset-right, 0px));
+  background: rgba(10, 15, 28, 0.94);
+  border-top: 1px solid var(--border-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: var(--transition-smooth);
+}
+
+.main-content.expanded .support-wizard__actions--dock {
+  left: var(--sidebar-collapsed);
+}
+
+@media (max-width: 768px) {
+  .support-wizard__actions--dock {
+    left: 0;
+    justify-content: stretch;
+  }
+
+  .support-wizard__actions--dock .btn {
+    flex: 1;
+  }
+}
+
 .support-wizard__question {
   margin: 0 0 0.35rem;
   font-size: 1rem;
@@ -10051,6 +10094,14 @@ html::-webkit-scrollbar {
   color: var(--text-muted);
 }
 
+.support-wizard__option-next {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.65rem;
+}
+
 .support-wizard__actions {
   display: flex;
   justify-content: flex-end;
@@ -10090,6 +10141,84 @@ html::-webkit-scrollbar {
 
 .support-wizard__fields {
   margin-bottom: 0.25rem;
+}
+
+.support-invoice-field {
+  position: relative;
+}
+
+.support-invoice-field__required {
+  color: var(--accent-primary-light);
+}
+
+.support-invoice-field__input-wrap {
+  position: relative;
+}
+
+.support-invoice-field__spinner {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.support-invoice-field__menu {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.support-invoice-field__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.support-invoice-field__option:hover,
+.support-invoice-field__option.is-active {
+  background: rgba(245, 130, 32, 0.1);
+}
+
+.support-invoice-field__option-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.support-invoice-field__option-meta {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.support-invoice-field__empty {
+  padding: 0.55rem 0.65rem;
+}
+
+.support-invoice-field__hint {
+  margin: 0.35rem 0 0;
+}
+
+.support-invoice-field__hint--error {
+  color: #fca5a5;
 }
 
 .support-wizard__error {

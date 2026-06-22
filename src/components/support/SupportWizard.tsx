@@ -27,6 +27,11 @@ import {
   cleanupPendingFiles,
   pendingFilesToUpload,
 } from './SupportAttachmentPicker';
+import {
+  SupportInvoiceAutocomplete,
+  SupportInvoiceProductPicker,
+  type SupportInvoicePick,
+} from './SupportInvoiceFields';
 import type { PendingSupportFile } from '../../lib/supportAttachments';
 
 type WizardStep = 'intent' | 'details' | 'success';
@@ -59,9 +64,16 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   );
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState(productDraft?.invoiceNumber ?? '');
-  const [productName, setProductName] = useState(productDraft?.itemName ?? '');
-  const [productSku, setProductSku] = useState(productDraft?.itemSku ?? '');
+  const [productSelection, setProductSelection] = useState<SupportProductDraft | null>(productDraft);
+  const [complaintInvoice, setComplaintInvoice] = useState<SupportInvoicePick | null>(
+    productDraft
+      ? {
+          invoiceId: productDraft.invoiceId,
+          invoiceNumber: productDraft.invoiceNumber,
+          salesOrderNumber: productDraft.salesOrderNumber,
+        }
+      : null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [submittedRequestNumber, setSubmittedRequestNumber] = useState('');
@@ -81,12 +93,16 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
   const needsProduct = intent === 'service' || intent === 'return';
 
-  const handleIntentNext = () => {
-    if (!intent) {
-      setError('Please select what you need help with.');
-      return;
-    }
+  const selectIntent = (value: SupportRequestType) => {
+    setIntent(value);
+    setCategory(
+      value === 'service' ? 'repair' : value === 'return' ? 'doa' : 'billing',
+    );
     setError('');
+  };
+
+  const proceedWithIntent = (value: SupportRequestType) => {
+    selectIntent(value);
     setStep('details');
   };
 
@@ -94,8 +110,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     e.preventDefault();
     if (!intent) return;
 
-    if (needsProduct && !productDraft && !productName.trim() && !invoiceNumber.trim()) {
-      setError('Enter the invoice number or product name.');
+    if (needsProduct && !productDraft && !productSelection) {
+      setError('Select an invoice and product from your invoice.');
       return;
     }
     if (intent === 'complaint' && !subject.trim()) {
@@ -110,16 +126,17 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     setSubmitting(true);
     setError('');
     try {
+      const selection = productDraft ?? productSelection;
       const created = await createSupportRequest(user, {
         type: intent,
-        invoiceId: productDraft?.invoiceId ?? null,
-        invoiceNumber: productDraft?.invoiceNumber ?? (invoiceNumber.trim() || null),
-        salesOrderNumber: productDraft?.salesOrderNumber ?? null,
-        lineItemId: productDraft?.lineItemId ?? null,
-        itemId: productDraft?.itemId ?? null,
-        itemName: productDraft?.itemName ?? (productName.trim() || undefined),
-        itemSku: (productDraft?.itemSku ?? productSku.trim()) || null,
-        quantity: productDraft?.quantity ?? 1,
+        invoiceId: selection?.invoiceId ?? complaintInvoice?.invoiceId ?? null,
+        invoiceNumber: selection?.invoiceNumber ?? complaintInvoice?.invoiceNumber ?? null,
+        salesOrderNumber: selection?.salesOrderNumber ?? complaintInvoice?.salesOrderNumber ?? null,
+        lineItemId: selection?.lineItemId ?? null,
+        itemId: selection?.itemId ?? null,
+        itemName: selection?.itemName,
+        itemSku: selection?.itemSku ?? null,
+        quantity: selection?.quantity ?? 1,
         category: categoryLabel,
         subject: intent === 'complaint' ? subject.trim() : undefined,
         description: description.trim(),
@@ -196,52 +213,61 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           <p className="support-wizard__courier-note">{DEALER_COURIER_NOTICE}</p>
 
           <div className="support-wizard__options" role="radiogroup" aria-label="Support type">
-            {SUPPORT_INTENT_OPTIONS.map(option => (
-              <label
+            {SUPPORT_INTENT_OPTIONS.map(option => {
+              const selected = intent === option.value;
+              return (
+              <div
                 key={option.value}
-                className={`support-wizard__option ${intent === option.value ? 'is-selected' : ''}`}
+                className={`support-wizard__option ${selected ? 'is-selected' : ''}`}
+                role="radio"
+                aria-checked={selected}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => selectIntent(option.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectIntent(option.value);
+                  }
+                }}
               >
-                <input
-                  type="radio"
-                  name="support-intent"
-                  value={option.value}
-                  checked={intent === option.value}
-                  onChange={() => {
-                    setIntent(option.value);
-                    setCategory(
-                      option.value === 'service'
-                        ? 'repair'
-                        : option.value === 'return'
-                          ? 'doa'
-                          : 'billing',
-                    );
-                    setError('');
-                  }}
-                />
                 <span className="support-wizard__option-icon">{INTENT_ICONS[option.value]}</span>
                 <span className="support-wizard__option-body">
                   <strong>{option.title}</strong>
                   <span className="support-wizard__option-desc">{option.description}</span>
                   <span className="support-wizard__option-hint">{option.hint}</span>
+                  {selected && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm support-wizard__option-next"
+                      onClick={e => {
+                        e.stopPropagation();
+                        proceedWithIntent(option.value);
+                      }}
+                    >
+                      Next
+                      <ArrowRight size={16} />
+                    </button>
+                  )}
                 </span>
-              </label>
-            ))}
+              </div>
+              );
+            })}
           </div>
 
           <div className="support-wizard__actions">
             <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
               Cancel
             </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={handleIntentNext}>
-              Next
-              <ArrowRight size={16} />
-            </button>
           </div>
         </section>
       )}
 
       {step === 'details' && intent && (
-        <form className="support-wizard__step panel glass" onSubmit={e => void handleSubmit(e)}>
+        <form
+          className="support-wizard__step support-wizard__step--details panel glass"
+          onSubmit={e => void handleSubmit(e)}
+        >
+          <div className="support-wizard__step-body">
           <button
             type="button"
             className="support-wizard__back-link"
@@ -281,50 +307,24 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           )}
 
           {!productDraft && needsProduct && (
-            <div className="support-wizard__fields">
-              <div className="form-group">
-                <label htmlFor="support-invoice">Invoice number</label>
-                <input
-                  id="support-invoice"
-                  className="catalog-select"
-                  value={invoiceNumber}
-                  onChange={e => setInvoiceNumber(e.target.value)}
-                  placeholder="e.g. INV-2024-00123"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="support-product">Product name</label>
-                <input
-                  id="support-product"
-                  className="catalog-select"
-                  value={productName}
-                  onChange={e => setProductName(e.target.value)}
-                  placeholder="Product model or name"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="support-sku">SKU (optional)</label>
-                <input
-                  id="support-sku"
-                  className="catalog-select"
-                  value={productSku}
-                  onChange={e => setProductSku(e.target.value)}
-                />
-              </div>
-            </div>
+            <SupportInvoiceProductPicker
+              userId={user.uid}
+              value={productSelection}
+              onChange={setProductSelection}
+              disabled={submitting}
+            />
           )}
 
           {!productDraft && intent === 'complaint' && (
-            <div className="form-group">
-              <label htmlFor="support-invoice-complaint">Invoice / order ref (optional)</label>
-              <input
-                id="support-invoice-complaint"
-                className="catalog-select"
-                value={invoiceNumber}
-                onChange={e => setInvoiceNumber(e.target.value)}
-                placeholder="If related to a specific order"
-              />
-            </div>
+            <SupportInvoiceAutocomplete
+              userId={user.uid}
+              value={complaintInvoice}
+              onChange={setComplaintInvoice}
+              disabled={submitting}
+              id="support-invoice-complaint"
+              label="Invoice / order ref (optional)"
+              placeholder="Search invoice if related to an order"
+            />
           )}
 
           <div className="form-group">
@@ -388,8 +388,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               disabled={submitting}
             />
           </div>
+          </div>
 
-          <div className="support-wizard__actions">
+          <div className="support-wizard__actions support-wizard__actions--dock" aria-label="Form actions">
             <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
               Cancel
             </button>
