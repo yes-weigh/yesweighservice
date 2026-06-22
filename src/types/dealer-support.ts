@@ -31,6 +31,9 @@ export interface DealerSupportRequest {
   createdByName: string;
   dealerId: string;
   dealerName: string | null;
+  assignedToUid: string | null;
+  assignedToName: string | null;
+  assignedAt: string | null;
 }
 
 export type SupportAttachmentKind = 'image' | 'video';
@@ -71,6 +74,12 @@ export interface SupportProductDraft {
   itemName: string;
   itemSku: string | null;
   quantity: number;
+}
+
+export interface SupportAssignee {
+  uid: string;
+  displayName: string;
+  role: string;
 }
 
 export interface CreateSupportRequestInput {

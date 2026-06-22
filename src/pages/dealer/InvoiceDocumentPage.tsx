@@ -7,6 +7,7 @@ import { supportBasePath } from '../../lib/dealerSupport';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import type { SupportProductDraft } from '../../types/dealer-support';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
+import { RelatedSupportRequests } from '../../components/support/RelatedSupportRequests';
 
 export const InvoiceDocumentPage: React.FC = () => {
   const { user } = useAuth();
@@ -30,8 +31,17 @@ export const InvoiceDocumentPage: React.FC = () => {
 
   if (!invoice) return null;
 
+  const dealerId = user?.role === 'dealer' ? user.uid : (user?.dealerId ?? '');
+
   return (
     <>
+      {dealerId && (
+        <RelatedSupportRequests
+          dealerId={dealerId}
+          invoiceId={invoiceId}
+          invoiceNumber={invoice.invoiceNumber}
+        />
+      )}
       <section className="invoice-detail-footer panel glass">
         <div className="invoice-detail-footer__row">
           <span>Sub Total</span>

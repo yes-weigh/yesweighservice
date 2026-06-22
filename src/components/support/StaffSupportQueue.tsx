@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, ChevronRight, LifeBuoy, RefreshCw } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { formatInvoiceDate } from '../../lib/invoices';
 import {
   fetchOpsSupportRequests,
+  subscribeOpsSupportRequests,
   supportDetailPath,
 } from '../../lib/dealerSupport';
 import {
@@ -36,22 +37,38 @@ export const StaffSupportQueue: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    if (!user) return undefined;
     setLoading(true);
     setError('');
-    try {
-      setRequests(filterSupportRequestsForUser(user, await fetchOpsSupportRequests()));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load support queue.');
-      setRequests([]);
-    } finally {
-      setLoading(false);
-    }
+
+    const unsub = subscribeOpsSupportRequests(
+      rows => {
+        setRequests(rows);
+        setLoading(false);
+      },
+      err => {
+        setError(err.message);
+        setLoading(false);
+      },
+    );
+
+    return unsub;
   }, [user]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const refresh = () => {
+    if (!user) return;
+    setLoading(true);
+    void fetchOpsSupportRequests()
+      .then(rows => setRequests(rows))
+      .catch(err => setError(err instanceof Error ? err.message : 'Could not refresh queue.'))
+      .finally(() => setLoading(false));
+  };
+
+  const filteredRequests = useMemo(
+    () => filterSupportRequestsForUser(user, requests),
+    [user, requests],
+  );
 
   const allowedTypes = allowedSupportTypesForUser(user);
   const typeHint = allowedTypes === 'all'
@@ -74,7 +91,7 @@ export const StaffSupportQueue: React.FC = () => {
           className="services-page__refresh"
           aria-label="Refresh"
           disabled={loading}
-          onClick={() => void load()}
+          onClick={refresh}
         >
           <RefreshCw size={17} className={loading ? 'spin-icon' : undefined} />
         </button>
@@ -87,16 +104,16 @@ export const StaffSupportQueue: React.FC = () => {
         </div>
       )}
 
-      {loading && requests.length === 0 ? (
+      {loading && filteredRequests.length === 0 ? (
         <FetchingLoader label="Loading support queue…" />
-      ) : requests.length === 0 ? (
+      ) : filteredRequests.length === 0 ? (
         <div className="warranty-support-page__empty panel glass">
           <LifeBuoy size={36} aria-hidden />
           <p className="text-muted text-sm">No dealer support requests yet.</p>
         </div>
       ) : (
         <ul className="services-page__list">
-          {requests.map(request => (
+          {filteredRequests.map(request => (
             <li key={request.id}>
               <button
                 type="button"
@@ -116,6 +133,11 @@ export const StaffSupportQueue: React.FC = () => {
                 </div>
                 <p className="services-page__card-item">
                   {request.dealerName || 'Dealer'} · {request.product?.name || request.subject || request.category}
+                  {request.assignedToName && (
+                    <span className="staff-support-queue__assignee text-muted text-sm">
+                      {' '}· {request.assignedToName}
+                    </span>
+                  )}
                 </p>
                 <p className="services-page__card-issue text-sm text-muted">
                   {request.lastMessagePreview || request.description}

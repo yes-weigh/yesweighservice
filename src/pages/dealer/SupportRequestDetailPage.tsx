@@ -4,6 +4,7 @@ import { AlertCircle } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SupportChat } from '../../components/support/SupportChat';
 import { SupportCourierInstructions } from '../../components/support/SupportCourierInstructions';
+import { SupportAssigneeSelect } from '../../components/support/SupportAssigneeSelect';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatInvoiceDate } from '../../lib/invoices';
@@ -130,18 +131,21 @@ export const SupportRequestDetailPage: React.FC = () => {
             </p>
           </div>
           {canManageSupportOps(user) ? (
-            <select
-              className="catalog-select support-detail-summary__status"
-              value={request.status}
-              disabled={statusUpdating}
-              onChange={e => void handleStatusChange(e.target.value as SupportRequestStatus)}
-            >
-              {(Object.keys(SUPPORT_REQUEST_STATUS_LABELS) as SupportRequestStatus[]).map(status => (
-                <option key={status} value={status}>
-                  {SUPPORT_REQUEST_STATUS_LABELS[status]}
-                </option>
-              ))}
-            </select>
+            <div className="support-detail-summary__controls">
+              <select
+                className="catalog-select support-detail-summary__status"
+                value={request.status}
+                disabled={statusUpdating}
+                onChange={e => void handleStatusChange(e.target.value as SupportRequestStatus)}
+              >
+                {(Object.keys(SUPPORT_REQUEST_STATUS_LABELS) as SupportRequestStatus[]).map(status => (
+                  <option key={status} value={status}>
+                    {SUPPORT_REQUEST_STATUS_LABELS[status]}
+                  </option>
+                ))}
+              </select>
+              <SupportAssigneeSelect user={user!} request={request} />
+            </div>
           ) : (
             <span className={`service-request-status support-detail-summary__badge support-detail-summary__badge--${request.status}`}>
               {SUPPORT_REQUEST_STATUS_LABELS[request.status]}

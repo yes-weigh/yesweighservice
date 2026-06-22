@@ -2,15 +2,21 @@ import React from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Package } from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
+import { RelatedSupportRequests } from '../../components/support/RelatedSupportRequests';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
 
 export const AdminInvoiceDocumentPage: React.FC = () => {
-  const { invoice } = useOutletContext<AdminInvoiceDetailOutletContext>();
+  const { invoice, customerId, invoiceId } = useOutletContext<AdminInvoiceDetailOutletContext>();
 
   if (!invoice) return null;
 
   return (
     <>
+      <RelatedSupportRequests
+        dealerId={customerId}
+        invoiceId={invoiceId}
+        invoiceNumber={invoice.invoiceNumber}
+      />
       <section className="invoice-detail-footer panel glass">
         <div className="invoice-detail-footer__row">
           <span>Sub Total</span>

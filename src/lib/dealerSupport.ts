@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { User } from '../types';
+import { normalizeRole } from '../types';
 import {
   allowedSupportTypesForUser,
   canManageSupportOps,
@@ -25,6 +26,7 @@ import type {
   CreateSupportRequestInput,
   DealerSupportRequest,
   SendSupportMessageInput,
+  SupportAssignee,
   SupportMessage,
   SupportRequestStatus,
   SupportRequestType,
@@ -114,6 +116,9 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
     createdByName: String(data.createdByName ?? ''),
     dealerId: String(data.dealerId ?? ''),
     dealerName: data.dealerName ? String(data.dealerName) : null,
+    assignedToUid: data.assignedToUid ? String(data.assignedToUid) : null,
+    assignedToName: data.assignedToName ? String(data.assignedToName) : null,
+    assignedAt: data.assignedAt ? String(data.assignedAt) : null,
   };
 }
 
@@ -232,6 +237,9 @@ export async function createSupportRequest(
     createdByName: user.displayName,
     dealerId: resolveDealerId(user),
     dealerName: user.displayName,
+    assignedToUid: null,
+    assignedToName: null,
+    assignedAt: null,
   };
 
   const docRef = await addDoc(collection(db, 'dealerSupportRequests'), data);
@@ -301,6 +309,87 @@ export async function fetchOpsSupportRequests(): Promise<DealerSupportRequest[]>
     ),
   );
   return snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
+}
+
+export function subscribeOpsSupportRequests(
+  onData: (rows: DealerSupportRequest[]) => void,
+  onError?: (err: Error) => void,
+): Unsubscribe {
+  const q = query(
+    collection(db, 'dealerSupportRequests'),
+    orderBy('updatedAt', 'desc'),
+    limit(200),
+  );
+  return onSnapshot(
+    q,
+    snap => {
+      onData(snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data())));
+    },
+    err => onError?.(err instanceof Error ? err : new Error('Could not load support queue.')),
+  );
+}
+
+export async function fetchSupportRequestsForInvoice(
+  dealerId: string,
+  invoiceId: string,
+): Promise<DealerSupportRequest[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, 'dealerSupportRequests'),
+      where('dealerId', '==', dealerId),
+      where('invoiceId', '==', invoiceId),
+      orderBy('updatedAt', 'desc'),
+      limit(20),
+    ),
+  );
+  return snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()));
+}
+
+export async function fetchSupportAssignees(): Promise<SupportAssignee[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, 'users'),
+      where('active', '==', true),
+      limit(200),
+    ),
+  );
+  const rows: SupportAssignee[] = [];
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data();
+    const role = normalizeRole(String(data.role ?? ''));
+    const profile = {
+      uid: docSnap.id,
+      role,
+      staffPermissions: data.staffPermissions,
+      staffAccessMode: data.staffAccessMode,
+      staffDepartment: data.staffDepartment,
+    } as User;
+    if (role !== 'staff' && role !== 'super_admin') continue;
+    if (!canManageSupportOps(profile)) continue;
+    rows.push({
+      uid: docSnap.id,
+      displayName: String(data.displayName ?? 'Staff'),
+      role,
+    });
+  }
+  return rows.sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+export async function assignSupportRequest(
+  user: User,
+  requestId: string,
+  assignee: SupportAssignee | null,
+): Promise<void> {
+  if (!canManageSupportOps(user)) {
+    throw new Error('Only staff can assign support requests.');
+  }
+  const now = new Date().toISOString();
+  await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
+    assignedToUid: assignee?.uid ?? null,
+    assignedToName: assignee?.displayName ?? null,
+    assignedAt: assignee ? now : null,
+    updatedAt: now,
+  });
 }
 
 export async function updateSupportRequestStatus(
