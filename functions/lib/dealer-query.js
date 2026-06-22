@@ -136,14 +136,33 @@ export function paginateDealers(dealers, page = 1, limit = 50) {
 }
 
 export function dealerStats(dealers) {
-  const activeRoster = dealers.filter(d => !d.isFiltered);
+  const roster = dealers.filter(d => !d.isFiltered);
+  const counts = { active: 0, nonActive: 0, blacklisted: 0, unstaged: 0 };
+
+  for (const dealer of roster) {
+    const bucket = classifyDealerStageBucket(dealer.dealerStage);
+    counts[bucket] += 1;
+  }
+
+  const total = counts.active + counts.nonActive + counts.blacklisted + counts.unstaged;
+
   return {
-    total: activeRoster.length,
-    active: activeRoster.filter(d => d.dealerStage === 'Active').length,
-    blacklisted: dealers.filter(d => d.dealerStage === 'Blacklisted' || d.dealerStage === 'Black listed').length,
-    inactive: activeRoster.filter(d => d.status === 'inactive').length,
-    unassignedKam: activeRoster.filter(d => !d.kamId).length,
+    total,
+    active: counts.active,
+    nonActive: counts.nonActive,
+    blacklisted: counts.blacklisted,
+    unstaged: counts.unstaged,
+    unassignedKam: roster.filter(d => !d.kamId).length,
   };
+}
+
+function classifyDealerStageBucket(stage) {
+  if (!stage || typeof stage !== 'string') return 'unstaged';
+  const normalized = stage.trim();
+  if (normalized === 'Active') return 'active';
+  if (normalized === 'Non Active') return 'nonActive';
+  if (normalized === 'Blacklisted' || normalized === 'Black listed') return 'blacklisted';
+  return 'unstaged';
 }
 
 export function dealerLocations(dealers) {

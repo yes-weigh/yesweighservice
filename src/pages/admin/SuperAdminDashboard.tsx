@@ -19,7 +19,7 @@ import {
   ShoppingCart,
   TrendingUp,
   UserCheck,
-  UserX,
+  UserMinus,
   Users,
 } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
@@ -237,7 +237,7 @@ export const SuperAdminDashboard: React.FC = () => {
       id: 'dealers-total',
       label: 'Total Dealers',
       value: loading ? '…' : dealerStats ? String(dealerStats.total) : '—',
-      trendLabel: 'On dealer roster',
+      trendLabel: 'Active + Non Active + Blacklisted + Unstaged',
       path: `${BASE}/dealers`,
       tone: 'blue' as const,
       icon: <Building2 size={22} strokeWidth={2.5} />,
@@ -246,19 +246,19 @@ export const SuperAdminDashboard: React.FC = () => {
       id: 'dealers-active',
       label: 'Active Dealers',
       value: loading ? '…' : dealerStats ? String(dealerStats.active) : '—',
-      trendLabel: dealerStats ? 'Stage: Active' : '',
+      trendLabel: 'Stage: Active',
       path: `${BASE}/dealers`,
       tone: 'green' as const,
       icon: <UserCheck size={22} strokeWidth={2.5} />,
     },
     {
-      id: 'dealers-inactive',
-      label: 'Inactive Dealers',
-      value: loading ? '…' : dealerStats ? String(dealerStats.inactive) : '—',
-      trendLabel: 'Zoho inactive status',
+      id: 'dealers-non-active',
+      label: 'Non Active Dealers',
+      value: loading ? '…' : dealerStats ? String(dealerStats.nonActive) : '—',
+      trendLabel: 'Stage: Non Active',
       path: `${BASE}/dealers`,
       tone: 'orange' as const,
-      icon: <UserX size={22} strokeWidth={2.5} />,
+      icon: <UserMinus size={22} strokeWidth={2.5} />,
     },
     {
       id: 'dealers-blacklisted',
@@ -268,6 +268,15 @@ export const SuperAdminDashboard: React.FC = () => {
       path: `${BASE}/dealers`,
       tone: 'red' as const,
       icon: <Ban size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'dealers-unstaged',
+      label: 'Unstaged Dealers',
+      value: loading ? '…' : dealerStats ? String(dealerStats.unstaged) : '—',
+      trendLabel: 'No stage assigned',
+      path: `${BASE}/dealers`,
+      tone: 'purple' as const,
+      icon: <Users size={22} strokeWidth={2.5} />,
     },
   ];
 
@@ -385,7 +394,7 @@ export const SuperAdminDashboard: React.FC = () => {
           ))}
         </div>
 
-        <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--four">
+        <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--dealer-stages">
           {secondaryKpis.map(card => (
             <button
               key={card.id}
