@@ -17,7 +17,7 @@ import { authErrorMessage } from '../lib/authErrors';
 import { clearInvoiceCacheForUser } from '../lib/invoice-cache';
 import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
 
-const INACTIVE_MESSAGE = 'Your account is inactive. Contact YesWeigh super admin.';
+const INACTIVE_MESSAGE = 'Your account is inactive. Contact YesOne super admin.';
 
 async function readParentDealerAccess(dealerId: string): Promise<{
   dealerTier?: DealerTier;
@@ -149,7 +149,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const resolved = await resolveUser(cred.user);
       if (!resolved) {
         await signOut(auth);
-        throw new Error('No profile found for this account. Contact YesWeigh super admin.');
+        throw new Error('No profile found for this account. Contact YesOne super admin.');
       }
       setUser(resolved);
     } catch (err: unknown) {
@@ -177,7 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const resolved = await resolveUser(cred.user);
       if (!resolved) {
         await signOut(auth);
-        throw new Error('No profile found for this account. Contact YesWeigh super admin.');
+        throw new Error('No profile found for this account. Contact YesOne super admin.');
       }
       setUser(resolved);
     } catch (err: unknown) {

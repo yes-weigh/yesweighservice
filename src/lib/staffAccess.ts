@@ -147,6 +147,8 @@ export type StaffNavFeature =
   | 'verification'
   | 'advertisements'
   | 'invoices'
+  | 'logistics'
+  | 'loyalty'
   | 'ai-assistant'
   | 'notifications'
   | 'training'
@@ -163,6 +165,8 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   verification: ['verification.view'],
   advertisements: ['advertisements.view'],
   invoices: ['invoices.view'],
+  logistics: ['logistics.view'],
+  loyalty: ['loyalty.view'],
   'ai-assistant': 'always',
   notifications: 'always',
   training: 'always',

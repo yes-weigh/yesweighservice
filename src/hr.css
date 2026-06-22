@@ -295,8 +295,12 @@
 }
 
 .hr-staff-form__section h3 {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.35rem;
   font-size: 0.95rem;
+}
+
+.hr-staff-form__section-hint {
+  margin: 0 0 0.75rem;
 }
 
 .hr-staff-form__field {
@@ -360,8 +364,96 @@
 
 .hr-staff-form__docs {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.hr-doc-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.hr-doc-upload--has-file {
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.hr-doc-upload__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.hr-doc-upload__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(30, 41, 59, 0.65);
+  color: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  width: fit-content;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.hr-doc-upload__btn:hover {
+  border-color: rgba(96, 165, 250, 0.5);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.hr-doc-upload__btn.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hr-doc-upload__input {
+  display: none;
+}
+
+.hr-doc-upload__status {
+  margin: 0;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.staff-role-editor__role-row {
+  display: grid;
+  grid-template-columns: minmax(0, 280px) minmax(0, 280px);
+  gap: 0.75rem 1rem;
+  align-items: end;
+}
+
+.staff-role-editor__field--role,
+.staff-role-editor__field--kam {
+  margin: 0;
+}
+
+.staff-role-editor__role-select,
+.staff-role-editor__team-input {
+  max-width: 280px;
+}
+
+.staff-role-editor__optional {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.staff-role-editor__optional summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 0.35rem 0;
+}
+
+.staff-role-editor__optional[open] summary {
+  margin-bottom: 0.5rem;
 }
 
 .hr-staff-form__doc {
@@ -470,8 +562,265 @@
   margin-top: 0.75rem;
 }
 
+.hr-roles-page__form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.hr-work-report {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hr-work-report__intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+}
+
+.hr-work-report__month {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 10rem;
+}
+
+.hr-work-report__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.hr-work-report__summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.hr-work-report__table-wrap {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.hr-work-report__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.hr-work-report__table th,
+.hr-work-report__table td {
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.hr-work-report__table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #94a3b8);
+}
+
+.hr-work-report__table tr.is-inactive td {
+  opacity: 0.55;
+}
+
+.hr-work-report__name {
+  display: block;
+  color: #93c5fd;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.hr-work-report__name + .text-sm {
+  display: block;
+}
+
+.hr-work-report__score {
+  display: inline-flex;
+  min-width: 1.75rem;
+  justify-content: center;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.hr-holiday {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hr-holiday__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+}
+
+.hr-holiday__nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hr-holiday__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.hr-holiday__form {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hr-holiday__form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.65rem;
+}
+
+.hr-holiday__form-note {
+  grid-column: 1 / -1;
+}
+
+.hr-holiday__calendar {
+  padding: 0.85rem;
+}
+
+.hr-holiday__weekdays,
+.hr-holiday__week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.hr-holiday__weekdays {
+  margin-bottom: 0.35rem;
+}
+
+.hr-holiday__weekday {
+  text-align: center;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--text-muted, #94a3b8);
+}
+
+.hr-holiday__day {
+  min-height: 4.5rem;
+  padding: 0.35rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  text-align: left;
+  color: inherit;
+  cursor: default;
+}
+
+.hr-holiday__day--empty {
+  border-color: transparent;
+  background: transparent;
+}
+
+.hr-holiday__day.is-today {
+  border-color: rgba(59, 130, 246, 0.55);
+}
+
+.hr-holiday__day.is-holiday {
+  background: rgba(245, 130, 32, 0.12);
+  border-color: rgba(245, 130, 32, 0.35);
+}
+
+.hr-holiday__day-num {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.hr-holiday__chip {
+  font-size: 0.62rem;
+  line-height: 1.2;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hr-holiday__chip--public {
+  background: rgba(52, 211, 153, 0.2);
+  color: #6ee7b7;
+}
+
+.hr-holiday__chip--company {
+  background: rgba(245, 130, 32, 0.2);
+  color: #fdba74;
+}
+
+.hr-holiday__chip--optional {
+  background: rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+}
+
+.hr-holiday__list {
+  padding: 0.85rem 1rem;
+}
+
+.hr-holiday__list-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hr-holiday__list-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.hr-holiday__list-item:last-child {
+  border-bottom: none;
+}
+
 @media (max-width: 768px) {
   .hr-staff-form__grid {
     grid-template-columns: 1fr;
+  }
+
+  .hr-staff-form__docs {
+    grid-template-columns: 1fr;
+  }
+
+  .staff-role-editor__role-row {
+    grid-template-columns: 1fr;
+  }
+
+  .staff-role-editor__role-select,
+  .staff-role-editor__team-input {
+    max-width: 100%;
   }
 }

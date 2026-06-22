@@ -45,7 +45,7 @@ export async function lookupPincodeLocation(zip, zipCache = {}) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(`https://api.postalpincode.in/pincode/${key}`, {
-      headers: { 'User-Agent': 'YesWeighService/1.0' },
+      headers: { 'User-Agent': 'YesOnePlatform/1.0' },
       signal: controller.signal,
     });
     clearTimeout(timeoutId);

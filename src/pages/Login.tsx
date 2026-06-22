@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { LogIn, Lock, UserRound, Eye, EyeOff } from 'lucide-react';
 import { Logo } from '../components/Logo';
+import { APP_NAME, BRAND_TITLE, TAGLINE } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole } from '../types';
 import { parseLoginId } from '../lib/loginAuth';
@@ -52,7 +53,8 @@ export const Login: React.FC = () => {
         <div className="login-header">
           <div className="login-brand">
             <Logo size="lg" />
-            <h2>YesWeigh Service</h2>
+            <h2>{APP_NAME}</h2>
+            <p className="brand-tagline">{TAGLINE}</p>
           </div>
           <p>Sign in with your ID and password</p>
         </div>
@@ -114,7 +116,7 @@ export const Login: React.FC = () => {
           <p className="text-muted text-sm">
             Dealer? <Link to="/dealer-login">Activate or verify your account</Link>
           </p>
-          <p className="text-muted text-sm">© YesWeigh · service.yesweigh.in</p>
+          <p className="text-muted text-sm">© {BRAND_TITLE} · service.yesweigh.in</p>
         </div>
       </div>
 

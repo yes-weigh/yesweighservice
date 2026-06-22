@@ -50,7 +50,7 @@ export interface User {
   phone?: string;
   aadhar?: string;
   active: boolean;
-  /** YesWeigh staff only */
+  /** YesOne staff only */
   staffDepartment?: import('./types/staff-access').StaffDepartment;
   staffRoleId?: string | null;
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;

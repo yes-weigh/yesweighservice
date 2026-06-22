@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, KeyRound, Lock, Phone, Send, ShieldCheck } from 'lucide-react';
 import { Logo } from '../components/Logo';
+import { TAGLINE } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole } from '../types';
 import { isValidPhone, normalizePhone } from '../lib/loginAuth';
@@ -143,6 +144,7 @@ export const DealerLogin: React.FC = () => {
           <div className="login-brand">
             <Logo size="lg" />
             <h2>Dealer Login</h2>
+            <p className="brand-tagline">{TAGLINE}</p>
           </div>
           <p>Verify your phone to activate your dealer portal</p>
         </div>
@@ -188,7 +190,7 @@ export const DealerLogin: React.FC = () => {
                 />
               </div>
               <p className="text-muted text-sm login-id-hint">
-                Use the phone number registered with your YesWeigh dealer account
+                Use the phone number registered with your YesOne dealer account
               </p>
             </div>
 

@@ -51,8 +51,8 @@ export const RoleDashboard: React.FC = () => {
       <div className="panel glass">
         <h2>Welcome, {user?.displayName}</h2>
         <p className="text-muted mt-4">
-          YesWeigh Service portal — your workspace for verification, quality, and
-          customer operations under the YesWeigh brand.
+          YesOne Platform — your workspace for verification, quality, and
+          customer operations under the YesOne brand.
         </p>
       </div>
     </div>
@@ -112,7 +112,7 @@ export const DealerMenuPages = {
   AiAssistant: () => (
     <PagePlaceholder
       title="AI assistance"
-      description="Your YesWeigh AI assistant for service guidance, documentation lookup, and operational support."
+      description="Your YesOne AI assistant for service guidance, documentation lookup, and operational support."
     />
   ),
   Leads: () => (

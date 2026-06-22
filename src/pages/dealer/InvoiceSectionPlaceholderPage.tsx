@@ -6,15 +6,15 @@ import type { InvoiceDetailSection } from '../../components/invoices/InvoiceDeta
 const PLACEHOLDER_COPY: Record<Exclude<InvoiceDetailSection, 'invoice'>, { title: string; body: string }> = {
   payments: {
     title: 'Payments',
-    body: 'Payment history is not available in the portal yet. Contact YesWeigh accounts for payment details.',
+    body: 'Payment history is not available in the portal yet. Contact YesOne accounts for payment details.',
   },
   logistic: {
     title: 'Logistics',
-    body: 'Shipment tracking is not available in the portal yet. Contact YesWeigh support for delivery updates.',
+    body: 'Shipment tracking is not available in the portal yet. Contact YesOne support for delivery updates.',
   },
   qc: {
     title: 'Quality control',
-    body: 'QC records for this invoice are not available in the portal yet. Contact YesWeigh support for inspection details.',
+    body: 'QC records for this invoice are not available in the portal yet. Contact YesOne support for inspection details.',
   },
 };
 

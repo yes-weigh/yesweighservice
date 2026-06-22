@@ -32,7 +32,7 @@ export async function findDealerByPhone(phone10) {
 
   if (matches.length === 0) return null;
   if (matches.length > 1) {
-    throw new Error('Multiple dealers are registered with this phone number. Contact YesWeigh support.');
+    throw new Error('Multiple dealers are registered with this phone number. Contact YesOne support.');
   }
 
   const doc = matches[0];

@@ -104,7 +104,7 @@ export const SUPPORT_TYPE_LABELS: Record<SupportRequestType, string> = {
 };
 
 export const DEALER_COURIER_NOTICE =
-  'For repair and replacement, courier the product to YesWeigh after your request is approved. This is the standard process for all dealers.';
+  'For repair and replacement, courier the product to YesOne after your request is approved. This is the standard process for all dealers.';
 
 export const SUPPORT_INTENT_OPTIONS: Array<{
   value: SupportRequestType;
@@ -116,13 +116,13 @@ export const SUPPORT_INTENT_OPTIONS: Array<{
     value: 'service',
     title: 'Repair or technical support',
     description: 'Product is faulty, needs calibration, spare parts, or warranty repair.',
-    hint: 'Courier the unit to YesWeigh — our workshop will diagnose and repair it.',
+    hint: 'Courier the unit to YesOne — our workshop will diagnose and repair it.',
   },
   {
     value: 'return',
     title: 'Full product replacement',
     description: 'Unit must be swapped under warranty — dead on arrival, beyond repair, or wrong item.',
-    hint: 'Courier the unit to YesWeigh — we inspect and send a replacement.',
+    hint: 'Courier the unit to YesOne — we inspect and send a replacement.',
   },
   {
     value: 'complaint',

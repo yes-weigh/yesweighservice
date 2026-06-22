@@ -234,7 +234,7 @@ export const StaffDashboard: React.FC = () => {
     <div className="page-content fade-in dealer-dashboard">
       <header className="dealer-dash__hero">
         <div className="dealer-dash__hero-copy">
-          <p className="dealer-dash__eyebrow">YesWeigh Staff Portal</p>
+          <p className="dealer-dash__eyebrow">YesOne Staff Portal</p>
           <h2 className="dealer-dash__title">
             Welcome, {firstName}
             <span className="dealer-dash__wave" aria-hidden>👋</span>

@@ -26,6 +26,7 @@ import { parseLoginId } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
+import { HrDocumentUpload } from '../../components/hr/HrDocumentUpload';
 import {
   BLOOD_GROUPS,
   HR_DOCUMENT_LABELS,
@@ -396,36 +397,32 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
 
           <section className="panel glass hr-staff-form__section hr-staff-form__section--wide">
             <h3>Documents</h3>
+            <p className="hr-staff-form__section-hint text-muted text-sm">
+              Upload staff documents. Existing files stay until replaced.
+            </p>
             <div className="hr-staff-form__docs">
               {HR_DOCUMENT_TYPES.map(type => (
-                <label key={type} className="hr-staff-form__doc">
-                  <span>{HR_DOCUMENT_LABELS[type]}</span>
-                  <input
-                    type="file"
-                    accept="application/pdf,image/*"
-                    onChange={e => {
-                      const file = e.target.files?.[0];
-                      setDocFiles(prev => {
-                        const next = { ...prev };
-                        if (file) next[type] = file;
-                        else delete next[type];
-                        return next;
-                      });
-                    }}
-                  />
-                  {hr.hrDocuments?.[type] && !docFiles[type] && (
-                    <span className="text-muted text-sm">On file</span>
-                  )}
-                  {docFiles[type] && (
-                    <span className="text-sm">{docFiles[type]!.name}</span>
-                  )}
-                </label>
+                <HrDocumentUpload
+                  key={type}
+                  label={HR_DOCUMENT_LABELS[type]}
+                  fileName={docFiles[type]?.name ?? null}
+                  hasExisting={Boolean(hr.hrDocuments?.[type]) && !docFiles[type]}
+                  disabled={submitting}
+                  onPick={file => {
+                    setDocFiles(prev => {
+                      const next = { ...prev };
+                      if (file) next[type] = file;
+                      else delete next[type];
+                      return next;
+                    });
+                  }}
+                />
               ))}
             </div>
           </section>
 
           <section className="panel glass hr-staff-form__section hr-staff-form__section--wide">
-            <h3>Role &amp; permissions</h3>
+            <h3>Access</h3>
             <StaffRoleEditor
               value={roleDraft}
               onChange={setRoleDraft}

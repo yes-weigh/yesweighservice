@@ -16,11 +16,12 @@ export default defineConfig({
         'icons/apple-touch-icon.png',
       ],
       manifest: {
-        name: 'YesWeigh Service',
-        short_name: 'YesWeigh',
-        description: 'YesWeigh operations portal for service.yesweigh.in',
-        theme_color: '#F58220',
-        background_color: '#030712',
+        name: 'YesOne Platform',
+        short_name: 'YesOne',
+        description:
+          'One platform, unlimited possibilities. Everything you need all in one place.',
+        theme_color: '#000000',
+        background_color: '#000000',
         display: 'standalone',
         orientation: 'portrait-primary',
         scope: '/',

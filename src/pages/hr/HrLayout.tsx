@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Building2, KeyRound, Shield, Users } from 'lucide-react';
+import { CalendarDays, ClipboardList, KeyRound, Shield, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
   canManageHr,
   canManageStaffRolesInHr,
   canManageSuperAdminsInHr,
-  canViewDealersInHr,
   canViewHr,
 } from '../../lib/staffAccess';
 
@@ -19,12 +18,23 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const showSuperAdmins = canManageSuperAdminsInHr(user);
-  const showDealers = canViewDealersInHr(user);
   const showRoles = canManageStaffRolesInHr(user);
 
   const tabs = useMemo(() => {
     const items = [
       { id: 'staff', label: 'Staff', path: `${basePath}/hr/staff`, icon: <Users size={16} /> },
+      {
+        id: 'report',
+        label: 'Report',
+        path: `${basePath}/hr/report`,
+        icon: <ClipboardList size={16} />,
+      },
+      {
+        id: 'holidays',
+        label: 'Holiday calendar',
+        path: `${basePath}/hr/holidays`,
+        icon: <CalendarDays size={16} />,
+      },
     ];
     if (showRoles) {
       items.push({
@@ -42,16 +52,8 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
         icon: <Shield size={16} />,
       });
     }
-    if (showDealers) {
-      items.push({
-        id: 'dealers',
-        label: 'Dealers',
-        path: `${basePath}/hr/dealers`,
-        icon: <Building2 size={16} />,
-      });
-    }
     return items;
-  }, [basePath, showDealers, showRoles, showSuperAdmins]);
+  }, [basePath, showRoles, showSuperAdmins]);
 
   useEffect(() => {
     if (location.pathname === `${basePath}/hr` || location.pathname === `${basePath}/hr/`) {
@@ -77,7 +79,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
       <header className="hr-hub__header panel glass">
         <div>
           <h2>Human Resources</h2>
-          <p className="text-muted text-sm">Staff records, super admins, and dealers.</p>
+          <p className="text-muted text-sm">Staff records, work reports, holidays, roles, and super admins.</p>
         </div>
         {canManageHr(user) && isTabActive(`${basePath}/hr/staff`) && (
           <Link to={`${basePath}/hr/staff/new`} className="btn btn-primary btn-sm">

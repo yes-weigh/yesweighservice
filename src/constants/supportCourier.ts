@@ -11,7 +11,7 @@ export interface SupportCourierInfo {
 
 /** Default workshop / RMA address — override via Firestore `appSettings/supportCourier`. */
 export const DEFAULT_SUPPORT_COURIER: SupportCourierInfo = {
-  companyName: 'YesWeigh (Interweighing Pvt Ltd)',
+  companyName: 'YesOne (Interweighing Pvt Ltd)',
   department: 'Service & Warranty — RMA',
   addressLines: ['3rd Floor, Asian Tower', '49/470 D1, Vyttila'],
   city: 'Kochi',
@@ -22,7 +22,7 @@ export const DEFAULT_SUPPORT_COURIER: SupportCourierInfo = {
 };
 
 export const SUPPORT_PACKING_CHECKLIST: string[] = [
-  'Wait for YesWeigh to approve your request before shipping — you will be notified.',
+  'Wait for YesOne to approve your request before shipping — you will be notified.',
   'Write your request number (SRV- or RMA-) clearly on the outside of the box.',
   'Place a copy of the invoice, or note the invoice number, inside the package.',
   'Include the product serial number on a slip inside the box.',

@@ -60,7 +60,7 @@ export async function resolveZohoCustomerIdForUser(uid, role) {
     .get();
   if (!linkedSelf.empty) return linkedSelf.docs[0].id;
 
-  throw new Error('Your portal account is not linked to a Zoho customer yet. Contact YesWeigh support.');
+  throw new Error('Your portal account is not linked to a Zoho customer yet. Contact YesOne support.');
 }
 
 export async function getDealerInvoiceDashboard(_secrets, _orgId, uid, role) {

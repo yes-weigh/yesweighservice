@@ -70,7 +70,7 @@ export const SupportCourierInstructions: React.FC<SupportCourierInstructionsProp
       <div className="support-courier-instructions__approval">
         <strong>Next step after approval</strong>
         <p className="text-muted text-sm">
-          Once YesWeigh approves
+          Once YesOne approves
           {requestNumber ? <> request <strong>{requestNumber}</strong></> : ' your request'}
           , courier the product to the address below.
         </p>

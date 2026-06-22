@@ -39,6 +39,8 @@ export type StaffPermission =
   | 'hr.manage'
   | 'tasks.view'
   | 'invoices.view'
+  | 'logistics.view'
+  | 'loyalty.view'
   | 'verification.view'
   | 'verification.manage'
   | 'advertisements.view';
@@ -64,6 +66,8 @@ export const ALL_STAFF_PERMISSIONS: StaffPermission[] = [
   'hr.manage',
   'tasks.view',
   'invoices.view',
+  'logistics.view',
+  'loyalty.view',
   'verification.view',
   'verification.manage',
   'advertisements.view',
@@ -90,6 +94,8 @@ export const STAFF_PERMISSION_LABELS: Record<StaffPermission, string> = {
   'hr.manage': 'Manage HR staff & documents',
   'tasks.view': 'View tasks',
   'invoices.view': 'View invoices',
+  'logistics.view': 'View logistics',
+  'loyalty.view': 'View loyalty programs',
   'verification.view': 'View verifications',
   'verification.manage': 'Manage verifications',
   'advertisements.view': 'View advertisements',
@@ -124,7 +130,7 @@ export const STAFF_PERMISSION_GROUPS: Array<{
   {
     id: 'orders',
     label: 'Orders & logistics',
-    permissions: ['orders.view', 'orders.manage'],
+    permissions: ['orders.view', 'orders.manage', 'logistics.view'],
   },
   {
     id: 'catalog',
@@ -146,6 +152,7 @@ export const STAFF_PERMISSION_GROUPS: Array<{
     label: 'Other',
     permissions: [
       'invoices.view',
+      'loyalty.view',
       'verification.view',
       'verification.manage',
       'advertisements.view',
@@ -160,6 +167,7 @@ export const DEPARTMENT_DEFAULT_PERMISSIONS: Record<StaffDepartment, StaffPermis
     'leads.manage',
     'catalog.view',
     'invoices.view',
+    'loyalty.view',
     'tasks.view',
     'advertisements.view',
   ],
@@ -178,6 +186,8 @@ export const DEPARTMENT_DEFAULT_PERMISSIONS: Record<StaffDepartment, StaffPermis
     'support.view',
     'support.return',
     'invoices.view',
+    'logistics.view',
+    'loyalty.view',
     'catalog.view',
   ],
   admin: [...ALL_STAFF_PERMISSIONS],

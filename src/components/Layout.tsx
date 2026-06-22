@@ -30,6 +30,8 @@ import {
   ListTodo,
   Truck,
   Gift,
+  UserCog,
+  ChevronDown,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
@@ -41,10 +43,34 @@ type NavItem = {
   badge?: number;
 };
 
+type NavSection = {
+  id: string;
+  label: string | null;
+  items: NavItem[];
+};
+
+const OPS_PATH_SUFFIXES = [
+  '/orders',
+  '/warranty-support',
+  '/verification',
+  '/advertisements',
+  '/logistics',
+  '/loyalty',
+  '/training',
+  '/notifications',
+  '/ai-assistant',
+] as const;
+
+function operationsNavItems(home: string, itemCount: number): NavItem[] {
+  return portalNavItems(home, itemCount, 'dealer').filter(item =>
+    OPS_PATH_SUFFIXES.some(suffix => item.path === `${home}${suffix}`),
+  );
+}
+
 function portalNavItems(
   home: string,
   itemCount: number,
-  order: 'dealer' | 'staff' = 'dealer',
+  order: 'dealer' | 'staff' | 'dealer_staff' = 'dealer',
 ): NavItem[] {
   const items: Record<string, NavItem> = {
     catalog: { path: `${home}/catalog`, icon: <Package size={20} />, label: 'Catalog' },
@@ -81,11 +107,27 @@ function portalNavItems(
           'verification',
           'advertisements',
           'invoices',
+          'logistics',
+          'loyalty',
           'aiAssistant',
           'notifications',
           'training',
         ]
-      : [
+      : order === 'dealer_staff'
+        ? [
+            'warrantySupport',
+            'catalog',
+            'orders',
+            'invoices',
+            'verification',
+            'advertisements',
+            'logistics',
+            'loyalty',
+            'aiAssistant',
+            'training',
+            'notifications',
+          ]
+        : [
           'catalog',
           'orders',
           'invoices',
@@ -117,6 +159,8 @@ function staffPathToFeature(path: string): StaffNavFeature {
     verification: 'verification',
     advertisements: 'advertisements',
     invoices: 'invoices',
+    logistics: 'logistics',
+    loyalty: 'loyalty',
     'ai-assistant': 'ai-assistant',
     notifications: 'notifications',
     training: 'training',
@@ -145,6 +189,7 @@ const LayoutShell: React.FC = () => {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [opsCollapsed, setOpsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [pageRefreshKey, setPageRefreshKey] = useState(0);
 
@@ -157,6 +202,15 @@ const LayoutShell: React.FC = () => {
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (user?.role !== 'super_admin') return;
+    const opsPaths = operationsNavItems('/super-admin', 0).map(item => item.path);
+    const onOpsPage = opsPaths.some(
+      path => location.pathname === path || location.pathname.startsWith(`${path}/`),
+    );
+    if (onOpsPage) setOpsCollapsed(false);
+  }, [location.pathname, user?.role]);
 
   const showCartFlyTarget = canUseCart(user?.role);
   const cartBadgeCount = showCartFlyTarget ? itemCount : 0;
@@ -172,15 +226,28 @@ const LayoutShell: React.FC = () => {
 
   if (!user) return null;
 
-  const getNavItems = (): NavItem[] => {
+  const getNavSections = (): NavSection[] => {
     switch (user.role) {
       case 'super_admin':
         return [
-          { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
-          { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
-          { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
-          { path: '/super-admin/dealer-accounts', icon: <UserCircle size={20} />, label: 'Dealer Logins' },
+          {
+            id: 'admin',
+            label: null,
+            items: [
+              { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+              { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
+              { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
+              { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
+              { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
+              { path: '/super-admin/dealer-accounts', icon: <UserCircle size={20} />, label: 'Dealer Logins' },
+              { path: '/super-admin/dealer-staff', icon: <UserCog size={20} />, label: 'Dealer Staff' },
+            ],
+          },
+          {
+            id: 'ops',
+            label: 'Operations',
+            items: operationsNavItems('/super-admin', cartBadgeCount),
+          },
         ];
       case 'staff': {
         const items: NavItem[] = [
@@ -193,44 +260,34 @@ const LayoutShell: React.FC = () => {
         if (canViewHr(user)) {
           items.splice(1, 0, { path: '/staff/hr', icon: <Users size={20} />, label: 'HR' });
         }
-        return filterStaffNavItems(user, items);
+        return [{ id: 'main', label: null, items: filterStaffNavItems(user, items) }];
       }
       case 'dealer':
-        return [
-          { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          ...portalNavItems('/dealer', cartBadgeCount, 'dealer'),
-          { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
-        ];
+        return [{
+          id: 'main',
+          label: null,
+          items: [
+            { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+            ...portalNavItems('/dealer', cartBadgeCount, 'dealer'),
+            { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
+          ],
+        }];
       case 'dealer_staff':
-        return [
-          { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/dealer-staff/warranty-support', icon: <LifeBuoy size={20} />, label: 'Warranty & Support' },
-          { path: '/dealer-staff/catalog', icon: <Package size={20} />, label: 'Catalog' },
-          {
-            path: '/dealer-staff/orders',
-            icon: <ShoppingCart size={20} />,
-            label: 'Orders',
-            badge: cartBadgeCount > 0 ? cartBadgeCount : undefined,
-          },
-          {
-            path: '/dealer-staff/verification',
-            icon: <ShieldCheck size={20} />,
-            label: 'Verification',
-          },
-          {
-            path: '/dealer-staff/advertisements',
-            icon: <Megaphone size={20} />,
-            label: 'Advertisements',
-          },
-          { path: '/dealer-staff/training', icon: <GraduationCap size={20} />, label: 'Training' },
-          { path: '/dealer-staff/notifications', icon: <Bell size={20} />, label: 'Notifications' },
-        ];
+        return [{
+          id: 'main',
+          label: null,
+          items: [
+            { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+            ...portalNavItems('/dealer-staff', cartBadgeCount, 'dealer_staff'),
+          ],
+        }];
       default:
         return [];
     }
   };
 
-  const navItems = getNavItems();
+  const navSections = getNavSections();
+  const navItems = navSections.flatMap(section => section.items);
   const home = homePathForRole(user.role);
   const profilePath = `${home}/profile`;
 
@@ -318,7 +375,7 @@ const LayoutShell: React.FC = () => {
       >
         <div className="sidebar-header">
           <div className="logo-area">
-            <Logo size={collapsed || isMobile ? 'sm' : 'md'} showText={!collapsed} />
+            <Logo size={collapsed || isMobile ? 'sm' : 'md'} />
           </div>
           {!isMobile && (
             <button
@@ -332,25 +389,46 @@ const LayoutShell: React.FC = () => {
           )}
         </div>
 
-        <nav className="nav-menu">
-          {navItems.map(item => (
-            <button
-              key={item.path}
-              type="button"
-              className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
-              onClick={() => handleNavClick(item.path)}
-            >
-              <span className="nav-icon">
-                {item.icon}
-                {item.badge !== undefined && item.badge > 0 && (
-                  <span className="nav-badge" aria-label={`${item.badge} items in cart`}>
-                    {item.badge > 99 ? '99+' : item.badge}
-                  </span>
+        <nav className={`nav-menu ${navSections.length > 1 ? 'nav-menu--sectioned' : ''}`}>
+          {navSections.map(section => {
+            const sectionCollapsed = section.id === 'ops' && opsCollapsed;
+            return (
+              <div key={section.id} className="nav-section">
+                {section.label && !collapsed && (
+                  <button
+                    type="button"
+                    className="nav-section__toggle"
+                    onClick={() => setOpsCollapsed(c => !c)}
+                    aria-expanded={!sectionCollapsed}
+                  >
+                    <span className="nav-section__label">{section.label}</span>
+                    <ChevronDown
+                      size={14}
+                      className={`nav-section__chevron ${sectionCollapsed ? 'nav-section__chevron--collapsed' : ''}`}
+                    />
+                  </button>
                 )}
-              </span>
-              {!collapsed && <span className="nav-label">{item.label}</span>}
-            </button>
-          ))}
+                {(!section.label || !sectionCollapsed) && section.items.map(item => (
+                  <button
+                    key={item.path}
+                    type="button"
+                    className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
+                    onClick={() => handleNavClick(item.path)}
+                  >
+                    <span className="nav-icon">
+                      {item.icon}
+                      {item.badge !== undefined && item.badge > 0 && (
+                        <span className="nav-badge" aria-label={`${item.badge} items in cart`}>
+                          {item.badge > 99 ? '99+' : item.badge}
+                        </span>
+                      )}
+                    </span>
+                    {!collapsed && <span className="nav-label">{item.label}</span>}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </nav>
 
         {profilePath && (

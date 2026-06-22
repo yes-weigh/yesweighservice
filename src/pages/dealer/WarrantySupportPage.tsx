@@ -155,7 +155,7 @@ export const WarrantySupportPage: React.FC = () => {
           <h2 className="warranty-support-page__title">Warranty &amp; Support</h2>
           <p className="text-muted text-sm">
             Repairs, replacements, and complaints — one place for after-sales help.
-            Product repair and replacement: courier to YesWeigh after approval.
+            Product repair and replacement: courier to YesOne after approval.
           </p>
         </div>
         {!showWizard && (

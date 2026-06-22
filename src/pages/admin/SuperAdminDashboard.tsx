@@ -51,7 +51,7 @@ export const SuperAdminDashboard: React.FC = () => {
       <div className="panel glass">
         <h2>Super Admin</h2>
         <p className="text-muted mt-4">
-          Full control over YesWeigh Service — manage company staff, dealers, and dealer
+          Full control over YesOne Platform — manage company staff, dealers, and dealer
           staff across the organisation.
         </p>
       </div>

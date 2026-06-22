@@ -21,7 +21,7 @@ interface SupportChatProps {
 }
 
 function roleLabel(role: string): string {
-  if (role === 'staff' || role === 'super_admin') return 'YesWeigh';
+  if (role === 'staff' || role === 'super_admin') return 'YesOne';
   if (role === 'dealer') return 'Dealer';
   if (role === 'dealer_staff') return 'Dealer staff';
   return role;
@@ -160,7 +160,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
             placeholder={
               isInternalOpsUser(user)
                 ? 'Write a message to the dealer…'
-                : 'Write a message to YesWeigh support…'
+                : 'Write a message to YesOne support…'
             }
             value={text}
             onChange={e => setText(e.target.value)}

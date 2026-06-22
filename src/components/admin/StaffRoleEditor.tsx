@@ -204,15 +204,11 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
 
   return (
     <div className="staff-role-editor">
-      <div className="staff-role-editor__section">
-        <h4 className="staff-role-editor__heading">Role</h4>
-        <p className="staff-role-editor__hint text-muted text-sm">
-          Pick a job role. Access is applied automatically.
-        </p>
-        <label className="staff-role-editor__field">
-          <span>Staff role</span>
+      <div className="staff-role-editor__section staff-role-editor__role-row">
+        <label className="staff-role-editor__field staff-role-editor__field--role">
+          <span>Job role</span>
           <select
-            className="catalog-select"
+            className="catalog-select staff-role-editor__role-select"
             disabled={disabled || roles.length === 0}
             value={value.roleId ?? ''}
             onChange={e => selectRole(e.target.value)}
@@ -227,42 +223,42 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
             ))}
           </select>
         </label>
-        {selectedRole?.description && (
-          <p className="staff-role-editor__hint text-muted text-sm">{selectedRole.description}</p>
-        )}
-      </div>
 
-      {value.department === 'sales' && (
-        <div className="staff-role-editor__section">
-          <label className="staff-role-editor__field">
-            <span>Key account manager (KAM)</span>
+        {value.department === 'sales' && (
+          <label className="staff-role-editor__field staff-role-editor__field--kam">
+            <span>Key account manager</span>
             <select
               className="catalog-select"
               disabled={disabled}
               value={value.kamId ?? ''}
               onChange={e => onChange({ ...value, kamId: e.target.value || null })}
             >
-              <option value="">All dealers (no KAM filter)</option>
+              <option value="">All dealers</option>
               {kams.map(kam => (
                 <option key={kam.id} value={kam.id}>{kam.name}</option>
               ))}
             </select>
           </label>
-        </div>
+        )}
+      </div>
+
+      {selectedRole?.description && (
+        <p className="staff-role-editor__hint text-muted text-sm">{selectedRole.description}</p>
       )}
 
-      <div className="staff-role-editor__section">
+      <details className="staff-role-editor__optional">
+        <summary>Optional fields</summary>
         <label className="staff-role-editor__field">
-          <span>Team ID (optional)</span>
+          <span>Team ID</span>
           <input
-            className="input-field"
+            className="input-field staff-role-editor__team-input"
             disabled={disabled}
             placeholder="e.g. service-workshop"
             value={value.teamId ?? ''}
             onChange={e => onChange({ ...value, teamId: e.target.value || null })}
           />
         </label>
-      </div>
+      </details>
 
       <div className="staff-role-editor__section staff-role-editor__advanced">
         <button
