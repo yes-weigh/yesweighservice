@@ -163,6 +163,12 @@ service cloud.firestore {
       }
     }
 
+    // Required for admin collectionGroup(db, 'invoices') live queries.
+    match /{path=**}/invoices/{invoiceId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
     match /invoiceIndex/{invoiceId} {
       allow read, write: if false;
     }
