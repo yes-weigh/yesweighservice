@@ -10,12 +10,19 @@ import { useAuth } from '../../context/AuthContext';
 import { formatInvoiceDate } from '../../lib/invoices';
 import {
   canUserAccessSupportRequest,
+  approveSupportRequestForCourier,
   getSupportRequest,
   subscribeSupportRequest,
   supportBasePath,
   updateSupportRequestStatus,
 } from '../../lib/dealerSupport';
 import { canManageSupportOps, isInternalOpsUser } from '../../lib/staffAccess';
+import {
+  isProductCourierType,
+  staffStatusesForRequest,
+  supportStatusClass,
+  SUPPORT_PIPELINE_STATUSES,
+} from '../../lib/supportStatus';
 import type { DealerSupportRequest, SupportRequestStatus } from '../../types/dealer-support';
 import {
   SUPPORT_REQUEST_STATUS_LABELS,
@@ -98,6 +105,19 @@ export const SupportRequestDetailPage: React.FC = () => {
     }
   };
 
+  const handleApproveCourier = async () => {
+    if (!user || !requestId) return;
+    setStatusUpdating(true);
+    setError('');
+    try {
+      await approveSupportRequestForCourier(user, requestId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not approve for courier.');
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
   if (!requestId) return null;
 
   if (loading) {
@@ -119,7 +139,24 @@ export const SupportRequestDetailPage: React.FC = () => {
     );
   }
 
-  const showCourier = request.type === 'service' || request.type === 'return';
+  const showCourier =
+    isProductCourierType(request.type)
+    && (
+      isInternalOpsUser(user)
+      || request.status === 'awaiting_product'
+      || request.status === 'in_progress'
+    );
+
+  const staffStatusOptions = (() => {
+    const allowed = new Set(staffStatusesForRequest(request));
+    allowed.add(request.status);
+    return SUPPORT_PIPELINE_STATUSES.filter(status => allowed.has(status));
+  })();
+
+  const canApproveCourier =
+    canManageSupportOps(user)
+    && request.status === 'pending'
+    && isProductCourierType(request.type);
 
   return (
     <div className="page-content fade-in support-detail-page">
@@ -144,13 +181,23 @@ export const SupportRequestDetailPage: React.FC = () => {
           </div>
           {canManageSupportOps(user) ? (
             <div className="support-detail-summary__controls">
+              {canApproveCourier && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={statusUpdating}
+                  onClick={() => void handleApproveCourier()}
+                >
+                  Approve for courier
+                </button>
+              )}
               <select
                 className="catalog-select support-detail-summary__status"
                 value={request.status}
                 disabled={statusUpdating}
                 onChange={e => void handleStatusChange(e.target.value as SupportRequestStatus)}
               >
-                {(Object.keys(SUPPORT_REQUEST_STATUS_LABELS) as SupportRequestStatus[]).map(status => (
+                {staffStatusOptions.map(status => (
                   <option key={status} value={status}>
                     {SUPPORT_REQUEST_STATUS_LABELS[status]}
                   </option>
@@ -159,7 +206,7 @@ export const SupportRequestDetailPage: React.FC = () => {
               <SupportAssigneeSelect user={user!} request={request} />
             </div>
           ) : (
-            <span className={`service-request-status support-detail-summary__badge support-detail-summary__badge--${request.status}`}>
+            <span className={`service-request-status ${supportStatusClass(request.status)} support-detail-summary__badge`}>
               {SUPPORT_REQUEST_STATUS_LABELS[request.status]}
             </span>
           )}
@@ -175,6 +222,14 @@ export const SupportRequestDetailPage: React.FC = () => {
       </section>
 
       <SupportChat request={request} />
+
+      {!isInternalOpsUser(user)
+        && isProductCourierType(request.type)
+        && request.status === 'pending' && (
+        <p className="support-detail-page__notice panel glass text-sm text-muted">
+          Your request is under review. Shipping instructions will appear here once YesOne approves courier.
+        </p>
+      )}
 
       {showCourier && (
         <SupportCourierInstructions requestNumber={request.requestNumber} compact />

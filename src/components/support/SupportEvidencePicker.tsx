@@ -47,6 +47,19 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     stopMediaStream();
   }, []);
 
+  useEffect(() => {
+    if (!recording) return;
+    const video = liveVideoRef.current;
+    const stream = mediaStreamRef.current;
+    if (!video || !stream) return;
+
+    video.srcObject = stream;
+    video.muted = true;
+    void video.play().catch(() => {
+      // Muted inline preview should still play; ignore rare autoplay blocks.
+    });
+  }, [recording]);
+
   const clearRecordTimers = () => {
     if (recordTimeoutRef.current !== null) {
       window.clearTimeout(recordTimeoutRef.current);
@@ -124,10 +137,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
         audio: true,
       });
       mediaStreamRef.current = stream;
-      if (liveVideoRef.current) {
-        liveVideoRef.current.srcObject = stream;
-        await liveVideoRef.current.play();
-      }
+      setRecording(true);
 
       const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
         ? 'video/webm;codecs=vp9,opus'
@@ -157,7 +167,6 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
 
       mediaRecorderRef.current = recorder;
       recorder.start();
-      setRecording(true);
       recordStartedAtRef.current = Date.now();
       recordTickRef.current = window.setInterval(() => {
         if (!recordStartedAtRef.current) return;
@@ -189,8 +198,8 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     <div className="support-evidence-picker">
       <section className="support-evidence-picker__block">
         <h4 className="support-evidence-picker__label">
-          Upload Evidence - Video (Mandatory)
-          <span className="support-evidence-picker__asterisk" aria-hidden>*</span>
+          Upload evidence — video
+          <span className="form-label__required" aria-hidden> *</span>
         </h4>
 
         {videoFile ? (
@@ -280,7 +289,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
       </section>
 
       <section className="support-evidence-picker__block">
-        <h4 className="support-evidence-picker__label">Upload Photos (Optional)</h4>
+        <h4 className="support-evidence-picker__label">Upload photos</h4>
 
         <button
           type="button"

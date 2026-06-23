@@ -167,13 +167,18 @@ export const SuperAdminDashboard: React.FC = () => {
   const dailySales = useMemo(() => buildAdminDailySales(invoices, 30), [invoices]);
 
   const openSupport = useMemo(
-    () => supportRequests.filter(r => r.status === 'pending' || r.status === 'in_progress').length,
+    () => supportRequests.filter(
+      r => r.status === 'pending'
+        || r.status === 'awaiting_product'
+        || r.status === 'in_progress',
+    ).length,
     [supportRequests],
   );
 
   const openReturnOrders = useMemo(
     () => supportRequests.filter(
-      r => (r.status === 'pending' || r.status === 'in_progress') && r.type === 'return',
+      r => (r.status === 'pending' || r.status === 'awaiting_product' || r.status === 'in_progress')
+        && r.type === 'return',
     ).length,
     [supportRequests],
   );

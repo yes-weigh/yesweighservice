@@ -17,7 +17,9 @@ export type PageHeaderConfig = {
 
 type PageHeaderContextValue = {
   config: PageHeaderConfig;
+  headerSlot: React.ReactNode;
   setPageHeader: (config: PageHeaderConfig) => void;
+  setHeaderSlot: (slot: React.ReactNode) => void;
   clearPageHeader: () => void;
 };
 
@@ -39,6 +41,7 @@ const PageHeaderContext = createContext<PageHeaderContextValue | null>(null);
 
 export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [config, setConfig] = useState<PageHeaderConfig>(emptyConfig);
+  const [headerSlot, setHeaderSlot] = useState<React.ReactNode>(null);
 
   const setPageHeader = useCallback((next: PageHeaderConfig) => {
     setConfig(prev => (configsEqual(prev, next) ? prev : next));
@@ -46,11 +49,12 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const clearPageHeader = useCallback(() => {
     setConfig(prev => (configsEqual(prev, emptyConfig) ? prev : emptyConfig));
+    setHeaderSlot(null);
   }, []);
 
   const value = useMemo(
-    () => ({ config, setPageHeader, clearPageHeader }),
-    [config, setPageHeader, clearPageHeader],
+    () => ({ config, headerSlot, setPageHeader, setHeaderSlot, clearPageHeader }),
+    [config, headerSlot, setPageHeader, clearPageHeader],
   );
 
   return (
@@ -91,4 +95,15 @@ export function useCatalogPageHeader(config: PageHeaderConfig) {
     setPageHeader({ title, subtitle, showBack, onBack: stableOnBack });
     return () => clearPageHeader();
   }, [setPageHeader, clearPageHeader, title, subtitle, showBack]);
+}
+
+export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) {
+  const ctx = useContext(PageHeaderContext);
+  const setHeaderSlot = ctx?.setHeaderSlot;
+
+  useEffect(() => {
+    if (!setHeaderSlot) return undefined;
+    setHeaderSlot(enabled ? slot : null);
+    return () => setHeaderSlot(null);
+  }, [setHeaderSlot, enabled, slot]);
 }

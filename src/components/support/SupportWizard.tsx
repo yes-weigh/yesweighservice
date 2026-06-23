@@ -394,7 +394,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             </button>
 
             <h3 className="support-wizard__question">
-              {needsProduct ? 'Select invoice & product' : 'Link invoice (optional)'}
+              {needsProduct ? 'Select invoice & product' : 'Link invoice'}
             </h3>
 
             {needsProduct && (
@@ -431,7 +431,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                 onChange={setComplaintInvoice}
                 disabled={submitting || savingDraft}
                 id="support-invoice-complaint"
-                label="Invoice / order ref (optional)"
+                label="Invoice / order ref"
                 placeholder="Search invoice if related to an order"
               />
             )}
@@ -507,7 +507,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
           {needsProduct && (
             <div className="form-group">
-              <label htmlFor="support-serial">Serial number (optional)</label>
+              <label htmlFor="support-serial">Serial number</label>
               <input
                 id="support-serial"
                 className="catalog-select"
@@ -524,6 +524,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               {intent === 'service' && 'Issue type'}
               {intent === 'return' && 'Replacement reason'}
               {intent === 'complaint' && 'Complaint category'}
+              <span className="form-label__required" aria-hidden> *</span>
             </label>
             <select
               id="support-category"
@@ -541,7 +542,10 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
           {intent === 'complaint' && (
             <div className="form-group">
-              <label htmlFor="support-subject">Subject</label>
+              <label htmlFor="support-subject">
+                Subject
+                <span className="form-label__required" aria-hidden> *</span>
+              </label>
               <input
                 id="support-subject"
                 className="catalog-select"
@@ -555,6 +559,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           <div className="form-group">
             <label htmlFor="support-description">
               {intent === 'complaint' ? 'Full description' : 'Describe the problem'}
+              <span className="form-label__required" aria-hidden> *</span>
             </label>
             <textarea
               id="support-description"

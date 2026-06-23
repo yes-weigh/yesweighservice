@@ -13,18 +13,12 @@ import {
   filterSupportRequestsForUser,
   allowedSupportTypesForUser,
 } from '../../lib/staffAccess';
+import { supportStatusClass } from '../../lib/supportStatus';
 import type { DealerSupportRequest, SupportRequestType } from '../../types/dealer-support';
 import {
   SUPPORT_REQUEST_STATUS_LABELS,
   SUPPORT_TYPE_LABELS,
 } from '../../types/dealer-support';
-
-function statusClass(status: DealerSupportRequest['status']): string {
-  if (status === 'completed') return 'service-request-status--done';
-  if (status === 'in_progress') return 'service-request-status--active';
-  if (status === 'cancelled') return 'service-request-status--cancelled';
-  return 'service-request-status--pending';
-}
 
 function typeClass(type: SupportRequestType): string {
   return `support-type-badge--${type}`;
@@ -127,7 +121,7 @@ export const StaffSupportQueue: React.FC = () => {
                       {SUPPORT_TYPE_LABELS[request.type]}
                     </span>
                   </div>
-                  <span className={`service-request-status ${statusClass(request.status)}`}>
+                  <span className={`service-request-status ${supportStatusClass(request.status)}`}>
                     {SUPPORT_REQUEST_STATUS_LABELS[request.status]}
                   </span>
                 </div>

@@ -138,7 +138,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     <div className="form-group support-invoice-field" ref={rootRef}>
       <label htmlFor={id}>
         {label}
-        {required && <span className="support-invoice-field__required"> *</span>}
+        {required && <span className="form-label__required" aria-hidden> *</span>}
       </label>
       <div className="support-invoice-field__input-wrap">
         <input
@@ -157,9 +157,9 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
           aria-controls={`${id}-listbox`}
           required={required}
         />
-        {loading && (
-          <Loader2 size={16} className="support-invoice-field__spinner spin-icon" aria-hidden />
-        )}
+        <span className="support-invoice-field__spinner" aria-hidden>
+          {loading ? <Loader2 size={16} className="spin-icon" /> : null}
+        </span>
       </div>
       {open && !disabled && (
         <ul
@@ -330,7 +330,10 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
       )}
 
       <div className="form-group">
-        <label htmlFor="support-product">Product</label>
+        <label htmlFor="support-product">
+          Product
+          <span className="form-label__required" aria-hidden> *</span>
+        </label>
         <select
           id="support-product"
           className="catalog-select"

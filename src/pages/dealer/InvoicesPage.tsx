@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ChevronRight, FileText, PackageCheck, Search, Truck } from 'lucide-react';
+import { AlertCircle, ChevronRight, FileText, PackageCheck, Search, Truck, X } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
+import { usePageHeaderSlot } from '../../context/PageHeaderContext';
 import { formatCurrency } from '../../lib/catalog';
 import { homePathForRole } from '../../types';
 import {
@@ -15,6 +16,49 @@ import {
   readCachedDealerInvoices,
 } from '../../lib/invoices';
 import type { DealerInvoice, InvoiceListParams } from '../../types/invoices';
+
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= breakpoint);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= breakpoint);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [breakpoint]);
+  return isMobile;
+}
+
+function InvoiceSearch({
+  value,
+  onChange,
+  compactPlaceholder = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  compactPlaceholder?: boolean;
+}) {
+  return (
+    <div className="catalog-search invoices-header-search">
+      <Search size={15} aria-hidden />
+      <input
+        type="search"
+        placeholder={compactPlaceholder ? 'Search invoices, SO…' : 'Search invoices, serial numbers, SO…'}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        aria-label="Search invoices and serial numbers"
+      />
+      {value && (
+        <button
+          type="button"
+          className="invoices-header-search__clear"
+          onClick={() => onChange('')}
+          aria-label="Clear search"
+        >
+          <X size={16} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -122,6 +166,7 @@ function InvoicePagination({
 export const InvoicesPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 400);
@@ -212,6 +257,19 @@ export const InvoicesPage: React.FC = () => {
   const showInitialLoader = loading && invoices.length === 0;
   const showList = !showInitialLoader && invoices.length > 0;
 
+  const headerSearch = useMemo(
+    () => (
+      <InvoiceSearch
+        value={searchTerm}
+        onChange={setSearchTerm}
+        compactPlaceholder={isMobile}
+      />
+    ),
+    [searchTerm, isMobile],
+  );
+
+  usePageHeaderSlot(headerSearch);
+
   return (
     <div className="page-content fade-in invoices-page">
       {error && (
@@ -222,19 +280,6 @@ export const InvoicesPage: React.FC = () => {
       )}
 
       <header className="invoices-toolbar invoices-toolbar--sticky">
-        <div className="invoices-toolbar__search-row">
-          <div className="catalog-search invoices-search">
-            <Search size={15} aria-hidden />
-            <input
-              type="search"
-              placeholder="Search invoices, serial numbers, SO…"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              aria-label="Search invoices and serial numbers"
-            />
-          </div>
-        </div>
-
         <div className="invoices-toolbar__filters">
           <span className="invoices-toolbar__count" aria-live="polite">
             {loading && invoices.length === 0

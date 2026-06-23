@@ -13,6 +13,22 @@ async function catalogImageByItemId(itemId: string): Promise<string | null> {
   );
 }
 
+export async function fetchCatalogImagesForItemIds(
+  itemIds: string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(itemIds.filter(Boolean))];
+  const map = new Map<string, string>();
+  if (!unique.length) return map;
+
+  await Promise.all(
+    unique.map(async id => {
+      const imageUrl = await catalogImageByItemId(id);
+      if (imageUrl) map.set(id, imageUrl);
+    }),
+  );
+  return map;
+}
+
 export async function enrichInvoiceLineItemImages(
   lineItems: DealerInvoiceLineItem[],
 ): Promise<DealerInvoiceLineItem[]> {

@@ -1,11 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, LifeBuoy, Plus, RefreshCw } from 'lucide-react';
-import { FetchingLoader } from '../../components/FetchingLoader';
 import { SupportWizard } from '../../components/support/SupportWizard';
 import { SupportCourierInstructions } from '../../components/support/SupportCourierInstructions';
 import { useAuth } from '../../context/AuthContext';
-import { formatInvoiceDate } from '../../lib/invoices';
 import { fetchDealerSupportRequests, supportBasePath, supportDetailPath } from '../../lib/dealerSupport';
 import { StaffSupportQueue } from '../../components/support/StaffSupportQueue';
 import { isInternalOpsUser } from '../../lib/staffAccess';
@@ -14,12 +12,7 @@ import type {
   SupportProductDraft,
   SupportRequestType,
 } from '../../types/dealer-support';
-import {
-  SUPPORT_REQUEST_STATUS_LABELS,
-  SUPPORT_TYPE_LABELS,
-} from '../../types/dealer-support';
-
-type FilterType = 'all' | SupportRequestType;
+import { DealerSupportRequestList } from '../../components/support/DealerSupportRequestList';
 
 interface LocationState {
   draft?: SupportProductDraft;
@@ -27,18 +20,6 @@ interface LocationState {
   resumeDraft?: DealerSupportRequest;
   createdRequestNumber?: string;
   createdRequestType?: SupportRequestType;
-}
-
-function statusClass(status: DealerSupportRequest['status']): string {
-  if (status === 'draft') return 'service-request-status--draft';
-  if (status === 'completed') return 'service-request-status--done';
-  if (status === 'in_progress') return 'service-request-status--active';
-  if (status === 'cancelled') return 'service-request-status--cancelled';
-  return 'service-request-status--pending';
-}
-
-function typeClass(type: SupportRequestType): string {
-  return `support-type-badge--${type}`;
 }
 
 export const WarrantySupportPage: React.FC = () => {
@@ -54,7 +35,6 @@ export const WarrantySupportPage: React.FC = () => {
   const [requests, setRequests] = useState<DealerSupportRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState<FilterType>('all');
   const [showWizard, setShowWizard] = useState(
     Boolean(state.draft || state.intent || state.resumeDraft),
   );
@@ -94,17 +74,17 @@ export const WarrantySupportPage: React.FC = () => {
     }
   }, [state.draft, state.intent, state.resumeDraft]);
 
-  const filteredRequests = useMemo(
-    () => (filter === 'all' ? requests : requests.filter(r => r.type === filter)),
-    [filter, requests],
-  );
-
-  const counts = useMemo(() => ({
-    all: requests.length,
-    service: requests.filter(r => r.type === 'service').length,
-    return: requests.filter(r => r.type === 'return').length,
-    complaint: requests.filter(r => r.type === 'complaint').length,
-  }), [requests]);
+  const openRequest = (request: DealerSupportRequest) => {
+    if (!user) return;
+    if (request.status === 'draft') {
+      setResumeDraft(request);
+      setShowWizard(true);
+      setSuccessMessage('');
+      setDraftMessage('');
+      return;
+    }
+    navigate(supportDetailPath(user.role, request.id));
+  };
 
   const closeWizard = () => {
     setShowWizard(false);
@@ -173,10 +153,6 @@ export const WarrantySupportPage: React.FC = () => {
       <header className="warranty-support-page__header">
         <div>
           <h2 className="warranty-support-page__title">Warranty &amp; Support</h2>
-          <p className="text-muted text-sm">
-            Repairs, replacements, and complaints — one place for after-sales help.
-            Product repair and replacement: courier to YesOne after approval.
-          </p>
         </div>
         {!showWizard && (
           <div className="warranty-support-page__actions">
@@ -240,105 +216,16 @@ export const WarrantySupportPage: React.FC = () => {
           onDraftSaved={handleDraftSaved}
         />
       ) : (
-        <>
-          <div className="warranty-support-page__filters" role="tablist" aria-label="Filter requests">
-            {([
-              ['all', 'All'],
-              ['service', 'Service'],
-              ['return', 'Replacements'],
-              ['complaint', 'Complaints'],
-            ] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={filter === value}
-                className={`warranty-support-page__filter ${filter === value ? 'is-active' : ''}`}
-                onClick={() => setFilter(value)}
-              >
-                {label}
-                <span className="warranty-support-page__filter-count">{counts[value]}</span>
-              </button>
-            ))}
-          </div>
-
-          {loading && requests.length === 0 ? (
-            <FetchingLoader label="Loading support requests…" />
-          ) : filteredRequests.length === 0 ? (
-            <div className="warranty-support-page__empty panel glass">
-              <LifeBuoy size={40} aria-hidden />
-              <h3>No {filter === 'all' ? 'requests' : `${SUPPORT_TYPE_LABELS[filter as SupportRequestType].toLowerCase()} requests`} yet</h3>
-              <p className="text-muted text-sm">
-                Tap <strong>New request</strong> and we&apos;ll guide you — repair, replacement, or complaint.
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => setShowWizard(true)}
-              >
-                <Plus size={16} />
-                New request
-              </button>
-            </div>
-          ) : (
-            <ul className="services-page__list">
-              {filteredRequests.map(request => (
-                <li key={request.id}>
-                  <button
-                    type="button"
-                    className="services-page__card panel glass warranty-support-page__card-btn"
-                    onClick={() => {
-                      if (!user) return;
-                      if (request.status === 'draft') {
-                        setResumeDraft(request);
-                        setShowWizard(true);
-                        setSuccessMessage('');
-                        setDraftMessage('');
-                        return;
-                      }
-                      navigate(supportDetailPath(user.role, request.id));
-                    }}
-                  >
-                    <div className="services-page__card-head">
-                    <div className="warranty-support-page__card-id">
-                      <strong>{request.requestNumber}</strong>
-                      <span className={`support-type-badge ${typeClass(request.type)}`}>
-                        {SUPPORT_TYPE_LABELS[request.type]}
-                      </span>
-                    </div>
-                    <span className={`service-request-status ${statusClass(request.status)}`}>
-                      {SUPPORT_REQUEST_STATUS_LABELS[request.status]}
-                    </span>
-                  </div>
-                  {request.product && (
-                    <p className="services-page__card-item">{request.product.name}</p>
-                  )}
-                  {request.subject && (
-                    <p className="services-page__card-item">{request.subject}</p>
-                  )}
-                  <div className="services-page__card-meta text-muted text-sm">
-                    {request.invoiceNumber && <span>Invoice {request.invoiceNumber}</span>}
-                    {request.salesOrderNumber && <span>SO {request.salesOrderNumber}</span>}
-                    <span>{formatInvoiceDate(request.createdAt)}</span>
-                  </div>
-                  <p className="services-page__card-issue text-sm">
-                    {request.status === 'draft'
-                      ? (request.description || 'Draft — tap to continue and submit')
-                      : (
-                        <>
-                          {request.lastMessagePreview || request.category}
-                          {!request.lastMessagePreview && request.description
-                            ? ` — ${request.description}`
-                            : ''}
-                        </>
-                      )}
-                  </p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
+        <DealerSupportRequestList
+          requests={requests}
+          loading={loading}
+          onOpenRequest={openRequest}
+          onNewRequest={() => {
+            setShowWizard(true);
+            setSuccessMessage('');
+            setDraftMessage('');
+          }}
+        />
       )}
     </div>
   );

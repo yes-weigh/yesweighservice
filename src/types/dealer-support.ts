@@ -1,6 +1,12 @@
 export type SupportRequestType = 'service' | 'return' | 'complaint';
 
-export type SupportRequestStatus = 'draft' | 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type SupportRequestStatus =
+  | 'draft'
+  | 'pending'
+  | 'awaiting_product'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled';
 
 export interface SupportProductRef {
   lineItemId: string | null;
@@ -123,9 +129,10 @@ export interface SaveSupportRequestDraftInput {
 export const SUPPORT_REQUEST_STATUS_LABELS: Record<SupportRequestStatus, string> = {
   draft: 'Draft',
   pending: 'Pending',
+  awaiting_product: 'Awaiting product',
   in_progress: 'In progress',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
+  completed: 'Resolved',
+  cancelled: 'Closed',
 };
 
 export const SUPPORT_TYPE_LABELS: Record<SupportRequestType, string> = {

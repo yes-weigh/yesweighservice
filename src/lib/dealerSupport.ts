@@ -33,6 +33,10 @@ import type {
   SupportRequestType,
 } from '../types/dealer-support';
 import { uploadSupportAttachments } from './supportAttachments';
+import {
+  isProductCourierType,
+  validateSupportStatusTransition,
+} from './supportStatus';
 
 const REQUEST_PREFIX: Record<SupportRequestType, string> = {
   service: 'SRV',
@@ -198,7 +202,7 @@ export async function sendSupportMessage(
     lastMessagePreview: previewText(text, attachments.length),
   };
 
-  if (canManageSupportOps(user) && request.status === 'pending') {
+  if (canManageSupportOps(user) && request.status === 'pending' && request.type === 'complaint') {
     updates.status = 'in_progress';
   }
 
@@ -576,8 +580,26 @@ export async function updateSupportRequestStatus(
   if (!canManageSupportOps(user)) {
     throw new Error('Only staff can update request status.');
   }
+  const request = await getSupportRequest(requestId);
+  if (!request) throw new Error('Support request not found.');
+
+  const transitionError = validateSupportStatusTransition(request, status);
+  if (transitionError) throw new Error(transitionError);
+
   await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
     status,
     updatedAt: new Date().toISOString(),
   });
+}
+
+export async function approveSupportRequestForCourier(
+  user: User,
+  requestId: string,
+): Promise<void> {
+  const request = await getSupportRequest(requestId);
+  if (!request) throw new Error('Support request not found.');
+  if (!isProductCourierType(request.type)) {
+    throw new Error('Only repair and replacement requests can be approved for courier.');
+  }
+  await updateSupportRequestStatus(user, requestId, 'awaiting_product');
 }

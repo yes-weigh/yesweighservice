@@ -175,7 +175,7 @@ const LayoutShell: React.FC = () => {
   const { user } = useAuth();
   const { itemCount } = useCart();
   const { registerCartTarget, cartBump } = useCartFly();
-  const { config: pageHeader } = usePageHeader();
+  const { config: pageHeader, headerSlot } = usePageHeader();
   const cartBtnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -390,7 +390,14 @@ const LayoutShell: React.FC = () => {
       </aside>
 
       <main className={`main-content ${collapsed && !isMobile ? 'expanded' : ''}`}>
-        <header className="top-bar">
+        <header
+          className={[
+            'top-bar',
+            headerSlot && isMobile ? 'top-bar--with-slot' : '',
+            headerSlot && !isMobile ? 'top-bar--with-inline-slot' : '',
+          ].filter(Boolean).join(' ')}
+        >
+          <div className="top-bar__primary">
           {isMobile && (
             <button
               type="button"
@@ -432,6 +439,11 @@ const LayoutShell: React.FC = () => {
               )}
             </div>
           )}
+          {headerSlot && !isMobile && (
+            <div className="top-bar__slot top-bar__slot--inline">
+              {headerSlot}
+            </div>
+          )}
           {showCartFlyTarget && (
             <button
               ref={cartBtnRef}
@@ -447,6 +459,12 @@ const LayoutShell: React.FC = () => {
                 <span className="cart-header-btn__badge">{itemCount > 99 ? '99+' : itemCount}</span>
               )}
             </button>
+          )}
+          </div>
+          {headerSlot && isMobile && (
+            <div className="top-bar__slot">
+              {headerSlot}
+            </div>
           )}
         </header>
 
