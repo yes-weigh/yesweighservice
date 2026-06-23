@@ -90,7 +90,8 @@ service firebase.storage {
     }
 
     match /support/{requestId}/{messageId}/{fileName} {
-      allow read: if isDealerPortalUser() || isOpsUser() || canAccessSupportRequest(requestId);
+      // Read must match write: upload uses signedIn(); getDownloadURL() needs read on the same object.
+      allow read: if signedIn();
       allow write: if signedIn() && validSupportMedia();
     }
 

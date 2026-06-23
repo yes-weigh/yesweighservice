@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -175,7 +176,7 @@ export async function sendSupportMessage(
   if (!isInternalOpsUser(user) && request.status === 'cancelled') {
     throw new Error('This request is closed and cannot receive new messages.');
   }
-  if (!isInternalOpsUser(user) && request.status === 'draft') {
+  if (!isInternalOpsUser(user) && request.status === 'draft' && !input.isInitial) {
     throw new Error('Submit the draft before sending messages.');
   }
 
@@ -383,7 +384,7 @@ export async function createSupportRequest(
 
     const data = buildSupportRequestDocument(user, {
       type: input.type,
-      status: 'pending',
+      status: 'draft',
       requestNumber: existing.requestNumber,
       invoiceId: input.invoiceId,
       invoiceNumber: input.invoiceNumber,
@@ -402,19 +403,21 @@ export async function createSupportRequest(
       updatedAt: now,
     });
 
-    await updateDoc(doc(db, 'dealerSupportRequests', input.requestId), data);
+    const draftRef = doc(db, 'dealerSupportRequests', input.requestId);
+    await updateDoc(draftRef, data);
     await sendSupportMessage(user, input.requestId, {
       text: description,
       files: input.attachmentFiles,
       isInitial: true,
     }, onProgress);
+    await updateDoc(draftRef, { status: 'pending', updatedAt: new Date().toISOString() });
     onProgress?.({ phase: 'finalizing', label: 'Done', percent: 100 });
     return (await getSupportRequest(input.requestId))!;
   }
 
   const data = buildSupportRequestDocument(user, {
     type: input.type,
-    status: 'pending',
+    status: 'draft',
     requestNumber: buildRequestNumber(input.type),
     invoiceId: input.invoiceId,
     invoiceNumber: input.invoiceNumber,
@@ -434,16 +437,21 @@ export async function createSupportRequest(
   });
 
   const docRef = await addDoc(collection(db, 'dealerSupportRequests'), data);
-  const request = mapSupportRequest(docRef.id, data);
 
-  await sendSupportMessage(user, docRef.id, {
-    text: description,
-    files: input.attachmentFiles,
-    isInitial: true,
-  }, onProgress);
+  try {
+    await sendSupportMessage(user, docRef.id, {
+      text: description,
+      files: input.attachmentFiles,
+      isInitial: true,
+    }, onProgress);
+    await updateDoc(docRef, { status: 'pending', updatedAt: new Date().toISOString() });
+  } catch (err) {
+    await deleteDoc(docRef);
+    throw err;
+  }
+
   onProgress?.({ phase: 'finalizing', label: 'Done', percent: 100 });
-
-  return request;
+  return (await getSupportRequest(docRef.id))!;
 }
 
 export function subscribeSupportMessages(

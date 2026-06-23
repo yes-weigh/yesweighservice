@@ -441,7 +441,10 @@ service cloud.firestore {
 
     function canWriteSupportMessage(requestId) {
       let req = get(/databases/$(database)/documents/dealerSupportRequests/$(requestId)).data;
-      return isOpsUser() || (req.status != 'cancelled' && req.status != 'draft');
+      let msg = request.resource.data;
+      return isOpsUser()
+        || (req.status != 'cancelled' && req.status != 'draft')
+        || (req.status == 'draft' && msg.isInitial == true && msg.authorUid == request.auth.uid);
     }
 
     function validSupportMessageCreate() {
