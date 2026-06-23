@@ -727,7 +727,19 @@ export async function readInvoiceDetailFromFirestore(customerId, invoiceId) {
   if (!snap.exists) return null;
   const data = snap.data() ?? {};
   if (String(data.customerId ?? customerId) !== String(customerId)) return null;
-  return firestoreDocToDetail({ ...data, id: snap.id });
+  const detail = firestoreDocToDetail({ ...data, id: snap.id });
+  const needsImages = detail.lineItems.some(item => !item.imageUrl && item.itemId);
+  if (!needsImages) return detail;
+
+  const itemIds = detail.lineItems.map(item => item.itemId).filter(Boolean);
+  const imageMap = await getCatalogImagesForItems(itemIds);
+  return {
+    ...detail,
+    lineItems: detail.lineItems.map(item => ({
+      ...item,
+      imageUrl: item.imageUrl || (item.itemId ? imageMap.get(String(item.itemId)) ?? null : null),
+    })),
+  };
 }
 
 function invoiceDocumentMeta(customerId, invoiceId, data, documentType) {

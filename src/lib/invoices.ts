@@ -22,6 +22,7 @@ import {
   setCachedInvoiceDetail,
   setCachedInvoiceList,
 } from './invoice-cache';
+import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -136,7 +137,7 @@ export async function fetchDealerInvoiceDetail(invoiceId: string): Promise<Deale
   );
   try {
     const result = await callable({ invoiceId });
-    return result.data;
+    return enrichInvoiceDetailImages(result.data);
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
   }

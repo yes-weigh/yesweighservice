@@ -1,5 +1,6 @@
 import React from 'react';
 import { Package } from 'lucide-react';
+import { CategoryThumbnail } from '../catalog/CategoryThumbnail';
 import { formatCurrency } from '../../lib/catalog';
 import { isFreightInvoiceLineItem } from '../../lib/invoices';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
@@ -96,7 +97,10 @@ function ItemContent({ item }: { item: DealerInvoiceLineItem }) {
     <>
       <div className="invoice-detail-item__image-wrap">
         {item.imageUrl ? (
-          <img src={item.imageUrl} alt="" className="invoice-detail-item__image" />
+          <CategoryThumbnail
+            src={item.imageUrl}
+            className="invoice-detail-item__image"
+          />
         ) : (
           <span className="invoice-detail-item__placeholder" aria-hidden>
             <Package size={22} />

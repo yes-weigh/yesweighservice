@@ -13,6 +13,7 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
   sumInvoiceProductQuantity,
@@ -292,5 +293,5 @@ export async function fetchAdminInvoiceDetail(
   if (!snap.exists()) {
     throw new Error('Invoice not found.');
   }
-  return mapAdminInvoiceDetail(invoiceId, snap.data());
+  return enrichInvoiceDetailImages(mapAdminInvoiceDetail(invoiceId, snap.data()));
 }

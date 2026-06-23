@@ -940,6 +940,7 @@ export const syncDealerInvoicesFromZoho = onCall(
         {
           customerId,
           skipPdfs: true,
+          skipImages: false,
           concurrency: 3,
           delayMs: 350,
         },
