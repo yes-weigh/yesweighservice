@@ -13,6 +13,7 @@ import {
   readCachedDealerInvoiceDetail,
 } from '../../lib/invoices';
 import type { DealerInvoiceDetail } from '../../types/invoices';
+import { navigateBack } from '../../lib/navigation';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
 
 export const InvoiceDetailLayout: React.FC = () => {
@@ -34,7 +35,7 @@ export const InvoiceDetailLayout: React.FC = () => {
       navigate(invoiceSummaryPath);
       return;
     }
-    navigate(invoicesPath);
+    navigateBack(navigate, invoicesPath);
   }, [isPdfView, navigate, invoiceSummaryPath, invoicesPath]);
 
   useCatalogPageHeader({

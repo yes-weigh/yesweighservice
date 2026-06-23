@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { canNavigateBackInApp } from '../../lib/navigation';
 import {
   ArrowLeft,
   Camera,
@@ -92,6 +93,10 @@ export const ProductDetailView: React.FC<{
 }) => {
   const navigate = useNavigate();
   const goBack = useCallback(() => {
+    if (canNavigateBackInApp()) {
+      navigate(-1);
+      return;
+    }
     if (backState) navigate(backPath, { state: backState });
     else navigate(backPath);
   }, [backPath, backState, navigate]);

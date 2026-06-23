@@ -129,7 +129,13 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
 }
 
 export function supportBasePath(role: User['role']): string {
-  const base = role === 'dealer_staff' ? '/dealer-staff' : role === 'staff' ? '/staff' : '/dealer';
+  const base = role === 'super_admin'
+    ? '/super-admin'
+    : role === 'dealer_staff'
+      ? '/dealer-staff'
+      : role === 'staff'
+        ? '/staff'
+        : '/dealer';
   return `${base}/warranty-support`;
 }
 

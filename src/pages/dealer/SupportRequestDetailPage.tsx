@@ -16,6 +16,7 @@ import {
   supportBasePath,
   updateSupportRequestStatus,
 } from '../../lib/dealerSupport';
+import { navigateBack } from '../../lib/navigation';
 import { canManageSupportOps, isInternalOpsUser } from '../../lib/staffAccess';
 import {
   isProductCourierType,
@@ -40,7 +41,7 @@ export const SupportRequestDetailPage: React.FC = () => {
   const [error, setError] = useState('');
   const [statusUpdating, setStatusUpdating] = useState(false);
 
-  const handleBack = useCallback(() => navigate(base), [navigate, base]);
+  const handleBack = useCallback(() => navigateBack(navigate, base), [navigate, base]);
 
   useCatalogPageHeader({
     title: request?.requestNumber ?? 'Support request',

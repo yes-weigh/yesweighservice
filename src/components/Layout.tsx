@@ -5,6 +5,7 @@ import type { User } from '../types';
 import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
 import { homePathForRole, canUseCart } from '../types';
+import { navigateBack } from '../lib/navigation';
 import { canAccessNavFeature, canViewHr, type StaffNavFeature } from '../lib/staffAccess';
 import {
   ArrowLeft,
@@ -422,7 +423,7 @@ const LayoutShell: React.FC = () => {
             <button
               type="button"
               className="top-bar__title-block page-title page-title--nav-back"
-              onClick={() => navigate(dealerListPath)}
+              onClick={() => navigateBack(navigate, dealerListPath)}
             >
               <span className="page-title__text">{displayTitle}</span>
               {pageHeader.subtitle && (

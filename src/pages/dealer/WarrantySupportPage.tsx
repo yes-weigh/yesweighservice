@@ -105,7 +105,6 @@ export const WarrantySupportPage: React.FC = () => {
     setShowWizard(false);
     if (user) {
       navigate(supportDetailPath(user.role, requestId), {
-        replace: true,
         state: { createdRequestNumber: requestNumber, createdRequestType: type },
       });
     }

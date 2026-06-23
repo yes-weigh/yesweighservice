@@ -82,6 +82,20 @@ function safeFileName(name: string): string {
   return name.replace(/[^\w.-]+/g, '_').slice(0, 120) || 'file';
 }
 
+function uploadContentType(file: File): string {
+  const raw = file.type?.split(';')[0]?.trim() ?? '';
+  if (raw.startsWith('video/')) return raw;
+  if (raw.startsWith('image/')) return raw;
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.mp4') || lower.endsWith('.m4v')) return 'video/mp4';
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  return isVideoFile(file) ? 'video/webm' : 'image/jpeg';
+}
+
 export async function uploadSupportAttachments(
   requestId: string,
   messageId: string,
@@ -96,10 +110,11 @@ export async function uploadSupportAttachments(
     const file = isImageFile(original)
       ? await compressImageForUpload(original)
       : original;
+    const contentType = uploadContentType(file);
     const attachmentId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const storagePath = `support/${requestId}/${messageId}/${attachmentId}-${safeFileName(file.name)}`;
     const storageRef = ref(storage, storagePath);
-    await uploadBytes(storageRef, file, { contentType: file.type });
+    await uploadBytes(storageRef, file, { contentType });
     const url = await getDownloadURL(storageRef);
     uploads.push({
       id: attachmentId,
@@ -107,7 +122,7 @@ export async function uploadSupportAttachments(
       url,
       storagePath,
       fileName: file.name,
-      mimeType: file.type,
+      mimeType: contentType,
       size: file.size,
     });
   }

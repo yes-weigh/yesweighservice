@@ -42,13 +42,25 @@ service firebase.storage {
       return signedIn() && userDoc().active != false;
     }
 
+    function resolvedDealerIdForUser() {
+      let data = userDoc();
+      return isDealer()
+        ? request.auth.uid
+        : (isDealerStaffRole(role())
+          ? (userDealerId(data) != null ? userDealerId(data) : request.auth.uid)
+          : null);
+    }
+
     function canAccessSupportRequest(requestId) {
-      let req = firestore.get(/databases/(default)/documents/dealerSupportRequests/$(requestId)).data;
-      return isActiveUser() && (
-        isOpsUser()
-        || (isDealer() && req.dealerId == request.auth.uid)
-        || (isDealerStaffRole(role()) && req.dealerId == userDealerId(userDoc()))
-      );
+      let path = /databases/(default)/documents/dealerSupportRequests/$(requestId);
+      let req = firestore.get(path).data;
+      return firestore.exists(path)
+        && isActiveUser()
+        && (
+          isOpsUser()
+          || req.dealerId == resolvedDealerIdForUser()
+          || req.createdByUid == request.auth.uid
+        );
     }
 
     match /catalog/{allPaths=**} {
