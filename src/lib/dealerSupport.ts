@@ -243,7 +243,9 @@ export async function sendSupportMessage(
 
   const messageRef = doc(collection(db, 'dealerSupportRequests', requestId, 'messages'));
   const attachments = files.length
-    ? await uploadSupportAttachments(requestId, messageRef.id, files, onProgress)
+    ? await uploadSupportAttachments(requestId, messageRef.id, files, onProgress, {
+        isInitial: input.isInitial === true,
+      })
     : [];
 
   onProgress?.({
