@@ -176,7 +176,7 @@ const LayoutShell: React.FC = () => {
   const { user } = useAuth();
   const { itemCount } = useCart();
   const { registerCartTarget, cartBump } = useCartFly();
-  const { config: pageHeader, headerSlot } = usePageHeader();
+  const { config: pageHeader, headerSlot, topBarAction } = usePageHeader();
   const cartBtnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -195,7 +195,7 @@ const LayoutShell: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
-  const showCartFlyTarget = canUseCart(user?.role);
+  const showCartFlyTarget = canUseCart(user?.role) && !topBarAction;
   const cartBadgeCount = showCartFlyTarget ? itemCount : 0;
 
   useEffect(() => {
@@ -205,7 +205,7 @@ const LayoutShell: React.FC = () => {
       registerCartTarget(null);
     }
     return () => registerCartTarget(null);
-  }, [registerCartTarget, showCartFlyTarget, itemCount]);
+  }, [registerCartTarget, showCartFlyTarget, itemCount, topBarAction]);
 
   if (!user) return null;
 
@@ -445,7 +445,7 @@ const LayoutShell: React.FC = () => {
               {headerSlot}
             </div>
           )}
-          {showCartFlyTarget && (
+          {topBarAction ?? (showCartFlyTarget && (
             <button
               ref={cartBtnRef}
               id="cart-fly-target"
@@ -460,7 +460,7 @@ const LayoutShell: React.FC = () => {
                 <span className="cart-header-btn__badge">{itemCount > 99 ? '99+' : itemCount}</span>
               )}
             </button>
-          )}
+          ))}
           </div>
           {headerSlot && isMobile && (
             <div className="top-bar__slot">

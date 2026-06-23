@@ -1,6 +1,7 @@
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { storage } from '../firebase';
 import { compressImageForUpload } from './compressImage';
+import { formatStorageUploadError } from './storageErrors';
 import { applyGpsOverlayToImage, formatGpsLabel, getCurrentGpsCoords } from './supportGeolocation';
 import type { SupportAttachment, SupportAttachmentKind } from '../types/dealer-support';
 
@@ -87,14 +88,15 @@ export function revokePendingSupportFiles(files: PendingSupportFile[]): void {
 }
 
 export function supportUploadErrorMessage(err: unknown, fallback: string): string {
-  const message = err instanceof Error ? err.message : fallback;
-  if (message.includes('storage/unauthorized') || message.includes('storage/unauthenticated')) {
-    return 'Could not upload evidence. Sign out, sign back in, and try again.';
-  }
+  const message = err instanceof Error ? err.message : String(err ?? '');
   if (message.includes('signBlob') || message.includes('Server upload signing')) {
     return 'Could not upload evidence. Please try again.';
   }
-  return message || fallback;
+  return formatStorageUploadError(
+    err,
+    fallback,
+    'Could not upload evidence. Sign out, sign back in, and try again.',
+  );
 }
 
 function safeFileName(name: string): string {

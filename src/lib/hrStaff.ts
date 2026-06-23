@@ -7,6 +7,7 @@ import {
 import { storage } from '../firebase';
 import type { HrDocumentType, StaffHrProfile } from '../types/staff-hr';
 import type { FirestoreUserDoc } from '../types';
+import { formatStorageUploadError } from './storageErrors';
 
 const MAX_DOC_BYTES = 15 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -29,14 +30,26 @@ function extFromFile(file: File): string {
   return 'pdf';
 }
 
+export function hrUploadErrorMessage(err: unknown, fallback: string): string {
+  return formatStorageUploadError(
+    err,
+    fallback,
+    'Could not upload file. Sign out, sign back in, and try again.',
+  );
+}
+
 export async function uploadHrPhoto(userId: string, file: File): Promise<string> {
   if (file.size > MAX_PHOTO_BYTES) throw new Error('Photo must be under 5 MB.');
   if (!file.type.startsWith('image/')) throw new Error('Photo must be an image.');
   const ext = extFromFile(file);
   const path = hrPhotoPath(userId, ext);
   const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file, { contentType: file.type });
-  return getDownloadURL(storageRef);
+  try {
+    await uploadBytes(storageRef, file, { contentType: file.type });
+    return getDownloadURL(storageRef);
+  } catch (err) {
+    throw new Error(hrUploadErrorMessage(err, 'Could not upload photo.'));
+  }
 }
 
 export async function uploadHrDocument(
@@ -52,7 +65,11 @@ export async function uploadHrDocument(
   const ext = extFromFile(file);
   const path = hrDocumentPath(userId, docType, ext);
   const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file, { contentType: file.type });
+  try {
+    await uploadBytes(storageRef, file, { contentType: file.type });
+  } catch (err) {
+    throw new Error(hrUploadErrorMessage(err, 'Could not upload document.'));
+  }
   return {
     storagePath: path,
     uploadedAt: new Date().toISOString(),

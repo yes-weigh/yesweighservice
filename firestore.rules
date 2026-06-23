@@ -10,16 +10,20 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function role() {
       return userDoc().role;
     }
 
     function isSuperAdmin() {
-      return signedIn() && (role() == 'super_admin' || role() == 'admin');
+      return signedIn() && userExists() && (role() == 'super_admin' || role() == 'admin');
     }
 
     function isStaff() {
-      return signedIn() && role() == 'staff';
+      return signedIn() && userExists() && role() == 'staff';
     }
 
     function isOpsUser() {
@@ -31,7 +35,10 @@ service cloud.firestore {
     }
 
     function isActiveUser() {
-      return signedIn() && userDoc().active != false;
+      return signedIn() && userExists() && (
+        isSuperAdmin()
+        || userDoc().active != false
+      );
     }
 
     function bootstrapOpen() {
@@ -121,25 +128,44 @@ service cloud.firestore {
       return validStaffUserWrite(data) && validDealerPortalUserWrite(data);
     }
 
+    function validAadharId(aadhar) {
+      return aadhar is string && aadhar.size() == 12;
+    }
+
     function staffHasPermission(perm) {
       return isStaff()
         && userDoc().staffPermissions is list
         && perm in userDoc().staffPermissions;
     }
 
-    function staffHasHrManage() {
+    function staffUsesExplicitPermissions() {
       let u = userDoc();
+      return (u.staffAccessMode == 'custom' || u.staffAccessMode == 'role')
+        && u.staffPermissions is list
+        && u.staffPermissions.size() > 0;
+    }
+
+    function staffDepartmentGrantsHrManage() {
+      return userDoc().staffDepartment == 'admin';
+    }
+
+    function staffDepartmentGrantsHrView() {
+      return userDoc().staffDepartment == 'admin';
+    }
+
+    function staffHasHrManage() {
       return isStaff() && (
-        staffHasPermission('hr.manage')
-        || (u.staffDepartment == 'admin' && u.staffAccessMode != 'custom')
+        (staffUsesExplicitPermissions() && staffHasPermission('hr.manage'))
+        || (!staffUsesExplicitPermissions() && staffDepartmentGrantsHrManage())
       );
     }
 
     function staffHasHrView() {
-      let u = userDoc();
-      return staffHasHrManage()
-        || staffHasPermission('hr.view')
-        || (u.staffDepartment == 'admin' && u.staffAccessMode != 'custom');
+      return isStaff() && (
+        staffHasHrManage()
+        || (staffUsesExplicitPermissions() && staffHasPermission('hr.view'))
+        || (!staffUsesExplicitPermissions() && staffDepartmentGrantsHrView())
+      );
     }
 
     match /appSettings/{docId} {

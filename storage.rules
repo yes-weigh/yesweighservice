@@ -19,27 +19,22 @@ service firebase.storage {
     }
 
     function isSuperAdmin() {
-      return signedIn() && (role() == 'super_admin' || role() == 'admin');
+      return signedIn() && userExists() && (role() == 'super_admin' || role() == 'admin');
     }
 
     function isStaff() {
-      return signedIn() && role() == 'staff';
+      return signedIn() && userExists() && role() == 'staff';
     }
 
     function isOpsUser() {
       return isSuperAdmin() || isStaff();
     }
 
-    function isDealerPortalUser() {
-      return signedIn()
-        && userExists()
-        && userDoc().active != false
-        && (
-          role() == 'dealer'
-          || role() == 'director'
-          || role() == 'dealer_staff'
-          || role() == 'director_staff'
-        );
+    function isActivePortalUser() {
+      return signedIn() && userExists() && (
+        isSuperAdmin()
+        || userDoc().active != false
+      );
     }
 
     function userDealerId(data) {
@@ -59,9 +54,7 @@ service firebase.storage {
       let path = /databases/(default)/documents/dealerSupportRequests/$(requestId);
       let req = firestore.get(path).data;
       return firestore.exists(path)
-        && signedIn()
-        && userExists()
-        && userDoc().active != false
+        && isActivePortalUser()
         && (
           isOpsUser()
           || req.dealerId == resolvedDealerIdForUser()
@@ -80,6 +73,53 @@ service firebase.storage {
         );
     }
 
+    function staffHasPermission(perm) {
+      return isStaff()
+        && userDoc().staffPermissions is list
+        && perm in userDoc().staffPermissions;
+    }
+
+    function staffUsesExplicitPermissions() {
+      let u = userDoc();
+      return (u.staffAccessMode == 'custom' || u.staffAccessMode == 'role')
+        && u.staffPermissions is list
+        && u.staffPermissions.size() > 0;
+    }
+
+    function staffDepartmentGrantsHrManage() {
+      return userDoc().staffDepartment == 'admin';
+    }
+
+    function staffDepartmentGrantsHrView() {
+      return userDoc().staffDepartment == 'admin';
+    }
+
+    function staffHasHrManage() {
+      return isStaff() && (
+        (staffUsesExplicitPermissions() && staffHasPermission('hr.manage'))
+        || (!staffUsesExplicitPermissions() && staffDepartmentGrantsHrManage())
+      );
+    }
+
+    function staffHasHrView() {
+      return isStaff() && (
+        staffHasHrManage()
+        || (staffUsesExplicitPermissions() && staffHasPermission('hr.view'))
+        || (!staffUsesExplicitPermissions() && staffDepartmentGrantsHrView())
+      );
+    }
+
+    function validHrMedia() {
+      return request.resource.size < 16 * 1024 * 1024
+        && (
+          request.resource.contentType == null
+          || request.resource.contentType == ''
+          || request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
+        );
+    }
+
     match /catalog/{allPaths=**} {
       allow read: if true;
       allow write: if false;
@@ -90,42 +130,22 @@ service firebase.storage {
     }
 
     match /support/{requestId}/{messageId}/{fileName} {
-      // Read must match write: upload uses signedIn(); getDownloadURL() needs read on the same object.
-      allow read: if signedIn();
-      allow write: if signedIn() && validSupportMedia();
-    }
-
-    function staffHasPermission(perm) {
-      return isStaff()
-        && userDoc().staffPermissions is list
-        && perm in userDoc().staffPermissions;
-    }
-
-    function staffHasHrManage() {
-      let u = userDoc();
-      return isStaff() && (
-        staffHasPermission('hr.manage')
-        || (u.staffDepartment == 'admin' && u.staffAccessMode != 'custom')
-      );
-    }
-
-    function staffHasHrView() {
-      let u = userDoc();
-      return staffHasHrManage()
-        || staffHasPermission('hr.view')
-        || (u.staffDepartment == 'admin' && u.staffAccessMode != 'custom');
+      allow read: if canAccessSupportRequest(requestId);
+      allow write: if canAccessSupportRequest(requestId) && validSupportMedia();
     }
 
     match /hr/{userId}/{allPaths=**} {
-      allow read: if signedIn() && userExists() && userDoc().active != false && (
+      allow read: if signedIn() && userExists() && (
         isSuperAdmin()
-        || request.auth.uid == userId
-        || staffHasHrView()
+        || (userDoc().active != false && (
+          request.auth.uid == userId
+          || staffHasHrView()
+        ))
       );
-      allow write: if signedIn() && userExists() && userDoc().active != false && (
+      allow write: if signedIn() && userExists() && validHrMedia() && (
         isSuperAdmin()
-        || staffHasHrManage()
-      ) && request.resource.size < 16 * 1024 * 1024;
+        || (userDoc().active != false && staffHasHrManage())
+      );
     }
   }
 }

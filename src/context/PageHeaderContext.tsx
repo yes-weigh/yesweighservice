@@ -18,8 +18,10 @@ export type PageHeaderConfig = {
 type PageHeaderContextValue = {
   config: PageHeaderConfig;
   headerSlot: React.ReactNode;
+  topBarAction: React.ReactNode;
   setPageHeader: (config: PageHeaderConfig) => void;
   setHeaderSlot: (slot: React.ReactNode) => void;
+  setTopBarAction: (slot: React.ReactNode) => void;
   clearPageHeader: () => void;
 };
 
@@ -42,6 +44,7 @@ const PageHeaderContext = createContext<PageHeaderContextValue | null>(null);
 export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [config, setConfig] = useState<PageHeaderConfig>(emptyConfig);
   const [headerSlot, setHeaderSlot] = useState<React.ReactNode>(null);
+  const [topBarAction, setTopBarAction] = useState<React.ReactNode>(null);
 
   const setPageHeader = useCallback((next: PageHeaderConfig) => {
     setConfig(prev => (configsEqual(prev, next) ? prev : next));
@@ -50,11 +53,20 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const clearPageHeader = useCallback(() => {
     setConfig(prev => (configsEqual(prev, emptyConfig) ? prev : emptyConfig));
     setHeaderSlot(null);
+    setTopBarAction(null);
   }, []);
 
   const value = useMemo(
-    () => ({ config, headerSlot, setPageHeader, setHeaderSlot, clearPageHeader }),
-    [config, headerSlot, setPageHeader, clearPageHeader],
+    () => ({
+      config,
+      headerSlot,
+      topBarAction,
+      setPageHeader,
+      setHeaderSlot,
+      setTopBarAction,
+      clearPageHeader,
+    }),
+    [config, headerSlot, topBarAction, setPageHeader, clearPageHeader],
   );
 
   return (
@@ -106,4 +118,15 @@ export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) 
     setHeaderSlot(enabled ? slot : null);
     return () => setHeaderSlot(null);
   }, [setHeaderSlot, enabled, slot]);
+}
+
+export function useTopBarAction(slot: React.ReactNode | null, enabled = true) {
+  const ctx = useContext(PageHeaderContext);
+  const setTopBarAction = ctx?.setTopBarAction;
+
+  useEffect(() => {
+    if (!setTopBarAction) return undefined;
+    setTopBarAction(enabled ? slot : null);
+    return () => setTopBarAction(null);
+  }, [setTopBarAction, enabled, slot]);
 }

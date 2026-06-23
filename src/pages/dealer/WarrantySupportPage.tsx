@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, LifeBuoy, Plus, RefreshCw } from 'lucide-react';
 import { SupportWizard } from '../../components/support/SupportWizard';
 import { SupportCourierInstructions } from '../../components/support/SupportCourierInstructions';
 import { useAuth } from '../../context/AuthContext';
+import { useTopBarAction } from '../../context/PageHeaderContext';
 import { fetchDealerSupportRequests, supportBasePath, supportDetailPath } from '../../lib/dealerSupport';
 import { StaffSupportQueue } from '../../components/support/StaffSupportQueue';
 import { isInternalOpsUser } from '../../lib/staffAccess';
@@ -116,6 +117,29 @@ export const WarrantySupportPage: React.FC = () => {
     Boolean(successMessage)
     && (state.createdRequestType === 'service' || state.createdRequestType === 'return');
 
+  const startNewRequest = useCallback(() => {
+    setShowWizard(true);
+    setSuccessMessage('');
+    setDraftMessage('');
+  }, []);
+
+  const topBarNewRequest = useMemo(
+    () => (
+      <button
+        type="button"
+        className="cart-header-btn cart-header-btn--primary"
+        onClick={startNewRequest}
+        aria-label="New request"
+        title="New request"
+      >
+        <Plus size={22} />
+      </button>
+    ),
+    [startNewRequest],
+  );
+
+  useTopBarAction(topBarNewRequest, canUseSupport && !showWizard);
+
   if (!canUseSupport && !isOps) {
     return (
       <div className="page-content fade-in warranty-support-page">
@@ -131,14 +155,9 @@ export const WarrantySupportPage: React.FC = () => {
   if (isOps && user) {
     return (
       <div className="page-content fade-in warranty-support-page">
-        <header className="warranty-support-page__header">
-          <div>
-            <h2 className="warranty-support-page__title">Warranty &amp; Support</h2>
-            <p className="text-muted text-sm">
-              Review dealer tickets, chat with attachments, and update status.
-            </p>
-          </div>
-        </header>
+        <p className="text-muted text-sm warranty-support-page__intro">
+          Review dealer tickets, chat with attachments, and update status.
+        </p>
         <StaffSupportQueue />
       </div>
     );
@@ -150,36 +169,19 @@ export const WarrantySupportPage: React.FC = () => {
 
   return (
     <div className="page-content fade-in warranty-support-page">
-      <header className="warranty-support-page__header">
-        <div>
-          <h2 className="warranty-support-page__title">Warranty &amp; Support</h2>
+      {!showWizard && (
+        <div className="warranty-support-page__toolbar">
+          <button
+            type="button"
+            className="services-page__refresh"
+            aria-label="Refresh"
+            disabled={loading}
+            onClick={() => void load()}
+          >
+            <RefreshCw size={17} className={loading ? 'spin-icon' : undefined} />
+          </button>
         </div>
-        {!showWizard && (
-          <div className="warranty-support-page__actions">
-            <button
-              type="button"
-              className="services-page__refresh"
-              aria-label="Refresh"
-              disabled={loading}
-              onClick={() => void load()}
-            >
-              <RefreshCw size={17} className={loading ? 'spin-icon' : undefined} />
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                setShowWizard(true);
-                setSuccessMessage('');
-                setDraftMessage('');
-              }}
-            >
-              <Plus size={16} />
-              New request
-            </button>
-          </div>
-        )}
-      </header>
+      )}
 
       {draftMessage && !showWizard && (
         <div className="services-page__success panel glass">
@@ -220,11 +222,7 @@ export const WarrantySupportPage: React.FC = () => {
           requests={requests}
           loading={loading}
           onOpenRequest={openRequest}
-          onNewRequest={() => {
-            setShowWizard(true);
-            setSuccessMessage('');
-            setDraftMessage('');
-          }}
+          onNewRequest={startNewRequest}
         />
       )}
     </div>

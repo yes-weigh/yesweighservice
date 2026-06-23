@@ -16,7 +16,8 @@
     "measure:invoices": "node scripts/measure-invoice-size.mjs",
     "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs",
     "migrate:support-status": "node scripts/migrate-support-status.mjs",
-    "purge:support-test-data": "node scripts/purge-support-test-data.mjs"
+    "purge:support-test-data": "node scripts/purge-support-test-data.mjs",
+    "deploy:rules": "firebase deploy --only firestore:rules,storage --project yesweigh-service"
   },
   "dependencies": {
     "firebase": "^12.13.0",

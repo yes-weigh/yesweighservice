@@ -27,10 +27,10 @@ export type SupportTypeFilter = 'all' | import('../types/dealer-support').Suppor
 export type SupportLifecycleFilter = 'all' | 'open' | 'resolved' | 'cancelled';
 
 export const SUPPORT_LIFECYCLE_FILTERS: Array<{ value: SupportLifecycleFilter; label: string }> = [
-  { value: 'all', label: 'All' },
   { value: 'open', label: 'Open' },
   { value: 'resolved', label: 'Resolved' },
   { value: 'cancelled', label: 'Cancelled' },
+  { value: 'all', label: 'All' },
 ];
 
 export const SUPPORT_STAGE_FILTERS: Array<{
