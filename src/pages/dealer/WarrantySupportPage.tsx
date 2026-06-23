@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, LifeBuoy, Plus, RefreshCw } from 'lucide-react';
+import { AlertCircle, LifeBuoy, Plus } from 'lucide-react';
 import { SupportWizard } from '../../components/support/SupportWizard';
 import { SupportCourierInstructions } from '../../components/support/SupportCourierInstructions';
 import { useAuth } from '../../context/AuthContext';
@@ -169,20 +169,6 @@ export const WarrantySupportPage: React.FC = () => {
 
   return (
     <div className="page-content fade-in warranty-support-page">
-      {!showWizard && (
-        <div className="warranty-support-page__toolbar">
-          <button
-            type="button"
-            className="services-page__refresh"
-            aria-label="Refresh"
-            disabled={loading}
-            onClick={() => void load()}
-          >
-            <RefreshCw size={17} className={loading ? 'spin-icon' : undefined} />
-          </button>
-        </div>
-      )}
-
       {draftMessage && !showWizard && (
         <div className="services-page__success panel glass">
           {draftMessage}
@@ -223,6 +209,7 @@ export const WarrantySupportPage: React.FC = () => {
           loading={loading}
           onOpenRequest={openRequest}
           onNewRequest={startNewRequest}
+          onRefresh={() => void load()}
         />
       )}
     </div>

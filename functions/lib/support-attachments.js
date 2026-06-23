@@ -4,7 +4,8 @@ import { HttpsError } from 'firebase-functions/v2/https';
 
 const MAX_BYTES = 52 * 1024 * 1024;
 const UPLOAD_TTL_MS = 15 * 60 * 1000;
-const READ_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+/** GCS V4 signed URLs expire after at most 7 days (604800 s). */
+const READ_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const PORTAL_ROLES = new Set(['dealer', 'dealer_staff', 'director', 'director_staff']);
 const OPS_ROLES = new Set(['staff', 'super_admin', 'admin']);

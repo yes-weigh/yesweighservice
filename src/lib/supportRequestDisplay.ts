@@ -40,10 +40,10 @@ export const SUPPORT_STAGE_FILTERS: Array<{
 }> = [
   { value: 'submitted', label: SUPPORT_OPEN_STAGE_LABELS.submitted, shortLabel: 'Submitted' },
   { value: 'under_review', label: SUPPORT_OPEN_STAGE_LABELS.under_review, shortLabel: 'In review' },
-  { value: 'awaiting_dealer', label: 'Awaiting reply', shortLabel: 'Awaiting reply' },
-  { value: 'awaiting_product', label: SUPPORT_OPEN_STAGE_LABELS.awaiting_product, shortLabel: 'Awaiting item' },
-  { value: 'in_transit', label: SUPPORT_OPEN_STAGE_LABELS.in_transit, shortLabel: 'On transit' },
-  { value: 'in_workshop', label: SUPPORT_OPEN_STAGE_LABELS.in_workshop, shortLabel: 'In workshop' },
+  { value: 'awaiting_dealer', label: 'Awaiting reply', shortLabel: 'Await reply' },
+  { value: 'awaiting_product', label: SUPPORT_OPEN_STAGE_LABELS.awaiting_product, shortLabel: 'Await item' },
+  { value: 'in_transit', label: SUPPORT_OPEN_STAGE_LABELS.in_transit, shortLabel: 'Transit' },
+  { value: 'in_workshop', label: SUPPORT_OPEN_STAGE_LABELS.in_workshop, shortLabel: 'Workshop' },
 ];
 
 const OPEN_STAGE_VALUES = new Set<SupportOpenStage>(SUPPORT_STAGE_FILTERS.map(option => option.value));
@@ -199,6 +199,27 @@ export function sortSupportRequests(
   return sorted;
 }
 
+export function formatSupportDaysSinceSubmission(createdAt: string | null | undefined): string {
+  if (!createdAt) return '—';
+  const created = Date.parse(createdAt);
+  if (Number.isNaN(created)) return '—';
+
+  const startOfDay = (ms: number) => {
+    const d = new Date(ms);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  };
+
+  const days = Math.max(
+    0,
+    Math.floor((startOfDay(Date.now()) - startOfDay(created)) / 86_400_000),
+  );
+
+  if (days === 0) return '0 days';
+  if (days === 1) return '1 day';
+  return `${days} days`;
+}
+
 export function supportRequestDueDate(request: DealerSupportRequest): Date | null {
   if (isSupportClosed(request) || isSupportDraft(request)) return null;
   if (slaPausedForStage(request.openStage)) return null;
@@ -251,6 +272,27 @@ export function formatSupportDateTime(value: string | null | undefined): string 
     hour12: true,
   });
   return `${date} • ${time}`;
+}
+
+/** Compact timestamp for list cards — drops year when it matches the current year. */
+export function formatSupportDateTimeCompact(value: string | null | undefined): string {
+  if (!value) return '—';
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  const d = new Date(parsed);
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const date = d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+  const time = d.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `${date} · ${time}`;
 }
 
 export function supportRequestIssueSummary(request: DealerSupportRequest): string {

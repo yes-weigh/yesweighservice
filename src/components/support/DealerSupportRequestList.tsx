@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LifeBuoy, Plus, SlidersHorizontal, X } from 'lucide-react';
+import { LifeBuoy, Plus, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { SupportRequestCard } from './SupportRequestCard';
 import { fetchCatalogImagesForItemIds } from '../../lib/invoiceLineItemImages';
@@ -22,6 +22,7 @@ interface DealerSupportRequestListProps {
   loading: boolean;
   onOpenRequest: (request: DealerSupportRequest) => void;
   onNewRequest: () => void;
+  onRefresh?: () => void;
 }
 
 const TYPE_OPTIONS = ['all', 'service', 'return', 'complaint'] as const;
@@ -31,6 +32,7 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   loading,
   onOpenRequest,
   onNewRequest,
+  onRefresh,
 }) => {
   const [lifecycleFilter, setLifecycleFilter] = useState<SupportLifecycleFilter>('all');
   const [stageFilter, setStageFilter] = useState<SupportOpenStage | null>(null);
@@ -138,24 +140,52 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   return (
     <div className="support-request-list">
       <div className="support-request-list__filters">
-        <div
-          className="support-request-list__lifecycle"
-          role="tablist"
-          aria-label="Filter by lifecycle"
-        >
-          {SUPPORT_LIFECYCLE_FILTERS.map(tab => (
+        <div className="support-request-list__filter-head">
+          <div
+            className="support-request-list__lifecycle"
+            role="tablist"
+            aria-label="Filter by lifecycle"
+          >
+            {SUPPORT_LIFECYCLE_FILTERS.map(tab => (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={lifecycleFilter === tab.value && !stageFilter}
+                className={`support-request-list__lifecycle-btn ${lifecycleFilter === tab.value && !stageFilter ? 'is-active' : ''}`}
+                onClick={() => selectLifecycle(tab.value)}
+              >
+                <span className="support-request-list__lifecycle-label">{tab.label}</span>
+                <span className="support-request-list__lifecycle-count">{counts[tab.value]}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="support-request-list__filter-head-actions">
+            {onRefresh && (
+              <button
+                type="button"
+                className="support-request-list__refresh"
+                aria-label="Refresh"
+                disabled={loading}
+                onClick={onRefresh}
+              >
+                <RefreshCw size={16} className={loading ? 'spin-icon' : undefined} />
+              </button>
+            )}
+
             <button
-              key={tab.value}
               type="button"
-              role="tab"
-              aria-selected={lifecycleFilter === tab.value && !stageFilter}
-              className={`support-request-list__lifecycle-btn ${lifecycleFilter === tab.value && !stageFilter ? 'is-active' : ''}`}
-              onClick={() => selectLifecycle(tab.value)}
+              className={`support-request-list__filters-mobile support-request-list__filters-mobile--head ${activeFilterCount > 0 ? 'is-active' : ''}`}
+              aria-label={activeFilterCount > 0 ? `Filters (${activeFilterCount} active)` : 'Filters'}
+              onClick={() => setShowFilterSheet(true)}
             >
-              <span className="support-request-list__lifecycle-label">{tab.label}</span>
-              <span className="support-request-list__lifecycle-count">{counts[tab.value]}</span>
+              <SlidersHorizontal size={16} aria-hidden />
+              {activeFilterCount > 0 && (
+                <span className="support-request-list__filter-pill">{activeFilterCount}</span>
+              )}
             </button>
-          ))}
+          </div>
         </div>
 
         {showStageFilters && (
@@ -199,7 +229,7 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
           </p>
         )}
 
-        <div className="support-request-list__toolbar">
+        <div className="support-request-list__toolbar support-request-list__toolbar--desktop">
           <button
             type="button"
             className={`support-request-list__filters-mobile ${activeFilterCount > 0 ? 'is-active' : ''}`}

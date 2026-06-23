@@ -3,7 +3,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { HttpsError } from 'firebase-functions/v2/https';
 
-const READ_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+/** GCS V4 signed URLs expire after at most 7 days (604800 s). */
+const READ_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_DOC_BYTES = 15 * 1024 * 1024;
 
