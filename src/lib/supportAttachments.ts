@@ -115,12 +115,26 @@ interface PreparedSupportUpload {
   contentType: string;
 }
 
-function isCallableUnavailable(err: unknown): boolean {
+function isStorageUnauthorized(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const code = String((err as { code?: string }).code ?? '');
+  const message = String((err as { message?: string }).message ?? '');
+  return code === 'storage/unauthorized'
+    || code === 'storage/unauthenticated'
+    || message.includes('storage/unauthorized')
+    || message.includes('storage/unauthenticated');
+}
+
+function isSignedUploadUnavailable(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = String((err as { code?: string }).code ?? '');
+  const message = String((err as { message?: string }).message ?? '');
   return code === 'functions/not-found'
     || code === 'functions/unavailable'
-    || code === 'functions/deadline-exceeded';
+    || code === 'functions/deadline-exceeded'
+    || code === 'functions/internal'
+    || message.includes('signBlob')
+    || message.includes('serviceAccounts.signBlob');
 }
 
 async function uploadViaSignedUrl(
@@ -287,20 +301,6 @@ export async function uploadSupportAttachments(
     let url: string;
 
     try {
-      const signed = await uploadViaSignedUrl(
-        requestId,
-        messageId,
-        file,
-        contentType,
-        onFileProgress,
-      );
-      attachmentId = signed.attachmentId;
-      storagePath = signed.storagePath;
-      url = signed.url;
-    } catch (signedErr) {
-      if (!isCallableUnavailable(signedErr)) {
-        throw signedErr instanceof Error ? signedErr : new Error('Could not upload attachment.');
-      }
       const direct = await uploadViaClientStorage(
         requestId,
         messageId,
@@ -311,6 +311,29 @@ export async function uploadSupportAttachments(
       attachmentId = direct.attachmentId;
       storagePath = direct.storagePath;
       url = direct.url;
+    } catch (directErr) {
+      if (!isStorageUnauthorized(directErr)) {
+        throw directErr instanceof Error ? directErr : new Error('Could not upload attachment.');
+      }
+      try {
+        const signed = await uploadViaSignedUrl(
+          requestId,
+          messageId,
+          file,
+          contentType,
+          onFileProgress,
+        );
+        attachmentId = signed.attachmentId;
+        storagePath = signed.storagePath;
+        url = signed.url;
+      } catch (signedErr) {
+        if (isSignedUploadUnavailable(signedErr)) {
+          throw directErr instanceof Error
+            ? directErr
+            : new Error('Could not upload evidence. Check your connection and try again.');
+        }
+        throw signedErr instanceof Error ? signedErr : new Error('Could not upload attachment.');
+      }
     }
 
     uploads.push({

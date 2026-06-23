@@ -99,6 +99,14 @@ const INTENT_ICONS: Record<SupportRequestType, React.ReactNode> = {
   complaint: <MessageSquareWarning size={22} />,
 };
 
+function supportActionErrorMessage(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : fallback;
+  if (message.includes('signBlob') || message.includes('serviceAccounts.signBlob')) {
+    return 'Upload could not start on the server. Please try again.';
+  }
+  return message || fallback;
+}
+
 export const SupportWizard: React.FC<SupportWizardProps> = ({
   user,
   productDraft,
@@ -226,7 +234,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setSubmitProgress({ phase: 'finalizing', label: 'Draft saved', percent: 100 });
       onDraftSaved?.(saved.requestNumber, saved.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save draft.');
+      setError(supportActionErrorMessage(err, 'Could not save draft.'));
     } finally {
       setSavingDraft(false);
       setSubmitProgress(null);
@@ -265,7 +273,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setSubmittedRequestNumber(created.requestNumber);
       setCreatedRequestId(created.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not submit request.');
+      setError(supportActionErrorMessage(err, 'Could not submit request.'));
     } finally {
       setSubmitting(false);
       setSubmitProgress(null);

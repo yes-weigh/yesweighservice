@@ -1354,11 +1354,18 @@ export const prepareSupportAttachmentUploadFn = onCall(
   { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
   async request => {
     await requireActiveUser(request.auth?.uid);
-    try {
-      return await prepareSupportAttachmentUpload(request.auth.uid, request.data ?? {});
-    } catch (err) {
-      if (err instanceof HttpsError) throw err;
-      throw new HttpsError('internal', err?.message ?? 'Could not prepare upload.');
+  try {
+    return await prepareSupportAttachmentUpload(request.auth.uid, request.data ?? {});
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    const message = String(err?.message ?? 'Could not prepare upload.');
+    if (message.includes('signBlob') || message.includes('serviceAccounts.signBlob')) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Server upload signing is not configured. The app will upload directly from your device.',
+      );
     }
+    throw new HttpsError('internal', message);
+  }
   },
 );
