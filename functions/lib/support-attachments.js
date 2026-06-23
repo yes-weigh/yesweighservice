@@ -1,8 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 const MAX_BYTES = 52 * 1024 * 1024;
+/** Callable request body limit — keep raw file under this for base64 server uploads. */
+const MAX_SERVER_UPLOAD_BYTES = 20 * 1024 * 1024;
 const UPLOAD_TTL_MS = 15 * 60 * 1000;
 /** GCS V4 signed URLs expire after at most 7 days (604800 s). */
 const READ_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -94,6 +97,73 @@ export async function assertSupportRequestAccess(uid, requestId, options = {}) {
   return { role: normalized, req };
 }
 
+async function signedReadUrl(storagePath) {
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+  const [url] = await file.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + READ_TTL_MS,
+  });
+  return url;
+}
+
+export async function uploadSupportAttachment(uid, input) {
+  const requestId = String(input?.requestId ?? '').trim();
+  const messageId = String(input?.messageId ?? '').trim();
+  const fileName = String(input?.fileName ?? 'file').trim();
+  const contentType = String(input?.contentType ?? 'application/octet-stream').trim();
+  const fileBase64 = String(input?.fileBase64 ?? '').trim();
+
+  if (!requestId || !messageId || !fileName || !fileBase64) {
+    throw new HttpsError('invalid-argument', 'requestId, messageId, fileName, and fileBase64 are required.');
+  }
+
+  if (!isAllowedMediaType(contentType)) {
+    throw new HttpsError('invalid-argument', 'Only image and video files are allowed.');
+  }
+
+  await assertSupportRequestAccess(uid, requestId, { isInitial: input?.isInitial === true });
+
+  let buffer;
+  try {
+    buffer = Buffer.from(fileBase64, 'base64');
+  } catch {
+    throw new HttpsError('invalid-argument', 'Invalid file data.');
+  }
+
+  if (!buffer.length || buffer.length > MAX_SERVER_UPLOAD_BYTES) {
+    throw new HttpsError(
+      'invalid-argument',
+      `File must be under ${MAX_SERVER_UPLOAD_BYTES / (1024 * 1024)} MB for server upload.`,
+    );
+  }
+
+  const mediaType = contentType.split(';')[0].trim() || 'application/octet-stream';
+  const attachmentId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const storagePath = `support/${requestId}/${messageId}/${attachmentId}-${safeFileName(fileName)}`;
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+
+  await file.save(buffer, {
+    metadata: {
+      contentType: mediaType,
+      metadata: {
+        firebaseStorageDownloadTokens: randomUUID(),
+      },
+    },
+  });
+
+  const url = await signedReadUrl(storagePath);
+
+  return {
+    attachmentId,
+    storagePath,
+    url,
+    contentType: mediaType,
+  };
+}
+
 export async function prepareSupportAttachmentUpload(uid, input) {
   const requestId = String(input?.requestId ?? '').trim();
   const messageId = String(input?.messageId ?? '').trim();
@@ -121,21 +191,15 @@ export async function prepareSupportAttachmentUpload(uid, input) {
   const file = bucket.file(storagePath);
   const mediaType = contentType.split(';')[0].trim() || 'application/octet-stream';
 
+  // Do not bind content-type or extension headers — browsers send codecs in video/webm
+  // and mismatching signed headers causes GCS to return 400 on PUT.
   const [uploadUrl] = await file.getSignedUrl({
     version: 'v4',
     action: 'write',
     expires: Date.now() + UPLOAD_TTL_MS,
-    contentType: mediaType,
-    extensionHeaders: {
-      'x-goog-content-length-range': `0,${MAX_BYTES}`,
-    },
   });
 
-  const [downloadUrl] = await file.getSignedUrl({
-    version: 'v4',
-    action: 'read',
-    expires: Date.now() + READ_TTL_MS,
-  });
+  const downloadUrl = await signedReadUrl(storagePath);
 
   return {
     uploadUrl,

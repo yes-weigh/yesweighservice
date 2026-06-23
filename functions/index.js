@@ -70,7 +70,7 @@ import {
   verifyDealerLoginOtp as validateDealerLoginOtp,
   completeDealerSignup as finalizeDealerSignup,
 } from './lib/dealer-otp.js';
-import { prepareSupportAttachmentUpload } from './lib/support-attachments.js';
+import { prepareSupportAttachmentUpload, uploadSupportAttachment } from './lib/support-attachments.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 
 initializeApp({
@@ -1354,20 +1354,38 @@ export const completeDealerSignup = onCall(
 export const prepareSupportAttachmentUploadFn = onCall(
   { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
   async request => {
-    await requireActiveUser(request.auth?.uid);
-  try {
-    return await prepareSupportAttachmentUpload(request.auth.uid, request.data ?? {});
-  } catch (err) {
-    if (err instanceof HttpsError) throw err;
-    const message = String(err?.message ?? 'Could not prepare upload.');
-    if (message.includes('signBlob') || message.includes('serviceAccounts.signBlob')) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Server upload signing is not configured. The app will upload directly from your device.',
-      );
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
     }
-    throw new HttpsError('internal', message);
-  }
+    try {
+      return await prepareSupportAttachmentUpload(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      const message = String(err?.message ?? 'Could not prepare upload.');
+      if (message.includes('signBlob') || message.includes('serviceAccounts.signBlob')) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Server upload signing is not configured. The app will upload directly from your device.',
+        );
+      }
+      throw new HttpsError('internal', message);
+    }
+  },
+);
+
+/** Direct support evidence upload via Admin SDK (photos and shorter videos). */
+export const uploadSupportAttachmentFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await uploadSupportAttachment(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload attachment.');
+    }
   },
 );
 

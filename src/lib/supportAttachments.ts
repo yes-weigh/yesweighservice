@@ -11,8 +11,8 @@ const functions = getFunctions(app, 'asia-south1');
 export const MAX_SUPPORT_ATTACHMENTS = 5;
 export const MAX_EVIDENCE_PHOTOS = 4;
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
-/** Must match functions/lib/support-attachments.js MAX_BYTES for signed PUT uploads. */
-const SIGNED_UPLOAD_MAX_BYTES = 52 * 1024 * 1024;
+/** Must match functions/lib/support-attachments.js MAX_SERVER_UPLOAD_BYTES */
+const MAX_SERVER_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 export type SupportSubmitProgress = {
   phase: 'preparing' | 'uploading' | 'finalizing';
@@ -104,6 +104,27 @@ export function supportUploadErrorMessage(err: unknown, fallback: string): strin
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not read file.'));
+        return;
+      }
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function safeFileName(name: string): string {
   return name.replace(/[^\w.-]+/g, '_').slice(0, 120) || 'file';
 }
@@ -158,6 +179,47 @@ function isSignedUploadUnavailable(err: unknown): boolean {
     || message.includes('Max allowed expiration is seven days');
 }
 
+async function uploadViaCloudFunction(
+  requestId: string,
+  messageId: string,
+  file: File,
+  contentType: string,
+  options: UploadSupportAttachmentsOptions | undefined,
+  onFileProgress?: (percent: number) => void,
+): Promise<{ attachmentId: string; storagePath: string; url: string }> {
+  const callable = httpsCallable<
+    {
+      requestId: string;
+      messageId: string;
+      fileName: string;
+      contentType: string;
+      fileBase64: string;
+      isInitial?: boolean;
+    },
+    { attachmentId: string; storagePath: string; url: string; contentType: string }
+  >(functions, 'uploadSupportAttachmentFn', { timeout: 120_000 });
+
+  onFileProgress?.(5);
+  const fileBase64 = await fileToBase64(file);
+  onFileProgress?.(35);
+
+  const result = await callable({
+    requestId,
+    messageId,
+    fileName: file.name,
+    contentType,
+    fileBase64,
+    isInitial: options?.isInitial === true ? true : undefined,
+  });
+
+  onFileProgress?.(100);
+  return {
+    attachmentId: result.data.attachmentId,
+    storagePath: result.data.storagePath,
+    url: result.data.url,
+  };
+}
+
 async function uploadViaSignedUrl(
   requestId: string,
   messageId: string,
@@ -189,9 +251,7 @@ async function uploadViaSignedUrl(
     isInitial: options?.isInitial === true ? true : undefined,
   });
 
-  await uploadFileViaPut(prep.data.uploadUrl, file, prep.data.contentType, onFileProgress, {
-    contentLengthRange: true,
-  });
+  await uploadFileViaPut(prep.data.uploadUrl, file, onFileProgress);
 
   return { ...prep.data, url: prep.data.downloadUrl };
 }
@@ -199,17 +259,13 @@ async function uploadViaSignedUrl(
 function uploadFileViaPut(
   url: string,
   file: File,
-  contentType: string,
   onProgress?: (percent: number) => void,
-  options?: { contentLengthRange?: boolean },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
-    xhr.setRequestHeader('Content-Type', contentType);
-    if (options?.contentLengthRange) {
-      xhr.setRequestHeader('x-goog-content-length-range', `0,${SIGNED_UPLOAD_MAX_BYTES}`);
-    }
+    // Do not set Content-Type — signed URL is not bound to a type and browsers
+    // may send video/webm;codecs=… which mismatches a signed video/webm header.
     xhr.upload.onprogress = event => {
       if (event.lengthComputable) {
         onProgress?.(Math.round((event.loaded / event.total) * 100));
@@ -221,11 +277,94 @@ function uploadFileViaPut(
         resolve();
         return;
       }
-      reject(new Error(`Could not upload ${file.name} (${xhr.status}).`));
+      const detail = xhr.responseText?.trim().slice(0, 160);
+      reject(new Error(
+        detail
+          ? `Could not upload ${file.name} (${xhr.status}: ${detail})`
+          : `Could not upload ${file.name} (${xhr.status}).`,
+      ));
     };
     xhr.onerror = () => reject(new Error(`Could not upload ${file.name}.`));
-    xhr.send(file);
+    void file.arrayBuffer().then(buffer => xhr.send(buffer)).catch(reject);
   });
+}
+
+async function uploadViaClientStorageWithRetry(
+  requestId: string,
+  messageId: string,
+  file: File,
+  contentType: string,
+  onFileProgress?: (percent: number) => void,
+): Promise<{ attachmentId: string; storagePath: string; url: string }> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await uploadViaClientStorage(requestId, messageId, file, contentType, onFileProgress);
+    } catch (err) {
+      lastError = err;
+      if (!isStorageUnauthorized(err) || attempt === 2) break;
+      await sleep(350 * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Could not upload attachment.');
+}
+
+async function uploadSingleSupportFile(
+  requestId: string,
+  messageId: string,
+  file: File,
+  contentType: string,
+  options: UploadSupportAttachmentsOptions | undefined,
+  onFileProgress?: (percent: number) => void,
+): Promise<{ attachmentId: string; storagePath: string; url: string }> {
+  try {
+    return await uploadViaClientStorageWithRetry(
+      requestId,
+      messageId,
+      file,
+      contentType,
+      onFileProgress,
+    );
+  } catch (directErr) {
+    if (!isStorageUnauthorized(directErr)) {
+      throw directErr instanceof Error ? directErr : new Error('Could not upload attachment.');
+    }
+  }
+
+  if (file.size <= MAX_SERVER_UPLOAD_BYTES) {
+    try {
+      return await uploadViaCloudFunction(
+        requestId,
+        messageId,
+        file,
+        contentType,
+        options,
+        onFileProgress,
+      );
+    } catch (serverErr) {
+      if (!isSignedUploadUnavailable(serverErr)) {
+        throw serverErr instanceof Error ? serverErr : new Error('Could not upload attachment.');
+      }
+    }
+  }
+
+  try {
+    const signed = await uploadViaSignedUrl(
+      requestId,
+      messageId,
+      file,
+      contentType,
+      options,
+      onFileProgress,
+    );
+    return {
+      attachmentId: signed.attachmentId,
+      storagePath: signed.storagePath,
+      url: signed.url,
+    };
+  } catch (signedErr) {
+    throw signedErr instanceof Error ? signedErr : new Error('Could not upload attachment.');
+  }
 }
 
 async function uploadViaClientStorage(
@@ -327,52 +466,20 @@ export async function uploadSupportAttachments(
       reportBatchUploadProgress(onProgress, index, preparedFiles.length, fileName, filePercent, fileSizes);
     };
 
-    let attachmentId: string;
-    let storagePath: string;
-    let url: string;
-
-    try {
-      const direct = await uploadViaClientStorage(
-        requestId,
-        messageId,
-        file,
-        contentType,
-        onFileProgress,
-      );
-      attachmentId = direct.attachmentId;
-      storagePath = direct.storagePath;
-      url = direct.url;
-    } catch (directErr) {
-      if (!isStorageUnauthorized(directErr)) {
-        throw directErr instanceof Error ? directErr : new Error('Could not upload attachment.');
-      }
-      try {
-        const signed = await uploadViaSignedUrl(
-          requestId,
-          messageId,
-          file,
-          contentType,
-          options,
-          onFileProgress,
-        );
-        attachmentId = signed.attachmentId;
-        storagePath = signed.storagePath;
-        url = signed.url;
-      } catch (signedErr) {
-        if (isSignedUploadUnavailable(signedErr)) {
-          throw directErr instanceof Error
-            ? directErr
-            : new Error('Could not upload evidence. Check your connection and try again.');
-        }
-        throw signedErr instanceof Error ? signedErr : new Error('Could not upload attachment.');
-      }
-    }
+    const uploaded = await uploadSingleSupportFile(
+      requestId,
+      messageId,
+      file,
+      contentType,
+      options,
+      onFileProgress,
+    );
 
     uploads.push({
-      id: attachmentId,
+      id: uploaded.attachmentId,
       kind: isVideoFile(file) ? 'video' : 'image',
-      url,
-      storagePath,
+      url: uploaded.url,
+      storagePath: uploaded.storagePath,
       fileName: file.name,
       mimeType: contentType,
       size: file.size,
