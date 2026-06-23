@@ -71,6 +71,7 @@ import {
   completeDealerSignup as finalizeDealerSignup,
 } from './lib/dealer-otp.js';
 import { prepareSupportAttachmentUpload } from './lib/support-attachments.js';
+import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 
 initializeApp({
   storageBucket: 'yesweigh-service.firebasestorage.app',
@@ -1367,5 +1368,37 @@ export const prepareSupportAttachmentUploadFn = onCall(
     }
     throw new HttpsError('internal', message);
   }
+  },
+);
+
+/** HR staff photo / document upload — uses Admin SDK (no client Storage write rules). */
+export const uploadHrStaffFileFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await uploadHrStaffFile(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload HR file.');
+    }
+  },
+);
+
+/** Signed read URL for HR staff files in Storage. */
+export const getHrStaffFileUrlFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await getHrStaffFileUrl(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load HR file.');
+    }
   },
 );

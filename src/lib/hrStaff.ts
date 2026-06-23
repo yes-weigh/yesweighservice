@@ -4,10 +4,14 @@ import {
   getDownloadURL,
   deleteObject,
 } from 'firebase/storage';
-import { storage } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, storage } from '../firebase';
+import { compressImageForUpload } from './compressImage';
 import type { HrDocumentType, StaffHrProfile } from '../types/staff-hr';
 import type { FirestoreUserDoc } from '../types';
 import { formatStorageUploadError } from './storageErrors';
+
+const functions = getFunctions(app, 'asia-south1');
 
 const MAX_DOC_BYTES = 15 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -30,25 +34,150 @@ function extFromFile(file: File): string {
   return 'pdf';
 }
 
+async function fileToBase64(file: File, maxBytes: number): Promise<string> {
+  if (file.size > maxBytes) {
+    throw new Error(`File must be under ${Math.round(maxBytes / (1024 * 1024))} MB.`);
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not read file.'));
+        return;
+      }
+      const base64 = result.split(',')[1];
+      if (!base64) {
+        reject(new Error('Could not read file.'));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Could not read file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function isCallableUnavailable(err: unknown): boolean {
+  const code = typeof err === 'object' && err && 'code' in err
+    ? String((err as { code?: string }).code ?? '')
+    : '';
+  return code === 'functions/not-found'
+    || code === 'functions/unavailable'
+    || code === 'functions/deadline-exceeded';
+}
+
+function callableErrorMessage(err: unknown, fallback: string): string {
+  if (typeof err === 'object' && err && 'message' in err) {
+    const message = String((err as { message?: string }).message ?? '');
+    if (message && !message.includes('FirebaseError')) return message;
+  }
+  return fallback;
+}
+
 export function hrUploadErrorMessage(err: unknown, fallback: string): string {
   return formatStorageUploadError(
     err,
-    fallback,
+    callableErrorMessage(err, fallback),
     'Could not upload file. Sign out, sign back in, and try again.',
   );
+}
+
+async function uploadHrPhotoViaFunction(userId: string, file: File): Promise<string> {
+  const compressed = await compressImageForUpload(file);
+  const callable = httpsCallable<
+    {
+      staffUserId: string;
+      kind: 'photo';
+      contentType: string;
+      fileBase64: string;
+      fileName: string;
+    },
+    { url: string }
+  >(functions, 'uploadHrStaffFileFn', { timeout: 120_000 });
+
+  const result = await callable({
+    staffUserId: userId,
+    kind: 'photo',
+    contentType: compressed.type || 'image/jpeg',
+    fileBase64: await fileToBase64(compressed, MAX_PHOTO_BYTES),
+    fileName: compressed.name,
+  });
+  return result.data.url;
+}
+
+async function uploadHrDocumentViaFunction(
+  userId: string,
+  docType: HrDocumentType,
+  file: File,
+): Promise<{ storagePath: string; uploadedAt: string; fileName: string }> {
+  const callable = httpsCallable<
+    {
+      staffUserId: string;
+      kind: 'document';
+      documentType: HrDocumentType;
+      contentType: string;
+      fileBase64: string;
+      fileName: string;
+    },
+    { storagePath: string; uploadedAt: string; fileName: string }
+  >(functions, 'uploadHrStaffFileFn', { timeout: 120_000 });
+
+  const result = await callable({
+    staffUserId: userId,
+    kind: 'document',
+    documentType: docType,
+    contentType: file.type || 'application/octet-stream',
+    fileBase64: await fileToBase64(file, MAX_DOC_BYTES),
+    fileName: file.name,
+  });
+  return {
+    storagePath: result.data.storagePath,
+    uploadedAt: result.data.uploadedAt,
+    fileName: result.data.fileName,
+  };
+}
+
+async function uploadHrPhotoViaClient(userId: string, file: File): Promise<string> {
+  const ext = extFromFile(file);
+  const path = hrPhotoPath(userId, ext);
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, file, { contentType: file.type });
+  return getDownloadURL(storageRef);
+}
+
+async function uploadHrDocumentViaClient(
+  userId: string,
+  docType: HrDocumentType,
+  file: File,
+): Promise<{ storagePath: string; uploadedAt: string; fileName: string }> {
+  const ext = extFromFile(file);
+  const path = hrDocumentPath(userId, docType, ext);
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, file, { contentType: file.type });
+  return {
+    storagePath: path,
+    uploadedAt: new Date().toISOString(),
+    fileName: file.name,
+  };
 }
 
 export async function uploadHrPhoto(userId: string, file: File): Promise<string> {
   if (file.size > MAX_PHOTO_BYTES) throw new Error('Photo must be under 5 MB.');
   if (!file.type.startsWith('image/')) throw new Error('Photo must be an image.');
-  const ext = extFromFile(file);
-  const path = hrPhotoPath(userId, ext);
-  const storageRef = ref(storage, path);
+
   try {
-    await uploadBytes(storageRef, file, { contentType: file.type });
-    return getDownloadURL(storageRef);
+    return await uploadHrPhotoViaFunction(userId, file);
   } catch (err) {
-    throw new Error(hrUploadErrorMessage(err, 'Could not upload photo.'));
+    if (!isCallableUnavailable(err)) {
+      throw new Error(hrUploadErrorMessage(err, 'Could not upload photo.'));
+    }
+    try {
+      const compressed = await compressImageForUpload(file);
+      return await uploadHrPhotoViaClient(userId, compressed);
+    } catch (clientErr) {
+      throw new Error(hrUploadErrorMessage(clientErr, 'Could not upload photo.'));
+    }
   }
 }
 
@@ -62,23 +191,48 @@ export async function uploadHrDocument(
     file.type === 'application/pdf'
     || file.type.startsWith('image/');
   if (!allowed) throw new Error('Upload PDF or image files only.');
-  const ext = extFromFile(file);
-  const path = hrDocumentPath(userId, docType, ext);
-  const storageRef = ref(storage, path);
+
   try {
-    await uploadBytes(storageRef, file, { contentType: file.type });
+    return await uploadHrDocumentViaFunction(userId, docType, file);
   } catch (err) {
-    throw new Error(hrUploadErrorMessage(err, 'Could not upload document.'));
+    if (!isCallableUnavailable(err)) {
+      throw new Error(hrUploadErrorMessage(err, 'Could not upload document.'));
+    }
+    try {
+      return await uploadHrDocumentViaClient(userId, docType, file);
+    } catch (clientErr) {
+      throw new Error(hrUploadErrorMessage(clientErr, 'Could not upload document.'));
+    }
   }
-  return {
-    storagePath: path,
-    uploadedAt: new Date().toISOString(),
-    fileName: file.name,
-  };
+}
+
+async function getHrFileUrlViaFunction(storagePath: string): Promise<string> {
+  const callable = httpsCallable<{ storagePath: string }, { url: string }>(
+    functions,
+    'getHrStaffFileUrlFn',
+    { timeout: 60_000 },
+  );
+  const result = await callable({ storagePath });
+  return result.data.url;
 }
 
 export async function getHrFileUrl(storagePath: string): Promise<string> {
-  return getDownloadURL(ref(storage, storagePath));
+  try {
+    return await getHrFileUrlViaFunction(storagePath);
+  } catch (err) {
+    if (!isCallableUnavailable(err)) {
+      try {
+        return await getDownloadURL(ref(storage, storagePath));
+      } catch {
+        throw new Error(hrUploadErrorMessage(err, 'Could not load file.'));
+      }
+    }
+    try {
+      return await getDownloadURL(ref(storage, storagePath));
+    } catch (clientErr) {
+      throw new Error(hrUploadErrorMessage(clientErr, 'Could not load file.'));
+    }
+  }
 }
 
 export async function deleteHrStorageFile(storagePath: string): Promise<void> {
