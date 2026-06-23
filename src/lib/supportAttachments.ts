@@ -11,6 +11,8 @@ const functions = getFunctions(app, 'asia-south1');
 export const MAX_SUPPORT_ATTACHMENTS = 5;
 export const MAX_EVIDENCE_PHOTOS = 4;
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+/** Must match functions/lib/support-attachments.js MAX_BYTES for signed PUT uploads. */
+const SIGNED_UPLOAD_MAX_BYTES = 52 * 1024 * 1024;
 
 export type SupportSubmitProgress = {
   phase: 'preparing' | 'uploading' | 'finalizing';
@@ -187,7 +189,9 @@ async function uploadViaSignedUrl(
     isInitial: options?.isInitial === true ? true : undefined,
   });
 
-  await uploadFileViaPut(prep.data.uploadUrl, file, prep.data.contentType, onFileProgress);
+  await uploadFileViaPut(prep.data.uploadUrl, file, prep.data.contentType, onFileProgress, {
+    contentLengthRange: true,
+  });
 
   return { ...prep.data, url: prep.data.downloadUrl };
 }
@@ -197,11 +201,15 @@ function uploadFileViaPut(
   file: File,
   contentType: string,
   onProgress?: (percent: number) => void,
+  options?: { contentLengthRange?: boolean },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', contentType);
+    if (options?.contentLengthRange) {
+      xhr.setRequestHeader('x-goog-content-length-range', `0,${SIGNED_UPLOAD_MAX_BYTES}`);
+    }
     xhr.upload.onprogress = event => {
       if (event.lengthComputable) {
         onProgress?.(Math.round((event.loaded / event.total) * 100));
