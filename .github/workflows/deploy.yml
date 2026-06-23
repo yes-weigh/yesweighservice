@@ -68,21 +68,8 @@ jobs:
             printf 'ZOHO_WEBHOOK_SECRET=%s\n' "${ZOHO_WEBHOOK_SECRET:-}"
           } > functions/.env.yesweigh-service
 
-      - name: Deploy hosting and Firestore
-        run: |
-          set -e
-          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-            npx firebase-tools deploy \
-              --only hosting,firestore \
-              --project yesweigh-service \
-              --non-interactive
-          else
-            npx firebase-tools deploy \
-              --only hosting,firestore \
-              --project yesweigh-service \
-              --non-interactive \
-              --token "$FIREBASE_TOKEN"
-          fi
+      - name: Deploy hosting, Firestore, and Storage
+        run: bash scripts/ci-firebase-deploy.sh hosting,firestore,storage
 
       - name: Determine changed functions
         id: changed_functions
@@ -107,7 +94,6 @@ jobs:
       - name: Deploy Functions
         if: steps.changed_functions.outputs.skip != 'true'
         run: |
-          set +e
           if [ "${{ steps.changed_functions.outputs.deploy_all }}" = "true" ]; then
             DEPLOY_TARGET="functions"
             echo "Deploying all functions (shared functions/ change)."
@@ -115,19 +101,10 @@ jobs:
             DEPLOY_TARGET="${{ steps.changed_functions.outputs.deploy_only }}"
             echo "Deploying ${DEPLOY_TARGET} (${{ steps.changed_functions.outputs.count }} function(s))."
           fi
-          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-            npx firebase-tools deploy \
-              --only "$DEPLOY_TARGET" \
-              --project yesweigh-service \
-              --non-interactive
-          else
-            npx firebase-tools deploy \
-              --only "$DEPLOY_TARGET" \
-              --project yesweigh-service \
-              --non-interactive \
-              --token "$FIREBASE_TOKEN"
-          fi
+          set +e
+          bash scripts/ci-firebase-deploy.sh "$DEPLOY_TARGET"
           status=$?
+          set -e
           if [ "$status" -ne 0 ]; then
             echo "::warning::Functions deploy had errors."
             echo "::warning::If the log mentions a missing environment variable, add it to functions/.env.yesweigh-service via the Prepare functions environment step (e.g. ZOHO_WEBHOOK_SECRET)."
@@ -140,30 +117,6 @@ jobs:
       - name: Functions deploy skipped
         if: steps.changed_functions.outputs.skip == 'true'
         run: echo "No functions/ changes — skipping functions deploy (${{ steps.changed_functions.outputs.reason }})."
-
-      - name: Deploy Storage rules
-        run: |
-          set +e
-          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-            npx firebase-tools deploy \
-              --only storage \
-              --project yesweigh-service \
-              --non-interactive
-          else
-            npx firebase-tools deploy \
-              --only storage \
-              --project yesweigh-service \
-              --non-interactive \
-              --token "$FIREBASE_TOKEN"
-          fi
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "::error::Storage deploy failed."
-            echo "::error::A Google Cloud project owner must enable Firebase Storage API once (CI cannot enable APIs):"
-            echo "::error::https://console.cloud.google.com/apis/library/firebasestorage.googleapis.com?project=yesweigh-service"
-            echo "::error::Then re-run this workflow. Catalog product images require Storage."
-            exit "$status"
-          fi
 
       - name: Post-deploy catalog sync
         if: env.GOOGLE_APPLICATION_CREDENTIALS != ''
