@@ -274,6 +274,21 @@ export function formatSupportDateTime(value: string | null | undefined): string 
   return `${date} • ${time}`;
 }
 
+/** Compact invoice date for list cards — date only, drops year when it matches the current year. */
+export function formatSupportInvoiceDateCompact(value: string | null | undefined): string {
+  if (!value) return '—';
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  const d = new Date(parsed);
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+}
+
 /** Compact timestamp for list cards — drops year when it matches the current year. */
 export function formatSupportDateTimeCompact(value: string | null | undefined): string {
   if (!value) return '—';

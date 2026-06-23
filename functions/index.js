@@ -71,6 +71,7 @@ import {
   completeDealerSignup as finalizeDealerSignup,
 } from './lib/dealer-otp.js';
 import { prepareSupportAttachmentUpload, uploadSupportAttachment } from './lib/support-attachments.js';
+import { appendSupportMessage } from './lib/support-messages.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 
 initializeApp({
@@ -1369,6 +1370,22 @@ export const prepareSupportAttachmentUploadFn = onCall(
         );
       }
       throw new HttpsError('internal', message);
+    }
+  },
+);
+
+/** Append a support conversation message — Admin SDK bypasses client Firestore rules. */
+export const appendSupportMessageFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await appendSupportMessage(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not send message.');
     }
   },
 );

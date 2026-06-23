@@ -15,7 +15,8 @@ import {
   type DocumentData,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, app } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import type { User } from '../types';
 import { normalizeRole } from '../types';
 import {
@@ -51,6 +52,82 @@ const REQUEST_PREFIX: Record<SupportRequestType, string> = {
   return: 'RMA',
   complaint: 'CMP',
 };
+
+const functions = getFunctions(app, 'asia-south1');
+
+function isFirestorePermissionDenied(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  const message = String((err as Error)?.message ?? '');
+  return code === 'permission-denied'
+    || message.includes('Missing or insufficient permissions')
+    || message.includes('insufficient permissions');
+}
+
+async function persistSupportMessage(
+  user: User,
+  requestId: string,
+  messageId: string,
+  payload: {
+    text: string;
+    attachments: SupportMessage['attachments'];
+    createdAt: string;
+    isInitial: boolean;
+  },
+  updates: Record<string, string | null>,
+): Promise<void> {
+  try {
+    const callable = httpsCallable<
+      {
+        requestId: string;
+        messageId: string;
+        text: string;
+        attachments: SupportMessage['attachments'];
+        authorName: string;
+        authorRole: string;
+        isInitial?: boolean;
+      },
+      { id: string }
+    >(functions, 'appendSupportMessageFn', { timeout: 60_000 });
+
+    await callable({
+      requestId,
+      messageId,
+      text: payload.text,
+      attachments: payload.attachments,
+      authorName: user.displayName,
+      authorRole: user.role,
+      isInitial: payload.isInitial || undefined,
+    });
+    return;
+  } catch (fnErr) {
+    const code = (fnErr as { code?: string })?.code;
+    if (code !== 'functions/not-found' && code !== 'functions/unavailable') {
+      const details = (fnErr as { message?: string })?.message ?? 'Could not send message.';
+      throw new Error(details);
+    }
+  }
+
+  const messageRef = doc(db, 'dealerSupportRequests', requestId, 'messages', messageId);
+  const writePayload = {
+    text: payload.text,
+    attachments: payload.attachments,
+    authorUid: user.uid,
+    authorName: user.displayName,
+    authorRole: user.role,
+    createdAt: payload.createdAt,
+    ...(payload.isInitial ? { isInitial: true } : {}),
+  };
+
+  await setDoc(messageRef, writePayload);
+
+  try {
+    await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
+  } catch (updateErr) {
+    if (!isFirestorePermissionDenied(updateErr)) {
+      console.error('Support request metadata update failed:', updateErr);
+    }
+  }
+}
 
 function resolveDealerId(user: User): string {
   if (user.role === 'dealer') return user.uid;
@@ -256,21 +333,12 @@ export async function sendSupportMessage(
   });
 
   const now = new Date().toISOString();
-  const payload = {
-    text,
-    attachments,
-    authorUid: user.uid,
-    authorName: user.displayName,
-    authorRole: user.role,
-    createdAt: now,
-    isInitial: input.isInitial === true,
-  };
-
+  const isInitial = input.isInitial === true;
   const updates: Record<string, string | null> = {
     updatedAt: now,
     lastMessageAt: now,
     lastMessagePreview: previewText(text, attachments.length),
-    ...messageStageUpdates(user, request, input.isInitial === true),
+    ...messageStageUpdates(user, request, isInitial),
   };
 
   if (
@@ -282,15 +350,22 @@ export async function sendSupportMessage(
     updates.openStage = 'under_review';
   }
 
-  await setDoc(messageRef, payload);
+  const payload = {
+    text,
+    attachments,
+    createdAt: now,
+    isInitial,
+  };
 
-  try {
-    await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
-  } catch (updateErr) {
-    console.error('Support request metadata update failed:', updateErr);
-  }
+  await persistSupportMessage(user, requestId, messageRef.id, payload, updates);
 
-  return mapMessage(messageRef.id, payload);
+  return mapMessage(messageRef.id, {
+    ...payload,
+    authorUid: user.uid,
+    authorName: user.displayName,
+    authorRole: user.role,
+    ...(isInitial ? { isInitial: true } : {}),
+  });
 }
 
 function buildSupportProduct(

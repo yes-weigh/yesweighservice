@@ -4,6 +4,7 @@ import type { DealerSupportRequest } from '../../types/dealer-support';
 import {
   formatSupportDateTimeCompact,
   formatSupportDaysSinceSubmission,
+  formatSupportInvoiceDateCompact,
   supportRequestIssueSummary,
   supportRequestStageSubtitle,
   supportRequestStatusLabel,
@@ -13,12 +14,14 @@ import {
 interface SupportRequestCardProps {
   request: DealerSupportRequest;
   imageUrl?: string | null;
+  invoiceDate?: string | null;
   onClick: () => void;
 }
 
 export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
   request,
   imageUrl,
+  invoiceDate,
   onClick,
 }) => {
   const statusTone = supportRequestStatusTone(request);
@@ -39,7 +42,7 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
 
         <p className="support-ticket-card__datetime text-sm">
           <Calendar size={12} aria-hidden />
-          {formatSupportDateTimeCompact(request.createdAt)}
+          {formatSupportInvoiceDateCompact(invoiceDate)}
         </p>
       </div>
 
@@ -73,6 +76,9 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
       <div className="support-ticket-card__aside">
         <div className="support-ticket-card__age">
           <strong className="support-ticket-card__age-value">{daysSinceSubmission}</strong>
+          <span className="support-ticket-card__submitted">
+            {formatSupportDateTimeCompact(request.createdAt)}
+          </span>
         </div>
         <ChevronRight size={18} className="support-ticket-card__chevron" aria-hidden />
       </div>

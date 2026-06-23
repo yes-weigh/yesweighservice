@@ -2,13 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LifeBuoy, Plus, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { SupportRequestCard } from './SupportRequestCard';
+import { useAuth } from '../../context/AuthContext';
 import { fetchCatalogImagesForItemIds } from '../../lib/invoiceLineItemImages';
-import type { DealerSupportRequest, SupportOpenStage } from '../../types/dealer-support';
+import { fetchAllDealerInvoices, readCachedAllDealerInvoices } from '../../lib/invoices';
+import type { DealerSupportRequest } from '../../types/dealer-support';
 import { SUPPORT_TYPE_LABELS } from '../../types/dealer-support';
 import {
   SUPPORT_LIFECYCLE_FILTERS,
-  SUPPORT_STAGE_FILTERS,
-  combineStatusFilter,
   countSupportRequestsByFilter,
   filterSupportRequests,
   sortSupportRequests,
@@ -34,66 +34,48 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   onNewRequest,
   onRefresh,
 }) => {
+  const { user } = useAuth();
   const [lifecycleFilter, setLifecycleFilter] = useState<SupportLifecycleFilter>('all');
-  const [stageFilter, setStageFilter] = useState<SupportOpenStage | null>(null);
   const [sort, setSort] = useState<SupportSortOption>('newest');
   const [typeFilter, setTypeFilter] = useState<SupportTypeFilter>('all');
   const [showTypeFilter, setShowTypeFilter] = useState(false);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
   const [images, setImages] = useState<Map<string, string>>(new Map());
+  const [invoiceDates, setInvoiceDates] = useState<Map<string, string>>(new Map());
   const typeFilterRef = useRef<HTMLDivElement>(null);
-
-  const statusFilter = useMemo(
-    () => combineStatusFilter(lifecycleFilter, stageFilter),
-    [lifecycleFilter, stageFilter],
-  );
 
   const counts = useMemo(() => countSupportRequestsByFilter(requests), [requests]);
 
   const visibleRequests = useMemo(
-    () => sortSupportRequests(filterSupportRequests(requests, statusFilter, typeFilter), sort),
-    [requests, sort, statusFilter, typeFilter],
+    () => sortSupportRequests(filterSupportRequests(requests, lifecycleFilter, typeFilter), sort),
+    [requests, sort, lifecycleFilter, typeFilter],
   );
-
-  const showStageFilters = lifecycleFilter === 'all' || lifecycleFilter === 'open' || stageFilter !== null;
 
   const activeFilterCount = [
     lifecycleFilter !== 'all',
-    stageFilter !== null,
     typeFilter !== 'all',
     sort !== 'newest',
   ].filter(Boolean).length;
 
-  const hasNonDefaultFilters = lifecycleFilter !== 'all' || stageFilter !== null || typeFilter !== 'all';
+  const hasNonDefaultFilters = lifecycleFilter !== 'all' || typeFilter !== 'all';
 
   const activeSummaryParts = useMemo(() => {
     const parts: string[] = [];
     if (lifecycleFilter !== 'all') {
       parts.push(SUPPORT_LIFECYCLE_FILTERS.find(option => option.value === lifecycleFilter)?.label ?? lifecycleFilter);
     }
-    if (stageFilter) {
-      parts.push(SUPPORT_STAGE_FILTERS.find(option => option.value === stageFilter)?.shortLabel ?? stageFilter);
-    }
     if (typeFilter !== 'all') {
       parts.push(SUPPORT_TYPE_LABELS[typeFilter]);
     }
     return parts;
-  }, [lifecycleFilter, stageFilter, typeFilter]);
+  }, [lifecycleFilter, typeFilter]);
 
   const resetFilters = () => {
     setLifecycleFilter('all');
-    setStageFilter(null);
     setTypeFilter('all');
     setSort('newest');
     setShowFilterSheet(false);
     setShowTypeFilter(false);
-  };
-
-  const selectLifecycle = (value: SupportLifecycleFilter) => {
-    setLifecycleFilter(value);
-    if (value === 'resolved' || value === 'cancelled') {
-      setStageFilter(null);
-    }
   };
 
   useEffect(() => {
@@ -112,6 +94,40 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
       cancelled = true;
     };
   }, [requests]);
+
+  useEffect(() => {
+    const invoiceIds = new Set(
+      requests.map(request => request.invoiceId).filter((id): id is string => Boolean(id)),
+    );
+    if (!invoiceIds.size) {
+      setInvoiceDates(new Map());
+      return;
+    }
+
+    const buildMap = (invoices: Array<{ id: string; date: string | null }>) => {
+      const map = new Map<string, string>();
+      for (const invoice of invoices) {
+        if (invoiceIds.has(invoice.id) && invoice.date) {
+          map.set(invoice.id, invoice.date);
+        }
+      }
+      return map;
+    };
+
+    let cancelled = false;
+    const cached = readCachedAllDealerInvoices(user?.uid);
+    if (cached) {
+      setInvoiceDates(buildMap(cached));
+    }
+
+    void fetchAllDealerInvoices(user?.uid).then(invoices => {
+      if (!cancelled) setInvoiceDates(buildMap(invoices));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requests, user?.uid]);
 
   useEffect(() => {
     if (!showTypeFilter) return;
@@ -151,9 +167,9 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
                 key={tab.value}
                 type="button"
                 role="tab"
-                aria-selected={lifecycleFilter === tab.value && !stageFilter}
-                className={`support-request-list__lifecycle-btn ${lifecycleFilter === tab.value && !stageFilter ? 'is-active' : ''}`}
-                onClick={() => selectLifecycle(tab.value)}
+                aria-selected={lifecycleFilter === tab.value}
+                className={`support-request-list__lifecycle-btn ${lifecycleFilter === tab.value ? 'is-active' : ''}`}
+                onClick={() => setLifecycleFilter(tab.value)}
               >
                 <span className="support-request-list__lifecycle-label">{tab.label}</span>
                 <span className="support-request-list__lifecycle-count">{counts[tab.value]}</span>
@@ -187,41 +203,6 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
             </button>
           </div>
         </div>
-
-        {showStageFilters && (
-          <div className="support-request-list__stages-wrap">
-            <div
-              className="support-request-list__stages"
-              role="group"
-              aria-label="Filter by open stage"
-            >
-              <button
-                type="button"
-                className={`support-request-list__stage-chip ${stageFilter === null ? 'is-active' : ''}`}
-                onClick={() => setStageFilter(null)}
-              >
-                All stages
-                <span className="support-request-list__stage-count">{counts.open}</span>
-              </button>
-              {SUPPORT_STAGE_FILTERS.map(stage => (
-                <button
-                  key={stage.value}
-                  type="button"
-                  className={`support-request-list__stage-chip ${stageFilter === stage.value ? 'is-active' : ''}`}
-                  onClick={() => {
-                    setStageFilter(stage.value);
-                    if (lifecycleFilter === 'resolved' || lifecycleFilter === 'cancelled') {
-                      setLifecycleFilter('all');
-                    }
-                  }}
-                >
-                  {stage.shortLabel}
-                  <span className="support-request-list__stage-count">{counts[stage.value]}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {activeSummaryParts.length > 0 && (
           <p className="support-request-list__summary text-muted text-sm">
@@ -319,6 +300,7 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
               <SupportRequestCard
                 request={request}
                 imageUrl={request.product?.itemId ? images.get(request.product.itemId) : null}
+                invoiceDate={request.invoiceId ? invoiceDates.get(request.invoiceId) ?? null : null}
                 onClick={() => onOpenRequest(request)}
               />
             </li>

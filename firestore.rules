@@ -508,12 +508,9 @@ service cloud.firestore {
     function canWriteSupportMessage(requestId) {
       let req = get(/databases/$(database)/documents/dealerSupportRequests/$(requestId)).data;
       let msg = request.resource.data;
-      return canReadSupportRequest(requestId)
-        && (
-          isOpsUser()
-          || (!isSupportClosedData(req) && !isSupportDraftData(req))
-          || (isSupportDraftData(req) && msg.isInitial == true && msg.authorUid == request.auth.uid)
-        );
+      return isOpsUser()
+        || (req.lifecycle == 'open' && !isSupportClosedData(req))
+        || (isSupportDraftData(req) && msg.isInitial == true && msg.authorUid == request.auth.uid);
     }
 
     function validSupportMessageCreate() {

@@ -715,16 +715,16 @@ html::-webkit-scrollbar {
 }
 
 .cart-header-btn--primary {
-  color: var(--accent-primary-light);
-  border-color: rgba(245, 130, 32, 0.45);
-  background: rgba(245, 130, 32, 0.14);
+  color: #fff;
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
   opacity: 1;
 }
 
 .cart-header-btn--primary:hover {
   color: #fff;
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  background: var(--accent-primary-hover);
+  border-color: var(--accent-primary-hover);
 }
 
 .cart-header-btn--has-items,
@@ -10789,6 +10789,7 @@ html::-webkit-scrollbar {
   flex-direction: column;
   align-items: center;
   text-align: center;
+  gap: 0.15rem;
 }
 
 .support-ticket-card__age-value {
@@ -10797,6 +10798,14 @@ html::-webkit-scrollbar {
   line-height: 1.1;
   color: #fcd34d;
   white-space: nowrap;
+}
+
+.support-ticket-card__submitted {
+  display: block;
+  color: var(--accent-primary-light);
+  font-size: 0.58rem;
+  line-height: 1.25;
+  max-width: 4.5rem;
 }
 
 .support-ticket-card__chevron {
@@ -10866,6 +10875,11 @@ html::-webkit-scrollbar {
 
   .support-ticket-card__age-value {
     font-size: 0.82rem;
+  }
+
+  .support-ticket-card__submitted {
+    font-size: 0.5rem;
+    max-width: 3.75rem;
   }
 }
 
