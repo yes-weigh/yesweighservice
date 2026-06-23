@@ -29,7 +29,7 @@ import {
   cleanupPendingFiles,
   pendingFilesToUpload,
 } from './SupportEvidencePicker';
-import { validateEvidenceFiles, type SupportSubmitProgress } from '../../lib/supportAttachments';
+import { validateEvidenceFiles, supportUploadErrorMessage, type SupportSubmitProgress } from '../../lib/supportAttachments';
 import { SupportWizardSubmitProgress } from './SupportWizardSubmitProgress';
 import {
   SupportInvoiceAutocomplete,
@@ -100,11 +100,7 @@ const INTENT_ICONS: Record<SupportRequestType, React.ReactNode> = {
 };
 
 function supportActionErrorMessage(err: unknown, fallback: string): string {
-  const message = err instanceof Error ? err.message : fallback;
-  if (message.includes('signBlob') || message.includes('serviceAccounts.signBlob')) {
-    return 'Upload could not start on the server. Please try again.';
-  }
-  return message || fallback;
+  return supportUploadErrorMessage(err, fallback);
 }
 
 export const SupportWizard: React.FC<SupportWizardProps> = ({

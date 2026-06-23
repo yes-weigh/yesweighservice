@@ -1,11 +1,8 @@
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app, storage } from '../firebase';
+import { storage } from '../firebase';
 import { compressImageForUpload } from './compressImage';
 import { applyGpsOverlayToImage, formatGpsLabel, getCurrentGpsCoords } from './supportGeolocation';
 import type { SupportAttachment, SupportAttachmentKind } from '../types/dealer-support';
-
-const functions = getFunctions(app, 'asia-south1');
 
 export const MAX_SUPPORT_ATTACHMENTS = 5;
 export const MAX_EVIDENCE_PHOTOS = 4;
@@ -89,6 +86,17 @@ export function revokePendingSupportFiles(files: PendingSupportFile[]): void {
   files.forEach(item => URL.revokeObjectURL(item.previewUrl));
 }
 
+export function supportUploadErrorMessage(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : fallback;
+  if (message.includes('storage/unauthorized') || message.includes('storage/unauthenticated')) {
+    return 'Could not upload evidence. Sign out, sign back in, and try again.';
+  }
+  if (message.includes('signBlob') || message.includes('Server upload signing')) {
+    return 'Could not upload evidence. Please try again.';
+  }
+  return message || fallback;
+}
+
 function safeFileName(name: string): string {
   return name.replace(/[^\w.-]+/g, '_').slice(0, 120) || 'file';
 }
@@ -105,97 +113,6 @@ function uploadContentType(file: File): string {
   if (lower.endsWith('.webp')) return 'image/webp';
   if (lower.endsWith('.gif')) return 'image/gif';
   return isVideoFile(file) ? 'video/webm' : 'image/jpeg';
-}
-
-interface PreparedSupportUpload {
-  uploadUrl: string;
-  downloadUrl: string;
-  storagePath: string;
-  attachmentId: string;
-  contentType: string;
-}
-
-function isStorageUnauthorized(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = String((err as { code?: string }).code ?? '');
-  const message = String((err as { message?: string }).message ?? '');
-  return code === 'storage/unauthorized'
-    || code === 'storage/unauthenticated'
-    || message.includes('storage/unauthorized')
-    || message.includes('storage/unauthenticated');
-}
-
-function isSignedUploadUnavailable(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = String((err as { code?: string }).code ?? '');
-  const message = String((err as { message?: string }).message ?? '');
-  return code === 'functions/not-found'
-    || code === 'functions/unavailable'
-    || code === 'functions/deadline-exceeded'
-    || code === 'functions/internal'
-    || message.includes('signBlob')
-    || message.includes('serviceAccounts.signBlob');
-}
-
-async function uploadViaSignedUrl(
-  requestId: string,
-  messageId: string,
-  file: File,
-  contentType: string,
-  onFileProgress?: (percent: number) => void,
-): Promise<PreparedSupportUpload & { url: string }> {
-  const callable = httpsCallable<
-    {
-      requestId: string;
-      messageId: string;
-      fileName: string;
-      contentType: string;
-      size: number;
-    },
-    PreparedSupportUpload
-  >(functions, 'prepareSupportAttachmentUploadFn');
-
-  onFileProgress?.(0);
-
-  const prep = await callable({
-    requestId,
-    messageId,
-    fileName: file.name,
-    contentType,
-    size: file.size,
-  });
-
-  await uploadFileViaPut(prep.data.uploadUrl, file, prep.data.contentType, onFileProgress);
-
-  return { ...prep.data, url: prep.data.downloadUrl };
-}
-
-function uploadFileViaPut(
-  url: string,
-  file: File,
-  contentType: string,
-  onProgress?: (percent: number) => void,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
-    xhr.setRequestHeader('Content-Type', contentType);
-    xhr.upload.onprogress = event => {
-      if (event.lengthComputable) {
-        onProgress?.(Math.round((event.loaded / event.total) * 100));
-      }
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress?.(100);
-        resolve();
-        return;
-      }
-      reject(new Error(`Could not upload ${file.name} (${xhr.status}).`));
-    };
-    xhr.onerror = () => reject(new Error(`Could not upload ${file.name}.`));
-    xhr.send(file);
-  });
 }
 
 async function uploadViaClientStorage(
@@ -296,51 +213,19 @@ export async function uploadSupportAttachments(
       reportBatchUploadProgress(onProgress, index, preparedFiles.length, fileName, filePercent, fileSizes);
     };
 
-    let attachmentId: string;
-    let storagePath: string;
-    let url: string;
-
-    try {
-      const direct = await uploadViaClientStorage(
-        requestId,
-        messageId,
-        file,
-        contentType,
-        onFileProgress,
-      );
-      attachmentId = direct.attachmentId;
-      storagePath = direct.storagePath;
-      url = direct.url;
-    } catch (directErr) {
-      if (!isStorageUnauthorized(directErr)) {
-        throw directErr instanceof Error ? directErr : new Error('Could not upload attachment.');
-      }
-      try {
-        const signed = await uploadViaSignedUrl(
-          requestId,
-          messageId,
-          file,
-          contentType,
-          onFileProgress,
-        );
-        attachmentId = signed.attachmentId;
-        storagePath = signed.storagePath;
-        url = signed.url;
-      } catch (signedErr) {
-        if (isSignedUploadUnavailable(signedErr)) {
-          throw directErr instanceof Error
-            ? directErr
-            : new Error('Could not upload evidence. Check your connection and try again.');
-        }
-        throw signedErr instanceof Error ? signedErr : new Error('Could not upload attachment.');
-      }
-    }
+    const direct = await uploadViaClientStorage(
+      requestId,
+      messageId,
+      file,
+      contentType,
+      onFileProgress,
+    );
 
     uploads.push({
-      id: attachmentId,
+      id: direct.attachmentId,
       kind: isVideoFile(file) ? 'video' : 'image',
-      url,
-      storagePath,
+      url: direct.url,
+      storagePath: direct.storagePath,
       fileName: file.name,
       mimeType: contentType,
       size: file.size,
