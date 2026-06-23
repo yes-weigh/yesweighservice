@@ -63,7 +63,7 @@ async function readActiveUser(uid) {
   return { role, data };
 }
 
-export async function assertSupportRequestAccess(uid, requestId) {
+export async function assertSupportRequestAccess(uid, requestId, options = {}) {
   const { role, data: userData } = await readActiveUser(uid);
   const normalized = normalizeRole(role);
 
@@ -86,7 +86,7 @@ export async function assertSupportRequestAccess(uid, requestId) {
     throw new HttpsError('permission-denied', 'You do not have access to this request.');
   }
 
-  if (req.status === 'draft') {
+  if (req.status === 'draft' && options.isInitial !== true) {
     throw new HttpsError('failed-precondition', 'Submit the draft before uploading evidence.');
   }
 
@@ -112,7 +112,7 @@ export async function prepareSupportAttachmentUpload(uid, input) {
     throw new HttpsError('invalid-argument', 'Only image and video files are allowed.');
   }
 
-  await assertSupportRequestAccess(uid, requestId);
+  await assertSupportRequestAccess(uid, requestId, { isInitial: input?.isInitial === true });
 
   const attachmentId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const storagePath = `support/${requestId}/${messageId}/${attachmentId}-${safeFileName(fileName)}`;
