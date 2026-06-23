@@ -449,6 +449,7 @@ service cloud.firestore {
         isOpsUser()
         || (isDealer() && resource.data.dealerId == request.auth.uid)
         || (isDealerStaff() && resource.data.dealerId == userDealerId(userDoc()))
+        || resource.data.createdByUid == request.auth.uid
       );
 
       allow create: if isActiveUser()
@@ -494,20 +495,25 @@ service cloud.firestore {
       let req = get(/databases/$(database)/documents/dealerSupportRequests/$(requestId)).data;
       return isOpsUser()
         || (isDealer() && req.dealerId == request.auth.uid)
-        || (isDealerStaff() && req.dealerId == userDealerId(userDoc()));
+        || (isDealerStaff() && req.dealerId == userDealerId(userDoc()))
+        || req.createdByUid == request.auth.uid;
     }
 
     function isSupportRequestDealerAccess(data) {
       return (isDealer() && data.dealerId == request.auth.uid)
-        || (isDealerStaff() && data.dealerId == userDealerId(userDoc()));
+        || (isDealerStaff() && data.dealerId == userDealerId(userDoc()))
+        || data.createdByUid == request.auth.uid;
     }
 
     function canWriteSupportMessage(requestId) {
       let req = get(/databases/$(database)/documents/dealerSupportRequests/$(requestId)).data;
       let msg = request.resource.data;
-      return isOpsUser()
-        || (!isSupportClosedData(req) && !isSupportDraftData(req))
-        || (isSupportDraftData(req) && msg.isInitial == true && msg.authorUid == request.auth.uid);
+      return canReadSupportRequest(requestId)
+        && (
+          isOpsUser()
+          || (!isSupportClosedData(req) && !isSupportDraftData(req))
+          || (isSupportDraftData(req) && msg.isInitial == true && msg.authorUid == request.auth.uid)
+        );
     }
 
     function validSupportMessageCreate() {

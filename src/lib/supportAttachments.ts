@@ -251,7 +251,7 @@ async function uploadViaSignedUrl(
     isInitial: options?.isInitial === true ? true : undefined,
   });
 
-  await uploadFileViaPut(prep.data.uploadUrl, file, onFileProgress);
+  await uploadFileViaPut(prep.data.uploadUrl, file, prep.data.contentType, onFileProgress);
 
   return { ...prep.data, url: prep.data.downloadUrl };
 }
@@ -259,13 +259,13 @@ async function uploadViaSignedUrl(
 function uploadFileViaPut(
   url: string,
   file: File,
+  contentType: string,
   onProgress?: (percent: number) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
-    // Do not set Content-Type — signed URL is not bound to a type and browsers
-    // may send video/webm;codecs=… which mismatches a signed video/webm header.
+    xhr.setRequestHeader('Content-Type', contentType);
     xhr.upload.onprogress = event => {
       if (event.lengthComputable) {
         onProgress?.(Math.round((event.loaded / event.total) * 100));

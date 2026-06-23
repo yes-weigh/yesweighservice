@@ -182,6 +182,7 @@ export function canUserAccessSupportRequest(user: User, request: DealerSupportRe
     if (allowed.length === 0) return false;
     return allowed.includes(request.type);
   }
+  if (request.createdByUid === user.uid) return true;
   const dealerId = resolveDealerId(user);
   return request.dealerId === dealerId;
 }
@@ -265,8 +266,6 @@ export async function sendSupportMessage(
     isInitial: input.isInitial === true,
   };
 
-  await setDoc(messageRef, payload);
-
   const updates: Record<string, string | null> = {
     updatedAt: now,
     lastMessageAt: now,
@@ -283,7 +282,13 @@ export async function sendSupportMessage(
     updates.openStage = 'under_review';
   }
 
-  await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
+  await setDoc(messageRef, payload);
+
+  try {
+    await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
+  } catch (updateErr) {
+    console.error('Support request metadata update failed:', updateErr);
+  }
 
   return mapMessage(messageRef.id, payload);
 }

@@ -191,12 +191,11 @@ export async function prepareSupportAttachmentUpload(uid, input) {
   const file = bucket.file(storagePath);
   const mediaType = contentType.split(';')[0].trim() || 'application/octet-stream';
 
-  // Do not bind content-type or extension headers — browsers send codecs in video/webm
-  // and mismatching signed headers causes GCS to return 400 on PUT.
   const [uploadUrl] = await file.getSignedUrl({
     version: 'v4',
     action: 'write',
     expires: Date.now() + UPLOAD_TTL_MS,
+    contentType: mediaType,
   });
 
   const downloadUrl = await signedReadUrl(storagePath);
