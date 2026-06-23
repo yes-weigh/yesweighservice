@@ -14,7 +14,9 @@
     "migrate:dealer-rename": "node scripts/migrate-dealer-rename.mjs",
     "verify:zoho": "node scripts/verify-zoho.mjs",
     "measure:invoices": "node scripts/measure-invoice-size.mjs",
-    "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs"
+    "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs",
+    "migrate:support-status": "node scripts/migrate-support-status.mjs",
+    "purge:support-test-data": "node scripts/purge-support-test-data.mjs"
   },
   "dependencies": {
     "firebase": "^12.13.0",

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Send } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isInternalOpsUser } from '../../lib/staffAccess';
+import { isSupportClosed } from '../../lib/supportStatus';
 import {
   sendSupportMessage,
   subscribeSupportMessages,
@@ -69,7 +70,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const chatDisabled = readOnly
-    || (!isInternalOpsUser(user) && request.status === 'cancelled');
+    || (!isInternalOpsUser(user) && isSupportClosed(request));
 
   useEffect(() => {
     setLoading(true);
@@ -120,8 +121,10 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
       <header className="support-chat__header">
         <h3>Conversation</h3>
         <p className="text-muted text-sm">
-          {chatDisabled && !readOnly && request.status === 'cancelled'
-            ? 'This request is cancelled. History is read-only.'
+          {chatDisabled && !readOnly && isSupportClosed(request)
+            ? request.lifecycle === 'cancelled'
+              ? 'This request is cancelled. History is read-only.'
+              : 'This request is resolved. History is read-only.'
             : readOnly
               ? 'Read-only history'
               : 'Messages are saved permanently — you can return anytime.'}

@@ -7,7 +7,8 @@ import {
   Package,
   RotateCcw,
 } from 'lucide-react';
-import { createSupportRequest, saveSupportRequestDraft } from '../../lib/dealerSupport';
+import { createSupportRequest, deleteSupportRequestDraft, saveSupportRequestDraft } from '../../lib/dealerSupport';
+import { useConfirm } from '../../context/ConfirmContext';
 import { SupportCourierInstructions } from './SupportCourierInstructions';
 import type { User } from '../../types';
 import type {
@@ -155,8 +156,10 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [createdRequestId, setCreatedRequestId] = useState('');
   const [pendingFiles, setPendingFiles] = useState<PendingSupportFile[]>([]);
   const [submitProgress, setSubmitProgress] = useState<SupportSubmitProgress | null>(null);
+  const [discarding, setDiscarding] = useState(false);
+  const confirm = useConfirm();
 
-  const isBusy = submitting || savingDraft;
+  const isBusy = submitting || savingDraft || discarding;
 
   const categoryOptions = useMemo(() => {
     if (intent === 'return') return RETURN_REASON_OPTIONS;
@@ -234,6 +237,31 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     } finally {
       setSavingDraft(false);
       setSubmitProgress(null);
+    }
+  };
+
+  const handleDiscardDraft = async () => {
+    if (!draftRequestId) {
+      onCancel();
+      return;
+    }
+    const ok = await confirm({
+      title: 'Discard draft?',
+      message: 'This will permanently delete the saved draft.',
+      confirmLabel: 'Discard',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setDiscarding(true);
+    setError('');
+    try {
+      await deleteSupportRequestDraft(user, draftRequestId);
+      onCancel();
+    } catch (err) {
+      setError(supportActionErrorMessage(err, 'Could not discard draft.'));
+    } finally {
+      setDiscarding(false);
     }
   };
 
@@ -609,10 +637,10 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={onCancel}
+              onClick={() => void (draftRequestId ? handleDiscardDraft() : onCancel())}
               disabled={isBusy}
             >
-              Cancel
+              {draftRequestId ? 'Discard draft' : 'Cancel'}
             </button>
             <button
               type="button"

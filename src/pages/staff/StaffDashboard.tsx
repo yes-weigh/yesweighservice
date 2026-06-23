@@ -25,6 +25,11 @@ import { SalesChart } from '../../components/dashboard/SalesChart';
 import { useAuth } from '../../context/AuthContext';
 import { canAccessNavFeature } from '../../lib/staffAccess';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
+import { fetchOpsSupportRequests } from '../../lib/dealerSupport';
+import {
+  countActionableSupportRequests,
+  countOpenSupportRequests,
+} from '../../lib/supportRequestDisplay';
 import type { DealerStats } from '../../types/dealers';
 
 const BASE = '/staff';
@@ -70,7 +75,12 @@ function formatDateRange(): string {
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
-function buildKpis(stats: DealerStats | null, user: import('../../types').User | null): KpiCard[] {
+function buildKpis(
+  stats: DealerStats | null,
+  user: import('../../types').User | null,
+  openSupport: number | null,
+  actionableSupport: number | null,
+): KpiCard[] {
   const cards: KpiCard[] = [
     {
       id: 'dealers',
@@ -87,9 +97,11 @@ function buildKpis(stats: DealerStats | null, user: import('../../types').User |
     {
       id: 'support',
       label: 'Warranty & Support',
-      value: '—',
+      value: openSupport == null ? '—' : String(openSupport),
       trend: 'up',
-      trendLabel: 'Dealer tickets',
+      trendLabel: actionableSupport == null
+        ? 'Dealer tickets'
+        : `${actionableSupport} need action`,
       path: `${BASE}/warranty-support`,
       tone: 'green',
       icon: <LifeBuoy size={22} strokeWidth={2.5} />,
@@ -220,14 +232,26 @@ export const StaffDashboard: React.FC = () => {
   const { user } = useAuth();
   const [dealerStats, setDealerStats] = useState<DealerStats | null>(null);
   const [statsError, setStatsError] = useState('');
+  const [openSupport, setOpenSupport] = useState<number | null>(null);
+  const [actionableSupport, setActionableSupport] = useState<number | null>(null);
 
   useEffect(() => {
     void fetchDealerStats()
       .then(setDealerStats)
       .catch(err => setStatsError(dealerErrorMessage(err)));
+
+    void fetchOpsSupportRequests()
+      .then(rows => {
+        setOpenSupport(countOpenSupportRequests(rows));
+        setActionableSupport(countActionableSupportRequests(rows));
+      })
+      .catch(() => {
+        setOpenSupport(null);
+        setActionableSupport(null);
+      });
   }, []);
 
-  const kpis = buildKpis(dealerStats, user);
+  const kpis = buildKpis(dealerStats, user, openSupport, actionableSupport);
   const miniStats = buildMiniStats(dealerStats, user);
   const quickActions = QUICK_ACTIONS.filter(action => canAccessNavFeature(user, action.feature));
   const firstName = user?.displayName?.split(/\s+/)[0] ?? 'Staff';

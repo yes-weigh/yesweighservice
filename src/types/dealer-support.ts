@@ -1,5 +1,16 @@
 export type SupportRequestType = 'service' | 'return' | 'complaint';
 
+export type SupportLifecycle = 'draft' | 'open' | 'resolved' | 'cancelled';
+
+export type SupportOpenStage =
+  | 'submitted'
+  | 'under_review'
+  | 'awaiting_dealer'
+  | 'awaiting_product'
+  | 'in_transit'
+  | 'in_workshop';
+
+/** @deprecated Legacy flat status — mapped from Firestore `status` when `lifecycle` is absent. */
 export type SupportRequestStatus =
   | 'draft'
   | 'pending'
@@ -21,7 +32,8 @@ export interface DealerSupportRequest {
   id: string;
   type: SupportRequestType;
   requestNumber: string;
-  status: SupportRequestStatus;
+  lifecycle: SupportLifecycle;
+  openStage: SupportOpenStage | null;
   invoiceId: string | null;
   invoiceNumber: string | null;
   salesOrderNumber: string | null;
@@ -41,6 +53,11 @@ export interface DealerSupportRequest {
   assignedToUid: string | null;
   assignedToName: string | null;
   assignedAt: string | null;
+  courierTracking: string | null;
+  shippedAt: string | null;
+  receivedAt: string | null;
+  resolvedAt: string | null;
+  resolutionSummary: string | null;
 }
 
 export type SupportAttachmentKind = 'image' | 'video';
@@ -126,13 +143,20 @@ export interface SaveSupportRequestDraftInput {
   notes?: string;
 }
 
-export const SUPPORT_REQUEST_STATUS_LABELS: Record<SupportRequestStatus, string> = {
-  draft: 'Draft',
-  pending: 'Pending',
+export const SUPPORT_OPEN_STAGE_LABELS: Record<SupportOpenStage, string> = {
+  submitted: 'Submitted',
+  under_review: 'Under review',
+  awaiting_dealer: 'Awaiting dealer reply',
   awaiting_product: 'Awaiting product',
-  in_progress: 'In progress',
-  completed: 'Resolved',
-  cancelled: 'Closed',
+  in_transit: 'On transit',
+  in_workshop: 'In workshop',
+};
+
+export const SUPPORT_LIFECYCLE_LABELS: Record<SupportLifecycle, string> = {
+  draft: 'Draft',
+  open: 'Open',
+  resolved: 'Resolved',
+  cancelled: 'Cancelled',
 };
 
 export const SUPPORT_TYPE_LABELS: Record<SupportRequestType, string> = {

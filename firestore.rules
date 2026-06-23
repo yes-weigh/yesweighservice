@@ -310,25 +310,22 @@ service cloud.firestore {
       return signedIn() && isDealerStaffRole(role());
     }
 
-    function validDealerSupportCreate() {
-      let data = request.resource.data;
-      return data.type is string
-        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
-        && data.requestNumber is string
-        && data.requestNumber.size() > 0
-        && data.status == 'pending'
-        && data.category is string
-        && data.category.size() > 0
-        && data.description is string
-        && data.description.size() > 0
-        && data.createdAt is string
-        && data.createdByUid == request.auth.uid
-        && data.createdByName is string
-        && data.dealerId is string
-        && (
-          (isDealer() && data.dealerId == request.auth.uid)
-          || (isDealerStaff() && data.dealerId == userDealerId(userDoc()))
-        );
+    function isSupportDraftData(data) {
+      return data.lifecycle == 'draft' || data.status == 'draft';
+    }
+
+    function isSupportOpenData(data) {
+      return data.lifecycle == 'open'
+        || data.status == 'pending'
+        || data.status == 'awaiting_product'
+        || data.status == 'in_progress';
+    }
+
+    function isSupportClosedData(data) {
+      return data.lifecycle == 'resolved'
+        || data.lifecycle == 'cancelled'
+        || data.status == 'completed'
+        || data.status == 'cancelled';
     }
 
     function validDealerSupportDraftCreate() {
@@ -337,7 +334,7 @@ service cloud.firestore {
         && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
         && data.requestNumber is string
         && data.requestNumber.size() > 0
-        && data.status == 'draft'
+        && isSupportDraftData(data)
         && data.category is string
         && data.description is string
         && data.createdAt is string
@@ -361,8 +358,8 @@ service cloud.firestore {
 
     function validDealerSupportDraftUpdate() {
       let data = request.resource.data;
-      return resource.data.status == 'draft'
-        && data.status == 'draft'
+      return isSupportDraftData(resource.data)
+        && isSupportDraftData(data)
         && dealerSupportImmutableFieldsMatch()
         && data.type is string
         && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
@@ -373,8 +370,9 @@ service cloud.firestore {
 
     function validDealerSupportSubmit() {
       let data = request.resource.data;
-      return resource.data.status == 'draft'
-        && data.status == 'pending'
+      return isSupportDraftData(resource.data)
+        && data.lifecycle == 'open'
+        && data.openStage == 'submitted'
         && dealerSupportImmutableFieldsMatch()
         && data.type is string
         && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
@@ -383,6 +381,41 @@ service cloud.firestore {
         && data.description is string
         && data.description.size() > 0
         && data.updatedAt is string;
+    }
+
+    function validDealerSupportMarkShipped() {
+      let data = request.resource.data;
+      return isSupportRequestDealerAccess(resource.data)
+        && resource.data.lifecycle == 'open'
+        && resource.data.openStage == 'awaiting_product'
+        && data.lifecycle == 'open'
+        && data.openStage == 'in_transit'
+        && dealerSupportImmutableFieldsMatch()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['lifecycle', 'openStage', 'courierTracking', 'shippedAt', 'updatedAt']);
+    }
+
+    function validDealerSupportCancel() {
+      let data = request.resource.data;
+      return isSupportRequestDealerAccess(resource.data)
+        && resource.data.lifecycle == 'open'
+        && (
+          resource.data.openStage == 'submitted'
+          || resource.data.openStage == 'under_review'
+          || resource.data.openStage == 'awaiting_dealer'
+        )
+        && data.lifecycle == 'cancelled'
+        && data.openStage == null
+        && dealerSupportImmutableFieldsMatch()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['lifecycle', 'openStage', 'updatedAt']);
+    }
+
+    function validDealerSupportMessageMetaUpdate() {
+      return isSupportRequestDealerAccess(resource.data)
+        && !isSupportClosedData(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['updatedAt', 'lastMessageAt', 'lastMessagePreview', 'openStage']);
     }
 
     match /dealerSupportRequests/{requestId} {
@@ -394,15 +427,11 @@ service cloud.firestore {
 
       allow create: if isActiveUser()
         && (isDealer() || isDealerStaff())
-        && (validDealerSupportCreate() || validDealerSupportDraftCreate());
+        && validDealerSupportDraftCreate();
 
       allow update: if isActiveUser() && (
         isOpsUser()
-        || (
-          isSupportRequestDealerAccess(resource.data)
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['updatedAt', 'lastMessageAt', 'lastMessagePreview'])
-        )
+        || validDealerSupportMessageMetaUpdate()
         || (
           isSupportRequestDealerAccess(resource.data)
           && validDealerSupportDraftUpdate()
@@ -411,9 +440,16 @@ service cloud.firestore {
           isSupportRequestDealerAccess(resource.data)
           && validDealerSupportSubmit()
         )
+        || validDealerSupportMarkShipped()
+        || validDealerSupportCancel()
       );
 
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin()
+        || (
+          isActiveUser()
+          && isSupportRequestDealerAccess(resource.data)
+          && isSupportDraftData(resource.data)
+        );
 
       match /messages/{messageId} {
         allow read: if isActiveUser() && canReadSupportRequest(requestId);
@@ -423,7 +459,8 @@ service cloud.firestore {
           && canWriteSupportMessage(requestId)
           && validSupportMessageCreate();
 
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isSuperAdmin();
       }
     }
 
@@ -443,8 +480,8 @@ service cloud.firestore {
       let req = get(/databases/$(database)/documents/dealerSupportRequests/$(requestId)).data;
       let msg = request.resource.data;
       return isOpsUser()
-        || (req.status != 'cancelled' && req.status != 'draft')
-        || (req.status == 'draft' && msg.isInitial == true && msg.authorUid == request.auth.uid);
+        || (!isSupportClosedData(req) && !isSupportDraftData(req))
+        || (isSupportDraftData(req) && msg.isInitial == true && msg.authorUid == request.auth.uid);
     }
 
     function validSupportMessageCreate() {

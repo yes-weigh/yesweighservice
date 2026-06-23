@@ -8,11 +8,9 @@ import {
   fetchSupportRequestsForInvoice,
   supportDetailPath,
 } from '../../lib/dealerSupport';
+import { supportRequestStaffLabel } from '../../lib/supportRequestDisplay';
 import type { DealerSupportRequest } from '../../types/dealer-support';
-import {
-  SUPPORT_REQUEST_STATUS_LABELS,
-  SUPPORT_TYPE_LABELS,
-} from '../../types/dealer-support';
+import { SUPPORT_TYPE_LABELS } from '../../types/dealer-support';
 
 interface RelatedSupportRequestsProps {
   dealerId: string;
@@ -82,7 +80,7 @@ export const RelatedSupportRequests: React.FC<RelatedSupportRequestsProps> = ({
                 </span>
               </div>
               <div className="related-support__meta text-sm text-muted">
-                <span>{SUPPORT_REQUEST_STATUS_LABELS[request.status]}</span>
+                <span>{supportRequestStaffLabel(request)}</span>
                 <span>{formatInvoiceDate(request.updatedAt)}</span>
               </div>
             </button>

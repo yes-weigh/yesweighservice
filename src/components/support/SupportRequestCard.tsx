@@ -6,6 +6,7 @@ import {
   formatSupportDueCountdown,
   supportRequestDueDate,
   supportRequestIssueSummary,
+  supportRequestStageSubtitle,
   supportRequestStatusLabel,
   supportRequestStatusTone,
 } from '../../lib/supportRequestDisplay';
@@ -44,6 +45,12 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
             {supportRequestStatusLabel(request)}
           </span>
         </div>
+
+        {supportRequestStageSubtitle(request) && (
+          <p className="support-ticket-card__stage text-sm text-muted">
+            {supportRequestStageSubtitle(request)}
+          </p>
+        )}
 
         {request.product?.name && (
           <p className="support-ticket-card__product">{request.product.name}</p>

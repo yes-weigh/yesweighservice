@@ -29,14 +29,21 @@ import type {
   SaveSupportRequestDraftInput,
   SendSupportMessageInput,
   SupportAssignee,
+  SupportLifecycle,
   SupportMessage,
-  SupportRequestStatus,
+  SupportOpenStage,
   SupportRequestType,
 } from '../types/dealer-support';
 import { uploadSupportAttachments, type SupportSubmitProgress } from './supportAttachments';
 import {
+  canDealerCancelSupportRequest,
   isProductCourierType,
-  validateSupportStatusTransition,
+  isSupportDraft,
+  isSupportOpen,
+  isSupportClosed,
+  legacyStatusToLifecycle,
+  validateLifecycleTransition,
+  validateOpenStageTransition,
 } from './supportStatus';
 
 const REQUEST_PREFIX: Record<SupportRequestType, string> = {
@@ -90,14 +97,32 @@ function mapMessage(id: string, data: DocumentData): SupportMessage {
   };
 }
 
+function readLifecycleFields(data: DocumentData): {
+  lifecycle: SupportLifecycle;
+  openStage: SupportOpenStage | null;
+} {
+  if (data.lifecycle) {
+    return {
+      lifecycle: data.lifecycle as SupportLifecycle,
+      openStage: data.openStage ? (data.openStage as SupportOpenStage) : null,
+    };
+  }
+  return legacyStatusToLifecycle(
+    String(data.status ?? 'pending'),
+    data.assignedToUid ? String(data.assignedToUid) : null,
+  );
+}
+
 export function mapSupportRequest(id: string, data: DocumentData): DealerSupportRequest {
   const product = data.product as DocumentData | undefined;
+  const { lifecycle, openStage } = readLifecycleFields(data);
 
   return {
     id,
     type: (data.type ?? 'service') as SupportRequestType,
     requestNumber: String(data.requestNumber ?? ''),
-    status: (data.status ?? 'pending') as SupportRequestStatus,
+    lifecycle,
+    openStage: lifecycle === 'open' ? openStage : null,
     invoiceId: data.invoiceId ? String(data.invoiceId) : null,
     invoiceNumber: data.invoiceNumber ? String(data.invoiceNumber) : null,
     salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
@@ -126,6 +151,11 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
     assignedToUid: data.assignedToUid ? String(data.assignedToUid) : null,
     assignedToName: data.assignedToName ? String(data.assignedToName) : null,
     assignedAt: data.assignedAt ? String(data.assignedAt) : null,
+    courierTracking: data.courierTracking ? String(data.courierTracking) : null,
+    shippedAt: data.shippedAt ? String(data.shippedAt) : null,
+    receivedAt: data.receivedAt ? String(data.receivedAt) : null,
+    resolvedAt: data.resolvedAt ? String(data.resolvedAt) : null,
+    resolutionSummary: data.resolutionSummary ? String(data.resolutionSummary) : null,
   };
 }
 
@@ -162,6 +192,31 @@ export async function getSupportRequest(requestId: string): Promise<DealerSuppor
   return mapSupportRequest(current.id, current.data());
 }
 
+function messageStageUpdates(
+  user: User,
+  request: DealerSupportRequest,
+  isInitial: boolean,
+): Record<string, string | null> {
+  if (!isSupportOpen(request) || !request.openStage || isInitial) return {};
+
+  if (isInternalOpsUser(user)) {
+    if (
+      request.openStage === 'submitted'
+      || request.openStage === 'under_review'
+      || request.openStage === 'in_workshop'
+    ) {
+      return { openStage: 'awaiting_dealer' };
+    }
+    return {};
+  }
+
+  if (request.openStage === 'awaiting_dealer') {
+    return { openStage: 'under_review' };
+  }
+
+  return {};
+}
+
 export async function sendSupportMessage(
   user: User,
   requestId: string,
@@ -173,10 +228,10 @@ export async function sendSupportMessage(
   if (!canUserAccessSupportRequest(user, request)) {
     throw new Error('You do not have permission to message this request.');
   }
-  if (!isInternalOpsUser(user) && request.status === 'cancelled') {
+  if (!isInternalOpsUser(user) && isSupportClosed(request)) {
     throw new Error('This request is closed and cannot receive new messages.');
   }
-  if (!isInternalOpsUser(user) && request.status === 'draft' && !input.isInitial) {
+  if (!isInternalOpsUser(user) && isSupportDraft(request) && !input.isInitial) {
     throw new Error('Submit the draft before sending messages.');
   }
 
@@ -210,14 +265,20 @@ export async function sendSupportMessage(
 
   await setDoc(messageRef, payload);
 
-  const updates: Record<string, string> = {
+  const updates: Record<string, string | null> = {
     updatedAt: now,
     lastMessageAt: now,
     lastMessagePreview: previewText(text, attachments.length),
+    ...messageStageUpdates(user, request, input.isInitial === true),
   };
 
-  if (canManageSupportOps(user) && request.status === 'pending' && request.type === 'complaint') {
-    updates.status = 'in_progress';
+  if (
+    canManageSupportOps(user)
+    && isSupportOpen(request)
+    && request.openStage === 'submitted'
+    && request.type === 'complaint'
+  ) {
+    updates.openStage = 'under_review';
   }
 
   await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
@@ -253,7 +314,8 @@ function buildSupportRequestDocument(
   user: User,
   input: {
     type: SupportRequestType;
-    status: SupportRequestStatus;
+    lifecycle: SupportLifecycle;
+    openStage?: SupportOpenStage | null;
     requestNumber: string;
     invoiceId?: string | null;
     invoiceNumber?: string | null;
@@ -277,7 +339,8 @@ function buildSupportRequestDocument(
   return {
     type: input.type,
     requestNumber: input.requestNumber,
-    status: input.status,
+    lifecycle: input.lifecycle,
+    openStage: input.lifecycle === 'open' ? (input.openStage ?? 'submitted') : null,
     invoiceId: input.invoiceId ?? null,
     invoiceNumber: input.invoiceNumber?.trim() || null,
     salesOrderNumber: input.salesOrderNumber ?? null,
@@ -297,7 +360,20 @@ function buildSupportRequestDocument(
     assignedToUid: null,
     assignedToName: null,
     assignedAt: null,
+    courierTracking: null,
+    shippedAt: null,
+    receivedAt: null,
+    resolvedAt: null,
+    resolutionSummary: null,
   };
+}
+
+async function finalizeSupportSubmit(requestId: string): Promise<void> {
+  await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
+    lifecycle: 'open',
+    openStage: 'submitted',
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function saveSupportRequestDraft(
@@ -312,7 +388,7 @@ export async function saveSupportRequestDraft(
     if (!canUserAccessSupportRequest(user, existing)) {
       throw new Error('You do not have permission to edit this draft.');
     }
-    if (existing.status !== 'draft') {
+    if (!isSupportDraft(existing)) {
       throw new Error('Only drafts can be saved this way.');
     }
 
@@ -335,7 +411,7 @@ export async function saveSupportRequestDraft(
 
   const data = buildSupportRequestDocument(user, {
     type: input.type,
-    status: 'draft',
+    lifecycle: 'draft',
     requestNumber: buildRequestNumber(input.type),
     invoiceId: input.invoiceId,
     invoiceNumber: input.invoiceNumber,
@@ -378,13 +454,13 @@ export async function createSupportRequest(
     if (!canUserAccessSupportRequest(user, existing)) {
       throw new Error('You do not have permission to submit this draft.');
     }
-    if (existing.status !== 'draft') {
+    if (!isSupportDraft(existing)) {
       throw new Error('This request has already been submitted.');
     }
 
     const data = buildSupportRequestDocument(user, {
       type: input.type,
-      status: 'draft',
+      lifecycle: 'draft',
       requestNumber: existing.requestNumber,
       invoiceId: input.invoiceId,
       invoiceNumber: input.invoiceNumber,
@@ -410,14 +486,14 @@ export async function createSupportRequest(
       files: input.attachmentFiles,
       isInitial: true,
     }, onProgress);
-    await updateDoc(draftRef, { status: 'pending', updatedAt: new Date().toISOString() });
+    await finalizeSupportSubmit(input.requestId);
     onProgress?.({ phase: 'finalizing', label: 'Done', percent: 100 });
     return (await getSupportRequest(input.requestId))!;
   }
 
   const data = buildSupportRequestDocument(user, {
     type: input.type,
-    status: 'draft',
+    lifecycle: 'draft',
     requestNumber: buildRequestNumber(input.type),
     invoiceId: input.invoiceId,
     invoiceNumber: input.invoiceNumber,
@@ -444,7 +520,7 @@ export async function createSupportRequest(
       files: input.attachmentFiles,
       isInitial: true,
     }, onProgress);
-    await updateDoc(docRef, { status: 'pending', updatedAt: new Date().toISOString() });
+    await finalizeSupportSubmit(docRef.id);
   } catch (err) {
     await deleteDoc(docRef);
     throw err;
@@ -501,7 +577,7 @@ export async function fetchDealerSupportRequests(user: User): Promise<DealerSupp
 }
 
 function excludeDraftSupportRequests(requests: DealerSupportRequest[]): DealerSupportRequest[] {
-  return requests.filter(request => request.status !== 'draft');
+  return requests.filter(request => !isSupportDraft(request));
 }
 
 export async function fetchOpsSupportRequests(): Promise<DealerSupportRequest[]> {
@@ -593,32 +669,100 @@ export async function assignSupportRequest(
   if (!canManageSupportOps(user)) {
     throw new Error('Only staff can assign support requests.');
   }
+  const request = await getSupportRequest(requestId);
+  if (!request) throw new Error('Support request not found.');
+
   const now = new Date().toISOString();
-  await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
+  const updates: Record<string, string | null> = {
     assignedToUid: assignee?.uid ?? null,
     assignedToName: assignee?.displayName ?? null,
     assignedAt: assignee ? now : null,
     updatedAt: now,
-  });
+  };
+
+  if (
+    assignee
+    && isSupportOpen(request)
+    && request.openStage === 'submitted'
+  ) {
+    updates.openStage = 'under_review';
+  }
+
+  await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
 }
 
-export async function updateSupportRequestStatus(
+export async function updateSupportOpenStage(
   user: User,
   requestId: string,
-  status: SupportRequestStatus,
+  openStage: SupportOpenStage,
 ): Promise<void> {
   if (!canManageSupportOps(user)) {
-    throw new Error('Only staff can update request status.');
+    throw new Error('Only staff can update request stage.');
   }
   const request = await getSupportRequest(requestId);
   if (!request) throw new Error('Support request not found.');
 
-  const transitionError = validateSupportStatusTransition(request, status);
+  const transitionError = validateOpenStageTransition(request, openStage);
   if (transitionError) throw new Error(transitionError);
 
+  const now = new Date().toISOString();
+  const updates: Record<string, string | null> = {
+    openStage,
+    updatedAt: now,
+  };
+
+  if (openStage === 'in_workshop' && !request.receivedAt) {
+    updates.receivedAt = now;
+  }
+
+  await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
+}
+
+export async function resolveSupportRequest(
+  user: User,
+  requestId: string,
+  resolutionSummary?: string,
+): Promise<void> {
+  if (!canManageSupportOps(user)) {
+    throw new Error('Only staff can resolve support requests.');
+  }
+  const request = await getSupportRequest(requestId);
+  if (!request) throw new Error('Support request not found.');
+
+  const transitionError = validateLifecycleTransition(request, 'resolved');
+  if (transitionError) throw new Error(transitionError);
+
+  const now = new Date().toISOString();
   await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
-    status,
-    updatedAt: new Date().toISOString(),
+    lifecycle: 'resolved',
+    openStage: null,
+    resolvedAt: now,
+    resolutionSummary: resolutionSummary?.trim() || null,
+    updatedAt: now,
+  });
+}
+
+export async function cancelSupportRequest(
+  user: User,
+  requestId: string,
+): Promise<void> {
+  const request = await getSupportRequest(requestId);
+  if (!request) throw new Error('Support request not found.');
+
+  if (canManageSupportOps(user)) {
+    const transitionError = validateLifecycleTransition(request, 'cancelled');
+    if (transitionError) throw new Error(transitionError);
+  } else if (!canUserAccessSupportRequest(user, request) || !isSupportOpen(request)) {
+    throw new Error('You cannot cancel this request.');
+  } else if (!canDealerCancelSupportRequest(request)) {
+    throw new Error('This request can no longer be cancelled here. Contact YesOne support.');
+  }
+
+  const now = new Date().toISOString();
+  await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
+    lifecycle: 'cancelled',
+    openStage: null,
+    updatedAt: now,
   });
 }
 
@@ -631,5 +775,67 @@ export async function approveSupportRequestForCourier(
   if (!isProductCourierType(request.type)) {
     throw new Error('Only repair and replacement requests can be approved for courier.');
   }
-  await updateSupportRequestStatus(user, requestId, 'awaiting_product');
+  await updateSupportOpenStage(user, requestId, 'awaiting_product');
+}
+
+export async function markSupportProductReceived(
+  user: User,
+  requestId: string,
+): Promise<void> {
+  await updateSupportOpenStage(user, requestId, 'in_workshop');
+}
+
+export async function markSupportProductShipped(
+  user: User,
+  requestId: string,
+  courierTracking?: string,
+): Promise<void> {
+  const request = await getSupportRequest(requestId);
+  if (!request) throw new Error('Support request not found.');
+  if (!canUserAccessSupportRequest(user, request)) {
+    throw new Error('You do not have permission to update this request.');
+  }
+  if (!isSupportOpen(request) || request.openStage !== 'awaiting_product') {
+    throw new Error('Shipping is only available after courier approval.');
+  }
+
+  const now = new Date().toISOString();
+  await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
+    openStage: 'in_transit',
+    courierTracking: courierTracking?.trim() || null,
+    shippedAt: now,
+    updatedAt: now,
+  });
+}
+
+async function deleteSupportRequestMessages(requestId: string): Promise<void> {
+  const messagesSnap = await getDocs(
+    collection(db, 'dealerSupportRequests', requestId, 'messages'),
+  );
+  await Promise.all(messagesSnap.docs.map(msgDoc => deleteDoc(msgDoc.ref)));
+}
+
+export async function deleteSupportRequestDraft(
+  user: User,
+  requestId: string,
+): Promise<void> {
+  const request = await getSupportRequest(requestId);
+  if (!request) throw new Error('Draft not found.');
+  if (!isSupportDraft(request)) throw new Error('Only drafts can be discarded.');
+  if (!canUserAccessSupportRequest(user, request)) {
+    throw new Error('You do not have permission to delete this draft.');
+  }
+  await deleteSupportRequestMessages(requestId);
+  await deleteDoc(doc(db, 'dealerSupportRequests', requestId));
+}
+
+export async function deleteSupportRequest(
+  user: User,
+  requestId: string,
+): Promise<void> {
+  if (user.role !== 'super_admin') {
+    throw new Error('Only super admin can permanently delete support tickets.');
+  }
+  await deleteSupportRequestMessages(requestId);
+  await deleteDoc(doc(db, 'dealerSupportRequests', requestId));
 }

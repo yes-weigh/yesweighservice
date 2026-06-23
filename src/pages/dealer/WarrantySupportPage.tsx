@@ -12,6 +12,7 @@ import type {
   SupportProductDraft,
   SupportRequestType,
 } from '../../types/dealer-support';
+import { isSupportDraft } from '../../lib/supportStatus';
 import { DealerSupportRequestList } from '../../components/support/DealerSupportRequestList';
 
 interface LocationState {
@@ -76,7 +77,7 @@ export const WarrantySupportPage: React.FC = () => {
 
   const openRequest = (request: DealerSupportRequest) => {
     if (!user) return;
-    if (request.status === 'draft') {
+    if (isSupportDraft(request)) {
       setResumeDraft(request);
       setShowWizard(true);
       setSuccessMessage('');

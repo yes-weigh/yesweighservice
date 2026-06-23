@@ -32,6 +32,11 @@ import {
 } from '../../lib/admin-invoices';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import { fetchOpsSupportRequests } from '../../lib/dealerSupport';
+import {
+  countActionableSupportRequests,
+  countOpenSupportRequests,
+} from '../../lib/supportRequestDisplay';
+import { supportDisplayLabel, isSupportOpen } from '../../lib/supportStatus';
 import { db } from '../../firebase';
 import { formatCurrency } from '../../lib/catalog';
 import {
@@ -60,10 +65,10 @@ interface ActivityItem {
 }
 
 function supportActivityTone(request: DealerSupportRequest): ActivityItem['tone'] {
-  if (request.status === 'cancelled') return 'red';
+  if (request.lifecycle === 'cancelled') return 'red';
   if (request.type === 'complaint') return 'red';
   if (request.type === 'return') return 'orange';
-  if (request.status === 'completed') return 'green';
+  if (request.lifecycle === 'resolved') return 'green';
   return 'blue';
 }
 
@@ -99,7 +104,7 @@ function buildActivities(
     items.push({
       id: `sup-${req.id}`,
       title: `${req.requestNumber} — ${req.dealerName ?? 'Dealer'}`,
-      description: `${req.type} · ${req.status.replace(/_/g, ' ')}`,
+      description: `${req.type} · ${supportDisplayLabel(req, 'staff')}`,
       time: formatInvoiceRelativeTime(req.updatedAt),
       tone: supportActivityTone(req),
       icon: <LifeBuoy size={16} />,
@@ -167,18 +172,18 @@ export const SuperAdminDashboard: React.FC = () => {
   const dailySales = useMemo(() => buildAdminDailySales(invoices, 30), [invoices]);
 
   const openSupport = useMemo(
-    () => supportRequests.filter(
-      r => r.status === 'pending'
-        || r.status === 'awaiting_product'
-        || r.status === 'in_progress',
-    ).length,
+    () => countOpenSupportRequests(supportRequests),
+    [supportRequests],
+  );
+
+  const actionableSupport = useMemo(
+    () => countActionableSupportRequests(supportRequests),
     [supportRequests],
   );
 
   const openReturnOrders = useMemo(
     () => supportRequests.filter(
-      r => (r.status === 'pending' || r.status === 'awaiting_product' || r.status === 'in_progress')
-        && r.type === 'return',
+      r => isSupportOpen(r) && r.type === 'return',
     ).length,
     [supportRequests],
   );
@@ -201,10 +206,18 @@ export const SuperAdminDashboard: React.FC = () => {
       icon: <LifeBuoy size={22} strokeWidth={2.5} />,
     },
     {
-      id: 'orders',
-      label: 'Orders',
+      id: 'support-action',
+      label: 'Needs action',
+      value: loading ? '…' : String(actionableSupport),
+      path: `${BASE}/warranty-support`,
+      tone: 'orange' as const,
+      icon: <ClipboardList size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'returns',
+      label: 'Open replacements',
       value: loading ? '…' : String(openReturnOrders),
-      path: `${BASE}/orders`,
+      path: `${BASE}/warranty-support`,
       tone: 'orange' as const,
       icon: <ShoppingCart size={22} strokeWidth={2.5} />,
     },

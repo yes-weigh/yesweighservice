@@ -86,7 +86,7 @@ export async function assertSupportRequestAccess(uid, requestId, options = {}) {
     throw new HttpsError('permission-denied', 'You do not have access to this request.');
   }
 
-  if (req.status === 'draft' && options.isInitial !== true) {
+  if ((req.lifecycle === 'draft' || req.status === 'draft') && options.isInitial !== true) {
     throw new HttpsError('failed-precondition', 'Submit the draft before uploading evidence.');
   }
 
