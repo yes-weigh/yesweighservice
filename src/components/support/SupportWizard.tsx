@@ -29,7 +29,8 @@ import {
   cleanupPendingFiles,
   pendingFilesToUpload,
 } from './SupportEvidencePicker';
-import { validateEvidenceFiles } from '../../lib/supportAttachments';
+import { validateEvidenceFiles, type SupportSubmitProgress } from '../../lib/supportAttachments';
+import { SupportWizardSubmitProgress } from './SupportWizardSubmitProgress';
 import {
   SupportInvoiceAutocomplete,
   SupportInvoiceProductPicker,
@@ -149,6 +150,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [submittedRequestNumber, setSubmittedRequestNumber] = useState('');
   const [createdRequestId, setCreatedRequestId] = useState('');
   const [pendingFiles, setPendingFiles] = useState<PendingSupportFile[]>([]);
+  const [submitProgress, setSubmitProgress] = useState<SupportSubmitProgress | null>(null);
+
+  const isBusy = submitting || savingDraft;
 
   const categoryOptions = useMemo(() => {
     if (intent === 'return') return RETURN_REASON_OPTIONS;
@@ -214,15 +218,18 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     }
 
     setSavingDraft(true);
+    setSubmitProgress({ phase: 'preparing', label: 'Saving draft…', percent: null });
     setError('');
     try {
       const saved = await saveSupportRequestDraft(user, buildRequestPayload());
       setDraftRequestId(saved.id);
+      setSubmitProgress({ phase: 'finalizing', label: 'Draft saved', percent: 100 });
       onDraftSaved?.(saved.requestNumber, saved.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save draft.');
     } finally {
       setSavingDraft(false);
+      setSubmitProgress(null);
     }
   };
 
@@ -245,12 +252,13 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     }
 
     setSubmitting(true);
+    setSubmitProgress({ phase: 'preparing', label: 'Starting submit…', percent: 2 });
     setError('');
     try {
       const created = await createSupportRequest(user, {
         ...buildRequestPayload(),
         attachmentFiles: pendingFilesToUpload(pendingFiles),
-      });
+      }, setSubmitProgress);
       cleanupPendingFiles(pendingFiles);
       setPendingFiles([]);
       setStep('success');
@@ -260,6 +268,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setError(err instanceof Error ? err.message : 'Could not submit request.');
     } finally {
       setSubmitting(false);
+      setSubmitProgress(null);
     }
   };
 
@@ -419,7 +428,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                 userId={user.uid}
                 value={productSelection}
                 onChange={setProductSelection}
-                disabled={submitting || savingDraft}
+                disabled={isBusy}
                 requestType={intent === 'service' || intent === 'return' ? intent : undefined}
               />
             )}
@@ -429,7 +438,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                 userId={user.uid}
                 value={complaintInvoice}
                 onChange={setComplaintInvoice}
-                disabled={submitting || savingDraft}
+                disabled={isBusy}
                 id="support-invoice-complaint"
                 label="Invoice / order ref"
                 placeholder="Search invoice if related to an order"
@@ -451,7 +460,10 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
       {step === 'details' && intent && (
         <form
-          className="support-wizard__step support-wizard__step--details panel glass"
+          className={[
+            'support-wizard__step support-wizard__step--details panel glass',
+            isBusy && submitProgress ? 'support-wizard__step--busy' : '',
+          ].filter(Boolean).join(' ')}
           onSubmit={e => void handleSubmit(e)}
         >
           <div className="support-wizard__step-body">
@@ -514,7 +526,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                 value={serialNumber}
                 onChange={e => setSerialNumber(e.target.value)}
                 placeholder="Unit serial number, if available"
-                disabled={submitting || savingDraft}
+                disabled={isBusy}
               />
             </div>
           )}
@@ -581,17 +593,20 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             <SupportEvidencePicker
               files={pendingFiles}
               onChange={setPendingFiles}
-              disabled={submitting || savingDraft}
+              disabled={isBusy}
             />
           </div>
           </div>
 
           <div className="support-wizard__actions support-wizard__actions--dock" aria-label="Form actions">
+            {isBusy && submitProgress && (
+              <SupportWizardSubmitProgress progress={submitProgress} />
+            )}
             <button
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={onCancel}
-              disabled={submitting || savingDraft}
+              disabled={isBusy}
             >
               Cancel
             </button>
@@ -599,14 +614,14 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => void handleSaveDraft()}
-              disabled={submitting || savingDraft}
+              disabled={isBusy}
             >
               {savingDraft ? 'Saving…' : 'Save draft'}
             </button>
             <button
               type="submit"
               className="btn btn-primary btn-sm"
-              disabled={submitting || savingDraft}
+              disabled={isBusy}
             >
               {submitting ? 'Submitting…' : 'Submit'}
             </button>

@@ -1,21 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ChevronRight, FileText, PackageCheck, Search, Truck, X } from 'lucide-react';
+import { AlertCircle, ChevronRight, FileText, IndianRupee, PackageCheck, Search, Truck, X } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
 import { useAuth } from '../../context/AuthContext';
 import { usePageHeaderSlot } from '../../context/PageHeaderContext';
 import { formatCurrency } from '../../lib/catalog';
 import { homePathForRole } from '../../types';
 import {
+  computeSalesForPeriod,
+  countInvoiceSalesEntriesInPeriod,
+  fetchDealerInvoiceDashboardWithCache,
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
   formatInvoiceRelativeTime,
+  formatKpiPeriodRange,
   getInvoiceDeliveryStage,
   invoiceDeliveryLabel,
   invoiceErrorMessage,
+  readCachedDealerInvoiceDashboard,
   readCachedDealerInvoices,
 } from '../../lib/invoices';
-import type { DealerInvoice, InvoiceListParams } from '../../types/invoices';
+import type { DealerInvoice, InvoiceDashboardSummary, InvoiceListParams, SalesRangePreset } from '../../types/invoices';
 
 function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= breakpoint);
@@ -180,6 +186,9 @@ export const InvoicesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [dashboard, setDashboard] = useState<InvoiceDashboardSummary | null>(null);
+  const [kpiLoading, setKpiLoading] = useState(true);
+  const [rangePreset, setRangePreset] = useState<SalesRangePreset>('current_month');
 
   const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}/invoice`);
 
@@ -237,6 +246,36 @@ export const InvoicesPage: React.FC = () => {
   }, [loadInvoices]);
 
   useEffect(() => {
+    const uid = user?.uid;
+    let cancelled = false;
+    let usedCache = false;
+
+    const cached = readCachedDealerInvoiceDashboard(uid);
+    if (cached) {
+      setDashboard(cached);
+      setKpiLoading(false);
+      usedCache = true;
+    } else {
+      setKpiLoading(true);
+    }
+
+    void fetchDealerInvoiceDashboardWithCache(uid)
+      .then(data => {
+        if (!cancelled) setDashboard(data);
+      })
+      .catch(() => {
+        if (!cancelled && !usedCache) setDashboard(null);
+      })
+      .finally(() => {
+        if (!cancelled) setKpiLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  useEffect(() => {
     setPage(1);
   }, [debouncedSearch, sortField, sortDir]);
 
@@ -256,6 +295,42 @@ export const InvoicesPage: React.FC = () => {
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const showInitialLoader = loading && invoices.length === 0;
   const showList = !showInitialLoader && invoices.length > 0;
+
+  const kpiSummary = useMemo(() => {
+    if (!dashboard) {
+      return {
+        totalSales: 0,
+        periodStart: null as string | null,
+        periodEnd: new Date().toISOString(),
+        invoiceCount: 0,
+        unpaidCount: 0,
+        outstanding: 0,
+      };
+    }
+
+    if (dashboard.salesEntries?.length) {
+      const sales = computeSalesForPeriod(dashboard.salesEntries, rangePreset);
+      return {
+        totalSales: sales.totalSales,
+        periodStart: sales.periodStart,
+        periodEnd: sales.periodEnd,
+        invoiceCount: countInvoiceSalesEntriesInPeriod(dashboard.salesEntries, rangePreset),
+        unpaidCount: dashboard.unpaidCount,
+        outstanding: dashboard.outstandingBalance,
+      };
+    }
+
+    return {
+      totalSales: dashboard.totalSales,
+      periodStart: dashboard.periodStart,
+      periodEnd: dashboard.periodEnd,
+      invoiceCount: dashboard.totalInvoiceCount,
+      unpaidCount: dashboard.unpaidCount,
+      outstanding: dashboard.outstandingBalance,
+    };
+  }, [dashboard, rangePreset]);
+
+  const kpiDateRange = formatKpiPeriodRange(kpiSummary.periodStart, kpiSummary.periodEnd);
 
   const headerSearch = useMemo(
     () => (
@@ -278,6 +353,57 @@ export const InvoicesPage: React.FC = () => {
           <span>{error}</span>
         </div>
       )}
+
+      <section className="dealer-dash__kpis-layout admin-invoices-kpis invoices-page-kpis" aria-label="Invoice summary">
+        <div className="dealer-dash-kpi dealer-dash-kpi--blue dealer-dash-kpi--featured admin-invoices-kpi--featured">
+          <div className="dealer-dash-kpi__featured-main">
+            <div className="dealer-dash-kpi__icon dealer-dash-kpi__icon--featured">
+              <IndianRupee strokeWidth={2.5} />
+            </div>
+            <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
+              <span className="dealer-dash-kpi__label">Total sales</span>
+              <SalesRangeSelect value={rangePreset} onChange={setRangePreset} />
+              <span className="admin-invoices-kpi__range text-muted text-sm">{kpiDateRange}</span>
+            </div>
+          </div>
+          <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
+            {kpiLoading ? '…' : formatCurrency(kpiSummary.totalSales)}
+          </strong>
+        </div>
+
+        <div className="dealer-dash__kpis-grid admin-invoices-kpis__grid">
+          <div className="dealer-dash-kpi dealer-dash-kpi--blue admin-invoices-kpi--static">
+            <div className="dealer-dash-kpi__icon"><FileText size={22} strokeWidth={2.5} /></div>
+            <div className="dealer-dash-kpi__body">
+              <span className="dealer-dash-kpi__label">Invoices</span>
+              <strong className="dealer-dash-kpi__value">
+                {kpiLoading ? '…' : kpiSummary.invoiceCount.toLocaleString('en-IN')}
+              </strong>
+              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">In selected period</span>
+            </div>
+          </div>
+          <div className="dealer-dash-kpi dealer-dash-kpi--orange admin-invoices-kpi--static">
+            <div className="dealer-dash-kpi__icon"><FileText size={22} strokeWidth={2.5} /></div>
+            <div className="dealer-dash-kpi__body">
+              <span className="dealer-dash-kpi__label">Unpaid</span>
+              <strong className="dealer-dash-kpi__value">
+                {kpiLoading ? '…' : kpiSummary.unpaidCount.toLocaleString('en-IN')}
+              </strong>
+              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">All invoices</span>
+            </div>
+          </div>
+          <div className="dealer-dash-kpi dealer-dash-kpi--green admin-invoices-kpi--static">
+            <div className="dealer-dash-kpi__icon"><IndianRupee size={22} strokeWidth={2.5} /></div>
+            <div className="dealer-dash-kpi__body">
+              <span className="dealer-dash-kpi__label">Outstanding</span>
+              <strong className="dealer-dash-kpi__value">
+                {kpiLoading ? '…' : formatCurrency(kpiSummary.outstanding)}
+              </strong>
+              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">Balance due</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <header className="invoices-toolbar invoices-toolbar--sticky">
         <div className="invoices-toolbar__filters">
@@ -357,12 +483,24 @@ export const InvoicesPage: React.FC = () => {
                             Balance <SortMark field="balance" />
                           </button>
                         </th>
-                        <th aria-label="Actions" />
                       </tr>
                     </thead>
                     <tbody>
                       {invoices.map(invoice => (
-                        <tr key={invoice.id}>
+                        <tr
+                          key={invoice.id}
+                          className="invoices-table__row--clickable"
+                          onClick={() => openInvoice(invoice.id)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              openInvoice(invoice.id);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
+                        >
                           <td>
                             <strong>{invoice.invoiceNumber || '—'}</strong>
                             {invoice.referenceNumber && (
@@ -376,15 +514,6 @@ export const InvoicesPage: React.FC = () => {
                           <td><InvoiceDeliveryBadge date={invoice.date} /></td>
                           <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
                           <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
-                          <td className="invoices-table__actions">
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => openInvoice(invoice.id)}
-                            >
-                              View
-                            </button>
-                          </td>
                         </tr>
                       ))}
                     </tbody>

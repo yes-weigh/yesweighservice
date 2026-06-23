@@ -70,6 +70,7 @@ import {
   verifyDealerLoginOtp as validateDealerLoginOtp,
   completeDealerSignup as finalizeDealerSignup,
 } from './lib/dealer-otp.js';
+import { prepareSupportAttachmentUpload } from './lib/support-attachments.js';
 
 initializeApp({
   storageBucket: 'yesweigh-service.firebasestorage.app',
@@ -1344,6 +1345,20 @@ export const completeDealerSignup = onCall(
       return await finalizeDealerSignup(phone, setupToken, password);
     } catch (err) {
       dealerOtpError(err, 'Signup failed.');
+    }
+  },
+);
+
+/** Signed upload URL for support ticket evidence — bypasses client Storage rules. */
+export const prepareSupportAttachmentUploadFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid);
+    try {
+      return await prepareSupportAttachmentUpload(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not prepare upload.');
     }
   },
 );

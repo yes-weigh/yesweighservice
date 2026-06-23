@@ -32,7 +32,7 @@ import type {
   SupportRequestStatus,
   SupportRequestType,
 } from '../types/dealer-support';
-import { uploadSupportAttachments } from './supportAttachments';
+import { uploadSupportAttachments, type SupportSubmitProgress } from './supportAttachments';
 import {
   isProductCourierType,
   validateSupportStatusTransition,
@@ -165,6 +165,7 @@ export async function sendSupportMessage(
   user: User,
   requestId: string,
   input: SendSupportMessageInput,
+  onProgress?: (progress: SupportSubmitProgress) => void,
 ): Promise<SupportMessage> {
   const request = await getSupportRequest(requestId);
   if (!request) throw new Error('Support request not found.');
@@ -186,8 +187,14 @@ export async function sendSupportMessage(
 
   const messageRef = doc(collection(db, 'dealerSupportRequests', requestId, 'messages'));
   const attachments = files.length
-    ? await uploadSupportAttachments(requestId, messageRef.id, files)
+    ? await uploadSupportAttachments(requestId, messageRef.id, files, onProgress)
     : [];
+
+  onProgress?.({
+    phase: 'finalizing',
+    label: 'Saving your request…',
+    percent: 96,
+  });
 
   const now = new Date().toISOString();
   const payload = {
@@ -353,9 +360,16 @@ export async function saveSupportRequestDraft(
 export async function createSupportRequest(
   user: User,
   input: CreateSupportRequestInput,
+  onProgress?: (progress: SupportSubmitProgress) => void,
 ): Promise<DealerSupportRequest> {
   const now = new Date().toISOString();
   const description = input.description.trim();
+
+  onProgress?.({
+    phase: 'preparing',
+    label: 'Creating request…',
+    percent: 4,
+  });
 
   if (input.requestId) {
     const existing = await getSupportRequest(input.requestId);
@@ -393,7 +407,8 @@ export async function createSupportRequest(
       text: description,
       files: input.attachmentFiles,
       isInitial: true,
-    });
+    }, onProgress);
+    onProgress?.({ phase: 'finalizing', label: 'Done', percent: 100 });
     return (await getSupportRequest(input.requestId))!;
   }
 
@@ -425,7 +440,8 @@ export async function createSupportRequest(
     text: description,
     files: input.attachmentFiles,
     isInitial: true,
-  });
+  }, onProgress);
+  onProgress?.({ phase: 'finalizing', label: 'Done', percent: 100 });
 
   return request;
 }

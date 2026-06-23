@@ -8627,6 +8627,10 @@ html::-webkit-scrollbar {
   margin: 0 var(--invoices-pad) 0.5rem;
 }
 
+.invoices-page-kpis {
+  margin: 0 var(--invoices-pad) 0.75rem;
+}
+
 .invoices-toolbar {
   display: flex;
   flex-direction: column;
@@ -8733,6 +8737,24 @@ html::-webkit-scrollbar {
   overflow: hidden;
 }
 
+.invoices-table-panel .invoices-table__row--clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.invoices-table-panel .invoices-table__row--clickable:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.invoices-table-panel .invoices-table__row--clickable:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.85);
+  outline-offset: -2px;
+}
+
+.invoices-table-panel .invoices-table__row--clickable:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .invoices-table-wrap {
   overflow-x: auto;
 }
@@ -8776,11 +8798,6 @@ html::-webkit-scrollbar {
 .invoices-table__ref {
   display: block;
   margin-top: 0.15rem;
-}
-
-.invoices-table__actions {
-  text-align: right;
-  white-space: nowrap;
 }
 
 .invoices-sort-mark {
@@ -9004,20 +9021,20 @@ html::-webkit-scrollbar {
   }
 
   .invoices-toolbar--sticky {
-    position: fixed;
+    position: sticky;
     top: var(--header-height);
     left: 0;
     right: 0;
-    z-index: 35;
+    z-index: 30;
     padding: 0.25rem var(--invoices-pad) 0.3rem;
     padding-right: max(0.625rem, env(safe-area-inset-right, 0px));
     gap: 0;
-    box-shadow: none;
+    box-shadow: 0 4px 14px rgba(3, 7, 18, 0.2);
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
   .invoices-page__body {
-    padding-top: calc(var(--invoices-toolbar-height) + var(--invoices-scroll-gap));
+    padding-top: 0.35rem;
     padding-left: var(--invoices-pad);
     padding-right: max(0.625rem, env(safe-area-inset-right, 0px));
     padding-bottom: 0.5rem;
@@ -9029,6 +9046,11 @@ html::-webkit-scrollbar {
 
   .invoices-page__error {
     margin: 0.35rem var(--invoices-pad) 0;
+  }
+
+  .invoices-page-kpis {
+    margin: 0.35rem var(--invoices-pad) 0.55rem;
+    padding-right: max(0.625rem, env(safe-area-inset-right, 0px));
   }
 
   .invoices-toolbar__filters {
@@ -10464,6 +10486,10 @@ html::-webkit-scrollbar {
   padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
 }
 
+.support-wizard__step--busy .support-wizard__step-body {
+  padding-bottom: calc(8.25rem + env(safe-area-inset-bottom, 0px));
+}
+
 .support-wizard__actions--dock {
   position: fixed;
   bottom: 0;
@@ -10471,6 +10497,7 @@ html::-webkit-scrollbar {
   right: 0;
   z-index: 35;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 0;
@@ -10735,6 +10762,63 @@ html::-webkit-scrollbar {
   background: rgba(239, 68, 68, 0.12);
   color: #fca5a5;
   font-size: 0.8125rem;
+}
+
+.support-wizard__upload-progress {
+  flex: 1 1 100%;
+  width: 100%;
+  margin: 0 0 0.15rem;
+  padding: 0.75rem 0.85rem !important;
+  border: 1px solid rgba(245, 130, 32, 0.22);
+  background: rgba(245, 130, 32, 0.06);
+}
+
+.support-wizard__upload-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+  font-size: 0.8125rem;
+}
+
+.support-wizard__upload-progress-label {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.support-wizard__upload-progress-pct {
+  color: var(--accent-primary-light);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.support-wizard__upload-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.support-wizard__upload-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f58220, #f5a623);
+  transition: width 0.2s ease;
+}
+
+.support-wizard__upload-progress-bar.is-indeterminate {
+  width: 42% !important;
+  animation: support-upload-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes support-upload-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 .support-wizard__success-wrap {

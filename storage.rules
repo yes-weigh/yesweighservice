@@ -10,6 +10,10 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
     }
 
+    function userExists() {
+      return firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
     function role() {
       return userDoc().role;
     }
@@ -26,27 +30,27 @@ service firebase.storage {
       return isSuperAdmin() || isStaff();
     }
 
-    function isDealer() {
-      return signedIn() && (role() == 'dealer' || role() == 'director');
-    }
-
-    function isDealerStaffRole(r) {
-      return r == 'dealer_staff' || r == 'director_staff';
+    function isDealerPortalUser() {
+      return signedIn()
+        && userExists()
+        && userDoc().active != false
+        && (
+          role() == 'dealer'
+          || role() == 'director'
+          || role() == 'dealer_staff'
+          || role() == 'director_staff'
+        );
     }
 
     function userDealerId(data) {
       return data.dealerId != null ? data.dealerId : data.directorId;
     }
 
-    function isActiveUser() {
-      return signedIn() && userDoc().active != false;
-    }
-
     function resolvedDealerIdForUser() {
       let data = userDoc();
-      return isDealer()
+      return role() == 'dealer' || role() == 'director'
         ? request.auth.uid
-        : (isDealerStaffRole(role())
+        : (role() == 'dealer_staff' || role() == 'director_staff'
           ? (userDealerId(data) != null ? userDealerId(data) : request.auth.uid)
           : null);
     }
@@ -55,11 +59,24 @@ service firebase.storage {
       let path = /databases/(default)/documents/dealerSupportRequests/$(requestId);
       let req = firestore.get(path).data;
       return firestore.exists(path)
-        && isActiveUser()
+        && signedIn()
+        && userExists()
+        && userDoc().active != false
         && (
           isOpsUser()
           || req.dealerId == resolvedDealerIdForUser()
           || req.createdByUid == request.auth.uid
+        );
+    }
+
+    function validSupportMedia() {
+      return request.resource.size < 52 * 1024 * 1024
+        && (
+          request.resource.contentType == null
+          || request.resource.contentType == ''
+          || request.resource.contentType.matches('image/.*')
+          || request.resource.contentType.matches('video/.*')
+          || request.resource.contentType == 'application/octet-stream'
         );
     }
 
@@ -73,13 +90,8 @@ service firebase.storage {
     }
 
     match /support/{requestId}/{messageId}/{fileName} {
-      allow read: if canAccessSupportRequest(requestId);
-      allow write: if canAccessSupportRequest(requestId)
-        && request.resource.size < 52 * 1024 * 1024
-        && (
-          request.resource.contentType.matches('image/.*')
-          || request.resource.contentType.matches('video/.*')
-        );
+      allow read: if isDealerPortalUser() || isOpsUser() || canAccessSupportRequest(requestId);
+      allow write: if (isDealerPortalUser() || isOpsUser()) && validSupportMedia();
     }
 
     function staffHasPermission(perm) {
@@ -104,12 +116,12 @@ service firebase.storage {
     }
 
     match /hr/{userId}/{allPaths=**} {
-      allow read: if isActiveUser() && (
+      allow read: if signedIn() && userExists() && userDoc().active != false && (
         isSuperAdmin()
         || request.auth.uid == userId
         || staffHasHrView()
       );
-      allow write: if isActiveUser() && (
+      allow write: if signedIn() && userExists() && userDoc().active != false && (
         isSuperAdmin()
         || staffHasHrManage()
       ) && request.resource.size < 16 * 1024 * 1024;

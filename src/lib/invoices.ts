@@ -476,6 +476,24 @@ export function computeSalesForPeriod(entries: InvoiceSalesEntry[], period: KpiP
   };
 }
 
+export function countInvoiceSalesEntriesInPeriod(
+  entries: InvoiceSalesEntry[],
+  period: KpiPeriod,
+): number {
+  const bounds = getInvoicePeriodBounds(period);
+  if (!bounds) return entries.length;
+
+  let count = 0;
+  for (const entry of entries) {
+    const ts = parseInvoiceDate(entry.date);
+    if (Number.isNaN(ts)) continue;
+    if (ts >= bounds.start.getTime() && ts <= bounds.end.getTime()) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 export function toDateInputValue(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
