@@ -13048,6 +13048,88 @@ html::-webkit-scrollbar {
   width: 100%;
 }
 
+.support-chat__attachment-upload-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: min(100%, 18rem);
+}
+
+.support-chat__upload-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+
+.support-chat__upload-ring {
+  width: 3rem;
+  height: 3rem;
+}
+
+.support-chat__upload-ring-bg {
+  stroke: rgba(255, 255, 255, 0.28);
+}
+
+.support-chat__upload-ring-fg {
+  stroke: #fff;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.2s ease;
+}
+
+.support-chat__upload-ring.is-indeterminate {
+  animation: support-chat-upload-spin 0.9s linear infinite;
+}
+
+.support-chat__upload-ring.is-indeterminate .support-chat__upload-ring-bg {
+  stroke: #fff;
+  stroke-dasharray: 24 76;
+}
+
+@keyframes support-chat-upload-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.support-chat__upload-pct {
+  position: absolute;
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.support-chat__upload-retry {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.support-chat__receipt--pending {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.support-chat__receipt--failed {
+  color: #ffb4b4;
+}
+
+.support-chat__row--failed .support-chat__bubble--own {
+  outline: 1px solid rgba(255, 120, 120, 0.45);
+}
+
 .support-chat__video-fallback {
   position: absolute;
   inset: 0;

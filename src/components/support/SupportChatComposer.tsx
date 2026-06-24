@@ -40,8 +40,7 @@ interface SupportChatComposerProps {
   pendingFiles: PendingSupportFile[];
   onPendingFilesChange: (files: PendingSupportFile[]) => void;
   onSend: () => void;
-  onSendFiles: (files: File[]) => Promise<void>;
-  sending: boolean;
+  onSendFiles: (files: File[]) => void;
   placeholder: string;
 }
 
@@ -69,7 +68,6 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
       onPendingFilesChange,
       onSend,
       onSendFiles,
-      sending,
       placeholder,
     },
     ref,
@@ -100,7 +98,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
     const [voiceCancelled, setVoiceCancelled] = useState(false);
 
     const canSend = Boolean(text.trim() || pendingFiles.length > 0);
-    const busy = sending || cameraLoading || recordingVoice || recordingVideo;
+    const busy = cameraLoading || recordingVoice || recordingVideo;
 
     useImperativeHandle(ref, () => ({
       focusInput: () => inputRef.current?.focus(),
@@ -496,7 +494,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
                   type="submit"
                   className="support-chat__action support-chat__action--send"
                   disabled={busy}
-                  aria-label={sending ? 'Sending' : 'Send message'}
+                  aria-label="Send message"
                 >
                   <Send size={18} />
                 </button>

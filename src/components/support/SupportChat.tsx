@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AlertCircle, Check, CheckCheck, ChevronDown } from 'lucide-react';
+import { AlertCircle, Check, CheckCheck, ChevronDown, Clock } from 'lucide-react';
 import { FIRM_NAME_SHORT } from '../../constants/brand';
 import { useAuth } from '../../context/AuthContext';
 import { isInternalOpsUser } from '../../lib/staffAccess';
@@ -22,14 +22,25 @@ import type {
   SupportMessage,
   SupportMessageReceiptStatus,
 } from '../../types/dealer-support';
+import type { User } from '../../types';
 import { expandMessageForDisplay } from '../../lib/supportChatDisplay';
+import {
+  createPendingSupportFile,
+  revokePendingSupportFiles,
+  type PendingSupportFile,
+} from '../../lib/supportAttachments';
+import {
+  filterActiveOutgoing,
+  outgoingToSupportMessage,
+  type OutgoingChatMessage,
+} from '../../lib/supportChatOutgoing';
 import {
   cleanupPendingFiles,
   pendingFilesToUpload,
 } from './SupportAttachmentPicker';
 import { SupportChatComposer } from './SupportChatComposer';
+import { SupportChatUploadOverlay } from './SupportChatUploadOverlay';
 import { SupportChatVideo } from './SupportChatVideo';
-import type { PendingSupportFile } from '../../lib/supportAttachments';
 
 interface SupportChatProps {
   request: DealerSupportRequest;
@@ -44,6 +55,12 @@ type ThreadItem =
       message: SupportMessage;
       isOwn: boolean;
       showAuthor: boolean;
+      uploadState?: {
+        progress: number | null;
+        label: string;
+        failed: boolean;
+        onRetry?: () => void;
+      };
     };
 
 function roleLabel(role: string): string {
@@ -93,12 +110,33 @@ function formatChatTime(iso: string): string {
   });
 }
 
-function buildThreadItems(messages: SupportMessage[], currentUid: string | undefined): ThreadItem[] {
+function buildThreadItems(
+  messages: SupportMessage[],
+  outgoing: OutgoingChatMessage[],
+  currentUid: string | undefined,
+  user: User | null,
+  onRetryOutgoing?: (clientId: string) => void,
+): ThreadItem[] {
   const items: ThreadItem[] = [];
   let lastDay = '';
   let lastAuthor = '';
 
-  for (const message of messages) {
+  const activeOutgoing = filterActiveOutgoing(outgoing, messages);
+  const syntheticMessages = user
+    ? activeOutgoing.map(entry => ({
+        entry,
+        message: outgoingToSupportMessage(entry, user),
+      }))
+    : [];
+
+  const combined = [
+    ...messages.map(message => ({ message, entry: null as OutgoingChatMessage | null })),
+    ...syntheticMessages.map(({ message, entry }) => ({ message, entry })),
+  ].sort(
+    (a, b) => new Date(a.message.createdAt).getTime() - new Date(b.message.createdAt).getTime(),
+  );
+
+  for (const { message, entry } of combined) {
     const day = dayKey(message.createdAt);
     if (day !== lastDay) {
       items.push({ kind: 'date', key: `date-${day}`, label: chatDateLabel(message.createdAt) });
@@ -108,18 +146,28 @@ function buildThreadItems(messages: SupportMessage[], currentUid: string | undef
 
     const isOwn = message.authorUid === currentUid;
     const author = message.authorUid;
-    const expanded = expandMessageForDisplay(message);
+    const expanded = entry ? [message] : expandMessageForDisplay(message);
 
     expanded.forEach((part, index) => {
       const showAuthor = !isOwn && index === 0 && author !== lastAuthor;
       if (index === 0) lastAuthor = author;
 
+      const uploadState = entry && index === 0
+        ? {
+            progress: entry.status === 'uploading' ? entry.uploadProgress : entry.status === 'done' ? 100 : null,
+            label: entry.uploadLabel,
+            failed: entry.status === 'failed',
+            onRetry: entry.status === 'failed' ? () => onRetryOutgoing?.(entry.clientId) : undefined,
+          }
+        : undefined;
+
       items.push({
         kind: 'message',
-        key: part.id,
+        key: entry ? `out-${entry.clientId}` : part.id,
         message: part,
         isOwn,
         showAuthor,
+        uploadState,
       });
     });
   }
@@ -150,20 +198,29 @@ function MessageBubble({
   isOwn,
   showAuthor,
   onMediaLayout,
+  uploadState,
 }: {
   message: SupportMessage;
   isOwn: boolean;
   showAuthor: boolean;
   onMediaLayout?: () => void;
+  uploadState?: {
+    progress: number | null;
+    label: string;
+    failed: boolean;
+    onRetry?: () => void;
+  };
 }) {
   const author = displayAuthor(message);
   const hasText = Boolean(message.text?.trim());
   const hasAttachments = message.attachments.length > 0;
   const mediaOnly = hasAttachments && !hasText;
+  const isUploading = Boolean(uploadState && !uploadState.failed && uploadState.progress !== 100);
+  const uploadFailed = Boolean(uploadState?.failed);
 
   return (
     <div
-      className={`support-chat__row ${isOwn ? 'support-chat__row--own' : 'support-chat__row--other'}`}
+      className={`support-chat__row ${isOwn ? 'support-chat__row--own' : 'support-chat__row--other'}${uploadFailed ? ' support-chat__row--failed' : ''}`}
     >
       {!isOwn && (
         <div className="support-chat__avatar" aria-hidden>
@@ -184,39 +241,99 @@ function MessageBubble({
               {message.attachments.map(att => (
                 <div key={att.id} className="support-chat__attachment">
                   {att.kind === 'video' ? (
-                    <SupportChatVideo
-                      src={att.url}
-                      storagePath={att.storagePath}
-                      mimeType={att.mimeType}
-                      posterUrl={att.posterUrl}
-                      fileName={mediaOnly ? undefined : att.fileName}
-                      className="support-chat__attachment-media"
-                      onLayout={onMediaLayout}
-                    />
-                  ) : att.kind === 'audio' ? (
-                    <audio
-                      src={att.url}
-                      controls
-                      preload="metadata"
-                      className="support-chat__attachment-audio"
-                      onLoadedMetadata={onMediaLayout}
-                    />
-                  ) : (
-                    <a
-                      href={att.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="support-chat__attachment-link"
-                    >
-                      <img
+                    isUploading || uploadFailed ? (
+                      <div className="support-chat__video-wrap">
+                        <video
+                          src={att.url}
+                          poster={att.posterUrl ?? undefined}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="support-chat__attachment-media"
+                          onLoadedMetadata={onMediaLayout}
+                        />
+                        {isUploading && <SupportChatUploadOverlay progress={uploadState?.progress ?? null} />}
+                        {uploadFailed && uploadState?.onRetry && (
+                          <button
+                            type="button"
+                            className="support-chat__upload-retry"
+                            onClick={uploadState.onRetry}
+                          >
+                            Tap to retry
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <SupportChatVideo
                         src={att.url}
-                        alt={att.fileName}
+                        storagePath={att.storagePath}
+                        mimeType={att.mimeType}
+                        posterUrl={att.posterUrl}
+                        fileName={mediaOnly ? undefined : att.fileName}
                         className="support-chat__attachment-media"
-                        decoding="async"
-                        onLoad={onMediaLayout}
-                        onError={onMediaLayout}
+                        onLayout={onMediaLayout}
                       />
-                    </a>
+                    )
+                  ) : att.kind === 'audio' ? (
+                    <div className="support-chat__attachment-upload-wrap">
+                      <audio
+                        src={att.url}
+                        controls={!isUploading && !uploadFailed}
+                        preload="metadata"
+                        className="support-chat__attachment-audio"
+                        onLoadedMetadata={onMediaLayout}
+                      />
+                      {isUploading && <SupportChatUploadOverlay progress={uploadState?.progress ?? null} />}
+                      {uploadFailed && uploadState?.onRetry && (
+                        <button
+                          type="button"
+                          className="support-chat__upload-retry"
+                          onClick={uploadState.onRetry}
+                        >
+                          Tap to retry
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="support-chat__attachment-upload-wrap">
+                      {isUploading || uploadFailed ? (
+                        <>
+                          <img
+                            src={att.url}
+                            alt={att.fileName}
+                            className="support-chat__attachment-media"
+                            decoding="async"
+                            onLoad={onMediaLayout}
+                          />
+                          {isUploading && <SupportChatUploadOverlay progress={uploadState?.progress ?? null} />}
+                          {uploadFailed && uploadState?.onRetry && (
+                            <button
+                              type="button"
+                              className="support-chat__upload-retry"
+                              onClick={uploadState.onRetry}
+                            >
+                              Tap to retry
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <a
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="support-chat__attachment-link"
+                        >
+                          <img
+                            src={att.url}
+                            alt={att.fileName}
+                            className="support-chat__attachment-media"
+                            decoding="async"
+                            onLoad={onMediaLayout}
+                            onError={onMediaLayout}
+                          />
+                        </a>
+                      )}
+                    </div>
                   )}
                   {att.fileName && !mediaOnly && att.kind !== 'video' && (
                     <span className="support-chat__attachment-name">{att.fileName}</span>
@@ -230,7 +347,19 @@ function MessageBubble({
 
           <footer className="support-chat__meta">
             <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
-            {isOwn && <MessageReceipt status={supportMessageReceiptStatus(message)} />}
+            {isOwn && (
+              isUploading ? (
+                <span className="support-chat__receipt support-chat__receipt--pending" aria-label="Sending" title="Sending">
+                  <Clock size={13} strokeWidth={2.5} />
+                </span>
+              ) : uploadFailed ? (
+                <span className="support-chat__receipt support-chat__receipt--failed" aria-label="Failed to send" title="Failed to send">
+                  <AlertCircle size={13} strokeWidth={2.5} />
+                </span>
+              ) : (
+                <MessageReceipt status={supportMessageReceiptStatus(message)} />
+              )
+            )}
           </footer>
         </div>
       </div>
@@ -245,7 +374,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   const [error, setError] = useState('');
   const [text, setText] = useState('');
   const [pendingFiles, setPendingFiles] = useState<PendingSupportFile[]>([]);
-  const [sending, setSending] = useState(false);
+  const [outgoingMessages, setOutgoingMessages] = useState<OutgoingChatMessage[]>([]);
   const [showJump, setShowJump] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -263,9 +392,96 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   const chatDisabled = readOnly
     || (!isInternalOpsUser(user) && isSupportClosed(request));
 
+  const outgoingRef = useRef<OutgoingChatMessage[]>([]);
+
+  const dispatchOutgoing = useCallback(async (entry: OutgoingChatMessage) => {
+    if (!user) return;
+
+    try {
+      const result = await sendSupportMessage(
+        user,
+        request.id,
+        { text: entry.text, files: entry.files },
+        progress => {
+          setOutgoingMessages(prev => prev.map(item =>
+            item.clientId === entry.clientId
+              ? {
+                  ...item,
+                  uploadProgress: progress.percent,
+                  uploadLabel: progress.label,
+                }
+              : item,
+          ));
+        },
+      );
+
+      setOutgoingMessages(prev => prev.map(item =>
+        item.clientId === entry.clientId
+          ? {
+              ...item,
+              status: 'done',
+              serverMessageId: result.id,
+              uploadProgress: 100,
+            }
+          : item,
+      ));
+      wasAtBottomRef.current = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not send message.';
+      setOutgoingMessages(prev => prev.map(item =>
+        item.clientId === entry.clientId
+          ? { ...item, status: 'failed', error: message }
+          : item,
+      ));
+      setError(message);
+    }
+  }, [user, request.id]);
+
+  const retryOutgoing = useCallback((clientId: string) => {
+    setOutgoingMessages(prev => {
+      const entry = prev.find(item => item.clientId === clientId);
+      if (!entry) return prev;
+
+      const refreshed: OutgoingChatMessage = {
+        ...entry,
+        status: 'uploading',
+        uploadProgress: 0,
+        uploadLabel: 'Retrying…',
+        error: undefined,
+      };
+      void dispatchOutgoing(refreshed);
+      return prev.map(item => (item.clientId === clientId ? refreshed : item));
+    });
+  }, [dispatchOutgoing]);
+
+  const queueOutgoingMessage = useCallback((
+    textValue: string,
+    uploadFiles: File[],
+    pendingForDisplay: PendingSupportFile[],
+  ) => {
+    if (!user) return;
+
+    const clientId = `out-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const entry: OutgoingChatMessage = {
+      clientId,
+      text: textValue,
+      files: uploadFiles,
+      pendingFiles: pendingForDisplay,
+      createdAt: new Date().toISOString(),
+      uploadProgress: uploadFiles.length > 0 ? 0 : null,
+      uploadLabel: uploadFiles.length > 0 ? 'Preparing…' : 'Sending…',
+      status: 'uploading',
+    };
+
+    setOutgoingMessages(prev => [...prev, entry]);
+    wasAtBottomRef.current = true;
+    forcePinRef.current = true;
+    void dispatchOutgoing(entry);
+  }, [user, dispatchOutgoing]);
+
   const threadItems = useMemo(
-    () => buildThreadItems(messages, user?.uid),
-    [messages, user?.uid],
+    () => buildThreadItems(messages, outgoingMessages, user?.uid, user ?? null, retryOutgoing),
+    [messages, outgoingMessages, user, retryOutgoing],
   );
 
   const statusHint = chatDisabled && !readOnly && isSupportClosed(request)
@@ -416,10 +632,20 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
 
   useEffect(() => {
     if (loading || !wasAtBottomRef.current) return;
-    scrollToBottom(sending || messages.length <= 1 ? 'auto' : 'smooth');
-  }, [messages.length, sending, loading, scrollToBottom]);
+    const hasActiveUploads = outgoingMessages.some(item => item.status === 'uploading');
+    scrollToBottom(hasActiveUploads || messages.length <= 1 ? 'auto' : 'smooth');
+  }, [messages.length, outgoingMessages.length, loading, scrollToBottom]);
 
   useEffect(() => () => cleanupPendingFiles(pendingFiles), [pendingFiles]);
+
+  useEffect(() => {
+    const prev = outgoingRef.current;
+    const removed = prev.filter(
+      item => !outgoingMessages.some(next => next.clientId === item.clientId),
+    );
+    removed.forEach(item => revokePendingSupportFiles(item.pendingFiles));
+    outgoingRef.current = outgoingMessages;
+  }, [outgoingMessages]);
 
   useEffect(() => {
     const dock = dockRef.current;
@@ -447,33 +673,28 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     setShowJump(!atBottom);
   };
 
-  const handleSend = async (filesOverride?: File[]) => {
-    if (!user || chatDisabled || sending) return;
-    const uploadFiles = filesOverride ?? pendingFilesToUpload(pendingFiles);
-    if (!text.trim() && uploadFiles.length === 0) return;
+  const handleSend = (filesOverride?: File[]) => {
+    if (!user || chatDisabled) return;
 
-    setSending(true);
+    const uploadFiles = filesOverride ?? pendingFilesToUpload(pendingFiles);
+    const textValue = filesOverride ? '' : text.trim();
+    if (!textValue && uploadFiles.length === 0) return;
+
+    const pendingForDisplay = filesOverride
+      ? uploadFiles.map(file => createPendingSupportFile(file))
+      : [...pendingFiles];
+
     setError('');
-    try {
-      await sendSupportMessage(user, request.id, {
-        text: filesOverride ? '' : text,
-        files: uploadFiles,
-      });
-      if (!filesOverride) {
-        setText('');
-        cleanupPendingFiles(pendingFiles);
-        setPendingFiles([]);
-      }
-      wasAtBottomRef.current = true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send message.');
-    } finally {
-      setSending(false);
+    if (!filesOverride) {
+      setText('');
+      setPendingFiles([]);
     }
+
+    queueOutgoingMessage(textValue, uploadFiles, pendingForDisplay);
   };
 
-  const handleSendFiles = async (files: File[]) => {
-    await handleSend(files);
+  const handleSendFiles = (files: File[]) => {
+    handleSend(files);
   };
 
   return (
@@ -503,7 +724,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
                 </span>
                 <p className="text-muted text-sm">Loading messages…</p>
               </div>
-            ) : messages.length === 0 ? (
+            ) : messages.length === 0 && outgoingMessages.length === 0 ? (
               <div className="support-chat__empty">
                 <p className="text-muted text-sm">No messages yet. Say hello to start the conversation.</p>
               </div>
@@ -520,6 +741,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
                     isOwn={item.isOwn}
                     showAuthor={item.showAuthor}
                     onMediaLayout={handleMediaLayout}
+                    uploadState={item.uploadState}
                   />
                 ),
               )
@@ -555,9 +777,8 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
             onTextChange={setText}
             pendingFiles={pendingFiles}
             onPendingFilesChange={setPendingFiles}
-            onSend={() => void handleSend()}
+            onSend={() => handleSend()}
             onSendFiles={handleSendFiles}
-            sending={sending}
             placeholder={
               isInternalOpsUser(user)
                 ? 'Message dealer…'
