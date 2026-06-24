@@ -785,6 +785,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           disabled={isBusy}
           submitting={submitting}
           submitProgress={submitProgress}
+          error={error}
         />
       )}
     </div>

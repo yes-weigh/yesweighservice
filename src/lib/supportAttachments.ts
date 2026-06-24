@@ -230,6 +230,14 @@ function isTransientStorageError(err: unknown): boolean {
 
 const SESSION_UPLOAD_DIRECT_DENIED = 'support-upload-direct-denied';
 
+export function clearSupportUploadDirectDenied(): void {
+  try {
+    sessionStorage.removeItem(SESSION_UPLOAD_DIRECT_DENIED);
+  } catch {
+    // ignore storage access errors
+  }
+}
+
 function isDirectUploadDenied(): boolean {
   try {
     return sessionStorage.getItem(SESSION_UPLOAD_DIRECT_DENIED) === '1';
@@ -547,6 +555,9 @@ export async function uploadSupportAttachments(
   onProgress?: (progress: SupportSubmitProgress) => void,
   options?: UploadSupportAttachmentsOptions,
 ): Promise<SupportAttachment[]> {
+  if (options?.isInitial === true) {
+    clearSupportUploadDirectDenied();
+  }
   const emitProgress = createMonotonicProgressEmitter(onProgress);
   const uploads: SupportAttachment[] = [];
   const preparedFiles: File[] = [];

@@ -326,7 +326,7 @@ export async function sendSupportMessage(
         requestId,
         { text: '', files: [files[index]], isInitial: true },
         onProgress,
-        { updateRequestMeta: false, storeInitialFlag: false, createdAtOffsetMs: index },
+        { updateRequestMeta: false, createdAtOffsetMs: index },
       );
     }
     if (text) {
@@ -335,7 +335,7 @@ export async function sendSupportMessage(
         requestId,
         { text, files: [], isInitial: true },
         onProgress,
-        { updateRequestMeta: true, storeInitialFlag: true, createdAtOffsetMs: files.length },
+        { updateRequestMeta: true, createdAtOffsetMs: files.length },
       );
     } else if (lastMessage) {
       await touchSupportRequestAfterMessage(user, requestId, lastMessage, true);
@@ -388,7 +388,7 @@ async function sendSupportMessageOnce(
   requestId: string,
   input: SendSupportMessageInput,
   onProgress?: (progress: SupportSubmitProgress) => void,
-  options?: { updateRequestMeta?: boolean; storeInitialFlag?: boolean; createdAtOffsetMs?: number },
+  options?: { updateRequestMeta?: boolean; createdAtOffsetMs?: number },
 ): Promise<SupportMessage> {
   const request = await getSupportRequest(requestId);
   if (!request) throw new Error('Support request not found.');
@@ -423,7 +423,7 @@ async function sendSupportMessageOnce(
 
   const now = new Date(Date.now() + (options?.createdAtOffsetMs ?? 0)).toISOString();
   const isInitial = input.isInitial === true;
-  const storeInitialFlag = options?.storeInitialFlag !== false;
+
   const updates: Record<string, string | null> = options?.updateRequestMeta === false
     ? {}
     : {
@@ -447,7 +447,7 @@ async function sendSupportMessageOnce(
     text,
     attachments,
     createdAt: now,
-    isInitial: isInitial && storeInitialFlag,
+    isInitial,
   };
 
   await persistSupportMessage(user, requestId, messageRef.id, payload, updates);
@@ -457,7 +457,7 @@ async function sendSupportMessageOnce(
     authorUid: user.uid,
     authorName: user.displayName,
     authorRole: user.role,
-    ...(payload.isInitial ? { isInitial: true } : {}),
+    ...(isInitial ? { isInitial: true } : {}),
   });
 }
 

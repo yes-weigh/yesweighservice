@@ -19,6 +19,7 @@ interface SupportDeclarationStepProps {
   disabled?: boolean;
   submitting?: boolean;
   submitProgress?: SupportSubmitProgress | null;
+  error?: string;
 }
 
 export const SupportDeclarationStep: React.FC<SupportDeclarationStepProps> = ({
@@ -28,6 +29,7 @@ export const SupportDeclarationStep: React.FC<SupportDeclarationStepProps> = ({
   disabled,
   submitting,
   submitProgress,
+  error,
 }) => (
   <section
     className={[
@@ -107,6 +109,7 @@ export const SupportDeclarationStep: React.FC<SupportDeclarationStepProps> = ({
     </div>
 
     <div className="support-declaration__actions support-wizard__actions--dock">
+      {error && <p className="support-wizard__error support-declaration__error">{error}</p>}
       {submitting && submitProgress && (
         <SupportWizardSubmitProgress progress={submitProgress} />
       )}
