@@ -161,6 +161,17 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+async function resolveUploadedAttachmentUrl(
+  storagePath: string,
+  fallbackUrl: string,
+): Promise<string> {
+  try {
+    return await getDownloadURL(ref(storage, storagePath));
+  } catch {
+    return fallbackUrl;
+  }
+}
+
 function safeFileName(name: string): string {
   return name.replace(/[^\w.-]+/g, '_').slice(0, 120) || 'file';
 }
@@ -252,7 +263,7 @@ async function uploadViaCloudFunction(
   return {
     attachmentId: result.data.attachmentId,
     storagePath: result.data.storagePath,
-    url: result.data.url,
+    url: await resolveUploadedAttachmentUrl(result.data.storagePath, result.data.url),
   };
 }
 
@@ -396,7 +407,7 @@ async function uploadSingleSupportFile(
     return {
       attachmentId: signed.attachmentId,
       storagePath: signed.storagePath,
-      url: signed.url,
+      url: await resolveUploadedAttachmentUrl(signed.storagePath, signed.url),
     };
   } catch (signedErr) {
     throw signedErr instanceof Error ? signedErr : new Error('Could not upload attachment.');
@@ -537,7 +548,7 @@ export async function uploadSupportAttachments(
       url: uploaded.url,
       storagePath: uploaded.storagePath,
       fileName: file.name,
-      mimeType: contentType,
+      mimeType: file.type?.split(';')[0]?.trim() || contentType,
       size: file.size,
       posterUrl,
     });

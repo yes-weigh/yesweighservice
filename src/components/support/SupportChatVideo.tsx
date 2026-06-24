@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Play } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Play, X } from 'lucide-react';
 import { getSupportAttachmentUrl } from '../../lib/supportAttachments';
 
 interface SupportChatVideoProps {
@@ -21,23 +22,32 @@ export const SupportChatVideo: React.FC<SupportChatVideoProps> = ({
   fileName,
   onLayout,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const inlineVideoRef = useRef<HTMLVideoElement>(null);
+  const lightboxVideoRef = useRef<HTMLVideoElement>(null);
   const [playbackSrc, setPlaybackSrc] = useState(src);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [showPlayer, setShowPlayer] = useState(() => !posterUrl);
-  const refreshedRef = useRef(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     setPlaybackSrc(src);
-    refreshedRef.current = false;
-    setStatus('loading');
-    setShowPlayer(!posterUrl);
-  }, [src, posterUrl]);
+    setStatus('idle');
+    setErrorMessage('');
+    setViewerOpen(false);
+  }, [src]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !showPlayer) return undefined;
+  const resolvePlaybackUrl = useCallback(async (): Promise<string> => {
+    if (storagePath?.trim()) {
+      try {
+        return await getSupportAttachmentUrl(storagePath);
+      } catch {
+        // fall back to stored url
+      }
+    }
+    return src;
+  }, [src, storagePath]);
 
+  const bindVideoEvents = useCallback((video: HTMLVideoElement) => {
     const markReady = () => {
       setStatus(current => (current === 'error' ? current : 'ready'));
       onLayout?.();
@@ -46,23 +56,9 @@ export const SupportChatVideo: React.FC<SupportChatVideoProps> = ({
     const onLoadedMetadata = () => markReady();
     const onCanPlay = () => markReady();
     const onError = () => {
-      void (async () => {
-        if (!refreshedRef.current && storagePath?.trim()) {
-          refreshedRef.current = true;
-          try {
-            const freshUrl = await getSupportAttachmentUrl(storagePath);
-            if (freshUrl && freshUrl !== playbackSrc) {
-              setPlaybackSrc(freshUrl);
-              setStatus('loading');
-              return;
-            }
-          } catch {
-            // fall through to error UI
-          }
-        }
-        setStatus('error');
-        onLayout?.();
-      })();
+      setStatus('error');
+      setErrorMessage('This video could not be played in the chat.');
+      onLayout?.();
     };
 
     video.addEventListener('loadedmetadata', onLoadedMetadata);
@@ -74,69 +70,168 @@ export const SupportChatVideo: React.FC<SupportChatVideoProps> = ({
       video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('error', onError);
     };
-  }, [playbackSrc, onLayout, showPlayer, storagePath]);
+  }, [onLayout]);
 
-  const startPlayback = useCallback(() => {
-    setShowPlayer(true);
+  useEffect(() => {
+    const video = inlineVideoRef.current;
+    if (!video || posterUrl) return undefined;
+    return bindVideoEvents(video);
+  }, [bindVideoEvents, playbackSrc, posterUrl]);
+
+  useEffect(() => {
+    const video = lightboxVideoRef.current;
+    if (!video || !viewerOpen) return undefined;
+    return bindVideoEvents(video);
+  }, [bindVideoEvents, playbackSrc, viewerOpen]);
+
+  useEffect(() => {
+    if (!viewerOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [viewerOpen]);
+
+  const openViewer = useCallback(async () => {
     setStatus('loading');
+    setErrorMessage('');
+    setViewerOpen(true);
+
+    try {
+      const url = await resolvePlaybackUrl();
+      setPlaybackSrc(url);
+    } catch {
+      setPlaybackSrc(src);
+    }
+
+    requestAnimationFrame(() => {
+      const video = lightboxVideoRef.current;
+      if (!video) return;
+      video.load();
+      void video.play().catch(() => {
+        // Controls still allow manual play if autoplay is blocked.
+      });
+    });
+  }, [resolvePlaybackUrl, src]);
+
+  const closeViewer = useCallback(() => {
+    const video = lightboxVideoRef.current;
+    if (video) {
+      video.pause();
+    }
+    setViewerOpen(false);
+    setStatus('idle');
+    setErrorMessage('');
   }, []);
 
   const type = mimeType?.split(';')[0].trim() || undefined;
   const hasPoster = Boolean(posterUrl);
-  const showPosterPreview = hasPoster && !showPlayer;
-  const showPlaceholder = status === 'loading' && !hasPoster && showPlayer;
+  const showInlinePlayer = !hasPoster;
 
   return (
-    <div className="support-chat__video-wrap">
-      {showPosterPreview ? (
-        <button
-          type="button"
-          className="support-chat__video-poster-btn"
-          onClick={startPlayback}
-          aria-label={fileName ? `Play ${fileName}` : 'Play video'}
-        >
-          <img
-            src={posterUrl!}
-            alt=""
-            className={`support-chat__attachment-media support-chat__video-poster${className ? ` ${className}` : ''}`}
-            decoding="async"
-            onLoad={onLayout}
+    <>
+      <div className="support-chat__video-wrap">
+        {hasPoster ? (
+          <button
+            type="button"
+            className="support-chat__video-poster-btn"
+            onClick={() => void openViewer()}
+            aria-label={fileName ? `Play ${fileName}` : 'Play video'}
+          >
+            <img
+              src={posterUrl!}
+              alt=""
+              className={`support-chat__attachment-media support-chat__video-poster${className ? ` ${className}` : ''}`}
+              decoding="async"
+              onLoad={onLayout}
+            />
+            <span className="support-chat__video-placeholder" aria-hidden>
+              <Play size={28} />
+            </span>
+          </button>
+        ) : (
+          <>
+            <video
+              ref={inlineVideoRef}
+              src={playbackSrc}
+              controls
+              playsInline
+              preload="metadata"
+              className={className}
+              onClick={() => void openViewer()}
+            >
+              {type && <source src={playbackSrc} type={type} />}
+            </video>
+            {status === 'loading' && showInlinePlayer && (
+              <span className="support-chat__video-placeholder" aria-hidden>
+                <Play size={28} />
+              </span>
+            )}
+            {status === 'error' && (
+              <button
+                type="button"
+                className="support-chat__video-fallback"
+                onClick={() => void openViewer()}
+              >
+                Tap to play video
+              </button>
+            )}
+          </>
+        )}
+
+        {fileName && <span className="support-chat__attachment-name">{fileName}</span>}
+      </div>
+
+      {viewerOpen && createPortal(
+        <div className="support-chat__video-lightbox" role="dialog" aria-modal="true" aria-label="Video player">
+          <button
+            type="button"
+            className="support-chat__video-lightbox-backdrop"
+            aria-label="Close video"
+            onClick={closeViewer}
           />
-          <span className="support-chat__video-placeholder" aria-hidden>
-            <Play size={28} />
-          </span>
-        </button>
-      ) : (
-        <video
-          ref={videoRef}
-          src={playbackSrc}
-          poster={posterUrl ?? undefined}
-          controls
-          playsInline
-          preload="metadata"
-          className={className}
-          {...(type ? { 'data-mime-type': type } : {})}
-        />
-      )}
+          <div className="support-chat__video-lightbox-panel">
+            <button
+              type="button"
+              className="support-chat__video-lightbox-close"
+              aria-label="Close"
+              onClick={closeViewer}
+            >
+              <X size={22} />
+            </button>
 
-      {showPlaceholder && (
-        <span className="support-chat__video-placeholder" aria-hidden>
-          <Play size={28} />
-        </span>
-      )}
+            <video
+              ref={lightboxVideoRef}
+              key={playbackSrc}
+              src={playbackSrc}
+              poster={posterUrl ?? undefined}
+              controls
+              autoPlay
+              playsInline
+              preload="auto"
+              className="support-chat__video-lightbox-player"
+            >
+              {type && <source src={playbackSrc} type={type} />}
+            </video>
 
-      {status === 'error' && showPlayer && (
-        <a
-          className="support-chat__video-fallback"
-          href={playbackSrc}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Open video
-        </a>
-      )}
+            {status === 'loading' && (
+              <div className="support-chat__video-lightbox-status">Loading video…</div>
+            )}
 
-      {fileName && <span className="support-chat__attachment-name">{fileName}</span>}
-    </div>
+            {status === 'error' && (
+              <div className="support-chat__video-lightbox-status support-chat__video-lightbox-status--error">
+                <p>{errorMessage}</p>
+                <a href={playbackSrc} target="_blank" rel="noopener noreferrer">
+                  Open video in browser
+                </a>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 };

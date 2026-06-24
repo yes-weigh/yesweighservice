@@ -18,10 +18,12 @@ import {
 } from 'lucide-react';
 import {
   capturePhotoFromVideo,
+  createVideoFileFromBlob,
+  createVideoMediaRecorder,
+  finalizeMediaRecorder,
   pickAudioMimeType,
-  pickVideoMimeType,
   stopMediaStream,
-  videoFileExtension,
+  validateVideoBlob,
 } from '../../lib/captureMedia';
 import {
   MAX_SUPPORT_ATTACHMENTS,
@@ -234,48 +236,59 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
       const recorder = mediaRecorderRef.current;
       if (!recorder || recorder.state === 'inactive') return;
 
-      recorder.onstop = async () => {
+      try {
+        const blob = await finalizeMediaRecorder(recorder, videoChunksRef.current);
         clearVideoTimers();
-        const blob = new Blob(videoChunksRef.current, { type: recorder.mimeType || 'video/webm' });
         videoChunksRef.current = [];
         mediaRecorderRef.current = null;
         setRecordingVideo(false);
         setVideoRecordSeconds(0);
 
-        if (send && blob.size > 0) {
-          const mimeType = recorder.mimeType || 'video/webm';
-          const file = new File([blob], `video-${Date.now()}.${videoFileExtension(mimeType)}`, {
-            type: mimeType,
-            lastModified: Date.now(),
-          });
+        if (send) {
+          const mimeType = blob.type || recorder.mimeType || 'video/webm';
+          const playable = await validateVideoBlob(blob);
+          if (!playable) {
+            setCameraError('Could not save this video. Try recording again.');
+            closeCamera();
+            return;
+          }
+
+          const file = createVideoFileFromBlob(blob, mimeType);
           closeCamera();
-          await onSendFiles([file]);
+          onSendFiles([file]);
           return;
         }
-        closeCamera();
-      };
 
-      if (recorder.state === 'recording') {
-        recorder.requestData();
+        closeCamera();
+      } catch (err) {
+        clearVideoTimers();
+        videoChunksRef.current = [];
+        mediaRecorderRef.current = null;
+        setRecordingVideo(false);
+        setVideoRecordSeconds(0);
+        setCameraError(err instanceof Error ? err.message : 'Could not save video.');
+        closeCamera();
       }
-      recorder.stop();
     };
 
     const startVideoRecording = () => {
       const stream = mediaStreamRef.current;
       if (!stream || recordingVideo) return;
 
-      const mimeType = pickVideoMimeType();
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
+      let recorder: MediaRecorder;
+      try {
+        recorder = createVideoMediaRecorder(stream);
+      } catch (err) {
+        setCameraError(err instanceof Error ? err.message : 'Video recording is not supported.');
+        return;
+      }
 
       videoChunksRef.current = [];
       recorder.ondataavailable = event => {
         if (event.data.size > 0) videoChunksRef.current.push(event.data);
       };
       mediaRecorderRef.current = recorder;
-      recorder.start(500);
+      recorder.start(250);
       setRecordingVideo(true);
       setVideoRecordSeconds(0);
 

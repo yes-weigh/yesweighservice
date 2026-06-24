@@ -13136,12 +13136,75 @@ html::-webkit-scrollbar {
   display: flex;
   align-items: center;
   justify-content: center;
+  border: none;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.72);
   color: #fff;
   font-size: 0.8125rem;
   font-weight: 600;
   text-decoration: none;
+  cursor: pointer;
+}
+
+.support-chat__video-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.support-chat__video-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(0, 0, 0, 0.88);
+  cursor: pointer;
+}
+
+.support-chat__video-lightbox-panel {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 56rem);
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.support-chat__video-lightbox-close {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+}
+
+.support-chat__video-lightbox-player {
+  width: 100%;
+  max-height: calc(100vh - 6rem);
+  border-radius: 12px;
+  background: #000;
+}
+
+.support-chat__video-lightbox-status {
+  color: rgba(255, 255, 255, 0.88);
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.support-chat__video-lightbox-status--error a {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: #ffb86b;
 }
 
 .support-chat__bubble--media-only .support-chat__attachment-name {
