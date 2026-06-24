@@ -213,6 +213,55 @@ function isStorageUnauthorized(err: unknown): boolean {
     || message.includes('User does not have permission');
 }
 
+function isTransientStorageError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = String((err as { code?: string }).code ?? '');
+  const message = String((err as { message?: string }).message ?? '').toLowerCase();
+  return code === 'storage/retry-limit-exceeded'
+    || code === 'storage/canceled'
+    || message.includes('network')
+    || message.includes('timeout')
+    || message.includes('failed to fetch');
+}
+
+const SESSION_UPLOAD_DIRECT_DENIED = 'support-upload-direct-denied';
+
+function isDirectUploadDenied(): boolean {
+  try {
+    return sessionStorage.getItem(SESSION_UPLOAD_DIRECT_DENIED) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markDirectUploadDenied(): void {
+  try {
+    sessionStorage.setItem(SESSION_UPLOAD_DIRECT_DENIED, '1');
+  } catch {
+    // ignore storage access errors
+  }
+}
+
+function createMonotonicProgressEmitter(
+  onProgress?: (progress: SupportSubmitProgress) => void,
+): (progress: SupportSubmitProgress) => void {
+  let maxPercent = 0;
+  return progress => {
+    if (!onProgress) return;
+    if (progress.percent == null) {
+      onProgress(progress);
+      return;
+    }
+    maxPercent = Math.max(maxPercent, progress.percent);
+    onProgress({ ...progress, percent: maxPercent });
+  };
+}
+
+function mapFilePercentToRange(filePercent: number, start: number, end: number): number {
+  const clamped = Math.max(0, Math.min(100, filePercent));
+  return Math.round(start + ((end - start) * clamped) / 100);
+}
+
 function isSignedUploadUnavailable(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const code = String((err as { code?: string }).code ?? '');
@@ -343,17 +392,16 @@ async function uploadViaClientStorageWithRetry(
   contentType: string,
   onFileProgress?: (percent: number) => void,
 ): Promise<{ attachmentId: string; storagePath: string; url: string }> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      return await uploadViaClientStorage(requestId, messageId, file, contentType, onFileProgress);
-    } catch (err) {
-      lastError = err;
-      if (!isStorageUnauthorized(err) || attempt === 2) break;
-      await sleep(350 * (attempt + 1));
+  try {
+    return await uploadViaClientStorage(requestId, messageId, file, contentType, onFileProgress);
+  } catch (err) {
+    if (isStorageUnauthorized(err) || !isTransientStorageError(err)) {
+      throw err instanceof Error ? err : new Error('Could not upload attachment.');
     }
   }
-  throw lastError instanceof Error ? lastError : new Error('Could not upload attachment.');
+
+  await sleep(400);
+  return uploadViaClientStorage(requestId, messageId, file, contentType, onFileProgress);
 }
 
 async function uploadSingleSupportFile(
@@ -363,23 +411,32 @@ async function uploadSingleSupportFile(
   contentType: string,
   options: UploadSupportAttachmentsOptions | undefined,
   onFileProgress?: (percent: number) => void,
+  onStatus?: (label: string) => void,
 ): Promise<{ attachmentId: string; storagePath: string; url: string }> {
-  try {
-    return await uploadViaClientStorageWithRetry(
-      requestId,
-      messageId,
-      file,
-      contentType,
-      onFileProgress,
-    );
-  } catch (directErr) {
-    if (!isStorageUnauthorized(directErr)) {
-      throw directErr instanceof Error ? directErr : new Error('Could not upload attachment.');
+  const reportStatus = (label: string) => onStatus?.(label);
+
+  if (!isDirectUploadDenied()) {
+    try {
+      reportStatus('Uploading…');
+      return await uploadViaClientStorageWithRetry(
+        requestId,
+        messageId,
+        file,
+        contentType,
+        onFileProgress,
+      );
+    } catch (directErr) {
+      if (isStorageUnauthorized(directErr)) {
+        markDirectUploadDenied();
+      } else if (!isTransientStorageError(directErr)) {
+        throw directErr instanceof Error ? directErr : new Error('Could not upload attachment.');
+      }
     }
   }
 
   if (file.size <= MAX_SERVER_UPLOAD_BYTES) {
     try {
+      reportStatus('Finishing upload…');
       return await uploadViaCloudFunction(
         requestId,
         messageId,
@@ -389,13 +446,14 @@ async function uploadSingleSupportFile(
         onFileProgress,
       );
     } catch (serverErr) {
-      if (!isSignedUploadUnavailable(serverErr)) {
+      if (!isSignedUploadUnavailable(serverErr) && !isStorageUnauthorized(serverErr)) {
         throw serverErr instanceof Error ? serverErr : new Error('Could not upload attachment.');
       }
     }
   }
 
   try {
+    reportStatus('Finishing upload…');
     const signed = await uploadViaSignedUrl(
       requestId,
       messageId,
@@ -449,17 +507,20 @@ function reportBatchUploadProgress(
   fileName: string,
   filePercent: number,
   fileSizes: number[],
+  range?: { start: number; end: number },
 ): void {
   if (!onProgress) return;
 
-  const totalBytes = fileSizes.reduce((sum, size) => sum + size, 0);
   let percent: number | null = null;
 
-  if (totalBytes > 0) {
+  if (range) {
+    percent = mapFilePercentToRange(filePercent, range.start, range.end);
+  } else if (fileSizes.length > 0) {
+    const totalBytes = fileSizes.reduce((sum, size) => sum + size, 0);
     const completedBefore = fileSizes.slice(0, fileIndex).reduce((sum, size) => sum + size, 0);
     const currentBytes = fileSizes[fileIndex] ?? 0;
     const uploaded = completedBefore + (currentBytes * filePercent) / 100;
-    percent = Math.min(95, Math.max(6, Math.round((uploaded / totalBytes) * 89) + 6));
+    percent = Math.min(99, Math.max(4, Math.round((uploaded / totalBytes) * 95) + 4));
   }
 
   onProgress({
@@ -478,6 +539,7 @@ export async function uploadSupportAttachments(
   onProgress?: (progress: SupportSubmitProgress) => void,
   options?: UploadSupportAttachmentsOptions,
 ): Promise<SupportAttachment[]> {
+  const emitProgress = createMonotonicProgressEmitter(onProgress);
   const uploads: SupportAttachment[] = [];
   const preparedFiles: File[] = [];
 
@@ -486,7 +548,7 @@ export async function uploadSupportAttachments(
     const err = validateSupportFile(original);
     if (err) throw new Error(err);
 
-    onProgress?.({
+    emitProgress({
       phase: 'uploading',
       label: isImageFile(original)
         ? `Preparing photo ${index + 1} of ${files.length}…`
@@ -508,9 +570,29 @@ export async function uploadSupportAttachments(
     const file = preparedFiles[index];
     const contentType = uploadContentType(file);
     const fileName = file.name;
+    const isVideo = isVideoFile(file);
+    const videoRange = isVideo ? { start: 4, end: 84 } : undefined;
 
     const onFileProgress = (filePercent: number) => {
-      reportBatchUploadProgress(onProgress, index, preparedFiles.length, fileName, filePercent, fileSizes);
+      reportBatchUploadProgress(
+        emitProgress,
+        index,
+        preparedFiles.length,
+        fileName,
+        filePercent,
+        fileSizes,
+        videoRange,
+      );
+    };
+
+    const onStatus = (label: string) => {
+      emitProgress({
+        phase: 'uploading',
+        label,
+        percent: null,
+        fileIndex: index + 1,
+        fileCount: preparedFiles.length,
+      });
     };
 
     const uploaded = await uploadSingleSupportFile(
@@ -520,10 +602,19 @@ export async function uploadSupportAttachments(
       contentType,
       options,
       onFileProgress,
+      onStatus,
     );
 
     let posterUrl: string | null = null;
-    if (isVideoFile(file)) {
+    if (isVideo) {
+      emitProgress({
+        phase: 'uploading',
+        label: 'Creating thumbnail…',
+        percent: 86,
+        fileIndex: index + 1,
+        fileCount: preparedFiles.length,
+      });
+
       const posterBlob = await captureVideoPoster(file);
       if (posterBlob) {
         const posterFile = new File(
@@ -531,16 +622,34 @@ export async function uploadSupportAttachments(
           `${safeFileName(file.name)}.poster.jpg`,
           { type: 'image/jpeg', lastModified: Date.now() },
         );
+        const onPosterProgress = (filePercent: number) => {
+          emitProgress({
+            phase: 'uploading',
+            label: 'Uploading thumbnail…',
+            percent: mapFilePercentToRange(filePercent, 86, 97),
+            fileIndex: index + 1,
+            fileCount: preparedFiles.length,
+          });
+        };
         const posterUpload = await uploadSingleSupportFile(
           requestId,
           messageId,
           posterFile,
           'image/jpeg',
           options,
+          onPosterProgress,
         );
         posterUrl = posterUpload.url;
       }
     }
+
+    emitProgress({
+      phase: 'uploading',
+      label: 'Almost done…',
+      percent: 98,
+      fileIndex: index + 1,
+      fileCount: preparedFiles.length,
+    });
 
     uploads.push({
       id: uploaded.attachmentId,
