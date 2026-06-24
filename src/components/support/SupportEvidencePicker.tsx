@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Circle, ImagePlus, Square, X } from 'lucide-react';
+import { Camera, Circle, ImagePlus, Loader2, Square, X } from 'lucide-react';
 import {
   createPendingEvidencePhoto,
   createPendingSupportFile,
@@ -90,6 +90,10 @@ async function capturePhotoFromVideo(video: HTMLVideoElement): Promise<File> {
   });
 }
 
+function freezeUrlFromFile(file: File): string {
+  return URL.createObjectURL(file);
+}
+
 interface EvidenceMediaSlotProps {
   config: SlotConfig;
   file: PendingSupportFile | null;
@@ -97,6 +101,7 @@ interface EvidenceMediaSlotProps {
   previewLoading: boolean;
   disabled?: boolean;
   processing: boolean;
+  captureFreezeUrl: string | null;
   previewStream: MediaStream | null;
   recording: boolean;
   recordSeconds: number;
@@ -117,6 +122,7 @@ const EvidenceMediaSlot: React.FC<EvidenceMediaSlotProps> = ({
   previewLoading,
   disabled,
   processing,
+  captureFreezeUrl,
   previewStream,
   recording,
   recordSeconds,
@@ -131,7 +137,8 @@ const EvidenceMediaSlot: React.FC<EvidenceMediaSlotProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isVideo = config.kind === 'video';
-  const showLivePreview = !file && previewOpen && previewStream;
+  const showFrozenCapture = !file && Boolean(captureFreezeUrl);
+  const showLivePreview = !file && previewOpen && previewStream && !showFrozenCapture;
 
   useEffect(() => {
     const video = previewVideoRef.current;
@@ -178,6 +185,18 @@ const EvidenceMediaSlot: React.FC<EvidenceMediaSlotProps> = ({
             >
               <X size={14} />
             </button>
+          </>
+        ) : showFrozenCapture ? (
+          <>
+            <img
+              src={captureFreezeUrl!}
+              alt=""
+              className="evidence-media-slot__media evidence-media-slot__media--frozen"
+            />
+            <div className="evidence-media-slot__processing-overlay" aria-live="polite">
+              <Loader2 size={22} className="spin-icon" aria-hidden />
+              <span>Adding GPS tag…</span>
+            </div>
           </>
         ) : showLivePreview ? (
           <>
@@ -289,7 +308,7 @@ const EvidenceMediaSlot: React.FC<EvidenceMediaSlotProps> = ({
       </div>
 
       {error && <p className="evidence-media-slot__error text-sm">{error}</p>}
-      {processing && (
+      {processing && !captureFreezeUrl && (
         <p className="evidence-media-slot__status text-muted text-sm">Processing…</p>
       )}
     </section>
@@ -315,6 +334,9 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [processingSlot, setProcessingSlot] = useState<EvidenceSlotId | null>(null);
+  const [captureFreeze, setCaptureFreeze] = useState<{ slotId: EvidenceSlotId; url: string } | null>(null);
+  const captureFreezeRef = useRef(captureFreeze);
+  captureFreezeRef.current = captureFreeze;
   const [slotErrors, setSlotErrors] = useState<Partial<Record<EvidenceSlotId, string>>>({});
   const [cameraError, setCameraError] = useState('');
 
@@ -356,7 +378,15 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   useEffect(() => () => {
     clearRecordTimers();
     stopMediaStream();
+    if (captureFreezeRef.current) URL.revokeObjectURL(captureFreezeRef.current.url);
   }, [clearRecordTimers, stopMediaStream]);
+
+  const clearCaptureFreeze = useCallback(() => {
+    setCaptureFreeze(prev => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  }, []);
 
   useEffect(() => {
     if (disabled || !previewSlot || !previewConfig || recording) {
@@ -369,6 +399,10 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     if (slotFile) {
       stopMediaStream();
       setPreviewLoading(false);
+      return undefined;
+    }
+
+    if (processingSlot === previewSlot || captureFreeze?.slotId === previewSlot) {
       return undefined;
     }
 
@@ -403,7 +437,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [previewConfig, previewSlot, disabled, recording, files, stopMediaStream]);
+  }, [previewConfig, previewSlot, disabled, recording, files, processingSlot, captureFreeze, stopMediaStream]);
 
   const closePreview = useCallback(() => {
     stopRecording();
@@ -513,14 +547,31 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
       return;
     }
 
-    setProcessingSlot(slotId);
     setSlotErrors(prev => ({ ...prev, [slotId]: undefined }));
+
+    let captured: File;
     try {
-      const captured = await capturePhotoFromVideo(video);
+      captured = await capturePhotoFromVideo(video);
+    } catch (err) {
+      setSlotErrors(prev => ({
+        ...prev,
+        [slotId]: err instanceof Error ? err.message : 'Could not capture photo.',
+      }));
+      return;
+    }
+
+    clearCaptureFreeze();
+    setCaptureFreeze({ slotId, url: freezeUrlFromFile(captured) });
+    stopMediaStream();
+    setProcessingSlot(slotId);
+
+    try {
       const pending = await createPendingEvidencePhoto(captured, slotId);
       updateSlotFile(slotId, pending);
+      clearCaptureFreeze();
       closePreview();
     } catch (err) {
+      clearCaptureFreeze();
       setSlotErrors(prev => ({
         ...prev,
         [slotId]: err instanceof Error ? err.message : 'Could not capture photo.',
@@ -539,16 +590,18 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
       {EVIDENCE_SLOTS.map(config => {
         const slotFile = getSlotFile(files, config.id);
         const isPreviewOpen = previewSlot === config.id && !slotFile;
+        const freezeUrl = captureFreeze?.slotId === config.id ? captureFreeze.url : null;
 
         return (
           <EvidenceMediaSlot
             key={config.id}
             config={config}
             file={slotFile}
-            previewOpen={isPreviewOpen}
-            previewLoading={isPreviewOpen && previewLoading}
+            previewOpen={isPreviewOpen || Boolean(freezeUrl)}
+            previewLoading={isPreviewOpen && previewLoading && !freezeUrl}
             disabled={disabled}
             processing={processingSlot === config.id}
+            captureFreezeUrl={freezeUrl}
             previewStream={isPreviewOpen ? previewStream : null}
             recording={recording && config.id === 'video' && isPreviewOpen}
             recordSeconds={recordSeconds}
@@ -563,6 +616,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
             }}
             onRemove={() => {
               if (config.id === 'video') stopRecording();
+              if (captureFreeze?.slotId === config.id) clearCaptureFreeze();
               if (previewSlot === config.id) closePreview();
               updateSlotFile(config.id, null);
               setSlotErrors(prev => ({ ...prev, [config.id]: undefined }));

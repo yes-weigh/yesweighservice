@@ -29,7 +29,12 @@ export const SupportDeclarationStep: React.FC<SupportDeclarationStepProps> = ({
   submitting,
   submitProgress,
 }) => (
-  <section className="support-declaration panel glass">
+  <section
+    className={[
+      'support-declaration panel glass',
+      submitting && submitProgress ? 'support-declaration--busy' : '',
+    ].filter(Boolean).join(' ')}
+  >
     <div className="support-declaration__intro panel glass">
       <Shield size={24} className="support-declaration__intro-icon" aria-hidden />
       <p>{SUPPORT_DECLARATION_INTRO}</p>
@@ -101,11 +106,10 @@ export const SupportDeclarationStep: React.FC<SupportDeclarationStepProps> = ({
       </div>
     </div>
 
-    {submitting && submitProgress && (
-      <SupportWizardSubmitProgress progress={submitProgress} />
-    )}
-
     <div className="support-declaration__actions support-wizard__actions--dock">
+      {submitting && submitProgress && (
+        <SupportWizardSubmitProgress progress={submitProgress} />
+      )}
       <button
         type="button"
         className="btn btn-primary support-declaration__continue"

@@ -307,12 +307,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   const canSend = Boolean(text.trim() || pendingFiles.length > 0);
 
   return (
-    <section className="support-chat panel glass">
-      <header className="support-chat__header">
-        <h3>Conversation</h3>
-        <p className="support-chat__subtitle text-muted text-sm">{statusHint}</p>
-      </header>
-
+    <section className="support-chat support-chat--flat">
       {error && (
         <div className="products-inline-error support-chat__error">
           <AlertCircle size={16} />
@@ -368,6 +363,10 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
           </button>
         )}
       </div>
+
+      {chatDisabled && (
+        <p className="support-chat__status-bar text-sm text-muted">{statusHint}</p>
+      )}
 
       {!chatDisabled && (
         <form

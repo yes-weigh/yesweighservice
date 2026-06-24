@@ -237,7 +237,7 @@ export const SupportRequestDetailPage: React.FC = () => {
   const stageSubtitle = supportRequestStageSubtitle(request);
 
   return (
-    <div className="page-content fade-in support-detail-page">
+    <div className="page-content fade-in support-detail-page support-detail-page--chat">
       {error && (
         <div className="products-inline-error panel glass support-detail-page__error">
           <AlertCircle size={18} />
@@ -405,15 +405,6 @@ export const SupportRequestDetailPage: React.FC = () => {
       )}
 
       <SupportChat request={request} />
-
-      {!isInternalOpsUser(user)
-        && isProductCourierType(request.type)
-        && isSupportOpen(request)
-        && (request.openStage === 'submitted' || request.openStage === 'under_review') && (
-        <p className="support-detail-page__notice panel glass text-sm text-muted">
-          Your request is under review. Shipping instructions will appear here once {FIRM_NAME} approves courier.
-        </p>
-      )}
 
       {showCourier && (
         <SupportCourierInstructions requestNumber={request.requestNumber} compact />

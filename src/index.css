@@ -828,6 +828,13 @@ html::-webkit-scrollbar {
 
 .page-content { width: 100%; }
 
+.content-area:has(.support-detail-page--chat) {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  min-height: calc(100dvh - var(--header-height));
+}
+
 .panel {
   border-radius: 16px;
   padding: 1.5rem;
@@ -11884,6 +11891,39 @@ html::-webkit-scrollbar {
   margin: 0 auto;
 }
 
+.support-detail-page--chat {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.support-detail-page--chat .support-detail-page__error,
+.support-detail-page--chat .support-detail-summary,
+.support-detail-page--chat .support-detail-ship,
+.support-detail-page--chat .support-courier-instructions {
+  flex-shrink: 0;
+  margin-left: max(1rem, env(safe-area-inset-left, 0px));
+  margin-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+.support-detail-page--chat .support-detail-page__error,
+.support-detail-page--chat .support-detail-summary {
+  margin-top: max(0.75rem, env(safe-area-inset-top, 0px));
+}
+
+.support-detail-page--chat .support-detail-ship,
+.support-detail-page--chat .support-courier-instructions {
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.support-detail-page--chat .support-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .support-detail-summary {
   padding: 0.9rem !important;
 }
@@ -12149,6 +12189,27 @@ html::-webkit-scrollbar {
   max-height: min(78vh, 44rem);
   padding: 0 !important;
   overflow: hidden;
+}
+
+.support-chat--flat {
+  min-height: 0;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--chat-wallpaper);
+}
+
+.support-chat--flat .support-chat__composer {
+  padding-bottom: calc(0.55rem + env(safe-area-inset-bottom, 0px));
+}
+
+.support-chat__status-bar {
+  margin: 0;
+  padding: 0.55rem 0.85rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-glass);
+  background: rgba(10, 16, 20, 0.96);
+  text-align: center;
 }
 
 .support-chat__header {
@@ -12854,6 +12915,29 @@ html::-webkit-scrollbar {
   color: #fca5a5;
 }
 
+.evidence-media-slot__media--frozen {
+  filter: brightness(0.92);
+}
+
+.evidence-media-slot__processing-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  z-index: 3;
+}
+
+.evidence-media-slot__processing-overlay .spin-icon {
+  color: #93c5fd;
+}
+
 .evidence-media-slot__status {
   margin: 0;
 }
@@ -12866,6 +12950,10 @@ html::-webkit-scrollbar {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
+}
+
+.support-declaration--busy {
+  padding-bottom: calc(11rem + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 .support-declaration__intro {
@@ -13073,6 +13161,8 @@ html::-webkit-scrollbar {
 
 .support-declaration__actions {
   margin-top: 0.25rem;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .support-declaration__continue {
