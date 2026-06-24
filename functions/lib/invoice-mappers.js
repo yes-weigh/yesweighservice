@@ -23,6 +23,56 @@ export function mapInvoice(raw) {
   };
 }
 
+export function extractLineItemSerialNumbers(raw) {
+  if (!raw || typeof raw !== 'object') return [];
+
+  if (Array.isArray(raw.serialNumbers) && raw.serialNumbers.length) {
+    return [...new Set(raw.serialNumbers.map(value => String(value).trim()).filter(Boolean))];
+  }
+
+  const serials = [];
+
+  for (const candidate of [
+    raw.serial_numbers,
+    raw.serialNumbers,
+    raw.item_serial_numbers,
+    raw.itemSerialNumbers,
+  ]) {
+    if (!Array.isArray(candidate)) continue;
+    for (const entry of candidate) {
+      if (typeof entry === 'string' && entry.trim()) {
+        serials.push(entry.trim());
+        continue;
+      }
+      if (!entry || typeof entry !== 'object') continue;
+      const value = entry.serial_number
+        ?? entry.serialnumber
+        ?? entry.serial_number_value
+        ?? entry.serialNumber;
+      if (value) serials.push(String(value).trim());
+    }
+  }
+
+  for (const field of raw.item_custom_fields ?? raw.custom_fields ?? []) {
+    const label = String(field.label ?? field.api_name ?? field.customfield_id ?? '').toLowerCase();
+    if (!label.includes('serial') && !label.includes('mac')) continue;
+    const value = field.value ?? field.value_formatted;
+    if (value) serials.push(String(value).trim());
+  }
+
+  const description = raw.description ? String(raw.description) : '';
+  if (description) {
+    const pattern = /\b(?:serial(?:\s*number)?|s\/n|sn|mac(?:\s*id)?)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,})/gi;
+    let match = pattern.exec(description);
+    while (match) {
+      if (match[1]) serials.push(match[1].trim());
+      match = pattern.exec(description);
+    }
+  }
+
+  return [...new Set(serials.filter(Boolean))];
+}
+
 export function mapInvoiceLineItem(raw, imageUrl = null) {
   return {
     id: String(raw.line_item_id ?? raw.item_id ?? raw.id ?? ''),
@@ -34,6 +84,7 @@ export function mapInvoiceLineItem(raw, imageUrl = null) {
     rate: Number(raw.rate ?? 0),
     total: Number(raw.item_total ?? raw.total ?? 0),
     imageUrl,
+    serialNumbers: extractLineItemSerialNumbers(raw),
   };
 }
 
@@ -46,6 +97,7 @@ export function buildInvoiceSearchBlob(invoiceRaw) {
   ];
   for (const item of invoiceRaw.line_items ?? invoiceRaw.lineItems ?? []) {
     parts.push(item.name, item.item_name, item.description, item.sku);
+    parts.push(...extractLineItemSerialNumbers(item));
   }
   return parts
     .filter(Boolean)

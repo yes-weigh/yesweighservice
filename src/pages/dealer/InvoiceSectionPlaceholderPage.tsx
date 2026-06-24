@@ -1,20 +1,21 @@
 import React from 'react';
 import { useOutletContext } from 'react-router-dom';
+import { FIRM_NAME } from '../../constants/brand';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
 import type { InvoiceDetailSection } from '../../components/invoices/InvoiceDetailTop';
 
 const PLACEHOLDER_COPY: Record<Exclude<InvoiceDetailSection, 'invoice'>, { title: string; body: string }> = {
   payments: {
     title: 'Payments',
-    body: 'Payment history is not available in the portal yet. Contact YesOne accounts for payment details.',
+    body: `Payment history is not available in the portal yet. Contact ${FIRM_NAME} accounts for payment details.`,
   },
   logistic: {
     title: 'Logistics',
-    body: 'Shipment tracking is not available in the portal yet. Contact YesOne support for delivery updates.',
+    body: `Shipment tracking is not available in the portal yet. Contact ${FIRM_NAME} support for delivery updates.`,
   },
   qc: {
     title: 'Quality control',
-    body: 'QC records for this invoice are not available in the portal yet. Contact YesOne support for inspection details.',
+    body: `QC records for this invoice are not available in the portal yet. Contact ${FIRM_NAME} support for inspection details.`,
   },
 };
 

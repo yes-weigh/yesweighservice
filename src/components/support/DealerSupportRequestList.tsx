@@ -26,6 +26,7 @@ interface DealerSupportRequestListProps {
 }
 
 const TYPE_OPTIONS = ['all', 'service', 'return', 'complaint'] as const;
+const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'open';
 
 export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> = ({
   requests,
@@ -35,7 +36,7 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   onRefresh,
 }) => {
   const { user } = useAuth();
-  const [lifecycleFilter, setLifecycleFilter] = useState<SupportLifecycleFilter>('all');
+  const [lifecycleFilter, setLifecycleFilter] = useState<SupportLifecycleFilter>(DEFAULT_LIFECYCLE_FILTER);
   const [sort, setSort] = useState<SupportSortOption>('newest');
   const [typeFilter, setTypeFilter] = useState<SupportTypeFilter>('all');
   const [showTypeFilter, setShowTypeFilter] = useState(false);
@@ -52,16 +53,16 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   );
 
   const activeFilterCount = [
-    lifecycleFilter !== 'all',
+    lifecycleFilter !== DEFAULT_LIFECYCLE_FILTER,
     typeFilter !== 'all',
     sort !== 'newest',
   ].filter(Boolean).length;
 
-  const hasNonDefaultFilters = lifecycleFilter !== 'all' || typeFilter !== 'all';
+  const hasNonDefaultFilters = lifecycleFilter !== DEFAULT_LIFECYCLE_FILTER || typeFilter !== 'all';
 
   const activeSummaryParts = useMemo(() => {
     const parts: string[] = [];
-    if (lifecycleFilter !== 'all') {
+    if (lifecycleFilter !== DEFAULT_LIFECYCLE_FILTER) {
       parts.push(SUPPORT_LIFECYCLE_FILTERS.find(option => option.value === lifecycleFilter)?.label ?? lifecycleFilter);
     }
     if (typeFilter !== 'all') {
@@ -71,7 +72,7 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   }, [lifecycleFilter, typeFilter]);
 
   const resetFilters = () => {
-    setLifecycleFilter('all');
+    setLifecycleFilter(DEFAULT_LIFECYCLE_FILTER);
     setTypeFilter('all');
     setSort('newest');
     setShowFilterSheet(false);

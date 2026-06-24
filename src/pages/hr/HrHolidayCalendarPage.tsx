@@ -169,7 +169,7 @@ export const HrHolidayCalendarPage: React.FC = () => {
         <CalendarDays size={20} aria-hidden />
         <div>
           <p className="text-sm">
-            Company and public holidays for YesOne staff — planning leave, service coverage,
+            Company and public holidays for Interweighing staff — planning leave, service coverage,
             and dealer support rosters.
           </p>
         </div>

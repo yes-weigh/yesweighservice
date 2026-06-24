@@ -114,6 +114,9 @@ export function supportRequestStatusLabel(request: DealerSupportRequest): string
 
 export function supportRequestStageSubtitle(request: DealerSupportRequest): string | null {
   if (!isSupportOpen(request) || !request.openStage) return null;
+  if (request.openStage === 'submitted') {
+    return 'We will review shortly';
+  }
   return dealerOpenStageLabel(request.openStage);
 }
 
@@ -220,6 +223,49 @@ export function formatSupportDaysSinceSubmission(createdAt: string | null | unde
   return `${days} days`;
 }
 
+/** Dealer-friendly relative age label for list cards. */
+export function formatSupportDaysAgo(createdAt: string | null | undefined): string {
+  const days = formatSupportDaysSinceSubmission(createdAt);
+  if (days === '—') return '';
+  if (days === '0 days') return 'Today';
+  if (days === '1 day') return '1 day ago';
+  return `${days} ago`;
+}
+
+/** Submitted date for list cards — date only, drops year when it matches the current year. */
+export function formatSupportSubmittedDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  const d = new Date(parsed);
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+}
+
+/** Submitted time for list cards. */
+export function formatSupportSubmittedTime(value: string | null | undefined): string {
+  if (!value) return '';
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return '';
+  return new Date(parsed).toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+export function supportRequestCardTitle(request: DealerSupportRequest): string {
+  return request.product?.name?.trim()
+    || request.subject?.trim()
+    || request.category?.trim()
+    || 'Support request';
+}
+
 export function supportRequestDueDate(request: DealerSupportRequest): Date | null {
   if (isSupportClosed(request) || isSupportDraft(request)) return null;
   if (slaPausedForStage(request.openStage)) return null;
@@ -272,6 +318,18 @@ export function formatSupportDateTime(value: string | null | undefined): string 
     hour12: true,
   });
   return `${date} • ${time}`;
+}
+
+/** Invoice date on support list cards — always includes day, month, and year. */
+export function formatSupportInvoiceListDate(value: string | null | undefined): string {
+  if (!value) return '';
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  return new Date(parsed).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 /** Compact invoice date for list cards — date only, drops year when it matches the current year. */

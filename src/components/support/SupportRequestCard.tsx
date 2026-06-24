@@ -1,10 +1,12 @@
 import React from 'react';
-import { Calendar, ChevronRight, Package } from 'lucide-react';
+import { ChevronRight, Package } from 'lucide-react';
 import type { DealerSupportRequest } from '../../types/dealer-support';
 import {
-  formatSupportDateTimeCompact,
-  formatSupportDaysSinceSubmission,
-  formatSupportInvoiceDateCompact,
+  formatSupportDaysAgo,
+  formatSupportInvoiceListDate,
+  formatSupportSubmittedDate,
+  formatSupportSubmittedTime,
+  supportRequestCardTitle,
   supportRequestIssueSummary,
   supportRequestStageSubtitle,
   supportRequestStatusLabel,
@@ -25,7 +27,9 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
   onClick,
 }) => {
   const statusTone = supportRequestStatusTone(request);
-  const daysSinceSubmission = formatSupportDaysSinceSubmission(request.createdAt);
+  const stageSubtitle = supportRequestStageSubtitle(request);
+  const title = supportRequestCardTitle(request);
+  const daysAgo = formatSupportDaysAgo(request.createdAt);
 
   return (
     <button type="button" className="support-ticket-card panel glass" onClick={onClick}>
@@ -39,51 +43,47 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
             </span>
           )}
         </div>
-
-        <p className="support-ticket-card__datetime text-sm">
-          <Calendar size={12} aria-hidden />
-          {formatSupportInvoiceDateCompact(invoiceDate)}
-        </p>
       </div>
 
-      <div className="support-ticket-card__body">
-        <div className="support-ticket-card__head">
-          <strong className="support-ticket-card__id">{request.requestNumber}</strong>
-          <span className={`support-ticket-card__status support-ticket-card__status--${statusTone}`}>
-            {supportRequestStatusLabel(request)}
-          </span>
+      <div className="support-ticket-card__content">
+        <div className="support-ticket-card__headline">
+          <p className="support-ticket-card__title">{title}</p>
+          <div className="support-ticket-card__status-stack">
+            <span className={`support-ticket-card__status support-ticket-card__status--${statusTone}`}>
+              {supportRequestStatusLabel(request)}
+            </span>
+            {stageSubtitle && (
+              <span className="support-ticket-card__stage">{stageSubtitle}</span>
+            )}
+          </div>
         </div>
 
-        {supportRequestStageSubtitle(request) && (
-          <p className="support-ticket-card__stage text-sm text-muted">
-            {supportRequestStageSubtitle(request)}
+        {request.invoiceNumber && (
+          <p className="support-ticket-card__invoice text-sm">
+            Inv {request.invoiceNumber}
+            {invoiceDate && <> · {formatSupportInvoiceListDate(invoiceDate)}</>}
           </p>
         )}
 
-        {request.product?.name && (
-          <p className="support-ticket-card__product">{request.product.name}</p>
-        )}
-        {request.subject && !request.product?.name && (
-          <p className="support-ticket-card__product">{request.subject}</p>
-        )}
+        <p className="support-ticket-card__issue text-sm">{supportRequestIssueSummary(request)}</p>
 
-        <div className="support-ticket-card__meta text-muted text-sm">
-          {request.invoiceNumber && <span>Invoice: {request.invoiceNumber}</span>}
-          {request.salesOrderNumber && <span>SO: {request.salesOrderNumber}</span>}
-        </div>
+        <span className="support-ticket-card__ref">Ref {request.requestNumber}</span>
       </div>
 
       <div className="support-ticket-card__aside">
-        <div className="support-ticket-card__age">
-          <strong className="support-ticket-card__age-value">{daysSinceSubmission}</strong>
-          <span className="support-ticket-card__submitted">
-            {formatSupportDateTimeCompact(request.createdAt)}
+        <div className="support-ticket-card__when">
+          <strong className="support-ticket-card__when-date">
+            {formatSupportSubmittedDate(request.createdAt)}
+          </strong>
+          <span className="support-ticket-card__when-time">
+            {formatSupportSubmittedTime(request.createdAt)}
           </span>
+          {daysAgo && (
+            <span className="support-ticket-card__when-ago">{daysAgo}</span>
+          )}
         </div>
         <ChevronRight size={18} className="support-ticket-card__chevron" aria-hidden />
       </div>
-
-      <p className="support-ticket-card__issue text-sm">{supportRequestIssueSummary(request)}</p>
     </button>
   );
 };

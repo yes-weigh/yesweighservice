@@ -5,6 +5,7 @@ import React, {
   useState,
 } from 'react';
 import { AlertCircle, ChevronDown, Paperclip, Send } from 'lucide-react';
+import { FIRM_NAME_SHORT } from '../../constants/brand';
 import { useAuth } from '../../context/AuthContext';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { isSupportClosed } from '../../lib/supportStatus';
@@ -37,7 +38,7 @@ type ThreadItem =
     };
 
 function roleLabel(role: string): string {
-  if (role === 'staff' || role === 'super_admin') return 'YesOne';
+  if (role === 'staff' || role === 'super_admin') return FIRM_NAME_SHORT;
   if (role === 'dealer') return 'Dealer';
   if (role === 'dealer_staff') return 'Dealer staff';
   return role;
@@ -402,7 +403,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
               placeholder={
                 isInternalOpsUser(user)
                   ? 'Message dealer…'
-                  : 'Message YesOne support…'
+                  : `Message ${FIRM_NAME_SHORT} support…`
               }
               value={text}
               onChange={e => {

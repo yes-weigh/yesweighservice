@@ -62,6 +62,7 @@ const superAdminOpsRoutes = (
   <>
     <Route path="orders" element={<DealerMenuPages.Orders />} />
     <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
+    <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
     <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
     <Route path="verification" element={<DealerMenuPages.Verification />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
@@ -76,6 +77,7 @@ const superAdminOpsRoutes = (
 const portalMenuRoutes = (
   <>
     <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
+    <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
     <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
     <Route path="invoices" element={<DealerMenuPages.Invoices />} />
     <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />}>
@@ -194,6 +196,7 @@ const App: React.FC = () => (
             <Route path="/dealer-staff" element={<Layout />}>
               <Route index element={<RoleDashboard />} />
               <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
+              <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
               <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
               <Route path="invoices" element={<DealerMenuPages.Invoices />} />
               <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />}>

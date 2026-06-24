@@ -33,6 +33,7 @@ export interface DealerInvoiceLineItem {
   rate: number;
   total: number;
   imageUrl: string | null;
+  serialNumbers?: string[];
 }
 
 export interface DealerInvoiceDetail extends DealerInvoice {

@@ -1,3 +1,4 @@
+import { FIRM_NAME_SHORT } from '../constants/brand';
 import type {
   DealerSupportRequest,
   SupportLifecycle,
@@ -69,8 +70,8 @@ export function dealerOpenStageLabel(stage: SupportOpenStage): string {
     submitted: 'Submitted — we will review shortly',
     under_review: 'Under review',
     awaiting_dealer: 'Awaiting your reply',
-    awaiting_product: 'Ship product to YesOne',
-    in_transit: 'On the way to YesOne',
+    awaiting_product: `Ship product to ${FIRM_NAME_SHORT}`,
+    in_transit: `On the way to ${FIRM_NAME_SHORT}`,
     in_workshop: 'Being repaired / inspected',
   };
   return labels[stage];

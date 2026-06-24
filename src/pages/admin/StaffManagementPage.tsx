@@ -254,7 +254,7 @@ export const StaffManagementPage: React.FC = () => {
         <div>
           <h2 className="staff-management-page__title">Staff roles &amp; access</h2>
           <p className="text-muted text-sm">
-            Assign departments and fine-tune permissions for YesOne internal teams.
+            Assign departments and fine-tune permissions for Interweighing internal teams.
           </p>
         </div>
         <div className="staff-management-page__hero-actions">

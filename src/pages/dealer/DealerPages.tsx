@@ -12,6 +12,7 @@ import { InvoicePdfViewerPage } from './InvoicePdfViewerPage';
 import { InvoiceSectionPlaceholderPage } from './InvoiceSectionPlaceholderPage';
 import { WarrantySupportPage } from './WarrantySupportPage';
 import { SupportRequestDetailPage } from './SupportRequestDetailPage';
+import { ComplaintGuidelinesPage } from './ComplaintGuidelinesPage';
 
 function DealerInvoicesRoute() {
   const { user } = useAuth();
@@ -62,6 +63,7 @@ export const RoleDashboard: React.FC = () => {
 export const DealerMenuPages = {
   WarrantySupport: WarrantySupportPage,
   SupportRequestDetail: SupportRequestDetailPage,
+  ComplaintGuidelines: ComplaintGuidelinesPage,
   Invoices: DealerInvoicesRoute,
   InvoiceDetail: DealerInvoiceDetailRoute,
   InvoiceDocument: InvoiceDocumentPage,

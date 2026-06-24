@@ -9,7 +9,8 @@ import type { SupportAttachment, SupportAttachmentKind } from '../types/dealer-s
 const functions = getFunctions(app, 'asia-south1');
 
 export const MAX_SUPPORT_ATTACHMENTS = 5;
-export const MAX_EVIDENCE_PHOTOS = 4;
+export const REQUIRED_EVIDENCE_PHOTO_SLOTS: EvidencePhotoSlot[] = ['serial', 'label'];
+export const MAX_EVIDENCE_PHOTOS = REQUIRED_EVIDENCE_PHOTO_SLOTS.length;
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 /** Must match functions/lib/support-attachments.js MAX_SERVER_UPLOAD_BYTES */
 const MAX_SERVER_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -22,12 +23,15 @@ export type SupportSubmitProgress = {
   fileCount?: number;
 };
 
+export type EvidencePhotoSlot = 'serial' | 'label';
+
 export interface PendingSupportFile {
   id: string;
   file: File;
   previewUrl: string;
   kind: SupportAttachmentKind;
   gpsLabel?: string | null;
+  photoSlot?: EvidencePhotoSlot | null;
 }
 
 export function isVideoFile(file: File): boolean {
@@ -51,18 +55,25 @@ export function validateSupportFile(file: File): string | null {
   return null;
 }
 
-export function createPendingSupportFile(file: File, gpsLabel?: string | null): PendingSupportFile {
+export function createPendingSupportFile(
+  file: File,
+  options?: { gpsLabel?: string | null; photoSlot?: EvidencePhotoSlot | null },
+): PendingSupportFile {
   const kind: SupportAttachmentKind = isVideoFile(file) ? 'video' : 'image';
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     file,
     previewUrl: URL.createObjectURL(file),
     kind,
-    gpsLabel: gpsLabel ?? null,
+    gpsLabel: options?.gpsLabel ?? null,
+    photoSlot: options?.photoSlot ?? null,
   };
 }
 
-export async function createPendingEvidencePhoto(file: File): Promise<PendingSupportFile> {
+export async function createPendingEvidencePhoto(
+  file: File,
+  photoSlot?: EvidencePhotoSlot,
+): Promise<PendingSupportFile> {
   const err = validateSupportFile(file);
   if (err) throw new Error(err);
   if (!isImageFile(file)) throw new Error('Only image files are allowed for photo evidence.');
@@ -70,7 +81,7 @@ export async function createPendingEvidencePhoto(file: File): Promise<PendingSup
   const coords = await getCurrentGpsCoords();
   const gpsLabel = formatGpsLabel(coords);
   const overlaid = await applyGpsOverlayToImage(file, gpsLabel);
-  return createPendingSupportFile(overlaid, gpsLabel);
+  return createPendingSupportFile(overlaid, { gpsLabel, photoSlot });
 }
 
 export function hasEvidenceVideo(files: PendingSupportFile[]): boolean {
@@ -80,6 +91,12 @@ export function hasEvidenceVideo(files: PendingSupportFile[]): boolean {
 export function validateEvidenceFiles(files: PendingSupportFile[]): string | null {
   if (!hasEvidenceVideo(files)) {
     return 'Record a video for evidence.';
+  }
+  for (const slot of REQUIRED_EVIDENCE_PHOTO_SLOTS) {
+    if (!files.some(file => file.kind === 'image' && file.photoSlot === slot)) {
+      if (slot === 'serial') return 'Add a serial number / MAC ID photo.';
+      return 'Add a product label photo.';
+    }
   }
   return null;
 }

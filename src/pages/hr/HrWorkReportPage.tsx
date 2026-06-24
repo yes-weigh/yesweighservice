@@ -70,7 +70,7 @@ export const HrWorkReportPage: React.FC<HrWorkReportPageProps> = ({ basePath }) 
         <BarChart3 size={20} aria-hidden />
         <div>
           <p className="text-sm">
-            Monthly activity for YesOne staff — dealer KAM accounts, warranty &amp; support
+            Monthly activity for Interweighing staff — dealer KAM accounts, warranty &amp; support
             replies, and new staff onboarded in the portal.
           </p>
         </div>

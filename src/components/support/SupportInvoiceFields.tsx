@@ -1,13 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { InvoiceDocumentBody } from '../invoices/InvoiceDocumentBody';
 import { FetchingLoader } from '../FetchingLoader';
 import {
   fetchDealerInvoiceDetailWithCache,
   fetchDealerInvoicesWithCache,
+  findLineItemBySerialQuery,
   formatInvoiceDate,
   isFreightInvoiceLineItem,
   isServiceExcludedLineItem,
+  normalizeInvoiceSearchNeedle,
 } from '../../lib/invoices';
 import type { DealerInvoice, DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
 import type { SupportProductDraft, SupportRequestType } from '../../types/dealer-support';
@@ -25,6 +27,17 @@ export interface SupportInvoicePick {
   invoiceId: string;
   invoiceNumber: string;
   salesOrderNumber: string | null;
+  matchedSerialQuery?: string | null;
+}
+
+function invoicePickLooksLikeSerialSearch(pick: SupportInvoicePick, query: string): boolean {
+  const needle = normalizeInvoiceSearchNeedle(query);
+  if (!needle) return false;
+  if (normalizeInvoiceSearchNeedle(pick.invoiceNumber) === needle) return false;
+  if (pick.salesOrderNumber && normalizeInvoiceSearchNeedle(pick.salesOrderNumber) === needle) {
+    return false;
+  }
+  return true;
 }
 
 function invoiceToPick(invoice: DealerInvoice): SupportInvoicePick {
@@ -80,8 +93,8 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
   const debouncedQuery = useDebounce(query, 250);
 
   useEffect(() => {
-    setQuery(value?.invoiceNumber ?? '');
-  }, [value?.invoiceId, value?.invoiceNumber]);
+    setQuery(value?.matchedSerialQuery ?? value?.invoiceNumber ?? '');
+  }, [value?.invoiceId, value?.invoiceNumber, value?.matchedSerialQuery]);
 
   useEffect(() => {
     if (!open || disabled) return;
@@ -121,15 +134,17 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
 
   const pickInvoice = (invoice: DealerInvoice) => {
     const pick = invoiceToPick(invoice);
-    setQuery(pick.invoiceNumber);
-    onChange(pick);
+    const query = debouncedQuery.trim();
+    const matchedSerialQuery = invoicePickLooksLikeSerialSearch(pick, query) ? query : null;
+    setQuery(matchedSerialQuery ?? pick.invoiceNumber);
+    onChange({ ...pick, matchedSerialQuery });
     setOpen(false);
   };
 
   const handleInputChange = (next: string) => {
     setQuery(next);
     setOpen(true);
-    if (value && next.trim() !== value.invoiceNumber) {
+    if (value && next.trim() !== (value.matchedSerialQuery ?? value.invoiceNumber)) {
       onChange(null);
     }
   };
@@ -164,7 +179,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
       {open && !disabled && (
         <ul
           id={`${id}-listbox`}
-          className="support-invoice-field__menu panel glass"
+          className="support-invoice-field__menu"
           role="listbox"
         >
           {suggestions.length === 0 && !loading ? (
@@ -209,6 +224,8 @@ interface SupportInvoiceProductPickerProps {
   userId: string;
   value: SupportProductDraft | null;
   onChange: (draft: SupportProductDraft | null) => void;
+  onNext?: () => void;
+  onMatchedSerial?: (serial: string) => void;
   disabled?: boolean;
   requestType?: Extract<SupportRequestType, 'service' | 'return'>;
 }
@@ -225,6 +242,8 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
   userId,
   value,
   onChange,
+  onNext,
+  onMatchedSerial,
   disabled = false,
   requestType,
 }) => {
@@ -240,11 +259,6 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
   const [invoiceDetail, setInvoiceDetail] = useState<DealerInvoiceDetail | null>(null);
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsError, setItemsError] = useState('');
-
-  const productLineItems = useMemo(
-    () => (invoiceDetail?.lineItems ?? []).filter(item => !isExcludedSupportLineItem(item, requestType)),
-    [invoiceDetail, requestType],
-  );
 
   useEffect(() => {
     if (!invoice) {
@@ -279,19 +293,33 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
     };
   }, [invoice, userId, requestType]);
 
+  useEffect(() => {
+    const query = invoice?.matchedSerialQuery?.trim();
+    if (!invoiceDetail || !invoice || !query || loadingItems) return;
+
+    const match = findLineItemBySerialQuery(
+      invoiceDetail.lineItems,
+      query,
+      item => isExcludedSupportLineItem(item, requestType),
+    );
+    if (!match) return;
+    if (value?.lineItemId === match.item.id) return;
+
+    onChange(lineItemToDraft(invoice, match.item));
+    onMatchedSerial?.(match.serial);
+  }, [
+    invoice,
+    invoiceDetail,
+    loadingItems,
+    onChange,
+    onMatchedSerial,
+    requestType,
+    value?.lineItemId,
+  ]);
+
   const handleInvoiceChange = (pick: SupportInvoicePick | null) => {
     setInvoice(pick);
     onChange(null);
-  };
-
-  const handleProductChange = (lineItemId: string) => {
-    if (!invoice) return;
-    const item = productLineItems.find(line => line.id === lineItemId);
-    if (!item) {
-      onChange(null);
-      return;
-    }
-    onChange(lineItemToDraft(invoice, item));
   };
 
   const handleProductPick = (item: DealerInvoiceLineItem) => {
@@ -309,6 +337,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
         disabled={disabled}
         id="support-invoice"
         label="Invoice number"
+        placeholder="Search invoice, serial number, or MAC ID…"
       />
 
       {invoice && loadingItems && (
@@ -321,49 +350,19 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
             invoice={invoiceDetail}
             selectedLineItemId={value?.lineItemId}
             onSelectLineItem={handleProductPick}
+            onConfirmLineItem={value?.lineItemId && onNext ? onNext : undefined}
             hideLineItem={
               requestType === 'service' ? isServiceExcludedLineItem : undefined
             }
             hideTotals={requestType === 'service'}
           />
+          {itemsError && (
+            <p className="support-invoice-field__hint support-invoice-field__hint--error text-sm">
+              {itemsError}
+            </p>
+          )}
         </div>
       )}
-
-      <div className="form-group">
-        <label htmlFor="support-product">
-          Product
-          <span className="form-label__required" aria-hidden> *</span>
-        </label>
-        <select
-          id="support-product"
-          className="catalog-select"
-          value={value?.lineItemId ?? ''}
-          onChange={e => handleProductChange(e.target.value)}
-          disabled={disabled || !invoice || loadingItems || productLineItems.length === 0}
-          required
-        >
-          <option value="">
-            {!invoice
-              ? 'Select an invoice first'
-              : loadingItems
-                ? 'Loading products…'
-                : 'Or pick a product from the list above'}
-          </option>
-          {productLineItems.map(item => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-              {item.sku ? ` (${item.sku})` : ''}
-              {' · Qty '}
-              {item.quantity}
-            </option>
-          ))}
-        </select>
-        {itemsError && (
-          <p className="support-invoice-field__hint support-invoice-field__hint--error text-sm">
-            {itemsError}
-          </p>
-        )}
-      </div>
     </div>
   );
 };

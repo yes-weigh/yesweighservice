@@ -22,6 +22,7 @@ interface LocationState {
   resumeDraft?: DealerSupportRequest;
   createdRequestNumber?: string;
   createdRequestType?: SupportRequestType;
+  openWizard?: boolean;
 }
 
 export const WarrantySupportPage: React.FC = () => {
@@ -38,7 +39,7 @@ export const WarrantySupportPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showWizard, setShowWizard] = useState(
-    Boolean(state.draft || state.intent || state.resumeDraft),
+    Boolean(state.draft || state.intent || state.resumeDraft || state.openWizard),
   );
   const [successMessage, setSuccessMessage] = useState(state.createdRequestNumber ?? '');
   const [draftMessage, setDraftMessage] = useState('');
@@ -68,13 +69,13 @@ export const WarrantySupportPage: React.FC = () => {
   }, [load]);
 
   useEffect(() => {
-    if (state.draft || state.intent || state.resumeDraft) {
+    if (state.draft || state.intent || state.resumeDraft || state.openWizard) {
       setShowWizard(true);
     }
     if (state.resumeDraft) {
       setResumeDraft(state.resumeDraft);
     }
-  }, [state.draft, state.intent, state.resumeDraft]);
+  }, [state.draft, state.intent, state.resumeDraft, state.openWizard]);
 
   const openRequest = (request: DealerSupportRequest) => {
     if (!user) return;

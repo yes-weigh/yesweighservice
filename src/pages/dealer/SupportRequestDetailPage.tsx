@@ -7,6 +7,7 @@ import { SupportCourierInstructions } from '../../components/support/SupportCour
 import { SupportAssigneeSelect } from '../../components/support/SupportAssigneeSelect';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
+import { FIRM_NAME } from '../../constants/brand';
 import { formatInvoiceDate } from '../../lib/invoices';
 import {
   approveSupportRequestForCourier,
@@ -380,7 +381,7 @@ export const SupportRequestDetailPage: React.FC = () => {
             Mark product as shipped
           </h3>
           <p className="text-muted text-sm">
-            After you courier the product to YesOne, confirm shipment below. Add a tracking number if you have one.
+            After you courier the product to {FIRM_NAME}, confirm shipment below. Add a tracking number if you have one.
           </p>
           <div className="support-detail-ship__form">
             <input
@@ -410,7 +411,7 @@ export const SupportRequestDetailPage: React.FC = () => {
         && isSupportOpen(request)
         && (request.openStage === 'submitted' || request.openStage === 'under_review') && (
         <p className="support-detail-page__notice panel glass text-sm text-muted">
-          Your request is under review. Shipping instructions will appear here once YesOne approves courier.
+          Your request is under review. Shipping instructions will appear here once {FIRM_NAME} approves courier.
         </p>
       )}
 

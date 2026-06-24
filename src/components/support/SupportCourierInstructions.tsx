@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { Check, Copy, MapPin, PackageCheck } from 'lucide-react';
 import { db } from '../../firebase';
+import { FIRM_NAME } from '../../constants/brand';
 import {
   DEFAULT_SUPPORT_COURIER,
   SUPPORT_PACKING_CHECKLIST,
@@ -70,7 +71,7 @@ export const SupportCourierInstructions: React.FC<SupportCourierInstructionsProp
       <div className="support-courier-instructions__approval">
         <strong>Next step after approval</strong>
         <p className="text-muted text-sm">
-          Once YesOne approves
+          Once {FIRM_NAME} approves
           {requestNumber ? <> request <strong>{requestNumber}</strong></> : ' your request'}
           , courier the product to the address below.
         </p>

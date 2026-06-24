@@ -1,3 +1,5 @@
+import { FIRM_NAME } from '../constants/brand';
+
 export type SupportRequestType = 'service' | 'return' | 'complaint';
 
 export type SupportLifecycle = 'draft' | 'open' | 'resolved' | 'cancelled';
@@ -166,7 +168,7 @@ export const SUPPORT_TYPE_LABELS: Record<SupportRequestType, string> = {
 };
 
 export const DEALER_COURIER_NOTICE =
-  'For repair and replacement, courier the product to YesOne after your request is approved. This is the standard process for all dealers.';
+  `For repair and replacement, courier the product to ${FIRM_NAME} after your request is approved. This is the standard process for all dealers.`;
 
 export const SUPPORT_INTENT_OPTIONS: Array<{
   value: SupportRequestType;
@@ -176,20 +178,20 @@ export const SUPPORT_INTENT_OPTIONS: Array<{
 }> = [
   {
     value: 'service',
-    title: 'Repair or technical support',
+    title: 'Repair / Technical Support',
     description: 'Product is faulty, needs calibration, spare parts, or warranty repair.',
-    hint: 'Courier the unit to YesOne — our workshop will diagnose and repair it.',
+    hint: `Courier the unit to ${FIRM_NAME} — our workshop will diagnose and repair it.`,
   },
   {
     value: 'return',
-    title: 'Full product replacement',
+    title: 'Full Product Replacement',
     description: 'Unit must be swapped under warranty — dead on arrival, beyond repair, or wrong item.',
-    hint: 'Courier the unit to YesOne — we inspect and send a replacement.',
+    hint: `Courier the unit to ${FIRM_NAME} — we inspect and send a replacement.`,
   },
   {
     value: 'complaint',
-    title: 'Register a complaint',
-    description: 'Issue with billing, delivery, order accuracy, or how your case was handled.',
+    title: 'Other / Non-Product Complaint',
+    description: 'Issue with billing, delivery, order accuracy, service experience, or any other non-product related matter.',
     hint: 'No courier needed unless we ask you to send a product for review.',
   },
 ];

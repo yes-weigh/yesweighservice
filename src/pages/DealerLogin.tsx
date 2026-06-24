@@ -190,7 +190,7 @@ export const DealerLogin: React.FC = () => {
                 />
               </div>
               <p className="text-muted text-sm login-id-hint">
-                Use the phone number registered with your YesOne dealer account
+                Use the phone number registered with your Interweighing dealer account
               </p>
             </div>
 

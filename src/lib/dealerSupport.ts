@@ -16,6 +16,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, app } from '../firebase';
+import { FIRM_NAME } from '../constants/brand';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import type { User } from '../types';
 import { normalizeRole } from '../types';
@@ -249,6 +250,10 @@ export function supportBasePath(role: User['role']): string {
 
 export function supportDetailPath(role: User['role'], requestId: string): string {
   return `${supportBasePath(role)}/${requestId}`;
+}
+
+export function supportComplaintGuidelinesPath(role: User['role']): string {
+  return `${supportBasePath(role)}/complaint-guidelines`;
 }
 
 export function canUserAccessSupportRequest(user: User, request: DealerSupportRequest): boolean {
@@ -837,7 +842,7 @@ export async function cancelSupportRequest(
   } else if (!canUserAccessSupportRequest(user, request) || !isSupportOpen(request)) {
     throw new Error('You cannot cancel this request.');
   } else if (!canDealerCancelSupportRequest(request)) {
-    throw new Error('This request can no longer be cancelled here. Contact YesOne support.');
+    throw new Error(`This request can no longer be cancelled here. Contact ${FIRM_NAME} support.`);
   }
 
   const now = new Date().toISOString();

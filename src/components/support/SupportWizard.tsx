@@ -1,14 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  ArrowLeft,
   ArrowRight,
-  Headphones,
+  ChevronRight,
+  HelpCircle,
   MessageSquareWarning,
   Package,
   RotateCcw,
+  Wrench,
 } from 'lucide-react';
-import { createSupportRequest, deleteSupportRequestDraft, saveSupportRequestDraft } from '../../lib/dealerSupport';
+import { createSupportRequest, deleteSupportRequestDraft, saveSupportRequestDraft, supportComplaintGuidelinesPath } from '../../lib/dealerSupport';
 import { useConfirm } from '../../context/ConfirmContext';
+import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
 import { SupportCourierInstructions } from './SupportCourierInstructions';
 import type { User } from '../../types';
 import type {
@@ -22,7 +25,6 @@ import {
   SERVICE_ISSUE_OPTIONS,
   SUPPORT_INTENT_OPTIONS,
   SUPPORT_TYPE_LABELS,
-  DEALER_COURIER_NOTICE,
   supportCategoryValueFromStored,
 } from '../../types/dealer-support';
 import {
@@ -95,9 +97,9 @@ interface SupportWizardProps {
 }
 
 const INTENT_ICONS: Record<SupportRequestType, React.ReactNode> = {
-  service: <Headphones size={22} />,
-  return: <RotateCcw size={22} />,
-  complaint: <MessageSquareWarning size={22} />,
+  service: <Wrench size={22} strokeWidth={2.2} />,
+  return: <RotateCcw size={22} strokeWidth={2.2} />,
+  complaint: <MessageSquareWarning size={22} strokeWidth={2.2} />,
 };
 
 function supportActionErrorMessage(err: unknown, fallback: string): string {
@@ -158,6 +160,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [submitProgress, setSubmitProgress] = useState<SupportSubmitProgress | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const confirm = useConfirm();
+  const formRef = useRef<HTMLFormElement>(null);
 
   const isBusy = submitting || savingDraft || discarding;
 
@@ -277,6 +280,10 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setError('Please describe the issue.');
       return;
     }
+    if (needsProduct && !serialNumber.trim()) {
+      setError('Enter the serial number or MAC ID.');
+      return;
+    }
     const evidenceError = validateEvidenceFiles(pendingFiles);
     if (evidenceError) {
       setError(evidenceError);
@@ -303,6 +310,93 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setSubmitProgress(null);
     }
   };
+
+  const wizardTitle = useMemo(() => {
+    if (step === 'success') return 'Request submitted';
+    if (step === 'intent') return 'New request';
+    if (step === 'product') return needsProduct ? 'Invoice & product' : 'Link invoice';
+    return 'Request details';
+  }, [step, needsProduct]);
+
+  const handleWizardBack = useCallback(() => {
+    if (step === 'intent' || step === 'success') {
+      onCancel();
+      return;
+    }
+    if (step === 'product') {
+      if (initialIntent) onCancel();
+      else setStep('intent');
+      return;
+    }
+    if (productDraft) onCancel();
+    else setStep('product');
+  }, [step, initialIntent, productDraft, onCancel]);
+
+  const handleSuccessDone = useCallback(() => {
+    if (submittedRequestNumber && intent && createdRequestId) {
+      onSuccess(submittedRequestNumber, intent, createdRequestId);
+      return;
+    }
+    onCancel();
+  }, [submittedRequestNumber, intent, createdRequestId, onSuccess, onCancel]);
+
+  useCatalogPageHeader({
+    title: wizardTitle,
+    showBack: step !== 'success',
+    onBack: handleWizardBack,
+  });
+
+  const wizardTopBarAction = useMemo(() => {
+    if (step === 'intent' && intent) {
+      return (
+        <button
+          type="button"
+          className="top-bar__action-btn top-bar__action-btn--primary"
+          onClick={() => proceedWithIntent(intent)}
+        >
+          Next
+        </button>
+      );
+    }
+    if (step === 'product' && intent) {
+      return (
+        <button
+          type="button"
+          className="top-bar__action-btn top-bar__action-btn--primary"
+          onClick={handleProductNext}
+          disabled={isBusy}
+        >
+          Next
+        </button>
+      );
+    }
+    if (step === 'details' && intent) {
+      return (
+        <button
+          type="button"
+          className="top-bar__action-btn top-bar__action-btn--primary"
+          onClick={() => formRef.current?.requestSubmit()}
+          disabled={isBusy}
+        >
+          {submitting ? 'Submitting…' : 'Submit'}
+        </button>
+      );
+    }
+    if (step === 'success') {
+      return (
+        <button
+          type="button"
+          className="top-bar__action-btn top-bar__action-btn--primary"
+          onClick={handleSuccessDone}
+        >
+          Done
+        </button>
+      );
+    }
+    return null;
+  }, [step, intent, isBusy, submitting, handleProductNext, handleSuccessDone]);
+
+  useTopBarAction(wizardTopBarAction, Boolean(wizardTopBarAction));
 
   if (step === 'success' && intent) {
     return (
@@ -347,7 +441,10 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
   return (
     <div className="support-wizard">
-      <div className="support-wizard__progress support-wizard__progress--three" aria-hidden>
+      <div
+        className={`support-wizard__progress support-wizard__progress--three${step === 'intent' ? ' support-wizard__progress--hidden' : ''}`}
+        aria-hidden={step === 'intent'}
+      >
         <span className={progressStepState(step, 1)}>1</span>
         <span className="support-wizard__progress-line" />
         <span className={progressStepState(step, 2)}>2</span>
@@ -358,60 +455,67 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       {error && <p className="support-wizard__error">{error}</p>}
 
       {step === 'intent' && (
-        <section className="support-wizard__step panel glass">
-          <h3 className="support-wizard__question">What do you need help with?</h3>
-          <p className="support-wizard__lead text-muted text-sm">
-            Choose the option that best matches your situation. This helps our team route
-            your case to the right department.
-          </p>
-          <p className="support-wizard__courier-note">{DEALER_COURIER_NOTICE}</p>
+        <section className="support-wizard__intent">
+          <h2 className="support-wizard__question">What do you need help with?</h2>
 
           <div className="support-wizard__options" role="radiogroup" aria-label="Support type">
             {SUPPORT_INTENT_OPTIONS.map(option => {
               const selected = intent === option.value;
               return (
-              <div
-                key={option.value}
-                className={`support-wizard__option ${selected ? 'is-selected' : ''}`}
-                role="radio"
-                aria-checked={selected}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => selectIntent(option.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    selectIntent(option.value);
-                  }
-                }}
-              >
-                <span className="support-wizard__option-icon">{INTENT_ICONS[option.value]}</span>
-                <span className="support-wizard__option-body">
-                  <strong>{option.title}</strong>
-                  <span className="support-wizard__option-desc">{option.description}</span>
-                  <span className="support-wizard__option-hint">{option.hint}</span>
-                  {selected && (
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm support-wizard__option-next"
-                      onClick={e => {
-                        e.stopPropagation();
-                        proceedWithIntent(option.value);
-                      }}
-                    >
-                      Next
-                      <ArrowRight size={16} />
-                    </button>
+                <div
+                  key={option.value}
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  className={`support-wizard__option support-wizard__option--${option.value} ${selected ? 'is-selected' : ''}`}
+                  onClick={() => selectIntent(option.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      selectIntent(option.value);
+                    }
+                  }}
+                >
+                  <span className="support-wizard__option-icon">{INTENT_ICONS[option.value]}</span>
+                  <span className="support-wizard__option-body">
+                    <strong>{option.title}</strong>
+                    <span className="support-wizard__option-desc">{option.description}</span>
+                    <span className="support-wizard__option-hint">{option.hint}</span>
+                    {selected && (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm support-wizard__option-next"
+                        onClick={e => {
+                          e.stopPropagation();
+                          proceedWithIntent(option.value);
+                        }}
+                      >
+                        Next
+                        <ArrowRight size={16} />
+                      </button>
+                    )}
+                  </span>
+                  {!selected && (
+                    <ChevronRight size={20} className="support-wizard__option-chevron" aria-hidden />
                   )}
-                </span>
-              </div>
+                </div>
               );
             })}
           </div>
 
-          <div className="support-wizard__actions">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
-              Cancel
-            </button>
+          <div className="support-wizard__help-footer">
+            <h3 className="support-wizard__help-title">Need help choosing?</h3>
+            <Link
+              to={supportComplaintGuidelinesPath(user.role)}
+              state={{ openWizard: true }}
+              className="support-wizard__guidelines-link"
+            >
+              <span className="support-wizard__guidelines-link-icon" aria-hidden>
+                <HelpCircle size={18} />
+              </span>
+              <span className="support-wizard__guidelines-link-label">View Complaint Guidelines</span>
+              <ChevronRight size={18} className="support-wizard__guidelines-link-chevron" aria-hidden />
+            </Link>
           </div>
         </section>
       )}
@@ -419,28 +523,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       {step === 'product' && intent && (
         <section className="support-wizard__step support-wizard__step--details panel glass">
           <div className="support-wizard__step-body">
-            <button
-              type="button"
-              className="support-wizard__back-link"
-              onClick={() => {
-                if (initialIntent) {
-                  onCancel();
-                } else {
-                  setStep('intent');
-                }
-              }}
-            >
-              <ArrowLeft size={15} />
-              {initialIntent ? 'Cancel' : 'Change request type'}
-            </button>
-
             <h3 className="support-wizard__question">
               {needsProduct ? 'Select invoice & product' : 'Link invoice'}
             </h3>
-
-            {needsProduct && (
-              <p className="support-wizard__courier-note">{DEALER_COURIER_NOTICE}</p>
-            )}
 
             {productDraft && (
               <div className="support-wizard__product panel glass">
@@ -460,6 +545,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                 userId={user.uid}
                 value={productSelection}
                 onChange={setProductSelection}
+                onNext={handleProductNext}
+                onMatchedSerial={setSerialNumber}
                 disabled={isBusy}
                 requestType={intent === 'service' || intent === 'return' ? intent : undefined}
               />
@@ -478,20 +565,20 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             )}
           </div>
 
-          <div className="support-wizard__actions support-wizard__actions--dock" aria-label="Form actions">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={handleProductNext}>
-              Next
-              <ArrowRight size={16} />
-            </button>
-          </div>
+          {!needsProduct && (
+            <div className="support-wizard__actions support-wizard__actions--dock" aria-label="Form actions">
+              <button type="button" className="btn btn-primary btn-sm" onClick={handleProductNext}>
+                Next
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          )}
         </section>
       )}
 
       {step === 'details' && intent && (
         <form
+          ref={formRef}
           className={[
             'support-wizard__step support-wizard__step--details panel glass',
             isBusy && submitProgress ? 'support-wizard__step--busy' : '',
@@ -499,30 +586,11 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           onSubmit={e => void handleSubmit(e)}
         >
           <div className="support-wizard__step-body">
-          <button
-            type="button"
-            className="support-wizard__back-link"
-            onClick={() => {
-              if (productDraft) {
-                onCancel();
-              } else {
-                setStep('product');
-              }
-            }}
-          >
-            <ArrowLeft size={15} />
-            {productDraft ? 'Cancel' : 'Back to invoice & product'}
-          </button>
-
           <h3 className="support-wizard__question">
             {intent === 'service' && 'Service / repair details'}
             {intent === 'return' && 'Replacement request details'}
             {intent === 'complaint' && 'Complaint details'}
           </h3>
-
-          {needsProduct && (
-            <p className="support-wizard__courier-note">{DEALER_COURIER_NOTICE}</p>
-          )}
 
           {selectedProduct && (
             <div className="support-wizard__product panel glass">
@@ -551,14 +619,18 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
           {needsProduct && (
             <div className="form-group">
-              <label htmlFor="support-serial">Serial number</label>
+              <label htmlFor="support-serial">
+                Serial number / MAC ID
+                <span className="form-label__required" aria-hidden> *</span>
+              </label>
               <input
                 id="support-serial"
                 className="catalog-select"
                 value={serialNumber}
                 onChange={e => setSerialNumber(e.target.value)}
-                placeholder="Unit serial number, if available"
+                placeholder="Enter serial number or MAC ID"
                 disabled={isBusy}
+                required
               />
             </div>
           )}

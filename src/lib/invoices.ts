@@ -619,3 +619,75 @@ export function formatInvoiceItemQuantity(quantity: number | null): string {
   if (quantity === null) return '—';
   return quantity.toLocaleString('en-IN');
 }
+
+export function normalizeInvoiceSearchNeedle(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+function serialNumbersFromLineItem(item: Pick<DealerInvoiceLineItem, 'description' | 'serialNumbers'>): string[] {
+  if (item.serialNumbers?.length) {
+    return item.serialNumbers.map(value => value.trim()).filter(Boolean);
+  }
+  if (!item.description) return [];
+
+  const pattern = /\b(?:serial(?:\s*number)?|s\/n|sn|mac(?:\s*id)?)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,})/gi;
+  const serials: string[] = [];
+  let match = pattern.exec(item.description);
+  while (match) {
+    if (match[1]) serials.push(match[1].trim());
+    match = pattern.exec(item.description);
+  }
+  return [...new Set(serials)];
+}
+
+export function lineItemMatchesSerialQuery(
+  item: Pick<DealerInvoiceLineItem, 'description' | 'serialNumbers'>,
+  query: string,
+): boolean {
+  const needle = normalizeInvoiceSearchNeedle(query);
+  if (!needle) return false;
+
+  return serialNumbersFromLineItem(item).some(serial => {
+    const normalized = normalizeInvoiceSearchNeedle(serial);
+    return normalized === needle || normalized.includes(needle) || needle.includes(normalized);
+  });
+}
+
+export function findLineItemBySerialQuery(
+  lineItems: DealerInvoiceLineItem[],
+  query: string,
+  excludeItem?: (item: DealerInvoiceLineItem) => boolean,
+): { item: DealerInvoiceLineItem; serial: string } | null {
+  const needle = normalizeInvoiceSearchNeedle(query);
+  if (!needle) return null;
+
+  const candidates = lineItems.filter(item => !excludeItem?.(item));
+
+  for (const item of candidates) {
+    for (const serial of serialNumbersFromLineItem(item)) {
+      const normalized = normalizeInvoiceSearchNeedle(serial);
+      if (normalized === needle) {
+        return { item, serial };
+      }
+    }
+  }
+
+  for (const item of candidates) {
+    for (const serial of serialNumbersFromLineItem(item)) {
+      const normalized = normalizeInvoiceSearchNeedle(serial);
+      if (normalized.includes(needle) || needle.includes(normalized)) {
+        return { item, serial };
+      }
+    }
+  }
+
+  const descriptionMatch = candidates.find(item => item.description?.toLowerCase().includes(needle));
+  if (descriptionMatch) {
+    const serial = serialNumbersFromLineItem(descriptionMatch).find(value =>
+      normalizeInvoiceSearchNeedle(value).includes(needle),
+    );
+    return { item: descriptionMatch, serial: serial ?? query.trim() };
+  }
+
+  return null;
+}

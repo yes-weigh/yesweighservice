@@ -195,7 +195,9 @@ const LayoutShell: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
-  const showCartFlyTarget = canUseCart(user?.role) && !topBarAction;
+  const showCartFlyTarget = canUseCart(user?.role)
+    && !topBarAction
+    && !/\/warranty-support(\/|$)/.test(location.pathname);
   const cartBadgeCount = showCartFlyTarget ? itemCount : 0;
 
   useEffect(() => {
@@ -276,7 +278,8 @@ const LayoutShell: React.FC = () => {
     ? location.pathname.replace(/\/[^/]+$/, '')
     : null;
   const isInvoiceDetail = /\/invoices\/[^/]+(\/(invoice(\/view)?|payments|logistic|qc))?$/.test(location.pathname);
-  const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname);
+  const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname)
+    && !location.pathname.endsWith('/complaint-guidelines');
   const pageTitle = isProfileActive
     ? 'Profile'
     : isDealerDetail

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Package } from 'lucide-react';
+import { ArrowRight, ChevronRight, Package } from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
 import { isFreightInvoiceLineItem } from '../../lib/invoices';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
@@ -8,6 +8,7 @@ interface InvoiceDocumentBodyProps {
   invoice: Pick<DealerInvoiceDetail, 'subtotal' | 'taxTotal' | 'total' | 'lineItems'>;
   selectedLineItemId?: string | null;
   onSelectLineItem?: (item: DealerInvoiceLineItem) => void;
+  onConfirmLineItem?: () => void;
   itemClassName?: string;
   /** When set, matching line items are omitted (e.g. freight/stamping fees for service requests). */
   hideLineItem?: (item: DealerInvoiceLineItem) => boolean;
@@ -18,6 +19,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   invoice,
   selectedLineItemId,
   onSelectLineItem,
+  onConfirmLineItem,
   itemClassName = '',
   hideLineItem,
   hideTotals = false,
@@ -68,14 +70,28 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                   ].filter(Boolean).join(' ')}
                 >
                   {canSelect ? (
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       className="invoice-detail-item__select"
                       onClick={() => onSelectLineItem?.(item)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectLineItem?.(item);
+                        }
+                      }}
                       aria-pressed={isSelected}
                     >
-                      <ItemContent item={item} />
-                    </button>
+                      <ItemContent
+                        item={item}
+                        showNext={isSelected && Boolean(onConfirmLineItem)}
+                        onNext={onConfirmLineItem}
+                      />
+                      {!isSelected && (
+                        <ChevronRight size={20} className="invoice-detail-item__chevron" aria-hidden />
+                      )}
+                    </div>
                   ) : (
                     <ItemContent item={item} />
                   )}
@@ -91,7 +107,15 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   );
 };
 
-function ItemContent({ item }: { item: DealerInvoiceLineItem }) {
+function ItemContent({
+  item,
+  showNext = false,
+  onNext,
+}: {
+  item: DealerInvoiceLineItem;
+  showNext?: boolean;
+  onNext?: () => void;
+}) {
   return (
     <>
       <div className="invoice-detail-item__image-wrap">
@@ -113,6 +137,19 @@ function ItemContent({ item }: { item: DealerInvoiceLineItem }) {
           <span>{formatCurrency(item.rate)} × {item.quantity}</span>
           <strong>{formatCurrency(item.total)}</strong>
         </div>
+        {showNext && onNext && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm invoice-detail-item__next"
+            onClick={e => {
+              e.stopPropagation();
+              onNext();
+            }}
+          >
+            Next
+            <ArrowRight size={16} />
+          </button>
+        )}
       </div>
     </>
   );
