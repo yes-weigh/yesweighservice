@@ -29,7 +29,7 @@ export function outgoingToSupportMessage(outgoing: OutgoingChatMessage, user: Us
         pf.file.type
         || (pf.kind === 'video' ? 'video/webm' : pf.kind === 'audio' ? 'audio/webm' : 'image/jpeg'),
       size: pf.file.size,
-      posterUrl: pf.kind === 'video' ? pf.previewUrl : null,
+      posterUrl: pf.kind === 'video' ? (pf.posterPreviewUrl ?? pf.previewUrl) : null,
     })),
     authorUid: user.uid,
     authorName: user.displayName ?? '',

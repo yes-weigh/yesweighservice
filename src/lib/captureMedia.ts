@@ -92,7 +92,7 @@ export async function finalizeMediaRecorder(
       recorder.removeEventListener('dataavailable', onData);
       const type = recorder.mimeType || chunks[0]?.type || 'video/webm';
       const blob = new Blob(chunks, { type });
-      if (blob.size < 1024) {
+      if (blob.size < 200) {
         reject(new Error('Recording was too short. Hold record for at least one second.'));
         return;
       }
@@ -162,7 +162,7 @@ export function videoFileExtension(mimeType: string): string {
   return 'webm';
 }
 
-export async function captureVideoPoster(file: File): Promise<Blob | null> {
+export async function captureVideoPoster(file: File, timeoutMs = 12_000): Promise<Blob | null> {
   const objectUrl = URL.createObjectURL(file);
 
   try {
@@ -172,12 +172,17 @@ export async function captureVideoPoster(file: File): Promise<Blob | null> {
     video.preload = 'auto';
     video.src = objectUrl;
 
-    await new Promise<void>((resolve, reject) => {
-      const onLoaded = () => resolve();
-      const onError = () => reject(new Error('Could not read video.'));
-      video.addEventListener('loadeddata', onLoaded, { once: true });
-      video.addEventListener('error', onError, { once: true });
-    });
+    await Promise.race([
+      new Promise<void>((resolve, reject) => {
+        const onLoaded = () => resolve();
+        const onError = () => reject(new Error('Could not read video.'));
+        video.addEventListener('loadeddata', onLoaded, { once: true });
+        video.addEventListener('error', onError, { once: true });
+      }),
+      new Promise<void>((_, reject) => {
+        window.setTimeout(() => reject(new Error('Poster capture timed out.')), timeoutMs);
+      }),
+    ]);
 
     if (video.duration > 0.12 && Number.isFinite(video.duration)) {
       video.currentTime = Math.min(0.12, video.duration * 0.05);

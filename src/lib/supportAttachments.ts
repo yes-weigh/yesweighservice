@@ -33,6 +33,7 @@ export interface PendingSupportFile {
   kind: SupportAttachmentKind;
   gpsLabel?: string | null;
   photoSlot?: EvidencePhotoSlot | null;
+  posterPreviewUrl?: string | null;
 }
 
 export function isVideoFile(file: File): boolean {
@@ -118,7 +119,10 @@ export function countEvidencePhotos(files: PendingSupportFile[]): number {
 }
 
 export function revokePendingSupportFiles(files: PendingSupportFile[]): void {
-  files.forEach(item => URL.revokeObjectURL(item.previewUrl));
+  files.forEach(item => {
+    URL.revokeObjectURL(item.previewUrl);
+    if (item.posterPreviewUrl) URL.revokeObjectURL(item.posterPreviewUrl);
+  });
 }
 
 export async function getSupportAttachmentUrl(storagePath: string): Promise<string> {
@@ -249,7 +253,10 @@ function createMonotonicProgressEmitter(
   return progress => {
     if (!onProgress) return;
     if (progress.percent == null) {
-      onProgress(progress);
+      onProgress({
+        ...progress,
+        percent: maxPercent > 0 ? maxPercent : null,
+      });
       return;
     }
     maxPercent = Math.max(maxPercent, progress.percent);
@@ -428,9 +435,8 @@ async function uploadSingleSupportFile(
     } catch (directErr) {
       if (isStorageUnauthorized(directErr)) {
         markDirectUploadDenied();
-      } else if (!isTransientStorageError(directErr)) {
-        throw directErr instanceof Error ? directErr : new Error('Could not upload attachment.');
       }
+      // Try server/signed upload paths when direct Firebase Storage fails.
     }
   }
 
@@ -615,31 +621,35 @@ export async function uploadSupportAttachments(
         fileCount: preparedFiles.length,
       });
 
-      const posterBlob = await captureVideoPoster(file);
-      if (posterBlob) {
-        const posterFile = new File(
-          [posterBlob],
-          `${safeFileName(file.name)}.poster.jpg`,
-          { type: 'image/jpeg', lastModified: Date.now() },
-        );
-        const onPosterProgress = (filePercent: number) => {
-          emitProgress({
-            phase: 'uploading',
-            label: 'Uploading thumbnail…',
-            percent: mapFilePercentToRange(filePercent, 86, 97),
-            fileIndex: index + 1,
-            fileCount: preparedFiles.length,
-          });
-        };
-        const posterUpload = await uploadSingleSupportFile(
-          requestId,
-          messageId,
-          posterFile,
-          'image/jpeg',
-          options,
-          onPosterProgress,
-        );
-        posterUrl = posterUpload.url;
+      try {
+        const posterBlob = await captureVideoPoster(file);
+        if (posterBlob) {
+          const posterFile = new File(
+            [posterBlob],
+            `${safeFileName(file.name)}.poster.jpg`,
+            { type: 'image/jpeg', lastModified: Date.now() },
+          );
+          const onPosterProgress = (filePercent: number) => {
+            emitProgress({
+              phase: 'uploading',
+              label: 'Uploading thumbnail…',
+              percent: mapFilePercentToRange(filePercent, 86, 97),
+              fileIndex: index + 1,
+              fileCount: preparedFiles.length,
+            });
+          };
+          const posterUpload = await uploadSingleSupportFile(
+            requestId,
+            messageId,
+            posterFile,
+            'image/jpeg',
+            options,
+            onPosterProgress,
+          );
+          posterUrl = posterUpload.url;
+        }
+      } catch {
+        // Video can still be sent without a poster thumbnail.
       }
     }
 

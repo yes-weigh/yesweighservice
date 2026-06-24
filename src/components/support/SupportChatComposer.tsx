@@ -23,7 +23,6 @@ import {
   finalizeMediaRecorder,
   pickAudioMimeType,
   stopMediaStream,
-  validateVideoBlob,
 } from '../../lib/captureMedia';
 import {
   MAX_SUPPORT_ATTACHMENTS,
@@ -246,13 +245,6 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
 
         if (send) {
           const mimeType = blob.type || recorder.mimeType || 'video/webm';
-          const playable = await validateVideoBlob(blob);
-          if (!playable) {
-            setCameraError('Could not save this video. Try recording again.');
-            closeCamera();
-            return;
-          }
-
           const file = createVideoFileFromBlob(blob, mimeType);
           closeCamera();
           onSendFiles([file]);

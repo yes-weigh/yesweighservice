@@ -26,9 +26,11 @@ import type { User } from '../../types';
 import { expandMessageForDisplay } from '../../lib/supportChatDisplay';
 import {
   createPendingSupportFile,
+  isVideoFile,
   revokePendingSupportFiles,
   type PendingSupportFile,
 } from '../../lib/supportAttachments';
+import { captureVideoPoster } from '../../lib/captureMedia';
 import {
   filterActiveOutgoing,
   outgoingToSupportMessage,
@@ -243,15 +245,24 @@ function MessageBubble({
                   {att.kind === 'video' ? (
                     isUploading || uploadFailed ? (
                       <div className="support-chat__video-wrap">
-                        <video
-                          src={att.url}
-                          poster={att.posterUrl ?? undefined}
-                          muted
-                          playsInline
-                          preload="metadata"
-                          className="support-chat__attachment-media"
-                          onLoadedMetadata={onMediaLayout}
-                        />
+                        {att.posterUrl ? (
+                          <img
+                            src={att.posterUrl}
+                            alt=""
+                            className="support-chat__attachment-media"
+                            decoding="async"
+                            onLoad={onMediaLayout}
+                          />
+                        ) : (
+                          <video
+                            src={att.url}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="support-chat__attachment-media"
+                            onLoadedMetadata={onMediaLayout}
+                          />
+                        )}
                         {isUploading && <SupportChatUploadOverlay progress={uploadState?.progress ?? null} />}
                         {uploadFailed && uploadState?.onRetry && (
                           <button
@@ -477,6 +488,24 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     wasAtBottomRef.current = true;
     forcePinRef.current = true;
     void dispatchOutgoing(entry);
+
+    if (uploadFiles.length === 1 && isVideoFile(uploadFiles[0])) {
+      void captureVideoPoster(uploadFiles[0])
+        .then(posterBlob => {
+          if (!posterBlob) return;
+          const posterPreviewUrl = URL.createObjectURL(posterBlob);
+          setOutgoingMessages(prev => prev.map(item => {
+            if (item.clientId !== clientId) return item;
+            return {
+              ...item,
+              pendingFiles: item.pendingFiles.map(pf => (
+                pf.kind === 'video' ? { ...pf, posterPreviewUrl } : pf
+              )),
+            };
+          }));
+        })
+        .catch(() => undefined);
+    }
   }, [user, dispatchOutgoing]);
 
   const threadItems = useMemo(
@@ -604,7 +633,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   useLayoutEffect(() => {
     if (loading) return;
     scrollToBottom('auto');
-  }, [loading, threadItems.length, scrollToBottom]);
+  }, [loading, threadItems.length, outgoingMessages.length, scrollToBottom]);
 
   useEffect(() => {
     if (loading) return;
