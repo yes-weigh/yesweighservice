@@ -280,7 +280,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         if (event.data.size > 0) videoChunksRef.current.push(event.data);
       };
       mediaRecorderRef.current = recorder;
-      recorder.start(250);
+      recorder.start();
       setRecordingVideo(true);
       setVideoRecordSeconds(0);
 

@@ -7,6 +7,12 @@ import {
   type EvidencePhotoSlot,
   type PendingSupportFile,
 } from '../../lib/supportAttachments';
+import {
+  assertValidVideoContainer,
+  buildRecordingBlob,
+  createVideoFileFromBlob,
+  createVideoMediaRecorder,
+} from '../../lib/captureMedia';
 
 const MAX_VIDEO_SECONDS = 60;
 
@@ -498,31 +504,42 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
 
     setSlotErrors(prev => ({ ...prev, video: undefined }));
 
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-      ? 'video/webm;codecs=vp9,opus'
-      : MediaRecorder.isTypeSupported('video/webm')
-        ? 'video/webm'
-        : '';
-
-    const recorder = mimeType
-      ? new MediaRecorder(stream, { mimeType })
-      : new MediaRecorder(stream);
+    let recorder: MediaRecorder;
+    try {
+      recorder = createVideoMediaRecorder(stream);
+    } catch (err) {
+      setSlotErrors(prev => ({
+        ...prev,
+        video: err instanceof Error ? err.message : 'Video recording is not supported.',
+      }));
+      return;
+    }
 
     chunksRef.current = [];
     recorder.ondataavailable = event => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
     };
     recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'video/webm' });
-      const file = new File([blob], `evidence-${Date.now()}.webm`, {
-        type: blob.type || 'video/webm',
-        lastModified: Date.now(),
-      });
-      updateSlotFile('video', createPendingSupportFile(file));
-      clearRecordTimers();
-      stopMediaStream();
-      setPreviewSlot(null);
-      setRecording(false);
+      void (async () => {
+        try {
+          const blob = buildRecordingBlob(chunksRef.current, recorder.mimeType);
+          await assertValidVideoContainer(blob);
+          const file = createVideoFileFromBlob(blob, blob.type);
+          updateSlotFile('video', createPendingSupportFile(file));
+        } catch (err) {
+          setSlotErrors(prev => ({
+            ...prev,
+            video: err instanceof Error ? err.message : 'Could not save video.',
+          }));
+        } finally {
+          clearRecordTimers();
+          stopMediaStream();
+          setPreviewSlot(null);
+          setRecording(false);
+          chunksRef.current = [];
+          mediaRecorderRef.current = null;
+        }
+      })();
     };
 
     mediaRecorderRef.current = recorder;

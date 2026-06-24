@@ -77,52 +77,53 @@ export function createVideoFileFromBlob(blob: Blob, mimeType: string): File {
   );
 }
 
+export async function stopMediaRecorder(recorder: MediaRecorder): Promise<void> {
+  if (recorder.state !== 'recording') return;
+
+  await new Promise<void>((resolve, reject) => {
+    recorder.addEventListener('stop', () => resolve(), { once: true });
+    recorder.addEventListener('error', () => reject(new Error('Recording failed.')), { once: true });
+    try {
+      recorder.requestData();
+    } catch {
+      // ignore — not all browsers need an explicit flush
+    }
+    recorder.stop();
+  });
+}
+
+export function buildRecordingBlob(chunks: Blob[], mimeType: string): Blob {
+  const parts = chunks.filter(chunk => chunk.size > 0);
+  if (parts.length === 0) {
+    throw new Error('Recording was empty.');
+  }
+
+  const type = mimeType || parts[0]?.type || 'video/webm';
+  const blob = new Blob(parts, { type });
+  if (blob.size < 200) {
+    throw new Error('Recording was too short. Hold record for at least one second.');
+  }
+  return blob;
+}
+
+export async function assertValidVideoContainer(blob: Blob): Promise<void> {
+  const buf = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const isWebm = buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
+  const isMp4 = buf.length >= 8
+    && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70;
+  if (!isWebm && !isMp4) {
+    throw new Error('Could not prepare video for upload. Please record again.');
+  }
+}
+
 export async function finalizeMediaRecorder(
   recorder: MediaRecorder,
   existingChunks: Blob[] = [],
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const chunks = [...existingChunks];
-
-    const onData = (event: BlobEvent) => {
-      if (event.data.size > 0) chunks.push(event.data);
-    };
-
-    const onStop = () => {
-      recorder.removeEventListener('dataavailable', onData);
-      const type = recorder.mimeType || chunks[0]?.type || 'video/webm';
-      const blob = new Blob(chunks, { type });
-      if (blob.size < 200) {
-        reject(new Error('Recording was too short. Hold record for at least one second.'));
-        return;
-      }
-      resolve(blob);
-    };
-
-    const onError = () => {
-      recorder.removeEventListener('dataavailable', onData);
-      reject(new Error('Could not finish recording.'));
-    };
-
-    recorder.addEventListener('dataavailable', onData);
-    recorder.addEventListener('stop', onStop, { once: true });
-    recorder.addEventListener('error', onError, { once: true });
-
-    if (recorder.state === 'recording') {
-      try {
-        recorder.requestData();
-      } catch {
-        // Some browsers throw if no timeslice was configured.
-      }
-    }
-
-    try {
-      recorder.stop();
-    } catch (err) {
-      recorder.removeEventListener('dataavailable', onData);
-      reject(err instanceof Error ? err : new Error('Could not stop recording.'));
-    }
-  });
+  await stopMediaRecorder(recorder);
+  const blob = buildRecordingBlob(existingChunks, recorder.mimeType);
+  await assertValidVideoContainer(blob);
+  return blob;
 }
 
 export async function validateVideoBlob(blob: Blob): Promise<boolean> {

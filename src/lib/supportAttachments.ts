@@ -2,7 +2,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, storage } from '../firebase';
 import { compressImageForUpload } from './compressImage';
-import { captureVideoPoster } from './captureMedia';
+import { captureVideoPoster, assertValidVideoContainer } from './captureMedia';
 import { formatStorageUploadError } from './storageErrors';
 import { applyGpsOverlayToImage, formatGpsLabel, getCurrentGpsCoords } from './supportGeolocation';
 import type { SupportAttachment, SupportAttachmentKind } from '../types/dealer-support';
@@ -568,6 +568,10 @@ export async function uploadSupportAttachments(
       ? await compressImageForUpload(original)
       : original;
     preparedFiles.push(file);
+
+    if (isVideoFile(file)) {
+      await assertValidVideoContainer(file);
+    }
   }
 
   const fileSizes = preparedFiles.map(file => file.size);
