@@ -279,7 +279,6 @@ const EvidenceMediaSlot: React.FC<EvidenceMediaSlotProps> = ({
           ref={fileInputRef}
           type="file"
           accept={isVideo ? 'video/*' : 'image/*'}
-          capture={isVideo ? 'environment' : 'environment'}
           hidden
           onChange={e => {
             const picked = e.target.files?.[0];
