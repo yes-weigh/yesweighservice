@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "firebase": "^12.13.0",
+    "fix-webm-duration": "^1.0.6",
     "lucide-react": "^1.16.0",
     "pdfjs-dist": "^6.0.227",
     "react": "^19.2.6",

@@ -108,6 +108,18 @@ async function signedReadUrl(storagePath) {
   return url;
 }
 
+function assertValidVideoBuffer(buffer, contentType) {
+  const type = String(contentType ?? '').split(';')[0].trim().toLowerCase();
+  if (!type.startsWith('video/')) return;
+
+  const isWebm = buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3;
+  const isMp4 = buffer.length >= 8
+    && buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70;
+  if (!isWebm && !isMp4) {
+    throw new HttpsError('invalid-argument', 'Invalid video file. Please record again.');
+  }
+}
+
 export async function uploadSupportAttachment(uid, input) {
   const requestId = String(input?.requestId ?? '').trim();
   const messageId = String(input?.messageId ?? '').trim();
@@ -138,6 +150,8 @@ export async function uploadSupportAttachment(uid, input) {
       `File must be under ${MAX_SERVER_UPLOAD_BYTES / (1024 * 1024)} MB for server upload.`,
     );
   }
+
+  assertValidVideoBuffer(buffer, contentType);
 
   const mediaType = contentType.split(';')[0].trim() || 'application/octet-stream';
   const attachmentId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;

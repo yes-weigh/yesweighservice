@@ -8,10 +8,11 @@ import {
   type PendingSupportFile,
 } from '../../lib/supportAttachments';
 import {
-  assertValidVideoContainer,
   buildRecordingBlob,
   createVideoFileFromBlob,
   createVideoMediaRecorder,
+  prepareVideoFileForUpload,
+  recommendedRecorderTimeslice,
 } from '../../lib/captureMedia';
 
 const MAX_VIDEO_SECONDS = 60;
@@ -522,9 +523,12 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     recorder.onstop = () => {
       void (async () => {
         try {
+          const durationMs = recordStartedAtRef.current
+            ? Math.max(Date.now() - recordStartedAtRef.current, 1000)
+            : Math.max(recordSeconds, 1) * 1000;
           const blob = buildRecordingBlob(chunksRef.current, recorder.mimeType);
-          await assertValidVideoContainer(blob);
-          const file = createVideoFileFromBlob(blob, blob.type);
+          const rawFile = createVideoFileFromBlob(blob, blob.type);
+          const file = await prepareVideoFileForUpload(rawFile, durationMs);
           updateSlotFile('video', createPendingSupportFile(file));
         } catch (err) {
           setSlotErrors(prev => ({
@@ -543,7 +547,9 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     };
 
     mediaRecorderRef.current = recorder;
-    recorder.start();
+    const timeslice = recommendedRecorderTimeslice(recorder.mimeType);
+    if (timeslice) recorder.start(timeslice);
+    else recorder.start();
     setRecording(true);
     recordStartedAtRef.current = Date.now();
     recordTickRef.current = window.setInterval(() => {

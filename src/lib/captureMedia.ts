@@ -35,16 +35,32 @@ export function pickAudioMimeType(): string {
 }
 
 export function pickVideoMimeType(): string {
-  const isChromium = /Chrome|Chromium|Edg\//.test(navigator.userAgent);
+  const ua = navigator.userAgent;
+  const isAndroid = /Android/i.test(ua);
+  const isChromium = /Chrome|Chromium|Edg\//.test(ua);
+  const mp4Candidates = [
+    'video/mp4;codecs=avc1,mp4a',
+    'video/mp4',
+  ];
   const webmCandidates = [
     'video/webm;codecs=vp8,opus',
     'video/webm;codecs=vp8',
     'video/webm;codecs=vp9,opus',
     'video/webm',
   ];
-  const mp4Candidates = ['video/mp4'];
 
-  // Chromium MP4 MediaRecorder output is often not playable from a remote URL (fMP4 metadata).
+  // Android Chrome WebM from MediaRecorder is often cluster-only (no EBML) and won't play remotely.
+  if (isAndroid && isChromium) {
+    for (const type of mp4Candidates) {
+      if (MediaRecorder.isTypeSupported(type)) return type;
+    }
+    for (const type of webmCandidates) {
+      if (MediaRecorder.isTypeSupported(type)) return type;
+    }
+    return '';
+  }
+
+  // Desktop Chromium WebM is more reliable than fragmented MP4 for remote playback.
   const candidates = isChromium
     ? webmCandidates
     : [...mp4Candidates, ...webmCandidates];
@@ -53,6 +69,12 @@ export function pickVideoMimeType(): string {
     if (MediaRecorder.isTypeSupported(type)) return type;
   }
   return '';
+}
+
+export function recommendedRecorderTimeslice(mimeType: string): number | undefined {
+  if (!/Android/i.test(navigator.userAgent)) return undefined;
+  if (mimeType.toLowerCase().includes('webm')) return 1000;
+  return undefined;
 }
 
 export function createVideoMediaRecorder(stream: MediaStream): MediaRecorder {
@@ -106,14 +128,38 @@ export function buildRecordingBlob(chunks: Blob[], mimeType: string): Blob {
   return blob;
 }
 
+export function hasValidVideoContainerHeader(bytes: Uint8Array): boolean {
+  const isWebm = bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
+  const isMp4 = bytes.length >= 8
+    && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+  return isWebm || isMp4;
+}
+
 export async function assertValidVideoContainer(blob: Blob): Promise<void> {
   const buf = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
-  const isWebm = buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
-  const isMp4 = buf.length >= 8
-    && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70;
-  if (!isWebm && !isMp4) {
+  if (!hasValidVideoContainerHeader(buf)) {
     throw new Error('Could not prepare video for upload. Please record again.');
   }
+}
+
+export async function prepareVideoFileForUpload(
+  file: File,
+  recordedDurationMs?: number,
+): Promise<File> {
+  let blob: Blob = file;
+  const header = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const hasWebmHeader = hasValidVideoContainerHeader(header)
+    && header[0] === 0x1a;
+
+  if (hasWebmHeader && blob.type.includes('webm') && recordedDurationMs && recordedDurationMs > 0) {
+    const { default: fixWebmDuration } = await import('fix-webm-duration');
+    blob = await fixWebmDuration(blob, recordedDurationMs, { logger: false });
+  }
+
+  await assertValidVideoContainer(blob);
+
+  if (blob === file) return file;
+  return new File([blob], file.name, { type: file.type, lastModified: Date.now() });
 }
 
 export async function finalizeMediaRecorder(

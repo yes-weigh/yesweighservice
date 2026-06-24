@@ -22,6 +22,8 @@ import {
   createVideoMediaRecorder,
   finalizeMediaRecorder,
   pickAudioMimeType,
+  prepareVideoFileForUpload,
+  recommendedRecorderTimeslice,
   stopMediaStream,
 } from '../../lib/captureMedia';
 import {
@@ -236,6 +238,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
       if (!recorder || recorder.state === 'inactive') return;
 
       try {
+        const durationMs = Math.max(videoRecordSeconds, 1) * 1000;
         const blob = await finalizeMediaRecorder(recorder, videoChunksRef.current);
         clearVideoTimers();
         videoChunksRef.current = [];
@@ -245,7 +248,8 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
 
         if (send) {
           const mimeType = blob.type || recorder.mimeType || 'video/webm';
-          const file = createVideoFileFromBlob(blob, mimeType);
+          const rawFile = createVideoFileFromBlob(blob, mimeType);
+          const file = await prepareVideoFileForUpload(rawFile, durationMs);
           closeCamera();
           onSendFiles([file]);
           return;
@@ -280,7 +284,9 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         if (event.data.size > 0) videoChunksRef.current.push(event.data);
       };
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      const timeslice = recommendedRecorderTimeslice(recorder.mimeType);
+      if (timeslice) recorder.start(timeslice);
+      else recorder.start();
       setRecordingVideo(true);
       setVideoRecordSeconds(0);
 

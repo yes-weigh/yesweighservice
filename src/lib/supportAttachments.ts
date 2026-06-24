@@ -2,7 +2,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, storage } from '../firebase';
 import { compressImageForUpload } from './compressImage';
-import { captureVideoPoster, assertValidVideoContainer } from './captureMedia';
+import { captureVideoPoster, prepareVideoFileForUpload } from './captureMedia';
 import { formatStorageUploadError } from './storageErrors';
 import { applyGpsOverlayToImage, formatGpsLabel, getCurrentGpsCoords } from './supportGeolocation';
 import type { SupportAttachment, SupportAttachmentKind } from '../types/dealer-support';
@@ -152,16 +152,21 @@ function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== 'string') {
+      const buffer = reader.result;
+      if (!(buffer instanceof ArrayBuffer)) {
         reject(new Error('Could not read file.'));
         return;
       }
-      const comma = result.indexOf(',');
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000;
+      let binary = '';
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+      }
+      resolve(btoa(binary));
     };
     reader.onerror = () => reject(reader.error ?? new Error('Could not read file.'));
-    reader.readAsDataURL(file);
+    reader.readAsArrayBuffer(file);
   });
 }
 
@@ -388,7 +393,7 @@ function uploadFileViaPut(
       ));
     };
     xhr.onerror = () => reject(new Error(`Could not upload ${file.name}.`));
-    void file.arrayBuffer().then(buffer => xhr.send(buffer)).catch(reject);
+    xhr.send(file);
   });
 }
 
@@ -566,12 +571,10 @@ export async function uploadSupportAttachments(
 
     const file = isImageFile(original)
       ? await compressImageForUpload(original)
-      : original;
+      : isVideoFile(original)
+        ? await prepareVideoFileForUpload(original)
+        : original;
     preparedFiles.push(file);
-
-    if (isVideoFile(file)) {
-      await assertValidVideoContainer(file);
-    }
   }
 
   const fileSizes = preparedFiles.map(file => file.size);
