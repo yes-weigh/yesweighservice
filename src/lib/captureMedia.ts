@@ -35,11 +35,64 @@ export function pickAudioMimeType(): string {
 }
 
 export function pickVideoMimeType(): string {
-  if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
-    return 'video/webm;codecs=vp9,opus';
-  }
-  if (MediaRecorder.isTypeSupported('video/webm')) {
-    return 'video/webm';
+  const candidates = [
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
   }
   return '';
+}
+
+export function videoFileExtension(mimeType: string): string {
+  const type = mimeType.toLowerCase();
+  if (type.includes('mp4')) return 'mp4';
+  if (type.includes('quicktime')) return 'mov';
+  return 'webm';
+}
+
+export async function captureVideoPoster(file: File): Promise<Blob | null> {
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.src = objectUrl;
+
+    await new Promise<void>((resolve, reject) => {
+      const onLoaded = () => resolve();
+      const onError = () => reject(new Error('Could not read video.'));
+      video.addEventListener('loadeddata', onLoaded, { once: true });
+      video.addEventListener('error', onError, { once: true });
+    });
+
+    if (video.duration > 0.12 && Number.isFinite(video.duration)) {
+      video.currentTime = Math.min(0.12, video.duration * 0.05);
+      await new Promise<void>(resolve => {
+        video.addEventListener('seeked', () => resolve(), { once: true });
+      });
+    }
+
+    if (!video.videoWidth || !video.videoHeight) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    return await new Promise<Blob | null>(resolve => {
+      canvas.toBlob(resolve, 'image/jpeg', 0.82);
+    });
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }

@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -148,10 +149,12 @@ function MessageBubble({
   message,
   isOwn,
   showAuthor,
+  onMediaLayout,
 }: {
   message: SupportMessage;
   isOwn: boolean;
   showAuthor: boolean;
+  onMediaLayout?: () => void;
 }) {
   const author = displayAuthor(message);
   const hasText = Boolean(message.text?.trim());
@@ -183,8 +186,11 @@ function MessageBubble({
                   {att.kind === 'video' ? (
                     <SupportChatVideo
                       src={att.url}
+                      mimeType={att.mimeType}
+                      posterUrl={att.posterUrl}
                       fileName={mediaOnly ? undefined : att.fileName}
                       className="support-chat__attachment-media"
+                      onLayout={onMediaLayout}
                     />
                   ) : att.kind === 'audio' ? (
                     <audio
@@ -192,6 +198,7 @@ function MessageBubble({
                       controls
                       preload="metadata"
                       className="support-chat__attachment-audio"
+                      onLoadedMetadata={onMediaLayout}
                     />
                   ) : (
                     <a
@@ -204,7 +211,9 @@ function MessageBubble({
                         src={att.url}
                         alt={att.fileName}
                         className="support-chat__attachment-media"
-                        loading="lazy"
+                        decoding="async"
+                        onLoad={onMediaLayout}
+                        onError={onMediaLayout}
                       />
                     </a>
                   )}
@@ -240,8 +249,10 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const threadContentRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
   const wasAtBottomRef = useRef(true);
+  const forcePinRef = useRef(true);
   const receiptPendingRef = useRef<{ delivered: Set<string>; read: Set<string> }>({
     delivered: new Set(),
     read: new Set(),
@@ -265,6 +276,8 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
       : 'Enter for a new line · Send button to send';
 
   useEffect(() => {
+    wasAtBottomRef.current = true;
+    forcePinRef.current = true;
     setLoading(true);
     const unsub = subscribeSupportMessages(
       request.id,
@@ -321,17 +334,89 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     return () => document.removeEventListener('visibilitychange', markRead);
   }, [messages, loading, user, syncReceipts]);
 
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    bottomRef.current?.scrollIntoView({ behavior });
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = threadRef.current;
+    if (!el) return;
+
+    const applyScroll = () => {
+      const top = Math.max(0, el.scrollHeight - el.clientHeight);
+      if (behavior === 'smooth') {
+        el.scrollTo({ top, behavior: 'smooth' });
+      } else {
+        el.scrollTop = top;
+      }
+      bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' });
+    };
+
+    applyScroll();
     setShowJump(false);
     wasAtBottomRef.current = true;
-  };
+  }, []);
+
+  const pinToBottomIfNeeded = useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (!wasAtBottomRef.current && !forcePinRef.current) return;
+    scrollToBottom(behavior);
+  }, [scrollToBottom]);
+
+  const releaseForcedPin = useCallback(() => {
+    const el = threadRef.current;
+    if (!el) {
+      forcePinRef.current = false;
+      return;
+    }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 8) {
+      forcePinRef.current = false;
+    }
+  }, []);
+
+  const handleMediaLayout = useCallback(() => {
+    pinToBottomIfNeeded('auto');
+    requestAnimationFrame(releaseForcedPin);
+  }, [pinToBottomIfNeeded, releaseForcedPin]);
+
+  useLayoutEffect(() => {
+    if (loading) return;
+    scrollToBottom('auto');
+    requestAnimationFrame(() => {
+      scrollToBottom('auto');
+      releaseForcedPin();
+    });
+  }, [loading, scrollToBottom, releaseForcedPin]);
+
+  useLayoutEffect(() => {
+    if (loading) return;
+    scrollToBottom('auto');
+  }, [loading, threadItems.length, scrollToBottom]);
 
   useEffect(() => {
-    if (wasAtBottomRef.current) {
-      scrollToBottom(messages.length <= 1 ? 'auto' : 'smooth');
-    }
-  }, [messages.length, sending]);
+    if (loading) return;
+    const content = threadContentRef.current;
+    if (!content) return;
+
+    const pin = () => pinToBottomIfNeeded('auto');
+
+    pin();
+    const raf1 = requestAnimationFrame(() => {
+      pin();
+      requestAnimationFrame(() => {
+        pin();
+        releaseForcedPin();
+      });
+    });
+    const ro = new ResizeObserver(pin);
+    ro.observe(content);
+
+    return () => {
+      cancelAnimationFrame(raf1);
+      ro.disconnect();
+    };
+  }, [loading, request.id, pinToBottomIfNeeded, releaseForcedPin]);
+
+  useEffect(() => {
+    if (loading || !wasAtBottomRef.current) return;
+    scrollToBottom(sending || messages.length <= 1 ? 'auto' : 'smooth');
+  }, [messages.length, sending, loading, scrollToBottom]);
 
   useEffect(() => () => cleanupPendingFiles(pendingFiles), [pendingFiles]);
 
@@ -355,6 +440,9 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distanceFromBottom < 72;
     wasAtBottomRef.current = atBottom;
+    if (!atBottom) {
+      forcePinRef.current = false;
+    }
     setShowJump(!atBottom);
   };
 
@@ -406,34 +494,37 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
           aria-live="polite"
           onScroll={handleThreadScroll}
         >
-          {loading ? (
-            <div className="support-chat__empty">
-              <span className="support-chat__typing" aria-hidden>
-                <span /><span /><span />
-              </span>
-              <p className="text-muted text-sm">Loading messages…</p>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="support-chat__empty">
-              <p className="text-muted text-sm">No messages yet. Say hello to start the conversation.</p>
-            </div>
-          ) : (
-            threadItems.map(item =>
-              item.kind === 'date' ? (
-                <div key={item.key} className="support-chat__date">
-                  <span>{item.label}</span>
-                </div>
-              ) : (
-                <MessageBubble
-                  key={item.key}
-                  message={item.message}
-                  isOwn={item.isOwn}
-                  showAuthor={item.showAuthor}
-                />
-              ),
-            )
-          )}
-          <div ref={bottomRef} />
+          <div ref={threadContentRef} className="support-chat__thread-inner">
+            {loading ? (
+              <div className="support-chat__empty">
+                <span className="support-chat__typing" aria-hidden>
+                  <span /><span /><span />
+                </span>
+                <p className="text-muted text-sm">Loading messages…</p>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="support-chat__empty">
+                <p className="text-muted text-sm">No messages yet. Say hello to start the conversation.</p>
+              </div>
+            ) : (
+              threadItems.map(item =>
+                item.kind === 'date' ? (
+                  <div key={item.key} className="support-chat__date">
+                    <span>{item.label}</span>
+                  </div>
+                ) : (
+                  <MessageBubble
+                    key={item.key}
+                    message={item.message}
+                    isOwn={item.isOwn}
+                    showAuthor={item.showAuthor}
+                    onMediaLayout={handleMediaLayout}
+                  />
+                ),
+              )
+            )}
+            <div ref={bottomRef} className="support-chat__thread-anchor" aria-hidden />
+          </div>
         </div>
 
         {showJump && (

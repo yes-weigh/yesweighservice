@@ -2,6 +2,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, storage } from '../firebase';
 import { compressImageForUpload } from './compressImage';
+import { captureVideoPoster } from './captureMedia';
 import { formatStorageUploadError } from './storageErrors';
 import { applyGpsOverlayToImage, formatGpsLabel, getCurrentGpsCoords } from './supportGeolocation';
 import type { SupportAttachment, SupportAttachmentKind } from '../types/dealer-support';
@@ -503,6 +504,26 @@ export async function uploadSupportAttachments(
       onFileProgress,
     );
 
+    let posterUrl: string | null = null;
+    if (isVideoFile(file)) {
+      const posterBlob = await captureVideoPoster(file);
+      if (posterBlob) {
+        const posterFile = new File(
+          [posterBlob],
+          `${safeFileName(file.name)}.poster.jpg`,
+          { type: 'image/jpeg', lastModified: Date.now() },
+        );
+        const posterUpload = await uploadSingleSupportFile(
+          requestId,
+          messageId,
+          posterFile,
+          'image/jpeg',
+          options,
+        );
+        posterUrl = posterUpload.url;
+      }
+    }
+
     uploads.push({
       id: uploaded.attachmentId,
       kind: isVideoFile(file) ? 'video' : isAudioFile(file) ? 'audio' : 'image',
@@ -511,6 +532,7 @@ export async function uploadSupportAttachments(
       fileName: file.name,
       mimeType: contentType,
       size: file.size,
+      posterUrl,
     });
   }
 

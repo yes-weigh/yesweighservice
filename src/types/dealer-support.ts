@@ -72,6 +72,7 @@ export interface SupportAttachment {
   fileName: string;
   mimeType: string;
   size: number;
+  posterUrl?: string | null;
 }
 
 export type SupportMessageReceiptStatus = 'sent' | 'delivered' | 'read';

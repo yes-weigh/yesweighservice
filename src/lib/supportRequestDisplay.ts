@@ -120,6 +120,43 @@ export function supportRequestStageSubtitle(request: DealerSupportRequest): stri
   return dealerOpenStageLabel(request.openStage);
 }
 
+export function supportDetailStatusBadge(
+  request: DealerSupportRequest,
+  audience: 'staff' | 'dealer' = 'dealer',
+): string {
+  if (request.lifecycle === 'resolved') return 'RESOLVED';
+  if (request.lifecycle === 'cancelled') return 'CANCELLED';
+  if (request.lifecycle === 'draft') return 'DRAFT';
+  if (!request.openStage) return 'OPEN';
+
+  const stageLabel = (
+    audience === 'staff'
+      ? SUPPORT_OPEN_STAGE_LABELS[request.openStage]
+      : SUPPORT_OPEN_STAGE_LABELS[request.openStage]
+  ).toUpperCase();
+  const subtitle = supportRequestStageSubtitle(request);
+  if (subtitle) return `${stageLabel} — ${subtitle.toUpperCase()}`;
+  return stageLabel;
+}
+
+export function formatSupportDetailOpenedOn(value: string | null | undefined): string {
+  if (!value) return '—';
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  const d = new Date(parsed);
+  const date = d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const time = d.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `${date}, ${time}`;
+}
+
 export function supportRequestStatusTone(
   request: DealerSupportRequest,
 ): 'amber' | 'blue' | 'purple' | 'green' | 'muted' | 'draft' {

@@ -21,6 +21,7 @@ import {
   pickAudioMimeType,
   pickVideoMimeType,
   stopMediaStream,
+  videoFileExtension,
 } from '../../lib/captureMedia';
 import {
   MAX_SUPPORT_ATTACHMENTS,
@@ -244,8 +245,9 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         setVideoRecordSeconds(0);
 
         if (send && blob.size > 0) {
-          const file = new File([blob], `video-${Date.now()}.webm`, {
-            type: blob.type || 'video/webm',
+          const mimeType = recorder.mimeType || 'video/webm';
+          const file = new File([blob], `video-${Date.now()}.${videoFileExtension(mimeType)}`, {
+            type: mimeType,
             lastModified: Date.now(),
           });
           closeCamera();

@@ -164,6 +164,7 @@ function mapAttachment(raw: DocumentData): SupportMessage['attachments'][number]
     fileName: String(raw.fileName ?? 'file'),
     mimeType: String(raw.mimeType ?? ''),
     size: Number(raw.size ?? 0),
+    posterUrl: raw.posterUrl ? String(raw.posterUrl) : null,
   };
 }
 
