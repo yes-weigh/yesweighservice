@@ -257,6 +257,9 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         closeCamera();
       };
 
+      if (recorder.state === 'recording') {
+        recorder.requestData();
+      }
       recorder.stop();
     };
 
@@ -274,7 +277,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         if (event.data.size > 0) videoChunksRef.current.push(event.data);
       };
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      recorder.start(500);
       setRecordingVideo(true);
       setVideoRecordSeconds(0);
 

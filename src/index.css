@@ -13032,6 +13032,22 @@ html::-webkit-scrollbar {
   pointer-events: none;
 }
 
+.support-chat__video-poster-btn {
+  display: block;
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.support-chat__video-poster-btn .support-chat__video-poster {
+  display: block;
+  width: 100%;
+}
+
 .support-chat__video-fallback {
   position: absolute;
   inset: 0;

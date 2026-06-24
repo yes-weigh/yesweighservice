@@ -35,12 +35,19 @@ export function pickAudioMimeType(): string {
 }
 
 export function pickVideoMimeType(): string {
-  const candidates = [
-    'video/mp4',
+  const isChromium = /Chrome|Chromium|Edg\//.test(navigator.userAgent);
+  const webmCandidates = [
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
     'video/webm',
   ];
+  const mp4Candidates = ['video/mp4'];
+
+  // Chromium MP4 MediaRecorder output is often not playable from a remote URL (fMP4 metadata).
+  const candidates = isChromium
+    ? webmCandidates
+    : [...mp4Candidates, ...webmCandidates];
+
   for (const type of candidates) {
     if (MediaRecorder.isTypeSupported(type)) return type;
   }

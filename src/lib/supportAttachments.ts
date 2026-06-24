@@ -121,6 +121,13 @@ export function revokePendingSupportFiles(files: PendingSupportFile[]): void {
   files.forEach(item => URL.revokeObjectURL(item.previewUrl));
 }
 
+export async function getSupportAttachmentUrl(storagePath: string): Promise<string> {
+  if (!storagePath.trim()) {
+    throw new Error('Missing storage path.');
+  }
+  return getDownloadURL(ref(storage, storagePath));
+}
+
 export function supportUploadErrorMessage(err: unknown, fallback: string): string {
   const message = err instanceof Error ? err.message : String(err ?? '');
   if (message.includes('signBlob') || message.includes('Server upload signing')) {

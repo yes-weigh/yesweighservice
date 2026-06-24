@@ -186,6 +186,7 @@ function MessageBubble({
                   {att.kind === 'video' ? (
                     <SupportChatVideo
                       src={att.url}
+                      storagePath={att.storagePath}
                       mimeType={att.mimeType}
                       posterUrl={att.posterUrl}
                       fileName={mediaOnly ? undefined : att.fileName}
