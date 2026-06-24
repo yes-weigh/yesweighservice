@@ -9,6 +9,7 @@ import { navigateBack } from '../lib/navigation';
 import { canAccessNavFeature, canViewHr, type StaffNavFeature } from '../lib/staffAccess';
 import {
   ArrowLeft,
+  ChevronDown,
   LayoutDashboard,
   Package,
   LifeBuoy,
@@ -429,6 +430,27 @@ const LayoutShell: React.FC = () => {
               onClick={() => navigateBack(navigate, dealerListPath)}
             >
               <span className="page-title__text">{displayTitle}</span>
+              {pageHeader.subtitle && (
+                <span className="page-subtitle">{pageHeader.subtitle}</span>
+              )}
+            </button>
+          ) : pageHeader.onTitleClick ? (
+            <button
+              type="button"
+              className={[
+                'top-bar__title-block',
+                'top-bar__title-block--toggle',
+                'page-title',
+                pageHeader.titleExpanded ? 'is-expanded' : '',
+              ].filter(Boolean).join(' ')}
+              onClick={() => pageHeader.onTitleClick?.()}
+              aria-expanded={pageHeader.titleExpanded === true}
+              aria-label="Toggle request details"
+            >
+              <span className="top-bar__title-row">
+                <span className="page-title__text">{displayTitle}</span>
+                <ChevronDown size={18} className="top-bar__title-chevron" aria-hidden />
+              </span>
               {pageHeader.subtitle && (
                 <span className="page-subtitle">{pageHeader.subtitle}</span>
               )}

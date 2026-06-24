@@ -1,25 +1,33 @@
 import React, {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { AlertCircle, ChevronDown, Paperclip, Send } from 'lucide-react';
+import { AlertCircle, Check, CheckCheck, ChevronDown } from 'lucide-react';
 import { FIRM_NAME_SHORT } from '../../constants/brand';
 import { useAuth } from '../../context/AuthContext';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { isSupportClosed } from '../../lib/supportStatus';
 import {
+  markSupportMessageReceipts,
   sendSupportMessage,
   subscribeSupportMessages,
+  supportMessageReceiptStatus,
 } from '../../lib/dealerSupport';
-import type { DealerSupportRequest, SupportMessage } from '../../types/dealer-support';
+import type {
+  DealerSupportRequest,
+  SupportMessage,
+  SupportMessageReceiptStatus,
+} from '../../types/dealer-support';
+import { expandMessageForDisplay } from '../../lib/supportChatDisplay';
 import {
-  SupportAttachmentPicker,
   cleanupPendingFiles,
   pendingFilesToUpload,
 } from './SupportAttachmentPicker';
-import type { SupportAttachmentPickerHandle } from './SupportAttachmentPicker';
+import { SupportChatComposer } from './SupportChatComposer';
+import { SupportChatVideo } from './SupportChatVideo';
 import type { PendingSupportFile } from '../../lib/supportAttachments';
 
 interface SupportChatProps {
@@ -99,19 +107,41 @@ function buildThreadItems(messages: SupportMessage[], currentUid: string | undef
 
     const isOwn = message.authorUid === currentUid;
     const author = message.authorUid;
-    const showAuthor = !isOwn && author !== lastAuthor;
-    lastAuthor = author;
+    const expanded = expandMessageForDisplay(message);
 
-    items.push({
-      kind: 'message',
-      key: message.id,
-      message,
-      isOwn,
-      showAuthor,
+    expanded.forEach((part, index) => {
+      const showAuthor = !isOwn && index === 0 && author !== lastAuthor;
+      if (index === 0) lastAuthor = author;
+
+      items.push({
+        kind: 'message',
+        key: part.id,
+        message: part,
+        isOwn,
+        showAuthor,
+      });
     });
   }
 
   return items;
+}
+
+const RECEIPT_LABELS: Record<SupportMessageReceiptStatus, string> = {
+  sent: 'Sent',
+  delivered: 'Delivered',
+  read: 'Read',
+};
+
+function MessageReceipt({ status }: { status: SupportMessageReceiptStatus }) {
+  return (
+    <span
+      className={`support-chat__receipt support-chat__receipt--${status}`}
+      aria-label={RECEIPT_LABELS[status]}
+      title={RECEIPT_LABELS[status]}
+    >
+      {status === 'sent' ? <Check size={13} strokeWidth={2.5} /> : <CheckCheck size={13} strokeWidth={2.5} />}
+    </span>
+  );
 }
 
 function MessageBubble({
@@ -126,6 +156,7 @@ function MessageBubble({
   const author = displayAuthor(message);
   const hasText = Boolean(message.text?.trim());
   const hasAttachments = message.attachments.length > 0;
+  const mediaOnly = hasAttachments && !hasText;
 
   return (
     <div
@@ -143,23 +174,24 @@ function MessageBubble({
         )}
 
         <div
-          className={`support-chat__bubble ${isOwn ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}${hasAttachments && !hasText ? ' support-chat__bubble--media-only' : ''}`}
+          className={`support-chat__bubble ${isOwn ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}${mediaOnly ? ' support-chat__bubble--media-only' : ''}`}
         >
-          {message.isInitial && (
-            <span className="support-chat__initial-badge">Initial request</span>
-          )}
-
           {hasAttachments && (
             <div className="support-chat__attachments">
               {message.attachments.map(att => (
                 <div key={att.id} className="support-chat__attachment">
                   {att.kind === 'video' ? (
-                    <video
+                    <SupportChatVideo
+                      src={att.url}
+                      fileName={mediaOnly ? undefined : att.fileName}
+                      className="support-chat__attachment-media"
+                    />
+                  ) : att.kind === 'audio' ? (
+                    <audio
                       src={att.url}
                       controls
-                      playsInline
                       preload="metadata"
-                      className="support-chat__attachment-media"
+                      className="support-chat__attachment-audio"
                     />
                   ) : (
                     <a
@@ -176,7 +208,7 @@ function MessageBubble({
                       />
                     </a>
                   )}
-                  {att.fileName && (
+                  {att.fileName && !mediaOnly && att.kind !== 'video' && (
                     <span className="support-chat__attachment-name">{att.fileName}</span>
                   )}
                 </div>
@@ -188,17 +220,12 @@ function MessageBubble({
 
           <footer className="support-chat__meta">
             <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
+            {isOwn && <MessageReceipt status={supportMessageReceiptStatus(message)} />}
           </footer>
         </div>
       </div>
     </div>
   );
-}
-
-function resizeComposer(el: HTMLTextAreaElement | null) {
-  if (!el) return;
-  el.style.height = 'auto';
-  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
 }
 
 export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) => {
@@ -213,9 +240,13 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const attachRef = useRef<SupportAttachmentPickerHandle>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
   const wasAtBottomRef = useRef(true);
+  const receiptPendingRef = useRef<{ delivered: Set<string>; read: Set<string> }>({
+    delivered: new Set(),
+    read: new Set(),
+  });
+  const [dockHeight, setDockHeight] = useState(0);
 
   const chatDisabled = readOnly
     || (!isInternalOpsUser(user) && isSupportClosed(request));
@@ -231,7 +262,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
       : 'This request is resolved. History is read-only.'
     : readOnly
       ? 'Read-only history'
-      : 'Press Enter to send · Shift+Enter for a new line';
+      : 'Enter for a new line · Send button to send';
 
   useEffect(() => {
     setLoading(true);
@@ -249,6 +280,47 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     return unsub;
   }, [request.id]);
 
+  const syncReceipts = useCallback(async (
+    msgs: SupportMessage[],
+    receipt: 'delivered' | 'read',
+  ) => {
+    if (!user) return;
+
+    const pending = msgs
+      .filter(m => m.authorUid !== user.uid)
+      .filter(m => (receipt === 'delivered' ? !m.deliveredAt : !m.readAt))
+      .map(m => m.id)
+      .filter(id => !receiptPendingRef.current[receipt].has(id));
+
+    if (pending.length === 0) return;
+
+    pending.forEach(id => receiptPendingRef.current[receipt].add(id));
+    try {
+      await markSupportMessageReceipts(request.id, pending, receipt);
+    } catch {
+      pending.forEach(id => receiptPendingRef.current[receipt].delete(id));
+    }
+  }, [user, request.id]);
+
+  useEffect(() => {
+    if (loading || !user) return;
+    void syncReceipts(messages, 'delivered');
+  }, [messages, loading, user, syncReceipts]);
+
+  useEffect(() => {
+    if (loading || !user) return;
+
+    const markRead = () => {
+      if (document.visibilityState === 'visible') {
+        void syncReceipts(messages, 'read');
+      }
+    };
+
+    markRead();
+    document.addEventListener('visibilitychange', markRead);
+    return () => document.removeEventListener('visibilitychange', markRead);
+  }, [messages, loading, user, syncReceipts]);
+
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     bottomRef.current?.scrollIntoView({ behavior });
     setShowJump(false);
@@ -263,6 +335,20 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
 
   useEffect(() => () => cleanupPendingFiles(pendingFiles), [pendingFiles]);
 
+  useEffect(() => {
+    const dock = dockRef.current;
+    if (!dock) return undefined;
+
+    const updateDockHeight = () => {
+      setDockHeight(dock.offsetHeight);
+    };
+
+    updateDockHeight();
+    const observer = new ResizeObserver(updateDockHeight);
+    observer.observe(dock);
+    return () => observer.disconnect();
+  }, [chatDisabled, pendingFiles.length]);
+
   const handleThreadScroll = () => {
     const el = threadRef.current;
     if (!el) return;
@@ -272,22 +358,22 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     setShowJump(!atBottom);
   };
 
-  const handleSend = async () => {
+  const handleSend = async (filesOverride?: File[]) => {
     if (!user || chatDisabled || sending) return;
-    if (!text.trim() && pendingFiles.length === 0) return;
+    const uploadFiles = filesOverride ?? pendingFilesToUpload(pendingFiles);
+    if (!text.trim() && uploadFiles.length === 0) return;
 
     setSending(true);
     setError('');
     try {
       await sendSupportMessage(user, request.id, {
-        text,
-        files: pendingFilesToUpload(pendingFiles),
+        text: filesOverride ? '' : text,
+        files: uploadFiles,
       });
-      setText('');
-      cleanupPendingFiles(pendingFiles);
-      setPendingFiles([]);
-      if (inputRef.current) {
-        inputRef.current.style.height = 'auto';
+      if (!filesOverride) {
+        setText('');
+        cleanupPendingFiles(pendingFiles);
+        setPendingFiles([]);
       }
       wasAtBottomRef.current = true;
     } catch (err) {
@@ -297,17 +383,15 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     }
   };
 
-  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      void handleSend();
-    }
+  const handleSendFiles = async (files: File[]) => {
+    await handleSend(files);
   };
 
-  const canSend = Boolean(text.trim() || pendingFiles.length > 0);
-
   return (
-    <section className="support-chat support-chat--flat">
+    <section
+      className="support-chat support-chat--flat"
+      style={{ '--support-chat-dock-height': `${dockHeight}px` } as React.CSSProperties}
+    >
       {error && (
         <div className="products-inline-error support-chat__error">
           <AlertCircle size={16} />
@@ -364,67 +448,32 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
         )}
       </div>
 
-      {chatDisabled && (
-        <p className="support-chat__status-bar text-sm text-muted">{statusHint}</p>
-      )}
+      <div
+        className="support-chat__dock-spacer"
+        style={{ height: dockHeight || undefined }}
+        aria-hidden
+      />
 
-      {!chatDisabled && (
-        <form
-          className="support-chat__composer"
-          onSubmit={e => {
-            e.preventDefault();
-            void handleSend();
-          }}
-        >
-          <SupportAttachmentPicker
-            ref={attachRef}
-            files={pendingFiles}
-            onChange={setPendingFiles}
-            disabled={sending}
-            compact
+      <div ref={dockRef} className="support-chat__dock">
+        {chatDisabled ? (
+          <p className="support-chat__status-bar text-sm text-muted">{statusHint}</p>
+        ) : (
+          <SupportChatComposer
+            text={text}
+            onTextChange={setText}
+            pendingFiles={pendingFiles}
+            onPendingFilesChange={setPendingFiles}
+            onSend={() => void handleSend()}
+            onSendFiles={handleSendFiles}
+            sending={sending}
+            placeholder={
+              isInternalOpsUser(user)
+                ? 'Message dealer…'
+                : `Message ${FIRM_NAME_SHORT} support…`
+            }
           />
-
-          <div className="support-chat__composer-bar">
-            <button
-              type="button"
-              className="support-chat__icon-btn"
-              aria-label="Attach photos or videos"
-              disabled={sending}
-              onClick={() => attachRef.current?.openPicker()}
-            >
-              <Paperclip size={20} />
-            </button>
-
-            <textarea
-              ref={inputRef}
-              className="support-chat__input"
-              rows={1}
-              placeholder={
-                isInternalOpsUser(user)
-                  ? 'Message dealer…'
-                  : `Message ${FIRM_NAME_SHORT} support…`
-              }
-              value={text}
-              onChange={e => {
-                setText(e.target.value);
-                resizeComposer(e.currentTarget);
-              }}
-              onKeyDown={handleComposerKeyDown}
-              disabled={sending}
-              aria-label="Message"
-            />
-
-            <button
-              type="submit"
-              className={`support-chat__send${canSend ? ' support-chat__send--active' : ''}`}
-              disabled={sending || !canSend}
-              aria-label={sending ? 'Sending' : 'Send message'}
-            >
-              <Send size={18} />
-            </button>
-          </div>
-        </form>
-      )}
+        )}
+      </div>
     </section>
   );
 };

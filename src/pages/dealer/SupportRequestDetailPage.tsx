@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, PackageCheck, Truck } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SupportChat } from '../../components/support/SupportChat';
 import { SupportCourierInstructions } from '../../components/support/SupportCourierInstructions';
-import { SupportAssigneeSelect } from '../../components/support/SupportAssigneeSelect';
+import { SupportRequestDetailPanel } from '../../components/support/SupportRequestDetailPanel';
+import {
+  SupportRequestDetailTabs,
+  type SupportDetailTab,
+} from '../../components/support/SupportRequestDetailTabs';
+import { SupportTicketFlowTimeline } from '../../components/support/SupportTicketFlowTimeline';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
-import { FIRM_NAME } from '../../constants/brand';
-import { formatInvoiceDate } from '../../lib/invoices';
 import {
   approveSupportRequestForCourier,
   cancelSupportRequest,
@@ -32,12 +35,10 @@ import {
   isSupportOpen,
   staffStagesForRequest,
   supportDisplayLabel,
-  supportStatusClass,
   SUPPORT_OPEN_STAGES,
 } from '../../lib/supportStatus';
 import { supportRequestStageSubtitle } from '../../lib/supportRequestDisplay';
 import type { DealerSupportRequest, SupportOpenStage } from '../../types/dealer-support';
-import { SUPPORT_OPEN_STAGE_LABELS, SUPPORT_TYPE_LABELS } from '../../types/dealer-support';
 
 export const SupportRequestDetailPage: React.FC = () => {
   const { requestId } = useParams<{ requestId: string }>();
@@ -52,14 +53,53 @@ export const SupportRequestDetailPage: React.FC = () => {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [tracking, setTracking] = useState('');
   const [resolutionNote, setResolutionNote] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<SupportDetailTab>('chat');
 
   const handleBack = useCallback(() => navigateBack(navigate, base), [navigate, base]);
+  const toggleDetails = useCallback(() => setDetailsOpen(open => !open), []);
+  const closeDetails = useCallback(() => setDetailsOpen(false), []);
 
   useCatalogPageHeader({
     title: request?.requestNumber ?? 'Support request',
+    subtitle: request
+      ? (supportRequestStageSubtitle(request)
+        || supportDisplayLabel(request, isInternalOpsUser(user) ? 'staff' : 'dealer'))
+      : null,
     showBack: true,
     onBack: handleBack,
+    onTitleClick: request ? toggleDetails : null,
+    titleExpanded: detailsOpen,
   });
+
+  useEffect(() => {
+    if (!detailsOpen) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeDetails();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [detailsOpen, closeDetails]);
+
+  useEffect(() => {
+    const bar = document.querySelector<HTMLElement>('.top-bar');
+    if (!bar) return undefined;
+
+    const syncTop = () => {
+      const height = Math.ceil(bar.getBoundingClientRect().height);
+      document.documentElement.style.setProperty('--support-detail-tabs-top', `${height}px`);
+    };
+
+    syncTop();
+    const observer = new ResizeObserver(syncTop);
+    observer.observe(bar);
+    window.addEventListener('resize', syncTop);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', syncTop);
+      document.documentElement.style.removeProperty('--support-detail-tabs-top');
+    };
+  }, []);
 
   useEffect(() => {
     if (!requestId || !user) return;
@@ -234,180 +274,60 @@ export const SupportRequestDetailPage: React.FC = () => {
     !isInternalOpsUser(user)
     && canDealerCancelSupportRequest(request);
 
-  const stageSubtitle = supportRequestStageSubtitle(request);
-
   return (
-    <div className="page-content fade-in support-detail-page support-detail-page--chat">
-      {error && (
-        <div className="products-inline-error panel glass support-detail-page__error">
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
+    <div className="page-content fade-in support-detail-page support-detail-page--chat support-detail-page--with-tabs">
+      <SupportRequestDetailTabs active={activeTab} onChange={setActiveTab} />
 
-      <section className="support-detail-summary panel glass">
-        <div className="support-detail-summary__head">
-          <div>
-            <h2>{request.requestNumber}</h2>
-            <p className="text-muted text-sm">
-              {SUPPORT_TYPE_LABELS[request.type]}
-              {request.dealerName && isInternalOpsUser(user) && (
-                <span> · {request.dealerName}</span>
-              )}
-              · Opened {formatInvoiceDate(request.createdAt)}
-            </p>
-            {stageSubtitle && (
-              <p className="support-detail-summary__stage text-sm">{stageSubtitle}</p>
-            )}
-          </div>
-          {canManageSupportOps(user) && isSupportOpen(request) ? (
-            <div className="support-detail-summary__controls">
-              {canApproveCourier && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={statusUpdating}
-                  onClick={handleApproveCourier}
-                >
-                  Approve for courier
-                </button>
-              )}
-              {canMarkReceived && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={statusUpdating}
-                  onClick={handleMarkReceived}
-                >
-                  <PackageCheck size={15} />
-                  Product received
-                </button>
-              )}
-              <select
-                className="catalog-select support-detail-summary__status"
-                value={request.openStage ?? ''}
-                disabled={statusUpdating}
-                onChange={e => handleStageChange(e.target.value as SupportOpenStage)}
-              >
-                {staffStageOptions.map(stage => (
-                  <option key={stage} value={stage}>
-                    {SUPPORT_OPEN_STAGE_LABELS[stage]}
-                  </option>
-                ))}
-              </select>
-              <SupportAssigneeSelect user={user!} request={request} />
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={statusUpdating}
-                onClick={handleResolve}
-              >
-                Resolve
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={statusUpdating}
-                onClick={handleCancel}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <div className="support-detail-summary__dealer-actions">
-              <span className={`service-request-status ${supportStatusClass(request)} support-detail-summary__badge`}>
-                {supportDisplayLabel(request, isInternalOpsUser(user) ? 'staff' : 'dealer')}
-              </span>
-              {canDealerCancel && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={statusUpdating}
-                  onClick={() => void handleDealerCancel()}
-                >
-                  Cancel request
-                </button>
-              )}
-            </div>
+      <SupportRequestDetailPanel
+        request={request}
+        user={user}
+        open={detailsOpen}
+        onClose={closeDetails}
+        error={error}
+        statusUpdating={statusUpdating}
+        tracking={tracking}
+        onTrackingChange={setTracking}
+        resolutionNote={resolutionNote}
+        onResolutionNoteChange={setResolutionNote}
+        staffStageOptions={staffStageOptions}
+        canApproveCourier={canApproveCourier}
+        canMarkReceived={canMarkReceived}
+        canDealerShip={canDealerShip}
+        canDealerCancel={canDealerCancel}
+        onStageChange={handleStageChange}
+        onApproveCourier={handleApproveCourier}
+        onMarkReceived={handleMarkReceived}
+        onResolve={handleResolve}
+        onCancel={handleCancel}
+        onDealerCancel={() => void handleDealerCancel()}
+        onMarkShipped={handleMarkShipped}
+        onAdminDelete={() => void handleAdminDelete()}
+      />
+
+      {activeTab === 'chat' ? (
+        <div
+          id="support-detail-panel-chat"
+          role="tabpanel"
+          aria-labelledby="support-detail-tab-chat"
+          className="support-detail-page__tab-panel"
+        >
+          <SupportChat request={request} />
+          {showCourier && (
+            <SupportCourierInstructions requestNumber={request.requestNumber} compact />
           )}
         </div>
-
-        <div className="support-detail-summary__meta text-sm">
-          {request.product && <span>{request.product.name}</span>}
-          {request.invoiceNumber && <span>Invoice {request.invoiceNumber}</span>}
-          {request.salesOrderNumber && <span>SO {request.salesOrderNumber}</span>}
-          <span>{request.category}</span>
-          {request.courierTracking && <span>Tracking {request.courierTracking}</span>}
+      ) : (
+        <div
+          id="support-detail-panel-flow"
+          role="tabpanel"
+          aria-labelledby="support-detail-tab-flow"
+          className="support-detail-page__tab-panel support-detail-page__tab-panel--flow"
+        >
+          <SupportTicketFlowTimeline request={request} user={user} />
+          {showCourier && (
+            <SupportCourierInstructions requestNumber={request.requestNumber} compact />
+          )}
         </div>
-        {request.subject && <p className="support-detail-summary__subject">{request.subject}</p>}
-
-        {request.lifecycle === 'resolved' && request.resolutionSummary && (
-          <p className="support-detail-summary__resolution text-sm">
-            <strong>Resolution:</strong> {request.resolutionSummary}
-          </p>
-        )}
-
-        {canManageSupportOps(user) && isSupportOpen(request) && (
-          <label className="support-detail-summary__resolve-note text-sm">
-            <span className="text-muted">Resolution note (optional)</span>
-            <input
-              type="text"
-              className="catalog-input"
-              value={resolutionNote}
-              onChange={e => setResolutionNote(e.target.value)}
-              placeholder="Brief summary for internal records"
-            />
-            </label>
-        )}
-
-        {user?.role === 'super_admin' && (
-          <div className="support-detail-summary__admin-actions">
-            <button
-              type="button"
-              className="btn btn-danger btn-sm"
-              disabled={statusUpdating}
-              onClick={() => void handleAdminDelete()}
-            >
-              Delete ticket
-            </button>
-          </div>
-        )}
-      </section>
-
-      {canDealerShip && (
-        <section className="support-detail-ship panel glass">
-          <h3>
-            <Truck size={18} aria-hidden />
-            Mark product as shipped
-          </h3>
-          <p className="text-muted text-sm">
-            After you courier the product to {FIRM_NAME}, confirm shipment below. Add a tracking number if you have one.
-          </p>
-          <div className="support-detail-ship__form">
-            <input
-              type="text"
-              className="catalog-input"
-              value={tracking}
-              onChange={e => setTracking(e.target.value)}
-              placeholder="Courier tracking number (optional)"
-              disabled={statusUpdating}
-            />
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={statusUpdating}
-              onClick={handleMarkShipped}
-            >
-              I&apos;ve shipped the product
-            </button>
-          </div>
-        </section>
-      )}
-
-      <SupportChat request={request} />
-
-      {showCourier && (
-        <SupportCourierInstructions requestNumber={request.requestNumber} compact />
       )}
     </div>
   );

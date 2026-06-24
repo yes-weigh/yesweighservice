@@ -37,7 +37,7 @@ function resolveDealerIdForUser(uid, role, userData) {
 function isAllowedMediaType(contentType) {
   const type = String(contentType ?? '').split(';')[0].trim().toLowerCase();
   if (!type) return true;
-  return type.startsWith('image/') || type.startsWith('video/') || type === 'application/octet-stream';
+  return type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/') || type === 'application/octet-stream';
 }
 
 function safeFileName(name) {

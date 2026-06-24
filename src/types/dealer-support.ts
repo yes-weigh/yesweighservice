@@ -62,7 +62,7 @@ export interface DealerSupportRequest {
   resolutionSummary: string | null;
 }
 
-export type SupportAttachmentKind = 'image' | 'video';
+export type SupportAttachmentKind = 'image' | 'video' | 'audio';
 
 export interface SupportAttachment {
   id: string;
@@ -74,6 +74,8 @@ export interface SupportAttachment {
   size: number;
 }
 
+export type SupportMessageReceiptStatus = 'sent' | 'delivered' | 'read';
+
 export interface SupportMessage {
   id: string;
   text: string;
@@ -83,6 +85,8 @@ export interface SupportMessage {
   authorRole: string;
   createdAt: string;
   isInitial?: boolean;
+  deliveredAt?: string | null;
+  readAt?: string | null;
 }
 
 export interface SendSupportMessageInput {

@@ -33,6 +33,7 @@ import type {
   SupportAssignee,
   SupportLifecycle,
   SupportMessage,
+  SupportMessageReceiptStatus,
   SupportOpenStage,
   SupportRequestType,
 } from '../types/dealer-support';
@@ -150,9 +151,14 @@ function previewText(text: string, attachmentCount: number): string {
 }
 
 function mapAttachment(raw: DocumentData): SupportMessage['attachments'][number] {
+  const kind = raw.kind === 'video'
+    ? 'video'
+    : raw.kind === 'audio'
+      ? 'audio'
+      : 'image';
   return {
     id: String(raw.id ?? ''),
-    kind: raw.kind === 'video' ? 'video' : 'image',
+    kind,
     url: String(raw.url ?? ''),
     storagePath: String(raw.storagePath ?? ''),
     fileName: String(raw.fileName ?? 'file'),
@@ -172,6 +178,8 @@ function mapMessage(id: string, data: DocumentData): SupportMessage {
     authorRole: String(data.authorRole ?? ''),
     createdAt: String(data.createdAt ?? ''),
     isInitial: data.isInitial === true,
+    deliveredAt: data.deliveredAt ? String(data.deliveredAt) : null,
+    readAt: data.readAt ? String(data.readAt) : null,
   };
 }
 
@@ -306,6 +314,81 @@ export async function sendSupportMessage(
   input: SendSupportMessageInput,
   onProgress?: (progress: SupportSubmitProgress) => void,
 ): Promise<SupportMessage> {
+  const text = input.text.trim();
+  const files = input.files ?? [];
+
+  if (input.isInitial === true && files.length > 0) {
+    let lastMessage: SupportMessage | null = null;
+    for (let index = 0; index < files.length; index += 1) {
+      lastMessage = await sendSupportMessageOnce(
+        user,
+        requestId,
+        { text: '', files: [files[index]], isInitial: true },
+        onProgress,
+        { updateRequestMeta: false, storeInitialFlag: false, createdAtOffsetMs: index },
+      );
+    }
+    if (text) {
+      lastMessage = await sendSupportMessageOnce(
+        user,
+        requestId,
+        { text, files: [], isInitial: true },
+        onProgress,
+        { updateRequestMeta: true, storeInitialFlag: true, createdAtOffsetMs: files.length },
+      );
+    } else if (lastMessage) {
+      await touchSupportRequestAfterMessage(user, requestId, lastMessage, true);
+    }
+    return lastMessage!;
+  }
+
+  return sendSupportMessageOnce(user, requestId, { ...input, text, files }, onProgress, {
+    updateRequestMeta: true,
+  });
+}
+
+async function touchSupportRequestAfterMessage(
+  user: User,
+  requestId: string,
+  message: SupportMessage,
+  isInitial: boolean,
+): Promise<void> {
+  const request = await getSupportRequest(requestId);
+  if (!request) return;
+
+  const now = new Date().toISOString();
+  const updates: Record<string, string | null> = {
+    updatedAt: now,
+    lastMessageAt: now,
+    lastMessagePreview: previewText(message.text, message.attachments.length),
+    ...messageStageUpdates(user, request, isInitial),
+  };
+
+  if (
+    canManageSupportOps(user)
+    && isSupportOpen(request)
+    && request.openStage === 'submitted'
+    && request.type === 'complaint'
+  ) {
+    updates.openStage = 'under_review';
+  }
+
+  try {
+    await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
+  } catch (updateErr) {
+    if (!isFirestorePermissionDenied(updateErr)) {
+      console.error('Support request metadata update failed:', updateErr);
+    }
+  }
+}
+
+async function sendSupportMessageOnce(
+  user: User,
+  requestId: string,
+  input: SendSupportMessageInput,
+  onProgress?: (progress: SupportSubmitProgress) => void,
+  options?: { updateRequestMeta?: boolean; storeInitialFlag?: boolean; createdAtOffsetMs?: number },
+): Promise<SupportMessage> {
   const request = await getSupportRequest(requestId);
   if (!request) throw new Error('Support request not found.');
   if (!canUserAccessSupportRequest(user, request)) {
@@ -337,17 +420,21 @@ export async function sendSupportMessage(
     percent: 96,
   });
 
-  const now = new Date().toISOString();
+  const now = new Date(Date.now() + (options?.createdAtOffsetMs ?? 0)).toISOString();
   const isInitial = input.isInitial === true;
-  const updates: Record<string, string | null> = {
-    updatedAt: now,
-    lastMessageAt: now,
-    lastMessagePreview: previewText(text, attachments.length),
-    ...messageStageUpdates(user, request, isInitial),
-  };
+  const storeInitialFlag = options?.storeInitialFlag !== false;
+  const updates: Record<string, string | null> = options?.updateRequestMeta === false
+    ? {}
+    : {
+        updatedAt: now,
+        lastMessageAt: now,
+        lastMessagePreview: previewText(text, attachments.length),
+        ...messageStageUpdates(user, request, isInitial),
+      };
 
   if (
-    canManageSupportOps(user)
+    options?.updateRequestMeta !== false
+    && canManageSupportOps(user)
     && isSupportOpen(request)
     && request.openStage === 'submitted'
     && request.type === 'complaint'
@@ -359,7 +446,7 @@ export async function sendSupportMessage(
     text,
     attachments,
     createdAt: now,
-    isInitial,
+    isInitial: isInitial && storeInitialFlag,
   };
 
   await persistSupportMessage(user, requestId, messageRef.id, payload, updates);
@@ -369,7 +456,7 @@ export async function sendSupportMessage(
     authorUid: user.uid,
     authorName: user.displayName,
     authorRole: user.role,
-    ...(isInitial ? { isInitial: true } : {}),
+    ...(payload.isInitial ? { isInitial: true } : {}),
   });
 }
 
@@ -633,6 +720,29 @@ export function subscribeSupportMessages(
     },
     err => onError?.(err instanceof Error ? err : new Error('Could not load messages.')),
   );
+}
+
+export function supportMessageReceiptStatus(
+  message: Pick<SupportMessage, 'deliveredAt' | 'readAt'>,
+): SupportMessageReceiptStatus {
+  if (message.readAt) return 'read';
+  if (message.deliveredAt) return 'delivered';
+  return 'sent';
+}
+
+export async function markSupportMessageReceipts(
+  requestId: string,
+  messageIds: string[],
+  receipt: 'delivered' | 'read',
+): Promise<void> {
+  if (messageIds.length === 0) return;
+
+  const callable = httpsCallable<
+    { requestId: string; messageIds: string[]; receipt: 'delivered' | 'read' },
+    { updated: number }
+  >(functions, 'markSupportMessageReceiptsFn');
+
+  await callable({ requestId, messageIds, receipt });
 }
 
 export function subscribeSupportRequest(

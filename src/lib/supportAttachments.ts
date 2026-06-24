@@ -38,16 +38,23 @@ export function isVideoFile(file: File): boolean {
   return file.type.startsWith('video/') || /\.(webm|mp4|m4v|mov)$/i.test(file.name);
 }
 
+export function isAudioFile(file: File): boolean {
+  return file.type.startsWith('audio/') || /\.(webm|ogg|m4a|mp3|aac)$/i.test(file.name);
+}
+
 export function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(file.name);
 }
 
 export function validateSupportFile(file: File): string | null {
-  if (!isImageFile(file) && !isVideoFile(file)) {
-    return `${file.name}: only images and videos are allowed.`;
+  if (!isImageFile(file) && !isVideoFile(file) && !isAudioFile(file)) {
+    return `${file.name}: only images, videos, and voice notes are allowed.`;
   }
   if (isVideoFile(file) && file.size > MAX_VIDEO_BYTES) {
     return `${file.name}: video must be under 50 MB.`;
+  }
+  if (isAudioFile(file) && file.size > 10 * 1024 * 1024) {
+    return `${file.name}: voice note must be under 10 MB.`;
   }
   if (isImageFile(file) && file.size > 15 * 1024 * 1024) {
     return `${file.name}: image must be under 15 MB.`;
@@ -59,7 +66,11 @@ export function createPendingSupportFile(
   file: File,
   options?: { gpsLabel?: string | null; photoSlot?: EvidencePhotoSlot | null },
 ): PendingSupportFile {
-  const kind: SupportAttachmentKind = isVideoFile(file) ? 'video' : 'image';
+  const kind: SupportAttachmentKind = isVideoFile(file)
+    ? 'video'
+    : isAudioFile(file)
+      ? 'audio'
+      : 'image';
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     file,
@@ -494,7 +505,7 @@ export async function uploadSupportAttachments(
 
     uploads.push({
       id: uploaded.attachmentId,
-      kind: isVideoFile(file) ? 'video' : 'image',
+      kind: isVideoFile(file) ? 'video' : isAudioFile(file) ? 'audio' : 'image',
       url: uploaded.url,
       storagePath: uploaded.storagePath,
       fileName: file.name,

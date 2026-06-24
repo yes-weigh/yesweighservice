@@ -13,6 +13,8 @@ export type PageHeaderConfig = {
   subtitle?: string | null;
   showBack?: boolean;
   onBack?: (() => void) | null;
+  onTitleClick?: (() => void) | null;
+  titleExpanded?: boolean;
 };
 
 type PageHeaderContextValue = {
@@ -36,7 +38,9 @@ function configsEqual(a: PageHeaderConfig, b: PageHeaderConfig): boolean {
   return a.title === b.title
     && a.subtitle === b.subtitle
     && a.showBack === b.showBack
-    && a.onBack === b.onBack;
+    && a.onBack === b.onBack
+    && a.onTitleClick === b.onTitleClick
+    && a.titleExpanded === b.titleExpanded;
 }
 
 const PageHeaderContext = createContext<PageHeaderContextValue | null>(null);
@@ -88,9 +92,11 @@ export function useCatalogPageHeader(config: PageHeaderConfig) {
   const ctx = useContext(PageHeaderContext);
   const setPageHeader = ctx?.setPageHeader;
   const clearPageHeader = ctx?.clearPageHeader;
-  const { title = null, subtitle = null, showBack = false, onBack = null } = config;
+  const { title = null, subtitle = null, showBack = false, onBack = null, onTitleClick = null, titleExpanded = false } = config;
   const onBackRef = useRef(onBack);
+  const onTitleClickRef = useRef(onTitleClick);
   onBackRef.current = onBack;
+  onTitleClickRef.current = onTitleClick;
 
   useEffect(() => {
     if (!setPageHeader || !clearPageHeader) return undefined;
@@ -104,9 +110,20 @@ export function useCatalogPageHeader(config: PageHeaderConfig) {
       ? () => onBackRef.current?.()
       : null;
 
-    setPageHeader({ title, subtitle, showBack, onBack: stableOnBack });
+    const stableOnTitleClick = onTitleClick
+      ? () => onTitleClickRef.current?.()
+      : null;
+
+    setPageHeader({
+      title,
+      subtitle,
+      showBack,
+      onBack: stableOnBack,
+      onTitleClick: stableOnTitleClick,
+      titleExpanded,
+    });
     return () => clearPageHeader();
-  }, [setPageHeader, clearPageHeader, title, subtitle, showBack]);
+  }, [setPageHeader, clearPageHeader, title, subtitle, showBack, onTitleClick, titleExpanded]);
 }
 
 export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) {
