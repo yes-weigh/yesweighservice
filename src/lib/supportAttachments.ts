@@ -152,21 +152,16 @@ function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const buffer = reader.result;
-      if (!(buffer instanceof ArrayBuffer)) {
+      const result = reader.result;
+      if (typeof result !== 'string') {
         reject(new Error('Could not read file.'));
         return;
       }
-      const bytes = new Uint8Array(buffer);
-      const chunkSize = 0x8000;
-      let binary = '';
-      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-      }
-      resolve(btoa(binary));
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
     };
     reader.onerror = () => reject(reader.error ?? new Error('Could not read file.'));
-    reader.readAsArrayBuffer(file);
+    reader.readAsDataURL(file);
   });
 }
 
@@ -441,25 +436,7 @@ async function uploadSingleSupportFile(
       if (isStorageUnauthorized(directErr)) {
         markDirectUploadDenied();
       }
-      // Try server/signed upload paths when direct Firebase Storage fails.
-    }
-  }
-
-  if (file.size <= MAX_SERVER_UPLOAD_BYTES) {
-    try {
-      reportStatus('Finishing upload…');
-      return await uploadViaCloudFunction(
-        requestId,
-        messageId,
-        file,
-        contentType,
-        options,
-        onFileProgress,
-      );
-    } catch (serverErr) {
-      if (!isSignedUploadUnavailable(serverErr) && !isStorageUnauthorized(serverErr)) {
-        throw serverErr instanceof Error ? serverErr : new Error('Could not upload attachment.');
-      }
+      // Try signed URL / server upload when direct Firebase Storage fails.
     }
   }
 
@@ -479,8 +456,28 @@ async function uploadSingleSupportFile(
       url: await resolveUploadedAttachmentUrl(signed.storagePath, signed.url),
     };
   } catch (signedErr) {
-    throw signedErr instanceof Error ? signedErr : new Error('Could not upload attachment.');
+    if (!isSignedUploadUnavailable(signedErr) && file.size > MAX_SERVER_UPLOAD_BYTES) {
+      throw signedErr instanceof Error ? signedErr : new Error('Could not upload attachment.');
+    }
   }
+
+  if (file.size <= MAX_SERVER_UPLOAD_BYTES) {
+    try {
+      reportStatus('Finishing upload…');
+      return await uploadViaCloudFunction(
+        requestId,
+        messageId,
+        file,
+        contentType,
+        options,
+        onFileProgress,
+      );
+    } catch (serverErr) {
+      throw serverErr instanceof Error ? serverErr : new Error('Could not upload attachment.');
+    }
+  }
+
+  throw new Error('Could not upload attachment.');
 }
 
 async function uploadViaClientStorage(

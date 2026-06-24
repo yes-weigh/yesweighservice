@@ -129,14 +129,22 @@ export function buildRecordingBlob(chunks: Blob[], mimeType: string): Blob {
 }
 
 export function hasValidVideoContainerHeader(bytes: Uint8Array): boolean {
-  const isWebm = bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
-  const isMp4 = bytes.length >= 8
-    && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
-  return isWebm || isMp4;
+  if (bytes.length >= 4
+    && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+    return true;
+  }
+
+  const limit = Math.min(bytes.length - 4, 512);
+  for (let i = 0; i <= limit; i += 1) {
+    if (bytes[i] === 0x66 && bytes[i + 1] === 0x74 && bytes[i + 2] === 0x79 && bytes[i + 3] === 0x70) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function assertValidVideoContainer(blob: Blob): Promise<void> {
-  const buf = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const buf = new Uint8Array(await blob.slice(0, 512).arrayBuffer());
   if (!hasValidVideoContainerHeader(buf)) {
     throw new Error('Could not prepare video for upload. Please record again.');
   }
@@ -147,9 +155,9 @@ export async function prepareVideoFileForUpload(
   recordedDurationMs?: number,
 ): Promise<File> {
   let blob: Blob = file;
-  const header = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
-  const hasWebmHeader = hasValidVideoContainerHeader(header)
-    && header[0] === 0x1a;
+  const header = new Uint8Array(await blob.slice(0, 512).arrayBuffer());
+  const hasWebmHeader = header.length >= 4
+    && header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3;
 
   if (hasWebmHeader && blob.type.includes('webm') && recordedDurationMs && recordedDurationMs > 0) {
     const { default: fixWebmDuration } = await import('fix-webm-duration');

@@ -112,12 +112,19 @@ function assertValidVideoBuffer(buffer, contentType) {
   const type = String(contentType ?? '').split(';')[0].trim().toLowerCase();
   if (!type.startsWith('video/')) return;
 
-  const isWebm = buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3;
-  const isMp4 = buffer.length >= 8
-    && buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70;
-  if (!isWebm && !isMp4) {
-    throw new HttpsError('invalid-argument', 'Invalid video file. Please record again.');
+  if (buffer.length >= 4
+    && buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3) {
+    return;
   }
+
+  const scanLength = Math.min(buffer.length - 4, 512);
+  for (let i = 0; i <= scanLength; i += 1) {
+    if (buffer[i] === 0x66 && buffer[i + 1] === 0x74 && buffer[i + 2] === 0x79 && buffer[i + 3] === 0x70) {
+      return;
+    }
+  }
+
+  throw new HttpsError('invalid-argument', 'Invalid video file. Please record again.');
 }
 
 export async function uploadSupportAttachment(uid, input) {
