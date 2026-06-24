@@ -39,9 +39,11 @@ import {
   SupportInvoiceProductPicker,
   type SupportInvoicePick,
 } from './SupportInvoiceFields';
+import { SupportDeclarationStep } from './SupportDeclarationStep';
+import { SUPPORT_DECLARATION_TITLE } from '../../constants/supportDeclaration';
 import type { PendingSupportFile } from '../../lib/supportAttachments';
 
-type WizardStep = 'intent' | 'product' | 'details' | 'success';
+type WizardStep = 'intent' | 'product' | 'details' | 'declaration' | 'success';
 
 function requestToProductDraft(request: DealerSupportRequest): SupportProductDraft | null {
   if (!request.invoiceId || !request.invoiceNumber || !request.product?.lineItemId) {
@@ -78,7 +80,8 @@ function progressStepState(
     intent: 1,
     product: 2,
     details: 3,
-    success: 4,
+    declaration: 4,
+    success: 5,
   };
   const current = order[step];
   if (target < current) return 'is-done';
@@ -159,6 +162,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [pendingFiles, setPendingFiles] = useState<PendingSupportFile[]>([]);
   const [submitProgress, setSubmitProgress] = useState<SupportSubmitProgress | null>(null);
   const [discarding, setDiscarding] = useState(false);
+  const [declarationAgreed, setDeclarationAgreed] = useState(false);
   const confirm = useConfirm();
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -268,27 +272,38 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!intent) return;
+  const validateDetails = (): boolean => {
+    if (!intent) return false;
 
     if (intent === 'complaint' && !subject.trim()) {
       setError('Enter a short subject for your complaint.');
-      return;
+      return false;
     }
     if (!description.trim()) {
       setError('Please describe the issue.');
-      return;
+      return false;
     }
     if (needsProduct && !serialNumber.trim()) {
       setError('Enter the serial number or MAC ID.');
-      return;
+      return false;
     }
     const evidenceError = validateEvidenceFiles(pendingFiles);
     if (evidenceError) {
       setError(evidenceError);
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const handleDetailsNext = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateDetails()) return;
+    setError('');
+    setStep('declaration');
+  };
+
+  const submitRequest = async () => {
+    if (!intent) return;
 
     setSubmitting(true);
     setSubmitProgress({ phase: 'preparing', label: 'Starting submit…', percent: 2 });
@@ -311,8 +326,18 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     }
   };
 
+  const handleDeclarationContinue = () => {
+    if (!declarationAgreed) {
+      setError('You must agree to the Warranty & Service Declaration to continue.');
+      return;
+    }
+    setError('');
+    void submitRequest();
+  };
+
   const wizardTitle = useMemo(() => {
     if (step === 'success') return 'Request submitted';
+    if (step === 'declaration') return SUPPORT_DECLARATION_TITLE;
     if (step === 'intent') return 'New request';
     if (step === 'product') return needsProduct ? 'Invoice & product' : 'Link invoice';
     return 'Request details';
@@ -328,8 +353,14 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       else setStep('intent');
       return;
     }
-    if (productDraft) onCancel();
-    else setStep('product');
+    if (step === 'declaration') {
+      setStep('details');
+      return;
+    }
+    if (step === 'details') {
+      if (productDraft) onCancel();
+      else setStep('product');
+    }
   }, [step, initialIntent, productDraft, onCancel]);
 
   const handleSuccessDone = useCallback(() => {
@@ -378,7 +409,19 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           onClick={() => formRef.current?.requestSubmit()}
           disabled={isBusy}
         >
-          {submitting ? 'Submitting…' : 'Submit'}
+          Next
+        </button>
+      );
+    }
+    if (step === 'declaration') {
+      return (
+        <button
+          type="button"
+          className="top-bar__action-btn top-bar__action-btn--primary"
+          onClick={handleDeclarationContinue}
+          disabled={isBusy || !declarationAgreed}
+        >
+          {submitting ? 'Submitting…' : 'Continue'}
         </button>
       );
     }
@@ -394,7 +437,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       );
     }
     return null;
-  }, [step, intent, isBusy, submitting, handleProductNext, handleSuccessDone]);
+  }, [step, intent, isBusy, submitting, declarationAgreed, handleProductNext, handleSuccessDone, handleDeclarationContinue]);
 
   useTopBarAction(wizardTopBarAction, Boolean(wizardTopBarAction));
 
@@ -442,8 +485,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   return (
     <div className="support-wizard">
       <div
-        className={`support-wizard__progress support-wizard__progress--three${step === 'intent' ? ' support-wizard__progress--hidden' : ''}`}
-        aria-hidden={step === 'intent'}
+        className={`support-wizard__progress support-wizard__progress--three${step === 'intent' || step === 'declaration' ? ' support-wizard__progress--hidden' : ''}`}
+        aria-hidden={step === 'intent' || step === 'declaration'}
       >
         <span className={progressStepState(step, 1)}>1</span>
         <span className="support-wizard__progress-line" />
@@ -583,7 +626,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             'support-wizard__step support-wizard__step--details panel glass',
             isBusy && submitProgress ? 'support-wizard__step--busy' : '',
           ].filter(Boolean).join(' ')}
-          onSubmit={e => void handleSubmit(e)}
+          onSubmit={e => handleDetailsNext(e)}
         >
           <div className="support-wizard__step-body">
           <h3 className="support-wizard__question">
@@ -727,10 +770,22 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               className="btn btn-primary btn-sm"
               disabled={isBusy}
             >
-              {submitting ? 'Submitting…' : 'Submit'}
+              Next
+              <ArrowRight size={16} />
             </button>
           </div>
         </form>
+      )}
+
+      {step === 'declaration' && intent && (
+        <SupportDeclarationStep
+          agreed={declarationAgreed}
+          onAgreedChange={setDeclarationAgreed}
+          onContinue={handleDeclarationContinue}
+          disabled={isBusy}
+          submitting={submitting}
+          submitProgress={submitProgress}
+        />
       )}
     </div>
   );
