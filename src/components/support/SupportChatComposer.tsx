@@ -12,8 +12,10 @@ import {
   Image as ImageIcon,
   Mic,
   Paperclip,
+  Pause,
   Send,
   Smile,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -49,6 +51,7 @@ interface SupportChatComposerProps {
 
 const MAX_VOICE_SECONDS = 120;
 const MIN_VOICE_MS = 400;
+const VOICE_WAVEFORM_BARS = 28;
 
 function resizeComposer(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -82,8 +85,15 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const voiceChunksRef = useRef<Blob[]>([]);
     const voiceStartedAtRef = useRef(0);
+    const voicePausedMsRef = useRef(0);
+    const voicePauseStartedRef = useRef(0);
+    const voicePausedRef = useRef(false);
     const voiceTickRef = useRef<number | null>(null);
     const voiceTimeoutRef = useRef<number | null>(null);
+    const voiceAudioContextRef = useRef<AudioContext | null>(null);
+    const voiceAnalyserRef = useRef<AnalyserNode | null>(null);
+    const voiceWaveformFrameRef = useRef<number | null>(null);
+    const voiceWaveformDataRef = useRef<Uint8Array | null>(null);
     const videoChunksRef = useRef<Blob[]>([]);
     const videoRecordTickRef = useRef<number | null>(null);
     const videoRecordTimeoutRef = useRef<number | null>(null);
@@ -97,8 +107,11 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
     const [recordingVideo, setRecordingVideo] = useState(false);
     const [videoRecordSeconds, setVideoRecordSeconds] = useState(0);
     const [recordingVoice, setRecordingVoice] = useState(false);
+    const [voicePaused, setVoicePaused] = useState(false);
     const [voiceSeconds, setVoiceSeconds] = useState(0);
-    const [voiceCancelled, setVoiceCancelled] = useState(false);
+    const [voiceWaveform, setVoiceWaveform] = useState<number[]>(
+      () => Array.from({ length: VOICE_WAVEFORM_BARS }, () => 0.12),
+    );
 
     const canSend = Boolean(text.trim() || pendingFiles.length > 0);
     const busy = cameraLoading || recordingVoice || recordingVideo;
@@ -112,6 +125,77 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
       if (voiceTimeoutRef.current != null) window.clearTimeout(voiceTimeoutRef.current);
       voiceTickRef.current = null;
       voiceTimeoutRef.current = null;
+    };
+
+    const voiceElapsedMs = () => {
+      const pausedNow = voicePausedRef.current && voicePauseStartedRef.current
+        ? Date.now() - voicePauseStartedRef.current
+        : 0;
+      return Date.now() - voiceStartedAtRef.current - voicePausedMsRef.current - pausedNow;
+    };
+
+    const syncVoiceSeconds = () => {
+      setVoiceSeconds(Math.max(0, Math.floor(voiceElapsedMs() / 1000)));
+    };
+
+    const pauseVoiceWaveformAnimation = () => {
+      if (voiceWaveformFrameRef.current != null) {
+        window.cancelAnimationFrame(voiceWaveformFrameRef.current);
+        voiceWaveformFrameRef.current = null;
+      }
+    };
+
+    const runVoiceWaveformAnimation = () => {
+      pauseVoiceWaveformAnimation();
+      const tick = () => {
+        const node = voiceAnalyserRef.current;
+        const buffer = voiceWaveformDataRef.current;
+        if (!node || !buffer) return;
+
+        node.getByteFrequencyData(buffer as Uint8Array<ArrayBuffer>);
+        const step = Math.max(1, Math.floor(buffer.length / VOICE_WAVEFORM_BARS));
+        const bars = Array.from({ length: VOICE_WAVEFORM_BARS }, (_, index) => {
+          const start = index * step;
+          let sum = 0;
+          for (let i = start; i < start + step && i < buffer.length; i += 1) {
+            sum += buffer[i];
+          }
+          const avg = sum / step;
+          return Math.max(0.12, Math.min(1, avg / 180));
+        });
+        setVoiceWaveform(bars);
+        voiceWaveformFrameRef.current = window.requestAnimationFrame(tick);
+      };
+      voiceWaveformFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    const stopVoiceWaveform = () => {
+      pauseVoiceWaveformAnimation();
+      voiceAnalyserRef.current = null;
+      voiceWaveformDataRef.current = null;
+      if (voiceAudioContextRef.current) {
+        void voiceAudioContextRef.current.close().catch(() => undefined);
+        voiceAudioContextRef.current = null;
+      }
+      setVoiceWaveform(Array.from({ length: VOICE_WAVEFORM_BARS }, () => 0.12));
+    };
+
+    const startVoiceWaveform = (stream: MediaStream) => {
+      stopVoiceWaveform();
+      try {
+        const audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 128;
+        analyser.smoothingTimeConstant = 0.72;
+        source.connect(analyser);
+        voiceAudioContextRef.current = audioContext;
+        voiceAnalyserRef.current = analyser;
+        voiceWaveformDataRef.current = new Uint8Array(analyser.frequencyBinCount);
+        runVoiceWaveformAnimation();
+      } catch {
+        // Waveform is optional — recording still works without it.
+      }
     };
 
     const clearVideoTimers = () => {
@@ -137,6 +221,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
     useEffect(() => () => {
       clearVoiceTimers();
       clearVideoTimers();
+      stopVoiceWaveform();
       stopMediaStream(mediaStreamRef.current);
     }, []);
 
@@ -300,11 +385,12 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
     };
 
     const startVoiceRecording = async () => {
-      if (busy || canSend) return;
+      if (busy || canSend || recordingVoice) return;
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaStreamRef.current = stream;
+        startVoiceWaveform(stream);
 
         const mimeType = pickAudioMimeType();
         const recorder = mimeType
@@ -319,37 +405,70 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         mediaRecorderRef.current = recorder;
         recorder.start();
         voiceStartedAtRef.current = Date.now();
+        voicePausedMsRef.current = 0;
+        voicePauseStartedRef.current = 0;
         setRecordingVoice(true);
+        voicePausedRef.current = false;
+        setVoicePaused(false);
         setVoiceSeconds(0);
-        setVoiceCancelled(false);
 
-        voiceTickRef.current = window.setInterval(() => {
-          setVoiceSeconds(Math.floor((Date.now() - voiceStartedAtRef.current) / 1000));
-        }, 250);
+        voiceTickRef.current = window.setInterval(syncVoiceSeconds, 250);
 
         voiceTimeoutRef.current = window.setTimeout(() => {
           void finishVoiceRecording(false);
         }, MAX_VOICE_SECONDS * 1000);
       } catch {
-        setVoiceCancelled(true);
         setRecordingVoice(false);
+        setVoicePaused(false);
+        stopVoiceWaveform();
         stopMediaStream(mediaStreamRef.current);
         mediaStreamRef.current = null;
+      }
+    };
+
+    const toggleVoicePause = () => {
+      const recorder = mediaRecorderRef.current;
+      if (!recorder || !recordingVoice) return;
+
+      if (recorder.state === 'recording') {
+        recorder.pause();
+        clearVoiceTimers();
+        voicePauseStartedRef.current = Date.now();
+        voicePausedRef.current = true;
+        setVoicePaused(true);
+        pauseVoiceWaveformAnimation();
+        return;
+      }
+
+      if (recorder.state === 'paused') {
+        voicePausedMsRef.current += Date.now() - voicePauseStartedRef.current;
+        voicePauseStartedRef.current = 0;
+        recorder.resume();
+        voicePausedRef.current = false;
+        setVoicePaused(false);
+        voiceTickRef.current = window.setInterval(syncVoiceSeconds, 250);
+        voiceTimeoutRef.current = window.setTimeout(() => {
+          void finishVoiceRecording(false);
+        }, Math.max(0, MAX_VOICE_SECONDS * 1000 - voiceElapsedMs()));
+        runVoiceWaveformAnimation();
       }
     };
 
     const finishVoiceRecording = async (cancelled: boolean) => {
       const recorder = mediaRecorderRef.current;
       clearVoiceTimers();
+      stopVoiceWaveform();
 
       if (!recorder || recorder.state === 'inactive') {
         setRecordingVoice(false);
+        setVoicePaused(false);
+        setVoiceSeconds(0);
         stopMediaStream(mediaStreamRef.current);
         mediaStreamRef.current = null;
         return;
       }
 
-      const duration = Date.now() - voiceStartedAtRef.current;
+      const duration = voiceElapsedMs();
 
       recorder.onstop = async () => {
         const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
@@ -358,7 +477,11 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         stopMediaStream(mediaStreamRef.current);
         mediaStreamRef.current = null;
         setRecordingVoice(false);
+        voicePausedRef.current = false;
+        setVoicePaused(false);
         setVoiceSeconds(0);
+        voicePausedMsRef.current = 0;
+        voicePauseStartedRef.current = 0;
 
         if (!cancelled && duration >= MIN_VOICE_MS && blob.size > 0) {
           const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
@@ -370,6 +493,9 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
         }
       };
 
+      if (recorder.state === 'paused') {
+        recorder.resume();
+      }
       recorder.stop();
     };
 
@@ -412,18 +538,45 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
           )}
 
           {recordingVoice ? (
-            <div className="support-chat__voice-recording">
-              <span className="support-chat__voice-dot" aria-hidden />
-              <span className="support-chat__voice-time">{formatRecordTime(voiceSeconds)}</span>
-              <span className="support-chat__voice-hint text-muted text-sm">
-                {voiceCancelled ? 'Cancelled' : 'Release to send'}
-              </span>
+            <div className="support-chat__voice-panel" role="group" aria-label="Voice recording">
               <button
                 type="button"
-                className="support-chat__voice-cancel"
+                className="support-chat__voice-btn support-chat__voice-btn--delete"
+                aria-label="Delete recording"
                 onClick={() => void finishVoiceRecording(true)}
               >
-                Cancel
+                <Trash2 size={22} />
+              </button>
+
+              <div className="support-chat__voice-track">
+                <span className="support-chat__voice-time">{formatRecordTime(voiceSeconds)}</span>
+                <div className="support-chat__voice-waveform" aria-hidden>
+                  {voiceWaveform.map((level, index) => (
+                    <span
+                      key={index}
+                      className="support-chat__voice-waveform-bar"
+                      style={{ transform: `scaleY(${level})` }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="support-chat__voice-btn support-chat__voice-btn--pause"
+                aria-label={voicePaused ? 'Resume recording' : 'Pause recording'}
+                onClick={toggleVoicePause}
+              >
+                {voicePaused ? <Mic size={22} /> : <Pause size={22} fill="currentColor" />}
+              </button>
+
+              <button
+                type="button"
+                className="support-chat__action support-chat__action--send support-chat__voice-send"
+                aria-label="Send voice note"
+                onClick={() => void finishVoiceRecording(false)}
+              >
+                <Send size={18} />
               </button>
             </div>
           ) : (
@@ -515,18 +668,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
                   className="support-chat__action support-chat__action--mic"
                   disabled={busy}
                   aria-label="Record voice note"
-                  onPointerDown={e => {
-                    e.preventDefault();
-                    void startVoiceRecording();
-                  }}
-                  onPointerUp={e => {
-                    e.preventDefault();
-                    void finishVoiceRecording(false);
-                  }}
-                  onPointerLeave={() => {
-                    if (recordingVoice) void finishVoiceRecording(false);
-                  }}
-                  onContextMenu={e => e.preventDefault()}
+                  onClick={() => void startVoiceRecording()}
                 >
                   <Mic size={20} />
                 </button>
