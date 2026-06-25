@@ -324,7 +324,7 @@ async function uploadViaCloudFunction(
     fileName: file.name,
     contentType,
     fileBase64,
-    isInitial: options?.isInitial === true ? true : undefined,
+    ...(options?.isInitial === true ? { isInitial: true as const } : {}),
   });
 
   onFileProgress?.(100);
@@ -363,7 +363,7 @@ async function uploadViaSignedUrl(
     fileName: file.name,
     contentType,
     size: file.size,
-    isInitial: options?.isInitial === true ? true : undefined,
+    ...(options?.isInitial === true ? { isInitial: true as const } : {}),
   });
 
   await uploadFileViaPut(prep.data.uploadUrl, file, prep.data.contentType, onFileProgress);

@@ -333,9 +333,15 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setError('You must agree to the Warranty & Service Declaration to continue.');
       return;
     }
+    const evidenceError = validateEvidenceFiles(pendingFiles);
+    if (evidenceError) {
+      setError(evidenceError);
+      setStep('details');
+      return;
+    }
     setError('');
     void submitRequestRef.current();
-  }, [declarationAgreed]);
+  }, [declarationAgreed, pendingFiles]);
 
   const wizardTitle = useMemo(() => {
     if (step === 'success') return 'Request submitted';

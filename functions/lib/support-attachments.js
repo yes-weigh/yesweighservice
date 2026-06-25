@@ -90,7 +90,11 @@ export async function assertSupportRequestAccess(uid, requestId, options = {}) {
     throw new HttpsError('permission-denied', 'You do not have access to this request.');
   }
 
-  if ((req.lifecycle === 'draft' || req.status === 'draft') && options.isInitial !== true) {
+  if (
+    (req.lifecycle === 'draft' || req.status === 'draft')
+    && options.isInitial !== true
+    && options.forUpload !== true
+  ) {
     throw new HttpsError('failed-precondition', 'Submit the draft before uploading evidence.');
   }
 
@@ -142,7 +146,10 @@ export async function uploadSupportAttachment(uid, input) {
     throw new HttpsError('invalid-argument', 'Only image and video files are allowed.');
   }
 
-  await assertSupportRequestAccess(uid, requestId, { isInitial: input?.isInitial === true });
+  await assertSupportRequestAccess(uid, requestId, {
+    isInitial: input?.isInitial === true,
+    forUpload: true,
+  });
 
   let buffer;
   try {
@@ -204,7 +211,10 @@ export async function prepareSupportAttachmentUpload(uid, input) {
     throw new HttpsError('invalid-argument', 'Only image and video files are allowed.');
   }
 
-  await assertSupportRequestAccess(uid, requestId, { isInitial: input?.isInitial === true });
+  await assertSupportRequestAccess(uid, requestId, {
+    isInitial: input?.isInitial === true,
+    forUpload: true,
+  });
 
   const attachmentId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const storagePath = `support/${requestId}/${messageId}/${attachmentId}-${safeFileName(fileName)}`;

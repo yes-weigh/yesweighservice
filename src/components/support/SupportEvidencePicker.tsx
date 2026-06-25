@@ -21,7 +21,7 @@ type EvidenceSlotId = 'video' | EvidencePhotoSlot;
 
 interface SupportEvidencePickerProps {
   files: PendingSupportFile[];
-  onChange: (files: PendingSupportFile[]) => void;
+  onChange: React.Dispatch<React.SetStateAction<PendingSupportFile[]>>;
   disabled?: boolean;
 }
 
@@ -454,8 +454,8 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   }, [stopMediaStream, stopRecording]);
 
   const updateSlotFile = useCallback((slotId: EvidenceSlotId, file: PendingSupportFile | null) => {
-    onChange(setSlotFile(files, slotId, file));
-  }, [files, onChange]);
+    onChange(prev => setSlotFile(prev, slotId, file));
+  }, [onChange]);
 
   const handlePickFile = async (slotId: EvidenceSlotId, picked: File) => {
     const config = EVIDENCE_SLOTS.find(slot => slot.id === slotId)!;
