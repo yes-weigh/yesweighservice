@@ -256,26 +256,55 @@ function MessageBubble({
   const audioOnly = mediaOnly && message.attachments.every(isAudioAttachment);
   const isUploading = Boolean(uploadState && !uploadState.failed && uploadState.progress !== 100);
   const uploadFailed = Boolean(uploadState?.failed);
+  const voiceAvatarLabel = isOwn ? authorInitials(displayAuthor(message)) : authorInitials(author);
+  const voiceMessageTime = formatChatTime(message.createdAt);
 
-  const renderVoiceNote = (att: SupportMessage['attachments'][number]) => (
-    isUploading || uploadFailed ? (
-      <div key={att.id} className="support-chat__attachment-upload-wrap support-chat__attachment-upload-wrap--voice">
-        <SupportChatVoiceNote src={att.url} onLayout={onMediaLayout} />
-        {isUploading && <SupportChatUploadOverlay progress={uploadState?.progress ?? null} />}
-        {uploadFailed && uploadState?.onRetry && (
-          <button
-            type="button"
-            className="support-chat__upload-retry"
-            onClick={uploadState.onRetry}
-          >
-            Tap to retry
-          </button>
-        )}
-      </div>
+  const voiceReceipt = isOwn ? (
+    isUploading ? (
+      <span className="support-chat__receipt support-chat__receipt--pending" aria-label="Sending" title="Sending">
+        <Clock size={13} strokeWidth={2.5} />
+      </span>
+    ) : uploadFailed ? (
+      <span className="support-chat__receipt support-chat__receipt--failed" aria-label="Failed to send" title="Failed to send">
+        <AlertCircle size={13} strokeWidth={2.5} />
+      </span>
     ) : (
-      <SupportChatVoiceNote key={att.id} src={att.url} onLayout={onMediaLayout} />
+      <MessageReceipt status={supportMessageReceiptStatus(message)} />
     )
-  );
+  ) : null;
+
+  const renderVoiceNote = (att: SupportMessage['attachments'][number]) => {
+    const note = (
+      <SupportChatVoiceNote
+        src={att.url}
+        isOwn={isOwn}
+        avatarLabel={voiceAvatarLabel}
+        messageTime={voiceMessageTime}
+        receipt={voiceReceipt}
+        onLayout={onMediaLayout}
+      />
+    );
+
+    if (isUploading || uploadFailed) {
+      return (
+        <div key={att.id} className="support-chat__attachment-upload-wrap support-chat__attachment-upload-wrap--voice">
+          {note}
+          {isUploading && <SupportChatUploadOverlay progress={uploadState?.progress ?? null} />}
+          {uploadFailed && uploadState?.onRetry && (
+            <button
+              type="button"
+              className="support-chat__upload-retry"
+              onClick={uploadState.onRetry}
+            >
+              Tap to retry
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    return <React.Fragment key={att.id}>{note}</React.Fragment>;
+  };
 
   return (
     <div
@@ -294,15 +323,9 @@ function MessageBubble({
 
         {audioOnly ? (
           <div
-            className={`support-chat__voice-block ${isOwn ? 'support-chat__voice-block--own' : 'support-chat__voice-block--other'}`}
+            className={`support-chat__bubble support-chat__bubble--voice ${isOwn ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}`}
           >
             {message.attachments.map(att => renderVoiceNote(att))}
-            <MessageMetaFooter
-              message={message}
-              isOwn={isOwn}
-              isUploading={isUploading}
-              uploadFailed={uploadFailed}
-            />
           </div>
         ) : (
         <div

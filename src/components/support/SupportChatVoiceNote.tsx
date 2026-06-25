@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Pause, Play } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Mic, Pause, Play } from 'lucide-react';
+
+const WAVEFORM_BARS = 35;
 
 function formatVoiceTime(seconds: number): string {
   const safe = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
@@ -8,16 +10,39 @@ function formatVoiceTime(seconds: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
+function buildWaveformPattern(seed: string): number[] {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return Array.from({ length: WAVEFORM_BARS }, (_, index) => {
+    const value = Math.abs(Math.sin((hash + index) * 0.85) * 0.55 + Math.cos(index * 0.42) * 0.35);
+    return 0.18 + value * 0.82;
+  });
+}
+
 interface SupportChatVoiceNoteProps {
   src: string;
+  isOwn?: boolean;
+  avatarLabel?: string;
+  messageTime?: string;
+  receipt?: React.ReactNode;
   onLayout?: () => void;
 }
 
-export const SupportChatVoiceNote: React.FC<SupportChatVoiceNoteProps> = ({ src, onLayout }) => {
+export const SupportChatVoiceNote: React.FC<SupportChatVoiceNoteProps> = ({
+  src,
+  isOwn = false,
+  avatarLabel = '?',
+  messageTime,
+  receipt,
+  onLayout,
+}) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
+  const waveform = useMemo(() => buildWaveformPattern(src), [src]);
 
   useEffect(() => {
     setPlaying(false);
@@ -68,21 +93,58 @@ export const SupportChatVoiceNote: React.FC<SupportChatVoiceNoteProps> = ({ src,
 
   const progress = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
   const timeLabel = playing || current > 0 ? current : duration;
+  const playedBars = Math.round((progress / 100) * WAVEFORM_BARS);
 
   return (
-    <div className="support-chat__voice-note">
-      <button
-        type="button"
-        className="support-chat__voice-note-play"
-        onClick={togglePlayback}
-        aria-label={playing ? 'Pause voice message' : 'Play voice message'}
-      >
-        {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-      </button>
-      <div className="support-chat__voice-note-track" aria-hidden>
-        <div className="support-chat__voice-note-fill" style={{ width: `${progress}%` }} />
+    <div className={`support-chat__voice-note ${isOwn ? 'support-chat__voice-note--own' : 'support-chat__voice-note--other'}`}>
+      {isOwn && (
+        <div className="support-chat__voice-avatar" aria-hidden>
+          <span className="support-chat__voice-avatar-label">{avatarLabel}</span>
+          <span className="support-chat__voice-avatar-mic">
+            <Mic size={10} strokeWidth={2.5} />
+          </span>
+        </div>
+      )}
+
+      <div className="support-chat__voice-main">
+        <div className="support-chat__voice-controls">
+          <button
+            type="button"
+            className="support-chat__voice-play"
+            onClick={togglePlayback}
+            aria-label={playing ? 'Pause voice message' : 'Play voice message'}
+          >
+            {playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+          </button>
+
+          <div className="support-chat__voice-wave" aria-hidden>
+            <div className="support-chat__voice-wave-bars">
+              {waveform.map((level, index) => (
+                <span
+                  key={index}
+                  className={`support-chat__voice-wave-bar${index < playedBars ? ' is-played' : ''}`}
+                  style={{ transform: `scaleY(${level})` }}
+                />
+              ))}
+            </div>
+            <span
+              className="support-chat__voice-scrubber"
+              style={{ left: `calc(${progress}% - 0.28rem)` }}
+            />
+          </div>
+        </div>
+
+        <div className="support-chat__voice-footer">
+          <span className="support-chat__voice-duration">{formatVoiceTime(timeLabel)}</span>
+          {(messageTime || receipt) && (
+            <span className="support-chat__voice-meta">
+              {messageTime && <time>{messageTime}</time>}
+              {receipt}
+            </span>
+          )}
+        </div>
       </div>
-      <span className="support-chat__voice-note-time">{formatVoiceTime(timeLabel)}</span>
+
       <audio ref={audioRef} src={src} preload="metadata" className="support-chat__voice-note-audio" />
     </div>
   );
