@@ -37,21 +37,58 @@ jobs:
       - name: Configure Firebase credentials
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_SERVICE_ACCOUNT_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && [ -z "$FIREBASE_TOKEN" ]; then
+          # firebase-tools prefers FIREBASE_TOKEN over ADC when the variable exists (even empty).
+          echo "FIREBASE_TOKEN=" >> "$GITHUB_ENV"
+
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && [ -z "$FIREBASE_SERVICE_ACCOUNT_B64" ] && [ -z "$FIREBASE_TOKEN" ]; then
             echo "::error::No Firebase credentials found. Add one GitHub Actions secret:"
             echo "::error::  FIREBASE_SERVICE_ACCOUNT — full JSON from Firebase Console → Project settings → Service accounts → Generate new private key"
+            echo "::error::  or FIREBASE_SERVICE_ACCOUNT_B64 — same JSON, base64-encoded (use if deploy auth fails with valid JSON)"
             echo "::error::  or FIREBASE_TOKEN — output of: firebase login:ci"
             exit 1
           fi
 
           if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            echo "$FIREBASE_SERVICE_ACCOUNT" > "${RUNNER_TEMP}/firebase-sa.json"
-            echo "GOOGLE_APPLICATION_CREDENTIALS=${RUNNER_TEMP}/firebase-sa.json" >> "$GITHUB_ENV"
-          else
+            echo "FIREBASE_AUTH_MODE=sa_json" >> "$GITHUB_ENV"
+          elif [ -n "$FIREBASE_SERVICE_ACCOUNT_B64" ]; then
+            SA_FILE="${RUNNER_TEMP}/firebase-sa.json"
+            echo "$FIREBASE_SERVICE_ACCOUNT_B64" | base64 -d > "$SA_FILE"
+            node -e "
+              const fs = require('fs');
+              const j = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+              if (!j.client_email || !j.private_key || !j.project_id) {
+                throw new Error('FIREBASE_SERVICE_ACCOUNT_B64 decoded JSON is missing required fields');
+              }
+              console.log('Firebase service account:', j.client_email);
+            " "$SA_FILE"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=${SA_FILE}" >> "$GITHUB_ENV"
+            echo "FIREBASE_AUTH_MODE=sa_file" >> "$GITHUB_ENV"
+          elif [ -n "$FIREBASE_TOKEN" ]; then
             echo "FIREBASE_TOKEN=$FIREBASE_TOKEN" >> "$GITHUB_ENV"
+            echo "FIREBASE_AUTH_MODE=token" >> "$GITHUB_ENV"
           fi
+
+      - name: Authenticate to Google Cloud
+        if: env.FIREBASE_AUTH_MODE == 'sa_json'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Verify Firebase service account
+        if: env.FIREBASE_AUTH_MODE == 'sa_json' || env.FIREBASE_AUTH_MODE == 'sa_file'
+        run: |
+          echo "FIREBASE_TOKEN=" >> "$GITHUB_ENV"
+          if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+            echo "::error::GOOGLE_APPLICATION_CREDENTIALS file is missing."
+            exit 1
+          fi
+          node -e "
+            const j = JSON.parse(require('fs').readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'));
+            console.log('Deploying as', j.client_email);
+          "
 
       - name: Prepare functions environment
         env:

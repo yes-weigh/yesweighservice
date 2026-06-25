@@ -9,6 +9,16 @@ DELAY="${FIREBASE_DEPLOY_RETRY_DELAY_SEC:-20}"
 
 run_deploy() {
   if [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
+    # firebase-tools uses FIREBASE_TOKEN over ADC when set (even to an empty value).
+    unset FIREBASE_TOKEN
+    export GOOGLE_APPLICATION_CREDENTIALS
+    if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+      echo "::error::GOOGLE_APPLICATION_CREDENTIALS file not found: $GOOGLE_APPLICATION_CREDENTIALS"
+      return 1
+    fi
+    if command -v gcloud >/dev/null 2>&1; then
+      gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --project="$PROJECT" --quiet >/dev/null 2>&1 || true
+    fi
     npx firebase-tools@15.22.1 deploy \
       --only "$TARGETS" \
       --project "$PROJECT" \
@@ -36,6 +46,7 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
 
   if [ "$attempt" -eq "$MAX_ATTEMPTS" ]; then
     echo "::error::Firebase deploy failed after ${MAX_ATTEMPTS} attempts (--only ${TARGETS})."
+    echo "::error::If the log shows \"Failed to authenticate\", ensure FIREBASE_SERVICE_ACCOUNT is valid JSON (or use FIREBASE_SERVICE_ACCOUNT_B64), unset any repo FIREBASE_TOKEN variable, and grant the service account Firebase Admin."
     echo "::error::If the log shows HTTP 503 from firebaserules.googleapis.com, this is usually a transient Google outage — re-run the workflow."
     exit 1
   fi
