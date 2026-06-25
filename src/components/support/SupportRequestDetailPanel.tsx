@@ -4,7 +4,6 @@ import {
   Calendar,
   CheckCircle2,
   FileText,
-  Hash,
   LayoutGrid,
   Mail,
   MessageSquare,
@@ -18,18 +17,13 @@ import {
 } from 'lucide-react';
 import { FIRM_NAME } from '../../constants/brand';
 import { fetchDealerById } from '../../lib/dealers';
+import { readCachedAllDealerInvoices, fetchAllDealerInvoices, formatInvoiceDate } from '../../lib/invoices';
 import { canManageSupportOps, isInternalOpsUser } from '../../lib/staffAccess';
 import { isSupportOpen } from '../../lib/supportStatus';
-import {
-  formatSupportDetailOpenedOn,
-  supportDetailStatusBadge,
-} from '../../lib/supportRequestDisplay';
+import { formatSupportDetailOpenedOn, supportDetailStatusBadge } from '../../lib/supportRequestDisplay';
 import type { User as AppUser } from '../../types';
 import type { DealerSupportRequest, SupportOpenStage } from '../../types/dealer-support';
-import {
-  SUPPORT_OPEN_STAGE_LABELS,
-  SUPPORT_TYPE_LABELS,
-} from '../../types/dealer-support';
+import { SUPPORT_OPEN_STAGE_LABELS, SUPPORT_TYPE_LABELS } from '../../types/dealer-support';
 import { SupportAssigneeSelect } from './SupportAssigneeSelect';
 
 export interface SupportRequestDetailPanelProps {
@@ -113,6 +107,7 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
   onAdminDelete,
 }) => {
   const [contact, setContact] = useState<TicketContact | null>(null);
+  const [invoiceDate, setInvoiceDate] = useState<string | null>(null);
   const audience = isInternalOpsUser(user) ? 'staff' : 'dealer';
   const isStaff = canManageSupportOps(user);
 
@@ -156,6 +151,29 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
     };
   }, [open, isStaff, request.dealerId, request.dealerName, request.createdByName]);
 
+  useEffect(() => {
+    if (!open || !request.invoiceId) {
+      setInvoiceDate(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const invoiceId = request.invoiceId;
+
+    const fromList = readCachedAllDealerInvoices(user?.uid)?.find(inv => inv.id === invoiceId)?.date ?? null;
+    if (fromList) setInvoiceDate(fromList);
+
+    void fetchAllDealerInvoices(user?.uid).then(invoices => {
+      if (cancelled) return;
+      const match = invoices.find(inv => inv.id === invoiceId);
+      setInvoiceDate(match?.date ?? fromList);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, request.invoiceId, user?.uid]);
+
   if (!open) return null;
 
   const statusBadge = supportDetailStatusBadge(request, audience);
@@ -194,7 +212,7 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
             <InfoRow
               icon={<Calendar size={16} strokeWidth={2} />}
               tone="blue"
-              label="Opened On"
+              label="Opened on"
               value={formatSupportDetailOpenedOn(request.createdAt)}
             />
             <InfoRow
@@ -219,15 +237,15 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
                 value={request.invoiceNumber}
               />
             )}
-            {request.salesOrderNumber && (
+            {invoiceDate && (
               <InfoRow
-                icon={<Hash size={16} strokeWidth={2} />}
+                icon={<Calendar size={16} strokeWidth={2} />}
                 tone="blue"
-                label="Sales Order"
-                value={request.salesOrderNumber}
+                label="Invoice date"
+                value={formatInvoiceDate(invoiceDate)}
               />
             )}
-            {request.category && (
+            {request.category && request.type !== 'chat' && (
               <InfoRow
                 icon={<Wrench size={16} strokeWidth={2} />}
                 tone="orange"
@@ -241,38 +259,6 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
                 tone="purple"
                 label="Subject"
                 value={request.subject}
-              />
-            )}
-            {isStaff && contact?.company && (
-              <InfoRow
-                icon={<Users size={16} strokeWidth={2} />}
-                tone="green"
-                label="Customer / Dealer"
-                value={contact.company}
-              />
-            )}
-            {isStaff && contact?.contactName && (
-              <InfoRow
-                icon={<User size={16} strokeWidth={2} />}
-                tone="orange"
-                label="Contact Person"
-                value={contact.contactName}
-              />
-            )}
-            {isStaff && contact?.phone && (
-              <InfoRow
-                icon={<Phone size={16} strokeWidth={2} />}
-                tone="amber"
-                label="Phone"
-                value={contact.phone}
-              />
-            )}
-            {isStaff && contact?.email && (
-              <InfoRow
-                icon={<Mail size={16} strokeWidth={2} />}
-                tone="sky"
-                label="Email"
-                value={contact.email}
               />
             )}
             {request.courierTracking && (
@@ -292,6 +278,46 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
               />
             )}
           </div>
+
+          {isStaff && (contact?.company || contact?.contactName || contact?.phone || contact?.email) && (
+            <>
+              <div className="support-detail-card__divider" aria-hidden />
+              <div className="support-detail-info-list">
+                {contact?.company && (
+                  <InfoRow
+                    icon={<Users size={16} strokeWidth={2} />}
+                    tone="green"
+                    label="Customer / Dealer"
+                    value={contact.company}
+                  />
+                )}
+                {contact?.contactName && (
+                  <InfoRow
+                    icon={<User size={16} strokeWidth={2} />}
+                    tone="orange"
+                    label="Contact Person"
+                    value={contact.contactName}
+                  />
+                )}
+                {contact?.phone && (
+                  <InfoRow
+                    icon={<Phone size={16} strokeWidth={2} />}
+                    tone="amber"
+                    label="Phone"
+                    value={contact.phone}
+                  />
+                )}
+                {contact?.email && (
+                  <InfoRow
+                    icon={<Mail size={16} strokeWidth={2} />}
+                    tone="sky"
+                    label="Email"
+                    value={contact.email}
+                  />
+                )}
+              </div>
+            </>
+          )}
 
           {canDealerCancel && (
             <div className="support-detail-card__footer">
