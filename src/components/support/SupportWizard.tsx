@@ -194,14 +194,14 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     setStep('product');
   };
 
-  const handleProductNext = () => {
+  const handleProductNext = useCallback(() => {
     if (needsProduct && !productDraft && !productSelection) {
       setError('Select an invoice and product from your invoice.');
       return;
     }
     setError('');
     setStep('details');
-  };
+  }, [needsProduct, productDraft, productSelection]);
 
   const buildRequestPayload = () => {
     const selection = productDraft ?? productSelection;
@@ -302,7 +302,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     setStep('declaration');
   };
 
-  const submitRequest = async () => {
+  const submitRequestRef = useRef<() => Promise<void>>(async () => {});
+
+  submitRequestRef.current = async () => {
     if (!intent) return;
 
     setSubmitting(true);
@@ -326,14 +328,14 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     }
   };
 
-  const handleDeclarationContinue = () => {
+  const handleDeclarationContinue = useCallback(() => {
     if (!declarationAgreed) {
       setError('You must agree to the Warranty & Service Declaration to continue.');
       return;
     }
     setError('');
-    void submitRequest();
-  };
+    void submitRequestRef.current();
+  }, [declarationAgreed]);
 
   const wizardTitle = useMemo(() => {
     if (step === 'success') return 'Request submitted';

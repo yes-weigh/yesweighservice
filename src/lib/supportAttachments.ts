@@ -210,11 +210,15 @@ function isStorageUnauthorized(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const code = String((err as { code?: string }).code ?? '');
   const message = String((err as { message?: string }).message ?? '');
+  const status = (err as { status?: number; serverResponse?: { status?: number } }).status
+    ?? (err as { serverResponse?: { status?: number } }).serverResponse?.status;
   return code === 'storage/unauthorized'
     || code === 'storage/unauthenticated'
+    || status === 403
     || message.includes('storage/unauthorized')
     || message.includes('storage/unauthenticated')
-    || message.includes('User does not have permission');
+    || message.includes('User does not have permission')
+    || message.includes('403');
 }
 
 function isTransientStorageError(err: unknown): boolean {

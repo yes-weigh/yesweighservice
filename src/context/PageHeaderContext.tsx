@@ -140,10 +140,16 @@ export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) 
 export function useTopBarAction(slot: React.ReactNode | null, enabled = true) {
   const ctx = useContext(PageHeaderContext);
   const setTopBarAction = ctx?.setTopBarAction;
+  const slotRef = useRef(slot);
+  slotRef.current = slot;
 
   useEffect(() => {
     if (!setTopBarAction) return undefined;
-    setTopBarAction(enabled ? slot : null);
-    return () => setTopBarAction(null);
+    setTopBarAction(enabled ? slotRef.current : null);
   }, [setTopBarAction, enabled, slot]);
+
+  useEffect(() => {
+    if (!setTopBarAction) return undefined;
+    return () => setTopBarAction(null);
+  }, [setTopBarAction]);
 }
