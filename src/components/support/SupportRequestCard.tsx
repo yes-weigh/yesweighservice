@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronRight, Package } from 'lucide-react';
+import { SupportChatLogo } from './SupportChatLogo';
 import type { DealerSupportRequest } from '../../types/dealer-support';
 import {
   formatSupportDaysAgo,
@@ -34,8 +35,10 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
   return (
     <button type="button" className="support-ticket-card panel glass" onClick={onClick}>
       <div className="support-ticket-card__media">
-        <div className="support-ticket-card__thumb">
-          {imageUrl ? (
+        <div className={`support-ticket-card__thumb${request.type === 'chat' ? ' support-ticket-card__thumb--chat' : ''}`}>
+          {request.type === 'chat' ? (
+            <SupportChatLogo size={38} />
+          ) : imageUrl ? (
             <img src={imageUrl} alt="" className="support-ticket-card__image" loading="lazy" decoding="async" />
           ) : (
             <span className="support-ticket-card__placeholder" aria-hidden>

@@ -5,7 +5,6 @@ import {
   ChevronRight,
   HelpCircle,
   MessageSquareWarning,
-  MessageCircle,
   Package,
   RotateCcw,
   Wrench,
@@ -14,6 +13,7 @@ import { createSupportChatRequest, createSupportRequest, deleteSupportRequestDra
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
 import { SupportCourierInstructions } from './SupportCourierInstructions';
+import { SupportChatLogo } from './SupportChatLogo';
 import type { User } from '../../types';
 import type {
   DealerSupportRequest,
@@ -105,7 +105,7 @@ const INTENT_ICONS: Record<SupportRequestType, React.ReactNode> = {
   service: <Wrench size={22} strokeWidth={2.2} />,
   return: <RotateCcw size={22} strokeWidth={2.2} />,
   complaint: <MessageSquareWarning size={22} strokeWidth={2.2} />,
-  chat: <MessageCircle size={22} strokeWidth={2.2} />,
+  chat: <SupportChatLogo size={28} />,
 };
 
 function supportActionErrorMessage(err: unknown, fallback: string): string {
@@ -581,8 +581,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             disabled={startingChat}
             onClick={() => void startGenericChat()}
           >
-            <span className="support-wizard__option-icon">
-              <MessageCircle size={22} strokeWidth={2.2} />
+            <span className="support-wizard__option-icon support-wizard__option-icon--chat-logo">
+              <SupportChatLogo size={30} />
             </span>
             <span className="support-wizard__option-body">
               <strong>{SUPPORT_CHAT_OPTION.title}</strong>

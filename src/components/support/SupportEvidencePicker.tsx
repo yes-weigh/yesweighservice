@@ -1,23 +1,18 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Circle, ImagePlus, Loader2, Square, X } from 'lucide-react';
+import React, { useCallback, useRef, useState } from 'react';
+import { Camera, Film, ImageIcon, Plus, X } from 'lucide-react';
 import {
   createPendingEvidencePhoto,
   createPendingSupportFile,
+  retainFileCopy,
   validateSupportFile,
   type EvidencePhotoSlot,
   type PendingSupportFile,
 } from '../../lib/supportAttachments';
+import { pushRecentMedia } from '../../lib/recentMediaCache';
 import {
-  buildRecordingBlob,
-  createVideoFileFromBlob,
-  createVideoMediaRecorder,
-  prepareVideoFileForUpload,
-  recommendedRecorderTimeslice,
-} from '../../lib/captureMedia';
-
-const MAX_VIDEO_SECONDS = 60;
-
-type EvidenceSlotId = 'video' | EvidencePhotoSlot;
+  SupportEvidenceCamera,
+  type EvidenceSlotId,
+} from './SupportEvidenceCamera';
 
 interface SupportEvidencePickerProps {
   files: PendingSupportFile[];
@@ -25,35 +20,31 @@ interface SupportEvidencePickerProps {
   disabled?: boolean;
 }
 
-interface SlotConfig {
+interface SlotMeta {
   id: EvidenceSlotId;
   label: string;
   hint: string;
   kind: 'video' | 'image';
-  required?: boolean;
 }
 
-const EVIDENCE_SLOTS: SlotConfig[] = [
+const EVIDENCE_SLOTS: SlotMeta[] = [
   {
     id: 'video',
     label: 'Video evidence',
-    hint: '30 sec – 2 min · show product condition and issue',
+    hint: '30 sec – 2 min',
     kind: 'video',
-    required: true,
   },
   {
     id: 'serial',
-    label: 'Serial number / MAC ID',
-    hint: 'Serial, model, and identification label clearly visible',
+    label: 'Serial / MAC ID',
+    hint: 'Identification label',
     kind: 'image',
-    required: true,
   },
   {
     id: 'label',
     label: 'Product label',
-    hint: 'YESWEIGH label, model, and part number',
+    hint: 'YESWEIGH label',
     kind: 'image',
-    required: true,
   },
 ];
 
@@ -68,7 +59,7 @@ function setSlotFile(
   file: PendingSupportFile | null,
 ): PendingSupportFile[] {
   const previous = getSlotFile(files, slotId);
-  if (previous) URL.revokeObjectURL(previous.previewUrl);
+  if (previous?.previewUrl) URL.revokeObjectURL(previous.previewUrl);
 
   const without = slotId === 'video'
     ? files.filter(item => item.kind !== 'video')
@@ -78,412 +69,88 @@ function setSlotFile(
   return [...without, file];
 }
 
-async function capturePhotoFromVideo(video: HTMLVideoElement): Promise<File> {
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth || 1280;
-  canvas.height = video.videoHeight || 720;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Could not capture photo.');
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  const blob = await new Promise<Blob | null>(resolve => {
-    canvas.toBlob(resolve, 'image/jpeg', 0.92);
-  });
-  if (!blob) throw new Error('Could not capture photo.');
-
-  return new File([blob], `evidence-${Date.now()}.jpg`, {
-    type: 'image/jpeg',
-    lastModified: Date.now(),
-  });
+function firstMissingSlot(files: PendingSupportFile[]): EvidenceSlotId {
+  for (const slot of EVIDENCE_SLOTS) {
+    if (!getSlotFile(files, slot.id)) return slot.id;
+  }
+  return 'video';
 }
-
-function freezeUrlFromFile(file: File): string {
-  return URL.createObjectURL(file);
-}
-
-interface EvidenceMediaSlotProps {
-  config: SlotConfig;
-  file: PendingSupportFile | null;
-  previewOpen: boolean;
-  previewLoading: boolean;
-  disabled?: boolean;
-  processing: boolean;
-  captureFreezeUrl: string | null;
-  previewStream: MediaStream | null;
-  recording: boolean;
-  recordSeconds: number;
-  error?: string;
-  onOpenPreview: () => void;
-  onRemove: () => void;
-  onPickFile: (file: File) => void;
-  onStartRecording: () => void;
-  onStopRecording: () => void;
-  onCapturePhoto: () => void;
-  previewVideoRef: React.RefObject<HTMLVideoElement | null>;
-}
-
-const EvidenceMediaSlot: React.FC<EvidenceMediaSlotProps> = ({
-  config,
-  file,
-  previewOpen,
-  previewLoading,
-  disabled,
-  processing,
-  captureFreezeUrl,
-  previewStream,
-  recording,
-  recordSeconds,
-  error,
-  onOpenPreview,
-  onRemove,
-  onPickFile,
-  onStartRecording,
-  onStopRecording,
-  onCapturePhoto,
-  previewVideoRef,
-}) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const isVideo = config.kind === 'video';
-  const showFrozenCapture = !file && Boolean(captureFreezeUrl);
-  const showLivePreview = !file && previewOpen && previewStream && !showFrozenCapture;
-
-  useEffect(() => {
-    const video = previewVideoRef.current;
-    if (!video || !showLivePreview) return;
-    video.srcObject = previewStream;
-    video.muted = true;
-    void video.play().catch(() => undefined);
-  }, [previewStream, showLivePreview, previewVideoRef]);
-
-  return (
-    <section
-      className={`evidence-media-slot${previewOpen ? ' evidence-media-slot--active' : ''}${file ? ' evidence-media-slot--filled' : ''}`}
-      role="group"
-      aria-label={config.label}
-    >
-      <div className="evidence-media-slot__head">
-        <h4 className="evidence-media-slot__label">
-          {config.label}
-          {config.required && <span className="form-label__required" aria-hidden> *</span>}
-        </h4>
-        <p className="evidence-media-slot__hint text-muted text-sm">{config.hint}</p>
-      </div>
-
-      <div className="evidence-media-slot__frame">
-        {file ? (
-          <>
-            {file.kind === 'video' ? (
-              <video src={file.previewUrl} className="evidence-media-slot__media" controls />
-            ) : (
-              <img src={file.previewUrl} alt="" className="evidence-media-slot__media" />
-            )}
-            {file.gpsLabel && (
-              <span className="evidence-media-slot__gps">{file.gpsLabel}</span>
-            )}
-            <button
-              type="button"
-              className="evidence-media-slot__remove"
-              aria-label={`Remove ${config.label}`}
-              disabled={disabled}
-              onClick={e => {
-                e.stopPropagation();
-                onRemove();
-              }}
-            >
-              <X size={14} />
-            </button>
-          </>
-        ) : showFrozenCapture ? (
-          <>
-            <img
-              src={captureFreezeUrl!}
-              alt=""
-              className="evidence-media-slot__media evidence-media-slot__media--frozen"
-            />
-            <div className="evidence-media-slot__processing-overlay" aria-live="polite">
-              <Loader2 size={22} className="spin-icon" aria-hidden />
-              <span>Adding GPS tag…</span>
-            </div>
-          </>
-        ) : showLivePreview ? (
-          <>
-            <video
-              ref={previewVideoRef}
-              className="evidence-media-slot__media"
-              muted
-              playsInline
-              autoPlay
-            />
-            {recording && (
-              <span className="evidence-media-slot__recording-badge">
-                <Circle size={10} fill="currentColor" />
-                {recordSeconds}s / {MAX_VIDEO_SECONDS}s
-              </span>
-            )}
-            <div className="evidence-media-slot__toolbar">
-              <button
-                type="button"
-                className="evidence-media-slot__pick"
-                aria-label={`Choose ${isVideo ? 'video' : 'photo'} from gallery`}
-                disabled={disabled || processing || recording}
-                onClick={e => {
-                  e.stopPropagation();
-                  fileInputRef.current?.click();
-                }}
-              >
-                <ImagePlus size={22} />
-              </button>
-
-              {isVideo ? (
-                recording ? (
-                  <button
-                    type="button"
-                    className="evidence-media-slot__shutter evidence-media-slot__shutter--stop"
-                    aria-label="Stop recording"
-                    disabled={disabled}
-                    onClick={e => {
-                      e.stopPropagation();
-                      onStopRecording();
-                    }}
-                  >
-                    <Square size={18} fill="currentColor" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="evidence-media-slot__shutter evidence-media-slot__shutter--record"
-                    aria-label="Start recording"
-                    disabled={disabled || processing}
-                    onClick={e => {
-                      e.stopPropagation();
-                      onStartRecording();
-                    }}
-                  />
-                )
-              ) : (
-                <button
-                  type="button"
-                  className="evidence-media-slot__shutter evidence-media-slot__shutter--photo"
-                  aria-label="Take photo"
-                  disabled={disabled || processing}
-                  onClick={e => {
-                    e.stopPropagation();
-                    onCapturePhoto();
-                  }}
-                />
-              )}
-            </div>
-          </>
-        ) : previewOpen && previewLoading ? (
-          <div className="evidence-media-slot__placeholder">
-            <p className="text-muted text-sm">Starting camera…</p>
-          </div>
-        ) : (
-          <div className="evidence-media-slot__placeholder">
-            <button
-              type="button"
-              className="evidence-media-slot__open-camera"
-              disabled={disabled || processing}
-              onClick={onOpenPreview}
-            >
-              <Camera size={20} aria-hidden />
-              Open camera
-            </button>
-            <button
-              type="button"
-              className="evidence-media-slot__pick evidence-media-slot__pick--solo"
-              aria-label={`Choose ${isVideo ? 'video' : 'photo'} from gallery`}
-              disabled={disabled || processing}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <ImagePlus size={22} />
-            </button>
-          </div>
-        )}
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={isVideo ? 'video/*' : 'image/*'}
-          hidden
-          onChange={e => {
-            const picked = e.target.files?.[0];
-            if (picked) onPickFile(picked);
-            if (fileInputRef.current) fileInputRef.current.value = '';
-          }}
-        />
-      </div>
-
-      {error && <p className="evidence-media-slot__error text-sm">{error}</p>}
-      {processing && !captureFreezeUrl && (
-        <p className="evidence-media-slot__status text-muted text-sm">Processing…</p>
-      )}
-    </section>
-  );
-};
 
 export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   files,
   onChange,
   disabled,
 }) => {
-  const previewVideoRef = useRef<HTMLVideoElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const recordTimeoutRef = useRef<number | null>(null);
-  const recordStartedAtRef = useRef<number | null>(null);
-  const recordTickRef = useRef<number | null>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const gallerySlotRef = useRef<EvidenceSlotId>('video');
 
-  const [previewSlot, setPreviewSlot] = useState<EvidenceSlotId | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
-  const [recording, setRecording] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const [processingSlot, setProcessingSlot] = useState<EvidenceSlotId | null>(null);
-  const [captureFreeze, setCaptureFreeze] = useState<{ slotId: EvidenceSlotId; url: string } | null>(null);
-  const captureFreezeRef = useRef(captureFreeze);
-  captureFreezeRef.current = captureFreeze;
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraSlot, setCameraSlot] = useState<EvidenceSlotId>('video');
+  const [processing, setProcessing] = useState(false);
+  const [processingLabel, setProcessingLabel] = useState('Processing…');
   const [slotErrors, setSlotErrors] = useState<Partial<Record<EvidenceSlotId, string>>>({});
-  const [cameraError, setCameraError] = useState('');
 
-  const previewConfig = previewSlot
-    ? EVIDENCE_SLOTS.find(slot => slot.id === previewSlot) ?? null
-    : null;
-
-  const clearRecordTimers = useCallback(() => {
-    if (recordTimeoutRef.current !== null) {
-      window.clearTimeout(recordTimeoutRef.current);
-      recordTimeoutRef.current = null;
-    }
-    if (recordTickRef.current !== null) {
-      window.clearInterval(recordTickRef.current);
-      recordTickRef.current = null;
-    }
-    recordStartedAtRef.current = null;
-    setRecordSeconds(0);
-  }, []);
-
-  const stopMediaStream = useCallback(() => {
-    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-    mediaStreamRef.current = null;
-    setPreviewStream(null);
-    if (previewVideoRef.current) {
-      previewVideoRef.current.srcObject = null;
-    }
-  }, []);
-
-  const stopRecording = useCallback(() => {
-    clearRecordTimers();
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    } else {
-      setRecording(false);
-    }
-  }, [clearRecordTimers]);
-
-  useEffect(() => () => {
-    clearRecordTimers();
-    stopMediaStream();
-    if (captureFreezeRef.current) URL.revokeObjectURL(captureFreezeRef.current.url);
-  }, [clearRecordTimers, stopMediaStream]);
-
-  const clearCaptureFreeze = useCallback(() => {
-    setCaptureFreeze(prev => {
-      if (prev) URL.revokeObjectURL(prev.url);
-      return null;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (disabled || !previewSlot || !previewConfig || recording) {
-      if (!recording) stopMediaStream();
-      setPreviewLoading(false);
-      return undefined;
-    }
-
-    const slotFile = getSlotFile(files, previewSlot);
-    if (slotFile) {
-      stopMediaStream();
-      setPreviewLoading(false);
-      return undefined;
-    }
-
-    if (processingSlot === previewSlot || captureFreeze?.slotId === previewSlot) {
-      return undefined;
-    }
-
-    let cancelled = false;
-    setCameraError('');
-    setPreviewLoading(true);
-
-    const constraints: MediaStreamConstraints = previewConfig.kind === 'video'
-      ? { video: { facingMode: { ideal: 'environment' } }, audio: true }
-      : { video: { facingMode: { ideal: 'environment' } }, audio: false };
-
-    void navigator.mediaDevices.getUserMedia(constraints)
-      .then(stream => {
-        if (cancelled) {
-          stream.getTracks().forEach(track => track.stop());
-          return;
-        }
-        stopMediaStream();
-        mediaStreamRef.current = stream;
-        setPreviewStream(stream);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCameraError('Could not access camera. Use the gallery button to upload instead.');
-          setPreviewSlot(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setPreviewLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [previewConfig, previewSlot, disabled, recording, files, processingSlot, captureFreeze, stopMediaStream]);
-
-  const closePreview = useCallback(() => {
-    stopRecording();
-    stopMediaStream();
-    setPreviewSlot(null);
-    setPreviewLoading(false);
-  }, [stopMediaStream, stopRecording]);
+  const filledSlots = EVIDENCE_SLOTS
+    .map(slot => slot.id)
+    .filter(id => Boolean(getSlotFile(files, id)));
 
   const updateSlotFile = useCallback((slotId: EvidenceSlotId, file: PendingSupportFile | null) => {
     onChange(prev => setSlotFile(prev, slotId, file));
   }, [onChange]);
 
-  const handlePickFile = async (slotId: EvidenceSlotId, picked: File) => {
-    const config = EVIDENCE_SLOTS.find(slot => slot.id === slotId)!;
-    const err = validateSupportFile(picked);
-    if (err) {
-      setSlotErrors(prev => ({ ...prev, [slotId]: err }));
-      return;
-    }
-    if (config.kind === 'video' && !picked.type.startsWith('video/')) {
-      setSlotErrors(prev => ({ ...prev, [slotId]: 'Please choose a video file.' }));
-      return;
-    }
-    if (config.kind === 'image' && !picked.type.startsWith('image/')) {
-      setSlotErrors(prev => ({ ...prev, [slotId]: 'Please choose an image file.' }));
-      return;
-    }
-
+  const openCamera = (slotId: EvidenceSlotId) => {
+    if (disabled) return;
+    setCameraSlot(slotId);
+    setCameraOpen(true);
     setSlotErrors(prev => ({ ...prev, [slotId]: undefined }));
-    setProcessingSlot(slotId);
+  };
+
+  const handleVideoFile = async (raw: File) => {
+    const err = validateSupportFile(raw);
+    if (err) throw new Error(err);
+    setProcessingLabel('Saving video…');
+    setProcessing(true);
     try {
+      updateSlotFile('video', createPendingSupportFile(raw));
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handlePhotoFile = async (slot: EvidencePhotoSlot, raw: File) => {
+    const err = validateSupportFile(raw);
+    if (err) throw new Error(err);
+    setProcessingLabel('Adding GPS tag…');
+    setProcessing(true);
+    try {
+      const pending = await createPendingEvidencePhoto(raw, slot);
+      updateSlotFile(slot, pending);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleGalleryPick = async (picked: FileList | null) => {
+    const slotId = gallerySlotRef.current;
+    const file = picked?.[0];
+    if (!file) return;
+    try {
+      const retained = await retainFileCopy(file);
+      const config = EVIDENCE_SLOTS.find(slot => slot.id === slotId)!;
       if (config.kind === 'video') {
-        stopRecording();
-        closePreview();
-        updateSlotFile(slotId, createPendingSupportFile(picked));
+        if (!retained.type.startsWith('video/')) {
+          setSlotErrors(prev => ({ ...prev, [slotId]: 'Please choose a video file.' }));
+          return;
+        }
+        await handleVideoFile(retained);
+        await pushRecentMedia(retained);
       } else {
-        const pending = await createPendingEvidencePhoto(picked, slotId as EvidencePhotoSlot);
-        updateSlotFile(slotId, pending);
-        if (previewSlot === slotId) closePreview();
+        if (!retained.type.startsWith('image/')) {
+          setSlotErrors(prev => ({ ...prev, [slotId]: 'Please choose an image file.' }));
+          return;
+        }
+        await handlePhotoFile(slotId as EvidencePhotoSlot, retained);
+        await pushRecentMedia(retained);
       }
     } catch (pickErr) {
       setSlotErrors(prev => ({
@@ -491,171 +158,134 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
         [slotId]: pickErr instanceof Error ? pickErr.message : 'Could not add file.',
       }));
     } finally {
-      setProcessingSlot(null);
+      if (galleryRef.current) galleryRef.current.value = '';
     }
   };
 
-  const startRecording = () => {
-    if (disabled || recording || previewSlot !== 'video' || getSlotFile(files, 'video')) return;
-    const stream = mediaStreamRef.current;
-    if (!stream) {
-      setSlotErrors(prev => ({ ...prev, video: 'Camera is not ready yet.' }));
-      return;
-    }
-
-    setSlotErrors(prev => ({ ...prev, video: undefined }));
-
-    let recorder: MediaRecorder;
-    try {
-      recorder = createVideoMediaRecorder(stream);
-    } catch (err) {
-      setSlotErrors(prev => ({
-        ...prev,
-        video: err instanceof Error ? err.message : 'Video recording is not supported.',
-      }));
-      return;
-    }
-
-    chunksRef.current = [];
-    recorder.ondataavailable = event => {
-      if (event.data.size > 0) chunksRef.current.push(event.data);
-    };
-    recorder.onstop = () => {
-      void (async () => {
-        try {
-          const durationMs = recordStartedAtRef.current
-            ? Math.max(Date.now() - recordStartedAtRef.current, 1000)
-            : Math.max(recordSeconds, 1) * 1000;
-          const blob = buildRecordingBlob(chunksRef.current, recorder.mimeType);
-          const rawFile = createVideoFileFromBlob(blob, blob.type);
-          const file = await prepareVideoFileForUpload(rawFile, durationMs);
-          updateSlotFile('video', createPendingSupportFile(file));
-        } catch (err) {
-          setSlotErrors(prev => ({
-            ...prev,
-            video: err instanceof Error ? err.message : 'Could not save video.',
-          }));
-        } finally {
-          clearRecordTimers();
-          stopMediaStream();
-          setPreviewSlot(null);
-          setRecording(false);
-          chunksRef.current = [];
-          mediaRecorderRef.current = null;
-        }
-      })();
-    };
-
-    mediaRecorderRef.current = recorder;
-    const timeslice = recommendedRecorderTimeslice(recorder.mimeType);
-    if (timeslice) recorder.start(timeslice);
-    else recorder.start();
-    setRecording(true);
-    recordStartedAtRef.current = Date.now();
-    recordTickRef.current = window.setInterval(() => {
-      if (!recordStartedAtRef.current) return;
-      setRecordSeconds(Math.min(
-        MAX_VIDEO_SECONDS,
-        Math.floor((Date.now() - recordStartedAtRef.current) / 1000),
-      ));
-    }, 250);
-    recordTimeoutRef.current = window.setTimeout(() => stopRecording(), MAX_VIDEO_SECONDS * 1000);
-  };
-
-  const capturePhoto = async (slotId: EvidencePhotoSlot) => {
-    if (disabled || processingSlot) return;
-    const video = previewVideoRef.current;
-    if (!video || !mediaStreamRef.current) {
-      setSlotErrors(prev => ({ ...prev, [slotId]: 'Camera is not ready yet.' }));
-      return;
-    }
-
+  const removeSlot = (slotId: EvidenceSlotId) => {
+    updateSlotFile(slotId, null);
     setSlotErrors(prev => ({ ...prev, [slotId]: undefined }));
-
-    let captured: File;
-    try {
-      captured = await capturePhotoFromVideo(video);
-    } catch (err) {
-      setSlotErrors(prev => ({
-        ...prev,
-        [slotId]: err instanceof Error ? err.message : 'Could not capture photo.',
-      }));
-      return;
-    }
-
-    clearCaptureFreeze();
-    setCaptureFreeze({ slotId, url: freezeUrlFromFile(captured) });
-    stopMediaStream();
-    setProcessingSlot(slotId);
-
-    try {
-      const pending = await createPendingEvidencePhoto(captured, slotId);
-      updateSlotFile(slotId, pending);
-      clearCaptureFreeze();
-      closePreview();
-    } catch (err) {
-      clearCaptureFreeze();
-      setSlotErrors(prev => ({
-        ...prev,
-        [slotId]: err instanceof Error ? err.message : 'Could not capture photo.',
-      }));
-    } finally {
-      setProcessingSlot(null);
-    }
   };
+
+  const allFilled = filledSlots.length === EVIDENCE_SLOTS.length;
 
   return (
     <div className="support-evidence-picker">
-      {cameraError && !previewStream && (
-        <p className="support-evidence-picker__camera-error text-sm">{cameraError}</p>
+      <div className="support-evidence-picker__header">
+        <h4 className="support-evidence-picker__title">
+          Evidence
+          <span className="form-label__required" aria-hidden> *</span>
+        </h4>
+        <p className="support-evidence-picker__subtitle text-muted text-sm">
+          One video and two photos — serial label and product label.
+        </p>
+      </div>
+
+      <div className="support-evidence-picker__grid">
+        {EVIDENCE_SLOTS.map(slot => {
+          const file = getSlotFile(files, slot.id);
+          return (
+            <div key={slot.id} className={`support-evidence-picker__cell${file ? ' support-evidence-picker__cell--filled' : ''}`}>
+              <button
+                type="button"
+                className="support-evidence-picker__cell-main"
+                disabled={disabled}
+                onClick={() => openCamera(slot.id)}
+              >
+                {file ? (
+                  file.kind === 'video' ? (
+                    <video src={file.previewUrl} className="support-evidence-picker__cell-media" muted playsInline />
+                  ) : (
+                    <img src={file.previewUrl} alt="" className="support-evidence-picker__cell-media" />
+                  )
+                ) : (
+                  <span className="support-evidence-picker__cell-empty">
+                    {slot.kind === 'video' ? <Film size={22} /> : <ImageIcon size={22} />}
+                    <Plus size={14} />
+                  </span>
+                )}
+              </button>
+              <div className="support-evidence-picker__cell-meta">
+                <span className="support-evidence-picker__cell-label">{slot.label}</span>
+                <span className="support-evidence-picker__cell-hint text-muted">{slot.hint}</span>
+              </div>
+              {file && (
+                <button
+                  type="button"
+                  className="support-evidence-picker__cell-remove"
+                  aria-label={`Remove ${slot.label}`}
+                  disabled={disabled}
+                  onClick={() => removeSlot(slot.id)}
+                >
+                  <X size={14} />
+                </button>
+              )}
+              {file?.gpsLabel && (
+                <span className="support-evidence-picker__cell-gps">{file.gpsLabel}</span>
+              )}
+              {slotErrors[slot.id] && (
+                <p className="support-evidence-picker__cell-error text-sm">{slotErrors[slot.id]}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {!allFilled && (
+        <button
+          type="button"
+          className="support-evidence-picker__open"
+          disabled={disabled}
+          onClick={() => openCamera(firstMissingSlot(files))}
+        >
+          <Camera size={20} aria-hidden />
+          Add evidence
+        </button>
       )}
 
-      {EVIDENCE_SLOTS.map(config => {
-        const slotFile = getSlotFile(files, config.id);
-        const isPreviewOpen = previewSlot === config.id && !slotFile;
-        const freezeUrl = captureFreeze?.slotId === config.id ? captureFreeze.url : null;
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*,video/*"
+        hidden
+        onChange={e => void handleGalleryPick(e.target.files)}
+      />
 
-        return (
-          <EvidenceMediaSlot
-            key={config.id}
-            config={config}
-            file={slotFile}
-            previewOpen={isPreviewOpen || Boolean(freezeUrl)}
-            previewLoading={isPreviewOpen && previewLoading && !freezeUrl}
-            disabled={disabled}
-            processing={processingSlot === config.id}
-            captureFreezeUrl={freezeUrl}
-            previewStream={isPreviewOpen ? previewStream : null}
-            recording={recording && config.id === 'video' && isPreviewOpen}
-            recordSeconds={recordSeconds}
-            error={slotErrors[config.id]}
-            onOpenPreview={() => {
-              if (disabled || slotFile) return;
-              if (previewSlot !== config.id) {
-                stopRecording();
-                stopMediaStream();
-              }
-              setPreviewSlot(config.id);
-            }}
-            onRemove={() => {
-              if (config.id === 'video') stopRecording();
-              if (captureFreeze?.slotId === config.id) clearCaptureFreeze();
-              if (previewSlot === config.id) closePreview();
-              updateSlotFile(config.id, null);
-              setSlotErrors(prev => ({ ...prev, [config.id]: undefined }));
-            }}
-            onPickFile={file => void handlePickFile(config.id, file)}
-            onStartRecording={startRecording}
-            onStopRecording={stopRecording}
-            onCapturePhoto={
-              config.kind === 'image'
-                ? () => void capturePhoto(config.id as EvidencePhotoSlot)
-                : () => undefined
+      {cameraOpen && (
+        <SupportEvidenceCamera
+          initialSlot={cameraSlot}
+          filledSlots={filledSlots}
+          processing={processing}
+          processingLabel={processingLabel}
+          onClose={() => setCameraOpen(false)}
+          onPickGallery={slot => {
+            gallerySlotRef.current = slot;
+            galleryRef.current?.click();
+          }}
+          onVideoFile={async file => {
+            try {
+              await handleVideoFile(file);
+            } catch (err) {
+              setSlotErrors(prev => ({
+                ...prev,
+                video: err instanceof Error ? err.message : 'Could not save video.',
+              }));
+              throw err;
             }
-            previewVideoRef={previewVideoRef}
-          />
-        );
-      })}
+          }}
+          onPhotoFile={async (slot, file) => {
+            try {
+              await handlePhotoFile(slot, file);
+            } catch (err) {
+              setSlotErrors(prev => ({
+                ...prev,
+                [slot]: err instanceof Error ? err.message : 'Could not save photo.',
+              }));
+              throw err;
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
