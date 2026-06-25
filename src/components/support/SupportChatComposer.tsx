@@ -25,6 +25,7 @@ import { pushRecentMedia } from '../../lib/recentMediaCache';
 import {
   MAX_SUPPORT_ATTACHMENTS,
   createPendingSupportFile,
+  retainFileCopy,
   validateSupportFile,
   type PendingSupportFile,
 } from '../../lib/supportAttachments';
@@ -107,7 +108,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
     }));
 
     const sendFilesWithRecent = async (files: File[]) => {
-      files.forEach(pushRecentMedia);
+      await Promise.all(files.map(file => pushRecentMedia(file)));
       await onSendFiles(files);
     };
 
@@ -195,18 +196,23 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
       stopMediaStream(mediaStreamRef.current);
     }, []);
 
-    const addPickedFiles = (picked: FileList | null) => {
+    const addPickedFiles = async (picked: FileList | null) => {
       if (!picked?.length) return;
       const next = [...pendingFiles];
       for (const file of Array.from(picked)) {
         if (next.length >= MAX_SUPPORT_ATTACHMENTS) break;
-        const err = validateSupportFile(file);
-        if (err) {
-          window.alert(err);
-          continue;
+        try {
+          const retained = await retainFileCopy(file);
+          const err = validateSupportFile(retained);
+          if (err) {
+            window.alert(err);
+            continue;
+          }
+          await pushRecentMedia(retained);
+          next.push(createPendingSupportFile(retained));
+        } catch (err) {
+          window.alert(err instanceof Error ? err.message : `Could not read ${file.name}.`);
         }
-        pushRecentMedia(file);
-        next.push(createPendingSupportFile(file));
       }
       onPendingFilesChange(next);
     };
@@ -497,8 +503,10 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
           multiple
           hidden
           onChange={e => {
-            addPickedFiles(e.target.files);
-            if (galleryRef.current) galleryRef.current.value = '';
+            void (async () => {
+              await addPickedFiles(e.target.files);
+              if (galleryRef.current) galleryRef.current.value = '';
+            })();
           }}
         />
 

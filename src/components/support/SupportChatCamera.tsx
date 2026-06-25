@@ -4,8 +4,6 @@ import {
   FlipHorizontal2,
   Image as ImageIcon,
   X,
-  Zap,
-  ZapOff,
 } from 'lucide-react';
 import {
   capturePhotoFromVideo,
@@ -19,7 +17,7 @@ import {
 import { getRecentMedia, pushRecentMedia, subscribeRecentMedia } from '../../lib/recentMediaCache';
 import { validateSupportFile } from '../../lib/supportAttachments';
 
-type CameraMode = 'photo' | 'video' | 'videonote';
+type CameraMode = 'photo' | 'video';
 
 interface SupportChatCameraProps {
   onClose: () => void;
@@ -60,7 +58,6 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
   const [error, setError] = useState('');
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
-  const [flashOn, setFlashOn] = useState(false);
   const recentMedia = useRecentMedia();
 
   const clearTimers = () => {
@@ -140,7 +137,7 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
     setLoading(true);
     try {
       const file = await capturePhotoFromVideo(video);
-      pushRecentMedia(file);
+      await pushRecentMedia(file);
       cleanup();
       onClose();
       await onSendFiles([file]);
@@ -168,7 +165,7 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
         const mimeType = blob.type || recorder.mimeType || 'video/webm';
         const rawFile = createVideoFileFromBlob(blob, mimeType);
         const file = await prepareVideoFileForUpload(rawFile, durationMs);
-        pushRecentMedia(file);
+        await pushRecentMedia(file);
         cleanup();
         onClose();
         await onSendFiles([file]);
@@ -213,7 +210,7 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
   };
 
   const onShutterPointerDown = () => {
-    if (loading || error || mode === 'videonote') return;
+    if (loading || error) return;
     shutterPressedRef.current = true;
     pointerDownAtRef.current = Date.now();
 
@@ -230,7 +227,6 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
   };
 
   const onShutterPointerUp = () => {
-    if (mode === 'videonote') return;
     shutterPressedRef.current = false;
 
     if (holdTimerRef.current != null) {
@@ -267,7 +263,6 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
   const modeTabs: { id: CameraMode; label: string }[] = [
     { id: 'video', label: 'Video' },
     { id: 'photo', label: 'Photo' },
-    { id: 'videonote', label: 'Video note' },
   ];
 
   return (
@@ -275,14 +270,6 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
       <div className="support-chat__camera-top">
         <button type="button" className="support-chat__camera-top-btn" onClick={handleClose} aria-label="Close">
           <X size={22} />
-        </button>
-        <button
-          type="button"
-          className="support-chat__camera-top-btn"
-          aria-label={flashOn ? 'Flash on' : 'Flash off'}
-          onClick={() => setFlashOn(v => !v)}
-        >
-          {flashOn ? <Zap size={20} /> : <ZapOff size={20} />}
         </button>
       </div>
 
@@ -304,44 +291,43 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
                 {formatRecordTime(recordSeconds)}
               </span>
             )}
-            {mode === 'videonote' && (
-              <p className="support-chat__camera-videonote-hint">Video notes are not available on web yet.</p>
-            )}
           </>
         )}
       </div>
 
       <div className="support-chat__camera-bottom">
-        <div className="support-chat__camera-recent">
-          <div className="support-chat__camera-recent-scroll">
-            <button
-              type="button"
-              className="support-chat__camera-recent-thumb support-chat__camera-recent-thumb--gallery"
-              aria-label="Open gallery"
-              onClick={() => {
-                cleanup();
-                onClose();
-                onPickGallery();
-              }}
-            >
-              <ImageIcon size={22} />
-            </button>
-            {recentMedia.map(item => (
+        {recentMedia.length > 0 && (
+          <div className="support-chat__camera-recent">
+            <div className="support-chat__camera-recent-scroll">
               <button
-                key={item.id}
                 type="button"
-                className="support-chat__camera-recent-thumb"
-                onClick={() => void sendRecent(item.file)}
+                className="support-chat__camera-recent-thumb support-chat__camera-recent-thumb--gallery"
+                aria-label="Open gallery"
+                onClick={() => {
+                  cleanup();
+                  onClose();
+                  onPickGallery();
+                }}
               >
-                {item.kind === 'video' ? (
-                  <video src={item.previewUrl} muted playsInline preload="metadata" />
-                ) : (
-                  <img src={item.previewUrl} alt="" />
-                )}
+                <ImageIcon size={22} />
               </button>
-            ))}
+              {recentMedia.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="support-chat__camera-recent-thumb"
+                  onClick={() => void sendRecent(item.file)}
+                >
+                  {item.kind === 'video' ? (
+                    <video src={item.previewUrl} muted playsInline preload="metadata" />
+                  ) : (
+                    <img src={item.previewUrl} alt="" />
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="support-chat__camera-controls">
           <span className="support-chat__camera-controls-spacer" aria-hidden />
@@ -349,7 +335,7 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
           <button
             type="button"
             className={`support-chat__camera-shutter${recording ? ' support-chat__camera-shutter--recording' : ''}${mode === 'video' && recording ? ' support-chat__camera-shutter--stop' : ''}`}
-            disabled={loading || Boolean(error) || mode === 'videonote'}
+            disabled={loading || Boolean(error)}
             aria-label={mode === 'photo' ? 'Take photo or hold to record video' : 'Record video'}
             onPointerDown={onShutterPointerDown}
             onPointerUp={onShutterPointerUp}

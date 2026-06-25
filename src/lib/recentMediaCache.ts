@@ -1,4 +1,4 @@
-import { isImageFile, isVideoFile } from './supportAttachments';
+import { isImageFile, isVideoFile, retainFileCopy } from './supportAttachments';
 
 export type RecentMediaItem = {
   id: string;
@@ -24,16 +24,17 @@ export function getRecentMedia(): readonly RecentMediaItem[] {
   return items;
 }
 
-export function pushRecentMedia(file: File): void {
+export async function pushRecentMedia(file: File): Promise<void> {
   if (!isImageFile(file) && !isVideoFile(file)) return;
 
-  const previewUrl = URL.createObjectURL(file);
-  const kind = isVideoFile(file) ? 'video' : 'image';
+  const retained = await retainFileCopy(file);
+  const previewUrl = URL.createObjectURL(retained);
+  const kind = isVideoFile(retained) ? 'video' : 'image';
   items.unshift({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     previewUrl,
     kind,
-    file,
+    file: retained,
   });
 
   while (items.length > MAX_RECENT) {

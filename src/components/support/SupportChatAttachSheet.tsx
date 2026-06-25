@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Image as ImageIcon, X } from 'lucide-react';
 import { getRecentMedia, subscribeRecentMedia } from '../../lib/recentMediaCache';
-import { validateSupportFile } from '../../lib/supportAttachments';
+import { retainFileCopy, validateSupportFile } from '../../lib/supportAttachments';
 
 const DOCUMENT_ACCEPT = [
   '.pdf',
@@ -147,16 +147,24 @@ export function SupportChatAttachSheet({
         accept={DOCUMENT_ACCEPT}
         hidden
         onChange={e => {
-          const file = e.target.files?.[0];
-          if (documentRef.current) documentRef.current.value = '';
-          if (!file) return;
-          const err = validateSupportFile(file);
-          if (err) {
-            window.alert(err);
-            return;
-          }
-          onClose();
-          void onSendFiles([file]);
+          void (async () => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+              const retained = await retainFileCopy(file);
+              if (documentRef.current) documentRef.current.value = '';
+              const err = validateSupportFile(retained);
+              if (err) {
+                window.alert(err);
+                return;
+              }
+              onClose();
+              await onSendFiles([retained]);
+            } catch (err) {
+              if (documentRef.current) documentRef.current.value = '';
+              window.alert(err instanceof Error ? err.message : 'Could not read document.');
+            }
+          })();
         }}
       />
     </div>

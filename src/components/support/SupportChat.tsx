@@ -27,6 +27,7 @@ import { expandMessageForDisplay } from '../../lib/supportChatDisplay';
 import {
   createPendingSupportFile,
   isVideoFile,
+  retainFileCopies,
   revokePendingSupportFiles,
   type PendingSupportFile,
 } from '../../lib/supportAttachments';
@@ -778,12 +779,21 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     setShowJump(!atBottom);
   };
 
-  const handleSend = (filesOverride?: File[]) => {
+  const handleSend = async (filesOverride?: File[]) => {
     if (!user || chatDisabled) return;
 
-    const uploadFiles = filesOverride ?? pendingFilesToUpload(pendingFiles);
     const textValue = filesOverride ? '' : text.trim();
-    if (!textValue && uploadFiles.length === 0) return;
+    const rawFiles = filesOverride ?? pendingFilesToUpload(pendingFiles);
+    if (!textValue && rawFiles.length === 0) return;
+
+    let uploadFiles: File[];
+    try {
+      uploadFiles = await retainFileCopies(rawFiles);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not read attached files.';
+      setError(message);
+      return;
+    }
 
     const pendingForDisplay = filesOverride
       ? uploadFiles.map(file => createPendingSupportFile(file))
@@ -799,7 +809,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   };
 
   const handleSendFiles = (files: File[]) => {
-    handleSend(files);
+    void handleSend(files);
   };
 
   return (
@@ -882,7 +892,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
             onTextChange={setText}
             pendingFiles={pendingFiles}
             onPendingFilesChange={setPendingFiles}
-            onSend={() => handleSend()}
+            onSend={() => void handleSend()}
             onSendFiles={handleSendFiles}
             placeholder={
               isInternalOpsUser(user)

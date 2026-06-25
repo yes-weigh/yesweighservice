@@ -68,6 +68,27 @@ export function isDocumentFile(file: File): boolean {
   return /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip)$/i.test(file.name);
 }
 
+/** Copy file bytes into memory so uploads survive cleared `<input type="file">` on mobile PWAs. */
+export async function retainFileCopy(file: File): Promise<File> {
+  try {
+    const buffer = await file.arrayBuffer();
+    if (!buffer.byteLength) {
+      throw new Error(`Could not read ${file.name}. Please pick the file again.`);
+    }
+    return new File([buffer], file.name, {
+      type: file.type || 'application/octet-stream',
+      lastModified: file.lastModified || Date.now(),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Could not read')) throw err;
+    throw new Error(`Could not read ${file.name}. Please pick the file again.`);
+  }
+}
+
+export async function retainFileCopies(files: File[]): Promise<File[]> {
+  return Promise.all(files.map(file => retainFileCopy(file)));
+}
+
 export function validateSupportFile(file: File): string | null {
   if (!isImageFile(file) && !isVideoFile(file) && !isAudioFile(file) && !isDocumentFile(file)) {
     return `${file.name}: only images, videos, voice notes, and documents are allowed.`;
@@ -185,7 +206,14 @@ function fileToBase64(file: File): Promise<string> {
       const comma = result.indexOf(',');
       resolve(comma >= 0 ? result.slice(comma + 1) : result);
     };
-    reader.onerror = () => reject(reader.error ?? new Error('Could not read file.'));
+    reader.onerror = () => {
+      const domErr = reader.error;
+      if (domErr?.name === 'NotReadableError') {
+        reject(new Error('Could not read the file. Please pick it again.'));
+        return;
+      }
+      reject(domErr ?? new Error('Could not read file.'));
+    };
     reader.readAsDataURL(file);
   });
 }

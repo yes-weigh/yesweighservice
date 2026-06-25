@@ -3,6 +3,7 @@ import { Film, Image as ImageIcon, Paperclip, X } from 'lucide-react';
 import {
   MAX_SUPPORT_ATTACHMENTS,
   createPendingSupportFile,
+  retainFileCopy,
   revokePendingSupportFiles,
   validateSupportFile,
   type PendingSupportFile,
@@ -34,19 +35,26 @@ export const SupportAttachmentPicker = forwardRef<SupportAttachmentPickerHandle,
     }));
 
     const handlePick = (picked: FileList | null) => {
-      if (!picked?.length) return;
-      const next = [...files];
-      for (const file of Array.from(picked)) {
-        if (next.length >= MAX_SUPPORT_ATTACHMENTS) break;
-        const err = validateSupportFile(file);
-        if (err) {
-          window.alert(err);
-          continue;
+      void (async () => {
+        if (!picked?.length) return;
+        const next = [...files];
+        for (const file of Array.from(picked)) {
+          if (next.length >= MAX_SUPPORT_ATTACHMENTS) break;
+          try {
+            const retained = await retainFileCopy(file);
+            const err = validateSupportFile(retained);
+            if (err) {
+              window.alert(err);
+              continue;
+            }
+            next.push(createPendingSupportFile(retained));
+          } catch (err) {
+            window.alert(err instanceof Error ? err.message : `Could not read ${file.name}.`);
+          }
         }
-        next.push(createPendingSupportFile(file));
-      }
-      onChange(next);
-      if (inputRef.current) inputRef.current.value = '';
+        onChange(next);
+        if (inputRef.current) inputRef.current.value = '';
+      })();
     };
 
     const removeFile = (id: string) => {
