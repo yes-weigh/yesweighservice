@@ -217,6 +217,7 @@ function MessageBubble({
   const hasText = Boolean(message.text?.trim());
   const hasAttachments = message.attachments.length > 0;
   const mediaOnly = hasAttachments && !hasText;
+  const audioOnly = mediaOnly && message.attachments.every(att => att.kind === 'audio');
   const isUploading = Boolean(uploadState && !uploadState.failed && uploadState.progress !== 100);
   const uploadFailed = Boolean(uploadState?.failed);
 
@@ -236,7 +237,7 @@ function MessageBubble({
         )}
 
         <div
-          className={`support-chat__bubble ${isOwn ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}${mediaOnly ? ' support-chat__bubble--media-only' : ''}`}
+          className={`support-chat__bubble ${isOwn ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}${mediaOnly ? ' support-chat__bubble--media-only' : ''}${audioOnly ? ' support-chat__bubble--audio-only' : ''}`}
         >
           {hasAttachments && (
             <div className="support-chat__attachments">
@@ -286,25 +287,35 @@ function MessageBubble({
                       />
                     )
                   ) : att.kind === 'audio' ? (
-                    <div className="support-chat__attachment-upload-wrap">
+                    isUploading || uploadFailed ? (
+                      <div className="support-chat__attachment-upload-wrap">
+                        <audio
+                          src={att.url}
+                          controls={false}
+                          preload="metadata"
+                          className="support-chat__attachment-audio"
+                          onLoadedMetadata={onMediaLayout}
+                        />
+                        {isUploading && <SupportChatUploadOverlay progress={uploadState?.progress ?? null} />}
+                        {uploadFailed && uploadState?.onRetry && (
+                          <button
+                            type="button"
+                            className="support-chat__upload-retry"
+                            onClick={uploadState.onRetry}
+                          >
+                            Tap to retry
+                          </button>
+                        )}
+                      </div>
+                    ) : (
                       <audio
                         src={att.url}
-                        controls={!isUploading && !uploadFailed}
+                        controls
                         preload="metadata"
                         className="support-chat__attachment-audio"
                         onLoadedMetadata={onMediaLayout}
                       />
-                      {isUploading && <SupportChatUploadOverlay progress={uploadState?.progress ?? null} />}
-                      {uploadFailed && uploadState?.onRetry && (
-                        <button
-                          type="button"
-                          className="support-chat__upload-retry"
-                          onClick={uploadState.onRetry}
-                        >
-                          Tap to retry
-                        </button>
-                      )}
-                    </div>
+                    )
                   ) : (
                     <div className="support-chat__attachment-upload-wrap">
                       {isUploading || uploadFailed ? (

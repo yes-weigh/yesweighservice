@@ -12977,6 +12977,21 @@ html::-webkit-scrollbar {
   padding: 0.15rem 0.35rem 0.1rem;
 }
 
+.support-chat__bubble--audio-only {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.support-chat__bubble--audio-only .support-chat__attachments {
+  gap: 0;
+}
+
+.support-chat__bubble--audio-only .support-chat__meta {
+  padding: 0.2rem 0 0;
+  color: rgba(255, 255, 255, 0.5);
+}
+
 .support-chat__text {
   margin: 0;
   padding: 0 0.15rem;
@@ -13652,7 +13667,9 @@ html::-webkit-scrollbar {
 }
 
 .support-chat__attachment-audio {
+  display: block;
   width: min(16rem, 100%);
+  max-width: 100%;
   height: 2.25rem;
 }
 
