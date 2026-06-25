@@ -6,7 +6,13 @@ TARGETS="${1:?Usage: ci-firebase-deploy.sh <targets> [project]}"
 PROJECT="${2:-yesweigh-service}"
 MAX_ATTEMPTS="${FIREBASE_DEPLOY_RETRIES:-5}"
 DELAY="${FIREBASE_DEPLOY_RETRY_DELAY_SEC:-20}"
+REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
+HTTP_AGENT_FIX="${REPO_ROOT}/scripts/ci-node-http-agent-fix.cjs"
 FIREBASE_CLI="${FIREBASE_CLI:-npx --yes firebase-tools@15.22.1}"
+
+if [ -f "$HTTP_AGENT_FIX" ]; then
+  export NODE_OPTIONS="--require ${HTTP_AGENT_FIX}${NODE_OPTIONS:+ ${NODE_OPTIONS}}"
+fi
 
 run_deploy() {
   local debug_flag=()
@@ -20,11 +26,11 @@ run_deploy() {
       return 1
     fi
 
-    # google-github-actions/auth sets these; they can interfere with firebase-tools ADC.
     env -u FIREBASE_TOKEN \
       -u CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE \
       -u GOOGLE_GHA_CREDS_PATH \
       GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_APPLICATION_CREDENTIALS" \
+      NODE_OPTIONS="$NODE_OPTIONS" \
       $FIREBASE_CLI deploy \
       --only "$TARGETS" \
       --project "$PROJECT" \
@@ -35,7 +41,8 @@ run_deploy() {
       echo "::error::FIREBASE_TOKEN or GOOGLE_APPLICATION_CREDENTIALS is required."
       return 1
     fi
-    $FIREBASE_CLI deploy \
+    env NODE_OPTIONS="$NODE_OPTIONS" \
+      $FIREBASE_CLI deploy \
       --only "$TARGETS" \
       --project "$PROJECT" \
       --non-interactive \
@@ -59,7 +66,7 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
 
   if [ "$attempt" -eq "$MAX_ATTEMPTS" ]; then
     echo "::error::Firebase deploy failed after ${MAX_ATTEMPTS} attempts (--only ${TARGETS})."
-    echo "::error::If token exchange passed but deploy still fails, check IAM roles for the service account (Firebase Admin, Service Account User)."
+    echo "::error::If the log shows \"Premature close\" on oauth2/token, pin Node to 22.23.1+ or 22.22.x in the workflow (nodejs/node#63989)."
     echo "::error::If the log shows HTTP 503 from firebaserules.googleapis.com, this is usually a transient Google outage — re-run the workflow."
     exit 1
   fi
