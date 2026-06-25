@@ -6,33 +6,41 @@ TARGETS="${1:?Usage: ci-firebase-deploy.sh <targets> [project]}"
 PROJECT="${2:-yesweigh-service}"
 MAX_ATTEMPTS="${FIREBASE_DEPLOY_RETRIES:-5}"
 DELAY="${FIREBASE_DEPLOY_RETRY_DELAY_SEC:-20}"
+FIREBASE_CLI="${FIREBASE_CLI:-npx --yes firebase-tools@15.22.1}"
 
 run_deploy() {
+  local debug_flag=()
+  if [ "${CI_FIREBASE_DEBUG:-}" = "1" ]; then
+    debug_flag=(--debug)
+  fi
+
   if [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
-    # firebase-tools uses FIREBASE_TOKEN over ADC when set (even to an empty value).
-    unset FIREBASE_TOKEN
-    export GOOGLE_APPLICATION_CREDENTIALS
     if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
       echo "::error::GOOGLE_APPLICATION_CREDENTIALS file not found: $GOOGLE_APPLICATION_CREDENTIALS"
       return 1
     fi
-    if command -v gcloud >/dev/null 2>&1; then
-      gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --project="$PROJECT" --quiet >/dev/null 2>&1 || true
-    fi
-    npx firebase-tools@15.22.1 deploy \
+
+    # google-github-actions/auth sets these; they can interfere with firebase-tools ADC.
+    env -u FIREBASE_TOKEN \
+      -u CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE \
+      -u GOOGLE_GHA_CREDS_PATH \
+      GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_APPLICATION_CREDENTIALS" \
+      $FIREBASE_CLI deploy \
       --only "$TARGETS" \
       --project "$PROJECT" \
-      --non-interactive
+      --non-interactive \
+      "${debug_flag[@]}"
   else
     if [ -z "${FIREBASE_TOKEN:-}" ]; then
       echo "::error::FIREBASE_TOKEN or GOOGLE_APPLICATION_CREDENTIALS is required."
       return 1
     fi
-    npx firebase-tools@15.22.1 deploy \
+    $FIREBASE_CLI deploy \
       --only "$TARGETS" \
       --project "$PROJECT" \
       --non-interactive \
-      --token "$FIREBASE_TOKEN"
+      --token "$FIREBASE_TOKEN" \
+      "${debug_flag[@]}"
   fi
 }
 
@@ -44,9 +52,14 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     exit 0
   fi
 
+  if [ "$attempt" -eq 1 ]; then
+    echo "Retrying with firebase --debug enabled."
+    CI_FIREBASE_DEBUG=1
+  fi
+
   if [ "$attempt" -eq "$MAX_ATTEMPTS" ]; then
     echo "::error::Firebase deploy failed after ${MAX_ATTEMPTS} attempts (--only ${TARGETS})."
-    echo "::error::If the log shows \"Failed to authenticate\", ensure FIREBASE_SERVICE_ACCOUNT is valid JSON (or use FIREBASE_SERVICE_ACCOUNT_B64), unset any repo FIREBASE_TOKEN variable, and grant the service account Firebase Admin."
+    echo "::error::If token exchange passed but deploy still fails, check IAM roles for the service account (Firebase Admin, Service Account User)."
     echo "::error::If the log shows HTTP 503 from firebaserules.googleapis.com, this is usually a transient Google outage — re-run the workflow."
     exit 1
   fi
