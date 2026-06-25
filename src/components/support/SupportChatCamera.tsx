@@ -17,8 +17,6 @@ import {
 import { getRecentMedia, pushRecentMedia, subscribeRecentMedia } from '../../lib/recentMediaCache';
 import { validateSupportFile } from '../../lib/supportAttachments';
 
-type CameraMode = 'photo' | 'video';
-
 interface SupportChatCameraProps {
   onClose: () => void;
   onSendFiles: (files: File[]) => void | Promise<void>;
@@ -26,7 +24,7 @@ interface SupportChatCameraProps {
 }
 
 const MAX_RECORD_SECONDS = 120;
-const HOLD_THRESHOLD_MS = 380;
+const LONG_PRESS_MS = 380;
 
 function formatRecordTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -49,16 +47,18 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
   const timeoutRef = useRef<number | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const pointerDownAtRef = useRef(0);
-  const holdRecordingRef = useRef(false);
-  const shutterPressedRef = useRef(false);
+  const longPressStartedRef = useRef(false);
+  const stopOnUpRef = useRef(false);
+  const recordingRef = useRef(false);
 
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
-  const [mode, setMode] = useState<CameraMode>('photo');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recentMedia = useRecentMedia();
+
+  recordingRef.current = recording;
 
   const clearTimers = () => {
     if (tickRef.current != null) window.clearInterval(tickRef.current);
@@ -78,8 +78,8 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
     clearTimers();
     recorderRef.current = null;
     chunksRef.current = [];
-    holdRecordingRef.current = false;
-    shutterPressedRef.current = false;
+    longPressStartedRef.current = false;
+    stopOnUpRef.current = false;
     stopStream();
     setRecording(false);
     setRecordSeconds(0);
@@ -133,7 +133,7 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
 
   const capturePhoto = async () => {
     const video = videoRef.current;
-    if (!video || loading || error) return;
+    if (!video || loading || error || recordingRef.current) return;
     setLoading(true);
     try {
       const file = await capturePhotoFromVideo(video);
@@ -157,7 +157,7 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
       clearTimers();
       chunksRef.current = [];
       recorderRef.current = null;
-      holdRecordingRef.current = false;
+      longPressStartedRef.current = false;
       setRecording(false);
       setRecordSeconds(0);
 
@@ -169,7 +169,6 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
         cleanup();
         onClose();
         await onSendFiles([file]);
-        return;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save video.');
@@ -179,7 +178,7 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
 
   const startRecording = () => {
     const stream = streamRef.current;
-    if (!stream || recording) return;
+    if (!stream || recordingRef.current) return;
 
     let recorder: MediaRecorder;
     try {
@@ -211,40 +210,42 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
 
   const onShutterPointerDown = () => {
     if (loading || error) return;
-    shutterPressedRef.current = true;
     pointerDownAtRef.current = Date.now();
+    longPressStartedRef.current = false;
+    stopOnUpRef.current = false;
 
-    if (mode === 'video') {
-      if (!recording) startRecording();
+    if (recordingRef.current) {
+      stopOnUpRef.current = true;
       return;
     }
 
     holdTimerRef.current = window.setTimeout(() => {
-      if (!shutterPressedRef.current || recording) return;
-      holdRecordingRef.current = true;
+      if (recordingRef.current) return;
+      longPressStartedRef.current = true;
       startRecording();
-    }, HOLD_THRESHOLD_MS);
+    }, LONG_PRESS_MS);
   };
 
   const onShutterPointerUp = () => {
-    shutterPressedRef.current = false;
-
     if (holdTimerRef.current != null) {
       window.clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
     }
 
-    if (mode === 'video') {
-      if (recording) void stopRecording(true);
+    if (recordingRef.current) {
+      if (stopOnUpRef.current) {
+        void stopRecording(true);
+      }
+      stopOnUpRef.current = false;
       return;
     }
 
-    if (recording && holdRecordingRef.current) {
-      void stopRecording(true);
+    if (longPressStartedRef.current) {
+      longPressStartedRef.current = false;
       return;
     }
 
-    if (!recording && Date.now() - pointerDownAtRef.current < HOLD_THRESHOLD_MS) {
+    if (Date.now() - pointerDownAtRef.current < LONG_PRESS_MS) {
       void capturePhoto();
     }
   };
@@ -259,11 +260,6 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
     onClose();
     await onSendFiles([file]);
   };
-
-  const modeTabs: { id: CameraMode; label: string }[] = [
-    { id: 'video', label: 'Video' },
-    { id: 'photo', label: 'Photo' },
-  ];
 
   return (
     <div className="support-chat__camera" role="dialog" aria-label="Camera">
@@ -334,12 +330,11 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
 
           <button
             type="button"
-            className={`support-chat__camera-shutter${recording ? ' support-chat__camera-shutter--recording' : ''}${mode === 'video' && recording ? ' support-chat__camera-shutter--stop' : ''}`}
+            className={`support-chat__camera-shutter${recording ? ' support-chat__camera-shutter--recording support-chat__camera-shutter--stop' : ''}`}
             disabled={loading || Boolean(error)}
-            aria-label={mode === 'photo' ? 'Take photo or hold to record video' : 'Record video'}
+            aria-label={recording ? 'Stop recording' : 'Take photo or hold to record video'}
             onPointerDown={onShutterPointerDown}
             onPointerUp={onShutterPointerUp}
-            onPointerLeave={onShutterPointerUp}
             onPointerCancel={onShutterPointerUp}
           />
 
@@ -352,22 +347,6 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
           >
             <FlipHorizontal2 size={22} />
           </button>
-        </div>
-
-        <div className="support-chat__camera-modes" role="tablist" aria-label="Camera mode">
-          {modeTabs.map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={mode === tab.id}
-              className={`support-chat__camera-mode-tab${mode === tab.id ? ' support-chat__camera-mode-tab--active' : ''}`}
-              disabled={recording}
-              onClick={() => setMode(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
         </div>
       </div>
     </div>

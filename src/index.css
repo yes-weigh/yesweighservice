@@ -13926,7 +13926,7 @@ html::-webkit-scrollbar {
   position: relative;
   z-index: 2;
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.88));
-  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
 }
 
 .support-chat__camera-controls {
