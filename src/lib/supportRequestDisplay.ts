@@ -1,5 +1,6 @@
 import type { DealerSupportRequest, SupportOpenStage } from '../types/dealer-support';
 import { SUPPORT_OPEN_STAGE_LABELS } from '../types/dealer-support';
+import { FIRM_NAME_SHORT } from '../constants/brand';
 import {
   dealerOpenStageLabel,
   isSupportDraft,
@@ -297,6 +298,9 @@ export function formatSupportSubmittedTime(value: string | null | undefined): st
 }
 
 export function supportRequestCardTitle(request: DealerSupportRequest): string {
+  if (request.type === 'chat') {
+    return request.subject?.trim() || `Chat with ${FIRM_NAME_SHORT}`;
+  }
   return request.product?.name?.trim()
     || request.subject?.trim()
     || request.category?.trim()
@@ -408,6 +412,9 @@ export function formatSupportDateTimeCompact(value: string | null | undefined): 
 export function supportRequestIssueSummary(request: DealerSupportRequest): string {
   if (isSupportDraft(request)) {
     return request.description || 'Draft — tap to continue and submit';
+  }
+  if (request.type === 'chat') {
+    return request.lastMessagePreview?.trim() || 'Tap to start chatting';
   }
   const category = request.category?.trim();
   const preview = request.lastMessagePreview?.trim() || request.description?.trim();

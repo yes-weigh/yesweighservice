@@ -1,6 +1,6 @@
 import { FIRM_NAME } from '../constants/brand';
 
-export type SupportRequestType = 'service' | 'return' | 'complaint';
+export type SupportRequestType = 'service' | 'return' | 'complaint' | 'chat';
 
 export type SupportLifecycle = 'draft' | 'open' | 'resolved' | 'cancelled';
 
@@ -170,7 +170,14 @@ export const SUPPORT_TYPE_LABELS: Record<SupportRequestType, string> = {
   service: 'Service / Repair',
   return: 'Replacement',
   complaint: 'Complaint',
+  chat: 'Chat',
 };
+
+export const SUPPORT_CHAT_OPTION = {
+  title: 'Chat with Interweighing',
+  description: 'Ask a question or discuss anything. Product and invoice details can be added later if needed.',
+  hint: 'Opens a live chat — no ticket form required.',
+} as const;
 
 export const DEALER_COURIER_NOTICE =
   `For repair and replacement, courier the product to ${FIRM_NAME} after your request is approved. This is the standard process for all dealers.`;
@@ -185,19 +192,19 @@ export const SUPPORT_INTENT_OPTIONS: Array<{
     value: 'service',
     title: 'Repair / Technical Support',
     description: 'Product is faulty, needs calibration, spare parts, or warranty repair.',
-    hint: `Courier the unit to ${FIRM_NAME} — our workshop will diagnose and repair it.`,
+    hint: 'Our workshop will diagnose and repair it.',
   },
   {
     value: 'return',
     title: 'Full Product Replacement',
     description: 'Unit must be swapped under warranty — dead on arrival, beyond repair, or wrong item.',
-    hint: `Courier the unit to ${FIRM_NAME} — we inspect and send a replacement.`,
+    hint: `Courier the unit to ${FIRM_NAME}.`,
   },
   {
     value: 'complaint',
     title: 'Other / Non-Product Complaint',
     description: 'Issue with billing, delivery, order accuracy, service experience, or any other non-product related matter.',
-    hint: 'No courier needed unless we ask you to send a product for review.',
+    hint: '',
   },
 ];
 
@@ -237,7 +244,9 @@ export function supportCategoryValueFromStored(
       ? RETURN_REASON_OPTIONS
       : type === 'complaint'
         ? COMPLAINT_CATEGORY_OPTIONS
-        : SERVICE_ISSUE_OPTIONS;
+        : type === 'chat'
+          ? [{ value: 'general', label: 'General chat' }]
+          : SERVICE_ISSUE_OPTIONS;
   const match = options.find(option => option.label === stored || option.value === stored);
   return match?.value ?? options[0].value;
 }

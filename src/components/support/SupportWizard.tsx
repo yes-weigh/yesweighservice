@@ -5,11 +5,12 @@ import {
   ChevronRight,
   HelpCircle,
   MessageSquareWarning,
+  MessageCircle,
   Package,
   RotateCcw,
   Wrench,
 } from 'lucide-react';
-import { createSupportRequest, deleteSupportRequestDraft, saveSupportRequestDraft, supportComplaintGuidelinesPath } from '../../lib/dealerSupport';
+import { createSupportChatRequest, createSupportRequest, deleteSupportRequestDraft, saveSupportRequestDraft, supportComplaintGuidelinesPath } from '../../lib/dealerSupport';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
 import { SupportCourierInstructions } from './SupportCourierInstructions';
@@ -24,6 +25,7 @@ import {
   RETURN_REASON_OPTIONS,
   SERVICE_ISSUE_OPTIONS,
   SUPPORT_INTENT_OPTIONS,
+  SUPPORT_CHAT_OPTION,
   SUPPORT_TYPE_LABELS,
   supportCategoryValueFromStored,
 } from '../../types/dealer-support';
@@ -103,6 +105,7 @@ const INTENT_ICONS: Record<SupportRequestType, React.ReactNode> = {
   service: <Wrench size={22} strokeWidth={2.2} />,
   return: <RotateCcw size={22} strokeWidth={2.2} />,
   complaint: <MessageSquareWarning size={22} strokeWidth={2.2} />,
+  chat: <MessageCircle size={22} strokeWidth={2.2} />,
 };
 
 function supportActionErrorMessage(err: unknown, fallback: string): string {
@@ -162,11 +165,12 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [pendingFiles, setPendingFiles] = useState<PendingSupportFile[]>([]);
   const [submitProgress, setSubmitProgress] = useState<SupportSubmitProgress | null>(null);
   const [discarding, setDiscarding] = useState(false);
+  const [startingChat, setStartingChat] = useState(false);
   const [declarationAgreed, setDeclarationAgreed] = useState(false);
   const confirm = useConfirm();
   const formRef = useRef<HTMLFormElement>(null);
 
-  const isBusy = submitting || savingDraft || discarding;
+  const isBusy = submitting || savingDraft || discarding || startingChat;
 
   const categoryOptions = useMemo(() => {
     if (intent === 'return') return RETURN_REASON_OPTIONS;
@@ -190,8 +194,23 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   };
 
   const proceedWithIntent = (value: SupportRequestType) => {
+    if (value === 'chat') return;
     selectIntent(value);
     setStep('product');
+  };
+
+  const startGenericChat = async () => {
+    if (startingChat) return;
+    setStartingChat(true);
+    setError('');
+    try {
+      const request = await createSupportChatRequest(user);
+      onSuccess(request.requestNumber, 'chat', request.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start chat.');
+    } finally {
+      setStartingChat(false);
+    }
   };
 
   const handleProductNext = useCallback(() => {
@@ -531,7 +550,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                   <span className="support-wizard__option-body">
                     <strong>{option.title}</strong>
                     <span className="support-wizard__option-desc">{option.description}</span>
-                    <span className="support-wizard__option-hint">{option.hint}</span>
+                    {option.hint ? (
+                      <span className="support-wizard__option-hint">{option.hint}</span>
+                    ) : null}
                     {selected && (
                       <button
                         type="button"
@@ -553,6 +574,23 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               );
             })}
           </div>
+
+          <button
+            type="button"
+            className="support-wizard__option support-wizard__option--chat"
+            disabled={startingChat}
+            onClick={() => void startGenericChat()}
+          >
+            <span className="support-wizard__option-icon">
+              <MessageCircle size={22} strokeWidth={2.2} />
+            </span>
+            <span className="support-wizard__option-body">
+              <strong>{SUPPORT_CHAT_OPTION.title}</strong>
+              <span className="support-wizard__option-desc">{SUPPORT_CHAT_OPTION.description}</span>
+              <span className="support-wizard__option-hint">{SUPPORT_CHAT_OPTION.hint}</span>
+            </span>
+            <ChevronRight size={20} className="support-wizard__option-chevron" aria-hidden />
+          </button>
 
           <div className="support-wizard__help-footer">
             <h3 className="support-wizard__help-title">Need help choosing?</h3>

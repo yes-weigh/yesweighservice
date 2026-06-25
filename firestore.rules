@@ -354,10 +354,29 @@ service cloud.firestore {
         || data.status == 'cancelled';
     }
 
+    function validDealerSupportChatCreate() {
+      let data = request.resource.data;
+      return data.type == 'chat'
+        && data.lifecycle == 'open'
+        && data.openStage == 'submitted'
+        && data.requestNumber is string
+        && data.requestNumber.size() > 0
+        && data.category == 'general'
+        && data.description is string
+        && data.createdAt is string
+        && data.createdByUid == request.auth.uid
+        && data.createdByName is string
+        && data.dealerId is string
+        && (
+          (isDealer() && data.dealerId == request.auth.uid)
+          || (isDealerStaff() && data.dealerId == userDealerId(userDoc()))
+        );
+    }
+
     function validDealerSupportDraftCreate() {
       let data = request.resource.data;
       return data.type is string
-        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint' || data.type == 'chat')
         && data.requestNumber is string
         && data.requestNumber.size() > 0
         && isSupportDraftData(data)
@@ -388,7 +407,7 @@ service cloud.firestore {
         && isSupportDraftData(data)
         && dealerSupportImmutableFieldsMatch()
         && data.type is string
-        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint' || data.type == 'chat')
         && data.category is string
         && data.description is string
         && data.updatedAt is string;
@@ -401,7 +420,7 @@ service cloud.firestore {
         && data.openStage == 'submitted'
         && dealerSupportImmutableFieldsMatch()
         && data.type is string
-        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint' || data.type == 'chat')
         && data.category is string
         && data.category.size() > 0
         && data.description is string
@@ -454,7 +473,7 @@ service cloud.firestore {
 
       allow create: if isActiveUser()
         && (isDealer() || isDealerStaff())
-        && validDealerSupportDraftCreate();
+        && (validDealerSupportDraftCreate() || validDealerSupportChatCreate());
 
       allow update: if isActiveUser() && (
         isOpsUser()

@@ -16,7 +16,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, app } from '../firebase';
-import { FIRM_NAME } from '../constants/brand';
+import { FIRM_NAME, FIRM_NAME_SHORT } from '../constants/brand';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import type { User } from '../types';
 import { normalizeRole } from '../types';
@@ -53,6 +53,7 @@ const REQUEST_PREFIX: Record<SupportRequestType, string> = {
   service: 'SRV',
   return: 'RMA',
   complaint: 'CMP',
+  chat: 'CHT',
 };
 
 const functions = getFunctions(app, 'asia-south1');
@@ -371,7 +372,7 @@ async function touchSupportRequestAfterMessage(
     canManageSupportOps(user)
     && isSupportOpen(request)
     && request.openStage === 'submitted'
-    && request.type === 'complaint'
+    && (request.type === 'complaint' || request.type === 'chat')
   ) {
     updates.openStage = 'under_review';
   }
@@ -440,7 +441,7 @@ async function sendSupportMessageOnce(
     && canManageSupportOps(user)
     && isSupportOpen(request)
     && request.openStage === 'submitted'
-    && request.type === 'complaint'
+    && (request.type === 'complaint' || request.type === 'chat')
   ) {
     updates.openStage = 'under_review';
   }
@@ -551,6 +552,24 @@ async function finalizeSupportSubmit(requestId: string): Promise<void> {
     openStage: 'submitted',
     updatedAt: new Date().toISOString(),
   });
+}
+
+export async function createSupportChatRequest(user: User): Promise<DealerSupportRequest> {
+  const now = new Date().toISOString();
+  const data = buildSupportRequestDocument(user, {
+    type: 'chat',
+    lifecycle: 'open',
+    openStage: 'submitted',
+    requestNumber: buildRequestNumber('chat'),
+    category: 'general',
+    subject: `Chat with ${FIRM_NAME_SHORT}`,
+    description: '',
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const docRef = await addDoc(collection(db, 'dealerSupportRequests'), data);
+  return mapSupportRequest(docRef.id, data);
 }
 
 export async function saveSupportRequestDraft(

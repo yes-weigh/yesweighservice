@@ -11005,6 +11005,11 @@ html::-webkit-scrollbar {
   background: rgba(252, 165, 165, 0.12);
 }
 
+.support-type-badge--chat {
+  color: #00a884;
+  background: rgba(0, 168, 132, 0.12);
+}
+
 .support-wizard {
   display: flex;
   flex-direction: column;
@@ -11277,6 +11282,25 @@ html::-webkit-scrollbar {
 .support-wizard__option--complaint.is-selected {
   border-color: rgba(251, 146, 60, 0.55);
   background: rgba(245, 130, 32, 0.1);
+}
+
+.support-wizard__option--chat {
+  margin-top: 0.65rem;
+}
+
+.support-wizard__option--chat .support-wizard__option-icon {
+  background: rgba(0, 168, 132, 0.14);
+  color: #00a884;
+}
+
+.support-wizard__option--chat .support-wizard__option-hint {
+  color: #00a884;
+}
+
+.support-wizard__option--chat:hover,
+.support-wizard__option--chat:focus-visible {
+  border-color: rgba(0, 168, 132, 0.35);
+  background: rgba(0, 168, 132, 0.06);
 }
 
 .support-wizard__option-next {

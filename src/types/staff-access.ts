@@ -195,7 +195,7 @@ export const DEPARTMENT_DEFAULT_PERMISSIONS: Record<StaffDepartment, StaffPermis
 
 export const DEPARTMENT_SUPPORT_TYPES: Record<StaffDepartment, SupportRequestType[] | 'all'> = {
   sales: [],
-  service: ['service', 'complaint'],
+  service: ['service', 'complaint', 'chat'],
   logistics: ['return'],
   admin: 'all',
 };

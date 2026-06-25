@@ -117,6 +117,13 @@ export function allowedSupportTypesForUser(user: User | null | undefined): Suppo
   if (hasStaffPermission(user, 'support.service')) allowed.add('service');
   if (hasStaffPermission(user, 'support.return')) allowed.add('return');
   if (hasStaffPermission(user, 'support.complaint')) allowed.add('complaint');
+  if (
+    hasStaffPermission(user, 'support.complaint')
+    || hasStaffPermission(user, 'support.service')
+    || hasStaffPermission(user, 'support.manage')
+  ) {
+    allowed.add('chat');
+  }
 
   if (!hasStaffPermission(user, 'support.view') && !hasStaffPermission(user, 'support.manage')) {
     return [];

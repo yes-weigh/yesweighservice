@@ -25,7 +25,7 @@ interface DealerSupportRequestListProps {
   onRefresh?: () => void;
 }
 
-const TYPE_OPTIONS = ['all', 'service', 'return', 'complaint'] as const;
+const TYPE_OPTIONS = ['all', 'service', 'return', 'complaint', 'chat'] as const;
 const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'open';
 
 export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> = ({

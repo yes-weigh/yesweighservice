@@ -97,7 +97,7 @@ export async function appendSupportMessage(uid, input) {
     ...messageStageUpdates(role, req, isInitial),
   };
 
-  if (isOps && isSupportOpenData(req) && req.openStage === 'submitted' && req.type === 'complaint') {
+  if (isOps && isSupportOpenData(req) && req.openStage === 'submitted' && (req.type === 'complaint' || req.type === 'chat')) {
     updates.openStage = 'under_review';
   }
 
