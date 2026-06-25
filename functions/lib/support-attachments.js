@@ -34,10 +34,30 @@ function resolveDealerIdForUser(uid, role, userData) {
   return null;
 }
 
+const DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+  'application/x-zip-compressed',
+]);
+
 function isAllowedMediaType(contentType) {
   const type = String(contentType ?? '').split(';')[0].trim().toLowerCase();
   if (!type) return true;
-  return type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/') || type === 'application/octet-stream';
+  return (
+    type.startsWith('image/')
+    || type.startsWith('video/')
+    || type.startsWith('audio/')
+    || type === 'application/octet-stream'
+    || DOCUMENT_MIME_TYPES.has(type)
+  );
 }
 
 function safeFileName(name) {
@@ -143,7 +163,7 @@ export async function uploadSupportAttachment(uid, input) {
   }
 
   if (!isAllowedMediaType(contentType)) {
-    throw new HttpsError('invalid-argument', 'Only image and video files are allowed.');
+    throw new HttpsError('invalid-argument', 'File type is not allowed.');
   }
 
   await assertSupportRequestAccess(uid, requestId, {
@@ -208,7 +228,7 @@ export async function prepareSupportAttachmentUpload(uid, input) {
   }
 
   if (!isAllowedMediaType(contentType)) {
-    throw new HttpsError('invalid-argument', 'Only image and video files are allowed.');
+    throw new HttpsError('invalid-argument', 'File type is not allowed.');
   }
 
   await assertSupportRequestAccess(uid, requestId, {

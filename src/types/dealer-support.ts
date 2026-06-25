@@ -62,7 +62,7 @@ export interface DealerSupportRequest {
   resolutionSummary: string | null;
 }
 
-export type SupportAttachmentKind = 'image' | 'video' | 'audio';
+export type SupportAttachmentKind = 'image' | 'video' | 'audio' | 'document';
 
 export interface SupportAttachment {
   id: string;

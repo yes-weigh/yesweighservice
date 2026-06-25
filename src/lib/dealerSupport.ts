@@ -155,7 +155,9 @@ function mapAttachment(raw: DocumentData): SupportMessage['attachments'][number]
     ? 'video'
     : raw.kind === 'audio'
       ? 'audio'
-      : 'image';
+      : raw.kind === 'document'
+        ? 'document'
+        : 'image';
   return {
     id: String(raw.id ?? ''),
     kind,

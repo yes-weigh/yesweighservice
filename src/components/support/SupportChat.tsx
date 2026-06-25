@@ -41,6 +41,7 @@ import {
   pendingFilesToUpload,
 } from './SupportAttachmentPicker';
 import { SupportChatComposer } from './SupportChatComposer';
+import { SupportChatDocumentCard } from './SupportChatDocumentCard';
 import { SupportChatUploadOverlay } from './SupportChatUploadOverlay';
 import { SupportChatVideo } from './SupportChatVideo';
 import { SupportChatVoiceNote } from './SupportChatVoiceNote';
@@ -380,6 +381,15 @@ function MessageBubble({
                     )
                   ) : isAudioAttachment(att) ? (
                     renderVoiceNote(att)
+                  ) : att.kind === 'document' ? (
+                    <SupportChatDocumentCard
+                      fileName={att.fileName}
+                      mimeType={att.mimeType}
+                      size={att.size}
+                      url={att.url}
+                      isOwn={isOwn}
+                      onLayout={onMediaLayout}
+                    />
                   ) : (
                     <div className="support-chat__attachment-upload-wrap">
                       {isUploading || uploadFailed ? (
@@ -421,7 +431,7 @@ function MessageBubble({
                       )}
                     </div>
                   )}
-                  {att.fileName && !mediaOnly && att.kind !== 'video' && (
+                  {att.fileName && !mediaOnly && att.kind !== 'video' && att.kind !== 'document' && (
                     <span className="support-chat__attachment-name">{att.fileName}</span>
                   )}
                 </div>

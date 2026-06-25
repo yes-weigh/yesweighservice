@@ -7,7 +7,6 @@ import {
 } from 'react';
 import {
   Camera,
-  Circle,
   Film,
   Image as ImageIcon,
   Mic,
@@ -19,21 +18,18 @@ import {
   X,
 } from 'lucide-react';
 import {
-  capturePhotoFromVideo,
-  createVideoFileFromBlob,
-  createVideoMediaRecorder,
-  finalizeMediaRecorder,
   pickAudioMimeType,
-  prepareVideoFileForUpload,
-  recommendedRecorderTimeslice,
   stopMediaStream,
 } from '../../lib/captureMedia';
+import { pushRecentMedia } from '../../lib/recentMediaCache';
 import {
   MAX_SUPPORT_ATTACHMENTS,
   createPendingSupportFile,
   validateSupportFile,
   type PendingSupportFile,
 } from '../../lib/supportAttachments';
+import { SupportChatAttachSheet } from './SupportChatAttachSheet';
+import { SupportChatCamera } from './SupportChatCamera';
 
 export interface SupportChatComposerHandle {
   focusInput: () => void;
@@ -80,7 +76,6 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
   ) {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const galleryRef = useRef<HTMLInputElement>(null);
-    const cameraVideoRef = useRef<HTMLVideoElement>(null);
     const mediaStreamRef = useRef<MediaStream | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const voiceChunksRef = useRef<Blob[]>([]);
@@ -94,18 +89,9 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
     const voiceAnalyserRef = useRef<AnalyserNode | null>(null);
     const voiceWaveformFrameRef = useRef<number | null>(null);
     const voiceWaveformDataRef = useRef<Uint8Array | null>(null);
-    const videoChunksRef = useRef<Blob[]>([]);
-    const videoRecordTickRef = useRef<number | null>(null);
-    const videoRecordTimeoutRef = useRef<number | null>(null);
-    const attachMenuRef = useRef<HTMLDivElement>(null);
 
-    const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+    const [attachSheetOpen, setAttachSheetOpen] = useState(false);
     const [cameraOpen, setCameraOpen] = useState(false);
-    const [cameraMode, setCameraMode] = useState<'photo' | 'video'>('photo');
-    const [cameraLoading, setCameraLoading] = useState(false);
-    const [cameraError, setCameraError] = useState('');
-    const [recordingVideo, setRecordingVideo] = useState(false);
-    const [videoRecordSeconds, setVideoRecordSeconds] = useState(0);
     const [recordingVoice, setRecordingVoice] = useState(false);
     const [voicePaused, setVoicePaused] = useState(false);
     const [voiceSeconds, setVoiceSeconds] = useState(0);
@@ -114,11 +100,16 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
     );
 
     const canSend = Boolean(text.trim() || pendingFiles.length > 0);
-    const busy = cameraLoading || recordingVoice || recordingVideo;
+    const busy = cameraOpen || recordingVoice;
 
     useImperativeHandle(ref, () => ({
       focusInput: () => inputRef.current?.focus(),
     }));
+
+    const sendFilesWithRecent = async (files: File[]) => {
+      files.forEach(pushRecentMedia);
+      await onSendFiles(files);
+    };
 
     const clearVoiceTimers = () => {
       if (voiceTickRef.current != null) window.clearInterval(voiceTickRef.current);
@@ -198,84 +189,11 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
       }
     };
 
-    const clearVideoTimers = () => {
-      if (videoRecordTickRef.current != null) window.clearInterval(videoRecordTickRef.current);
-      if (videoRecordTimeoutRef.current != null) window.clearTimeout(videoRecordTimeoutRef.current);
-      videoRecordTickRef.current = null;
-      videoRecordTimeoutRef.current = null;
-    };
-
-    const closeCamera = () => {
-      clearVideoTimers();
-      mediaRecorderRef.current = null;
-      stopMediaStream(mediaStreamRef.current);
-      mediaStreamRef.current = null;
-      setRecordingVideo(false);
-      setVideoRecordSeconds(0);
-      setCameraOpen(false);
-      setCameraLoading(false);
-      setCameraError('');
-      videoChunksRef.current = [];
-    };
-
     useEffect(() => () => {
       clearVoiceTimers();
-      clearVideoTimers();
       stopVoiceWaveform();
       stopMediaStream(mediaStreamRef.current);
     }, []);
-
-    useEffect(() => {
-      if (!attachMenuOpen) return undefined;
-      const onDocClick = (e: MouseEvent) => {
-        if (!attachMenuRef.current?.contains(e.target as Node)) {
-          setAttachMenuOpen(false);
-        }
-      };
-      document.addEventListener('mousedown', onDocClick);
-      return () => document.removeEventListener('mousedown', onDocClick);
-    }, [attachMenuOpen]);
-
-    useEffect(() => {
-      if (!cameraOpen) return undefined;
-
-      let cancelled = false;
-      setCameraLoading(true);
-      setCameraError('');
-
-      const constraints: MediaStreamConstraints = {
-        video: { facingMode: { ideal: 'environment' } },
-        audio: cameraMode === 'video',
-      };
-
-      void navigator.mediaDevices.getUserMedia(constraints)
-        .then(stream => {
-          if (cancelled) {
-            stopMediaStream(stream);
-            return;
-          }
-          mediaStreamRef.current = stream;
-          const video = cameraVideoRef.current;
-          if (video) {
-            video.srcObject = stream;
-            video.muted = true;
-            void video.play().catch(() => undefined);
-          }
-          setCameraLoading(false);
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setCameraError('Could not open camera. Check permissions and try again.');
-            setCameraLoading(false);
-          }
-        });
-
-      return () => {
-        cancelled = true;
-        stopMediaStream(mediaStreamRef.current);
-        mediaStreamRef.current = null;
-      };
-    }, [cameraOpen, cameraMode]);
 
     const addPickedFiles = (picked: FileList | null) => {
       if (!picked?.length) return;
@@ -287,6 +205,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
           window.alert(err);
           continue;
         }
+        pushRecentMedia(file);
         next.push(createPendingSupportFile(file));
       }
       onPendingFilesChange(next);
@@ -294,94 +213,8 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
 
     const removePendingFile = (id: string) => {
       const target = pendingFiles.find(f => f.id === id);
-      if (target) URL.revokeObjectURL(target.previewUrl);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
       onPendingFilesChange(pendingFiles.filter(f => f.id !== id));
-    };
-
-    const openCamera = (mode: 'photo' | 'video') => {
-      setAttachMenuOpen(false);
-      setCameraMode(mode);
-      setCameraOpen(true);
-    };
-
-    const capturePhoto = async () => {
-      const video = cameraVideoRef.current;
-      if (!video) return;
-      setCameraLoading(true);
-      try {
-        const file = await capturePhotoFromVideo(video);
-        closeCamera();
-        await onSendFiles([file]);
-      } catch (err) {
-        setCameraError(err instanceof Error ? err.message : 'Could not capture photo.');
-        setCameraLoading(false);
-      }
-    };
-
-    const stopVideoRecording = async (send: boolean) => {
-      const recorder = mediaRecorderRef.current;
-      if (!recorder || recorder.state === 'inactive') return;
-
-      try {
-        const durationMs = Math.max(videoRecordSeconds, 1) * 1000;
-        const blob = await finalizeMediaRecorder(recorder, videoChunksRef.current);
-        clearVideoTimers();
-        videoChunksRef.current = [];
-        mediaRecorderRef.current = null;
-        setRecordingVideo(false);
-        setVideoRecordSeconds(0);
-
-        if (send) {
-          const mimeType = blob.type || recorder.mimeType || 'video/webm';
-          const rawFile = createVideoFileFromBlob(blob, mimeType);
-          const file = await prepareVideoFileForUpload(rawFile, durationMs);
-          closeCamera();
-          onSendFiles([file]);
-          return;
-        }
-
-        closeCamera();
-      } catch (err) {
-        clearVideoTimers();
-        videoChunksRef.current = [];
-        mediaRecorderRef.current = null;
-        setRecordingVideo(false);
-        setVideoRecordSeconds(0);
-        setCameraError(err instanceof Error ? err.message : 'Could not save video.');
-        closeCamera();
-      }
-    };
-
-    const startVideoRecording = () => {
-      const stream = mediaStreamRef.current;
-      if (!stream || recordingVideo) return;
-
-      let recorder: MediaRecorder;
-      try {
-        recorder = createVideoMediaRecorder(stream);
-      } catch (err) {
-        setCameraError(err instanceof Error ? err.message : 'Video recording is not supported.');
-        return;
-      }
-
-      videoChunksRef.current = [];
-      recorder.ondataavailable = event => {
-        if (event.data.size > 0) videoChunksRef.current.push(event.data);
-      };
-      mediaRecorderRef.current = recorder;
-      const timeslice = recommendedRecorderTimeslice(recorder.mimeType);
-      if (timeslice) recorder.start(timeslice);
-      else recorder.start();
-      setRecordingVideo(true);
-      setVideoRecordSeconds(0);
-
-      videoRecordTickRef.current = window.setInterval(() => {
-        setVideoRecordSeconds(prev => prev + 1);
-      }, 1000);
-
-      videoRecordTimeoutRef.current = window.setTimeout(() => {
-        void stopVideoRecording(true);
-      }, MAX_VOICE_SECONDS * 1000);
     };
 
     const startVoiceRecording = async () => {
@@ -489,7 +322,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
             type: blob.type || 'audio/webm',
             lastModified: Date.now(),
           });
-          await onSendFiles([file]);
+          await sendFilesWithRecent([file]);
         }
       };
 
@@ -518,11 +351,15 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
                     <span className="support-attachment-picker__audio-thumb" aria-hidden>
                       <Mic size={18} />
                     </span>
+                  ) : item.kind === 'document' ? (
+                    <span className="support-attachment-picker__audio-thumb" aria-hidden>
+                      <Paperclip size={18} />
+                    </span>
                   ) : (
                     <img src={item.previewUrl} alt="" className="support-attachment-picker__media" />
                   )}
                   <span className="support-attachment-picker__badge" aria-hidden>
-                    {item.kind === 'video' ? <Film size={12} /> : item.kind === 'audio' ? <Mic size={12} /> : <ImageIcon size={12} />}
+                    {item.kind === 'video' ? <Film size={12} /> : item.kind === 'audio' ? <Mic size={12} /> : item.kind === 'document' ? <Paperclip size={12} /> : <ImageIcon size={12} />}
                   </span>
                   <button
                     type="button"
@@ -591,7 +428,7 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
                 <Smile size={22} />
               </button>
 
-              <div className="support-chat__pill" ref={attachMenuRef}>
+              <div className="support-chat__pill">
                 <textarea
                   ref={inputRef}
                   className="support-chat__input"
@@ -611,9 +448,9 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
                     type="button"
                     className="support-chat__pill-btn"
                     aria-label="Attach"
-                    aria-expanded={attachMenuOpen}
+                    aria-expanded={attachSheetOpen}
                     disabled={busy}
-                    onClick={() => setAttachMenuOpen(open => !open)}
+                    onClick={() => setAttachSheetOpen(true)}
                   >
                     <Paperclip size={20} />
                   </button>
@@ -622,35 +459,11 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
                     className="support-chat__pill-btn"
                     aria-label="Camera"
                     disabled={busy}
-                    onClick={() => openCamera('photo')}
+                    onClick={() => setCameraOpen(true)}
                   >
                     <Camera size={20} />
                   </button>
                 </div>
-
-                {attachMenuOpen && (
-                  <div className="support-chat__attach-menu" role="menu">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setAttachMenuOpen(false);
-                        galleryRef.current?.click();
-                      }}
-                    >
-                      <ImageIcon size={18} />
-                      Gallery
-                    </button>
-                    <button type="button" role="menuitem" onClick={() => openCamera('photo')}>
-                      <Camera size={18} />
-                      Camera
-                    </button>
-                    <button type="button" role="menuitem" onClick={() => openCamera('video')}>
-                      <Film size={18} />
-                      Video
-                    </button>
-                  </div>
-                )}
               </div>
 
               {canSend ? (
@@ -689,70 +502,19 @@ export const SupportChatComposer = forwardRef<SupportChatComposerHandle, Support
           }}
         />
 
+        <SupportChatAttachSheet
+          open={attachSheetOpen}
+          onClose={() => setAttachSheetOpen(false)}
+          onSendFiles={sendFilesWithRecent}
+          onPickGallery={() => galleryRef.current?.click()}
+        />
+
         {cameraOpen && (
-          <div className="support-chat__camera" role="dialog" aria-label="Camera">
-            <div className="support-chat__camera-body">
-              {cameraError ? (
-                <p className="support-chat__camera-error">{cameraError}</p>
-              ) : (
-                <>
-                  <video
-                    ref={cameraVideoRef}
-                    className="support-chat__camera-preview"
-                    muted
-                    playsInline
-                    autoPlay
-                  />
-                  {recordingVideo && (
-                    <span className="support-chat__camera-rec-badge">
-                      <Circle size={10} fill="currentColor" />
-                      {formatRecordTime(videoRecordSeconds)}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="support-chat__camera-toolbar">
-              <button type="button" className="support-chat__camera-close" onClick={closeCamera}>
-                <X size={22} />
-              </button>
-
-              {cameraMode === 'photo' ? (
-                <button
-                  type="button"
-                  className="support-chat__camera-shutter"
-                  disabled={cameraLoading || Boolean(cameraError)}
-                  aria-label="Take photo"
-                  onClick={() => void capturePhoto()}
-                />
-              ) : recordingVideo ? (
-                <button
-                  type="button"
-                  className="support-chat__camera-shutter support-chat__camera-shutter--stop"
-                  aria-label="Stop recording"
-                  onClick={() => void stopVideoRecording(true)}
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="support-chat__camera-shutter support-chat__camera-shutter--record"
-                  disabled={cameraLoading || Boolean(cameraError)}
-                  aria-label="Start recording"
-                  onClick={startVideoRecording}
-                />
-              )}
-
-              <button
-                type="button"
-                className="support-chat__camera-mode"
-                disabled={recordingVideo}
-                onClick={() => setCameraMode(mode => (mode === 'photo' ? 'video' : 'photo'))}
-              >
-                {cameraMode === 'photo' ? 'Video' : 'Photo'}
-              </button>
-            </div>
-          </div>
+          <SupportChatCamera
+            onClose={() => setCameraOpen(false)}
+            onSendFiles={sendFilesWithRecent}
+            onPickGallery={() => galleryRef.current?.click()}
+          />
         )}
       </>
     );

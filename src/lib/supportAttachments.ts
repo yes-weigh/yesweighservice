@@ -48,9 +48,29 @@ export function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(file.name);
 }
 
+const DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+  'application/x-zip-compressed',
+]);
+
+export function isDocumentFile(file: File): boolean {
+  const type = file.type.split(';')[0].trim().toLowerCase();
+  if (DOCUMENT_MIME_TYPES.has(type)) return true;
+  return /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip)$/i.test(file.name);
+}
+
 export function validateSupportFile(file: File): string | null {
-  if (!isImageFile(file) && !isVideoFile(file) && !isAudioFile(file)) {
-    return `${file.name}: only images, videos, and voice notes are allowed.`;
+  if (!isImageFile(file) && !isVideoFile(file) && !isAudioFile(file) && !isDocumentFile(file)) {
+    return `${file.name}: only images, videos, voice notes, and documents are allowed.`;
   }
   if (isVideoFile(file) && file.size > MAX_VIDEO_BYTES) {
     return `${file.name}: video must be under 50 MB.`;
@@ -60,6 +80,9 @@ export function validateSupportFile(file: File): string | null {
   }
   if (isImageFile(file) && file.size > 15 * 1024 * 1024) {
     return `${file.name}: image must be under 15 MB.`;
+  }
+  if (isDocumentFile(file) && file.size > MAX_SERVER_UPLOAD_BYTES) {
+    return `${file.name}: document must be under ${MAX_SERVER_UPLOAD_BYTES / (1024 * 1024)} MB.`;
   }
   return null;
 }
@@ -72,11 +95,13 @@ export function createPendingSupportFile(
     ? 'video'
     : isAudioFile(file)
       ? 'audio'
-      : 'image';
+      : isDocumentFile(file)
+        ? 'document'
+        : 'image';
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     file,
-    previewUrl: URL.createObjectURL(file),
+    previewUrl: isDocumentFile(file) ? '' : URL.createObjectURL(file),
     kind,
     gpsLabel: options?.gpsLabel ?? null,
     photoSlot: options?.photoSlot ?? null,
@@ -682,7 +707,13 @@ export async function uploadSupportAttachments(
 
     uploads.push({
       id: uploaded.attachmentId,
-      kind: isVideoFile(file) ? 'video' : isAudioFile(file) ? 'audio' : 'image',
+      kind: isVideoFile(file)
+        ? 'video'
+        : isAudioFile(file)
+          ? 'audio'
+          : isDocumentFile(file)
+            ? 'document'
+            : 'image',
       url: uploaded.url,
       storagePath: uploaded.storagePath,
       fileName: file.name,
