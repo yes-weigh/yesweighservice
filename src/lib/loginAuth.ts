@@ -12,6 +12,7 @@ export const AUTH_EMAIL_DOMAIN = 'yesweigh.auth';
 
 export const AADHAR_REGEX = /^\d{12}$/;
 export const PHONE_REGEX = /^\d{10}$/;
+export const USERNAME_REGEX = /^[a-z0-9][a-z0-9.-]*[a-z0-9]$|^[a-z0-9]$/;
 
 export interface ParsedLoginId {
   type: LoginIdType;
@@ -46,7 +47,16 @@ export function isValidPhone(phone: string): boolean {
   return PHONE_REGEX.test(normalizePhone(phone));
 }
 
-/** Parse user-entered login ID (email, 10-digit phone, or 12-digit Aadhaar). */
+export function normalizeUsername(input: string): string {
+  return input.trim().toLowerCase();
+}
+
+export function isValidUsername(username: string): boolean {
+  const value = normalizeUsername(username);
+  return value.length >= 2 && value.length <= 32 && USERNAME_REGEX.test(value);
+}
+
+/** Parse user-entered login ID (email, phone, Aadhaar, or short username). */
 export function parseLoginId(input: string): ParsedLoginId | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
@@ -58,14 +68,22 @@ export function parseLoginId(input: string): ParsedLoginId | null {
   }
 
   const digits = normalizeDigits(trimmed);
-  if (digits.length === 12) return { type: 'aadhar', value: digits };
-  if (digits.length === 10) return { type: 'phone', value: digits };
+  if (digits.length === 12 && digits === trimmed.replace(/\s/g, '')) {
+    return { type: 'aadhar', value: digits };
+  }
+  if (digits.length === 10 && digits === trimmed.replace(/\s/g, '')) {
+    return { type: 'phone', value: digits };
+  }
+
+  const username = normalizeUsername(trimmed);
+  if (isValidUsername(username)) return { type: 'username', value: username };
   return null;
 }
 
 export function authEmailForLoginId(type: LoginIdType, value: string): string {
   if (type === 'email') return value;
   if (type === 'phone') return `p${value}@${AUTH_EMAIL_DOMAIN}`;
+  if (type === 'username') return `u${value}@${AUTH_EMAIL_DOMAIN}`;
   return `${value}@${AUTH_EMAIL_DOMAIN}`;
 }
 
@@ -82,6 +100,7 @@ export function formatLoginIdDisplay(type: LoginIdType, value: string): string {
 export function loginIdTypeLabel(type: LoginIdType): string {
   if (type === 'aadhar') return 'Aadhaar';
   if (type === 'phone') return 'Phone';
+  if (type === 'username') return 'User ID';
   return 'Email';
 }
 

@@ -1,4 +1,4 @@
-export type Role = 'super_admin' | 'staff' | 'dealer' | 'dealer_staff';
+export type Role = 'super_admin' | 'staff' | 'dealer' | 'dealer_staff' | 'warehouse';
 
 export type { StaffDepartment, StaffPermission, StaffAccessProfile, StaffAccessMode } from './types/staff-access';
 export {
@@ -24,19 +24,20 @@ export {
   DEALER_TIER_DEFAULT_PERMISSIONS,
 } from './types/dealer-access';
 
-export type LoginIdType = 'aadhar' | 'phone' | 'email';
+export type LoginIdType = 'aadhar' | 'phone' | 'email' | 'username';
 
-export const ROLES: Role[] = ['super_admin', 'staff', 'dealer', 'dealer_staff'];
+export const ROLES: Role[] = ['super_admin', 'staff', 'dealer', 'dealer_staff', 'warehouse'];
 
 export const ROLE_LABELS: Record<Role, string> = {
   super_admin: 'Super Admin',
   staff: 'Staff',
   dealer: 'Dealer',
   dealer_staff: 'Dealer Staff',
+  warehouse: 'Warehouse',
 };
 
 /** Lower index = higher authority */
-export const ROLE_ORDER: Role[] = ['super_admin', 'staff', 'dealer', 'dealer_staff'];
+export const ROLE_ORDER: Role[] = ['super_admin', 'staff', 'warehouse', 'dealer', 'dealer_staff'];
 
 export interface User {
   uid: string;
@@ -146,6 +147,8 @@ export function homePathForRole(role: Role): string {
       return '/dealer';
     case 'dealer_staff':
       return '/dealer-staff';
+    case 'warehouse':
+      return '/warehouse';
   }
 }
 
@@ -153,7 +156,7 @@ export function homePathForRole(role: Role): string {
 export function manageableRoles(actor: Role): Role[] {
   switch (actor) {
     case 'super_admin':
-      return ['super_admin', 'staff', 'dealer', 'dealer_staff'];
+      return ['super_admin', 'staff', 'dealer', 'dealer_staff', 'warehouse'];
     case 'staff':
       return ['dealer', 'dealer_staff'];
     case 'dealer':

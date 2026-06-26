@@ -26,8 +26,16 @@ service cloud.firestore {
       return signedIn() && userExists() && role() == 'staff';
     }
 
+    function isWarehouse() {
+      return signedIn() && userExists() && role() == 'warehouse';
+    }
+
     function isOpsUser() {
       return isSuperAdmin() || isStaff();
+    }
+
+    function canAccessYesStore() {
+      return isWarehouse() || isSuperAdmin();
     }
 
     function isDealer() {
@@ -60,7 +68,7 @@ service cloud.firestore {
     }
 
     function validLoginIdType(t) {
-      return t == 'aadhar' || t == 'phone' || t == 'email';
+      return t == 'aadhar' || t == 'phone' || t == 'email' || t == 'username';
     }
 
     function validLoginId(data) {
@@ -71,6 +79,10 @@ service cloud.firestore {
           (data.loginIdType == 'aadhar' && data.loginId.size() == 12)
           || (data.loginIdType == 'phone' && data.loginId.size() == 10)
           || (data.loginIdType == 'email' && data.loginId.matches('^[^@]+@[^@]+\\.[^@]+$'))
+          || (data.loginIdType == 'username'
+              && data.loginId.size() >= 2
+              && data.loginId.size() <= 32
+              && data.loginId.matches('^[a-z0-9][a-z0-9.-]*[a-z0-9]$|^[a-z0-9]$'))
         );
     }
 
@@ -292,6 +304,11 @@ service cloud.firestore {
             && validAadhar(request.resource.data)
             && validStaffUserWrite(request.resource.data))
         || (isActiveUser()
+            && staffHasHrManage()
+            && request.resource.data.role == 'warehouse'
+            && request.resource.data.active == true
+            && validAadhar(request.resource.data))
+        || (isActiveUser()
             && isStaff()
             && staffCanManageRole(request.resource.data.role)
             && request.resource.data.active == true
@@ -312,6 +329,10 @@ service cloud.firestore {
             && request.resource.data.role == 'staff'
             && loginIdUnchanged()
             && validStaffUserWrite(request.resource.data))
+        || (staffHasHrManage()
+            && resource.data.role == 'warehouse'
+            && request.resource.data.role == 'warehouse'
+            && loginIdUnchanged())
         || (isStaff()
             && staffCanManageRole(resource.data.role)
             && staffCanManageRole(request.resource.data.role)
@@ -540,6 +561,22 @@ service cloud.firestore {
         && data.createdAt is string
         && data.text is string
         && data.attachments is list;
+    }
+
+    match /yesStoreRacks/{rackId} {
+      allow read, write: if canAccessYesStore();
+    }
+
+    match /yesStoreRows/{rowId} {
+      allow read, write: if canAccessYesStore();
+    }
+
+    match /yesStoreBins/{binId} {
+      allow read, write: if canAccessYesStore();
+    }
+
+    match /yesStoreItems/{itemId} {
+      allow read, write: if canAccessYesStore();
     }
   }
 }

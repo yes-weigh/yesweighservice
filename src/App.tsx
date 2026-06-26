@@ -19,6 +19,7 @@ import { HrSuperAdminsPage } from './pages/hr/HrSuperAdminsPage';
 import { HrRolesPage } from './pages/hr/HrRolesPage';
 import { HrWorkReportPage } from './pages/hr/HrWorkReportPage';
 import { HrHolidayCalendarPage } from './pages/hr/HrHolidayCalendarPage';
+import { HrWarehousePage } from './pages/hr/HrWarehousePage';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
 import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
 import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
@@ -38,6 +39,11 @@ import {
   LegacySpareDetailRedirect,
   LegacySpareMapRedirect,
 } from './components/catalog/LegacyCatalogRedirects';
+import { WarehouseHomePage } from './pages/warehouse/WarehouseHomePage';
+import { WarehouseRackPage } from './pages/warehouse/WarehouseRackPage';
+import { WarehouseRowPage } from './pages/warehouse/WarehouseRowPage';
+import { WarehouseBinPage } from './pages/warehouse/WarehouseBinPage';
+import { WarehouseItemPage } from './pages/warehouse/WarehouseItemPage';
 
 const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }) => {
   const { pathname } = useLocation();
@@ -149,6 +155,7 @@ const App: React.FC = () => (
                 <Route path="holidays" element={<HrHolidayCalendarPage />} />
                 <Route path="super-admins" element={<HrSuperAdminsPage basePath="/super-admin" />} />
                 <Route path="roles" element={<HrRolesPage />} />
+                <Route path="warehouse" element={<HrWarehousePage basePath="/super-admin" />} />
                 <Route path="me" element={<HrMyProfilePage />} />
               </Route>
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
@@ -180,6 +187,7 @@ const App: React.FC = () => (
                 <Route path="staff/:uid/edit" element={<HrStaffFormPage basePath="/staff" />} />
                 <Route path="report" element={<HrWorkReportPage basePath="/staff" />} />
                 <Route path="holidays" element={<HrHolidayCalendarPage />} />
+                <Route path="warehouse" element={<HrWarehousePage basePath="/staff" />} />
                 <Route path="me" element={<HrMyProfilePage />} />
               </Route>
               <Route path="profile" element={<ProfilePage />} />
@@ -189,6 +197,17 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['dealer']} />}>
             <Route path="/dealer" element={<Layout />}>
               {dealerRoutes}
+            </Route>
+          </Route>
+
+          <Route element={<ProtectedRoute allowedRoles={['warehouse']} />}>
+            <Route path="/warehouse" element={<Layout />}>
+              <Route index element={<WarehouseHomePage />} />
+              <Route path="rack/:rackId" element={<WarehouseRackPage />} />
+              <Route path="rack/:rackId/row/:rowNum" element={<WarehouseRowPage />} />
+              <Route path="rack/:rackId/row/:rowNum/bin/:binNum" element={<WarehouseBinPage />} />
+              <Route path="rack/:rackId/row/:rowNum/bin/:binNum/item/:itemId" element={<WarehouseItemPage />} />
+              <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>
 

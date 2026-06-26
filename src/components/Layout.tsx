@@ -32,6 +32,7 @@ import {
   ListTodo,
   Truck,
   Gift,
+  Warehouse,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
@@ -246,6 +247,10 @@ const LayoutShell: React.FC = () => {
         return [
           { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           ...portalNavItems('/dealer-staff', cartBadgeCount, 'dealer_staff'),
+        ];
+      case 'warehouse':
+        return [
+          { path: '/warehouse', icon: <Warehouse size={20} />, label: 'YesStore' },
         ];
       default:
         return [];

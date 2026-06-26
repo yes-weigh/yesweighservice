@@ -26,7 +26,7 @@ export const Login: React.FC = () => {
     e.preventDefault();
     setError('');
     if (!parseLoginId(loginId)) {
-      setError('Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.');
+      setError('Enter a valid email, phone, Aadhaar, or User ID.');
       return;
     }
     setSubmitting(true);
@@ -70,7 +70,7 @@ export const Login: React.FC = () => {
                 id="login-id"
                 type="text"
                 className="input-field input-with-icon"
-                placeholder="Email, phone, or Aadhaar"
+                placeholder="Email, phone, Aadhaar, or User ID"
                 value={loginId}
                 onChange={e => setLoginId(e.target.value)}
                 required

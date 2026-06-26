@@ -33,13 +33,14 @@ export function contactFieldsForLogin(parsed: ParsedLoginId): {
 } {
   if (parsed.type === 'aadhar') return { aadhar: parsed.value };
   if (parsed.type === 'phone') return { phone: parsed.value };
+  if (parsed.type === 'username') return {};
   return { email: parsed.value };
 }
 
 export function loginIdTypeFromValue(value: string): LoginIdType | null {
   if (value.includes('@')) return 'email';
   const digits = value.replace(/\D/g, '');
-  if (digits.length === 12) return 'aadhar';
-  if (digits.length === 10) return 'phone';
-  return null;
+  if (digits.length === 12 && digits === value.replace(/\s/g, '')) return 'aadhar';
+  if (digits.length === 10 && digits === value.replace(/\s/g, '')) return 'phone';
+  return 'username';
 }

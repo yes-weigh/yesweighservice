@@ -1,0 +1,307 @@
+# YesStore — Product Specification for Integration
+
+**Document purpose:** Describe what YesStore does so it can be incorporated into the master project.  
+**Audience:** Product, design, and frontend/backend teams planning integration.  
+**Scope:** Application behaviour, data model, screens, and user flows only — no hosting, deployment, or infrastructure detail.
+
+---
+
+## 1. Overview
+
+YesStore is a **warehouse location photo manager**. It lets authorised staff browse a fixed physical layout (racks → rows → bins → items), attach **one or more photos** at every level, and record **multiple stock items per bin**.
+
+Primary use case: walk the warehouse with a phone, open a bin, photograph the bin and each item inside, and later look up any location visually.
+
+The app is designed for **mobile use** and can be **installed on the home screen** (PWA) for a full-screen, app-like experience with direct camera access.
+
+---
+
+## 2. Users & Access
+
+| Aspect | Behaviour |
+|--------|-----------|
+| **Who can use it** | Registered users only; unauthenticated visitors see a login screen |
+| **Login field** | User enters a **User ID** (e.g. `admin`, `warehouse1`) — not a full email address |
+| **Password** | Standard password (minimum 6 characters) |
+| **Registration** | New users can self-register with User ID + password |
+| **Session** | Stays signed in until explicit sign-out |
+| **Display** | Signed-in User ID shown in the header |
+
+**Integration note:** The master project may map User ID to its own identity system; the UX expectation is a short, memorable login name rather than an email field.
+
+---
+
+## 3. Physical Location Model
+
+Storage is organised in a **four-level hierarchy**:
+
+```
+Rack  →  Row  →  Bin  →  Item(s)
+```
+
+### 3.1 Rack ID
+
+- Single letter, **lowercase**
+- Valid letters: **a–z except i and o** (24 racks total)
+- Rationale: avoid confusion between **O** and **0**, and **I** and **1**
+
+| Valid | Invalid |
+|-------|---------|
+| a, b, c, d, e, f, g, h, j, k, l, m, n, p, q, r, s, t, u, v, w, x, y, z | i, o, digits, multi-character |
+
+### 3.2 Row number
+
+- Integer **1 through 7** (7 rows per rack)
+
+### 3.3 Bin number
+
+- Integer **1 through 9** (9 bins per row)
+
+### 3.4 Item
+
+- **One or more items** may exist in the same bin
+- Each item has:
+  - **Name** (required text)
+  - **Notes** (optional text)
+  - **One or more photos** (required — see §5)
+
+### 3.5 Address format
+
+A full location is written as:
+
+**Rack {letter} · Row {1–7} · Bin {1–9}**
+
+Example: `Rack A · Row 3 · Bin 5`
+
+---
+
+## 4. Screens & Navigation
+
+### 4.1 Screen map
+
+```
+Login
+  └── Home (Rack grid)
+        └── Rack detail
+              └── Row detail
+                    └── Bin detail
+                          └── Item detail
+```
+
+Breadcrumb navigation on every inner screen allows jumping back to any ancestor level.
+
+### 4.2 Login screen
+
+- Branding: **YesStore**
+- Fields: User ID, Password
+- Actions: Sign in, Register (toggle)
+- User ID input: letters, numbers, dots, dashes only; auto-lowercased
+
+### 4.3 Home — Rack grid
+
+- Grid of all **24 valid rack letters**
+- Each card shows:
+  - Rack letter (large), or thumbnail of first rack photo if any exist
+  - Photo count
+- Tap a rack → Rack detail
+
+### 4.4 Rack detail
+
+- Header: rack letter, subtitle “Rows 1–7”
+- **Rack photos** section (upload / view / delete)
+- Grid of **rows 1–7** (same card pattern: number or thumbnail + photo count)
+- Tap a row → Row detail
+
+### 4.5 Row detail
+
+- Header: `Rack X · Row N`, subtitle “Bins 1–9”
+- **Row photos** section
+- Grid of **bins 1–9**
+- Tap a bin → Bin detail
+
+### 4.6 Bin detail
+
+- Header: full location `Rack X · Row N · Bin N`
+- **Bin photos** section
+- **Items** section:
+  - Form to add item: name, notes, **required photos** (see §5.2)
+  - List of existing items with thumbnails, photo count, delete action
+  - Items without photos are highlighted with a warning
+- Tap an item → Item detail
+
+### 4.7 Item detail
+
+- Header: item name, notes (if any), location tag
+- **Item photos** section (required — at least one photo expected per item)
+
+---
+
+## 5. Photos
+
+### 5.1 Where photos are supported
+
+| Level | Multiple photos | Required |
+|-------|-----------------|----------|
+| Rack | Yes | No |
+| Row | Yes | No |
+| Bin | Yes | No |
+| Item | Yes | **Yes** |
+
+### 5.2 Item photo rules
+
+- **New items:** User must attach **at least one photo** before the item can be saved
+- **Existing items:** UI warns and highlights items with zero photos; primary action becomes “Add photos”
+- After creating an item with photos, user is taken to the item detail screen
+
+### 5.3 How users add photos
+
+Two explicit actions everywhere photos are supported:
+
+| Button | Behaviour |
+|--------|-----------|
+| **Camera** | Opens device camera (rear camera preferred on phones) |
+| **Gallery** | Opens photo library / file picker; **multiple selection** supported |
+
+Additional on desktop:
+
+- Drag and drop images onto the drop zone
+
+### 5.4 Photo viewing & management
+
+- Thumbnail grid for all photos at a level
+- Tap zoom icon → full-screen lightbox
+- Delete individual photos (with confirmation implied by action)
+- Upload progress / loading state while images upload
+- First photo at a level used as **card thumbnail** on parent grids/lists
+
+### 5.5 Supported file types
+
+Standard image formats: JPEG, PNG, GIF, WebP, HEIC/HEIF (where the device provides them).
+
+---
+
+## 6. Data Entities (Logical Model)
+
+For integration into the master project’s database/API:
+
+### Rack
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | string | Single letter (valid rack letter) |
+| `photos` | Photo[] | Optional |
+| `createdAt` | datetime | |
+| `updatedAt` | datetime | |
+
+### Row
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | string | Row number as string (`"1"` … `"7"`) |
+| `number` | integer | 1–7 |
+| `rackId` | string | Parent rack |
+| `photos` | Photo[] | Optional |
+| `createdAt` | datetime | |
+| `updatedAt` | datetime | |
+
+### Bin
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | string | Bin number as string (`"1"` … `"9"`) |
+| `number` | integer | 1–9 |
+| `rackId` | string | Parent rack |
+| `rowId` | string | Parent row |
+| `photos` | Photo[] | Optional |
+| `createdAt` | datetime | |
+| `updatedAt` | datetime | |
+
+### Item
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | string | Unique identifier |
+| `name` | string | Required |
+| `notes` | string | Optional |
+| `rackId`, `rowId`, `binId` | string | Parent location |
+| `photos` | Photo[] | **Required (min 1)** |
+| `createdAt` | datetime | |
+| `updatedAt` | datetime | |
+
+### Photo
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | string | Unique identifier |
+| `url` | string | Public/download URL for display |
+| `fileName` | string | Original file name |
+| `uploadedAt` | datetime | |
+
+**Lazy creation:** Rack, row, and bin records are created on first visit or first photo upload — the UI always shows the full grid of valid racks/rows/bins even if no data exists yet.
+
+---
+
+## 7. UI / UX Characteristics
+
+| Topic | Detail |
+|-------|--------|
+| **Theme** | Dark industrial UI; blue accent |
+| **Layout** | Single-column, max-width content; touch-friendly buttons (min ~40px) |
+| **Grids** | Responsive auto-fill grids for racks, rows, bins |
+| **Mobile** | Camera + Gallery buttons stack full-width on narrow screens |
+| **PWA** | Installable; standalone display; portrait orientation preferred |
+| **Offline** | Not a core requirement today; photos require connectivity to upload |
+
+---
+
+## 8. Validation & Edge Cases
+
+- Invalid rack letter, row, or bin in URL → redirect to home
+- Row must be 1–7; bin must be 1–9
+- Item name required to create item
+- Item photos required to create item
+- Deleting an item removes its photos
+- Deleting a photo removes it from that level only (not from children/parents)
+
+---
+
+## 9. Suggested Integration Points for Master Project
+
+When merging into the larger application, these are the natural boundaries:
+
+1. **Auth module** — Replace or wire login/register to master project’s user system; preserve “User ID” UX if desired.
+2. **Location service** — Expose rack/row/bin/item CRUD + photo attach/detach APIs matching §6.
+3. **Media service** — Image upload, storage URLs, and deletion; master project may use its own CDN/blob store.
+4. **Navigation** — Routes under a parent path, e.g. `/inventory/warehouse/...` or embedded as a module.
+5. **Reusable UI components** (from this codebase):
+   - Location breadcrumb
+   - Photo gallery (camera + gallery + grid + lightbox)
+   - Pending image picker (pre-upload selection for new items)
+   - Rack / row / bin card grids
+6. **Business rules to preserve:**
+   - Rack letter alphabet (no i, o)
+   - Row 1–7, bin 1–9
+   - Minimum one photo per item
+
+---
+
+## 10. Out of Scope (Handled Elsewhere)
+
+The following are **not** part of this product spec and are left to the master project’s platform choices:
+
+- Database technology and schema migration
+- File storage provider and security rules
+- Hosting, CI/CD, and environments
+- Billing, analytics, and admin consoles
+- Search, barcode scanning, printing, or ERP integration
+- Multi-warehouse or multi-site support (current model assumes one fixed layout)
+
+---
+
+## 11. Summary
+
+YesStore is a **mobile-first warehouse visual inventory tool** structured as **24 racks × 7 rows × 9 bins**, with **photographed items** inside each bin. Users sign in with a short User ID, drill down by location, and attach photos at rack, row, bin, and item levels — with **mandatory item photos**. The master project should adopt this hierarchy, validation rules, screen flow, and photo UX when incorporating the module.
+
+---
+
+*Document version: 1.0 · Module: YesStore · Location addressing: Rack (a–z, no i/o) · Row (1–7) · Bin (1–9)*

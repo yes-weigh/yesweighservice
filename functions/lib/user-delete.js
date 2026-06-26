@@ -2,7 +2,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
-const DELETABLE_ROLES = new Set(['super_admin', 'dealer', 'staff', 'dealer_staff']);
+const DELETABLE_ROLES = new Set(['super_admin', 'dealer', 'staff', 'dealer_staff', 'warehouse']);
 
 function normalizeRole(role) {
   if (role === 'admin') return 'super_admin';
@@ -14,6 +14,7 @@ function normalizeRole(role) {
 function loginIndexDocId(type, value) {
   if (type === 'email') return `e_${String(value).trim().toLowerCase()}`;
   if (type === 'phone') return `p_${value}`;
+  if (type === 'username') return `u_${value}`;
   return `a_${value}`;
 }
 

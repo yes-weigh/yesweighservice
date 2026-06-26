@@ -26,6 +26,10 @@ service firebase.storage {
       return signedIn() && userExists() && role() == 'staff';
     }
 
+    function isWarehouse() {
+      return signedIn() && userExists() && role() == 'warehouse' && userDoc().active != false;
+    }
+
     function isOpsUser() {
       return isSuperAdmin() || isStaff();
     }
@@ -146,6 +150,21 @@ service firebase.storage {
         isSuperAdmin()
         || (userDoc().active != false && staffHasHrManage())
       );
+    }
+
+    function validYesStoreImage() {
+      return request.resource.size < 12 * 1024 * 1024
+        && (
+          request.resource.contentType == null
+          || request.resource.contentType == ''
+          || request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/octet-stream'
+        );
+    }
+
+    match /yesStore/{allPaths=**} {
+      allow read: if isWarehouse() || isSuperAdmin();
+      allow write: if (isWarehouse() || isSuperAdmin()) && validYesStoreImage();
     }
   }
 }

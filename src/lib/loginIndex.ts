@@ -13,6 +13,7 @@ export type LoginIndexEntry = {
 export function loginIndexDocId(type: LoginIdType, value: string): string {
   if (type === 'email') return `e_${normalizeEmail(value)}`;
   if (type === 'phone') return `p_${value}`;
+  if (type === 'username') return `u_${value}`;
   return `a_${value}`;
 }
 

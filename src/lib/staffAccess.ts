@@ -68,6 +68,10 @@ export function canManageHr(user: User | null | undefined): boolean {
   return hasStaffPermission(user, 'hr.manage');
 }
 
+export function canManageWarehouseUsers(user: User | null | undefined): boolean {
+  return canManageHr(user);
+}
+
 export function canManageStaffRolesInHr(user: User | null | undefined): boolean {
   return user?.role === 'super_admin';
 }

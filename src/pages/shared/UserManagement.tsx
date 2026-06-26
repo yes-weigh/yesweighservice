@@ -13,6 +13,7 @@ import {
 } from '../../lib/userAdmin';
 import type { FirestoreUserDoc, Role, UserRecord } from '../../types';
 import { ROLE_LABELS, canManageRole, normalizeRole, readDealerId } from '../../types';
+import { canManageWarehouseUsers } from '../../lib/staffAccess';
 import {
   formatLoginIdDisplay,
   loginIdTypeLabel,
@@ -44,6 +45,8 @@ type UserManagementProps = {
   /** When set, only list/create users under this dealer (dealer portal). */
   scopedDealerId?: string;
   showDealerPicker?: boolean;
+  /** Warehouse users use short User IDs instead of email/phone/Aadhaar. */
+  preferUsernameLogin?: boolean;
 };
 
 function displayLoginForRecord(record: UserRecord): { label: string; value: string } {
@@ -61,6 +64,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   description,
   scopedDealerId,
   showDealerPicker = false,
+  preferUsernameLogin = false,
 }) => {
   const { user } = useAuth();
   const confirm = useConfirm();
@@ -179,7 +183,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           throw new Error('Password must be at least 6 characters.');
         }
         if (!parseLoginId(form.loginId)) {
-          throw new Error('Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.');
+          throw new Error(
+            preferUsernameLogin
+              ? 'Enter a valid User ID (letters, numbers, dots, dashes).'
+              : 'Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.',
+          );
         }
         await registerUser(db, {
           loginId: form.loginId,
@@ -242,12 +250,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
   const canPermanentlyDelete =
     user?.role === 'super_admin'
-    && (role === 'super_admin' || role === 'dealer' || role === 'staff' || role === 'dealer_staff');
+    && (role === 'super_admin' || role === 'dealer' || role === 'staff' || role === 'dealer_staff' || role === 'warehouse');
 
   const dealerName = (dealerId?: string) =>
     dealers.find(d => d.uid === dealerId)?.displayName ?? '—';
 
-  if (!user || !canManageRole(user.role, role)) {
+  const canManageThisRole = user
+    ? (role === 'warehouse' ? canManageWarehouseUsers(user) : canManageRole(user.role, role))
+    : false;
+
+  if (!user || !canManageThisRole) {
     return (
       <div className="page-content fade-in">
         <div className="panel glass">
@@ -296,13 +308,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     id="user-login-id"
                     type="text"
                     className="input-field"
-                    placeholder="Email, phone, or Aadhaar"
+                    placeholder={preferUsernameLogin ? 'User ID (e.g. warehouse1)' : 'Email, phone, or Aadhaar'}
                     value={form.loginId}
                     onChange={e => setForm(f => ({ ...f, loginId: e.target.value }))}
                     required
                   />
                   <p className="text-muted text-sm">
-                    Email, 10-digit mobile, or 12-digit Aadhaar — used to sign in
+                    {preferUsernameLogin
+                      ? 'Short User ID — letters, numbers, dots, dashes — used to sign in'
+                      : 'Email, 10-digit mobile, or 12-digit Aadhaar — used to sign in'}
                   </p>
                 </div>
               )}
