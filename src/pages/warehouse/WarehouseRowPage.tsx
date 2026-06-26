@@ -13,10 +13,10 @@ const BASE = '/warehouse';
 export const WarehouseRowPage: React.FC = () => {
   const { rackId = '', rowNum = '' } = useParams();
   const navigate = useNavigate();
-  const location = parseRouteLocation(rackId, rowNum);
+  const location = useMemo(() => parseRouteLocation(rackId, rowNum), [rackId, rowNum]);
   const [rowPhotos, setRowPhotos] = useState<YesStorePhoto[]>([]);
   const [binPhotos, setBinPhotos] = useState<Record<string, YesStorePhoto[]>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const rowNumber = location?.rowNumber as RowNumber | undefined;
   const normalizedRackId = location?.rackId ?? '';
@@ -35,10 +35,14 @@ export const WarehouseRowPage: React.FC = () => {
         }),
       );
       setBinPhotos(bins);
+    } catch {
+      setBinPhotos(
+        Object.fromEntries(BIN_NUMBERS.map(n => [String(n), []])),
+      );
     } finally {
       setLoading(false);
     }
-  }, [location]);
+  }, [location?.rackId, location?.rowNumber]);
 
   useEffect(() => {
     if (!location?.rowNumber) {
@@ -88,20 +92,21 @@ export const WarehouseRowPage: React.FC = () => {
         onDeletePhoto={photoApi.onDeletePhoto}
       />
 
-      {loading ? (
-        <div className="panel glass yes-store-page__loading"><div className="loader-ring" /></div>
-      ) : (
-        <section className="panel glass">
-          <h2 className="yes-store-section-title">Bins</h2>
-          <LocationCardGrid
-            items={items}
-            photosById={binPhotos}
-            onSelect={item =>
-              navigate(`${BASE}/rack/${location.rackId}/row/${location.rowNumber}/bin/${item.id}`)
-            }
-          />
-        </section>
-      )}
+      <section className="panel glass">
+        <h2 className="yes-store-section-title">Bins</h2>
+        {loading && (
+          <p className="text-muted text-sm yes-store-grid__status">
+            Refreshing bin photos…
+          </p>
+        )}
+        <LocationCardGrid
+          items={items}
+          photosById={binPhotos}
+          onSelect={item =>
+            navigate(`${BASE}/rack/${location.rackId}/row/${location.rowNumber}/bin/${item.id}`)
+          }
+        />
+      </section>
     </div>
   );
 };

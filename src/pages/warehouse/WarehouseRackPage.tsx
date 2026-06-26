@@ -13,10 +13,10 @@ const BASE = '/warehouse';
 export const WarehouseRackPage: React.FC = () => {
   const { rackId = '' } = useParams();
   const navigate = useNavigate();
-  const location = parseRouteLocation(rackId);
+  const location = useMemo(() => parseRouteLocation(rackId), [rackId]);
   const [rackPhotos, setRackPhotos] = useState<YesStorePhoto[]>([]);
   const [rowPhotos, setRowPhotos] = useState<Record<string, YesStorePhoto[]>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const normalizedRackId = location?.rackId ?? '';
 
@@ -34,10 +34,14 @@ export const WarehouseRackPage: React.FC = () => {
         }),
       );
       setRowPhotos(rows);
+    } catch {
+      setRowPhotos(
+        Object.fromEntries(ROW_NUMBERS.map(n => [String(n), []])),
+      );
     } finally {
       setLoading(false);
     }
-  }, [location]);
+  }, [location?.rackId]);
 
   useEffect(() => {
     if (!location) {
@@ -82,18 +86,19 @@ export const WarehouseRackPage: React.FC = () => {
         onDeletePhoto={photoApi.onDeletePhoto}
       />
 
-      {loading ? (
-        <div className="panel glass yes-store-page__loading"><div className="loader-ring" /></div>
-      ) : (
-        <section className="panel glass">
-          <h2 className="yes-store-section-title">Rows</h2>
-          <LocationCardGrid
-            items={items}
-            photosById={rowPhotos}
-            onSelect={item => navigate(`${BASE}/rack/${location.rackId}/row/${item.id}`)}
-          />
-        </section>
-      )}
+      <section className="panel glass">
+        <h2 className="yes-store-section-title">Rows</h2>
+        {loading && (
+          <p className="text-muted text-sm yes-store-grid__status">
+            Refreshing row photos…
+          </p>
+        )}
+        <LocationCardGrid
+          items={items}
+          photosById={rowPhotos}
+          onSelect={item => navigate(`${BASE}/rack/${location.rackId}/row/${item.id}`)}
+        />
+      </section>
     </div>
   );
 };

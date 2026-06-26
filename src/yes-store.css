@@ -74,6 +74,10 @@
   gap: 0.75rem;
 }
 
+.yes-store-grid__status {
+  margin: 0 0 0.5rem;
+}
+
 .yes-store-card {
   display: flex;
   flex-direction: column;

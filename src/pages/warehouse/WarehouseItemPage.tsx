@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { BinNumber, RowNumber } from '../../types/yes-store';
 import { formatLocationLabel } from '../../types/yes-store';
@@ -13,7 +13,10 @@ const BASE = '/warehouse';
 export const WarehouseItemPage: React.FC = () => {
   const { rackId = '', rowNum = '', binNum = '', itemId = '' } = useParams();
   const navigate = useNavigate();
-  const location = parseRouteLocation(rackId, rowNum, binNum);
+  const location = useMemo(
+    () => parseRouteLocation(rackId, rowNum, binNum),
+    [rackId, rowNum, binNum],
+  );
   const [item, setItem] = useState<YesStoreItemDoc | null>(null);
   const [photos, setPhotos] = useState<YesStorePhoto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +42,7 @@ export const WarehouseItemPage: React.FC = () => {
       return;
     }
     void load();
-  }, [itemId, load, location, navigate]);
+  }, [itemId, load, location?.rackId, location?.rowNumber, location?.binNumber, navigate]);
 
   const photoApi = useYesStorePhotos({
     level: 'item',

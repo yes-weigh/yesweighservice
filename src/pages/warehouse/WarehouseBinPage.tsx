@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, Plus } from 'lucide-react';
 import type { BinNumber, RowNumber } from '../../types/yes-store';
@@ -22,7 +22,10 @@ const BASE = '/warehouse';
 export const WarehouseBinPage: React.FC = () => {
   const { rackId = '', rowNum = '', binNum = '' } = useParams();
   const navigate = useNavigate();
-  const location = parseRouteLocation(rackId, rowNum, binNum);
+  const location = useMemo(
+    () => parseRouteLocation(rackId, rowNum, binNum),
+    [rackId, rowNum, binNum],
+  );
   const [binPhotos, setBinPhotos] = useState<YesStorePhoto[]>([]);
   const [items, setItems] = useState<YesStoreItemDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +55,7 @@ export const WarehouseBinPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [location]);
+  }, [location?.rackId, location?.rowNumber, location?.binNumber]);
 
   useEffect(() => {
     if (!location?.rowNumber || !location.binNumber) {
@@ -60,7 +63,7 @@ export const WarehouseBinPage: React.FC = () => {
       return;
     }
     void load();
-  }, [load, location, navigate]);
+  }, [load, location?.rackId, location?.rowNumber, location?.binNumber, navigate]);
 
   const photoApi = useYesStorePhotos({
     level: 'bin',
