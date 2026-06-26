@@ -14455,6 +14455,120 @@ html::-webkit-scrollbar {
   color: #00a884;
 }
 
+.support-evidence-camera__gallery-btn {
+  justify-self: start;
+}
+
+.support-evidence-camera__gallery-btn--active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.support-evidence-camera__gallery {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: max(3.25rem, calc(env(safe-area-inset-top, 0px) + 2.5rem))
+    max(0.85rem, env(safe-area-inset-right, 0px))
+    max(0.85rem, env(safe-area-inset-bottom, 0px))
+    max(0.85rem, env(safe-area-inset-left, 0px));
+  background: rgba(0, 0, 0, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.support-evidence-camera__gallery-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.support-evidence-camera__gallery-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.support-evidence-camera__gallery-browse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.support-evidence-camera__gallery-browse:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.support-evidence-camera__gallery-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  overflow-y: auto;
+  padding-bottom: 0.25rem;
+  align-content: start;
+}
+
+.support-evidence-camera__gallery-item {
+  aspect-ratio: 1;
+  padding: 0;
+  border: none;
+  border-radius: 0.55rem;
+  overflow: hidden;
+  background: #2a3942;
+  cursor: pointer;
+}
+
+.support-evidence-camera__gallery-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.support-evidence-camera__gallery-item img,
+.support-evidence-camera__gallery-item video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.support-evidence-camera__gallery-empty {
+  margin: 0;
+  padding: 0.5rem 0.15rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #aebac1;
+  text-align: center;
+}
+
+.support-evidence-camera__gallery-error {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.55rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
 .support-evidence-picker__camera-error {
   margin: 0;
   padding: 0.55rem 0.7rem;

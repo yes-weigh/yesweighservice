@@ -1,14 +1,12 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Camera, Film, ImageIcon, Plus, X } from 'lucide-react';
 import {
   createPendingEvidencePhoto,
   createPendingSupportFile,
-  retainFileCopy,
   validateSupportFile,
   type EvidencePhotoSlot,
   type PendingSupportFile,
 } from '../../lib/supportAttachments';
-import { pushRecentMedia } from '../../lib/recentMediaCache';
 import {
   SupportEvidenceCamera,
   type EvidenceSlotId,
@@ -81,9 +79,6 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   onChange,
   disabled,
 }) => {
-  const galleryRef = useRef<HTMLInputElement>(null);
-  const gallerySlotRef = useRef<EvidenceSlotId>('video');
-
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraSlot, setCameraSlot] = useState<EvidenceSlotId>('video');
   const [processing, setProcessing] = useState(false);
@@ -121,38 +116,6 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     const err = validateSupportFile(raw);
     if (err) throw new Error(err);
     updateSlotFile(slot, createPendingEvidencePhoto(raw, slot));
-  };
-
-  const handleGalleryPick = async (picked: FileList | null) => {
-    const slotId = gallerySlotRef.current;
-    const file = picked?.[0];
-    if (!file) return;
-    try {
-      const retained = await retainFileCopy(file);
-      const config = EVIDENCE_SLOTS.find(slot => slot.id === slotId)!;
-      if (config.kind === 'video') {
-        if (!retained.type.startsWith('video/')) {
-          setSlotErrors(prev => ({ ...prev, [slotId]: 'Please choose a video file.' }));
-          return;
-        }
-        await handleVideoFile(retained);
-        await pushRecentMedia(retained);
-      } else {
-        if (!retained.type.startsWith('image/')) {
-          setSlotErrors(prev => ({ ...prev, [slotId]: 'Please choose an image file.' }));
-          return;
-        }
-        await handlePhotoFile(slotId as EvidencePhotoSlot, retained);
-        await pushRecentMedia(retained);
-      }
-    } catch (pickErr) {
-      setSlotErrors(prev => ({
-        ...prev,
-        [slotId]: pickErr instanceof Error ? pickErr.message : 'Could not add file.',
-      }));
-    } finally {
-      if (galleryRef.current) galleryRef.current.value = '';
-    }
   };
 
   const removeSlot = (slotId: EvidenceSlotId) => {
@@ -233,14 +196,6 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
         </button>
       )}
 
-      <input
-        ref={galleryRef}
-        type="file"
-        accept="image/*,video/*"
-        hidden
-        onChange={e => void handleGalleryPick(e.target.files)}
-      />
-
       {cameraOpen && (
         <SupportEvidenceCamera
           initialSlot={cameraSlot}
@@ -248,10 +203,6 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
           processing={processing}
           processingLabel={processingLabel}
           onClose={() => setCameraOpen(false)}
-          onPickGallery={slot => {
-            gallerySlotRef.current = slot;
-            galleryRef.current?.click();
-          }}
           onVideoFile={async file => {
             try {
               await handleVideoFile(file);

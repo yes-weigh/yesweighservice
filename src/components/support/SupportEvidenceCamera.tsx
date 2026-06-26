@@ -3,7 +3,8 @@ import {
   Check,
   Circle,
   FlipHorizontal2,
-  Image as ImageIcon,
+  ImagePlus,
+  Images,
   Loader2,
   X,
 } from 'lucide-react';
@@ -36,7 +37,6 @@ interface SupportEvidenceCameraProps {
   processing?: boolean;
   processingLabel?: string;
   onClose: () => void;
-  onPickGallery: (slot: EvidenceSlotId) => void;
   onVideoFile: (file: File) => Promise<void>;
   onPhotoFile: (slot: EvidencePhotoSlot, file: File) => Promise<void>;
 }
@@ -59,11 +59,11 @@ export function SupportEvidenceCamera({
   processing = false,
   processingLabel = 'Processing…',
   onClose,
-  onPickGallery,
   onVideoFile,
   onPhotoFile,
 }: SupportEvidenceCameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -82,6 +82,8 @@ export function SupportEvidenceCamera({
   const [photoFlash, setPhotoFlash] = useState(false);
   const [photoSaved, setPhotoSaved] = useState(false);
   const [capturingPhoto, setCapturingPhoto] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [pickError, setPickError] = useState('');
   const recentMedia = useRecentMedia();
 
   const isPhotoSlot = activeSlot === 'serial' || activeSlot === 'label';
@@ -143,7 +145,7 @@ export function SupportEvidenceCamera({
       })
       .catch(() => {
         if (!cancelled) {
-          setError('Could not open camera. Use gallery from the strip below.');
+          setError('Could not open camera. Tap the gallery button to choose a file.');
           setLoading(false);
         }
       });
@@ -254,6 +256,7 @@ export function SupportEvidenceCamera({
     else recorder.start();
     setRecording(true);
     setRecordSeconds(0);
+    setGalleryOpen(false);
 
     tickRef.current = window.setInterval(() => {
       setRecordSeconds(prev => prev + 1);
@@ -276,17 +279,23 @@ export function SupportEvidenceCamera({
     if (!recordingRef.current) capturePhoto();
   };
 
-  const useRecentFile = async (file: File) => {
+  useEffect(() => {
+    setGalleryOpen(false);
+    setPickError('');
+  }, [activeSlot]);
+
+  const applySelectedFile = async (file: File) => {
     const err = validateSupportFile(file);
     if (err) {
-      window.alert(err);
+      setPickError(err);
       return;
     }
+    setPickError('');
     try {
       const retained = await retainFileCopy(file);
       if (activeSlot === 'video') {
         if (!isVideoFile(retained)) {
-          window.alert('Choose a video for the video evidence slot.');
+          setPickError('Choose a video for the video evidence slot.');
           return;
         }
         await onVideoFile(retained);
@@ -295,16 +304,37 @@ export function SupportEvidenceCamera({
         await onPhotoFile(activeSlot, retained);
         advanceAfterCapture(activeSlot);
       } else {
-        window.alert('Choose a photo for this slot.');
+        setPickError('Choose a photo for this slot.');
+        return;
       }
+      void pushRecentMedia(retained);
+      setGalleryOpen(false);
     } catch (pickErr) {
-      window.alert(pickErr instanceof Error ? pickErr.message : 'Could not use file.');
+      setPickError(pickErr instanceof Error ? pickErr.message : 'Could not use file.');
     }
+  };
+
+  const handleGalleryInputChange = (picked: FileList | null) => {
+    const file = picked?.[0];
+    if (galleryInputRef.current) galleryInputRef.current.value = '';
+    if (!file) return;
+    void applySelectedFile(file);
+  };
+
+  const openDeviceGallery = () => {
+    if (processing || recordingRef.current) return;
+    galleryInputRef.current?.click();
   };
 
   const filteredRecent = recentMedia.filter(item =>
     activeSlot === 'video' ? item.kind === 'video' : item.kind === 'image',
   );
+
+  const galleryAccept = activeSlot === 'video'
+    ? 'video/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v'
+    : 'image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
+
+  const galleryBrowseLabel = activeSlot === 'video' ? 'Choose video from gallery' : 'Choose photo from gallery';
 
   const shutterLabel = activeSlot === 'video'
     ? (recording ? 'Stop recording' : 'Start recording')
@@ -356,42 +386,84 @@ export function SupportEvidenceCamera({
                 <span>{processingLabel}</span>
               </div>
             )}
+            {galleryOpen && !processing && (
+              <div className="support-evidence-camera__gallery" role="dialog" aria-label="Evidence gallery">
+                <div className="support-evidence-camera__gallery-head">
+                  <h3 className="support-evidence-camera__gallery-title">Gallery</h3>
+                  <button
+                    type="button"
+                    className="support-chat__camera-top-btn"
+                    aria-label="Close gallery"
+                    disabled={processing}
+                    onClick={() => setGalleryOpen(false)}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="support-evidence-camera__gallery-browse"
+                  disabled={processing || recording}
+                  onClick={openDeviceGallery}
+                >
+                  <ImagePlus size={22} aria-hidden />
+                  {galleryBrowseLabel}
+                </button>
+                {pickError && (
+                  <p className="support-evidence-camera__gallery-error" role="alert">{pickError}</p>
+                )}
+                {filteredRecent.length > 0 ? (
+                  <div className="support-evidence-camera__gallery-grid">
+                    {filteredRecent.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="support-evidence-camera__gallery-item"
+                        disabled={processing}
+                        onClick={() => void applySelectedFile(item.file)}
+                      >
+                        {item.kind === 'video' ? (
+                          <video src={item.previewUrl} muted playsInline preload="metadata" />
+                        ) : (
+                          <img src={item.previewUrl} alt="" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="support-evidence-camera__gallery-empty">
+                    No recent {activeSlot === 'video' ? 'videos' : 'photos'} yet. Browse your gallery to add one.
+                  </p>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
 
-      <div className="support-chat__camera-bottom">
-        <div className="support-chat__camera-recent">
-          <div className="support-chat__camera-recent-scroll">
-            <button
-              type="button"
-              className="support-chat__camera-recent-thumb support-chat__camera-recent-thumb--gallery"
-              aria-label="Open gallery"
-              disabled={processing}
-              onClick={() => onPickGallery(activeSlot)}
-            >
-              <ImageIcon size={22} />
-            </button>
-            {filteredRecent.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                className="support-chat__camera-recent-thumb"
-                disabled={processing}
-                onClick={() => void useRecentFile(item.file)}
-              >
-                {item.kind === 'video' ? (
-                  <video src={item.previewUrl} muted playsInline preload="metadata" />
-                ) : (
-                  <img src={item.previewUrl} alt="" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept={galleryAccept}
+        hidden
+        onChange={e => handleGalleryInputChange(e.target.files)}
+      />
 
+      <div className="support-chat__camera-bottom">
         <div className="support-chat__camera-controls">
-          <span className="support-chat__camera-controls-spacer" aria-hidden />
+          <button
+            type="button"
+            className={`support-chat__camera-flip support-evidence-camera__gallery-btn${galleryOpen ? ' support-evidence-camera__gallery-btn--active' : ''}`}
+            aria-label="Open gallery"
+            aria-pressed={galleryOpen}
+            disabled={loading || recording || processing}
+            onClick={() => {
+              setPickError('');
+              setGalleryOpen(open => !open);
+            }}
+          >
+            <Images size={22} />
+          </button>
 
           <button
             type="button"
