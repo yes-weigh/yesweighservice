@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Camera, Film, ImageIcon, Plus, X } from 'lucide-react';
 import {
   createPendingEvidencePhoto,
@@ -124,6 +124,12 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   };
 
   const allFilled = filledSlots.length === EVIDENCE_SLOTS.length;
+
+  useEffect(() => {
+    if (cameraOpen && allFilled && !processing) {
+      setCameraOpen(false);
+    }
+  }, [cameraOpen, allFilled, processing]);
 
   return (
     <div className="support-evidence-picker">
