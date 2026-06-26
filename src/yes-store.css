@@ -105,6 +105,104 @@
   margin-bottom: 0.65rem;
 }
 
+.wh-item-table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: #151d2e;
+}
+
+.wh-item-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.wh-item-table thead th {
+  padding: 0.65rem 0.5rem;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  white-space: nowrap;
+}
+
+.wh-item-table tbody td {
+  padding: 0.35rem 0.25rem;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.wh-item-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.wh-item-table__row {
+  cursor: pointer;
+}
+
+.wh-item-table__row:hover td {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.wh-item-table tbody img {
+  width: 2.5rem;
+  height: 2.5rem;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #1e293b;
+  display: block;
+  margin: 0 auto;
+}
+
+.wh-item-table__num {
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.wh-item-table__empty {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.wh-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+.wh-pagination__btn {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: #151d2e;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.wh-pagination__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.wh-pagination__info {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  min-width: 6.5rem;
+  text-align: center;
+}
+
 .warehouse-app__loading,
 .warehouse-app__empty {
   display: flex;
@@ -521,6 +619,12 @@
   -moz-appearance: textfield;
 }
 
+.wh-item-row__qty::placeholder {
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
 .wh-item-row__qty::-webkit-outer-spin-button,
 .wh-item-row__qty::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -575,6 +679,10 @@
   background: rgba(239, 68, 68, 0.12);
   color: #fca5a5;
   font-size: 0.875rem;
+}
+
+.wh-error--footer {
+  margin-bottom: 0.65rem;
 }
 
 .sr-only {

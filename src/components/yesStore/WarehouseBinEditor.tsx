@@ -15,7 +15,7 @@ import {
 } from '../../lib/yesStore/data';
 import { deleteYesStorePhotos, uploadYesStorePhoto, validateYesStoreImage } from '../../lib/yesStore/photos';
 import { pendingFromFile, type PhotoSlot } from './ItemPhotoQtyForm';
-import { WarehouseWizardShell } from './WarehouseWizardShell';
+import { WarehouseWizardShell, WizardNextButton } from './WarehouseWizardShell';
 
 type ItemRowState = {
   key: string;
@@ -36,9 +36,14 @@ type WarehouseBinEditorProps = {
   onSaved?: () => void;
 };
 
-function parseQuantity(value: string): number {
+function parseQuantity(value: string): number | null {
+  if (value.trim() === '') return null;
   const n = Number.parseInt(value, 10);
-  return Number.isFinite(n) && n > 0 ? n : 1;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function rowHasContent(row: ItemRowState): boolean {
+  return savedPhotos(row.slots).length > 0 || row.quantity.trim() !== '';
 }
 
 function newRowKey(): string {
@@ -49,7 +54,7 @@ function emptyRow(): ItemRowState {
   return {
     key: newRowKey(),
     slots: [null, null],
-    quantity: '1',
+    quantity: '',
     saving: false,
     error: '',
     dirty: false,
@@ -106,6 +111,8 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
   const [rows, setRows] = useState<ItemRowState[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const targetRef = useRef<{ rowKey: string; slotIndex: 0 | 1 } | null>(null);
   const rowsRef = useRef(rows);
@@ -137,20 +144,21 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
     setRows(prev => prev.map(row => (row.key === rowKey ? { ...row, ...patch, dirty: true } : row)));
   };
 
-  const persistRow = useCallback(async (rowKey: string) => {
+  const persistRow = useCallback(async (rowKey: string): Promise<boolean> => {
     const row = rowsRef.current.find(r => r.key === rowKey);
-    if (!row || row.saving || slotsUploading(row.slots)) return;
+    if (!row || row.saving || slotsUploading(row.slots)) return false;
 
     const photos = savedPhotos(row.slots);
-    if (!photos.length) return;
+    if (!photos.length) return true;
+
+    const quantity = parseQuantity(row.quantity);
+    if (quantity == null) return false;
 
     setRows(prev =>
       prev.map(r => (r.key === rowKey ? { ...r, saving: true, error: '' } : r)),
     );
 
     try {
-      const quantity = parseQuantity(row.quantity);
-
       if (row.itemId) {
         const prevItem = rowsRef.current.find(r => r.key === rowKey);
         const prevSaved = prevItem ? savedPhotos(prevItem.slots) : [];
@@ -165,13 +173,15 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
           quantity,
           photos,
         });
+        row.slots.forEach(revokePending);
         setRows(prev =>
           prev.map(r => (r.key === rowKey ? itemToRow(created) : r)),
         );
         onSaved?.();
-        return;
+        return true;
       }
 
+      row.slots.forEach(revokePending);
       setRows(prev =>
         prev.map(r =>
           r.key === rowKey
@@ -191,6 +201,7 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
         ),
       );
       onSaved?.();
+      return true;
     } catch (err: unknown) {
       setRows(prev =>
         prev.map(r =>
@@ -203,6 +214,7 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
             : r,
         ),
       );
+      throw err;
     }
   }, [rackId, rowNumber, binNumber, onSaved]);
 
@@ -244,10 +256,9 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
           if (r.key !== rowKey) return r;
           const next = [...r.slots] as [PhotoSlot | null, PhotoSlot | null];
           next[slotIndex] = { kind: 'saved', photo };
-          return { ...r, slots: next, error: '' };
+          return { ...r, slots: next, error: '', dirty: true };
         }),
       );
-      void persistRow(rowKey);
     } catch (err: unknown) {
       if (uploadGenRef.current.get(slotKey) !== generation) return;
       const message = err instanceof Error ? err.message : 'Could not upload photo';
@@ -263,24 +274,42 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
         }),
       );
     }
-  }, [rackId, rowNumber, binNumber, persistRow]);
+  }, [rackId, rowNumber, binNumber]);
 
-  useEffect(() => {
-    const timers = rows
-      .filter(row =>
-        row.dirty
-        && !row.saving
-        && row.quantity !== ''
-        && savedPhotos(row.slots).length > 0
-        && !slotsUploading(row.slots),
-      )
-      .map(row =>
-        window.setTimeout(() => {
-          void persistRow(row.key);
-        }, 600),
-      );
-    return () => timers.forEach(t => window.clearTimeout(t));
-  }, [rows, persistRow]);
+  const handleSubmit = async () => {
+    setSubmitError('');
+    const currentRows = rowsRef.current;
+
+    if (currentRows.some(r => slotsUploading(r.slots))) {
+      setSubmitError('Wait for photo uploads to finish.');
+      return;
+    }
+
+    for (let i = 0; i < currentRows.length; i += 1) {
+      const row = currentRows[i];
+      const photos = savedPhotos(row.slots);
+      if (!photos.length) continue;
+      if (parseQuantity(row.quantity) == null) {
+        setSubmitError(`Enter quantity for item ${i + 1}.`);
+        return;
+      }
+    }
+
+    setSubmitting(true);
+    try {
+      for (const row of currentRows) {
+        if (!rowHasContent(row)) continue;
+        const photos = savedPhotos(row.slots);
+        if (!photos.length) continue;
+        await persistRow(row.key);
+      }
+      onHome();
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : 'Could not save items');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const openPhotoPicker = (rowKey: string, slotIndex: 0 | 1) => {
     const row = rowsRef.current.find(r => r.key === rowKey);
@@ -351,6 +380,17 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
       title="Bin Items"
       onBack={onBack}
       onHome={onHome}
+      footer={
+        <>
+          {submitError && <p className="wh-error wh-error--footer">{submitError}</p>}
+          <WizardNextButton
+            label="Submit"
+            variant="success"
+            disabled={submitting || rows.some(r => slotsUploading(r.slots))}
+            onClick={() => void handleSubmit()}
+          />
+        </>
+      }
     >
       <div className="wh-bin-location">
         <span>Rack: <strong>{rackId.toUpperCase()}</strong></span>
@@ -416,17 +456,12 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
                         inputMode="numeric"
                         pattern="[0-9]*"
                         className="wh-item-row__qty"
+                        placeholder="Qty"
                         value={row.quantity}
                         onChange={e => {
                           const v = e.target.value;
                           if (v === '' || /^\d+$/.test(v)) {
                             updateRow(row.key, { quantity: v });
-                          }
-                        }}
-                        onBlur={() => {
-                          const normalized = String(parseQuantity(row.quantity));
-                          if (normalized !== row.quantity) {
-                            updateRow(row.key, { quantity: normalized });
                           }
                         }}
                       />
