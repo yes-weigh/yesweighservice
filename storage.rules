@@ -26,10 +26,6 @@ service firebase.storage {
       return signedIn() && userExists() && role() == 'staff';
     }
 
-    function isWarehouse() {
-      return signedIn() && userExists() && role() == 'warehouse' && userDoc().active != false;
-    }
-
     function isOpsUser() {
       return isSuperAdmin() || isStaff();
     }
@@ -153,7 +149,8 @@ service firebase.storage {
     }
 
     function validYesStoreImage() {
-      return request.resource.size < 12 * 1024 * 1024
+      return request.resource != null
+        && request.resource.size < 12 * 1024 * 1024
         && (
           request.resource.contentType == null
           || request.resource.contentType == ''
@@ -162,9 +159,17 @@ service firebase.storage {
         );
     }
 
-    match /yesStore/{allPaths=**} {
-      allow read: if isWarehouse() || isSuperAdmin();
-      allow write: if (isWarehouse() || isSuperAdmin()) && validYesStoreImage();
+    /** YesStore only — do not reuse HR/support helpers here. */
+    function canYesStoreUser() {
+      return signedIn() && userExists() && userDoc().active != false && (
+        role() == 'warehouse' || role() == 'super_admin' || role() == 'admin'
+      );
+    }
+
+    match /yesStore/{level}/{parentId}/{fileName} {
+      allow read: if canYesStoreUser();
+      allow create, update: if canYesStoreUser() && validYesStoreImage();
+      allow delete: if canYesStoreUser();
     }
   }
 }

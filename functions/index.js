@@ -74,6 +74,7 @@ import { prepareSupportAttachmentUpload, uploadSupportAttachment } from './lib/s
 import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
+import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
 
 initializeApp({
   storageBucket: 'yesweigh-service.firebasestorage.app',
@@ -1451,6 +1452,38 @@ export const getHrStaffFileUrlFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load HR file.');
+    }
+  },
+);
+
+/** YesStore warehouse photo upload — Admin SDK, isolated from HR/support Storage rules. */
+export const uploadYesStorePhotoFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await uploadYesStorePhoto(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload warehouse photo.');
+    }
+  },
+);
+
+/** Signed read URL for YesStore photos in Storage. */
+export const getYesStorePhotoUrlFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await getYesStorePhotoUrl(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load warehouse photo.');
     }
   },
 );
