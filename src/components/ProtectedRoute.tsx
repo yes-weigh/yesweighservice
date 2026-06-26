@@ -5,9 +5,10 @@ import { homePathForRole, type Role } from '../types';
 
 interface ProtectedRouteProps {
   allowedRoles: Role[];
+  loginPath?: string;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) => {
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles, loginPath = '/login' }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -18,7 +19,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) 
     );
   }
 
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={loginPath} replace />;
 
   if (!allowedRoles.includes(user.role)) {
     return <Navigate to={homePathForRole(user.role)} replace />;

@@ -41,10 +41,11 @@ export interface YesStoreBinDoc {
   updatedAt: string;
 }
 
+export const MAX_ITEM_PHOTOS = 2;
+
 export interface YesStoreItemDoc {
   id: string;
-  name: string;
-  notes?: string;
+  quantity: number;
   rackId: string;
   rowId: string;
   rowNumber: RowNumber;
@@ -53,6 +54,9 @@ export interface YesStoreItemDoc {
   photos: YesStorePhoto[];
   createdAt: string;
   updatedAt: string;
+  /** @deprecated legacy records only */
+  name?: string;
+  notes?: string;
 }
 
 export function isValidRackId(rackId: string): boolean {
@@ -83,4 +87,18 @@ export function formatLocationLabel(
   const rack = rackId.toUpperCase();
   if (binNumber == null) return `Rack ${rack} · Row ${rowNumber}`;
   return `Rack ${rack} · Row ${rowNumber} · Bin ${binNumber}`;
+}
+
+export function formatItemLocationShort(
+  rackId: string,
+  rowNumber: RowNumber,
+  binNumber: BinNumber,
+): string {
+  return `${rackId.toUpperCase()} · ${rowNumber} · ${binNumber}`;
+}
+
+export function readItemQuantity(item: Pick<YesStoreItemDoc, 'quantity'>): number {
+  return typeof item.quantity === 'number' && item.quantity > 0
+    ? Math.floor(item.quantity)
+    : 1;
 }

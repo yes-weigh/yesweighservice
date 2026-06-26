@@ -26,6 +26,7 @@ import {
   isValidBinNumber,
   isValidRackId,
   isValidRowNumber,
+  MAX_ITEM_PHOTOS,
   rowDocId,
 } from '../../types/yes-store';
 
@@ -142,16 +143,10 @@ export async function listItemsInBin(
   );
   return snap.docs
     .map(d => d.data() as YesStoreItemDoc)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function getItem(itemId: string): Promise<YesStoreItemDoc | null> {
-  const snap = await getDoc(itemRef(itemId));
-  if (!snap.exists()) return null;
-  return snap.data() as YesStoreItemDoc;
-}
-
-export async function listRecentItems(max = 24): Promise<YesStoreItemDoc[]> {
+export async function listAllItems(max = 200): Promise<YesStoreItemDoc[]> {
   const snap = await getDocs(
     query(
       collection(db, 'yesStoreItems'),
@@ -162,35 +157,41 @@ export async function listRecentItems(max = 24): Promise<YesStoreItemDoc[]> {
   return snap.docs.map(d => d.data() as YesStoreItemDoc);
 }
 
-export function itemDetailPath(
-  basePath: string,
-  item: Pick<YesStoreItemDoc, 'id' | 'rackId' | 'rowNumber' | 'binNumber'>,
-): string {
-  return `${basePath}/rack/${item.rackId}/row/${item.rowNumber}/bin/${item.binNumber}/item/${item.id}`;
+/** @deprecated use listAllItems */
+export async function listRecentItems(max = 24): Promise<YesStoreItemDoc[]> {
+  return listAllItems(max);
+}
+
+export async function getItem(itemId: string): Promise<YesStoreItemDoc | null> {
+  const snap = await getDoc(itemRef(itemId));
+  if (!snap.exists()) return null;
+  return snap.data() as YesStoreItemDoc;
 }
 
 export async function createItem(input: {
   rackId: string;
   rowNumber: RowNumber;
   binNumber: BinNumber;
-  name: string;
-  notes?: string;
+  quantity: number;
   photos: YesStorePhoto[];
 }): Promise<YesStoreItemDoc> {
-  if (!input.photos.length) throw new Error('At least one photo is required.');
+  if (!input.photos.length) throw new Error('Add at least one photo.');
+  if (input.photos.length > MAX_ITEM_PHOTOS) {
+    throw new Error(`Maximum ${MAX_ITEM_PHOTOS} photos per item.`);
+  }
+  const quantity = Math.max(1, Math.floor(input.quantity));
   await ensureBin(input.rackId, input.rowNumber, input.binNumber);
   const itemId = doc(collection(db, 'yesStoreItems')).id;
   const createdAt = now();
   const docData: YesStoreItemDoc = {
     id: itemId,
-    name: input.name.trim(),
-    notes: input.notes?.trim() || undefined,
+    quantity,
     rackId: input.rackId,
     rowId: rowDocId(input.rackId, input.rowNumber),
     rowNumber: input.rowNumber,
     binId: binDocId(input.rackId, input.rowNumber, input.binNumber),
     binNumber: input.binNumber,
-    photos: input.photos,
+    photos: input.photos.slice(0, MAX_ITEM_PHOTOS),
     createdAt,
     updatedAt: createdAt,
   };
@@ -200,12 +201,22 @@ export async function createItem(input: {
 
 export async function updateItem(
   itemId: string,
-  patch: Partial<Pick<YesStoreItemDoc, 'name' | 'notes' | 'photos'>>,
+  patch: Partial<Pick<YesStoreItemDoc, 'quantity' | 'photos'>>,
 ): Promise<void> {
-  await updateDoc(itemRef(itemId), {
-    ...patch,
-    updatedAt: now(),
-  });
+  if (patch.photos != null) {
+    if (!patch.photos.length) throw new Error('Add at least one photo.');
+    if (patch.photos.length > MAX_ITEM_PHOTOS) {
+      throw new Error(`Maximum ${MAX_ITEM_PHOTOS} photos per item.`);
+    }
+  }
+  const payload: Record<string, unknown> = { updatedAt: now() };
+  if (patch.quantity != null) {
+    payload.quantity = Math.max(1, Math.floor(patch.quantity));
+  }
+  if (patch.photos != null) {
+    payload.photos = patch.photos.slice(0, MAX_ITEM_PHOTOS);
+  }
+  await updateDoc(itemRef(itemId), payload);
 }
 
 export async function deleteItem(itemId: string): Promise<void> {

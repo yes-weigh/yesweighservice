@@ -40,10 +40,8 @@ import {
   LegacySpareMapRedirect,
 } from './components/catalog/LegacyCatalogRedirects';
 import { WarehouseHomePage } from './pages/warehouse/WarehouseHomePage';
-import { WarehouseRackPage } from './pages/warehouse/WarehouseRackPage';
-import { WarehouseRowPage } from './pages/warehouse/WarehouseRowPage';
-import { WarehouseBinPage } from './pages/warehouse/WarehouseBinPage';
-import { WarehouseItemPage } from './pages/warehouse/WarehouseItemPage';
+import { WarehouseLayout } from './pages/warehouse/WarehouseLayout';
+import { WarehouseLogin } from './pages/warehouse/WarehouseLogin';
 
 const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }) => {
   const { pathname } = useLocation();
@@ -125,6 +123,7 @@ const App: React.FC = () => (
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/warehouse-login" element={<WarehouseLogin />} />
           <Route path="/dealer-login" element={<DealerLogin />} />
           <Route path="/oc" element={<OpenCatalogPage />} />
           <Route path="/oc/:productId" element={<ProductDetailPage />} />
@@ -200,14 +199,10 @@ const App: React.FC = () => (
             </Route>
           </Route>
 
-          <Route element={<ProtectedRoute allowedRoles={['warehouse']} />}>
-            <Route path="/warehouse" element={<Layout />}>
+          <Route element={<ProtectedRoute allowedRoles={['warehouse']} loginPath="/warehouse-login" />}>
+            <Route path="/warehouse" element={<WarehouseLayout />}>
               <Route index element={<WarehouseHomePage />} />
-              <Route path="rack/:rackId" element={<WarehouseRackPage />} />
-              <Route path="rack/:rackId/row/:rowNum" element={<WarehouseRowPage />} />
-              <Route path="rack/:rackId/row/:rowNum/bin/:binNum" element={<WarehouseBinPage />} />
-              <Route path="rack/:rackId/row/:rowNum/bin/:binNum/item/:itemId" element={<WarehouseItemPage />} />
-              <Route path="profile" element={<ProfilePage />} />
+              <Route path="*" element={<Navigate to="/warehouse" replace />} />
             </Route>
           </Route>
 
