@@ -1,26 +1,20 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Info } from 'lucide-react';
 import { VALID_RACK_LETTERS } from '../../types/yes-store';
-import { WarehouseWizardShell, WizardNextButton } from './WarehouseWizardShell';
+import { WarehouseWizardShell } from './WarehouseWizardShell';
 
 type WarehouseRackPickerProps = {
   onBack: () => void;
+  onHome: () => void;
   onNext: (rackId: string) => void;
 };
 
-export const WarehouseRackPicker: React.FC<WarehouseRackPickerProps> = ({ onBack, onNext }) => {
-  const [selected, setSelected] = useState<string | null>(null);
-
+export const WarehouseRackPicker: React.FC<WarehouseRackPickerProps> = ({ onBack, onHome, onNext }) => {
   return (
     <WarehouseWizardShell
       title="Select Rack"
       onBack={onBack}
-      footer={
-        <WizardNextButton
-          disabled={!selected}
-          onClick={() => selected && onNext(selected)}
-        />
-      }
+      onHome={onHome}
     >
       <div className="wh-callout">
         <Info size={18} aria-hidden />
@@ -32,8 +26,8 @@ export const WarehouseRackPicker: React.FC<WarehouseRackPickerProps> = ({ onBack
           <button
             key={letter}
             type="button"
-            className={`wh-grid-btn ${selected === letter ? 'is-selected' : ''}`}
-            onClick={() => setSelected(letter)}
+            className="wh-grid-btn"
+            onClick={() => onNext(letter)}
           >
             {letter.toUpperCase()}
           </button>

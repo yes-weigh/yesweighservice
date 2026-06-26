@@ -6,23 +6,15 @@ import {
   type BinNumber,
   type RowNumber,
   type YesStoreItemDoc,
-  type YesStorePhoto,
 } from '../../types/yes-store';
-import {
-  createItem,
-  listAllItems,
-  updateItem,
-} from '../../lib/yesStore/data';
-import { deleteYesStorePhotos, uploadYesStorePhoto } from '../../lib/yesStore/photos';
+import { listAllItems } from '../../lib/yesStore/data';
 import { formatRelativeTime } from '../../lib/yesStore/format';
 import { WarehouseRackPicker } from '../../components/yesStore/WarehouseRackPicker';
 import { WarehouseRowPicker } from '../../components/yesStore/WarehouseRowPicker';
 import { WarehouseBinPicker } from '../../components/yesStore/WarehouseBinPicker';
-import { WarehouseCapturePhotos } from '../../components/yesStore/WarehouseCapturePhotos';
-import { WarehouseEnterQuantity } from '../../components/yesStore/WarehouseEnterQuantity';
-import { pendingFromFile, type PhotoSlot } from '../../components/yesStore/ItemPhotoQtyForm';
+import { WarehouseBinEditor } from '../../components/yesStore/WarehouseBinEditor';
 
-type WizardStep = null | 'rack' | 'row' | 'bin' | 'photos' | 'quantity';
+type WizardStep = null | 'rack' | 'row' | 'bin' | 'editor';
 
 type DraftLocation = {
   rackId?: string;
@@ -36,12 +28,6 @@ export const WarehouseHomePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [wizard, setWizard] = useState<WizardStep>(null);
   const [draft, setDraft] = useState<DraftLocation>({});
-  const [editingItem, setEditingItem] = useState<YesStoreItemDoc | null>(null);
-  const [quantity, setQuantity] = useState(1);
-  const [photoSlots, setPhotoSlots] = useState<PhotoSlot[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -57,16 +43,13 @@ export const WarehouseHomePage: React.FC = () => {
   }, [loadItems]);
 
   const resetWizard = () => {
-    photoSlots.forEach(slot => {
-      if (slot.kind === 'pending') URL.revokeObjectURL(slot.pending.previewUrl);
-    });
     setWizard(null);
     setDraft({});
-    setEditingItem(null);
-    setQuantity(1);
-    setPhotoSlots([]);
-    setFormError('');
-    setSaveSuccess(false);
+  };
+
+  const goHome = () => {
+    void loadItems();
+    resetWizard();
   };
 
   const startAdd = () => {
@@ -74,90 +57,20 @@ export const WarehouseHomePage: React.FC = () => {
     setWizard('rack');
   };
 
-  const openEdit = (item: YesStoreItemDoc) => {
-    photoSlots.forEach(slot => {
-      if (slot.kind === 'pending') URL.revokeObjectURL(slot.pending.previewUrl);
-    });
-    setEditingItem(item);
-    setDraft({
-      rackId: item.rackId,
-      rowNumber: item.rowNumber,
-      binNumber: item.binNumber,
-    });
-    setQuantity(readItemQuantity(item));
-    setPhotoSlots((item.photos ?? []).map(photo => ({ kind: 'saved' as const, photo })));
-    setFormError('');
-    setSaveSuccess(false);
-    setWizard('photos');
+  const openBin = (rackId: string, rowNumber: RowNumber, binNumber: BinNumber) => {
+    setDraft({ rackId, rowNumber, binNumber });
+    setWizard('editor');
   };
 
-  const uploadSlots = async (slots: PhotoSlot[]): Promise<YesStorePhoto[]> => {
-    const uploaded: YesStorePhoto[] = [];
-    for (const slot of slots) {
-      if (slot.kind === 'saved') {
-        uploaded.push(slot.photo);
-        continue;
-      }
-      const parentId = editingItem?.id ?? `new_${draft.rackId}_${draft.rowNumber}_${draft.binNumber}`;
-      const photo = await uploadYesStorePhoto('item', parentId, slot.pending.file);
-      uploaded.push(photo);
-    }
-    return uploaded;
-  };
-
-  const handleSubmit = async () => {
-    if (!draft.rackId || draft.rowNumber == null || draft.binNumber == null) return;
-    if (!photoSlots.length) {
-      setFormError('Add at least one photo.');
-      return;
-    }
-    setSaving(true);
-    setFormError('');
-    setSaveSuccess(false);
-    try {
-      const photos = await uploadSlots(photoSlots);
-      if (editingItem) {
-        const removed = editingItem.photos.filter(
-          prev => !photos.some(next => next.id === prev.id),
-        );
-        await updateItem(editingItem.id, { quantity, photos });
-        if (removed.length) await deleteYesStorePhotos(removed);
-      } else {
-        await createItem({
-          rackId: draft.rackId,
-          rowNumber: draft.rowNumber,
-          binNumber: draft.binNumber,
-          quantity,
-          photos,
-        });
-      }
-      setSaveSuccess(true);
-      await loadItems();
-      window.setTimeout(() => resetWizard(), 1400);
-    } catch (err: unknown) {
-      setFormError(err instanceof Error ? err.message : 'Could not save item');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleAddPhoto = (file: File) => {
-    if (photoSlots.length >= 2) return;
-    setPhotoSlots(prev => [...prev, { kind: 'pending', pending: pendingFromFile(file) }]);
-  };
-
-  const handleRemoveSlot = (index: number) => {
-    setPhotoSlots(prev => {
-      const slot = prev[index];
-      if (slot?.kind === 'pending') URL.revokeObjectURL(slot.pending.previewUrl);
-      return prev.filter((_, i) => i !== index);
-    });
+  const openFromList = (item: YesStoreItemDoc) => {
+    openBin(item.rackId, item.rowNumber, item.binNumber);
   };
 
   if (wizard === 'rack') {
     return (
       <WarehouseRackPicker
         onBack={resetWizard}
+        onHome={goHome}
         onNext={rackId => {
           setDraft({ rackId });
           setWizard('row');
@@ -171,6 +84,7 @@ export const WarehouseHomePage: React.FC = () => {
       <WarehouseRowPicker
         rackId={draft.rackId}
         onBack={() => setWizard('rack')}
+        onHome={goHome}
         onNext={rowNumber => {
           setDraft(prev => ({ ...prev, rowNumber }));
           setWizard('bin');
@@ -185,46 +99,24 @@ export const WarehouseHomePage: React.FC = () => {
         rackId={draft.rackId}
         rowNumber={draft.rowNumber}
         onBack={() => setWizard('row')}
+        onHome={goHome}
         onNext={binNumber => {
           setDraft(prev => ({ ...prev, binNumber }));
-          setWizard('photos');
+          setWizard('editor');
         }}
       />
     );
   }
 
-  if (wizard === 'photos' && draft.rackId && draft.rowNumber != null && draft.binNumber != null) {
+  if (wizard === 'editor' && draft.rackId && draft.rowNumber != null && draft.binNumber != null) {
     return (
-      <WarehouseCapturePhotos
+      <WarehouseBinEditor
         rackId={draft.rackId}
         rowNumber={draft.rowNumber}
         binNumber={draft.binNumber}
-        slots={photoSlots}
-        onAddPhoto={handleAddPhoto}
-        onRemoveSlot={handleRemoveSlot}
-        onBack={() => {
-          if (editingItem) resetWizard();
-          else setWizard('bin');
-        }}
-        onNext={() => setWizard('quantity')}
-      />
-    );
-  }
-
-  if (wizard === 'quantity' && draft.rackId && draft.rowNumber != null && draft.binNumber != null) {
-    return (
-      <WarehouseEnterQuantity
-        rackId={draft.rackId}
-        rowNumber={draft.rowNumber}
-        binNumber={draft.binNumber}
-        quantity={quantity}
-        onQuantityChange={setQuantity}
-        photoCount={photoSlots.length}
-        onBack={() => setWizard('photos')}
-        onSubmit={() => void handleSubmit()}
-        saving={saving}
-        error={formError}
-        success={saveSuccess}
+        onBack={() => setWizard('bin')}
+        onHome={goHome}
+        onSaved={() => void loadItems()}
       />
     );
   }
@@ -249,7 +141,7 @@ export const WarehouseHomePage: React.FC = () => {
           </div>
         ) : items.length === 0 ? (
           <p className="text-muted warehouse-app__empty">
-            No audits yet. Tap + to record rack location, photos, and quantity.
+            No audits yet. Tap + to pick a rack, row, and bin.
           </p>
         ) : (
           <>
@@ -267,7 +159,7 @@ export const WarehouseHomePage: React.FC = () => {
             <ul className="warehouse-item-list">
               {items.map(item => (
                 <li key={item.id}>
-                  <button type="button" className="warehouse-item-card" onClick={() => openEdit(item)}>
+                  <button type="button" className="warehouse-item-card" onClick={() => openFromList(item)}>
                     <div className="warehouse-item-card__photos">
                       {(item.photos ?? []).slice(0, 2).map(photo => (
                         <img key={photo.id} src={photo.url} alt="" loading="lazy" />

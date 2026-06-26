@@ -1,4 +1,4 @@
-export const VALID_RACK_LETTERS = 'abcdefghjklmnpqrstuvwxyz'.split('');
+export const VALID_RACK_LETTERS = 'abcdefghjklmnpq'.split('');
 
 export const ROW_NUMBERS = [1, 2, 3, 4, 5, 6, 7] as const;
 export const BIN_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;

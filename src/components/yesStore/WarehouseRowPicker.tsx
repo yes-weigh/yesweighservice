@@ -1,42 +1,37 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { ROW_NUMBERS, type RowNumber } from '../../types/yes-store';
-import { WarehouseWizardShell, WizardNextButton } from './WarehouseWizardShell';
+import { WarehouseWizardShell } from './WarehouseWizardShell';
 
 type WarehouseRowPickerProps = {
   rackId: string;
   onBack: () => void;
+  onHome: () => void;
   onNext: (rowNumber: RowNumber) => void;
 };
 
 export const WarehouseRowPicker: React.FC<WarehouseRowPickerProps> = ({
   rackId,
   onBack,
+  onHome,
   onNext,
 }) => {
-  const [selected, setSelected] = useState<RowNumber | null>(null);
-
   return (
     <WarehouseWizardShell
       title="Select Row"
       onBack={onBack}
+      onHome={onHome}
       context={{ rackId }}
-      footer={
-        <WizardNextButton
-          disabled={selected == null}
-          onClick={() => selected != null && onNext(selected)}
-        />
-      }
     >
       <ul className="wh-radio-list">
         {ROW_NUMBERS.map(n => (
           <li key={n}>
             <button
               type="button"
-              className={`wh-radio-row ${selected === n ? 'is-selected' : ''}`}
-              onClick={() => setSelected(n)}
+              className="wh-radio-row"
+              onClick={() => onNext(n)}
             >
               <span>Row {n}</span>
-              <span className={`wh-radio-dot ${selected === n ? 'is-on' : ''}`} aria-hidden />
+              <span className="wh-radio-dot" aria-hidden />
             </button>
           </li>
         ))}

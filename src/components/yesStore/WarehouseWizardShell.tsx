@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Home } from 'lucide-react';
 
 export type WarehouseContext = {
   rackId?: string;
@@ -10,6 +10,7 @@ export type WarehouseContext = {
 type WarehouseWizardShellProps = {
   title: string;
   onBack: () => void;
+  onHome?: () => void;
   context?: WarehouseContext;
   footer?: React.ReactNode;
   children: React.ReactNode;
@@ -18,6 +19,7 @@ type WarehouseWizardShellProps = {
 export const WarehouseWizardShell: React.FC<WarehouseWizardShellProps> = ({
   title,
   onBack,
+  onHome,
   context,
   footer,
   children,
@@ -28,7 +30,13 @@ export const WarehouseWizardShell: React.FC<WarehouseWizardShellProps> = ({
         <ArrowLeft size={22} />
       </button>
       <h1 className="wh-wizard__title">{title}</h1>
-      <span className="wh-wizard__header-spacer" aria-hidden />
+      {onHome ? (
+        <button type="button" className="wh-wizard__home" onClick={onHome} aria-label="Home">
+          <Home size={22} />
+        </button>
+      ) : (
+        <span className="wh-wizard__header-spacer" aria-hidden />
+      )}
     </header>
 
     {context?.rackId && (

@@ -6,7 +6,7 @@ export type PendingSlot = {
 
 export type PhotoSlot =
   | { kind: 'saved'; photo: import('../../types/yes-store').YesStorePhoto }
-  | { kind: 'pending'; pending: PendingSlot };
+  | { kind: 'pending'; pending: PendingSlot; uploading?: boolean };
 
 export function pendingFromFile(file: File): PendingSlot {
   return {
