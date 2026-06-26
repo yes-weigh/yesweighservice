@@ -1,20 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { VALID_RACK_LETTERS } from '../../types/yes-store';
-import { getRack } from '../../lib/yesStore/data';
+import type { YesStoreItemDoc, YesStorePhoto } from '../../types/yes-store';
+import { getRack, listRecentItems } from '../../lib/yesStore/data';
 import { LocationCardGrid } from '../../components/yesStore/LocationCardGrid';
+import { RecentItemsList } from '../../components/yesStore/RecentItemsList';
 
 const BASE = '/warehouse';
 
 export const WarehouseHomePage: React.FC = () => {
   const navigate = useNavigate();
-  const [rackPhotos, setRackPhotos] = useState<Record<string, import('../../types/yes-store').YesStorePhoto[]>>({});
-  const [loading, setLoading] = useState(true);
+  const [rackPhotos, setRackPhotos] = useState<Record<string, YesStorePhoto[]>>({});
+  const [recentItems, setRecentItems] = useState<YesStoreItemDoc[]>([]);
+  const [loadingRacks, setLoadingRacks] = useState(true);
+  const [loadingRecent, setLoadingRecent] = useState(true);
 
   const loadRacks = useCallback(async () => {
-    setLoading(true);
+    setLoadingRacks(true);
     try {
-      const map: Record<string, import('../../types/yes-store').YesStorePhoto[]> = {};
+      const map: Record<string, YesStorePhoto[]> = {};
       await Promise.all(
         VALID_RACK_LETTERS.map(async rackId => {
           const rack = await getRack(rackId);
@@ -23,13 +27,25 @@ export const WarehouseHomePage: React.FC = () => {
       );
       setRackPhotos(map);
     } finally {
-      setLoading(false);
+      setLoadingRacks(false);
+    }
+  }, []);
+
+  const loadRecent = useCallback(async () => {
+    setLoadingRecent(true);
+    try {
+      setRecentItems(await listRecentItems(24));
+    } catch {
+      setRecentItems([]);
+    } finally {
+      setLoadingRecent(false);
     }
   }, []);
 
   useEffect(() => {
     void loadRacks();
-  }, [loadRacks]);
+    void loadRecent();
+  }, [loadRacks, loadRecent]);
 
   const items = useMemo(
     () => VALID_RACK_LETTERS.map(rackId => ({
@@ -38,8 +54,6 @@ export const WarehouseHomePage: React.FC = () => {
     })),
     [],
   );
-
-  const photosById = rackPhotos;
 
   return (
     <div className="yes-store-page fade-in">
@@ -51,17 +65,23 @@ export const WarehouseHomePage: React.FC = () => {
         </div>
       </header>
 
-      {loading ? (
-        <div className="panel glass yes-store-page__loading">
-          <div className="loader-ring" />
-        </div>
-      ) : (
+      <RecentItemsList
+        basePath={BASE}
+        items={recentItems}
+        loading={loadingRecent}
+      />
+
+      <section className="panel glass">
+        <h2 className="yes-store-section-title">All racks</h2>
+        {loadingRacks && (
+          <p className="text-muted text-sm yes-store-grid__status">Loading rack photos…</p>
+        )}
         <LocationCardGrid
           items={items}
-          photosById={photosById}
+          photosById={rackPhotos}
           onSelect={item => navigate(`${BASE}/rack/${item.id}`)}
         />
-      )}
+      </section>
     </div>
   );
 };

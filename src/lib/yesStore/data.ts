@@ -4,6 +4,8 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
+  orderBy,
   query,
   setDoc,
   updateDoc,
@@ -147,6 +149,24 @@ export async function getItem(itemId: string): Promise<YesStoreItemDoc | null> {
   const snap = await getDoc(itemRef(itemId));
   if (!snap.exists()) return null;
   return snap.data() as YesStoreItemDoc;
+}
+
+export async function listRecentItems(max = 24): Promise<YesStoreItemDoc[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, 'yesStoreItems'),
+      orderBy('updatedAt', 'desc'),
+      limit(max),
+    ),
+  );
+  return snap.docs.map(d => d.data() as YesStoreItemDoc);
+}
+
+export function itemDetailPath(
+  basePath: string,
+  item: Pick<YesStoreItemDoc, 'id' | 'rackId' | 'rowNumber' | 'binNumber'>,
+): string {
+  return `${basePath}/rack/${item.rackId}/row/${item.rowNumber}/bin/${item.binNumber}/item/${item.id}`;
 }
 
 export async function createItem(input: {
