@@ -29,7 +29,6 @@ const SLOT_TABS: Array<{ id: EvidenceSlotId; label: string }> = [
 ];
 
 const MAX_RECORD_SECONDS = 120;
-const LONG_PRESS_MS = 380;
 
 interface SupportEvidenceCameraProps {
   initialSlot: EvidenceSlotId;
@@ -70,10 +69,6 @@ export function SupportEvidenceCamera({
   const chunksRef = useRef<Blob[]>([]);
   const tickRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
-  const holdTimerRef = useRef<number | null>(null);
-  const pointerDownAtRef = useRef(0);
-  const longPressStartedRef = useRef(false);
-  const stopOnUpRef = useRef(false);
   const recordingRef = useRef(false);
 
   const [activeSlot, setActiveSlot] = useState<EvidenceSlotId>(initialSlot);
@@ -91,10 +86,8 @@ export function SupportEvidenceCamera({
   const clearTimers = () => {
     if (tickRef.current != null) window.clearInterval(tickRef.current);
     if (timeoutRef.current != null) window.clearTimeout(timeoutRef.current);
-    if (holdTimerRef.current != null) window.clearTimeout(holdTimerRef.current);
     tickRef.current = null;
     timeoutRef.current = null;
-    holdTimerRef.current = null;
   };
 
   const stopStream = () => {
@@ -106,8 +99,6 @@ export function SupportEvidenceCamera({
     clearTimers();
     recorderRef.current = null;
     chunksRef.current = [];
-    longPressStartedRef.current = false;
-    stopOnUpRef.current = false;
     stopStream();
     setRecording(false);
     setRecordSeconds(0);
@@ -170,16 +161,14 @@ export function SupportEvidenceCamera({
     if (!isPhotoSlot || processing) return;
     const video = videoRef.current;
     if (!video || loading || error || recordingRef.current) return;
-    setLoading(true);
+    const slot = activeSlot as EvidencePhotoSlot;
     try {
       const file = await capturePhotoFromVideo(video);
-      await pushRecentMedia(file);
-      await onPhotoFile(activeSlot, file);
-      advanceAfterCapture(activeSlot);
-      setLoading(false);
+      void pushRecentMedia(file);
+      advanceAfterCapture(slot);
+      await onPhotoFile(slot, file);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not capture photo.');
-      setLoading(false);
     }
   };
 
@@ -193,7 +182,6 @@ export function SupportEvidenceCamera({
       clearTimers();
       chunksRef.current = [];
       recorderRef.current = null;
-      longPressStartedRef.current = false;
       setRecording(false);
       setRecordSeconds(0);
 
@@ -244,50 +232,16 @@ export function SupportEvidenceCamera({
     }, MAX_RECORD_SECONDS * 1000);
   };
 
-  const onShutterPointerDown = () => {
+  const onShutterClick = () => {
     if (loading || error || processing) return;
-    pointerDownAtRef.current = Date.now();
-    longPressStartedRef.current = false;
-    stopOnUpRef.current = false;
 
     if (activeSlot === 'video') {
-      if (recordingRef.current) {
-        stopOnUpRef.current = true;
-        return;
-      }
-      holdTimerRef.current = window.setTimeout(() => {
-        if (recordingRef.current) return;
-        longPressStartedRef.current = true;
-        startRecording();
-      }, LONG_PRESS_MS);
+      if (recordingRef.current) void stopRecording(true);
+      else startRecording();
       return;
     }
 
-    // Photo slots: tap only — no hold-to-record
-  };
-
-  const onShutterPointerUp = () => {
-    if (holdTimerRef.current != null) {
-      window.clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-
-    if (activeSlot === 'video') {
-      if (recordingRef.current) {
-        if (stopOnUpRef.current) void stopRecording(true);
-        stopOnUpRef.current = false;
-        return;
-      }
-      if (longPressStartedRef.current) {
-        longPressStartedRef.current = false;
-        return;
-      }
-      return;
-    }
-
-    if (!recordingRef.current) {
-      void capturePhoto();
-    }
+    if (!recordingRef.current) void capturePhoto();
   };
 
   const useRecentFile = async (file: File) => {
@@ -321,7 +275,7 @@ export function SupportEvidenceCamera({
   );
 
   const shutterLabel = activeSlot === 'video'
-    ? (recording ? 'Stop recording' : 'Hold to record video')
+    ? (recording ? 'Stop recording' : 'Start recording')
     : 'Take photo';
 
   return (
@@ -398,9 +352,7 @@ export function SupportEvidenceCamera({
             className={`support-chat__camera-shutter${recording ? ' support-chat__camera-shutter--recording support-chat__camera-shutter--stop' : ''}`}
             disabled={loading || Boolean(error) || processing}
             aria-label={shutterLabel}
-            onPointerDown={onShutterPointerDown}
-            onPointerUp={onShutterPointerUp}
-            onPointerCancel={onShutterPointerUp}
+            onClick={onShutterClick}
           />
 
           <button

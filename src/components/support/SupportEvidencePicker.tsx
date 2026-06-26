@@ -120,14 +120,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   const handlePhotoFile = async (slot: EvidencePhotoSlot, raw: File) => {
     const err = validateSupportFile(raw);
     if (err) throw new Error(err);
-    setProcessingLabel('Adding GPS tag…');
-    setProcessing(true);
-    try {
-      const pending = await createPendingEvidencePhoto(raw, slot);
-      updateSlotFile(slot, pending);
-    } finally {
-      setProcessing(false);
-    }
+    updateSlotFile(slot, createPendingEvidencePhoto(raw, slot));
   };
 
   const handleGalleryPick = async (picked: FileList | null) => {
@@ -219,9 +212,6 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
                 >
                   <X size={14} />
                 </button>
-              )}
-              {file?.gpsLabel && (
-                <span className="support-evidence-picker__cell-gps">{file.gpsLabel}</span>
               )}
               {slotErrors[slot.id] && (
                 <p className="support-evidence-picker__cell-error text-sm">{slotErrors[slot.id]}</p>

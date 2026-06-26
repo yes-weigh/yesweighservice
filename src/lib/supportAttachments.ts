@@ -4,7 +4,6 @@ import { app, storage } from '../firebase';
 import { compressImageForUpload } from './compressImage';
 import { captureVideoPoster, prepareVideoFileForUpload } from './captureMedia';
 import { formatStorageUploadError } from './storageErrors';
-import { applyGpsOverlayToImage, formatGpsLabel, getCurrentGpsCoords } from './supportGeolocation';
 import type { SupportAttachment, SupportAttachmentKind } from '../types/dealer-support';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -31,7 +30,6 @@ export interface PendingSupportFile {
   file: File;
   previewUrl: string;
   kind: SupportAttachmentKind;
-  gpsLabel?: string | null;
   photoSlot?: EvidencePhotoSlot | null;
   posterPreviewUrl?: string | null;
 }
@@ -110,7 +108,7 @@ export function validateSupportFile(file: File): string | null {
 
 export function createPendingSupportFile(
   file: File,
-  options?: { gpsLabel?: string | null; photoSlot?: EvidencePhotoSlot | null },
+  options?: { photoSlot?: EvidencePhotoSlot | null },
 ): PendingSupportFile {
   const kind: SupportAttachmentKind = isVideoFile(file)
     ? 'video'
@@ -124,23 +122,18 @@ export function createPendingSupportFile(
     file,
     previewUrl: isDocumentFile(file) ? '' : URL.createObjectURL(file),
     kind,
-    gpsLabel: options?.gpsLabel ?? null,
     photoSlot: options?.photoSlot ?? null,
   };
 }
 
-export async function createPendingEvidencePhoto(
+export function createPendingEvidencePhoto(
   file: File,
   photoSlot?: EvidencePhotoSlot,
-): Promise<PendingSupportFile> {
+): PendingSupportFile {
   const err = validateSupportFile(file);
   if (err) throw new Error(err);
   if (!isImageFile(file)) throw new Error('Only image files are allowed for photo evidence.');
-
-  const coords = await getCurrentGpsCoords();
-  const gpsLabel = formatGpsLabel(coords);
-  const overlaid = await applyGpsOverlayToImage(file, gpsLabel);
-  return createPendingSupportFile(overlaid, { gpsLabel, photoSlot });
+  return createPendingSupportFile(file, { photoSlot });
 }
 
 export function hasEvidenceVideo(files: PendingSupportFile[]): boolean {
