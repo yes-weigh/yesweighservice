@@ -1,20 +1,34 @@
-export async function capturePhotoFromVideo(video: HTMLVideoElement): Promise<File> {
+function drawVideoFrameToCanvas(video: HTMLVideoElement): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth || 1280;
   canvas.height = video.videoHeight || 720;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not capture photo.');
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
 
-  const blob = await new Promise<Blob | null>(resolve => {
-    canvas.toBlob(resolve, 'image/jpeg', 0.92);
-  });
-  if (!blob) throw new Error('Could not capture photo.');
+/** Instant preview URL plus async file from the same frozen frame. */
+export function freezeVideoFrame(video: HTMLVideoElement): { dataUrl: string; toFile: () => Promise<File> } {
+  const canvas = drawVideoFrameToCanvas(video);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  return {
+    dataUrl,
+    toFile: async () => {
+      const blob = await new Promise<Blob | null>(resolve => {
+        canvas.toBlob(resolve, 'image/jpeg', 0.92);
+      });
+      if (!blob) throw new Error('Could not capture photo.');
+      return new File([blob], `photo-${Date.now()}.jpg`, {
+        type: 'image/jpeg',
+        lastModified: Date.now(),
+      });
+    },
+  };
+}
 
-  return new File([blob], `photo-${Date.now()}.jpg`, {
-    type: 'image/jpeg',
-    lastModified: Date.now(),
-  });
+export async function capturePhotoFromVideo(video: HTMLVideoElement): Promise<File> {
+  return freezeVideoFrame(video).toFile();
 }
 
 export function stopMediaStream(stream: MediaStream | null): void {

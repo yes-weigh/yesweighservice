@@ -8,10 +8,10 @@ import {
   X,
 } from 'lucide-react';
 import {
-  capturePhotoFromVideo,
   createVideoFileFromBlob,
   createVideoMediaRecorder,
   finalizeMediaRecorder,
+  freezeVideoFrame,
   prepareVideoFileForUpload,
   recommendedRecorderTimeslice,
   stopMediaStream,
@@ -70,6 +70,7 @@ export function SupportEvidenceCamera({
   const tickRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
   const recordingRef = useRef(false);
+  const flashTimerRef = useRef<number | null>(null);
 
   const [activeSlot, setActiveSlot] = useState<EvidenceSlotId>(initialSlot);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -77,6 +78,10 @@ export function SupportEvidenceCamera({
   const [error, setError] = useState('');
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const [frozenFrameUrl, setFrozenFrameUrl] = useState<string | null>(null);
+  const [photoFlash, setPhotoFlash] = useState(false);
+  const [photoSaved, setPhotoSaved] = useState(false);
+  const [capturingPhoto, setCapturingPhoto] = useState(false);
   const recentMedia = useRecentMedia();
 
   const isPhotoSlot = activeSlot === 'serial' || activeSlot === 'label';
@@ -86,8 +91,10 @@ export function SupportEvidenceCamera({
   const clearTimers = () => {
     if (tickRef.current != null) window.clearInterval(tickRef.current);
     if (timeoutRef.current != null) window.clearTimeout(timeoutRef.current);
+    if (flashTimerRef.current != null) window.clearTimeout(flashTimerRef.current);
     tickRef.current = null;
     timeoutRef.current = null;
+    flashTimerRef.current = null;
   };
 
   const stopStream = () => {
@@ -130,6 +137,8 @@ export function SupportEvidenceCamera({
           video.muted = true;
           void video.play().catch(() => undefined);
         }
+        setFrozenFrameUrl(null);
+        setPhotoSaved(false);
         setLoading(false);
       })
       .catch(() => {
@@ -157,17 +166,40 @@ export function SupportEvidenceCamera({
     if (nextEmpty) setActiveSlot(nextEmpty);
   };
 
-  const capturePhoto = async () => {
-    if (!isPhotoSlot || processing) return;
+  const capturePhoto = () => {
+    if (!isPhotoSlot || processing || capturingPhoto) return;
     const video = videoRef.current;
     if (!video || loading || error || recordingRef.current) return;
+
+    setCapturingPhoto(true);
     const slot = activeSlot as EvidencePhotoSlot;
+
     try {
-      const file = await capturePhotoFromVideo(video);
-      void pushRecentMedia(file);
+      const frame = freezeVideoFrame(video);
+      setFrozenFrameUrl(frame.dataUrl);
+      setPhotoFlash(true);
+      if (flashTimerRef.current != null) window.clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = window.setTimeout(() => setPhotoFlash(false), 200);
+      setPhotoSaved(true);
       advanceAfterCapture(slot);
-      await onPhotoFile(slot, file);
+
+      void frame.toFile()
+        .then(file => {
+          void pushRecentMedia(file);
+          return onPhotoFile(slot, file);
+        })
+        .catch(err => {
+          setFrozenFrameUrl(null);
+          setPhotoSaved(false);
+          setError(err instanceof Error ? err.message : 'Could not capture photo.');
+        })
+        .finally(() => {
+          setCapturingPhoto(false);
+        });
     } catch (err) {
+      setCapturingPhoto(false);
+      setFrozenFrameUrl(null);
+      setPhotoSaved(false);
       setError(err instanceof Error ? err.message : 'Could not capture photo.');
     }
   };
@@ -241,7 +273,7 @@ export function SupportEvidenceCamera({
       return;
     }
 
-    if (!recordingRef.current) void capturePhoto();
+    if (!recordingRef.current) capturePhoto();
   };
 
   const useRecentFile = async (file: File) => {
@@ -293,15 +325,29 @@ export function SupportEvidenceCamera({
           <>
             <video
               ref={videoRef}
-              className="support-chat__camera-preview"
+              className={`support-chat__camera-preview${frozenFrameUrl ? ' support-evidence-camera__preview--hidden' : ''}`}
               muted
               playsInline
               autoPlay
             />
+            {frozenFrameUrl && (
+              <img
+                src={frozenFrameUrl}
+                alt=""
+                className="support-chat__camera-preview support-evidence-camera__frozen-frame"
+              />
+            )}
+            {photoFlash && <div className="support-evidence-camera__flash" aria-hidden />}
             {recording && (
               <span className="support-chat__camera-rec-badge">
                 <Circle size={10} fill="currentColor" />
                 {formatRecordTime(recordSeconds)}
+              </span>
+            )}
+            {photoSaved && !recording && (
+              <span className="support-evidence-camera__saved-badge">
+                <Check size={14} aria-hidden />
+                Photo saved
               </span>
             )}
             {processing && (
@@ -350,7 +396,7 @@ export function SupportEvidenceCamera({
           <button
             type="button"
             className={`support-chat__camera-shutter${recording ? ' support-chat__camera-shutter--recording support-chat__camera-shutter--stop' : ''}`}
-            disabled={loading || Boolean(error) || processing}
+            disabled={loading || Boolean(error) || processing || capturingPhoto}
             aria-label={shutterLabel}
             onClick={onShutterClick}
           />

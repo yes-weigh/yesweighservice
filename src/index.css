@@ -14389,6 +14389,62 @@ html::-webkit-scrollbar {
   font-size: 0.875rem;
 }
 
+.support-evidence-camera__preview--hidden {
+  visibility: hidden;
+}
+
+.support-evidence-camera__frozen-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.support-evidence-camera__flash {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: #fff;
+  pointer-events: none;
+  animation: support-evidence-camera-flash 0.2s ease-out forwards;
+}
+
+@keyframes support-evidence-camera-flash {
+  from {
+    opacity: 0.85;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.support-evidence-camera__saved-badge {
+  position: absolute;
+  top: max(3.5rem, calc(env(safe-area-inset-top, 0px) + 2.75rem));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(0, 168, 132, 0.92);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  animation: support-evidence-camera-saved-fade 1.4s ease-out forwards;
+}
+
+@keyframes support-evidence-camera-saved-fade {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .support-evidence-camera__slots .support-chat__camera-mode-tab {
   display: inline-flex;
   align-items: center;
