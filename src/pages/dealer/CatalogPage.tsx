@@ -701,9 +701,6 @@ export const CatalogPage: React.FC = () => {
 
       {focus === 'inventory-audit' && (
         <div className="catalog-inventory-audit-page panel glass">
-          <p className="catalog-inventory-audit-page__intro text-sm text-muted">
-            Items photographed and recorded by warehouse staff in YesStore.
-          </p>
           <WarehouseInventoryAuditList
             items={auditItems}
             loading={auditLoading}

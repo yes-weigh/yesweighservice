@@ -5,7 +5,7 @@ import { CatalogProductLinkPicker } from '../../components/yesStore/CatalogProdu
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
-import { fetchCatalog } from '../../lib/catalog';
+import { fetchCatalog, formatStockQuantity } from '../../lib/catalog';
 import { getItem, linkYesStoreItemToCatalog } from '../../lib/yesStore/data';
 import type { CatalogProduct } from '../../types/catalog';
 import {
@@ -136,6 +136,15 @@ export const InventoryAuditItemPage: React.FC = () => {
   }
 
   const photos = item.photos ?? [];
+  const countedQty = readItemQuantity(item);
+  const zohoQty = selectedProduct?.stock ?? null;
+  const qtyDifference = zohoQty != null ? countedQty - zohoQty : null;
+
+  const formatDifference = (value: number) => {
+    if (value > 0) return `+${value}`;
+    if (value < 0) return String(value);
+    return '0';
+  };
 
   return (
     <div className="page-content fade-in catalog-inventory-audit-detail">
@@ -187,6 +196,33 @@ export const InventoryAuditItemPage: React.FC = () => {
             loading={catalogLoading}
             disabled={linking}
           />
+
+          {selectedProduct && (
+            <div className="catalog-inventory-audit-detail__qty-compare">
+              <div className="catalog-inventory-audit-detail__qty-compare-item">
+                <span className="catalog-inventory-audit-detail__qty-compare-label">Zoho qty</span>
+                <strong>{formatStockQuantity(selectedProduct.stock, selectedProduct.unit)}</strong>
+              </div>
+              <div className="catalog-inventory-audit-detail__qty-compare-item">
+                <span className="catalog-inventory-audit-detail__qty-compare-label">Counted qty</span>
+                <strong>{countedQty}</strong>
+              </div>
+              <div className="catalog-inventory-audit-detail__qty-compare-item">
+                <span className="catalog-inventory-audit-detail__qty-compare-label">Difference</span>
+                <strong
+                  className={`catalog-inventory-audit-detail__qty-compare-diff${
+                    qtyDifference != null && qtyDifference !== 0
+                      ? qtyDifference > 0
+                        ? ' is-over'
+                        : ' is-under'
+                      : ''
+                  }`}
+                >
+                  {qtyDifference != null ? formatDifference(qtyDifference) : '—'}
+                </strong>
+              </div>
+            </div>
+          )}
 
           <div className="catalog-inventory-audit-detail__actions">
             <button

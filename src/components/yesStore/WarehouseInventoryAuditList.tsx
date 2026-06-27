@@ -9,6 +9,8 @@ import {
 
 const PAGE_SIZE = 25;
 
+export type InventoryAuditLinkFilter = 'all' | 'linked' | 'unlinked';
+
 export interface WarehouseInventoryAuditListProps {
   items: YesStoreItemDoc[];
   loading?: boolean;
@@ -33,14 +35,21 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   showLinkStatus = false,
 }) => {
   const [page, setPage] = useState(1);
+  const [linkFilter, setLinkFilter] = useState<InventoryAuditLinkFilter>('all');
 
-  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-  const pageStart = items.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const pageEnd = Math.min(page * PAGE_SIZE, items.length);
+  const filteredItems = useMemo(() => {
+    if (!showLinkStatus || linkFilter === 'all') return items;
+    if (linkFilter === 'linked') return items.filter(isYesStoreItemLinked);
+    return items.filter(item => !isYesStoreItemLinked(item));
+  }, [items, linkFilter, showLinkStatus]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const pageStart = filteredItems.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(page * PAGE_SIZE, filteredItems.length);
 
   const pageItems = useMemo(
-    () => items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [items, page],
+    () => filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filteredItems, page],
   );
 
   useEffect(() => {
@@ -49,7 +58,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
 
   useEffect(() => {
     setPage(1);
-  }, [items.length]);
+  }, [filteredItems.length, linkFilter]);
 
   if (loading && items.length === 0) {
     return (
@@ -67,12 +76,36 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
     );
   }
 
+  const filterEmptyMessage =
+    linkFilter === 'linked'
+      ? 'No linked audit items yet.'
+      : linkFilter === 'unlinked'
+        ? 'No unlinked audit items.'
+        : emptyMessage;
+
   return (
     <div className={`catalog-inventory-audit ${className}`.trim()}>
+      {showLinkStatus && (
+        <div className="catalog-inventory-audit__filters" role="tablist" aria-label="Link status filter">
+          {(['unlinked', 'linked', 'all'] as const).map(option => (
+            <button
+              key={option}
+              type="button"
+              role="tab"
+              aria-selected={linkFilter === option}
+              className={`catalog-inventory-audit__filter-chip${linkFilter === option ? ' is-active' : ''}`}
+              onClick={() => setLinkFilter(option)}
+            >
+              {option === 'all' ? 'All' : option === 'linked' ? 'Linked' : 'Unlinked'}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="warehouse-app__list-toolbar">
         <span className="text-muted text-sm">
-          {items.length} record{items.length === 1 ? '' : 's'}
-          {items.length > 0 && ` · ${pageStart}–${pageEnd}`}
+          {filteredItems.length} record{filteredItems.length === 1 ? '' : 's'}
+          {filteredItems.length > 0 && ` · ${pageStart}–${pageEnd}`}
         </span>
         {onRefresh && (
           <button
@@ -86,6 +119,10 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
         )}
       </div>
 
+      {filteredItems.length === 0 ? (
+        <p className="text-muted warehouse-app__empty">{filterEmptyMessage}</p>
+      ) : (
+        <>
       <div className="wh-item-table-wrap">
         <table className="wh-item-table">
           <thead>
@@ -186,6 +223,8 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
             <ChevronRight size={18} />
           </button>
         </nav>
+      )}
+        </>
       )}
     </div>
   );

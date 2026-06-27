@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Package, Search } from 'lucide-react';
-import type { CatalogProduct } from '../../types/catalog';
+import { fetchCatalogProductDetail } from '../../lib/catalog';
+import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import { ProductImageFrame } from '../catalog/ProductImageFrame';
+import { CatalogProductLinkPreview } from './CatalogProductLinkPreview';
 
 function useDebounce(value: string, delay: number): string {
   const [debounced, setDebounced] = useState(value);
@@ -31,8 +33,39 @@ export const CatalogProductLinkPicker: React.FC<CatalogProductLinkPickerProps> =
     value ? [value.sku, value.name].filter(Boolean).join(' · ') : '',
   );
   const [open, setOpen] = useState(false);
+  const [detailProduct, setDetailProduct] = useState<CatalogProductDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = useDebounce(query, 200);
+
+  useEffect(() => {
+    if (!value) {
+      setDetailProduct(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setDetailLoading(true);
+    void fetchCatalogProductDetail(value.id)
+      .then(detail => {
+        if (!cancelled) setDetailProduct(detail);
+      })
+      .catch(() => {
+        if (!cancelled) setDetailProduct(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [value?.id]);
+
+  const previewProduct = useMemo(
+    () => (detailProduct && value && detailProduct.id === value.id ? detailProduct : value),
+    [detailProduct, value],
+  );
 
   useEffect(() => {
     if (value) {
@@ -135,22 +168,8 @@ export const CatalogProductLinkPicker: React.FC<CatalogProductLinkPickerProps> =
         )}
       </div>
 
-      {value && (
-        <div className="catalog-product-link-picker__selected panel glass">
-          <span className="catalog-product-link-picker__selected-media">
-            {value.imageUrl ? (
-              <ProductImageFrame src={value.imageUrl} alt="" variant="row" />
-            ) : (
-              <span className="catalog-product-link-picker__option-placeholder" aria-hidden>
-                <Package size={20} />
-              </span>
-            )}
-          </span>
-          <span className="catalog-product-link-picker__selected-body">
-            <strong>{value.name}</strong>
-            {value.sku && <span className="text-muted text-sm">SKU {value.sku}</span>}
-          </span>
-        </div>
+      {value && previewProduct && (
+        <CatalogProductLinkPreview product={previewProduct} loading={detailLoading} />
       )}
     </div>
   );

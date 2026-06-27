@@ -2236,16 +2236,17 @@ html::-webkit-scrollbar {
 }
 
 .catalog-page--smart.catalog-page--admin-tabs.catalog-page--inventory-audit {
-  --catalog-section-bar-height: 3.35rem;
+  --catalog-section-bar-height: 3.75rem;
+}
+
+.catalog-page--inventory-audit {
+  padding-top: calc(var(--catalog-section-bar-height) + 0.5rem);
 }
 
 .catalog-inventory-audit-page {
   margin: 0 1rem 1.25rem;
   padding: 0.85rem 1rem 1.1rem;
-}
-
-.catalog-inventory-audit-page__intro {
-  margin: 0 0 0.75rem;
+  min-width: 0;
 }
 
 .catalog-smart-bar--admin-tabs {
@@ -3958,6 +3959,21 @@ html::-webkit-scrollbar {
 
   .spares-mode-bar__hint {
     display: none;
+  }
+
+  .catalog-page--smart.catalog-page--admin-tabs.catalog-page--inventory-audit {
+    --catalog-section-bar-height: 3.35rem;
+  }
+
+  .catalog-page--inventory-audit {
+    padding-top: calc(var(--catalog-section-bar-height) + 0.45rem);
+  }
+
+  .catalog-inventory-audit-page {
+    margin: 0 max(0.625rem, env(safe-area-inset-left)) 1rem;
+    margin-right: max(0.625rem, env(safe-area-inset-right));
+    padding: 0.75rem max(0.75rem, env(safe-area-inset-right)) 1rem;
+    padding-left: max(0.75rem, env(safe-area-inset-left));
   }
 
   .catalog-section-tabs {
