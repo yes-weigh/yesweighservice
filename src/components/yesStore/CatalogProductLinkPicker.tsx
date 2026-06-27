@@ -72,35 +72,36 @@ export const CatalogProductLinkPicker: React.FC<CatalogProductLinkPickerProps> =
       <label className="catalog-product-link-picker__label" htmlFor="catalog-product-link-search">
         SKU / item name
       </label>
-      <div className={`catalog-product-link-picker__field${open ? ' is-open' : ''}`}>
-        <Search size={16} aria-hidden className="catalog-product-link-picker__icon" />
-        <input
-          id="catalog-product-link-search"
-          type="search"
-          className="catalog-input catalog-product-link-picker__input"
-          placeholder="Search Zoho catalog by SKU or name…"
-          value={query}
-          disabled={disabled || loading}
-          autoComplete="off"
-          aria-autocomplete="list"
-          aria-expanded={open}
-          aria-controls="catalog-product-link-options"
-          onFocus={() => setOpen(true)}
-          onChange={e => {
-            setQuery(e.target.value);
-            setOpen(true);
-            if (value && e.target.value !== [value.sku, value.name].filter(Boolean).join(' · ')) {
-              onChange(null);
-            }
-          }}
-        />
-        {loading && (
-          <Loader2 size={16} className="spin-icon catalog-product-link-picker__spinner" aria-hidden />
-        )}
-      </div>
+      <div className={`catalog-product-link-picker__search${open ? ' is-open' : ''}`}>
+        <div className="catalog-product-link-picker__field">
+          <Search size={16} aria-hidden className="catalog-product-link-picker__icon" />
+          <input
+            id="catalog-product-link-search"
+            type="search"
+            className="catalog-product-link-picker__input"
+            placeholder="Search by SKU or name…"
+            value={query}
+            disabled={disabled || loading}
+            autoComplete="off"
+            aria-autocomplete="list"
+            aria-expanded={open}
+            aria-controls="catalog-product-link-options"
+            onFocus={() => setOpen(true)}
+            onChange={e => {
+              setQuery(e.target.value);
+              setOpen(true);
+              if (value && e.target.value !== [value.sku, value.name].filter(Boolean).join(' · ')) {
+                onChange(null);
+              }
+            }}
+          />
+          {loading && (
+            <Loader2 size={16} className="spin-icon catalog-product-link-picker__spinner" aria-hidden />
+          )}
+        </div>
 
-      {open && !disabled && (
-        <ul id="catalog-product-link-options" className="catalog-product-link-picker__options panel glass" role="listbox">
+        {open && !disabled && (
+          <ul id="catalog-product-link-options" className="catalog-product-link-picker__options" role="listbox">
           {matches.length === 0 ? (
             <li className="catalog-product-link-picker__empty text-muted text-sm">No catalog items match.</li>
           ) : (
@@ -130,8 +131,9 @@ export const CatalogProductLinkPicker: React.FC<CatalogProductLinkPickerProps> =
               </li>
             ))
           )}
-        </ul>
-      )}
+          </ul>
+        )}
+      </div>
 
       {value && (
         <div className="catalog-product-link-picker__selected panel glass">

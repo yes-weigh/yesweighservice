@@ -136,7 +136,6 @@ export const InventoryAuditItemPage: React.FC = () => {
   }
 
   const photos = item.photos ?? [];
-  const locationLabel = formatItemLocationShort(item.rackId, item.rowNumber, item.binNumber);
 
   return (
     <div className="page-content fade-in catalog-inventory-audit-detail">
@@ -148,6 +147,19 @@ export const InventoryAuditItemPage: React.FC = () => {
       )}
 
       <section className="catalog-inventory-audit-detail__hero panel glass">
+        <div className="catalog-inventory-audit-detail__summary">
+          <p className="catalog-inventory-audit-detail__summary-line">
+            Counted qty: <strong>{readItemQuantity(item)}</strong>
+          </p>
+          <span
+            className={`catalog-inventory-audit-detail__status catalog-inventory-audit-detail__status--${
+              linked ? 'linked' : 'unlinked'
+            }`}
+          >
+            {linked ? 'Linked' : 'Unlinked'}
+          </span>
+        </div>
+
         <div className="catalog-inventory-audit-detail__photos">
           {[0, 1].map(index => (
             <div key={index} className="catalog-inventory-audit-detail__photo">
@@ -159,36 +171,6 @@ export const InventoryAuditItemPage: React.FC = () => {
             </div>
           ))}
         </div>
-
-        <div className="catalog-inventory-audit-detail__meta">
-          <div className="catalog-inventory-audit-detail__meta-row">
-            <span className="catalog-inventory-audit-detail__meta-label">Quantity</span>
-            <strong>{readItemQuantity(item)}</strong>
-          </div>
-          <div className="catalog-inventory-audit-detail__meta-row">
-            <span className="catalog-inventory-audit-detail__meta-label">Location</span>
-            <strong>{locationLabel}</strong>
-          </div>
-          <div className="catalog-inventory-audit-detail__meta-row">
-            <span className="catalog-inventory-audit-detail__meta-label">Status</span>
-            <span
-              className={`catalog-inventory-audit-detail__status catalog-inventory-audit-detail__status--${
-                linked ? 'linked' : 'unlinked'
-              }`}
-            >
-              {linked ? 'Linked' : 'Unlinked'}
-            </span>
-          </div>
-          {linked && item.catalogProductName && (
-            <div className="catalog-inventory-audit-detail__linked panel glass">
-              <p className="text-sm text-muted">Linked to</p>
-              <strong>{item.catalogProductName}</strong>
-              {item.catalogProductSku && (
-                <span className="text-muted text-sm">SKU {item.catalogProductSku}</span>
-              )}
-            </div>
-          )}
-        </div>
       </section>
 
       <section className="catalog-inventory-audit-detail__link panel glass">
@@ -196,27 +178,26 @@ export const InventoryAuditItemPage: React.FC = () => {
           <Link2 size={18} aria-hidden />
           Link to Zoho catalog item
         </h2>
-        <p className="text-sm text-muted catalog-inventory-audit-detail__link-desc">
-          Search by SKU or product name, select the matching Zoho item, then link.
-        </p>
 
-        <CatalogProductLinkPicker
-          products={catalogProducts}
-          value={selectedProduct}
-          onChange={setSelectedProduct}
-          loading={catalogLoading}
-          disabled={linking}
-        />
+        <div className="catalog-inventory-audit-detail__link-form">
+          <CatalogProductLinkPicker
+            products={catalogProducts}
+            value={selectedProduct}
+            onChange={setSelectedProduct}
+            loading={catalogLoading}
+            disabled={linking}
+          />
 
-        <div className="catalog-inventory-audit-detail__actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={!canLink || linking || catalogLoading}
-            onClick={() => void handleLink()}
-          >
-            {linking ? 'Linking…' : linked && canLink ? 'Update link' : 'Link item'}
-          </button>
+          <div className="catalog-inventory-audit-detail__actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!canLink || linking || catalogLoading}
+              onClick={() => void handleLink()}
+            >
+              {linking ? 'Linking…' : linked && canLink ? 'Update link' : 'Link item'}
+            </button>
+          </div>
         </div>
       </section>
     </div>
