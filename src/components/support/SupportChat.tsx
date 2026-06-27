@@ -841,7 +841,13 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
               </div>
             ) : messages.length === 0 && outgoingMessages.length === 0 ? (
               <div className="support-chat__empty">
-                <p className="text-muted text-sm">No messages yet. Say hello to start the conversation.</p>
+                <p className="text-muted text-sm">
+                  {error
+                    ? 'Could not load messages. Check your connection and try again.'
+                    : request.lastMessagePreview
+                      ? 'Messages are still loading…'
+                      : 'No messages yet. Say hello to start the conversation.'}
+                </p>
               </div>
             ) : (
               threadItems.map(item =>

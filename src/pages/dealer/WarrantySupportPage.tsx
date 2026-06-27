@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, LifeBuoy, Plus } from 'lucide-react';
 import { SupportWizard } from '../../components/support/SupportWizard';
-import { SupportCourierInstructions } from '../../components/support/SupportCourierInstructions';
 import { useAuth } from '../../context/AuthContext';
 import { useTopBarAction } from '../../context/PageHeaderContext';
 import { fetchDealerSupportRequests, supportBasePath, supportDetailPath } from '../../lib/dealerSupport';
@@ -41,7 +40,6 @@ export const WarrantySupportPage: React.FC = () => {
   const [showWizard, setShowWizard] = useState(
     Boolean(state.draft || state.intent || state.resumeDraft || state.openWizard),
   );
-  const [successMessage, setSuccessMessage] = useState(state.createdRequestNumber ?? '');
   const [draftMessage, setDraftMessage] = useState('');
   const [resumeDraft, setResumeDraft] = useState<DealerSupportRequest | null>(
     state.resumeDraft ?? null,
@@ -82,7 +80,6 @@ export const WarrantySupportPage: React.FC = () => {
     if (isSupportDraft(request)) {
       setResumeDraft(request);
       setShowWizard(true);
-      setSuccessMessage('');
       setDraftMessage('');
       return;
     }
@@ -103,24 +100,15 @@ export const WarrantySupportPage: React.FC = () => {
     void load();
   };
 
-  const handleWizardSuccess = (requestNumber: string, type: SupportRequestType, requestId: string) => {
-    setSuccessMessage(requestNumber);
+  const handleWizardSuccess = () => {
     setShowWizard(false);
-    if (user) {
-      navigate(supportDetailPath(user.role, requestId), {
-        state: { createdRequestNumber: requestNumber, createdRequestType: type },
-      });
-    }
+    setResumeDraft(null);
+    navigate(supportPath, { replace: true, state: {} });
     void load();
   };
 
-  const showCourierAfterSubmit =
-    Boolean(successMessage)
-    && (state.createdRequestType === 'service' || state.createdRequestType === 'return');
-
   const startNewRequest = useCallback(() => {
     setShowWizard(true);
-    setSuccessMessage('');
     setDraftMessage('');
   }, []);
 
@@ -176,16 +164,6 @@ export const WarrantySupportPage: React.FC = () => {
         </div>
       )}
 
-      {successMessage && !showWizard && (
-        <>
-          <div className="services-page__success panel glass">
-            Request <strong>{successMessage}</strong> submitted. Our support team will follow up.
-          </div>
-          {showCourierAfterSubmit && (
-            <SupportCourierInstructions requestNumber={successMessage} compact />
-          )}
-        </>
-      )}
 
       {error && (
         <div className="products-inline-error panel glass services-page__error">

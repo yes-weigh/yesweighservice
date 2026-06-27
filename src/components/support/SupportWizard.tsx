@@ -12,14 +12,17 @@ import {
 import { createSupportChatRequest, createSupportRequest, deleteSupportRequestDraft, saveSupportRequestDraft, supportComplaintGuidelinesPath } from '../../lib/dealerSupport';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
-import { SupportCourierInstructions } from './SupportCourierInstructions';
 import { SupportChatLogo } from './SupportChatLogo';
+import { SupportRequestSubmittedSummary } from './SupportRequestSubmittedSummary';
 import type { User } from '../../types';
 import type {
   DealerSupportRequest,
   SupportProductDraft,
   SupportRequestType,
 } from '../../types/dealer-support';
+import { isInternalOpsUser } from '../../lib/staffAccess';
+import { supportDisplayLabel } from '../../lib/supportStatus';
+import { supportRequestStageSubtitle } from '../../lib/supportRequestDisplay';
 import {
   COMPLAINT_CATEGORY_OPTIONS,
   RETURN_REASON_OPTIONS,
@@ -27,6 +30,7 @@ import {
   SUPPORT_INTENT_OPTIONS,
   SUPPORT_CHAT_OPTION,
   SUPPORT_TYPE_LABELS,
+  complaintCategoryDisplayLabel,
   supportCategoryValueFromStored,
 } from '../../types/dealer-support';
 import {
@@ -34,13 +38,10 @@ import {
   cleanupPendingFiles,
   pendingFilesToUpload,
 } from './SupportEvidencePicker';
+import { SupportAttachmentPicker } from './SupportAttachmentPicker';
 import { validateEvidenceFiles, supportUploadErrorMessage, type SupportSubmitProgress } from '../../lib/supportAttachments';
 import { SupportWizardSubmitProgress } from './SupportWizardSubmitProgress';
-import {
-  SupportInvoiceAutocomplete,
-  SupportInvoiceProductPicker,
-  type SupportInvoicePick,
-} from './SupportInvoiceFields';
+import { SupportInvoiceProductPicker } from './SupportInvoiceFields';
 import { SupportDeclarationStep } from './SupportDeclarationStep';
 import { SUPPORT_DECLARATION_TITLE } from '../../constants/supportDeclaration';
 import type { PendingSupportFile } from '../../lib/supportAttachments';
@@ -70,6 +71,7 @@ function initialWizardStep(
 ): WizardStep {
   if (resumeDraft) return 'details';
   if (productDraft && initialIntent) return 'details';
+  if (initialIntent === 'complaint') return 'details';
   if (initialIntent) return 'product';
   return 'intent';
 }
@@ -131,31 +133,13 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     if (resumeDraft) {
       return supportCategoryValueFromStored(resumeDraft.type, resumeDraft.category);
     }
-    return initialIntent === 'service' ? 'repair' : initialIntent === 'return' ? 'doa' : 'billing';
+    return initialIntent === 'service' ? 'repair' : initialIntent === 'return' ? 'doa' : 'logistics_delivery';
   });
-  const [subject, setSubject] = useState(resumeDraft?.subject ?? '');
   const [description, setDescription] = useState(resumeDraft?.description ?? '');
   const [serialNumber, setSerialNumber] = useState(resumeDraft?.product?.serialNumber ?? '');
   const [productSelection, setProductSelection] = useState<SupportProductDraft | null>(
     productDraft ?? (resumeDraft ? requestToProductDraft(resumeDraft) : null),
   );
-  const [complaintInvoice, setComplaintInvoice] = useState<SupportInvoicePick | null>(() => {
-    if (productDraft) {
-      return {
-        invoiceId: productDraft.invoiceId,
-        invoiceNumber: productDraft.invoiceNumber,
-        salesOrderNumber: productDraft.salesOrderNumber,
-      };
-    }
-    if (resumeDraft?.invoiceId && resumeDraft.invoiceNumber) {
-      return {
-        invoiceId: resumeDraft.invoiceId,
-        invoiceNumber: resumeDraft.invoiceNumber,
-        salesOrderNumber: resumeDraft.salesOrderNumber,
-      };
-    }
-    return null;
-  });
   const [draftRequestId, setDraftRequestId] = useState(resumeDraft?.id ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -167,6 +151,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [discarding, setDiscarding] = useState(false);
   const [startingChat, setStartingChat] = useState(false);
   const [declarationAgreed, setDeclarationAgreed] = useState(false);
+  const [submittedRequest, setSubmittedRequest] = useState<DealerSupportRequest | null>(null);
   const confirm = useConfirm();
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -184,11 +169,12 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   );
 
   const needsProduct = intent === 'service' || intent === 'return';
+  const isGeneralSupport = intent === 'complaint';
 
   const selectIntent = (value: SupportRequestType) => {
     setIntent(value);
     setCategory(
-      value === 'service' ? 'repair' : value === 'return' ? 'doa' : 'billing',
+      value === 'service' ? 'repair' : value === 'return' ? 'doa' : 'logistics_delivery',
     );
     setError('');
   };
@@ -196,7 +182,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const proceedWithIntent = (value: SupportRequestType) => {
     if (value === 'chat') return;
     selectIntent(value);
-    setStep('product');
+    setStep(value === 'complaint' ? 'details' : 'product');
   };
 
   const startGenericChat = async () => {
@@ -224,20 +210,24 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
   const buildRequestPayload = () => {
     const selection = productDraft ?? productSelection;
+    const categoryDisplay = isGeneralSupport
+      ? complaintCategoryDisplayLabel(category)
+      : categoryLabel;
+
     return {
       type: intent!,
       requestId: draftRequestId || undefined,
-      invoiceId: selection?.invoiceId ?? complaintInvoice?.invoiceId ?? null,
-      invoiceNumber: selection?.invoiceNumber ?? complaintInvoice?.invoiceNumber ?? null,
-      salesOrderNumber: selection?.salesOrderNumber ?? complaintInvoice?.salesOrderNumber ?? null,
-      lineItemId: selection?.lineItemId ?? null,
-      itemId: selection?.itemId ?? null,
-      itemName: selection?.itemName,
-      itemSku: selection?.itemSku ?? null,
-      serialNumber: serialNumber.trim() || null,
-      quantity: selection?.quantity ?? 1,
-      category: categoryLabel,
-      subject: intent === 'complaint' ? subject.trim() : undefined,
+      invoiceId: isGeneralSupport ? null : selection?.invoiceId ?? null,
+      invoiceNumber: isGeneralSupport ? null : selection?.invoiceNumber ?? null,
+      salesOrderNumber: isGeneralSupport ? null : selection?.salesOrderNumber ?? null,
+      lineItemId: isGeneralSupport ? null : selection?.lineItemId ?? null,
+      itemId: isGeneralSupport ? null : selection?.itemId ?? null,
+      itemName: isGeneralSupport ? undefined : selection?.itemName,
+      itemSku: isGeneralSupport ? null : selection?.itemSku ?? null,
+      serialNumber: isGeneralSupport ? null : serialNumber.trim() || null,
+      quantity: isGeneralSupport ? undefined : selection?.quantity ?? 1,
+      category: categoryDisplay,
+      subject: isGeneralSupport ? categoryDisplay : undefined,
       description: description.trim(),
     };
   };
@@ -294,10 +284,6 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const validateDetails = (): boolean => {
     if (!intent) return false;
 
-    if (intent === 'complaint' && !subject.trim()) {
-      setError('Enter a short subject for your complaint.');
-      return false;
-    }
     if (!description.trim()) {
       setError('Please describe the issue.');
       return false;
@@ -306,10 +292,12 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setError('Enter the serial number or MAC ID.');
       return false;
     }
-    const evidenceError = validateEvidenceFiles(pendingFiles);
-    if (evidenceError) {
-      setError(evidenceError);
-      return false;
+    if (!isGeneralSupport) {
+      const evidenceError = validateEvidenceFiles(pendingFiles);
+      if (evidenceError) {
+        setError(evidenceError);
+        return false;
+      }
     }
     return true;
   };
@@ -318,6 +306,10 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     e.preventDefault();
     if (!validateDetails()) return;
     setError('');
+    if (isGeneralSupport) {
+      void submitRequestRef.current();
+      return;
+    }
     setStep('declaration');
   };
 
@@ -363,12 +355,21 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   }, [declarationAgreed, pendingFiles]);
 
   const wizardTitle = useMemo(() => {
-    if (step === 'success') return 'Request submitted';
+    if (step === 'success') {
+      return submittedRequest?.requestNumber ?? submittedRequestNumber ?? 'Request submitted';
+    }
     if (step === 'declaration') return SUPPORT_DECLARATION_TITLE;
     if (step === 'intent') return 'New request';
     if (step === 'product') return needsProduct ? 'Invoice & product' : 'Link invoice';
+    if (isGeneralSupport) return 'General support';
     return 'Request details';
-  }, [step, needsProduct]);
+  }, [step, needsProduct, isGeneralSupport, submittedRequest, submittedRequestNumber]);
+
+  const wizardSubtitle = useMemo(() => {
+    if (step !== 'success' || !submittedRequest) return null;
+    return supportRequestStageSubtitle(submittedRequest)
+      || supportDisplayLabel(submittedRequest, isInternalOpsUser(user) ? 'staff' : 'dealer');
+  }, [step, submittedRequest, user]);
 
   const handleWizardBack = useCallback(() => {
     if (step === 'intent' || step === 'success') {
@@ -385,10 +386,18 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       return;
     }
     if (step === 'details') {
-      if (productDraft) onCancel();
-      else setStep('product');
+      if (productDraft) {
+        onCancel();
+        return;
+      }
+      if (isGeneralSupport) {
+        if (initialIntent) onCancel();
+        else setStep('intent');
+        return;
+      }
+      setStep('product');
     }
-  }, [step, initialIntent, productDraft, onCancel]);
+  }, [step, initialIntent, productDraft, isGeneralSupport, onCancel]);
 
   const handleSuccessDone = useCallback(() => {
     if (submittedRequestNumber && intent && createdRequestId) {
@@ -400,6 +409,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
   useCatalogPageHeader({
     title: wizardTitle,
+    subtitle: wizardSubtitle,
     showBack: step !== 'success',
     onBack: handleWizardBack,
   });
@@ -436,7 +446,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           onClick={() => formRef.current?.requestSubmit()}
           disabled={isBusy}
         >
-          Next
+          {isGeneralSupport ? (submitting ? 'Submitting…' : 'Submit') : 'Next'}
         </button>
       );
     }
@@ -464,7 +474,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       );
     }
     return null;
-  }, [step, intent, isBusy, submitting, declarationAgreed, handleProductNext, handleSuccessDone, handleDeclarationContinue]);
+  }, [step, intent, isBusy, submitting, isGeneralSupport, declarationAgreed, handleProductNext, handleSuccessDone, handleDeclarationContinue]);
 
   useTopBarAction(wizardTopBarAction, Boolean(wizardTopBarAction));
 
@@ -481,27 +491,24 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           )}
           <p className="text-muted text-sm">
             Your {SUPPORT_TYPE_LABELS[intent].toLowerCase()} request has been logged.
-            {needsProduct
-              ? ' Review the shipping details below — ship only after we approve this request.'
-              : ' Our team will review and contact you shortly.'}
+            {' '}Review the ticket details below.
           </p>
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            onClick={() => {
-              if (submittedRequestNumber && intent && createdRequestId) {
-                onSuccess(submittedRequestNumber, intent, createdRequestId);
-              } else {
-                onCancel();
-              }
-            }}
+            onClick={handleSuccessDone}
           >
             Back to requests
           </button>
         </div>
 
-        {needsProduct && (
-          <SupportCourierInstructions requestNumber={submittedRequestNumber} />
+        {createdRequestId && (
+          <SupportRequestSubmittedSummary
+            requestId={createdRequestId}
+            user={user}
+            onRequestLoaded={setSubmittedRequest}
+            onCancelled={handleSuccessDone}
+          />
         )}
       </div>
     );
@@ -512,8 +519,18 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   return (
     <div className="support-wizard">
       <div
-        className={`support-wizard__progress support-wizard__progress--three${step === 'intent' || step === 'declaration' ? ' support-wizard__progress--hidden' : ''}`}
-        aria-hidden={step === 'intent' || step === 'declaration'}
+        className={`support-wizard__progress support-wizard__progress--three${
+          step === 'intent'
+          || step === 'declaration'
+          || (step === 'details' && isGeneralSupport)
+            ? ' support-wizard__progress--hidden'
+            : ''
+        }`}
+        aria-hidden={
+          step === 'intent'
+          || step === 'declaration'
+          || (step === 'details' && isGeneralSupport)
+        }
       >
         <span className={progressStepState(step, 1)}>1</span>
         <span className="support-wizard__progress-line" />
@@ -609,7 +626,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
         </section>
       )}
 
-      {step === 'product' && intent && (
+      {step === 'product' && intent && needsProduct && (
         <section className="support-wizard__step support-wizard__step--details panel glass">
           <div className="support-wizard__step-body">
             <h3 className="support-wizard__question">
@@ -629,7 +646,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               </div>
             )}
 
-            {!productDraft && needsProduct && (
+            {!productDraft && (
               <SupportInvoiceProductPicker
                 userId={user.uid}
                 value={productSelection}
@@ -640,28 +657,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                 requestType={intent === 'service' || intent === 'return' ? intent : undefined}
               />
             )}
-
-            {!productDraft && intent === 'complaint' && (
-              <SupportInvoiceAutocomplete
-                userId={user.uid}
-                value={complaintInvoice}
-                onChange={setComplaintInvoice}
-                disabled={isBusy}
-                id="support-invoice-complaint"
-                label="Invoice / order ref"
-                placeholder="Search invoice if related to an order"
-              />
-            )}
           </div>
-
-          {!needsProduct && (
-            <div className="support-wizard__actions support-wizard__actions--dock" aria-label="Form actions">
-              <button type="button" className="btn btn-primary btn-sm" onClick={handleProductNext}>
-                Next
-                <ArrowRight size={16} />
-              </button>
-            </div>
-          )}
         </section>
       )}
 
@@ -678,7 +674,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           <h3 className="support-wizard__question">
             {intent === 'service' && 'Service / repair details'}
             {intent === 'return' && 'Replacement request details'}
-            {intent === 'complaint' && 'Complaint details'}
+            {isGeneralSupport && 'What do you need help with?'}
           </h3>
 
           {selectedProduct && (
@@ -690,18 +686,6 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                   Invoice {selectedProduct.invoiceNumber}
                   {selectedProduct.salesOrderNumber && ` · SO ${selectedProduct.salesOrderNumber}`}
                 </span>
-              </div>
-            </div>
-          )}
-
-          {!selectedProduct && complaintInvoice && (
-            <div className="support-wizard__product panel glass">
-              <Package size={18} aria-hidden />
-              <div>
-                <strong>Invoice {complaintInvoice.invoiceNumber}</strong>
-                {complaintInvoice.salesOrderNumber && (
-                  <span className="text-muted text-sm">Order {complaintInvoice.salesOrderNumber}</span>
-                )}
               </div>
             </div>
           )}
@@ -724,46 +708,57 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             </div>
           )}
 
-          <div className="form-group">
-            <label htmlFor="support-category">
-              {intent === 'service' && 'Issue type'}
-              {intent === 'return' && 'Replacement reason'}
-              {intent === 'complaint' && 'Complaint category'}
-              <span className="form-label__required" aria-hidden> *</span>
-            </label>
-            <select
-              id="support-category"
-              className="catalog-select"
-              value={category}
-              onChange={e => setCategory(e.target.value)}
-            >
-              {categoryOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {intent === 'complaint' && (
+          {isGeneralSupport ? (
+            <fieldset className="form-group support-wizard__categories">
+              <legend className="support-wizard__categories-label">
+                Issue category
+                <span className="form-label__required" aria-hidden> *</span>
+              </legend>
+              <div className="support-wizard__categories-grid" role="radiogroup" aria-label="Issue category">
+                {COMPLAINT_CATEGORY_OPTIONS.map(option => {
+                  const selected = category === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      className={`support-wizard__category${selected ? ' is-selected' : ''}`}
+                      onClick={() => setCategory(option.value)}
+                      disabled={isBusy}
+                    >
+                      <span className="support-wizard__category-emoji" aria-hidden>{option.emoji}</span>
+                      <span className="support-wizard__category-label">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ) : (
             <div className="form-group">
-              <label htmlFor="support-subject">
-                Subject
+              <label htmlFor="support-category">
+                {intent === 'service' && 'Issue type'}
+                {intent === 'return' && 'Replacement reason'}
                 <span className="form-label__required" aria-hidden> *</span>
               </label>
-              <input
-                id="support-subject"
+              <select
+                id="support-category"
                 className="catalog-select"
-                value={subject}
-                onChange={e => setSubject(e.target.value)}
-                placeholder="Brief summary of your complaint"
-              />
+                value={category}
+                onChange={e => setCategory(e.target.value)}
+              >
+                {categoryOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
           <div className="form-group">
             <label htmlFor="support-description">
-              {intent === 'complaint' ? 'Full description' : 'Describe the problem'}
+              {isGeneralSupport ? 'Describe your issue' : 'Describe the problem'}
               <span className="form-label__required" aria-hidden> *</span>
             </label>
             <textarea
@@ -775,19 +770,27 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               placeholder={
                 intent === 'return'
                   ? 'When did the fault start? Any error messages or photos available?'
-                  : intent === 'complaint'
-                    ? 'What happened, when, and what outcome do you expect?'
+                  : isGeneralSupport
+                    ? 'Include relevant order numbers, dates, or names if helpful — invoice and product details are not required.'
                     : 'Symptoms, error codes, when it started, etc.'
               }
             />
           </div>
 
           <div className="form-group form-group--flush">
-            <SupportEvidencePicker
-              files={pendingFiles}
-              onChange={setPendingFiles}
-              disabled={isBusy}
-            />
+            {isGeneralSupport ? (
+              <SupportAttachmentPicker
+                files={pendingFiles}
+                onChange={setPendingFiles}
+                disabled={isBusy}
+              />
+            ) : (
+              <SupportEvidencePicker
+                files={pendingFiles}
+                onChange={setPendingFiles}
+                disabled={isBusy}
+              />
+            )}
           </div>
           </div>
 
@@ -816,8 +819,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               className="btn btn-primary btn-sm"
               disabled={isBusy}
             >
-              Next
-              <ArrowRight size={16} />
+              {isGeneralSupport ? (submitting ? 'Submitting…' : 'Submit') : 'Next'}
+              {!isGeneralSupport && <ArrowRight size={16} />}
             </button>
           </div>
         </form>

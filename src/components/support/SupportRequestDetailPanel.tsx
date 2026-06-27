@@ -1,30 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
-  Calendar,
-  CheckCircle2,
-  FileText,
-  LayoutGrid,
   Mail,
-  MessageSquare,
-  Package,
   PackageCheck,
   Phone,
-  Truck,
   User,
   Users,
-  Wrench,
 } from 'lucide-react';
-import { FIRM_NAME } from '../../constants/brand';
 import { fetchDealerById } from '../../lib/dealers';
-import { readCachedAllDealerInvoices, fetchAllDealerInvoices, formatInvoiceDate } from '../../lib/invoices';
-import { canManageSupportOps, isInternalOpsUser } from '../../lib/staffAccess';
+import { canManageSupportOps } from '../../lib/staffAccess';
 import { isSupportOpen } from '../../lib/supportStatus';
-import { formatSupportDetailOpenedOn, supportDetailStatusBadge } from '../../lib/supportRequestDisplay';
 import type { User as AppUser } from '../../types';
 import type { DealerSupportRequest, SupportOpenStage } from '../../types/dealer-support';
-import { SUPPORT_OPEN_STAGE_LABELS, SUPPORT_TYPE_LABELS } from '../../types/dealer-support';
+import { SUPPORT_OPEN_STAGE_LABELS } from '../../types/dealer-support';
 import { SupportAssigneeSelect } from './SupportAssigneeSelect';
+import { SupportRequestTicketInfo } from './SupportRequestTicketInfo';
 
 export interface SupportRequestDetailPanelProps {
   request: DealerSupportRequest;
@@ -33,14 +23,11 @@ export interface SupportRequestDetailPanelProps {
   onClose: () => void;
   error?: string;
   statusUpdating: boolean;
-  tracking: string;
-  onTrackingChange: (value: string) => void;
   resolutionNote: string;
   onResolutionNoteChange: (value: string) => void;
   staffStageOptions: SupportOpenStage[];
   canApproveCourier: boolean;
   canMarkReceived: boolean;
-  canDealerShip: boolean;
   canDealerCancel: boolean;
   onStageChange: (stage: SupportOpenStage) => void;
   onApproveCourier: () => void;
@@ -48,7 +35,6 @@ export interface SupportRequestDetailPanelProps {
   onResolve: () => void;
   onCancel: () => void;
   onDealerCancel: () => void;
-  onMarkShipped: () => void;
   onAdminDelete: () => void;
 }
 
@@ -88,14 +74,11 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
   onClose,
   error,
   statusUpdating,
-  tracking,
-  onTrackingChange,
   resolutionNote,
   onResolutionNoteChange,
   staffStageOptions,
   canApproveCourier,
   canMarkReceived,
-  canDealerShip,
   canDealerCancel,
   onStageChange,
   onApproveCourier,
@@ -103,12 +86,9 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
   onResolve,
   onCancel,
   onDealerCancel,
-  onMarkShipped,
   onAdminDelete,
 }) => {
   const [contact, setContact] = useState<TicketContact | null>(null);
-  const [invoiceDate, setInvoiceDate] = useState<string | null>(null);
-  const audience = isInternalOpsUser(user) ? 'staff' : 'dealer';
   const isStaff = canManageSupportOps(user);
 
   useEffect(() => {
@@ -151,32 +131,7 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
     };
   }, [open, isStaff, request.dealerId, request.dealerName, request.createdByName]);
 
-  useEffect(() => {
-    if (!open || !request.invoiceId) {
-      setInvoiceDate(null);
-      return undefined;
-    }
-
-    let cancelled = false;
-    const invoiceId = request.invoiceId;
-
-    const fromList = readCachedAllDealerInvoices(user?.uid)?.find(inv => inv.id === invoiceId)?.date ?? null;
-    if (fromList) setInvoiceDate(fromList);
-
-    void fetchAllDealerInvoices(user?.uid).then(invoices => {
-      if (cancelled) return;
-      const match = invoices.find(inv => inv.id === invoiceId);
-      setInvoiceDate(match?.date ?? fromList);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, request.invoiceId, user?.uid]);
-
-  if (!open) return null;
-
-  const statusBadge = supportDetailStatusBadge(request, audience);
+  if (!open || !user) return null;
 
   return (
     <>
@@ -198,140 +153,53 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
           </div>
         )}
 
-        <section className="support-detail-card support-detail-card--ticket-info">
-          <h3 className="support-detail-card__section-title">Ticket Information</h3>
-          <div className="support-detail-card__divider" aria-hidden />
+        <SupportRequestTicketInfo
+          request={request}
+          user={user}
+          showCancel={canDealerCancel}
+          statusUpdating={statusUpdating}
+          onCancel={onDealerCancel}
+        />
 
-          <div className="support-detail-info-list">
-            <InfoRow
-              icon={<LayoutGrid size={16} strokeWidth={2} />}
-              tone="purple"
-              label="Category"
-              value={SUPPORT_TYPE_LABELS[request.type]}
-            />
-            <InfoRow
-              icon={<Calendar size={16} strokeWidth={2} />}
-              tone="blue"
-              label="Opened on"
-              value={formatSupportDetailOpenedOn(request.createdAt)}
-            />
-            <InfoRow
-              icon={<CheckCircle2 size={16} strokeWidth={2} />}
-              tone="yellow"
-              label="Status"
-              value={statusBadge}
-            />
-            {request.product?.name && (
-              <InfoRow
-                icon={<Package size={16} strokeWidth={2} />}
-                tone="violet"
-                label="Product"
-                value={request.product.name}
-              />
-            )}
-            {request.invoiceNumber && (
-              <InfoRow
-                icon={<FileText size={16} strokeWidth={2} />}
-                tone="sky"
-                label="Invoice"
-                value={request.invoiceNumber}
-              />
-            )}
-            {invoiceDate && (
-              <InfoRow
-                icon={<Calendar size={16} strokeWidth={2} />}
-                tone="blue"
-                label="Invoice date"
-                value={formatInvoiceDate(invoiceDate)}
-              />
-            )}
-            {request.category && request.type !== 'chat' && (
-              <InfoRow
-                icon={<Wrench size={16} strokeWidth={2} />}
-                tone="orange"
-                label="Issue"
-                value={request.category}
-              />
-            )}
-            {request.subject && (
-              <InfoRow
-                icon={<MessageSquare size={16} strokeWidth={2} />}
-                tone="purple"
-                label="Subject"
-                value={request.subject}
-              />
-            )}
-            {request.courierTracking && (
-              <InfoRow
-                icon={<Truck size={16} strokeWidth={2} />}
-                tone="green"
-                label="Tracking"
-                value={request.courierTracking}
-              />
-            )}
-            {request.lifecycle === 'resolved' && request.resolutionSummary && (
-              <InfoRow
-                icon={<CheckCircle2 size={16} strokeWidth={2} />}
-                tone="green"
-                label="Resolution"
-                value={request.resolutionSummary}
-              />
-            )}
-          </div>
-
-          {isStaff && (contact?.company || contact?.contactName || contact?.phone || contact?.email) && (
-            <>
-              <div className="support-detail-card__divider" aria-hidden />
-              <div className="support-detail-info-list">
-                {contact?.company && (
-                  <InfoRow
-                    icon={<Users size={16} strokeWidth={2} />}
-                    tone="green"
-                    label="Customer / Dealer"
-                    value={contact.company}
-                  />
-                )}
-                {contact?.contactName && (
-                  <InfoRow
-                    icon={<User size={16} strokeWidth={2} />}
-                    tone="orange"
-                    label="Contact Person"
-                    value={contact.contactName}
-                  />
-                )}
-                {contact?.phone && (
-                  <InfoRow
-                    icon={<Phone size={16} strokeWidth={2} />}
-                    tone="amber"
-                    label="Phone"
-                    value={contact.phone}
-                  />
-                )}
-                {contact?.email && (
-                  <InfoRow
-                    icon={<Mail size={16} strokeWidth={2} />}
-                    tone="sky"
-                    label="Email"
-                    value={contact.email}
-                  />
-                )}
-              </div>
-            </>
-          )}
-
-          {canDealerCancel && (
-            <div className="support-detail-card__footer">
-              <button
-                type="button"
-                className="support-detail-card__cancel-btn"
-                disabled={statusUpdating}
-                onClick={onDealerCancel}
-              >
-                Cancel request
-              </button>
+        {isStaff && (contact?.company || contact?.contactName || contact?.phone || contact?.email) && (
+          <section className="support-detail-card support-detail-card--ticket-info">
+            <div className="support-detail-card__divider" aria-hidden />
+            <div className="support-detail-info-list">
+              {contact?.company && (
+                <InfoRow
+                  icon={<Users size={16} strokeWidth={2} />}
+                  tone="green"
+                  label="Customer / Dealer"
+                  value={contact.company}
+                />
+              )}
+              {contact?.contactName && (
+                <InfoRow
+                  icon={<User size={16} strokeWidth={2} />}
+                  tone="orange"
+                  label="Contact Person"
+                  value={contact.contactName}
+                />
+              )}
+              {contact?.phone && (
+                <InfoRow
+                  icon={<Phone size={16} strokeWidth={2} />}
+                  tone="amber"
+                  label="Phone"
+                  value={contact.phone}
+                />
+              )}
+              {contact?.email && (
+                <InfoRow
+                  icon={<Mail size={16} strokeWidth={2} />}
+                  tone="sky"
+                  label="Email"
+                  value={contact.email}
+                />
+              )}
             </div>
-          )}
-        </section>
+          </section>
+        )}
 
         {isStaff && isSupportOpen(request) && (
           <section className="support-detail-card support-detail-card--staff">
@@ -401,36 +269,6 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
                 placeholder="Brief summary for internal records"
               />
             </label>
-          </section>
-        )}
-
-        {canDealerShip && (
-          <section className="support-detail-card support-detail-card--ship">
-            <h3 className="support-detail-card__section-title">
-              <Truck size={17} aria-hidden />
-              Mark product as shipped
-            </h3>
-            <p className="support-detail-card__hint text-muted text-sm">
-              After you courier the product to {FIRM_NAME}, confirm shipment below. Add a tracking number if you have one.
-            </p>
-            <div className="support-detail-ship__form">
-              <input
-                type="text"
-                className="catalog-input"
-                value={tracking}
-                onChange={e => onTrackingChange(e.target.value)}
-                placeholder="Courier tracking number (optional)"
-                disabled={statusUpdating}
-              />
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={statusUpdating}
-                onClick={onMarkShipped}
-              >
-                I&apos;ve shipped the product
-              </button>
-            </div>
           </section>
         )}
 

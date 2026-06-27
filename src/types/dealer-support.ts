@@ -203,8 +203,8 @@ export const SUPPORT_INTENT_OPTIONS: Array<{
   {
     value: 'complaint',
     title: 'Other / Non-Product Complaint',
-    description: 'Issue with billing, delivery, order accuracy, service experience, or any other non-product related matter.',
-    hint: '',
+    description: 'General support for logistics, billing, orders, portal access, and other non-product matters.',
+    hint: 'Pick a category and describe your issue — no invoice or product required.',
   },
 ];
 
@@ -227,13 +227,27 @@ export const RETURN_REASON_OPTIONS = [
 ] as const;
 
 export const COMPLAINT_CATEGORY_OPTIONS = [
-  { value: 'billing', label: 'Billing or invoice dispute' },
-  { value: 'delivery', label: 'Late or missing delivery' },
-  { value: 'order', label: 'Wrong or incomplete order' },
-  { value: 'support_experience', label: 'Support response or communication quality' },
-  { value: 'warranty_process', label: 'Warranty or RMA process delay' },
-  { value: 'other', label: 'Other complaint' },
+  { value: 'logistics_delivery', label: 'Logistics & Delivery', emoji: '📦' },
+  { value: 'verification_stamping', label: 'Verification & Stamping', emoji: '⚖️' },
+  { value: 'orders_billing', label: 'Orders & Billing', emoji: '🧾' },
+  { value: 'spare_parts', label: 'Spare Parts', emoji: '🔩' },
+  { value: 'payments_accounts', label: 'Payments & Accounts', emoji: '💳' },
+  { value: 'service_experience', label: 'Service Experience', emoji: '👨‍🔧' },
+  { value: 'dealer_account', label: 'Dealer Account', emoji: '👤' },
+  { value: 'app_portal', label: 'App & Portal Support', emoji: '📱' },
+  { value: 'documents_certificates', label: 'Documents & Certificates', emoji: '📄' },
+  { value: 'marketing_media', label: 'Marketing & Media', emoji: '📢' },
+  { value: 'general_inquiry', label: 'General Inquiry', emoji: '💬' },
+  { value: 'other', label: 'Other', emoji: '❓' },
 ] as const;
+
+export function complaintCategoryDisplayLabel(value: string): string {
+  const match = COMPLAINT_CATEGORY_OPTIONS.find(
+    option => option.value === value || option.label === value,
+  );
+  if (match) return `${match.emoji} ${match.label}`;
+  return value;
+}
 
 export function supportCategoryValueFromStored(
   type: SupportRequestType,
@@ -248,5 +262,12 @@ export function supportCategoryValueFromStored(
           ? [{ value: 'general', label: 'General chat' }]
           : SERVICE_ISSUE_OPTIONS;
   const match = options.find(option => option.label === stored || option.value === stored);
-  return match?.value ?? options[0].value;
+  if (match) return match.value;
+  if (type === 'complaint') {
+    const legacy = COMPLAINT_CATEGORY_OPTIONS.find(
+      option => stored.includes(option.label),
+    );
+    if (legacy) return legacy.value;
+  }
+  return options[0].value;
 }
