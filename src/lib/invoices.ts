@@ -84,11 +84,11 @@ export async function fetchDealerInvoices(params: InvoiceListParams = {}): Promi
 }
 
 export async function fetchDealerInvoicesWithCache(
-  userId: string | undefined,
+  cacheKey: string | undefined,
   params: InvoiceListParams = {},
 ): Promise<InvoiceListResponse> {
   const res = await fetchDealerInvoices(params);
-  if (userId) setCachedInvoiceList(userId, params, res);
+  if (cacheKey) setCachedInvoiceList(cacheKey, params, res);
   return res;
 }
 
@@ -129,14 +129,20 @@ export function readCachedDealerInvoiceDashboard(
   return getCachedInvoiceDashboard(userId)?.data ?? null;
 }
 
-export async function fetchDealerInvoiceDetail(invoiceId: string): Promise<DealerInvoiceDetail> {
-  const callable = httpsCallable<{ invoiceId: string }, DealerInvoiceDetail>(
+export async function fetchDealerInvoiceDetail(
+  invoiceId: string,
+  options?: { customerId?: string },
+): Promise<DealerInvoiceDetail> {
+  const callable = httpsCallable<{ invoiceId: string; customerId?: string }, DealerInvoiceDetail>(
     functions,
     'getDealerInvoiceDetail',
     { timeout: 60_000 },
   );
   try {
-    const result = await callable({ invoiceId });
+    const result = await callable({
+      invoiceId,
+      customerId: options?.customerId,
+    });
     return enrichInvoiceDetailImages(result.data);
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
@@ -144,11 +150,12 @@ export async function fetchDealerInvoiceDetail(invoiceId: string): Promise<Deale
 }
 
 export async function fetchDealerInvoiceDetailWithCache(
-  userId: string | undefined,
+  cacheKey: string | undefined,
   invoiceId: string,
+  options?: { customerId?: string },
 ): Promise<DealerInvoiceDetail> {
-  const res = await fetchDealerInvoiceDetail(invoiceId);
-  if (userId) setCachedInvoiceDetail(userId, invoiceId, res);
+  const res = await fetchDealerInvoiceDetail(invoiceId, options);
+  if (cacheKey) setCachedInvoiceDetail(cacheKey, invoiceId, res);
   return res;
 }
 

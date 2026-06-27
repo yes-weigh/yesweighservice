@@ -413,6 +413,41 @@ service cloud.firestore {
         );
     }
 
+    function validOpsSupportDraftCreate() {
+      let data = request.resource.data;
+      return isOpsUser()
+        && data.type is string
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && data.requestNumber is string
+        && data.requestNumber.size() > 0
+        && isSupportDraftData(data)
+        && data.category is string
+        && data.description is string
+        && data.createdAt is string
+        && data.createdByUid == request.auth.uid
+        && data.createdByName is string
+        && data.dealerId is string
+        && data.dealerName is string
+        && data.zohoCustomerId is string
+        && data.createdOnBehalfOf == true;
+    }
+
+    function validOpsSupportDraftUpdate() {
+      let data = request.resource.data;
+      return isOpsUser()
+        && resource.data.createdOnBehalfOf == true
+        && isSupportDraftData(resource.data)
+        && isSupportDraftData(data)
+        && dealerSupportImmutableFieldsMatch()
+        && data.type is string
+        && (data.type == 'service' || data.type == 'return' || data.type == 'complaint')
+        && data.category is string
+        && data.description is string
+        && data.updatedAt is string
+        && data.createdOnBehalfOf == true
+        && data.zohoCustomerId is string;
+    }
+
     function dealerSupportImmutableFieldsMatch() {
       let data = request.resource.data;
       let prev = resource.data;
@@ -493,12 +528,15 @@ service cloud.firestore {
       );
 
       allow create: if isActiveUser()
-        && (isDealer() || isDealerStaff())
-        && (validDealerSupportDraftCreate() || validDealerSupportChatCreate());
+        && (
+          ((isDealer() || isDealerStaff()) && (validDealerSupportDraftCreate() || validDealerSupportChatCreate()))
+          || validOpsSupportDraftCreate()
+        );
 
       allow update: if isActiveUser() && (
         isOpsUser()
         || validDealerSupportMessageMetaUpdate()
+        || validOpsSupportDraftUpdate()
         || (
           isSupportRequestDealerAccess(resource.data)
           && validDealerSupportDraftUpdate()

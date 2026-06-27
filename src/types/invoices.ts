@@ -60,6 +60,8 @@ export interface InvoiceListParams {
   status?: InvoiceStatus | 'all' | '';
   sortField?: 'invoiceNumber' | 'date' | 'dueDate' | 'total' | 'balance' | 'status';
   sortDir?: 'asc' | 'desc';
+  /** Ops only — load invoices for a specific Zoho customer. */
+  customerId?: string;
 }
 
 export interface InvoiceListResponse {

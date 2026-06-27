@@ -108,6 +108,19 @@ export function canManageSupportOps(user: User | null | undefined): boolean {
   return hasStaffPermission(user, 'support.manage');
 }
 
+export function canCreateSupportOnBehalf(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === 'super_admin') return true;
+  if (user.role !== 'staff') return false;
+  return hasAnyStaffPermission(user, [
+    'support.view',
+    'support.manage',
+    'support.service',
+    'support.return',
+    'support.complaint',
+  ]);
+}
+
 export function allowedSupportTypesForUser(user: User | null | undefined): SupportRequestType[] | 'all' {
   if (!user) return [];
   if (user.role === 'super_admin') return 'all';

@@ -22,6 +22,7 @@ import type { User } from '../types';
 import { normalizeRole } from '../types';
 import {
   allowedSupportTypesForUser,
+  canCreateSupportOnBehalf,
   canManageSupportOps,
   isInternalOpsUser,
 } from '../lib/staffAccess';
@@ -34,6 +35,7 @@ import type {
   SupportLifecycle,
   SupportMessage,
   SupportMessageReceiptStatus,
+  SupportOnBehalfDealer,
   SupportOpenStage,
   SupportRequestType,
 } from '../types/dealer-support';
@@ -138,6 +140,60 @@ function resolveDealerId(user: User): string {
   return user.uid;
 }
 
+function resolveSupportDealerFields(
+  user: User,
+  onBehalfOf?: SupportOnBehalfDealer,
+): {
+  dealerId: string;
+  dealerName: string;
+  zohoCustomerId: string | null;
+  createdOnBehalfOf: boolean;
+} {
+  if (onBehalfOf) {
+    const zohoCustomerId = onBehalfOf.zohoCustomerId.trim();
+    const portalUserId = onBehalfOf.portalUserId?.trim() || null;
+    return {
+      dealerId: portalUserId || zohoCustomerId,
+      dealerName: onBehalfOf.dealerName.trim() || 'Dealer',
+      zohoCustomerId,
+      createdOnBehalfOf: true,
+    };
+  }
+  return {
+    dealerId: resolveDealerId(user),
+    dealerName: user.displayName,
+    zohoCustomerId: null,
+    createdOnBehalfOf: false,
+  };
+}
+
+function assertOnBehalfAccess(user: User, onBehalfOf?: SupportOnBehalfDealer): void {
+  if (!onBehalfOf) return;
+  if (!canCreateSupportOnBehalf(user)) {
+    throw new Error('You do not have permission to create requests on behalf of a dealer.');
+  }
+  if (!onBehalfOf.zohoCustomerId.trim()) {
+    throw new Error('Select a dealer to continue.');
+  }
+  if (!onBehalfOf.dealerName.trim()) {
+    throw new Error('Dealer name is required.');
+  }
+}
+
+function resolveSupportTimelineAt(occurredAt?: string): string {
+  if (!occurredAt?.trim()) return new Date().toISOString();
+  const parsed = new Date(occurredAt);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('Enter a valid request date.');
+  }
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+  if (parsed.getTime() > todayEnd.getTime()) {
+    throw new Error('Request date cannot be in the future.');
+  }
+  return parsed.toISOString();
+}
+
 function buildRequestNumber(type: SupportRequestType): string {
   const year = new Date().getFullYear();
   const suffix = String(Math.floor(Math.random() * 900000) + 100000);
@@ -238,6 +294,8 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
     createdByName: String(data.createdByName ?? ''),
     dealerId: String(data.dealerId ?? ''),
     dealerName: data.dealerName ? String(data.dealerName) : null,
+    zohoCustomerId: data.zohoCustomerId ? String(data.zohoCustomerId) : null,
+    createdOnBehalfOf: data.createdOnBehalfOf === true,
     assignedToUid: data.assignedToUid ? String(data.assignedToUid) : null,
     assignedToName: data.assignedToName ? String(data.assignedToName) : null,
     assignedAt: data.assignedAt ? String(data.assignedAt) : null,
@@ -317,6 +375,7 @@ export async function sendSupportMessage(
   requestId: string,
   input: SendSupportMessageInput,
   onProgress?: (progress: SupportSubmitProgress) => void,
+  options?: { timelineAt?: string },
 ): Promise<SupportMessage> {
   const text = input.text.trim();
   const files = input.files ?? [];
@@ -329,7 +388,7 @@ export async function sendSupportMessage(
         requestId,
         { text: '', files: [files[index]], isInitial: true },
         onProgress,
-        { updateRequestMeta: false, createdAtOffsetMs: index },
+        { updateRequestMeta: false, createdAtOffsetMs: index, timelineAt: options?.timelineAt },
       );
     }
     if (text) {
@@ -338,16 +397,17 @@ export async function sendSupportMessage(
         requestId,
         { text, files: [], isInitial: true },
         onProgress,
-        { updateRequestMeta: true, createdAtOffsetMs: files.length },
+        { updateRequestMeta: true, createdAtOffsetMs: files.length, timelineAt: options?.timelineAt },
       );
     } else if (lastMessage) {
-      await touchSupportRequestAfterMessage(user, requestId, lastMessage, true);
+      await touchSupportRequestAfterMessage(user, requestId, lastMessage, true, options?.timelineAt);
     }
     return lastMessage!;
   }
 
   return sendSupportMessageOnce(user, requestId, { ...input, text, files }, onProgress, {
     updateRequestMeta: true,
+    timelineAt: options?.timelineAt,
   });
 }
 
@@ -356,11 +416,12 @@ async function touchSupportRequestAfterMessage(
   requestId: string,
   message: SupportMessage,
   isInitial: boolean,
+  timelineAt?: string,
 ): Promise<void> {
   const request = await getSupportRequest(requestId);
   if (!request) return;
 
-  const now = new Date().toISOString();
+  const now = timelineAt ?? new Date().toISOString();
   const updates: Record<string, string | null> = {
     updatedAt: now,
     lastMessageAt: now,
@@ -391,7 +452,7 @@ async function sendSupportMessageOnce(
   requestId: string,
   input: SendSupportMessageInput,
   onProgress?: (progress: SupportSubmitProgress) => void,
-  options?: { updateRequestMeta?: boolean; createdAtOffsetMs?: number },
+  options?: { updateRequestMeta?: boolean; createdAtOffsetMs?: number; timelineAt?: string },
 ): Promise<SupportMessage> {
   const request = await getSupportRequest(requestId);
   if (!request) throw new Error('Support request not found.');
@@ -424,7 +485,10 @@ async function sendSupportMessageOnce(
     percent: 96,
   });
 
-  const now = new Date(Date.now() + (options?.createdAtOffsetMs ?? 0)).toISOString();
+  const baseMs = options?.timelineAt
+    ? new Date(options.timelineAt).getTime()
+    : Date.now();
+  const now = new Date(baseMs + (options?.createdAtOffsetMs ?? 0)).toISOString();
   const isInitial = input.isInitial === true;
 
   const updates: Record<string, string | null> = options?.updateRequestMeta === false
@@ -512,8 +576,10 @@ function buildSupportRequestDocument(
     updatedAt: string;
     lastMessageAt?: string | null;
     lastMessagePreview?: string | null;
+    onBehalfOf?: SupportOnBehalfDealer;
   },
 ) {
+  const dealerFields = resolveSupportDealerFields(user, input.onBehalfOf);
   return {
     type: input.type,
     requestNumber: input.requestNumber,
@@ -533,8 +599,10 @@ function buildSupportRequestDocument(
     lastMessagePreview: input.lastMessagePreview ?? null,
     createdByUid: user.uid,
     createdByName: user.displayName,
-    dealerId: resolveDealerId(user),
-    dealerName: user.displayName,
+    dealerId: dealerFields.dealerId,
+    dealerName: dealerFields.dealerName,
+    zohoCustomerId: dealerFields.zohoCustomerId,
+    createdOnBehalfOf: dealerFields.createdOnBehalfOf,
     assignedToUid: null,
     assignedToName: null,
     assignedAt: null,
@@ -546,11 +614,12 @@ function buildSupportRequestDocument(
   };
 }
 
-async function finalizeSupportSubmit(requestId: string): Promise<void> {
+async function finalizeSupportSubmit(requestId: string, timelineAt?: string): Promise<void> {
+  const stamp = timelineAt ?? new Date().toISOString();
   await updateDoc(doc(db, 'dealerSupportRequests', requestId), {
     lifecycle: 'open',
     openStage: 'submitted',
-    updatedAt: new Date().toISOString(),
+    updatedAt: stamp,
   });
 }
 
@@ -576,7 +645,8 @@ export async function saveSupportRequestDraft(
   user: User,
   input: SaveSupportRequestDraftInput,
 ): Promise<DealerSupportRequest> {
-  const now = new Date().toISOString();
+  assertOnBehalfAccess(user, input.onBehalfOf);
+  const now = resolveSupportTimelineAt(input.occurredAt);
 
   if (input.requestId) {
     const existing = await getSupportRequest(input.requestId);
@@ -624,6 +694,7 @@ export async function saveSupportRequestDraft(
     notes: input.notes,
     createdAt: now,
     updatedAt: now,
+    onBehalfOf: input.onBehalfOf,
   });
 
   const docRef = await addDoc(collection(db, 'dealerSupportRequests'), data);
@@ -635,7 +706,8 @@ export async function createSupportRequest(
   input: CreateSupportRequestInput,
   onProgress?: (progress: SupportSubmitProgress) => void,
 ): Promise<DealerSupportRequest> {
-  const now = new Date().toISOString();
+  assertOnBehalfAccess(user, input.onBehalfOf);
+  const timelineAt = resolveSupportTimelineAt(input.occurredAt);
   const description = input.description.trim();
 
   onProgress?.({
@@ -672,7 +744,14 @@ export async function createSupportRequest(
       description,
       notes: input.notes,
       createdAt: existing.createdAt,
-      updatedAt: now,
+      updatedAt: timelineAt,
+      onBehalfOf: input.onBehalfOf ?? (existing.createdOnBehalfOf && existing.zohoCustomerId
+        ? {
+            zohoCustomerId: existing.zohoCustomerId,
+            dealerName: existing.dealerName ?? 'Dealer',
+            portalUserId: existing.dealerId !== existing.zohoCustomerId ? existing.dealerId : null,
+          }
+        : undefined),
     });
 
     const draftRef = doc(db, 'dealerSupportRequests', input.requestId);
@@ -681,8 +760,8 @@ export async function createSupportRequest(
       text: description,
       files: input.attachmentFiles,
       isInitial: true,
-    }, onProgress);
-    await finalizeSupportSubmit(input.requestId);
+    }, onProgress, { timelineAt });
+    await finalizeSupportSubmit(input.requestId, timelineAt);
     onProgress?.({ phase: 'finalizing', label: 'Done', percent: 100 });
     return (await getSupportRequest(input.requestId))!;
   }
@@ -704,8 +783,9 @@ export async function createSupportRequest(
     subject: input.subject,
     description,
     notes: input.notes,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: timelineAt,
+    updatedAt: timelineAt,
+    onBehalfOf: input.onBehalfOf,
   });
 
   const docRef = await addDoc(collection(db, 'dealerSupportRequests'), data);
@@ -715,8 +795,8 @@ export async function createSupportRequest(
       text: description,
       files: input.attachmentFiles,
       isInitial: true,
-    }, onProgress);
-    await finalizeSupportSubmit(docRef.id);
+    }, onProgress, { timelineAt });
+    await finalizeSupportSubmit(docRef.id, timelineAt);
   } catch (err) {
     await deleteDoc(docRef);
     throw err;
@@ -839,14 +919,19 @@ export async function fetchSupportRequestsForInvoice(
   const snap = await getDocs(
     query(
       collection(db, 'dealerSupportRequests'),
-      where('dealerId', '==', dealerId),
       where('invoiceId', '==', invoiceId),
       orderBy('updatedAt', 'desc'),
-      limit(20),
+      limit(30),
     ),
   );
   return excludeDraftSupportRequests(
-    snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data())),
+    snap.docs
+      .map(docSnap => mapSupportRequest(docSnap.id, docSnap.data()))
+      .filter(
+        request =>
+          request.dealerId === dealerId
+          || request.zohoCustomerId === dealerId,
+      ),
   );
 }
 

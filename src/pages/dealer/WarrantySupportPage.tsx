@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTopBarAction } from '../../context/PageHeaderContext';
 import { fetchDealerSupportRequests, supportBasePath, supportDetailPath } from '../../lib/dealerSupport';
 import { StaffSupportQueue } from '../../components/support/StaffSupportQueue';
-import { isInternalOpsUser } from '../../lib/staffAccess';
+import { isInternalOpsUser, canCreateSupportOnBehalf } from '../../lib/staffAccess';
 import type {
   DealerSupportRequest,
   SupportProductDraft,
@@ -31,6 +31,7 @@ export const WarrantySupportPage: React.FC = () => {
   const state = (location.state as LocationState | null) ?? {};
 
   const isOps = isInternalOpsUser(user);
+  const canCreateOnBehalf = canCreateSupportOnBehalf(user);
   const canUseSupport = user?.role === 'dealer' || user?.role === 'dealer_staff';
   const supportPath = user && canUseSupport ? supportBasePath(user.role) : '/dealer/warranty-support';
 
@@ -127,7 +128,7 @@ export const WarrantySupportPage: React.FC = () => {
     [startNewRequest],
   );
 
-  useTopBarAction(topBarNewRequest, canUseSupport && !showWizard);
+  useTopBarAction(topBarNewRequest, (canUseSupport || canCreateOnBehalf) && !showWizard);
 
   if (!canUseSupport && !isOps) {
     return (
@@ -144,10 +145,34 @@ export const WarrantySupportPage: React.FC = () => {
   if (isOps && user) {
     return (
       <div className="page-content fade-in warranty-support-page">
-        <p className="text-muted text-sm warranty-support-page__intro">
-          Review dealer tickets, chat with attachments, and update status.
-        </p>
-        <StaffSupportQueue />
+        {showWizard ? (
+          <SupportWizard
+            user={user}
+            productDraft={null}
+            opsCreateMode={canCreateOnBehalf}
+            onCancel={closeWizard}
+            onSuccess={handleWizardSuccess}
+          />
+        ) : (
+          <>
+            <div className="warranty-support-page__ops-bar">
+              <p className="text-muted text-sm warranty-support-page__intro">
+                Review dealer tickets or create a backdated request for any Zoho dealer.
+              </p>
+              {canCreateOnBehalf && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={startNewRequest}
+                >
+                  <Plus size={16} />
+                  New request
+                </button>
+              )}
+            </div>
+            <StaffSupportQueue />
+          </>
+        )}
       </div>
     );
   }

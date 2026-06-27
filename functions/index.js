@@ -91,7 +91,7 @@ const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
 const SUPER_ADMIN_ROLES = new Set(['super_admin']);
-const DEALER_INVOICE_ROLES = new Set(['dealer', 'dealer_staff']);
+const DEALER_INVOICE_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 
 function zohoSecrets() {
   return {
@@ -640,6 +640,7 @@ export const getDealerInvoiceDetail = onCall(
         uid,
         role,
         invoiceId,
+        request.data ?? {},
       );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not load invoice.');

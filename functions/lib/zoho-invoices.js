@@ -72,8 +72,14 @@ export async function getDealerInvoiceDashboard(_secrets, _orgId, uid, role) {
   };
 }
 
-export async function getDealerInvoiceDetail(_secrets, _orgId, uid, role, invoiceId) {
-  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+export async function getDealerInvoiceDetail(_secrets, _orgId, uid, role, invoiceId, query = {}) {
+  const requestedCustomerId = String(query.customerId ?? '').trim();
+  let customerId;
+  if (requestedCustomerId && (role === 'super_admin' || role === 'staff')) {
+    customerId = requestedCustomerId;
+  } else {
+    customerId = await resolveZohoCustomerIdForUser(uid, role);
+  }
   const detail = await readInvoiceDetailFromFirestore(customerId, invoiceId);
   if (!detail) {
     throw new Error('Invoice not found.');
@@ -96,7 +102,13 @@ export async function downloadAdminInvoiceDocument(secrets, orgId, customerId, i
 }
 
 export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}) {
-  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+  const requestedCustomerId = String(query.customerId ?? '').trim();
+  let customerId;
+  if (requestedCustomerId && (role === 'super_admin' || role === 'staff')) {
+    customerId = requestedCustomerId;
+  } else {
+    customerId = await resolveZohoCustomerIdForUser(uid, role);
+  }
 
   const status = String(query.status ?? 'all').trim().toLowerCase();
   const searchText = String(query.q ?? '').trim();

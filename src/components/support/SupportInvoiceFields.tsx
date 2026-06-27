@@ -65,7 +65,8 @@ function lineItemToDraft(
 }
 
 interface InvoiceAutocompleteProps {
-  userId: string;
+  cacheKey: string;
+  customerId?: string;
   value: SupportInvoicePick | null;
   onChange: (pick: SupportInvoicePick | null) => void;
   required?: boolean;
@@ -76,7 +77,8 @@ interface InvoiceAutocompleteProps {
 }
 
 export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
-  userId,
+  cacheKey,
+  customerId,
   value,
   onChange,
   required = false,
@@ -104,7 +106,8 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
 
     const load = async () => {
       try {
-        const res = await fetchDealerInvoicesWithCache(userId, {
+        const res = await fetchDealerInvoicesWithCache(cacheKey, {
+          customerId,
           q: debouncedQuery.trim() || undefined,
           limit: 12,
           sortField: 'date',
@@ -122,7 +125,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, disabled, open, userId]);
+  }, [cacheKey, customerId, debouncedQuery, disabled, open]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -221,7 +224,8 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
 };
 
 interface SupportInvoiceProductPickerProps {
-  userId: string;
+  cacheKey: string;
+  customerId?: string;
   value: SupportProductDraft | null;
   onChange: (draft: SupportProductDraft | null) => void;
   onNext?: () => void;
@@ -239,7 +243,8 @@ function isExcludedSupportLineItem(
 }
 
 export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerProps> = ({
-  userId,
+  cacheKey,
+  customerId,
   value,
   onChange,
   onNext,
@@ -271,7 +276,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
     setLoadingItems(true);
     setItemsError('');
 
-    void fetchDealerInvoiceDetailWithCache(userId, invoice.invoiceId)
+    void fetchDealerInvoiceDetailWithCache(cacheKey, invoice.invoiceId, { customerId })
       .then(detail => {
         if (cancelled) return;
         setInvoiceDetail(detail);
@@ -291,7 +296,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
     return () => {
       cancelled = true;
     };
-  }, [invoice, userId, requestType]);
+  }, [cacheKey, customerId, invoice, requestType]);
 
   useEffect(() => {
     const query = invoice?.matchedSerialQuery?.trim();
@@ -330,7 +335,8 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
   return (
     <div className="support-wizard__fields">
       <SupportInvoiceAutocomplete
-        userId={userId}
+        cacheKey={cacheKey}
+        customerId={customerId}
         value={invoice}
         onChange={handleInvoiceChange}
         required

@@ -43,10 +43,12 @@ import { validateEvidenceFiles, supportUploadErrorMessage, type SupportSubmitPro
 import { SupportWizardSubmitProgress } from './SupportWizardSubmitProgress';
 import { SupportInvoiceProductPicker } from './SupportInvoiceFields';
 import { SupportDeclarationStep } from './SupportDeclarationStep';
+import { dateInputValueFromIso, isoFromDateInput, SupportDealerPicker } from './SupportDealerPicker';
 import { SUPPORT_DECLARATION_TITLE } from '../../constants/supportDeclaration';
 import type { PendingSupportFile } from '../../lib/supportAttachments';
+import type { SupportOnBehalfDealer } from '../../types/dealer-support';
 
-type WizardStep = 'intent' | 'product' | 'details' | 'declaration' | 'success';
+type WizardStep = 'dealer' | 'intent' | 'product' | 'details' | 'declaration' | 'success';
 
 function requestToProductDraft(request: DealerSupportRequest): SupportProductDraft | null {
   if (!request.invoiceId || !request.invoiceNumber || !request.product?.lineItemId) {
@@ -65,11 +67,13 @@ function requestToProductDraft(request: DealerSupportRequest): SupportProductDra
 }
 
 function initialWizardStep(
+  opsCreateMode: boolean,
   initialIntent?: SupportRequestType | null,
   productDraft?: SupportProductDraft | null,
   resumeDraft?: DealerSupportRequest | null,
 ): WizardStep {
   if (resumeDraft) return 'details';
+  if (opsCreateMode) return 'dealer';
   if (productDraft && initialIntent) return 'details';
   if (initialIntent === 'complaint') return 'details';
   if (initialIntent) return 'product';
@@ -81,6 +85,7 @@ function progressStepState(
   target: 1 | 2 | 3,
 ): 'is-active' | 'is-done' | '' {
   const order: Record<WizardStep, number> = {
+    dealer: 0,
     intent: 1,
     product: 2,
     details: 3,
@@ -98,6 +103,7 @@ interface SupportWizardProps {
   productDraft: SupportProductDraft | null;
   initialIntent?: SupportRequestType | null;
   resumeDraft?: DealerSupportRequest | null;
+  opsCreateMode?: boolean;
   onCancel: () => void;
   onSuccess: (requestNumber: string, type: SupportRequestType, requestId: string) => void;
   onDraftSaved?: (requestNumber: string, requestId: string) => void;
@@ -119,12 +125,13 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   productDraft,
   initialIntent,
   resumeDraft,
+  opsCreateMode = false,
   onCancel,
   onSuccess,
   onDraftSaved,
 }) => {
   const [step, setStep] = useState<WizardStep>(() =>
-    initialWizardStep(initialIntent, productDraft, resumeDraft),
+    initialWizardStep(opsCreateMode, initialIntent, productDraft, resumeDraft),
   );
   const [intent, setIntent] = useState<SupportRequestType | null>(
     resumeDraft?.type ?? initialIntent ?? null,
@@ -152,6 +159,17 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [startingChat, setStartingChat] = useState(false);
   const [declarationAgreed, setDeclarationAgreed] = useState(false);
   const [submittedRequest, setSubmittedRequest] = useState<DealerSupportRequest | null>(null);
+  const [onBehalfDealer, setOnBehalfDealer] = useState<SupportOnBehalfDealer | null>(() => {
+    if (!resumeDraft?.createdOnBehalfOf || !resumeDraft.zohoCustomerId) return null;
+    return {
+      zohoCustomerId: resumeDraft.zohoCustomerId,
+      dealerName: resumeDraft.dealerName ?? 'Dealer',
+      portalUserId: resumeDraft.dealerId !== resumeDraft.zohoCustomerId ? resumeDraft.dealerId : null,
+    };
+  });
+  const [occurredAtDate, setOccurredAtDate] = useState(() =>
+    dateInputValueFromIso(resumeDraft?.createdAt ?? new Date().toISOString()),
+  );
   const confirm = useConfirm();
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -170,6 +188,21 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
   const needsProduct = intent === 'service' || intent === 'return';
   const isGeneralSupport = intent === 'complaint';
+  const invoiceCacheKey = onBehalfDealer?.zohoCustomerId ?? user.uid;
+  const invoiceCustomerId = onBehalfDealer?.zohoCustomerId;
+
+  const handleDealerNext = () => {
+    if (!onBehalfDealer) {
+      setError('Select a dealer to continue.');
+      return;
+    }
+    if (!occurredAtDate) {
+      setError('Select the request date.');
+      return;
+    }
+    setError('');
+    setStep('intent');
+  };
 
   const selectIntent = (value: SupportRequestType) => {
     setIntent(value);
@@ -217,6 +250,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     return {
       type: intent!,
       requestId: draftRequestId || undefined,
+      onBehalfOf: opsCreateMode ? onBehalfDealer ?? undefined : undefined,
+      occurredAt: opsCreateMode ? isoFromDateInput(occurredAtDate) : undefined,
       invoiceId: isGeneralSupport ? null : selection?.invoiceId ?? null,
       invoiceNumber: isGeneralSupport ? null : selection?.invoiceNumber ?? null,
       salesOrderNumber: isGeneralSupport ? null : selection?.salesOrderNumber ?? null,
@@ -292,7 +327,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setError('Enter the serial number or MAC ID.');
       return false;
     }
-    if (!isGeneralSupport) {
+    if (!isGeneralSupport && !opsCreateMode) {
       const evidenceError = validateEvidenceFiles(pendingFiles);
       if (evidenceError) {
         setError(evidenceError);
@@ -306,7 +341,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     e.preventDefault();
     if (!validateDetails()) return;
     setError('');
-    if (isGeneralSupport) {
+    if (isGeneralSupport || opsCreateMode) {
       void submitRequestRef.current();
       return;
     }
@@ -359,7 +394,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       return submittedRequest?.requestNumber ?? submittedRequestNumber ?? 'Request submitted';
     }
     if (step === 'declaration') return SUPPORT_DECLARATION_TITLE;
-    if (step === 'intent') return 'New request';
+    if (step === 'dealer') return 'Dealer & date';
+    if (step === 'intent') return opsCreateMode ? 'Request type' : 'New request';
     if (step === 'product') return needsProduct ? 'Invoice & product' : 'Link invoice';
     if (isGeneralSupport) return 'General support';
     return 'Request details';
@@ -520,16 +556,18 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     <div className="support-wizard">
       <div
         className={`support-wizard__progress support-wizard__progress--three${
-          step === 'intent'
+          step === 'dealer'
+          || step === 'intent'
           || step === 'declaration'
-          || (step === 'details' && isGeneralSupport)
+          || (step === 'details' && (isGeneralSupport || opsCreateMode))
             ? ' support-wizard__progress--hidden'
             : ''
         }`}
         aria-hidden={
-          step === 'intent'
+          step === 'dealer'
+          || step === 'intent'
           || step === 'declaration'
-          || (step === 'details' && isGeneralSupport)
+          || (step === 'details' && (isGeneralSupport || opsCreateMode))
         }
       >
         <span className={progressStepState(step, 1)}>1</span>
@@ -540,6 +578,44 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       </div>
 
       {error && <p className="support-wizard__error">{error}</p>}
+
+      {step === 'dealer' && opsCreateMode && (
+        <section className="support-wizard__step support-wizard__step--details panel glass">
+          <div className="support-wizard__step-body">
+            <h3 className="support-wizard__question">Who is this request for?</h3>
+            <p className="text-sm text-muted support-wizard__ops-note">
+              Create a backdated service request for any Zoho dealer — they do not need a portal login.
+            </p>
+            <SupportDealerPicker
+              value={onBehalfDealer}
+              onChange={setOnBehalfDealer}
+              disabled={isBusy}
+            />
+            <div className="form-group">
+              <label htmlFor="support-occurred-at">Request date</label>
+              <input
+                id="support-occurred-at"
+                type="date"
+                className="catalog-select"
+                value={occurredAtDate}
+                max={dateInputValueFromIso(new Date().toISOString())}
+                onChange={e => setOccurredAtDate(e.target.value)}
+                disabled={isBusy}
+                required
+              />
+            </div>
+          </div>
+          <div className="support-wizard__actions support-wizard__actions--dock">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={isBusy}>
+              Cancel
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={handleDealerNext} disabled={isBusy}>
+              Continue
+              <ArrowRight size={16} />
+            </button>
+          </div>
+        </section>
+      )}
 
       {step === 'intent' && (
         <section className="support-wizard__intent">
@@ -592,6 +668,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             })}
           </div>
 
+          {!opsCreateMode && (
           <button
             type="button"
             className="support-wizard__option support-wizard__option--chat"
@@ -608,7 +685,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             </span>
             <ChevronRight size={20} className="support-wizard__option-chevron" aria-hidden />
           </button>
+          )}
 
+          {!opsCreateMode && (
           <div className="support-wizard__help-footer">
             <h3 className="support-wizard__help-title">Need help choosing?</h3>
             <Link
@@ -623,6 +702,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               <ChevronRight size={18} className="support-wizard__guidelines-link-chevron" aria-hidden />
             </Link>
           </div>
+          )}
         </section>
       )}
 
@@ -648,7 +728,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
             {!productDraft && (
               <SupportInvoiceProductPicker
-                userId={user.uid}
+                cacheKey={invoiceCacheKey}
+                customerId={invoiceCustomerId}
                 value={productSelection}
                 onChange={setProductSelection}
                 onNext={handleProductNext}
@@ -810,7 +891,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => void handleSaveDraft()}
-              disabled={isBusy}
+              disabled={isBusy || opsCreateMode}
             >
               {savingDraft ? 'Saving…' : 'Save draft'}
             </button>
@@ -819,8 +900,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               className="btn btn-primary btn-sm"
               disabled={isBusy}
             >
-              {isGeneralSupport ? (submitting ? 'Submitting…' : 'Submit') : 'Next'}
-              {!isGeneralSupport && <ArrowRight size={16} />}
+              {isGeneralSupport || opsCreateMode ? (submitting ? 'Submitting…' : 'Submit') : 'Next'}
+              {!isGeneralSupport && !opsCreateMode && <ArrowRight size={16} />}
             </button>
           </div>
         </form>

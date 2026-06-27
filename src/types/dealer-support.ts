@@ -52,6 +52,8 @@ export interface DealerSupportRequest {
   createdByName: string;
   dealerId: string;
   dealerName: string | null;
+  zohoCustomerId: string | null;
+  createdOnBehalfOf: boolean;
   assignedToUid: string | null;
   assignedToName: string | null;
   assignedAt: string | null;
@@ -113,9 +115,18 @@ export interface SupportAssignee {
   role: string;
 }
 
+export interface SupportOnBehalfDealer {
+  zohoCustomerId: string;
+  dealerName: string;
+  portalUserId?: string | null;
+}
+
 export interface CreateSupportRequestInput {
   type: SupportRequestType;
   requestId?: string;
+  onBehalfOf?: SupportOnBehalfDealer;
+  /** When set (ops backdated entry), used for createdAt and initial message timestamps. */
+  occurredAt?: string;
   invoiceId?: string | null;
   invoiceNumber?: string | null;
   salesOrderNumber?: string | null;
@@ -134,6 +145,8 @@ export interface CreateSupportRequestInput {
 
 export interface SaveSupportRequestDraftInput {
   requestId?: string;
+  onBehalfOf?: SupportOnBehalfDealer;
+  occurredAt?: string;
   type: SupportRequestType;
   invoiceId?: string | null;
   invoiceNumber?: string | null;
