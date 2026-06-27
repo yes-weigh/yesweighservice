@@ -249,6 +249,28 @@ export function complaintCategoryDisplayLabel(value: string): string {
   return value;
 }
 
+export function complaintCategoryEmoji(stored: string | null | undefined): string | null {
+  if (!stored?.trim()) return null;
+  const trimmed = stored.trim();
+
+  const match = COMPLAINT_CATEGORY_OPTIONS.find(
+    option =>
+      option.value === trimmed
+      || option.label === trimmed
+      || trimmed === `${option.emoji} ${option.label}`
+      || trimmed.startsWith(`${option.emoji} `)
+      || trimmed.includes(option.label),
+  );
+  if (match) return match.emoji;
+
+  const leading = [...trimmed][0];
+  if (leading && /\p{Extended_Pictographic}/u.test(leading)) {
+    return leading;
+  }
+
+  return null;
+}
+
 export function supportCategoryValueFromStored(
   type: SupportRequestType,
   stored: string,

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ChevronRight, Package } from 'lucide-react';
 import { SupportChatLogo } from './SupportChatLogo';
-import type { DealerSupportRequest } from '../../types/dealer-support';
+import { complaintCategoryEmoji, type DealerSupportRequest } from '../../types/dealer-support';
 import {
   formatSupportDaysAgo,
   formatSupportInvoiceListDate,
@@ -31,15 +31,28 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
   const stageSubtitle = supportRequestStageSubtitle(request);
   const title = supportRequestCardTitle(request);
   const daysAgo = formatSupportDaysAgo(request.createdAt);
+  const categoryEmoji = request.type === 'complaint'
+    ? complaintCategoryEmoji(request.category) ?? complaintCategoryEmoji(request.subject)
+    : null;
 
   return (
     <button type="button" className="support-ticket-card panel glass" onClick={onClick}>
       <div className="support-ticket-card__media">
-        <div className={`support-ticket-card__thumb${request.type === 'chat' ? ' support-ticket-card__thumb--chat' : ''}`}>
+        <div
+          className={[
+            'support-ticket-card__thumb',
+            request.type === 'chat' ? 'support-ticket-card__thumb--chat' : '',
+            categoryEmoji ? 'support-ticket-card__thumb--complaint' : '',
+          ].filter(Boolean).join(' ')}
+        >
           {request.type === 'chat' ? (
             <SupportChatLogo size={38} />
           ) : imageUrl ? (
             <img src={imageUrl} alt="" className="support-ticket-card__image" loading="lazy" decoding="async" />
+          ) : categoryEmoji ? (
+            <span className="support-ticket-card__category-emoji" aria-hidden>
+              {categoryEmoji}
+            </span>
           ) : (
             <span className="support-ticket-card__placeholder" aria-hidden>
               <Package size={22} />

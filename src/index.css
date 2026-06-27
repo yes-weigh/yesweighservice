@@ -10749,6 +10749,15 @@ html::-webkit-scrollbar {
   background: rgba(59, 130, 246, 0.1);
 }
 
+.support-ticket-card__thumb--complaint {
+  background: rgba(245, 130, 32, 0.08);
+}
+
+.support-ticket-card__category-emoji {
+  font-size: 1.85rem;
+  line-height: 1;
+}
+
 .support-chat-logo {
   display: block;
   flex-shrink: 0;
