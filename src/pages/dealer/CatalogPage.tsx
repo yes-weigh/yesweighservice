@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
-import { AlertCircle, RefreshCw, Search, X } from 'lucide-react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { AlertCircle, Boxes, ClipboardList, LayoutGrid, RefreshCw, Search, X } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
+import { WarehouseInventoryAuditList } from '../../components/yesStore/WarehouseInventoryAuditList';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
@@ -23,16 +24,21 @@ import {
   syncCatalog,
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
+import { listAllItems } from '../../lib/yesStore/data';
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
+import type { YesStoreItemDoc } from '../../types/yes-store';
 
-type CatalogFocus = 'browse' | 'search' | 'all-spares' | 'unlinked' | 'map';
+type CatalogFocus = 'browse' | 'search' | 'all-spares' | 'unlinked' | 'map' | 'inventory-audit';
+
+type AdminCatalogSection = 'categories' | 'spares' | 'inventory-audit';
 
 function parseCatalogFocus(
   section: string | null,
   query: string,
   canSync: boolean,
 ): CatalogFocus {
+  if (section === 'inventory-audit') return 'inventory-audit';
   if (section === 'spares') return 'all-spares';
   if (section === 'unlinked' && canSync) return 'unlinked';
   if (section === 'map' && canSync) return 'map';
@@ -40,18 +46,38 @@ function parseCatalogFocus(
   return 'browse';
 }
 
+function parseAdminSection(
+  section: string | null,
+  query: string,
+): AdminCatalogSection | 'search' {
+  if (query.trim()) return 'search';
+  if (section === 'spares') return 'spares';
+  if (section === 'inventory-audit') return 'inventory-audit';
+  return 'categories';
+}
+
+function adminSectionToFocus(section: AdminCatalogSection | 'search'): CatalogFocus {
+  if (section === 'search') return 'search';
+  if (section === 'spares') return 'all-spares';
+  if (section === 'inventory-audit') return 'inventory-audit';
+  return 'browse';
+}
+
 const FOCUS_LABELS: Record<CatalogFocus, string> = {
   browse: 'Categories',
   search: 'Search results',
-  'all-spares': 'All spare parts',
+  'all-spares': 'Spare parts',
   unlinked: 'Unlinked spares',
   map: 'Map spares to products',
+  'inventory-audit': 'Inventory audit',
 };
 
 export const CatalogPage: React.FC = () => {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
   const showStockQuantity = canSync || canViewCatalogStock(user);
 
@@ -67,11 +93,16 @@ export const CatalogPage: React.FC = () => {
   const [linkEditorSpare, setLinkEditorSpare] = useState<CatalogProduct | null>(null);
   const [linkEditorProductIds, setLinkEditorProductIds] = useState<string[]>([]);
   const [linkEditorSaving, setLinkEditorSaving] = useState(false);
+  const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   const sectionParam = searchParams.get('section');
   const categoryFromUrl = searchParams.get('category') ?? '';
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') ?? '');
-  const focus = parseCatalogFocus(sectionParam, searchQuery, canSync);
+  const adminSection = isSuperAdmin ? parseAdminSection(sectionParam, searchQuery) : null;
+  const focus = isSuperAdmin && adminSection
+    ? adminSectionToFocus(adminSection)
+    : parseCatalogFocus(sectionParam, searchQuery, canSync);
   const isFlatList = focus === 'all-spares' || focus === 'unlinked';
   const isMapBrowse = focus === 'map';
 
@@ -109,6 +140,22 @@ export const CatalogPage: React.FC = () => {
   useEffect(() => {
     void loadLinkedSpareIds();
   }, [loadLinkedSpareIds]);
+
+  const loadAuditItems = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      setAuditItems(await listAllItems());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load inventory audit records.');
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isSuperAdmin || focus !== 'inventory-audit') return;
+    void loadAuditItems();
+  }, [isSuperAdmin, focus, loadAuditItems]);
 
   const shopProducts = useMemo(
     () => excludeHiddenCatalogProducts(
@@ -175,6 +222,20 @@ export const CatalogPage: React.FC = () => {
     }, { replace: true });
   }, [setSearchParams]);
 
+  const setAdminSection = useCallback((next: AdminCatalogSection) => {
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev);
+      params.delete('q');
+      params.delete('category');
+      if (next === 'categories') params.delete('section');
+      else if (next === 'spares') params.set('section', 'spares');
+      else params.set('section', 'inventory-audit');
+      return params;
+    }, { replace: true });
+    setSearchQuery('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [setSearchParams]);
+
   const setFocus = useCallback((next: CatalogFocus) => {
     setSearchParams(prev => {
       const params = new URLSearchParams(prev);
@@ -182,6 +243,8 @@ export const CatalogPage: React.FC = () => {
         params.delete('section');
       } else if (next === 'all-spares') {
         params.set('section', 'spares');
+      } else if (next === 'inventory-audit') {
+        params.set('section', 'inventory-audit');
       } else if (next === 'unlinked') {
         params.set('section', 'unlinked');
       } else if (next === 'map') {
@@ -310,15 +373,20 @@ export const CatalogPage: React.FC = () => {
     const observer = new ResizeObserver(setBarHeight);
     observer.observe(bar);
     return () => observer.disconnect();
-  }, [canSync, focus, searchFocused, searchQuery, unlinkedSpares.length]);
+  }, [canSync, focus, searchFocused, searchQuery, unlinkedSpares.length, isSuperAdmin]);
 
-  const showShortcuts = searchFocused && !searchQuery.trim() && focus === 'browse';
-  const showActiveFocus = focus !== 'browse' && focus !== 'search';
+  const showShortcuts = !isSuperAdmin && searchFocused && !searchQuery.trim() && focus === 'browse';
+  const showActiveFocus = !isSuperAdmin && focus !== 'browse' && focus !== 'search';
+  const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit';
+
+  const activeAdminTab: AdminCatalogSection = adminSection === 'search' || !adminSection
+    ? 'categories'
+    : adminSection;
 
   useCatalogPageHeader({
     title: showActiveFocus ? FOCUS_LABELS[focus] : null,
-    showBack: showActiveFocus,
-    onBack: clearFocus,
+    showBack: showActiveFocus || (isSuperAdmin && Boolean(categoryId)),
+    onBack: categoryId ? () => setCategoryId('') : clearFocus,
   });
 
   const syncButton = canSync ? (
@@ -336,35 +404,80 @@ export const CatalogPage: React.FC = () => {
   ) : null;
 
   const smartBar = (
-    <div ref={smartBarRef} className="catalog-smart-bar spares-mode-bar">
-      <div className="catalog-smart-bar__row">
-        <div className="catalog-smart-bar__search catalog-search">
-          <Search size={16} aria-hidden />
-          <input
-            type="search"
-            placeholder="Search products, spare parts, SKU…"
-            value={searchQuery}
-            onChange={e => handleSearchChange(e.target.value)}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => window.setTimeout(() => setSearchFocused(false), 180)}
-            aria-label="Search catalog"
-          />
-          {searchQuery && (
+    <div
+      ref={smartBarRef}
+      className={`catalog-smart-bar spares-mode-bar${isSuperAdmin ? ' catalog-smart-bar--admin-tabs' : ''}`}
+    >
+      {isSuperAdmin && (
+        <div className="catalog-section-tabs">
+          <div className="spares-mode-toggle spares-mode-toggle--ops" role="tablist" aria-label="Catalog sections">
             <button
               type="button"
-              className="catalog-smart-bar__clear"
-              onClick={() => {
-                handleSearchChange('');
-                if (focus === 'search') setFocus('browse');
-              }}
-              aria-label="Clear search"
+              role="tab"
+              aria-selected={activeAdminTab === 'categories'}
+              className={`spares-mode-toggle__btn ${activeAdminTab === 'categories' ? 'spares-mode-toggle__btn--active' : ''}`}
+              onClick={() => setAdminSection('categories')}
             >
-              <X size={16} />
+              <LayoutGrid size={16} aria-hidden />
+              <span className="spares-mode-toggle__label">Categories</span>
             </button>
-          )}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'spares'}
+              className={`spares-mode-toggle__btn ${activeAdminTab === 'spares' ? 'spares-mode-toggle__btn--active' : ''}`}
+              onClick={() => setAdminSection('spares')}
+            >
+              <Boxes size={16} aria-hidden />
+              <span className="spares-mode-toggle__label">Spare parts</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'inventory-audit'}
+              className={`spares-mode-toggle__btn ${activeAdminTab === 'inventory-audit' ? 'spares-mode-toggle__btn--active' : ''}`}
+              onClick={() => setAdminSection('inventory-audit')}
+            >
+              <ClipboardList size={16} aria-hidden />
+              <span className="spares-mode-toggle__label">Inventory audit</span>
+            </button>
+          </div>
         </div>
-        {syncButton}
-      </div>
+      )}
+
+      {(showAdminSearch || !isSuperAdmin) && (
+        <div className="catalog-smart-bar__row">
+          <div className="catalog-smart-bar__search catalog-search">
+            <Search size={16} aria-hidden />
+            <input
+              type="search"
+              placeholder="Search products, spare parts, SKU…"
+              value={searchQuery}
+              onChange={e => handleSearchChange(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => window.setTimeout(() => setSearchFocused(false), 180)}
+              aria-label="Search catalog"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="catalog-smart-bar__clear"
+                onClick={() => {
+                  handleSearchChange('');
+                  if (focus === 'search') {
+                    if (isSuperAdmin) setAdminSection('categories');
+                    else setFocus('browse');
+                  }
+                }}
+                aria-label="Clear search"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+          {syncButton}
+        </div>
+      )}
 
       {showShortcuts && (
         <div className="catalog-smart-bar__shortcuts" role="list">
@@ -414,7 +527,7 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
-      {canSync && unlinkedSpares.length > 0 && focus === 'browse' && !showShortcuts && (
+      {canSync && !isSuperAdmin && unlinkedSpares.length > 0 && focus === 'browse' && !showShortcuts && (
         <button
           type="button"
           className="catalog-smart-bar__banner"
@@ -463,7 +576,9 @@ export const CatalogPage: React.FC = () => {
 
   const pageClass = [
     'page-content fade-in products-page spares-page catalog-page catalog-page--smart',
+    isSuperAdmin ? 'catalog-page--admin-tabs' : '',
     isFlatList ? 'catalog-page--flat spares-page--all-spares' : '',
+    focus === 'inventory-audit' ? 'catalog-page--inventory-audit' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -512,7 +627,7 @@ export const CatalogPage: React.FC = () => {
         />
       )}
 
-      {isMapBrowse && (
+      {isMapBrowse && !isSuperAdmin && (
         <CatalogBrowse
           products={mapProducts}
           categories={mapCategories}
@@ -535,7 +650,7 @@ export const CatalogPage: React.FC = () => {
         />
       )}
 
-      {focus === 'unlinked' && (
+      {focus === 'unlinked' && !isSuperAdmin && (
         <CatalogBrowse
           products={unlinkedSpares}
           categories={[]}
@@ -582,6 +697,22 @@ export const CatalogPage: React.FC = () => {
           showStockQuantity={showStockQuantity}
           returnView="spares"
         />
+      )}
+
+      {focus === 'inventory-audit' && (
+        <div className="catalog-inventory-audit-page panel glass">
+          <p className="catalog-inventory-audit-page__intro text-sm text-muted">
+            Items photographed and recorded by warehouse staff in YesStore.
+          </p>
+          <WarehouseInventoryAuditList
+            items={auditItems}
+            loading={auditLoading}
+            onRefresh={() => void loadAuditItems()}
+            combinedLocation
+            showLinkStatus
+            onItemClick={item => navigate(`${pathname}/inventory-audit/${item.id}`)}
+          />
+        </div>
       )}
 
       {linkEditorSpare && (

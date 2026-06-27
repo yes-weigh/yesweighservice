@@ -54,9 +54,21 @@ export interface YesStoreItemDoc {
   photos: YesStorePhoto[];
   createdAt: string;
   updatedAt: string;
+  /** Linked Zoho catalog product — set when super admin links an audit item. */
+  catalogProductId?: string | null;
+  catalogProductName?: string | null;
+  catalogProductSku?: string | null;
+  linkedAt?: string | null;
+  linkedByUid?: string | null;
   /** @deprecated legacy records only */
   name?: string;
   notes?: string;
+}
+
+export function isYesStoreItemLinked(
+  item: Pick<YesStoreItemDoc, 'catalogProductId'>,
+): boolean {
+  return Boolean(item.catalogProductId?.trim());
 }
 
 export function isValidRackId(rackId: string): boolean {

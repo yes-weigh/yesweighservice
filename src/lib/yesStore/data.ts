@@ -219,6 +219,21 @@ export async function updateItem(
   await updateDoc(itemRef(itemId), payload);
 }
 
+export async function linkYesStoreItemToCatalog(
+  itemId: string,
+  product: { id: string; name: string; sku: string | null },
+  linkedByUid: string,
+): Promise<void> {
+  await updateDoc(itemRef(itemId), {
+    catalogProductId: product.id,
+    catalogProductName: product.name.trim(),
+    catalogProductSku: product.sku?.trim() || null,
+    linkedAt: now(),
+    linkedByUid,
+    updatedAt: now(),
+  });
+}
+
 export async function deleteItem(itemId: string): Promise<void> {
   await deleteDoc(itemRef(itemId));
 }

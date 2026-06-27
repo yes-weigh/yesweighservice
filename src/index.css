@@ -2231,6 +2231,27 @@ html::-webkit-scrollbar {
   --catalog-section-bar-height: 4.5rem;
 }
 
+.catalog-page--smart.catalog-page--admin-tabs {
+  --catalog-section-bar-height: 5.75rem;
+}
+
+.catalog-page--smart.catalog-page--admin-tabs.catalog-page--inventory-audit {
+  --catalog-section-bar-height: 3.35rem;
+}
+
+.catalog-inventory-audit-page {
+  margin: 0 1rem 1.25rem;
+  padding: 0.85rem 1rem 1.1rem;
+}
+
+.catalog-inventory-audit-page__intro {
+  margin: 0 0 0.75rem;
+}
+
+.catalog-smart-bar--admin-tabs {
+  gap: 0.55rem;
+}
+
 .catalog-smart-bar {
   display: flex;
   flex-direction: column;

@@ -31,6 +31,7 @@ import { AdminInvoicePdfViewerPage } from './pages/admin/AdminInvoicePdfViewerPa
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
+import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { SpareProductMapPage } from './pages/SpareProductMapPage';
@@ -51,6 +52,7 @@ const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }
 const catalogRoutes = (
   <>
     <Route path="catalog" element={<DealerMenuPages.Catalog />} />
+    <Route path="catalog/inventory-audit/:itemId" element={<InventoryAuditItemPage />} />
     <Route path="catalog/map/:productId" element={<SpareProductMapPage />} />
     <Route path="catalog/spare/:productId" element={<ProductDetailPage />} />
     <Route path="catalog/:productId" element={<ProductDetailPage />} />
