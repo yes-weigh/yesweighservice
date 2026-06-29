@@ -5,6 +5,7 @@ import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { WarehouseInventoryAuditList } from '../../components/yesStore/WarehouseInventoryAuditList';
+import { InventoryAuditBatchLinkModal } from '../../components/yesStore/InventoryAuditBatchLinkModal';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
@@ -16,7 +17,7 @@ import {
   fetchSpareLinkIndex,
   getCategorizedProducts,
   getCategoriesForProducts,
-  getUncategorizedProducts,
+  getCatalogSparePartsPool,
   getUnlinkedSpares,
   isSparesExcludedCategory,
   saveCatalogCategoryOrder,
@@ -25,7 +26,7 @@ import {
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
 import { listAllItems, fetchDisplayNamesForUids } from '../../lib/yesStore/data';
-import { readItemAuditedByName, readItemAuditedByUid } from '../../lib/yesStore/inventoryAudit';
+import { readItemLinkedByName, readItemLinkedByUid, buildWarehouseLinkedProductIds } from '../../lib/yesStore/inventoryAudit';
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
@@ -33,6 +34,8 @@ import type { YesStoreItemDoc } from '../../types/yes-store';
 type CatalogFocus = 'browse' | 'search' | 'all-spares' | 'unlinked' | 'map' | 'inventory-audit';
 
 type AdminCatalogSection = 'categories' | 'spares' | 'inventory-audit';
+
+type SpareWarehouseLinkFilter = 'unlinked' | 'linked' | 'all';
 
 function parseCatalogFocus(
   section: string | null,
@@ -97,6 +100,8 @@ export const CatalogPage: React.FC = () => {
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditAuditorNames, setAuditAuditorNames] = useState<Map<string, string>>(new Map());
+  const [batchLinkItems, setBatchLinkItems] = useState<YesStoreItemDoc[] | null>(null);
+  const [spareWarehouseFilter, setSpareWarehouseFilter] = useState<SpareWarehouseLinkFilter>('all');
 
   const sectionParam = searchParams.get('section');
   const categoryFromUrl = searchParams.get('category') ?? '';
@@ -151,8 +156,8 @@ export const CatalogPage: React.FC = () => {
       const uids = [
         ...new Set(
           items
-            .filter(item => readItemAuditedByUid(item) && !readItemAuditedByName(item))
-            .map(item => readItemAuditedByUid(item)!),
+            .filter(item => readItemLinkedByUid(item) && !readItemLinkedByName(item))
+            .map(item => readItemLinkedByUid(item)!),
         ),
       ];
       if (uids.length) {
@@ -168,7 +173,7 @@ export const CatalogPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!isSuperAdmin || focus !== 'inventory-audit') return;
+    if (!isSuperAdmin || (focus !== 'inventory-audit' && focus !== 'all-spares')) return;
     void loadAuditItems();
   }, [isSuperAdmin, focus, loadAuditItems]);
 
@@ -186,9 +191,23 @@ export const CatalogPage: React.FC = () => {
   );
 
   const spareParts = useMemo(
-    () => getUncategorizedProducts(catalog?.items ?? []),
-    [catalog?.items],
+    () => getCatalogSparePartsPool(catalog?.items ?? [], catalog?.categories ?? []),
+    [catalog?.items, catalog?.categories],
   );
+
+  const warehouseLinkedProductIds = useMemo(
+    () => buildWarehouseLinkedProductIds(auditItems),
+    [auditItems],
+  );
+
+  const filteredSpareParts = useMemo(() => {
+    if (!isSuperAdmin) return spareParts;
+    if (spareWarehouseFilter === 'all') return spareParts;
+    if (spareWarehouseFilter === 'linked') {
+      return spareParts.filter(product => warehouseLinkedProductIds.has(product.id));
+    }
+    return spareParts.filter(product => !warehouseLinkedProductIds.has(product.id));
+  }, [isSuperAdmin, spareParts, spareWarehouseFilter, warehouseLinkedProductIds]);
 
   const unlinkedSpares = useMemo(() => {
     if (!linkedSpareIds) return [];
@@ -696,22 +715,78 @@ export const CatalogPage: React.FC = () => {
       )}
 
       {focus === 'all-spares' && (
-        <CatalogBrowse
-          products={spareParts}
-          categories={[]}
-          isLoading={loading}
-          showToolbar={false}
-          showCategoryGrid={false}
-          flatBrowse
-          filterMode="minimal"
-          hideFilterBar
-          searchQuery={flatListSearch}
-          onSearchChange={handleSearchChange}
-          productsBasePath={`${pathname}/spare`}
-          enableCart={canUseCart(user?.role)}
-          showStockQuantity={showStockQuantity}
-          returnView="spares"
-        />
+        <div className="catalog-spares-page panel glass">
+          <CatalogBrowse
+            products={filteredSpareParts}
+            categories={[]}
+            isLoading={loading || (isSuperAdmin && auditLoading && auditItems.length === 0)}
+            showToolbar={false}
+            showCategoryGrid={false}
+            flatBrowse
+            filterMode="minimal"
+            hideFilterBar
+            searchQuery={flatListSearch}
+            onSearchChange={handleSearchChange}
+            productsBasePath={`${pathname}/spare`}
+            enableCart={canUseCart(user?.role)}
+            showStockQuantity={showStockQuantity}
+            returnView="spares"
+            warehouseLinkedProductIds={isSuperAdmin ? warehouseLinkedProductIds : undefined}
+            onProductSelect={
+              isSuperAdmin
+                ? product => {
+                    if (warehouseLinkedProductIds.has(product.id)) {
+                      navigate(`${pathname}/inventory-audit/linked/${product.id}`);
+                      return;
+                    }
+                    navigate(`${pathname}/spare/${product.id}`, {
+                      state: { origin: 'spares', searchQuery: flatListSearch },
+                    });
+                  }
+                : undefined
+            }
+            listHeaderExtra={
+              isSuperAdmin ? (
+                <div
+                  className="catalog-inventory-audit__filters catalog-spares-warehouse-filters"
+                  role="tablist"
+                  aria-label="Warehouse link filter"
+                >
+                  {(['unlinked', 'linked', 'all'] as const).map(option => (
+                    <button
+                      key={option}
+                      type="button"
+                      role="tab"
+                      aria-selected={spareWarehouseFilter === option}
+                      className={`catalog-inventory-audit__filter-chip${spareWarehouseFilter === option ? ' is-active' : ''}`}
+                      onClick={() => setSpareWarehouseFilter(option)}
+                    >
+                      {option === 'all' ? 'All' : option === 'linked' ? 'Linked' : 'Unlinked'}
+                    </button>
+                  ))}
+                </div>
+              ) : undefined
+            }
+            emptyTitle={
+              isSuperAdmin && spareWarehouseFilter === 'linked'
+                ? flatListSearch.trim()
+                  ? 'No linked spare parts match your search'
+                  : 'No spare parts linked to warehouse items yet'
+                : isSuperAdmin && spareWarehouseFilter === 'unlinked'
+                  ? flatListSearch.trim()
+                    ? 'No unlinked spare parts match your search'
+                    : 'All spare parts are linked to warehouse items'
+                  : undefined
+            }
+            emptyHint={
+              isSuperAdmin && spareWarehouseFilter === 'linked'
+                ? 'Link warehouse bins from Inventory audit.'
+                : isSuperAdmin && spareWarehouseFilter === 'unlinked'
+                  ? 'Use Inventory audit to link warehouse counts to Zoho items.'
+                  : undefined
+            }
+          />
+        </div>
       )}
 
       {focus === 'inventory-audit' && (
@@ -724,12 +799,28 @@ export const CatalogPage: React.FC = () => {
             onRefresh={() => void loadAuditItems()}
             combinedLocation
             showLinkStatus
+            batchLinkEnabled
+            onBatchLink={setBatchLinkItems}
             onItemClick={item => navigate(`${pathname}/inventory-audit/${item.id}`)}
             onGroupClick={group =>
               navigate(`${pathname}/inventory-audit/linked/${group.catalogProductId}`)
             }
           />
         </div>
+      )}
+
+      {batchLinkItems && (
+        <InventoryAuditBatchLinkModal
+          items={batchLinkItems}
+          products={catalog?.items ?? []}
+          catalogLoading={loading}
+          onClose={() => setBatchLinkItems(null)}
+          onLinked={catalogProductId => {
+            setBatchLinkItems(null);
+            void loadAuditItems();
+            navigate(`${pathname}/inventory-audit/linked/${catalogProductId}`);
+          }}
+        />
       )}
 
       {linkEditorSpare && (

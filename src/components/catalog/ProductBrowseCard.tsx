@@ -16,6 +16,7 @@ export interface ProductBrowseCardProps {
   manageLabel?: string;
   onManage?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   linkedSpareCount?: number;
+  warehouseLinked?: boolean;
 }
 
 function formatProductTitle(name: string): string {
@@ -35,6 +36,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   manageLabel,
   onManage,
   linkedSpareCount,
+  warehouseLinked = false,
 }) => {
   const { addItem, isInCart } = useCart();
   const { flyToCart } = useCartFly();
@@ -101,6 +103,12 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
               {linkedSpareCount === 0
                 ? 'No spares linked'
                 : `${linkedSpareCount} spare${linkedSpareCount === 1 ? '' : 's'} linked`}
+            </span>
+          )}
+          {warehouseLinked && (
+            <span className="catalog-product-card__warehouse-link">
+              <Link2 size={12} aria-hidden />
+              Warehouse linked
             </span>
           )}
         </div>

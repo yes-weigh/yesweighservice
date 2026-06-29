@@ -69,10 +69,16 @@ export interface CatalogBrowseProps {
   /** Staff — quick action on product tiles (e.g. link unlinked spare to products). */
   manageItemLabel?: string;
   onManageItem?: (product: CatalogProduct) => void;
+  /** Rendered inside the browse scroll area (below fixed bars). */
+  listHeaderExtra?: React.ReactNode;
   emptyTitle?: string;
   emptyHint?: string;
   /** Staff spares view — linked spare count per product id. */
   spareLinkCountByProductId?: Map<string, number>;
+  /** Super admin — Zoho products with warehouse audit bins linked. */
+  warehouseLinkedProductIds?: Set<string>;
+  /** Override default navigation when a product tile is opened. */
+  onProductSelect?: (product: CatalogProduct) => void;
 }
 
 function ProductListRow({
@@ -210,9 +216,12 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   returnView,
   manageItemLabel,
   onManageItem,
+  listHeaderExtra,
   emptyTitle,
   emptyHint,
   spareLinkCountByProductId,
+  warehouseLinkedProductIds,
+  onProductSelect,
 }) => {
   const navigate = useNavigate();
   const [internalSearch, setInternalSearch] = useState('');
@@ -228,6 +237,10 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const openProduct = (product: CatalogProduct) => {
+    if (onProductSelect) {
+      onProductSelect(product);
+      return;
+    }
     if (productsBasePath) {
       const returnCategoryId = activeCategory || product.categoryId || '';
       const isSparePath = productsBasePath.endsWith('/spare');
@@ -412,6 +425,8 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
         </div>
       )}
 
+      {listHeaderExtra}
+
       {showProducts && (
         <div className="catalog-results">
           {variant === 'public' && browseHeaderTitle && (
@@ -468,6 +483,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                       ? spareLinkCountByProductId.get(product.id) ?? 0
                       : undefined
                   }
+                  warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
                 />
               ))}
             </div>

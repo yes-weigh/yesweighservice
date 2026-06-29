@@ -67,6 +67,10 @@ export interface YesStoreItemDoc {
   lastAuditedAt?: string | null;
   lastAuditedByUid?: string | null;
   lastAuditedByName?: string | null;
+  /** Warehouse staff who physically counted this bin. */
+  countedAt?: string | null;
+  countedByUid?: string | null;
+  countedByName?: string | null;
   /** How this bin counts toward a linked Zoho product. */
   catalogLinkMode?: CatalogLinkMode | null;
   /** Bundle part name (e.g. Part A) when catalogLinkMode is part. */

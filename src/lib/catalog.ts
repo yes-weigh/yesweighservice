@@ -64,6 +64,34 @@ export function excludeHiddenCatalogProducts(
   return products.filter(p => !isHiddenCatalogProduct(p, categories));
 }
 
+/** Zoho category that holds generic spare parts (not shop product categories). */
+export function isGenericSparePartsCategory(category: Pick<CatalogCategory, 'name'>): boolean {
+  const name = category.name.trim().toLowerCase();
+  return name === 'generic spare parts' || name === 'generic spares';
+}
+
+/** Spare parts tab — Generic spare parts category and uncategorized Zoho items only. */
+export function getCatalogSparePartsPool(
+  products: CatalogProduct[],
+  categories: CatalogCategory[] = [],
+): CatalogProduct[] {
+  const genericCategoryIds = new Set(
+    categories.filter(isGenericSparePartsCategory).map(c => c.id),
+  );
+
+  return excludeHiddenCatalogProducts(
+    products.filter(product => {
+      if (!hasCatalogCategory(product)) return true;
+      if (product.categoryId && genericCategoryIds.has(product.categoryId)) return true;
+      if (product.categoryName && isGenericSparePartsCategory({ name: product.categoryName })) {
+        return true;
+      }
+      return false;
+    }),
+    categories,
+  );
+}
+
 /** Categories hidden on Spares → By product (software keys / SANOFT). */
 export function isSparesExcludedCategory(category: Pick<CatalogCategory, 'name'>): boolean {
   return SPARES_EXCLUDED_CATEGORY_NAMES.has(category.name.trim().toLowerCase());

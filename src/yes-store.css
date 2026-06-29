@@ -87,9 +87,258 @@
   padding-top: 0.15rem;
 }
 
+.catalog-inventory-audit__toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wh-item-table__select-col {
+  width: 2.25rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.wh-item-table__select-col input {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+.inventory-audit-batch-link {
+  width: min(100%, 32rem);
+  max-height: min(90dvh, 44rem);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.inventory-audit-batch-link__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.inventory-audit-batch-link__header h2 {
+  margin: 0.25rem 0 0;
+  font-size: 1.05rem;
+}
+
+.inventory-audit-batch-link__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.inventory-audit-batch-link__items {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  list-style: none;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.15);
+  max-height: 8rem;
+  overflow: auto;
+  font-size: 0.8125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.inventory-audit-batch-link__error {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #fca5a5;
+}
+
+.inventory-audit-batch-link__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .catalog-inventory-audit .wh-item-table-wrap {
   margin-bottom: 0.5rem;
   -webkit-overflow-scrolling: touch;
+}
+
+.wh-audit-tile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 0.5rem;
+}
+
+.wh-audit-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: #151d2e;
+}
+
+.wh-audit-tile--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.wh-audit-tile--clickable:hover {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.wh-audit-tile--selected {
+  border-color: rgba(245, 130, 32, 0.45);
+  background: rgba(245, 130, 32, 0.06);
+}
+
+.wh-audit-tile__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.wh-audit-tile__select {
+  flex-shrink: 0;
+  padding-top: 0.15rem;
+}
+
+.wh-audit-tile__select input {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+.wh-audit-tile__photos {
+  display: flex;
+  gap: 0.45rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.wh-audit-tile__photo {
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1e293b;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  flex-shrink: 0;
+}
+
+.wh-audit-tile__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wh-audit-tile__photo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0.75rem;
+}
+
+.wh-audit-tile__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.wh-audit-tile__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.wh-audit-tile__title-wrap {
+  min-width: 0;
+}
+
+.wh-audit-tile__title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.wh-audit-tile__subtitle {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.wh-audit-tile__specs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 0.75rem;
+  margin: 0;
+}
+
+.wh-audit-tile__spec {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.wh-audit-tile__spec dt {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+
+.wh-audit-tile__spec dd {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  word-break: break-word;
+}
+
+.wh-audit-tile__spec dd.is-over {
+  color: #86efac;
+}
+
+.wh-audit-tile__spec dd.is-under {
+  color: #fca5a5;
+}
+
+.wh-audit-tile__select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.wh-audit-tile__select-all input {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
 }
 
 .catalog-inventory-audit-page .catalog-inventory-audit {
@@ -816,6 +1065,68 @@
 .catalog-product-link-preview__warehouse-list strong {
   font-weight: 700;
   white-space: nowrap;
+}
+
+.inventory-audit-product-preview__gallery {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: -0.15rem -0.15rem 0;
+  padding-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.inventory-audit-product-preview__gallery--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 5.5rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.inventory-audit-product-preview__gallery-track {
+  display: flex;
+  gap: 0.5rem;
+  width: max-content;
+  min-width: 100%;
+}
+
+.inventory-audit-product-preview__gallery-item {
+  flex: 0 0 auto;
+  width: 5.5rem;
+  height: 5.5rem;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.inventory-audit-product-preview__gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.inventory-audit-product-preview .catalog-product-link-preview__spec-row dd.is-audit-qty {
+  color: #86efac;
+  font-weight: 700;
+}
+
+.inventory-audit-product-preview .catalog-product-link-preview__spec-row dd.is-audit-diff {
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+.inventory-audit-product-preview .catalog-product-link-preview__header {
+  margin-top: 0.15rem;
+}
+
+.inventory-audit-product-preview__qty-specs {
+  margin-top: 0.15rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 0.15rem;
 }
 
 .warehouse-app {

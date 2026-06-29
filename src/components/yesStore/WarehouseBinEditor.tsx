@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Loader2, Plus, Trash2 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import {
   readItemQuantity,
   type BinNumber,
@@ -108,6 +109,7 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
   onHome,
   onSaved,
 }) => {
+  const { user } = useAuth();
   const [rows, setRows] = useState<ItemRowState[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -159,11 +161,14 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
     );
 
     try {
+      const counter = user
+        ? { uid: user.uid, displayName: user.displayName }
+        : undefined;
       if (row.itemId) {
         const prevItem = rowsRef.current.find(r => r.key === rowKey);
         const prevSaved = prevItem ? savedPhotos(prevItem.slots) : [];
         const removed = prevSaved.filter(prev => !photos.some(next => next.id === prev.id));
-        await updateItem(row.itemId, { quantity, photos });
+        await updateItem(row.itemId, { quantity, photos }, counter);
         if (removed.length) await deleteYesStorePhotos(removed);
       } else {
         const created = await createItem({
@@ -172,6 +177,7 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
           binNumber,
           quantity,
           photos,
+          countedBy: counter,
         });
         row.slots.forEach(revokePending);
         setRows(prev =>
@@ -216,7 +222,7 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
       );
       throw err;
     }
-  }, [rackId, rowNumber, binNumber, onSaved]);
+  }, [rackId, rowNumber, binNumber, onSaved, user]);
 
   const uploadSlotPhoto = useCallback(async (
     rowKey: string,

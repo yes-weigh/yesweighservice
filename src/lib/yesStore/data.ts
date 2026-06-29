@@ -169,12 +169,22 @@ export async function getItem(itemId: string): Promise<YesStoreItemDoc | null> {
   return snap.data() as YesStoreItemDoc;
 }
 
+function buildCountStamp(counter?: { uid: string; displayName?: string | null }) {
+  if (!counter?.uid) return {};
+  return {
+    countedAt: now(),
+    countedByUid: counter.uid,
+    countedByName: counter.displayName?.trim() || null,
+  };
+}
+
 export async function createItem(input: {
   rackId: string;
   rowNumber: RowNumber;
   binNumber: BinNumber;
   quantity: number;
   photos: YesStorePhoto[];
+  countedBy?: { uid: string; displayName?: string | null };
 }): Promise<YesStoreItemDoc> {
   if (!input.photos.length) throw new Error('Add at least one photo.');
   if (input.photos.length > MAX_ITEM_PHOTOS) {
@@ -195,6 +205,7 @@ export async function createItem(input: {
     photos: input.photos.slice(0, MAX_ITEM_PHOTOS),
     createdAt,
     updatedAt: createdAt,
+    ...buildCountStamp(input.countedBy),
   };
   await setDoc(itemRef(itemId), docData);
   return docData;
@@ -203,6 +214,7 @@ export async function createItem(input: {
 export async function updateItem(
   itemId: string,
   patch: Partial<Pick<YesStoreItemDoc, 'quantity' | 'photos'>>,
+  countedBy?: { uid: string; displayName?: string | null },
 ): Promise<void> {
   if (patch.photos != null) {
     if (!patch.photos.length) throw new Error('Add at least one photo.');
@@ -210,7 +222,7 @@ export async function updateItem(
       throw new Error(`Maximum ${MAX_ITEM_PHOTOS} photos per item.`);
     }
   }
-  const payload: Record<string, unknown> = { updatedAt: now() };
+  const payload: Record<string, unknown> = { updatedAt: now(), ...buildCountStamp(countedBy) };
   if (patch.quantity != null) {
     payload.quantity = Math.max(1, Math.floor(patch.quantity));
   }
@@ -220,24 +232,14 @@ export async function updateItem(
   await updateDoc(itemRef(itemId), payload);
 }
 
-function buildAuditStamp(auditor: { uid: string; displayName?: string | null }) {
-  const timestamp = now();
-  return {
-    lastAuditedAt: timestamp,
-    lastAuditedByUid: auditor.uid,
-    lastAuditedByName: auditor.displayName?.trim() || null,
-  };
-}
-
 export async function updateInventoryAuditCount(
   itemId: string,
   quantity: number,
-  auditor: { uid: string; displayName?: string | null },
+  _auditor: { uid: string; displayName?: string | null },
 ): Promise<YesStoreItemDoc> {
   const normalizedQty = Math.max(1, Math.floor(quantity));
   await updateDoc(itemRef(itemId), {
     quantity: normalizedQty,
-    ...buildAuditStamp(auditor),
     updatedAt: now(),
   });
   const updated = await getItem(itemId);
@@ -260,7 +262,6 @@ export async function linkYesStoreItemToCatalog(
   const unitsPerProduct = Math.max(1, Math.floor(options?.unitsPerProduct ?? 1));
   const partLabel = options?.partLabel?.trim() || null;
   const linkedByName = options?.linkedByName?.trim() || null;
-  const auditStamp = buildAuditStamp({ uid: linkedByUid, displayName: linkedByName });
   const linkedAt = now();
 
   await updateDoc(itemRef(itemId), {
@@ -273,9 +274,30 @@ export async function linkYesStoreItemToCatalog(
     linkedAt,
     linkedByUid,
     linkedByName,
-    ...auditStamp,
     updatedAt: now(),
   });
+}
+
+export async function batchLinkYesStoreItemsToCatalog(
+  itemIds: string[],
+  product: { id: string; name: string; sku: string | null },
+  linkedByUid: string,
+  options?: {
+    linkedByName?: string | null;
+    mode?: CatalogLinkMode;
+  },
+): Promise<void> {
+  const uniqueIds = [...new Set(itemIds.map(id => id.trim()).filter(Boolean))];
+  if (!uniqueIds.length) return;
+
+  await Promise.all(
+    uniqueIds.map(itemId =>
+      linkYesStoreItemToCatalog(itemId, product, linkedByUid, {
+        mode: options?.mode ?? 'unit',
+        linkedByName: options?.linkedByName,
+      }),
+    ),
+  );
 }
 
 export async function fetchDisplayNamesForUids(uids: string[]): Promise<Map<string, string>> {

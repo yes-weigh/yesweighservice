@@ -2,24 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { formatAuditDateTime } from '../../lib/yesStore/format';
 import {
-  readItemAuditedAt,
-  readItemAuditedByName,
-  readItemAuditedByUid,
-  resolveAuditorDisplayName,
+  readItemCountedAt,
+  readItemCountedByName,
 } from '../../lib/yesStore/inventoryAudit';
 import { updateInventoryAuditCount } from '../../lib/yesStore/data';
 import { readItemQuantity, type YesStoreItemDoc } from '../../types/yes-store';
 
 export interface InventoryAuditQtyEditorProps {
   item: YesStoreItemDoc;
-  auditorNamesByUid?: Map<string, string>;
   compact?: boolean;
   onSaved?: (item: YesStoreItemDoc) => void;
 }
 
 export const InventoryAuditQtyEditor: React.FC<InventoryAuditQtyEditorProps> = ({
   item,
-  auditorNamesByUid,
   compact = false,
   onSaved,
 }) => {
@@ -39,12 +35,8 @@ export const InventoryAuditQtyEditor: React.FC<InventoryAuditQtyEditorProps> = (
   const valid = Number.isFinite(parsed) && parsed >= 1;
   const changed = valid && parsed !== readItemQuantity(savedItem);
 
-  const auditedAt = readItemAuditedAt(savedItem);
-  const auditedBy = resolveAuditorDisplayName(
-    readItemAuditedByName(savedItem),
-    readItemAuditedByUid(savedItem),
-    auditorNamesByUid,
-  );
+  const auditedAt = readItemCountedAt(savedItem);
+  const auditedBy = readItemCountedByName(savedItem);
 
   const handleSave = async () => {
     if (!user || !valid || !changed) return;

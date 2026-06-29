@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Link2, RefreshCw } from 'lucide-react';
 import {
   buildInventoryAuditListRows,
   formatQtyDifference,
+  readItemCountedAt,
+  readItemCountedByName,
   resolveAuditorDisplayName,
   type InventoryAuditLinkedGroup,
   type InventoryAuditListRow,
@@ -28,17 +30,50 @@ export interface WarehouseInventoryAuditListProps {
   onRefresh?: () => void;
   onItemClick?: (item: YesStoreItemDoc) => void;
   onGroupClick?: (group: InventoryAuditLinkedGroup) => void;
+  onBatchLink?: (items: YesStoreItemDoc[]) => void;
   emptyMessage?: string;
   className?: string;
-  /** Admin audit — merge rack, row, bin into one column. */
   combinedLocation?: boolean;
-  /** Admin audit — show linked / unlinked status and group linked rows. */
   showLinkStatus?: boolean;
+  batchLinkEnabled?: boolean;
 }
 
 function catalogMap(products: CatalogProduct[] | undefined): Map<string, CatalogProduct> | undefined {
   if (!products?.length) return undefined;
   return new Map(products.map(product => [product.id, product]));
+}
+
+function isSelectableRow(row: InventoryAuditListRow): row is { kind: 'item'; item: YesStoreItemDoc } {
+  return row.kind === 'item' && !isYesStoreItemLinked(row.item);
+}
+
+function AuditTilePhotos({ photos }: { photos: YesStoreItemDoc['photos'] }) {
+  const slots = [photos[0], photos[1]];
+  return (
+    <div className="wh-audit-tile__photos">
+      {slots.map((photo, index) => (
+        <div key={index} className="wh-audit-tile__photo">
+          {photo ? (
+            <img src={photo.url} alt="" loading="lazy" />
+          ) : (
+            <span className="wh-audit-tile__photo-empty text-muted">—</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AuditStatusBadge({ linked }: { linked: boolean }) {
+  return (
+    <span
+      className={`wh-item-table__status wh-item-table__status--${
+        linked ? 'linked' : 'unlinked'
+      }`}
+    >
+      {linked ? 'Linked' : 'Unlinked'}
+    </span>
+  );
 }
 
 export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListProps> = ({
@@ -49,13 +84,18 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   onRefresh,
   onItemClick,
   onGroupClick,
+  onBatchLink,
   emptyMessage = 'No audits yet. Warehouse staff add items from the YesStore app.',
   className = '',
   combinedLocation = false,
   showLinkStatus = false,
+  batchLinkEnabled = false,
 }) => {
   const [page, setPage] = useState(1);
   const [linkFilter, setLinkFilter] = useState<InventoryAuditLinkFilter>('all');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
+  const showBatchSelect = batchLinkEnabled && linkFilter !== 'linked';
 
   const listRows = useMemo(() => {
     if (!showLinkStatus) {
@@ -63,6 +103,8 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
     }
     return buildInventoryAuditListRows(items, linkFilter, catalogMap(catalogProducts));
   }, [items, linkFilter, showLinkStatus, catalogProducts]);
+
+  const itemsById = useMemo(() => new Map(items.map(item => [item.id, item])), [items]);
 
   const totalPages = Math.max(1, Math.ceil(listRows.length / PAGE_SIZE));
   const pageStart = listRows.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -73,6 +115,21 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
     [listRows, page],
   );
 
+  const pageSelectableIds = useMemo(
+    () => pageRows.filter(isSelectableRow).map(row => row.item.id),
+    [pageRows],
+  );
+
+  const allPageSelected =
+    pageSelectableIds.length > 0 && pageSelectableIds.every(id => selectedIds.has(id));
+
+  const somePageSelected = pageSelectableIds.some(id => selectedIds.has(id));
+
+  const selectedItems = useMemo(
+    () => [...selectedIds].map(id => itemsById.get(id)).filter((item): item is YesStoreItemDoc => Boolean(item)),
+    [selectedIds, itemsById],
+  );
+
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
@@ -80,6 +137,41 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   useEffect(() => {
     setPage(1);
   }, [listRows.length, linkFilter]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [linkFilter]);
+
+  useEffect(() => {
+    setSelectedIds(prev => {
+      const next = new Set([...prev].filter(id => {
+        const item = itemsById.get(id);
+        return item && !isYesStoreItemLinked(item);
+      }));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [itemsById]);
+
+  const toggleItem = (itemId: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const togglePageSelection = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        pageSelectableIds.forEach(id => next.delete(id));
+      } else {
+        pageSelectableIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
 
   if (loading && items.length === 0) {
     return (
@@ -127,45 +219,51 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
         <span className="text-muted text-sm">
           {listRows.length} record{listRows.length === 1 ? '' : 's'}
           {listRows.length > 0 && ` · ${pageStart}–${pageEnd}`}
+          {showBatchSelect && selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
         </span>
-        {onRefresh && (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => void onRefresh()}
-          >
-            <RefreshCw size={14} className={loading ? 'spin-icon' : undefined} />
-            Refresh
-          </button>
-        )}
+        <div className="catalog-inventory-audit__toolbar-actions">
+          {showBatchSelect && pageSelectableIds.length > 0 && (
+            <label className="wh-audit-tile__select-all text-sm">
+              <input
+                type="checkbox"
+                aria-label="Select all unlinked items on this page"
+                checked={allPageSelected}
+                ref={input => {
+                  if (input) input.indeterminate = !allPageSelected && somePageSelected;
+                }}
+                onChange={togglePageSelection}
+              />
+              Select page
+            </label>
+          )}
+          {showBatchSelect && selectedIds.size > 0 && onBatchLink && (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => onBatchLink(selectedItems)}
+            >
+              <Link2 size={14} aria-hidden />
+              Link to Zoho ({selectedIds.size})
+            </button>
+          )}
+          {onRefresh && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => void onRefresh()}
+            >
+              <RefreshCw size={14} className={loading ? 'spin-icon' : undefined} />
+              Refresh
+            </button>
+          )}
+        </div>
       </div>
 
       {listRows.length === 0 ? (
         <p className="text-muted warehouse-app__empty">{filterEmptyMessage}</p>
       ) : (
         <>
-      <div className="wh-item-table-wrap">
-        <table className="wh-item-table">
-          <thead>
-            <tr>
-              <th>Img1</th>
-              <th>Img2</th>
-              <th>Qty</th>
-              {combinedLocation ? (
-                <th>Location</th>
-              ) : (
-                <>
-                  <th>Rack</th>
-                  <th>Row</th>
-                  <th>Bin</th>
-                </>
-              )}
-              {showLinkStatus && <th>Status</th>}
-              {showLinkStatus && <th>Last audited</th>}
-              {showLinkStatus && <th>Audited by</th>}
-            </tr>
-          </thead>
-          <tbody>
+          <div className="wh-audit-tile-list">
             {pageRows.map(row => {
               if (row.kind === 'group') {
                 const { group } = row;
@@ -181,161 +279,189 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                     : `${group.items.length} locations`;
                 const qtyLabel =
                   group.totals.mode === 'bundle'
-                    ? `${group.totals.countedQty} (${group.totals.rawCountedQty} parts)`
+                    ? `${group.totals.countedQty} complete (${group.totals.rawCountedQty} parts)`
                     : String(group.totals.countedQty);
-                const auditedBy = resolveAuditorDisplayName(
-                  group.lastAuditedByName,
-                  group.lastAuditedByUid,
+                const auditedBy = group.countedByName;
+                const linkedBy = resolveAuditorDisplayName(
+                  group.linkedByName,
+                  group.linkedByUid,
                   auditorNamesByUid,
                 );
 
                 return (
-                  <tr
+                  <article
                     key={group.catalogProductId}
-                    className={clickable ? 'wh-item-table__row' : undefined}
+                    className={`wh-audit-tile wh-audit-tile--group${clickable ? ' wh-audit-tile--clickable' : ''}`}
                     onClick={clickable ? () => onGroupClick?.(group) : undefined}
                   >
-                    <td>
-                      {firstPhotos[0] ? (
-                        <img src={firstPhotos[0].url} alt="" loading="lazy" />
-                      ) : (
-                        <span className="wh-item-table__empty">—</span>
-                      )}
-                    </td>
-                    <td>
-                      {firstPhotos[1] ? (
-                        <img src={firstPhotos[1].url} alt="" loading="lazy" />
-                      ) : (
-                        <span className="wh-item-table__empty">—</span>
-                      )}
-                    </td>
-                    <td className="wh-item-table__num" title={group.catalogProductName}>
-                      {qtyLabel}
-                    </td>
-                    {combinedLocation ? (
-                      <td className="wh-item-table__location">
-                        <span className="wh-item-table__group-name">{group.catalogProductName}</span>
-                        <span className="wh-item-table__group-meta text-muted">{locationLabel}</span>
-                      </td>
-                    ) : (
-                      <>
-                        <td colSpan={3} className="wh-item-table__location">
-                          <span className="wh-item-table__group-name">{group.catalogProductName}</span>
-                          <span className="wh-item-table__group-meta text-muted">{locationLabel}</span>
-                        </td>
-                      </>
-                    )}
-                    {showLinkStatus && (
-                      <td>
-                        <span className="wh-item-table__status wh-item-table__status--linked">
-                          Linked
-                          {group.totals.difference != null && group.totals.difference !== 0 && (
-                            <span
-                              className={`wh-item-table__diff wh-item-table__diff--${
-                                group.totals.difference > 0 ? 'over' : 'under'
-                              }`}
+                    <div className="wh-audit-tile__top">
+                      <AuditTilePhotos photos={firstPhotos} />
+                    </div>
+                    <div className="wh-audit-tile__body">
+                      <div className="wh-audit-tile__head">
+                        <div className="wh-audit-tile__title-wrap">
+                          <h3 className="wh-audit-tile__title">{group.catalogProductName}</h3>
+                          <p className="wh-audit-tile__subtitle text-muted">{locationLabel}</p>
+                        </div>
+                        <AuditStatusBadge linked />
+                      </div>
+                      <dl className="wh-audit-tile__specs">
+                        <div className="wh-audit-tile__spec">
+                          <dt>Counted qty</dt>
+                          <dd>{qtyLabel}</dd>
+                        </div>
+                        {group.totals.difference != null && (
+                          <div className="wh-audit-tile__spec">
+                            <dt>Difference</dt>
+                            <dd
+                              className={
+                                group.totals.difference !== 0
+                                  ? group.totals.difference > 0
+                                    ? 'is-over'
+                                    : 'is-under'
+                                  : undefined
+                              }
                             >
                               {formatQtyDifference(group.totals.difference)}
-                            </span>
-                          )}
-                        </span>
-                      </td>
-                    )}
-                    {showLinkStatus && (
-                      <td className="wh-item-table__audit-date">
-                        {formatAuditDateTime(group.lastAuditedAt)}
-                      </td>
-                    )}
-                    {showLinkStatus && (
-                      <td className="wh-item-table__audit-by">{auditedBy}</td>
-                    )}
-                  </tr>
+                            </dd>
+                          </div>
+                        )}
+                        <div className="wh-audit-tile__spec">
+                          <dt>Last audited</dt>
+                          <dd>{formatAuditDateTime(group.lastCountedAt)}</dd>
+                        </div>
+                        <div className="wh-audit-tile__spec">
+                          <dt>Audited by</dt>
+                          <dd>{auditedBy}</dd>
+                        </div>
+                        <div className="wh-audit-tile__spec">
+                          <dt>Linked by</dt>
+                          <dd>{linkedBy}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </article>
                 );
               }
 
               const item = row.item;
               const photos = item.photos ?? [];
+              const linked = isYesStoreItemLinked(item);
+              const selectable = showBatchSelect && !linked;
               const clickable = Boolean(onItemClick);
               const locationLabel = formatItemLocationShort(
                 item.rackId,
                 item.rowNumber,
                 item.binNumber,
               );
+              const auditedAt = readItemCountedAt(item);
+              const auditedBy = readItemCountedByName(item);
+
               return (
-                <tr
+                <article
                   key={item.id}
-                  className={clickable ? 'wh-item-table__row' : undefined}
+                  className={`wh-audit-tile${clickable ? ' wh-audit-tile--clickable' : ''}${
+                    selectedIds.has(item.id) ? ' wh-audit-tile--selected' : ''
+                  }`}
                   onClick={clickable ? () => onItemClick?.(item) : undefined}
                 >
-                  <td>
-                    {photos[0] ? (
-                      <img src={photos[0].url} alt="" loading="lazy" />
-                    ) : (
-                      <span className="wh-item-table__empty">—</span>
-                    )}
-                  </td>
-                  <td>
-                    {photos[1] ? (
-                      <img src={photos[1].url} alt="" loading="lazy" />
-                    ) : (
-                      <span className="wh-item-table__empty">—</span>
-                    )}
-                  </td>
-                  <td className="wh-item-table__num">{readItemQuantity(item)}</td>
-                  {combinedLocation ? (
-                    <td className="wh-item-table__location">{locationLabel}</td>
-                  ) : (
-                    <>
-                      <td className="wh-item-table__num">{item.rackId.toUpperCase()}</td>
-                      <td className="wh-item-table__num">{item.rowNumber}</td>
-                      <td className="wh-item-table__num">{item.binNumber}</td>
-                    </>
-                  )}
-                  {showLinkStatus && (
-                    <td>
-                      <span
-                        className={`wh-item-table__status wh-item-table__status--${
-                          isYesStoreItemLinked(item) ? 'linked' : 'unlinked'
-                        }`}
+                  <div className="wh-audit-tile__top">
+                    {showBatchSelect && (
+                      <div
+                        className="wh-audit-tile__select"
+                        onClick={event => event.stopPropagation()}
                       >
-                        {isYesStoreItemLinked(item) ? 'Linked' : 'Unlinked'}
-                      </span>
-                    </td>
-                  )}
-                  {showLinkStatus && <td className="wh-item-table__empty">—</td>}
-                  {showLinkStatus && <td className="wh-item-table__empty">—</td>}
-                </tr>
+                        {selectable ? (
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${locationLabel}`}
+                            checked={selectedIds.has(item.id)}
+                            onChange={() => toggleItem(item.id)}
+                          />
+                        ) : null}
+                      </div>
+                    )}
+                    <AuditTilePhotos photos={photos} />
+                  </div>
+                  <div className="wh-audit-tile__body">
+                    <div className="wh-audit-tile__head">
+                      <div className="wh-audit-tile__title-wrap">
+                        <h3 className="wh-audit-tile__title">{locationLabel}</h3>
+                        {!combinedLocation && (
+                          <p className="wh-audit-tile__subtitle text-muted">
+                            Rack {item.rackId.toUpperCase()} · Row {item.rowNumber} · Bin {item.binNumber}
+                          </p>
+                        )}
+                      </div>
+                      {showLinkStatus && <AuditStatusBadge linked={linked} />}
+                    </div>
+                    <dl className="wh-audit-tile__specs">
+                      <div className="wh-audit-tile__spec">
+                        <dt>Qty</dt>
+                        <dd>{readItemQuantity(item)}</dd>
+                      </div>
+                      {combinedLocation && (
+                        <div className="wh-audit-tile__spec">
+                          <dt>Location</dt>
+                          <dd>{locationLabel}</dd>
+                        </div>
+                      )}
+                      {!combinedLocation && (
+                        <>
+                          <div className="wh-audit-tile__spec">
+                            <dt>Rack</dt>
+                            <dd>{item.rackId.toUpperCase()}</dd>
+                          </div>
+                          <div className="wh-audit-tile__spec">
+                            <dt>Row</dt>
+                            <dd>{item.rowNumber}</dd>
+                          </div>
+                          <div className="wh-audit-tile__spec">
+                            <dt>Bin</dt>
+                            <dd>{item.binNumber}</dd>
+                          </div>
+                        </>
+                      )}
+                      <div className="wh-audit-tile__spec">
+                        <dt>Last audited</dt>
+                        <dd>{formatAuditDateTime(auditedAt)}</dd>
+                      </div>
+                      <div className="wh-audit-tile__spec">
+                        <dt>Audited by</dt>
+                        <dd>{auditedBy}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                </article>
               );
             })}
-          </tbody>
-        </table>
-      </div>
+          </div>
 
-      {totalPages > 1 && (
-        <nav className="wh-pagination" aria-label="Item list pagination">
-          <button
-            type="button"
-            className="wh-pagination__btn"
-            disabled={page <= 1}
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            aria-label="Previous page"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <span className="wh-pagination__info">
-            Page {page} of {totalPages}
-          </span>
-          <button
-            type="button"
-            className="wh-pagination__btn"
-            disabled={page >= totalPages}
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            aria-label="Next page"
-          >
-            <ChevronRight size={18} />
-          </button>
-        </nav>
-      )}
+          {totalPages > 1 && (
+            <nav className="wh-pagination" aria-label="Item list pagination">
+              <button
+                type="button"
+                className="wh-pagination__btn"
+                disabled={page <= 1}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                aria-label="Previous page"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <span className="wh-pagination__info">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="wh-pagination__btn"
+                disabled={page >= totalPages}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </nav>
+          )}
         </>
       )}
     </div>
