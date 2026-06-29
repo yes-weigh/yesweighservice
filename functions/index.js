@@ -75,6 +75,10 @@ import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
+import { CI_BUILD_TAG } from './lib/ci-build.js';
+
+// CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
+void CI_BUILD_TAG;
 
 initializeApp({
   storageBucket: 'yesweigh-service.firebasestorage.app',

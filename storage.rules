@@ -1,4 +1,5 @@
 rules_version = '2';
+// CI smoke-test marker — 2026-06-26
 
 service firebase.storage {
   match /b/{bucket}/o {

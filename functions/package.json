@@ -1,6 +1,7 @@
 {
   "name": "yesweighservice-functions",
   "private": true,
+  "version": "1.0.0-ci-smoke",
   "type": "module",
   "main": "index.js",
   "engines": {
