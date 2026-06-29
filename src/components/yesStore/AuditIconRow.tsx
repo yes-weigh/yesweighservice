@@ -57,22 +57,29 @@ export function AuditAttributionRow({
   tone,
   auditedBy,
   auditedAt,
+  bare = false,
 }: {
   icon: LucideIcon;
   tone: AuditIconTone;
   auditedBy: string | null | undefined;
   auditedAt: string | null | undefined;
+  /** Omit panel wrapper — for compact audit list tiles */
+  bare?: boolean;
 }) {
   const text = formatAuditAttribution(auditedBy, auditedAt);
 
-  return (
-    <AuditIconPanel>
-      <div className="audit-icon-row audit-icon-row--compact" aria-label={text}>
-        <span className={`audit-icon-row__icon audit-icon-row__icon--${tone}`} aria-hidden>
-          <Icon size={16} strokeWidth={2.1} />
-        </span>
-        <span className="audit-icon-row__value audit-icon-row__value--compact">{text}</span>
-      </div>
-    </AuditIconPanel>
+  const row = (
+    <div className="audit-icon-row audit-icon-row--compact" aria-label={text}>
+      <span className={`audit-icon-row__icon audit-icon-row__icon--${tone}`} aria-hidden>
+        <Icon size={bare ? 13 : 16} strokeWidth={2.1} />
+      </span>
+      <span className="audit-icon-row__value audit-icon-row__value--compact">{text}</span>
+    </div>
   );
+
+  if (bare) {
+    return row;
+  }
+
+  return <AuditIconPanel>{row}</AuditIconPanel>;
 }

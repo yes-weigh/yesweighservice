@@ -8,8 +8,8 @@ export interface AuditTileStockLocationProps {
   index?: number;
   total?: number;
   className?: string;
-  /** `card` = full block with header; `cells` = rack/row/bin grid only (for tables) */
-  variant?: 'card' | 'cells';
+  /** `card` = full block with header; `cells` = rack/row/bin grid only (for tables); `strip` = compact 3×2 label/value grid */
+  variant?: 'card' | 'cells' | 'strip';
 }
 
 export const AuditTileStockLocation: React.FC<AuditTileStockLocationProps> = ({
@@ -57,6 +57,34 @@ export const AuditTileStockLocation: React.FC<AuditTileStockLocationProps> = ({
           </span>
         ) : null}
         {cellsGrid}
+      </div>
+    );
+  }
+
+  if (variant === 'strip') {
+    return (
+      <div
+        className={`wh-audit-tile__stock-strip${className ? ` ${className}` : ''}`}
+        aria-label={`Stock location rack ${rackId}, row ${rowNumber}, bin ${binNumber}`}
+      >
+        <MapPin size={12} strokeWidth={2.2} aria-hidden />
+        <div className="wh-audit-tile__stock-strip-grid">
+          {cells.map(cell => (
+            <span key={`${cell.label}-label`} className="wh-audit-tile__stock-strip-key">
+              {cell.label}
+            </span>
+          ))}
+          {cells.map(cell => (
+            <span key={`${cell.label}-value`} className="wh-audit-tile__stock-strip-value">
+              {cell.value}
+            </span>
+          ))}
+        </div>
+        {showIndex ? (
+          <span className="wh-audit-tile__stock-strip-index text-muted">
+            ({index! + 1}/{total})
+          </span>
+        ) : null}
       </div>
     );
   }

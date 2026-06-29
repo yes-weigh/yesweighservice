@@ -420,12 +420,12 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
               return (
                 <article
                   key={item.id}
-                  className={`wh-audit-tile wh-audit-tile--item${clickable ? ' wh-audit-tile--clickable' : ''}${
+                  className={`wh-audit-tile wh-audit-tile--item wh-audit-tile--dense${clickable ? ' wh-audit-tile--clickable' : ''}${
                     selectedIds.has(item.id) ? ' wh-audit-tile--selected' : ''
                   }`}
                   onClick={clickable ? () => onItemClick?.(item) : undefined}
                 >
-                  <div className="wh-audit-tile__hero">
+                  <div className="wh-audit-tile__dense-row">
                     {showBatchSelect && (
                       <div
                         className="wh-audit-tile__select"
@@ -442,11 +442,30 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                       </div>
                     )}
                     <AuditTilePhotos photos={photos} />
-                    <div className="wh-audit-tile__qty-block">
-                      <span className="wh-audit-tile__qty-label">Qty</span>
+                    <div className="wh-audit-tile__qty-inline">
                       <span className="wh-audit-tile__qty-value" aria-label={`Quantity ${quantity}`}>
                         {quantity}
                       </span>
+                      <span className="wh-audit-tile__qty-label">Qty</span>
+                    </div>
+                    <AuditTileStockLocation
+                      rackId={item.rackId}
+                      rowNumber={item.rowNumber}
+                      binNumber={item.binNumber}
+                      variant="strip"
+                      className="wh-audit-tile__dense-location"
+                    />
+                  </div>
+
+                  <div className="wh-audit-tile__dense-meta">
+                    <div className="wh-audit-tile__dense-audit">
+                      <AuditAttributionRow
+                        icon={User}
+                        tone="orange"
+                        auditedBy={auditedBy}
+                        auditedAt={auditedAt}
+                        bare
+                      />
                     </div>
                     {showLinkStatus && (
                       <div className="wh-audit-tile__status">
@@ -454,19 +473,6 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                       </div>
                     )}
                   </div>
-
-                  <AuditAttributionRow
-                    icon={User}
-                    tone="orange"
-                    auditedBy={auditedBy}
-                    auditedAt={auditedAt}
-                  />
-
-                  <AuditTileStockLocation
-                    rackId={item.rackId}
-                    rowNumber={item.rowNumber}
-                    binNumber={item.binNumber}
-                  />
                 </article>
               );
             })}

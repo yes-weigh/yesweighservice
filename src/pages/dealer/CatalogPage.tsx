@@ -27,7 +27,7 @@ import {
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
 import { listAllItems, fetchDisplayNamesForUids, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
-import { readItemLinkedByName, readItemLinkedByUid, buildWarehouseLinkedProductIds, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
+import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
@@ -36,7 +36,7 @@ type CatalogFocus = 'browse' | 'search' | 'all-spares' | 'unlinked' | 'map' | 'i
 
 type AdminCatalogSection = 'categories' | 'spares' | 'inventory-audit';
 
-type SpareWarehouseLinkFilter = 'unlinked' | 'linked' | 'all';
+type SpareProductMapFilter = 'unmapped' | 'mapped' | 'all';
 
 function parseCatalogFocus(
   section: string | null,
@@ -104,7 +104,7 @@ export const CatalogPage: React.FC = () => {
   const [auditAuditorNames, setAuditAuditorNames] = useState<Map<string, string>>(new Map());
   const [batchLinkItems, setBatchLinkItems] = useState<YesStoreItemDoc[] | null>(null);
   const [unlinkingGroupId, setUnlinkingGroupId] = useState<string | null>(null);
-  const [spareWarehouseFilter, setSpareWarehouseFilter] = useState<SpareWarehouseLinkFilter>('all');
+  const [spareMapFilter, setSpareMapFilter] = useState<SpareProductMapFilter>('all');
 
   const sectionParam = searchParams.get('section');
   const categoryFromUrl = searchParams.get('category') ?? '';
@@ -204,7 +204,7 @@ export const CatalogPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!isSuperAdmin || (focus !== 'inventory-audit' && focus !== 'all-spares')) return;
+    if (!isSuperAdmin || focus !== 'inventory-audit') return;
     void loadAuditItems();
   }, [isSuperAdmin, focus, loadAuditItems]);
 
@@ -226,25 +226,21 @@ export const CatalogPage: React.FC = () => {
     [catalog?.items, catalog?.categories],
   );
 
-  const warehouseLinkedProductIds = useMemo(
-    () => buildWarehouseLinkedProductIds(auditItems),
-    [auditItems],
-  );
-
   const filteredSpareParts = useMemo(() => {
     if (!isSuperAdmin) return spareParts;
-    if (spareWarehouseFilter === 'all') return spareParts;
-    if (spareWarehouseFilter === 'linked') {
-      return spareParts.filter(product => warehouseLinkedProductIds.has(product.id));
+    if (spareMapFilter === 'all' || !linkedSpareIds) return spareParts;
+    if (spareMapFilter === 'mapped') {
+      return spareParts.filter(product => linkedSpareIds.has(product.id));
     }
-    return spareParts.filter(product => !warehouseLinkedProductIds.has(product.id));
-  }, [isSuperAdmin, spareParts, spareWarehouseFilter, warehouseLinkedProductIds]);
+    return spareParts.filter(product => !linkedSpareIds.has(product.id));
+  }, [isSuperAdmin, spareParts, spareMapFilter, linkedSpareIds]);
 
-  const spareWarehouseFilterCounts = useMemo(() => {
-    const linked = spareParts.filter(product => warehouseLinkedProductIds.has(product.id)).length;
+  const spareMapFilterCounts = useMemo(() => {
+    const ids = linkedSpareIds ?? new Set<string>();
+    const mapped = spareParts.filter(product => ids.has(product.id)).length;
     const all = spareParts.length;
-    return { all, linked, unlinked: all - linked };
-  }, [spareParts, warehouseLinkedProductIds]);
+    return { all, mapped, unmapped: all - mapped };
+  }, [spareParts, linkedSpareIds]);
 
   const unlinkedSpares = useMemo(() => {
     if (!linkedSpareIds) return [];
@@ -756,7 +752,7 @@ export const CatalogPage: React.FC = () => {
           <CatalogBrowse
             products={filteredSpareParts}
             categories={[]}
-            isLoading={loading || (isSuperAdmin && auditLoading && auditItems.length === 0)}
+            isLoading={loading || (isSuperAdmin && linksLoading)}
             showToolbar={false}
             showCategoryGrid={false}
             flatBrowse
@@ -768,39 +764,31 @@ export const CatalogPage: React.FC = () => {
             enableCart={canUseCart(user?.role)}
             showStockQuantity={showStockQuantity}
             returnView="spares"
-            warehouseLinkedProductIds={isSuperAdmin ? warehouseLinkedProductIds : undefined}
-            onProductSelect={
-              isSuperAdmin
-                ? product => {
-                    if (warehouseLinkedProductIds.has(product.id)) {
-                      navigate(`${pathname}/inventory-audit/linked/${product.id}`);
-                      return;
-                    }
-                    navigate(`${pathname}/spare/${product.id}`, {
-                      state: { origin: 'spares', searchQuery: flatListSearch },
-                    });
-                  }
+            manageItemLabel={isSuperAdmin && canSync && spareMapFilter === 'unmapped' ? 'Link to products' : undefined}
+            onManageItem={
+              isSuperAdmin && canSync && spareMapFilter === 'unmapped'
+                ? spare => void openLinkEditor(spare)
                 : undefined
             }
             listHeaderExtra={
               isSuperAdmin ? (
                 <div
-                  className="catalog-inventory-audit__filters catalog-spares-warehouse-filters"
+                  className="catalog-inventory-audit__filters catalog-spares-map-filters"
                   role="tablist"
-                  aria-label="Warehouse link filter"
+                  aria-label="Spare-to-product mapping filter"
                 >
-                  {(['unlinked', 'linked', 'all'] as const).map(option => {
-                    const count = spareWarehouseFilterCounts[option];
+                  {(['unmapped', 'mapped', 'all'] as const).map(option => {
+                    const count = spareMapFilterCounts[option];
                     const label =
-                      option === 'all' ? 'All' : option === 'linked' ? 'Linked' : 'Unlinked';
+                      option === 'all' ? 'All' : option === 'mapped' ? 'Mapped' : 'Unmapped';
                     return (
                     <button
                       key={option}
                       type="button"
                       role="tab"
-                      aria-selected={spareWarehouseFilter === option}
-                      className={`catalog-inventory-audit__filter-chip${spareWarehouseFilter === option ? ' is-active' : ''}`}
-                      onClick={() => setSpareWarehouseFilter(option)}
+                      aria-selected={spareMapFilter === option}
+                      className={`catalog-inventory-audit__filter-chip${spareMapFilter === option ? ' is-active' : ''}`}
+                      onClick={() => setSpareMapFilter(option)}
                     >
                       {label}
                       <span className="catalog-inventory-audit__filter-chip-count">{count}</span>
@@ -811,21 +799,21 @@ export const CatalogPage: React.FC = () => {
               ) : undefined
             }
             emptyTitle={
-              isSuperAdmin && spareWarehouseFilter === 'linked'
+              isSuperAdmin && spareMapFilter === 'mapped'
                 ? flatListSearch.trim()
-                  ? 'No linked spare parts match your search'
-                  : 'No spare parts linked to warehouse items yet'
-                : isSuperAdmin && spareWarehouseFilter === 'unlinked'
+                  ? 'No mapped spare parts match your search'
+                  : 'No spare parts mapped to products yet'
+                : isSuperAdmin && spareMapFilter === 'unmapped'
                   ? flatListSearch.trim()
-                    ? 'No unlinked spare parts match your search'
-                    : 'All spare parts are linked to warehouse items'
+                    ? 'No unmapped spare parts match your search'
+                    : 'All spare parts are mapped to products'
                   : undefined
             }
             emptyHint={
-              isSuperAdmin && spareWarehouseFilter === 'linked'
-                ? 'Link warehouse bins from Inventory audit.'
-                : isSuperAdmin && spareWarehouseFilter === 'unlinked'
-                  ? 'Use Inventory audit to link warehouse counts to Zoho items.'
+              isSuperAdmin && spareMapFilter === 'mapped'
+                ? 'Map spares from a product detail page or the Unmapped filter.'
+                : isSuperAdmin && spareMapFilter === 'unmapped'
+                  ? 'Open a spare to map it to compatible products.'
                   : undefined
             }
           />
