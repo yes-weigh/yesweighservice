@@ -32,6 +32,14 @@
         { "fieldPath": "invoiceId", "order": "ASCENDING" },
         { "fieldPath": "updatedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "yesStoreItems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "catalogProductId", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

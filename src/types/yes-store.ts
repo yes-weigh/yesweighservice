@@ -43,6 +43,8 @@ export interface YesStoreBinDoc {
 
 export const MAX_ITEM_PHOTOS = 2;
 
+export type CatalogLinkMode = 'unit' | 'part';
+
 export interface YesStoreItemDoc {
   id: string;
   quantity: number;
@@ -60,6 +62,12 @@ export interface YesStoreItemDoc {
   catalogProductSku?: string | null;
   linkedAt?: string | null;
   linkedByUid?: string | null;
+  /** How this bin counts toward a linked Zoho product. */
+  catalogLinkMode?: CatalogLinkMode | null;
+  /** Bundle part name (e.g. Part A) when catalogLinkMode is part. */
+  partLabel?: string | null;
+  /** Parts required from this bin per one complete Zoho unit (bundle mode). */
+  unitsPerProduct?: number | null;
   /** @deprecated legacy records only */
   name?: string;
   notes?: string;

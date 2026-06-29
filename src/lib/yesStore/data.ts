@@ -14,6 +14,7 @@ import {
 import { db } from '../../firebase';
 import type {
   BinNumber,
+  CatalogLinkMode,
   RowNumber,
   YesStoreBinDoc,
   YesStoreItemDoc,
@@ -223,15 +224,39 @@ export async function linkYesStoreItemToCatalog(
   itemId: string,
   product: { id: string; name: string; sku: string | null },
   linkedByUid: string,
+  options?: {
+    mode?: CatalogLinkMode;
+    partLabel?: string | null;
+    unitsPerProduct?: number;
+  },
 ): Promise<void> {
+  const mode = options?.mode === 'part' ? 'part' : 'unit';
+  const unitsPerProduct = Math.max(1, Math.floor(options?.unitsPerProduct ?? 1));
+  const partLabel = options?.partLabel?.trim() || null;
+
   await updateDoc(itemRef(itemId), {
     catalogProductId: product.id,
     catalogProductName: product.name.trim(),
     catalogProductSku: product.sku?.trim() || null,
+    catalogLinkMode: mode,
+    partLabel: mode === 'part' ? partLabel : null,
+    unitsPerProduct: mode === 'part' ? unitsPerProduct : 1,
     linkedAt: now(),
     linkedByUid,
     updatedAt: now(),
   });
+}
+
+export async function listItemsByCatalogProduct(catalogProductId: string): Promise<YesStoreItemDoc[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, 'yesStoreItems'),
+      where('catalogProductId', '==', catalogProductId),
+      orderBy('updatedAt', 'desc'),
+      limit(200),
+    ),
+  );
+  return snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as YesStoreItemDoc));
 }
 
 export async function deleteItem(itemId: string): Promise<void> {

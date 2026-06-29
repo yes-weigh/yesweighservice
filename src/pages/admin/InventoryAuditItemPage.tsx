@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Link2 } from 'lucide-react';
 import { CatalogProductLinkPicker } from '../../components/yesStore/CatalogProductLinkPicker';
@@ -6,12 +6,14 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { fetchCatalog, formatStockQuantity } from '../../lib/catalog';
-import { getItem, linkYesStoreItemToCatalog } from '../../lib/yesStore/data';
+import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
+import { getItem, linkYesStoreItemToCatalog, listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import type { CatalogProduct } from '../../types/catalog';
 import {
   formatItemLocationShort,
   isYesStoreItemLinked,
   readItemQuantity,
+  type CatalogLinkMode,
   type YesStoreItemDoc,
 } from '../../types/yes-store';
 
@@ -23,11 +25,15 @@ export const InventoryAuditItemPage: React.FC = () => {
 
   const [item, setItem] = useState<YesStoreItemDoc | null>(null);
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
+  const [siblingItems, setSiblingItems] = useState<YesStoreItemDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [linking, setLinking] = useState(false);
   const [error, setError] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null);
+  const [linkMode, setLinkMode] = useState<CatalogLinkMode>('unit');
+  const [partLabel, setPartLabel] = useState('');
+  const [unitsPerProduct, setUnitsPerProduct] = useState(1);
 
   const loadItem = useCallback(async () => {
     if (!itemId) return;
@@ -38,8 +44,24 @@ export const InventoryAuditItemPage: React.FC = () => {
       if (!data) {
         setError('Audit item not found.');
         setItem(null);
+        setSiblingItems([]);
       } else {
         setItem(data);
+        if (data.catalogLinkMode === 'part') {
+          setLinkMode('part');
+          setPartLabel(data.partLabel?.trim() ?? '');
+          setUnitsPerProduct(Math.max(1, data.unitsPerProduct ?? 1));
+        } else {
+          setLinkMode('unit');
+          setPartLabel('');
+          setUnitsPerProduct(1);
+        }
+        if (data.catalogProductId) {
+          const siblings = await listItemsByCatalogProduct(data.catalogProductId);
+          setSiblingItems(siblings.filter(sibling => sibling.id !== data.id));
+        } else {
+          setSiblingItems([]);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load audit item.');
@@ -78,16 +100,36 @@ export const InventoryAuditItemPage: React.FC = () => {
     if (linked) setSelectedProduct(linked);
   }, [item?.catalogProductId, catalogProducts]);
 
+  useEffect(() => {
+    if (!selectedProduct || siblingItems.length === 0) return;
+    const siblingUsesPart = siblingItems.some(sibling => sibling.catalogLinkMode === 'part');
+    if (siblingUsesPart) setLinkMode('part');
+  }, [selectedProduct, siblingItems]);
+
   const linked = item ? isYesStoreItemLinked(item) : false;
-  const canLink = selectedProduct && item && selectedProduct.id !== item.catalogProductId;
+  const linkChanged =
+    !selectedProduct ||
+    !item ||
+    selectedProduct.id !== item.catalogProductId ||
+    (linkMode === 'part'
+      ? item.catalogLinkMode !== 'part' ||
+        (item.partLabel?.trim() ?? '') !== partLabel.trim() ||
+        Math.max(1, item.unitsPerProduct ?? 1) !== Math.max(1, unitsPerProduct)
+      : item.catalogLinkMode === 'part');
+  const canLink = selectedProduct && item && linkChanged;
+  const partModeInvalid = linkMode === 'part' && !partLabel.trim();
 
   const handleLink = async () => {
-    if (!item || !selectedProduct || !user) return;
+    if (!item || !selectedProduct || !user || partModeInvalid) return;
     setLinking(true);
     setError('');
     try {
-      await linkYesStoreItemToCatalog(item.id, selectedProduct, user.uid);
-      await loadItem();
+      await linkYesStoreItemToCatalog(item.id, selectedProduct, user.uid, {
+        mode: linkMode,
+        partLabel: linkMode === 'part' ? partLabel.trim() : null,
+        unitsPerProduct: linkMode === 'part' ? unitsPerProduct : 1,
+      });
+      navigate(`${base}/inventory-audit/linked/${selectedProduct.id}`, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not link item.');
     } finally {
@@ -96,14 +138,24 @@ export const InventoryAuditItemPage: React.FC = () => {
   };
 
   const handleBack = useCallback(() => {
+    if (item?.catalogProductId) {
+      navigate(`${base}/inventory-audit/linked/${item.catalogProductId}`, { replace: false });
+      return;
+    }
     navigate(`${base}?section=inventory-audit`, { replace: false });
-  }, [navigate, base]);
+  }, [navigate, base, item?.catalogProductId]);
 
   useCatalogPageHeader({
     title: item ? formatItemLocationShort(item.rackId, item.rowNumber, item.binNumber) : 'Audit item',
     showBack: true,
     onBack: handleBack,
   });
+
+  const previewQty = useMemo(() => {
+    const countedQty = item ? readItemQuantity(item) : 0;
+    const zohoQty = selectedProduct?.stock ?? null;
+  return { countedQty, zohoQty, qtyDifference: zohoQty != null ? countedQty - zohoQty : null };
+  }, [item, selectedProduct]);
 
   if (user?.role !== 'super_admin') {
     return <Navigate to={base} replace />;
@@ -136,15 +188,7 @@ export const InventoryAuditItemPage: React.FC = () => {
   }
 
   const photos = item.photos ?? [];
-  const countedQty = readItemQuantity(item);
-  const zohoQty = selectedProduct?.stock ?? null;
-  const qtyDifference = zohoQty != null ? countedQty - zohoQty : null;
-
-  const formatDifference = (value: number) => {
-    if (value > 0) return `+${value}`;
-    if (value < 0) return String(value);
-    return '0';
-  };
+  const { countedQty, qtyDifference } = previewQty;
 
   return (
     <div className="page-content fade-in catalog-inventory-audit-detail">
@@ -153,6 +197,16 @@ export const InventoryAuditItemPage: React.FC = () => {
           <AlertCircle size={18} />
           <span>{error}</span>
         </div>
+      )}
+
+      {linked && item.catalogProductId && (
+        <p className="catalog-inventory-audit-detail__group-link text-muted">
+          Part of{' '}
+          <Link to={`${base}/inventory-audit/linked/${item.catalogProductId}`}>
+            {item.catalogProductName || 'linked Zoho item'}
+          </Link>
+          {siblingItems.length > 0 && ` · ${siblingItems.length + 1} warehouse locations`}
+        </p>
       )}
 
       <section className="catalog-inventory-audit-detail__hero panel glass">
@@ -198,37 +252,101 @@ export const InventoryAuditItemPage: React.FC = () => {
           />
 
           {selectedProduct && (
-            <div className="catalog-inventory-audit-detail__qty-compare">
-              <div className="catalog-inventory-audit-detail__qty-compare-item">
-                <span className="catalog-inventory-audit-detail__qty-compare-label">Zoho qty</span>
-                <strong>{formatStockQuantity(selectedProduct.stock, selectedProduct.unit)}</strong>
+            <>
+              <fieldset className="catalog-inventory-audit-detail__link-mode">
+                <legend className="catalog-inventory-audit-detail__link-mode-legend">How this bin counts</legend>
+                <label className="catalog-inventory-audit-detail__link-mode-option">
+                  <input
+                    type="radio"
+                    name="linkMode"
+                    value="unit"
+                    checked={linkMode === 'unit'}
+                    disabled={linking || siblingItems.some(sibling => sibling.catalogLinkMode === 'part')}
+                    onChange={() => setLinkMode('unit')}
+                  />
+                  <span>
+                    <strong>Same item, another location</strong>
+                    <span className="text-muted">Qty at this bin is added to the total.</span>
+                  </span>
+                </label>
+                <label className="catalog-inventory-audit-detail__link-mode-option">
+                  <input
+                    type="radio"
+                    name="linkMode"
+                    value="part"
+                    checked={linkMode === 'part'}
+                    disabled={linking}
+                    onChange={() => setLinkMode('part')}
+                  />
+                  <span>
+                    <strong>Kit part</strong>
+                    <span className="text-muted">
+                      Multiple bins are parts of one Zoho item. Complete units = min of floor(qty ÷ required).
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+
+              {linkMode === 'part' && (
+                <div className="catalog-inventory-audit-detail__part-fields">
+                  <label className="catalog-inventory-audit-detail__part-field">
+                    <span>Part name</span>
+                    <input
+                      type="text"
+                      value={partLabel}
+                      onChange={event => setPartLabel(event.target.value)}
+                      placeholder="e.g. Part A"
+                      disabled={linking}
+                    />
+                  </label>
+                  <label className="catalog-inventory-audit-detail__part-field">
+                    <span>Required per Zoho unit</span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={unitsPerProduct}
+                      onChange={event =>
+                        setUnitsPerProduct(Math.max(1, Number(event.target.value) || 1))
+                      }
+                      disabled={linking}
+                    />
+                  </label>
+                </div>
+              )}
+
+              <div className="catalog-inventory-audit-detail__qty-compare">
+                <div className="catalog-inventory-audit-detail__qty-compare-item">
+                  <span className="catalog-inventory-audit-detail__qty-compare-label">Zoho qty</span>
+                  <strong>{formatStockQuantity(selectedProduct.stock, selectedProduct.unit)}</strong>
+                </div>
+                <div className="catalog-inventory-audit-detail__qty-compare-item">
+                  <span className="catalog-inventory-audit-detail__qty-compare-label">This bin</span>
+                  <strong>{countedQty}</strong>
+                </div>
+                <div className="catalog-inventory-audit-detail__qty-compare-item">
+                  <span className="catalog-inventory-audit-detail__qty-compare-label">Difference</span>
+                  <strong
+                    className={`catalog-inventory-audit-detail__qty-compare-diff${
+                      qtyDifference != null && qtyDifference !== 0
+                        ? qtyDifference > 0
+                          ? ' is-over'
+                          : ' is-under'
+                        : ''
+                    }`}
+                  >
+                    {qtyDifference != null ? formatQtyDifference(qtyDifference) : '—'}
+                  </strong>
+                </div>
               </div>
-              <div className="catalog-inventory-audit-detail__qty-compare-item">
-                <span className="catalog-inventory-audit-detail__qty-compare-label">Counted qty</span>
-                <strong>{countedQty}</strong>
-              </div>
-              <div className="catalog-inventory-audit-detail__qty-compare-item">
-                <span className="catalog-inventory-audit-detail__qty-compare-label">Difference</span>
-                <strong
-                  className={`catalog-inventory-audit-detail__qty-compare-diff${
-                    qtyDifference != null && qtyDifference !== 0
-                      ? qtyDifference > 0
-                        ? ' is-over'
-                        : ' is-under'
-                      : ''
-                  }`}
-                >
-                  {qtyDifference != null ? formatDifference(qtyDifference) : '—'}
-                </strong>
-              </div>
-            </div>
+            </>
           )}
 
           <div className="catalog-inventory-audit-detail__actions">
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!canLink || linking || catalogLoading}
+              disabled={!canLink || linking || catalogLoading || partModeInvalid}
               onClick={() => void handleLink()}
             >
               {linking ? 'Linking…' : linked && canLink ? 'Update link' : 'Link item'}

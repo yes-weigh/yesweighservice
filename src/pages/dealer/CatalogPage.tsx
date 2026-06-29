@@ -703,11 +703,15 @@ export const CatalogPage: React.FC = () => {
         <div className="catalog-inventory-audit-page panel glass">
           <WarehouseInventoryAuditList
             items={auditItems}
+            catalogProducts={catalog?.items}
             loading={auditLoading}
             onRefresh={() => void loadAuditItems()}
             combinedLocation
             showLinkStatus
             onItemClick={item => navigate(`${pathname}/inventory-audit/${item.id}`)}
+            onGroupClick={group =>
+              navigate(`${pathname}/inventory-audit/linked/${group.catalogProductId}`)
+            }
           />
         </div>
       )}
