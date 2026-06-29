@@ -139,6 +139,23 @@
   border-bottom: none;
 }
 
+.audit-icon-row--compact {
+  padding: 0.55rem 0.7rem;
+  gap: 0.6rem;
+}
+
+.audit-icon-row--compact .audit-icon-row__icon {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 8px;
+}
+
+.audit-icon-row__value--compact {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .audit-icon-row__icon {
   display: inline-flex;
   align-items: center;

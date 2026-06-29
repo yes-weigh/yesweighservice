@@ -39,3 +39,15 @@ export function formatAuditDateTime(iso: string | null | undefined): string {
     minute: '2-digit',
   });
 }
+
+/** Compact tile line: "Diya, 27 Jun 2026, 02:50 pm" */
+export function formatAuditAttribution(
+  auditedBy: string | null | undefined,
+  auditedAt: string | null | undefined,
+): string {
+  const name = auditedBy?.trim() || '—';
+  const when = formatAuditDateTime(auditedAt);
+  if (when === '—') return name;
+  if (name === '—') return when;
+  return `${name}, ${when}`;
+}

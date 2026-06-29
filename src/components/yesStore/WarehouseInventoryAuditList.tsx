@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Calendar,
   ChevronLeft,
   ChevronRight,
   GitCompare,
@@ -10,7 +9,7 @@ import {
   User,
 } from 'lucide-react';
 import { AuditTileStockLocation } from './AuditTileStockLocation';
-import { AuditIconPanel, AuditIconRow } from './AuditIconRow';
+import { AuditIconPanel, AuditIconRow, AuditAttributionRow } from './AuditIconRow';
 import {
   buildInventoryAuditListRows,
   formatQtyDifference,
@@ -20,7 +19,6 @@ import {
   type InventoryAuditLinkedGroup,
   type InventoryAuditListRow,
 } from '../../lib/yesStore/inventoryAudit';
-import { formatAuditDateTime } from '../../lib/yesStore/format';
 import {
   formatItemLocationShort,
   isYesStoreItemLinked,
@@ -362,20 +360,12 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                       )}
                     </div>
 
-                    <AuditIconPanel>
-                      <AuditIconRow
-                        icon={Calendar}
-                        tone="teal"
-                        label="Last audited"
-                        value={formatAuditDateTime(group.lastCountedAt)}
-                      />
-                      <AuditIconRow
-                        icon={User}
-                        tone="orange"
-                        label="Audited by"
-                        value={auditedBy}
-                      />
-                    </AuditIconPanel>
+                    <AuditAttributionRow
+                      icon={User}
+                      tone="orange"
+                      auditedBy={auditedBy}
+                      auditedAt={group.lastCountedAt}
+                    />
 
                     <AuditIconPanel>
                       <AuditIconRow
@@ -465,20 +455,12 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                     )}
                   </div>
 
-                  <AuditIconPanel>
-                    <AuditIconRow
-                      icon={Calendar}
-                      tone="teal"
-                      label="Last audited"
-                      value={formatAuditDateTime(auditedAt)}
-                    />
-                    <AuditIconRow
-                      icon={User}
-                      tone="orange"
-                      label="Audited by"
-                      value={auditedBy}
-                    />
-                  </AuditIconPanel>
+                  <AuditAttributionRow
+                    icon={User}
+                    tone="orange"
+                    auditedBy={auditedBy}
+                    auditedAt={auditedAt}
+                  />
 
                   <AuditTileStockLocation
                     rackId={item.rackId}
