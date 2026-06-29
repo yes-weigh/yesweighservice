@@ -1514,6 +1514,7 @@ export const syncCatalogProductStoreLocations = onCall(
 export const syncYesStoreLocationsOnItemWrite = onDocumentWritten(
   {
     document: 'yesStoreItems/{itemId}',
+    database: '(default)',
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
     timeoutSeconds: 120,
