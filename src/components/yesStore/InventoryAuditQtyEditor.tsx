@@ -1,90 +1,35 @@
-import React, { useEffect, useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
+import React from 'react';
 import { formatAuditDateTime } from '../../lib/yesStore/format';
 import {
   readItemCountedAt,
   readItemCountedByName,
 } from '../../lib/yesStore/inventoryAudit';
-import { updateInventoryAuditCount } from '../../lib/yesStore/data';
 import { readItemQuantity, type YesStoreItemDoc } from '../../types/yes-store';
 
 export interface InventoryAuditQtyEditorProps {
   item: YesStoreItemDoc;
   compact?: boolean;
-  onSaved?: (item: YesStoreItemDoc) => void;
 }
 
+/** Read-only counted qty for admin audit views. Warehouse staff update counts in YesStore. */
 export const InventoryAuditQtyEditor: React.FC<InventoryAuditQtyEditorProps> = ({
   item,
   compact = false,
-  onSaved,
 }) => {
-  const { user } = useAuth();
   const quantity = readItemQuantity(item);
-  const [value, setValue] = useState(String(quantity));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [savedItem, setSavedItem] = useState(item);
-
-  useEffect(() => {
-    setSavedItem(item);
-    setValue(String(readItemQuantity(item)));
-  }, [item]);
-
-  const parsed = Math.floor(Number(value));
-  const valid = Number.isFinite(parsed) && parsed >= 1;
-  const changed = valid && parsed !== readItemQuantity(savedItem);
-
-  const auditedAt = readItemCountedAt(savedItem);
-  const auditedBy = readItemCountedByName(savedItem);
-
-  const handleSave = async () => {
-    if (!user || !valid || !changed) return;
-    setSaving(true);
-    setError('');
-    try {
-      const updated = await updateInventoryAuditCount(item.id, parsed, {
-        uid: user.uid,
-        displayName: user.displayName,
-      });
-      setSavedItem(updated);
-      onSaved?.(updated);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save count.');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const auditedAt = readItemCountedAt(item);
+  const auditedBy = readItemCountedByName(item);
 
   return (
     <div
-      className={`catalog-inventory-audit-qty-editor${
+      className={`catalog-inventory-audit-qty-editor catalog-inventory-audit-qty-editor--readonly${
         compact ? ' catalog-inventory-audit-qty-editor--compact' : ''
       }`}
     >
-      <label className="catalog-inventory-audit-qty-editor__field">
+      <div className="catalog-inventory-audit-qty-editor__field">
         <span className="catalog-inventory-audit-qty-editor__label">Counted qty</span>
-        <div className="catalog-inventory-audit-qty-editor__controls">
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={value}
-            disabled={saving}
-            onChange={event => setValue(event.target.value)}
-          />
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={!changed || saving || !valid}
-            onClick={() => void handleSave()}
-          >
-            {saving ? 'Saving…' : 'Save count'}
-          </button>
-        </div>
-      </label>
-
-      {error && <p className="catalog-inventory-audit-qty-editor__error">{error}</p>}
+        <span className="catalog-inventory-audit-qty-editor__value">{quantity}</span>
+      </div>
 
       <p className="catalog-inventory-audit-qty-editor__meta text-muted">
         Last audited: <strong>{formatAuditDateTime(auditedAt)}</strong>

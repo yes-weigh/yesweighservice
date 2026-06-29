@@ -1,5 +1,16 @@
 import React from 'react';
-import { Package } from 'lucide-react';
+import {
+  Calendar,
+  CheckCircle2,
+  GitCompare,
+  Hash,
+  IndianRupee,
+  Link2,
+  Package,
+  Tag,
+  User,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { StockBadge } from '../catalog/StockBadge';
 import { formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import {
@@ -13,12 +24,40 @@ import {
 import { formatAuditDateTime } from '../../lib/yesStore/format';
 import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
+import { AuditIconPanel, AuditIconRow, type AuditIconTone } from './AuditIconRow';
 
 interface InventoryAuditProductPreviewProps {
   product: CatalogProduct;
   items: YesStoreItemDoc[];
   totals: InventoryAuditGroupTotals;
   linkerNamesByUid?: Map<string, string>;
+}
+
+function iconMetaForLabel(label: string): { icon: LucideIcon; tone: AuditIconTone } {
+  switch (label) {
+    case 'HSN':
+      return { icon: Hash, tone: 'blue' };
+    case 'SKU':
+      return { icon: Tag, tone: 'indigo' };
+    case 'Price':
+      return { icon: IndianRupee, tone: 'amber' };
+    case 'Last audited':
+      return { icon: Calendar, tone: 'teal' };
+    case 'Audited by':
+      return { icon: User, tone: 'orange' };
+    case 'Linked by':
+      return { icon: Link2, tone: 'purple' };
+    case 'Linked at':
+      return { icon: Calendar, tone: 'teal' };
+    case 'Stock in zoho':
+      return { icon: Package, tone: 'purple' };
+    case 'Audited quantity':
+      return { icon: CheckCircle2, tone: 'green' };
+    case 'Difference':
+      return { icon: GitCompare, tone: 'amber' };
+    default:
+      return { icon: Package, tone: 'blue' };
+  }
 }
 
 export const InventoryAuditProductPreview: React.FC<InventoryAuditProductPreviewProps> = ({
@@ -48,6 +87,11 @@ export const InventoryAuditProductPreview: React.FC<InventoryAuditProductPreview
   const differenceText =
     totals.difference != null ? formatQtyDifference(totals.difference) : '—';
 
+  const differenceClass =
+    totals.difference != null && totals.difference !== 0
+      ? `is-audit-diff ${totals.difference > 0 ? 'is-over' : 'is-under'}`
+      : 'is-audit-diff';
+
   const infoRows: { label: string; value: string }[] = [
     ...(product.hsn ? [{ label: 'HSN', value: product.hsn }] : []),
     ...(product.sku ? [{ label: 'SKU', value: product.sku }] : []),
@@ -67,11 +111,11 @@ export const InventoryAuditProductPreview: React.FC<InventoryAuditProductPreview
   const qtyRows: { label: string; value: string; valueClass?: string }[] = [
     { label: 'Stock in zoho', value: formatStockQuantity(product.stock, product.unit) },
     { label: 'Audited quantity', value: auditedQtyLabel, valueClass: 'is-audit-qty' },
-    { label: 'Difference', value: differenceText, valueClass: 'is-audit-diff' },
+    { label: 'Difference', value: differenceText, valueClass: differenceClass },
   ];
 
   return (
-    <div className="catalog-product-link-preview inventory-audit-product-preview panel glass">
+    <div className="catalog-product-link-preview inventory-audit-product-preview">
       {galleryUrls.length > 0 ? (
         <div className="inventory-audit-product-preview__gallery" tabIndex={0}>
           <div className="inventory-audit-product-preview__gallery-track">
@@ -103,23 +147,36 @@ export const InventoryAuditProductPreview: React.FC<InventoryAuditProductPreview
         </div>
       </div>
 
-      <dl className="catalog-product-link-preview__specs">
-        {infoRows.map(row => (
-          <div key={row.label} className="catalog-product-link-preview__spec-row">
-            <dt>{row.label}</dt>
-            <dd>{row.value}</dd>
-          </div>
-        ))}
-      </dl>
+      <AuditIconPanel>
+        {infoRows.map(row => {
+          const meta = iconMetaForLabel(row.label);
+          return (
+            <AuditIconRow
+              key={row.label}
+              icon={meta.icon}
+              tone={meta.tone}
+              label={row.label}
+              value={row.value}
+            />
+          );
+        })}
+      </AuditIconPanel>
 
-      <dl className="catalog-product-link-preview__specs inventory-audit-product-preview__qty-specs">
-        {qtyRows.map(row => (
-          <div key={row.label} className="catalog-product-link-preview__spec-row">
-            <dt>{row.label}</dt>
-            <dd className={row.valueClass}>{row.value}</dd>
-          </div>
-        ))}
-      </dl>
+      <AuditIconPanel className="inventory-audit-product-preview__qty-specs">
+        {qtyRows.map(row => {
+          const meta = iconMetaForLabel(row.label);
+          return (
+            <AuditIconRow
+              key={row.label}
+              icon={meta.icon}
+              tone={meta.tone}
+              label={row.label}
+              value={row.value}
+              valueClassName={row.valueClass}
+            />
+          );
+        })}
+      </AuditIconPanel>
     </div>
   );
 };

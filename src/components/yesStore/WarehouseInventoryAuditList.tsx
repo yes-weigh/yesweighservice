@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Link2, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Link2, MapPin, RefreshCw, User, Calendar, GitCompare } from 'lucide-react';
+import { AuditIconPanel, AuditIconRow } from './AuditIconRow';
 import {
   buildInventoryAuditListRows,
   formatQtyDifference,
@@ -33,7 +34,6 @@ export interface WarehouseInventoryAuditListProps {
   onBatchLink?: (items: YesStoreItemDoc[]) => void;
   emptyMessage?: string;
   className?: string;
-  combinedLocation?: boolean;
   showLinkStatus?: boolean;
   batchLinkEnabled?: boolean;
 }
@@ -76,6 +76,49 @@ function AuditStatusBadge({ linked }: { linked: boolean }) {
   );
 }
 
+function AuditTileStockLocation({
+  rackId,
+  rowNumber,
+  binNumber,
+  index,
+  total,
+}: {
+  rackId: string;
+  rowNumber: number;
+  binNumber: number;
+  index?: number;
+  total?: number;
+}) {
+  const cells = [
+    { label: 'Rack', value: rackId.toUpperCase() },
+    { label: 'Row', value: String(rowNumber) },
+    { label: 'Bin', value: String(binNumber) },
+  ];
+  const showIndex = total != null && total > 1 && index != null;
+
+  return (
+    <div className="wh-audit-tile__stock-location">
+      <div className="wh-audit-tile__stock-location-head">
+        <span className="audit-icon-row__icon audit-icon-row__icon--indigo" aria-hidden>
+          <MapPin size={15} strokeWidth={2.1} />
+        </span>
+        <span>
+          Stock Location
+          {showIndex ? ` ${index + 1} of ${total}` : ''}
+        </span>
+      </div>
+      <div className="wh-audit-tile__stock-location-cells">
+        {cells.map(cell => (
+          <div key={cell.label} className="wh-audit-tile__stock-location-cell">
+            <span className="wh-audit-tile__stock-location-label">{cell.label}</span>
+            <span className="wh-audit-tile__stock-location-value">{cell.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListProps> = ({
   items,
   catalogProducts,
@@ -87,7 +130,6 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   onBatchLink,
   emptyMessage = 'No audits yet. Warehouse staff add items from the YesStore app.',
   className = '',
-  combinedLocation = false,
   showLinkStatus = false,
   batchLinkEnabled = false,
 }) => {
@@ -103,6 +145,18 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
     }
     return buildInventoryAuditListRows(items, linkFilter, catalogMap(catalogProducts));
   }, [items, linkFilter, showLinkStatus, catalogProducts]);
+
+  const linkFilterCounts = useMemo(() => {
+    if (!showLinkStatus) {
+      return { all: items.length, linked: 0, unlinked: items.length };
+    }
+    const catalog = catalogMap(catalogProducts);
+    return {
+      unlinked: buildInventoryAuditListRows(items, 'unlinked', catalog).length,
+      linked: buildInventoryAuditListRows(items, 'linked', catalog).length,
+      all: buildInventoryAuditListRows(items, 'all', catalog).length,
+    };
+  }, [items, showLinkStatus, catalogProducts]);
 
   const itemsById = useMemo(() => new Map(items.map(item => [item.id, item])), [items]);
 
@@ -200,7 +254,11 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
     <div className={`catalog-inventory-audit ${className}`.trim()}>
       {showLinkStatus && (
         <div className="catalog-inventory-audit__filters" role="tablist" aria-label="Link status filter">
-          {(['unlinked', 'linked', 'all'] as const).map(option => (
+          {(['unlinked', 'linked', 'all'] as const).map(option => {
+            const count = linkFilterCounts[option];
+            const label =
+              option === 'all' ? 'All' : option === 'linked' ? 'Linked' : 'Unlinked';
+            return (
             <button
               key={option}
               type="button"
@@ -209,9 +267,11 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
               className={`catalog-inventory-audit__filter-chip${linkFilter === option ? ' is-active' : ''}`}
               onClick={() => setLinkFilter(option)}
             >
-              {option === 'all' ? 'All' : option === 'linked' ? 'Linked' : 'Unlinked'}
+              {label}
+              <span className="catalog-inventory-audit__filter-chip-count">{count}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -269,18 +329,11 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                 const { group } = row;
                 const firstPhotos = group.items[0]?.photos ?? [];
                 const clickable = Boolean(onGroupClick);
-                const locationLabel =
-                  group.items.length === 1
-                    ? formatItemLocationShort(
-                        group.items[0].rackId,
-                        group.items[0].rowNumber,
-                        group.items[0].binNumber,
-                      )
-                    : `${group.items.length} locations`;
-                const qtyLabel =
+                const countedQty = group.totals.countedQty;
+                const qtySub =
                   group.totals.mode === 'bundle'
-                    ? `${group.totals.countedQty} complete (${group.totals.rawCountedQty} parts)`
-                    : String(group.totals.countedQty);
+                    ? `${group.totals.rawCountedQty} parts`
+                    : undefined;
                 const auditedBy = group.countedByName;
                 const linkedBy = resolveAuditorDisplayName(
                   group.linkedByName,
@@ -291,55 +344,84 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                 return (
                   <article
                     key={group.catalogProductId}
-                    className={`wh-audit-tile wh-audit-tile--group${clickable ? ' wh-audit-tile--clickable' : ''}`}
+                    className={`wh-audit-tile wh-audit-tile--item wh-audit-tile--group${clickable ? ' wh-audit-tile--clickable' : ''}`}
                     onClick={clickable ? () => onGroupClick?.(group) : undefined}
                   >
-                    <div className="wh-audit-tile__top">
+                    <div className="wh-audit-tile__hero">
                       <AuditTilePhotos photos={firstPhotos} />
-                    </div>
-                    <div className="wh-audit-tile__body">
-                      <div className="wh-audit-tile__head">
-                        <div className="wh-audit-tile__title-wrap">
-                          <h3 className="wh-audit-tile__title">{group.catalogProductName}</h3>
-                          <p className="wh-audit-tile__subtitle text-muted">{locationLabel}</p>
-                        </div>
+                      <div className="wh-audit-tile__qty-block">
+                        <span className="wh-audit-tile__qty-label">Qty</span>
+                        <span
+                          className="wh-audit-tile__qty-value"
+                          aria-label={`Counted quantity ${countedQty}`}
+                        >
+                          {countedQty}
+                        </span>
+                        {qtySub ? (
+                          <span className="wh-audit-tile__qty-sub text-muted">{qtySub}</span>
+                        ) : null}
+                      </div>
+                      <div className="wh-audit-tile__status">
                         <AuditStatusBadge linked />
                       </div>
-                      <dl className="wh-audit-tile__specs">
-                        <div className="wh-audit-tile__spec">
-                          <dt>Counted qty</dt>
-                          <dd>{qtyLabel}</dd>
-                        </div>
-                        {group.totals.difference != null && (
-                          <div className="wh-audit-tile__spec">
-                            <dt>Difference</dt>
-                            <dd
-                              className={
-                                group.totals.difference !== 0
-                                  ? group.totals.difference > 0
-                                    ? 'is-over'
-                                    : 'is-under'
-                                  : undefined
-                              }
-                            >
-                              {formatQtyDifference(group.totals.difference)}
-                            </dd>
-                          </div>
-                        )}
-                        <div className="wh-audit-tile__spec">
-                          <dt>Last audited</dt>
-                          <dd>{formatAuditDateTime(group.lastCountedAt)}</dd>
-                        </div>
-                        <div className="wh-audit-tile__spec">
-                          <dt>Audited by</dt>
-                          <dd>{auditedBy}</dd>
-                        </div>
-                        <div className="wh-audit-tile__spec">
-                          <dt>Linked by</dt>
-                          <dd>{linkedBy}</dd>
-                        </div>
-                      </dl>
                     </div>
+
+                    <div className="wh-audit-tile__product-head">
+                      <h3 className="wh-audit-tile__product-name">{group.catalogProductName}</h3>
+                      {group.items.length > 1 && (
+                        <p className="wh-audit-tile__product-meta text-muted">
+                          {group.items.length} stock locations
+                        </p>
+                      )}
+                    </div>
+
+                    <AuditIconPanel>
+                      <AuditIconRow
+                        icon={Calendar}
+                        tone="teal"
+                        label="Last audited"
+                        value={formatAuditDateTime(group.lastCountedAt)}
+                      />
+                      <AuditIconRow
+                        icon={User}
+                        tone="orange"
+                        label="Audited by"
+                        value={auditedBy}
+                      />
+                    </AuditIconPanel>
+
+                    <AuditIconPanel>
+                      <AuditIconRow
+                        icon={Link2}
+                        tone="purple"
+                        label="Linked by"
+                        value={linkedBy}
+                      />
+                      {group.totals.difference != null && (
+                        <AuditIconRow
+                          icon={GitCompare}
+                          tone="amber"
+                          label="Difference"
+                          value={formatQtyDifference(group.totals.difference)}
+                          valueClassName={
+                            group.totals.difference !== 0
+                              ? `is-audit-diff ${group.totals.difference > 0 ? 'is-over' : 'is-under'}`
+                              : 'is-audit-diff'
+                          }
+                        />
+                      )}
+                    </AuditIconPanel>
+
+                    {group.items.map((binItem, index) => (
+                      <AuditTileStockLocation
+                        key={binItem.id}
+                        rackId={binItem.rackId}
+                        rowNumber={binItem.rowNumber}
+                        binNumber={binItem.binNumber}
+                        index={index}
+                        total={group.items.length}
+                      />
+                    ))}
                   </article>
                 );
               }
@@ -356,16 +438,17 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
               );
               const auditedAt = readItemCountedAt(item);
               const auditedBy = readItemCountedByName(item);
+              const quantity = readItemQuantity(item);
 
               return (
                 <article
                   key={item.id}
-                  className={`wh-audit-tile${clickable ? ' wh-audit-tile--clickable' : ''}${
+                  className={`wh-audit-tile wh-audit-tile--item${clickable ? ' wh-audit-tile--clickable' : ''}${
                     selectedIds.has(item.id) ? ' wh-audit-tile--selected' : ''
                   }`}
                   onClick={clickable ? () => onItemClick?.(item) : undefined}
                 >
-                  <div className="wh-audit-tile__top">
+                  <div className="wh-audit-tile__hero">
                     {showBatchSelect && (
                       <div
                         className="wh-audit-tile__select"
@@ -382,56 +465,39 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                       </div>
                     )}
                     <AuditTilePhotos photos={photos} />
-                  </div>
-                  <div className="wh-audit-tile__body">
-                    <div className="wh-audit-tile__head">
-                      <div className="wh-audit-tile__title-wrap">
-                        <h3 className="wh-audit-tile__title">{locationLabel}</h3>
-                        {!combinedLocation && (
-                          <p className="wh-audit-tile__subtitle text-muted">
-                            Rack {item.rackId.toUpperCase()} · Row {item.rowNumber} · Bin {item.binNumber}
-                          </p>
-                        )}
-                      </div>
-                      {showLinkStatus && <AuditStatusBadge linked={linked} />}
+                    <div className="wh-audit-tile__qty-block">
+                      <span className="wh-audit-tile__qty-label">Qty</span>
+                      <span className="wh-audit-tile__qty-value" aria-label={`Quantity ${quantity}`}>
+                        {quantity}
+                      </span>
                     </div>
-                    <dl className="wh-audit-tile__specs">
-                      <div className="wh-audit-tile__spec">
-                        <dt>Qty</dt>
-                        <dd>{readItemQuantity(item)}</dd>
+                    {showLinkStatus && (
+                      <div className="wh-audit-tile__status">
+                        <AuditStatusBadge linked={linked} />
                       </div>
-                      {combinedLocation && (
-                        <div className="wh-audit-tile__spec">
-                          <dt>Location</dt>
-                          <dd>{locationLabel}</dd>
-                        </div>
-                      )}
-                      {!combinedLocation && (
-                        <>
-                          <div className="wh-audit-tile__spec">
-                            <dt>Rack</dt>
-                            <dd>{item.rackId.toUpperCase()}</dd>
-                          </div>
-                          <div className="wh-audit-tile__spec">
-                            <dt>Row</dt>
-                            <dd>{item.rowNumber}</dd>
-                          </div>
-                          <div className="wh-audit-tile__spec">
-                            <dt>Bin</dt>
-                            <dd>{item.binNumber}</dd>
-                          </div>
-                        </>
-                      )}
-                      <div className="wh-audit-tile__spec">
-                        <dt>Last audited</dt>
-                        <dd>{formatAuditDateTime(auditedAt)}</dd>
-                      </div>
-                      <div className="wh-audit-tile__spec">
-                        <dt>Audited by</dt>
-                        <dd>{auditedBy}</dd>
-                      </div>
-                    </dl>
+                    )}
                   </div>
+
+                  <AuditIconPanel>
+                    <AuditIconRow
+                      icon={Calendar}
+                      tone="teal"
+                      label="Last audited"
+                      value={formatAuditDateTime(auditedAt)}
+                    />
+                    <AuditIconRow
+                      icon={User}
+                      tone="orange"
+                      label="Audited by"
+                      value={auditedBy}
+                    />
+                  </AuditIconPanel>
+
+                  <AuditTileStockLocation
+                    rackId={item.rackId}
+                    rowNumber={item.rowNumber}
+                    binNumber={item.binNumber}
+                  />
                 </article>
               );
             })}

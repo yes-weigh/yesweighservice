@@ -101,10 +101,6 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
     );
   }
 
-  const handleItemSaved = (updated: YesStoreItemDoc) => {
-    setItems(current => current.map(item => (item.id === updated.id ? updated : item)));
-  };
-
   return (
     <div className="page-content fade-in catalog-inventory-audit-detail">
       {error && (
@@ -115,7 +111,7 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
       )}
 
       {catalogProduct && (
-        <section className="catalog-inventory-audit-detail__link">
+        <section className="catalog-inventory-audit-detail__preview">
           <InventoryAuditProductPreview
             product={catalogProduct}
             items={items}
@@ -133,7 +129,7 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
 
       <section className="catalog-inventory-audit-group-locations panel glass">
         <h2 className="catalog-inventory-audit-group-locations__title">
-          Warehouse locations ({items.length})
+          Stock location ({items.length})
         </h2>
 
         <div className="catalog-inventory-audit-group-locations__list">
@@ -159,11 +155,7 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
                 </Link>
               </div>
 
-              <InventoryAuditQtyEditor
-                item={binItem}
-                compact
-                onSaved={handleItemSaved}
-              />
+              <InventoryAuditQtyEditor item={binItem} compact />
 
               <div className="catalog-inventory-audit-group-locations__stats">
                 {totals.mode === 'bundle' && (

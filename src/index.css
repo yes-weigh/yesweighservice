@@ -826,6 +826,10 @@ html::-webkit-scrollbar {
 
 .content-area { padding: 1.5rem; }
 
+.content-area:has(.catalog-inventory-audit-detail) {
+  padding: 0 0 1.25rem;
+}
+
 .page-content { width: 100%; }
 
 .content-area:has(.support-detail-page--chat) {
@@ -3869,6 +3873,15 @@ html::-webkit-scrollbar {
   .content-area:has(.products-page),
   .content-area:has(.catalog-page) {
     padding: 0 0 1rem;
+  }
+
+  .content-area:has(.catalog-inventory-audit-detail) {
+    padding: 0 0 1rem;
+  }
+
+  .catalog-inventory-audit-detail {
+    padding-left: max(0.625rem, env(safe-area-inset-left));
+    padding-right: max(0.625rem, env(safe-area-inset-right));
   }
 
   .products-page,

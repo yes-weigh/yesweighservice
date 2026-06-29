@@ -207,18 +207,13 @@ export const InventoryAuditItemPage: React.FC = () => {
           <Link to={`${base}/inventory-audit/linked/${item.catalogProductId}`}>
             {item.catalogProductName || 'linked Zoho item'}
           </Link>
-          {siblingItems.length > 0 && ` · ${siblingItems.length + 1} warehouse locations`}
+          {siblingItems.length > 0 && ` · ${siblingItems.length + 1} stock locations`}
         </p>
       )}
 
       <section className="catalog-inventory-audit-detail__hero panel glass">
         <div className="catalog-inventory-audit-detail__summary">
-          <InventoryAuditQtyEditor
-            item={item}
-            onSaved={updated => {
-              setItem(updated);
-            }}
-          />
+          <InventoryAuditQtyEditor item={item} />
           <span
             className={`catalog-inventory-audit-detail__status catalog-inventory-audit-detail__status--${
               linked ? 'linked' : 'unlinked'

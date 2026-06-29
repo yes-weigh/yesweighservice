@@ -209,6 +209,12 @@ export const CatalogPage: React.FC = () => {
     return spareParts.filter(product => !warehouseLinkedProductIds.has(product.id));
   }, [isSuperAdmin, spareParts, spareWarehouseFilter, warehouseLinkedProductIds]);
 
+  const spareWarehouseFilterCounts = useMemo(() => {
+    const linked = spareParts.filter(product => warehouseLinkedProductIds.has(product.id)).length;
+    const all = spareParts.length;
+    return { all, linked, unlinked: all - linked };
+  }, [spareParts, warehouseLinkedProductIds]);
+
   const unlinkedSpares = useMemo(() => {
     if (!linkedSpareIds) return [];
     return getUnlinkedSpares(catalog?.items ?? [], linkedSpareIds);
@@ -752,7 +758,11 @@ export const CatalogPage: React.FC = () => {
                   role="tablist"
                   aria-label="Warehouse link filter"
                 >
-                  {(['unlinked', 'linked', 'all'] as const).map(option => (
+                  {(['unlinked', 'linked', 'all'] as const).map(option => {
+                    const count = spareWarehouseFilterCounts[option];
+                    const label =
+                      option === 'all' ? 'All' : option === 'linked' ? 'Linked' : 'Unlinked';
+                    return (
                     <button
                       key={option}
                       type="button"
@@ -761,9 +771,11 @@ export const CatalogPage: React.FC = () => {
                       className={`catalog-inventory-audit__filter-chip${spareWarehouseFilter === option ? ' is-active' : ''}`}
                       onClick={() => setSpareWarehouseFilter(option)}
                     >
-                      {option === 'all' ? 'All' : option === 'linked' ? 'Linked' : 'Unlinked'}
+                      {label}
+                      <span className="catalog-inventory-audit__filter-chip-count">{count}</span>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : undefined
             }
@@ -797,7 +809,6 @@ export const CatalogPage: React.FC = () => {
             auditorNamesByUid={auditAuditorNames}
             loading={auditLoading}
             onRefresh={() => void loadAuditItems()}
-            combinedLocation
             showLinkStatus
             batchLinkEnabled
             onBatchLink={setBatchLinkItems}
