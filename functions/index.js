@@ -1,7 +1,6 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
-import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { isCatalogSyncWindow } from './lib/business-hours.js';
@@ -76,13 +75,6 @@ import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
-import {
-  syncCatalogProductStoreLocationsToZoho,
-} from './lib/zoho-item-store-locations.js';
-import {
-  collectCatalogProductIdsFromWrite,
-  syncStoreLocationsForCatalogProducts,
-} from './lib/yes-store-zoho-locations.js';
 
 initializeApp({
   storageBucket: 'yesweigh-service.firebasestorage.app',
@@ -94,13 +86,6 @@ const zohoRefreshToken = defineSecret('ZOHO_REFRESH_TOKEN');
 const watiToken = defineSecret('WATI_TOKEN');
 const watiEndpoint = defineSecret('WATI_ENDPOINT');
 const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
-const zohoStoreLocationsCfId = defineString('ZOHO_ITEM_STORE_LOCATIONS_CF_ID', { default: '' });
-const zohoStoreLocationsCfLabel = defineString('ZOHO_ITEM_STORE_LOCATIONS_CF_LABEL', {
-  default: 'Yes Store Locations',
-});
-const zohoStoreLocationsCfApiName = defineString('ZOHO_ITEM_STORE_LOCATIONS_CF_API_NAME', {
-  default: 'cf_store_location',
-});
 const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
@@ -113,14 +98,6 @@ function zohoSecrets() {
     clientId: zohoClientId.value(),
     clientSecret: zohoClientSecret.value(),
     refreshToken: zohoRefreshToken.value(),
-  };
-}
-
-function zohoStoreLocationsFieldConfig() {
-  return {
-    customFieldId: zohoStoreLocationsCfId.value(),
-    customFieldLabel: zohoStoreLocationsCfLabel.value(),
-    customFieldApiName: zohoStoreLocationsCfApiName.value(),
   };
 }
 
@@ -1334,8 +1311,12 @@ export const sendDealerLoginOtp = onCall(
   },
   async request => {
     const phone = parseDealerPhoneInput(request.data?.phone);
+    const dealerId = String(request.data?.dealerId ?? '').trim();
+    if (!dealerId) {
+      throw new HttpsError('invalid-argument', 'Select which dealer account to use.');
+    }
     try {
-      return await dispatchDealerLoginOtp(phone, watiToken.value(), watiEndpoint.value());
+      return await dispatchDealerLoginOtp(phone, dealerId, watiToken.value(), watiEndpoint.value());
     } catch (err) {
       dealerOtpError(err, 'Could not send OTP.');
     }
@@ -1477,66 +1458,6 @@ export const getHrStaffFileUrlFn = onCall(
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load HR file.');
     }
-  },
-);
-
-/** Push linked YesStore bin locations/qty to a Zoho item custom field (manual). */
-export const syncCatalogProductStoreLocations = onCall(
-  {
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
-    memory: '256MiB',
-  },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-
-    const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
-    if (!catalogProductId) {
-      throw new HttpsError('invalid-argument', 'catalogProductId is required.');
-    }
-
-    try {
-      return await syncCatalogProductStoreLocationsToZoho(
-        getFirestore(),
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        catalogProductId,
-        zohoStoreLocationsFieldConfig(),
-      );
-    } catch (err) {
-      throw new HttpsError('internal', err?.message ?? 'Could not sync store locations to Zoho.');
-    }
-  },
-);
-
-/** Keep Zoho item custom field in sync when warehouse bins link/unlink or qty changes. */
-export const syncYesStoreLocationsOnItemWrite = onDocumentWritten(
-  {
-    document: 'yesStoreItems/{itemId}',
-    database: '(default)',
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
-    memory: '256MiB',
-  },
-  async event => {
-    const before = event.data?.before?.exists ? event.data.before.data() : null;
-    const after = event.data?.after?.exists ? event.data.after.data() : null;
-    const productIds = collectCatalogProductIdsFromWrite(before, after);
-    if (!productIds.length) return null;
-
-    const secrets = zohoSecrets();
-    const orgId = zohoOrganizationId.value();
-    const fieldConfig = zohoStoreLocationsFieldConfig();
-
-    return syncStoreLocationsForCatalogProducts(
-      getFirestore(),
-      secrets,
-      orgId,
-      productIds,
-      fieldConfig,
-    );
   },
 );
 

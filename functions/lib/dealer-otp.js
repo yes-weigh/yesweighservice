@@ -21,39 +21,82 @@ export function phoneLast10(value) {
   return digits.length >= 10 ? digits.slice(-10) : '';
 }
 
-export async function findDealerByPhone(phone10) {
+function dealerDisplayName(dealer) {
+  return String(
+    dealer.companyName || dealer.contactName || dealer.firstName || 'Dealer',
+  ).trim();
+}
+
+function dealerMatchesPhone(data, phone10) {
+  const candidates = [data.phone, data.mobile, data.whatsappNumber];
+  return candidates.some(value => phoneLast10(value) === phone10);
+}
+
+export async function findDealersByPhone(phone10) {
   const db = getFirestore();
   const snap = await db.collection('zohoCustomers').get();
-  const matches = snap.docs.filter(doc => {
-    const data = doc.data();
-    const candidates = [data.phone, data.mobile, data.whatsappNumber];
-    return candidates.some(value => phoneLast10(value) === phone10);
-  });
+  return snap.docs
+    .filter(doc => dealerMatchesPhone(doc.data(), phone10))
+    .map(doc => ({ id: doc.id, ...doc.data() }));
+}
 
-  if (matches.length === 0) return null;
-  if (matches.length > 1) {
-    throw new Error('Multiple dealers are registered with this phone number. Contact YesOne support.');
+async function getDealerById(dealerId) {
+  const db = getFirestore();
+  const snap = await db.collection('zohoCustomers').doc(dealerId).get();
+  if (!snap.exists) return null;
+  return { id: snap.id, ...snap.data() };
+}
+
+export async function findDealerForLogin(phone10, dealerId) {
+  const matches = await findDealersByPhone(phone10);
+  if (!dealerId) {
+    if (matches.length === 0) return null;
+    if (matches.length > 1) {
+      throw new Error('Select which dealer account to use.');
+    }
+    return matches[0];
   }
 
-  const doc = matches[0];
-  return { id: doc.id, ...doc.data() };
+  const dealer = matches.find(match => match.id === dealerId);
+  if (!dealer) {
+    throw new Error('Selected dealer was not found for this phone number.');
+  }
+  return dealer;
+}
+
+function mapDealerLookupOption(dealer) {
+  return {
+    dealerId: dealer.id,
+    displayName: dealerDisplayName(dealer),
+    hasPortalAccount: Boolean(dealer.portalUserId),
+    companyName: dealer.companyName ? String(dealer.companyName) : null,
+    district: dealer.district ? String(dealer.district) : null,
+    billingState: dealer.billingState ? String(dealer.billingState) : null,
+  };
 }
 
 export async function lookupDealerForLogin(phone10) {
-  const dealer = await findDealerByPhone(phone10);
-  if (!dealer) {
+  const matches = await findDealersByPhone(phone10);
+  if (matches.length === 0) {
     return { found: false };
   }
 
-  const displayName = String(
-    dealer.companyName || dealer.contactName || dealer.firstName || 'Dealer',
-  ).trim();
+  const dealers = matches.map(mapDealerLookupOption);
+  if (matches.length === 1) {
+    const dealer = dealers[0];
+    return {
+      found: true,
+      multiple: false,
+      dealerId: dealer.dealerId,
+      displayName: dealer.displayName,
+      hasPortalAccount: dealer.hasPortalAccount,
+    };
+  }
 
   return {
     found: true,
-    dealerId: dealer.id,
-    displayName,
-    hasPortalAccount: Boolean(dealer.portalUserId),
+    multiple: true,
+    dealers,
   };
 }
 
@@ -81,8 +124,8 @@ async function sendWatiOtp(phone10, code, watiToken, watiEndpoint) {
   }
 }
 
-export async function sendDealerLoginOtp(phone10, watiToken, watiEndpoint) {
-  const dealer = await findDealerByPhone(phone10);
+export async function sendDealerLoginOtp(phone10, dealerId, watiToken, watiEndpoint) {
+  const dealer = await findDealerForLogin(phone10, dealerId);
   if (!dealer) {
     throw new Error('No dealer found for this phone number.');
   }
@@ -139,9 +182,12 @@ export async function verifyDealerLoginOtp(phone10, code) {
     throw new Error('Invalid OTP.');
   }
 
-  const dealer = await findDealerByPhone(phone10);
+  const dealer = await getDealerById(session.dealerId);
   if (!dealer || dealer.portalUserId) {
     throw new Error('This dealer account is no longer eligible for OTP signup.');
+  }
+  if (!dealerMatchesPhone(dealer, phone10)) {
+    throw new Error('Selected dealer was not found for this phone number.');
   }
 
   const setupToken = randomBytes(32).toString('hex');
@@ -155,7 +201,7 @@ export async function verifyDealerLoginOtp(phone10, code) {
   return {
     verified: true,
     setupToken,
-    displayName: String(session.displayName ?? dealer.companyName ?? dealer.contactName ?? 'Dealer'),
+    displayName: String(session.displayName ?? dealerDisplayName(dealer)),
   };
 }
 
@@ -185,9 +231,12 @@ export async function completeDealerSignup(phone10, setupToken, password) {
     throw new Error('Verification session expired. Start again with your phone number.');
   }
 
-  const dealer = await findDealerByPhone(phone10);
+  const dealer = await getDealerById(session.dealerId);
   if (!dealer) {
     throw new Error('Dealer record not found.');
+  }
+  if (!dealerMatchesPhone(dealer, phone10)) {
+    throw new Error('Selected dealer was not found for this phone number.');
   }
   if (dealer.portalUserId) {
     throw new Error('Portal account already exists. Sign in with your phone and password.');

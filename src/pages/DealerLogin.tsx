@@ -11,10 +11,11 @@ import {
   lookupDealerByPhone,
   sendDealerLoginOtp,
   verifyDealerLoginOtp,
+  type DealerLookupOption,
   type DealerLookupResult,
 } from '../lib/dealerLogin';
 
-type Step = 'phone' | 'otp' | 'password';
+type Step = 'phone' | 'select' | 'otp' | 'password';
 
 export const DealerLogin: React.FC = () => {
   const { user, loading, login } = useAuth();
@@ -26,6 +27,8 @@ export const DealerLogin: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [dealerInfo, setDealerInfo] = useState<DealerLookupResult | null>(null);
+  const [dealerOptions, setDealerOptions] = useState<DealerLookupOption[]>([]);
+  const [selectedDealerId, setSelectedDealerId] = useState('');
   const [setupToken, setSetupToken] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -39,6 +42,23 @@ export const DealerLogin: React.FC = () => {
   }, [user, loading, navigate]);
 
   const normalizedPhone = normalizePhone(phone);
+
+  const applyDealerSelection = (dealer: DealerLookupOption) => {
+    setSelectedDealerId(dealer.dealerId);
+    setDealerInfo({
+      found: true,
+      multiple: false,
+      dealerId: dealer.dealerId,
+      displayName: dealer.displayName,
+      hasPortalAccount: dealer.hasPortalAccount,
+    });
+    if (dealer.hasPortalAccount) {
+      setInfo('You already have a portal account. Sign in with your phone number and password.');
+      setStep('phone');
+      return;
+    }
+    setStep('otp');
+  };
 
   const handlePhoneContinue = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,12 +76,22 @@ export const DealerLogin: React.FC = () => {
         setError('No dealer account matches this phone number.');
         return;
       }
-      setDealerInfo(result);
-      if (result.hasPortalAccount) {
-        setInfo('You already have a portal account. Sign in with your phone number and password.');
+      if (result.multiple && result.dealers?.length) {
+        setDealerOptions(result.dealers);
+        setDealerInfo(null);
+        setSelectedDealerId('');
+        setStep('select');
         return;
       }
-      setStep('otp');
+      if (!result.dealerId) {
+        setError('Dealer lookup failed. Try again.');
+        return;
+      }
+      applyDealerSelection({
+        dealerId: result.dealerId,
+        displayName: result.displayName ?? 'Dealer',
+        hasPortalAccount: Boolean(result.hasPortalAccount),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lookup failed.');
     } finally {
@@ -72,9 +102,13 @@ export const DealerLogin: React.FC = () => {
   const handleSendOtp = async () => {
     setError('');
     setInfo('');
+    if (!selectedDealerId) {
+      setError('Select which dealer account to use.');
+      return;
+    }
     setSubmitting(true);
     try {
-      await sendDealerLoginOtp(normalizedPhone);
+      await sendDealerLoginOtp(normalizedPhone, selectedDealerId);
       setInfo('OTP sent to your WhatsApp number.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send OTP.');
@@ -154,7 +188,11 @@ export const DealerLogin: React.FC = () => {
             type="button"
             className="btn btn-secondary btn-sm dealer-login-back"
             onClick={() => {
-              setStep('phone');
+              if (step === 'select') {
+                setStep('phone');
+              } else {
+                setStep(dealerOptions.length > 1 ? 'select' : 'phone');
+              }
               setError('');
               setInfo('');
               setOtp('');
@@ -163,7 +201,7 @@ export const DealerLogin: React.FC = () => {
               setSetupToken('');
             }}
           >
-            <ArrowLeft size={16} /> Change phone number
+            <ArrowLeft size={16} /> {step === 'select' ? 'Change phone number' : 'Back'}
           </button>
         )}
 
@@ -208,6 +246,45 @@ export const DealerLogin: React.FC = () => {
             <Link to="/login" className="btn btn-primary w-full mt-2">
               Go to sign in
             </Link>
+          </div>
+        )}
+
+        {step === 'select' && dealerOptions.length > 0 && (
+          <div className="login-form">
+            <p className="text-muted text-sm dealer-login-select-intro">
+              Multiple dealer accounts use this phone number. Select yours to continue.
+            </p>
+            <ul className="dealer-login-picker" role="listbox" aria-label="Dealer accounts">
+              {dealerOptions.map(dealer => {
+                const location = [dealer.district, dealer.billingState].filter(Boolean).join(', ');
+                return (
+                  <li key={dealer.dealerId}>
+                    <button
+                      type="button"
+                      role="option"
+                      className="dealer-login-picker__option"
+                      onClick={() => applyDealerSelection(dealer)}
+                      disabled={submitting}
+                    >
+                      <div className="dealer-login-picker__body">
+                        <strong>{dealer.displayName}</strong>
+                        {dealer.companyName && dealer.companyName !== dealer.displayName && (
+                          <span className="text-muted text-sm">{dealer.companyName}</span>
+                        )}
+                        {location && <span className="text-muted text-sm">{location}</span>}
+                      </div>
+                      <span
+                        className={`dealer-login-picker__badge${
+                          dealer.hasPortalAccount ? ' is-registered' : ''
+                        }`}
+                      >
+                        {dealer.hasPortalAccount ? 'Portal active' : 'Activate portal'}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
 

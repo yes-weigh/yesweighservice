@@ -46,9 +46,6 @@ jobs:
         env:
           ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
           ZOHO_WEBHOOK_SECRET: ${{ secrets.ZOHO_WEBHOOK_SECRET }}
-          ZOHO_ITEM_STORE_LOCATIONS_CF_ID: ${{ secrets.ZOHO_ITEM_STORE_LOCATIONS_CF_ID }}
-          ZOHO_ITEM_STORE_LOCATIONS_CF_LABEL: ${{ secrets.ZOHO_ITEM_STORE_LOCATIONS_CF_LABEL }}
-          ZOHO_ITEM_STORE_LOCATIONS_CF_API_NAME: ${{ secrets.ZOHO_ITEM_STORE_LOCATIONS_CF_API_NAME }}
         run: |
           if [ -z "$ZOHO_ORGANIZATION_ID" ]; then
             echo "::error::Add GitHub Actions secret ZOHO_ORGANIZATION_ID (Zoho Inventory → Settings → Organization Profile → Organization ID)."
@@ -58,9 +55,6 @@ jobs:
           {
             printf 'ZOHO_ORGANIZATION_ID=%s\n' "$ZOHO_ORGANIZATION_ID"
             printf 'ZOHO_WEBHOOK_SECRET=%s\n' "${ZOHO_WEBHOOK_SECRET:-}"
-            printf 'ZOHO_ITEM_STORE_LOCATIONS_CF_ID=%s\n' "${ZOHO_ITEM_STORE_LOCATIONS_CF_ID:-}"
-            printf 'ZOHO_ITEM_STORE_LOCATIONS_CF_LABEL=%s\n' "${ZOHO_ITEM_STORE_LOCATIONS_CF_LABEL:-Yes Store Locations}"
-            printf 'ZOHO_ITEM_STORE_LOCATIONS_CF_API_NAME=%s\n' "${ZOHO_ITEM_STORE_LOCATIONS_CF_API_NAME:-cf_store_location}"
           } > functions/.env.yesweigh-service
 
       - name: Deploy hosting, Firestore, and Storage

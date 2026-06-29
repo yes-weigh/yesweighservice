@@ -4,8 +4,19 @@ import { normalizePhone, isValidPhone } from './loginAuth';
 
 const functions = getFunctions(app, 'asia-south1');
 
+export type DealerLookupOption = {
+  dealerId: string;
+  displayName: string;
+  hasPortalAccount: boolean;
+  companyName?: string | null;
+  district?: string | null;
+  billingState?: string | null;
+};
+
 export type DealerLookupResult = {
   found: boolean;
+  multiple?: boolean;
+  dealers?: DealerLookupOption[];
   dealerId?: string;
   displayName?: string;
   hasPortalAccount?: boolean;
@@ -56,11 +67,21 @@ export async function lookupDealerByPhone(phoneInput: string): Promise<DealerLoo
   }
 }
 
-export async function sendDealerLoginOtp(phoneInput: string): Promise<DealerOtpSendResult> {
+export async function sendDealerLoginOtp(
+  phoneInput: string,
+  dealerId: string,
+): Promise<DealerOtpSendResult> {
   const phone = parsePhone(phoneInput);
-  const fn = httpsCallable<{ phone: string }, DealerOtpSendResult>(functions, 'sendDealerLoginOtp');
+  const trimmedDealerId = dealerId.trim();
+  if (!trimmedDealerId) {
+    throw new Error('Select which dealer account to use.');
+  }
+  const fn = httpsCallable<{ phone: string; dealerId: string }, DealerOtpSendResult>(
+    functions,
+    'sendDealerLoginOtp',
+  );
   try {
-    const result = await fn({ phone });
+    const result = await fn({ phone, dealerId: trimmedDealerId });
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not send OTP.');

@@ -1,15 +1,5 @@
 export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
 
-export interface CatalogStoreLocation {
-  rack: string;
-  row: number;
-  bin: number;
-  qty: number;
-  location: string;
-  partLabel: string | null;
-  linkMode: 'unit' | 'part';
-}
-
 export interface CatalogProduct {
   id: string;
   name: string;
@@ -28,10 +18,6 @@ export interface CatalogProduct {
   taxPercentage: number;
   reorderLevel?: number;
   syncedAt?: string;
-  /** Mirrored from YesStore → Zoho custom field sync. */
-  storeLocations?: CatalogStoreLocation[];
-  storeLocationsSummary?: string;
-  storeLocationsZohoSyncedAt?: string;
 }
 
 export interface CatalogCategory {

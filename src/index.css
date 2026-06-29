@@ -1101,6 +1101,68 @@ html::-webkit-scrollbar {
   margin-bottom: 1rem;
 }
 
+.dealer-login-select-intro {
+  margin-bottom: 0.875rem;
+}
+
+.dealer-login-picker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.dealer-login-picker__option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dealer-login-picker__option:hover:not(:disabled) {
+  border-color: rgba(249, 115, 22, 0.45);
+  background: rgba(249, 115, 22, 0.08);
+}
+
+.dealer-login-picker__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.dealer-login-picker__body strong {
+  font-size: 0.95rem;
+}
+
+.dealer-login-picker__badge {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(249, 115, 22, 0.15);
+  color: #fdba74;
+}
+
+.dealer-login-picker__badge.is-registered {
+  background: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+}
+
 .bg-shapes {
   position: fixed;
   inset: 0;
