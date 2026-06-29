@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Link2, MapPin, RefreshCw, User, Calendar, GitCompare } from 'lucide-react';
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  GitCompare,
+  Link2,
+  RefreshCw,
+  Unlink,
+  User,
+} from 'lucide-react';
+import { AuditTileStockLocation } from './AuditTileStockLocation';
 import { AuditIconPanel, AuditIconRow } from './AuditIconRow';
 import {
   buildInventoryAuditListRows,
@@ -31,6 +41,8 @@ export interface WarehouseInventoryAuditListProps {
   onRefresh?: () => void;
   onItemClick?: (item: YesStoreItemDoc) => void;
   onGroupClick?: (group: InventoryAuditLinkedGroup) => void;
+  onUnlinkGroup?: (group: InventoryAuditLinkedGroup) => void;
+  unlinkingGroupId?: string | null;
   onBatchLink?: (items: YesStoreItemDoc[]) => void;
   emptyMessage?: string;
   className?: string;
@@ -76,49 +88,6 @@ function AuditStatusBadge({ linked }: { linked: boolean }) {
   );
 }
 
-function AuditTileStockLocation({
-  rackId,
-  rowNumber,
-  binNumber,
-  index,
-  total,
-}: {
-  rackId: string;
-  rowNumber: number;
-  binNumber: number;
-  index?: number;
-  total?: number;
-}) {
-  const cells = [
-    { label: 'Rack', value: rackId.toUpperCase() },
-    { label: 'Row', value: String(rowNumber) },
-    { label: 'Bin', value: String(binNumber) },
-  ];
-  const showIndex = total != null && total > 1 && index != null;
-
-  return (
-    <div className="wh-audit-tile__stock-location">
-      <div className="wh-audit-tile__stock-location-head">
-        <span className="audit-icon-row__icon audit-icon-row__icon--indigo" aria-hidden>
-          <MapPin size={15} strokeWidth={2.1} />
-        </span>
-        <span>
-          Stock Location
-          {showIndex ? ` ${index + 1} of ${total}` : ''}
-        </span>
-      </div>
-      <div className="wh-audit-tile__stock-location-cells">
-        {cells.map(cell => (
-          <div key={cell.label} className="wh-audit-tile__stock-location-cell">
-            <span className="wh-audit-tile__stock-location-label">{cell.label}</span>
-            <span className="wh-audit-tile__stock-location-value">{cell.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListProps> = ({
   items,
   catalogProducts,
@@ -127,6 +96,8 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   onRefresh,
   onItemClick,
   onGroupClick,
+  onUnlinkGroup,
+  unlinkingGroupId = null,
   onBatchLink,
   emptyMessage = 'No audits yet. Warehouse staff add items from the YesStore app.',
   className = '',
@@ -367,11 +338,27 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                     </div>
 
                     <div className="wh-audit-tile__product-head">
-                      <h3 className="wh-audit-tile__product-name">{group.catalogProductName}</h3>
-                      {group.items.length > 1 && (
-                        <p className="wh-audit-tile__product-meta text-muted">
-                          {group.items.length} stock locations
-                        </p>
+                      <div className="wh-audit-tile__product-head-main">
+                        <h3 className="wh-audit-tile__product-name">{group.catalogProductName}</h3>
+                        {group.items.length > 1 && (
+                          <p className="wh-audit-tile__product-meta text-muted">
+                            {group.items.length} stock locations
+                          </p>
+                        )}
+                      </div>
+                      {onUnlinkGroup && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm wh-audit-tile__unlink"
+                          disabled={unlinkingGroupId === group.catalogProductId}
+                          onClick={event => {
+                            event.stopPropagation();
+                            onUnlinkGroup(group);
+                          }}
+                        >
+                          <Unlink size={14} aria-hidden />
+                          {unlinkingGroupId === group.catalogProductId ? 'Unlinking…' : 'Unlink'}
+                        </button>
                       )}
                     </div>
 

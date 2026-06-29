@@ -7,6 +7,7 @@ import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { WarehouseInventoryAuditList } from '../../components/yesStore/WarehouseInventoryAuditList';
 import { InventoryAuditBatchLinkModal } from '../../components/yesStore/InventoryAuditBatchLinkModal';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
@@ -25,8 +26,8 @@ import {
   syncCatalog,
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
-import { listAllItems, fetchDisplayNamesForUids } from '../../lib/yesStore/data';
-import { readItemLinkedByName, readItemLinkedByUid, buildWarehouseLinkedProductIds } from '../../lib/yesStore/inventoryAudit';
+import { listAllItems, fetchDisplayNamesForUids, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
+import { readItemLinkedByName, readItemLinkedByUid, buildWarehouseLinkedProductIds, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
@@ -81,6 +82,7 @@ export const CatalogPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const isSuperAdmin = user?.role === 'super_admin';
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
   const showStockQuantity = canSync || canViewCatalogStock(user);
@@ -101,6 +103,7 @@ export const CatalogPage: React.FC = () => {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditAuditorNames, setAuditAuditorNames] = useState<Map<string, string>>(new Map());
   const [batchLinkItems, setBatchLinkItems] = useState<YesStoreItemDoc[] | null>(null);
+  const [unlinkingGroupId, setUnlinkingGroupId] = useState<string | null>(null);
   const [spareWarehouseFilter, setSpareWarehouseFilter] = useState<SpareWarehouseLinkFilter>('all');
 
   const sectionParam = searchParams.get('section');
@@ -171,6 +174,34 @@ export const CatalogPage: React.FC = () => {
       setAuditLoading(false);
     }
   }, []);
+
+  const handleUnlinkGroup = useCallback(
+    async (group: InventoryAuditLinkedGroup) => {
+      const locationCount = group.items.length;
+      const ok = await confirm({
+        title: 'Unlink warehouse item?',
+        message:
+          locationCount > 1
+            ? `Remove the Zoho link from all ${locationCount} stock locations for “${group.catalogProductName}”? The warehouse counts stay in Yes Store.`
+            : `Remove the Zoho link from “${group.catalogProductName}”? The warehouse count stays in Yes Store.`,
+        confirmLabel: 'Unlink',
+        destructive: true,
+      });
+      if (!ok) return;
+
+      setUnlinkingGroupId(group.catalogProductId);
+      setError(null);
+      try {
+        await batchUnlinkYesStoreItemsFromCatalog(group.items.map(item => item.id));
+        await loadAuditItems();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not unlink warehouse item.');
+      } finally {
+        setUnlinkingGroupId(null);
+      }
+    },
+    [confirm, loadAuditItems],
+  );
 
   useEffect(() => {
     if (!isSuperAdmin || (focus !== 'inventory-audit' && focus !== 'all-spares')) return;
@@ -816,6 +847,8 @@ export const CatalogPage: React.FC = () => {
             onGroupClick={group =>
               navigate(`${pathname}/inventory-audit/linked/${group.catalogProductId}`)
             }
+            onUnlinkGroup={isSuperAdmin ? handleUnlinkGroup : undefined}
+            unlinkingGroupId={unlinkingGroupId}
           />
         </div>
       )}

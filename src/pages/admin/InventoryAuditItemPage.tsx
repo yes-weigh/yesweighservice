@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, Link2 } from 'lucide-react';
+import { AlertCircle, Link2, Unlink } from 'lucide-react';
 import { CatalogProductLinkPicker } from '../../components/yesStore/CatalogProductLinkPicker';
 import { InventoryAuditQtyEditor } from '../../components/yesStore/InventoryAuditQtyEditor';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { fetchCatalog, formatStockQuantity } from '../../lib/catalog';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
-import { getItem, linkYesStoreItemToCatalog, listItemsByCatalogProduct } from '../../lib/yesStore/data';
+import { getItem, linkYesStoreItemToCatalog, listItemsByCatalogProduct, unlinkYesStoreItemFromCatalog } from '../../lib/yesStore/data';
 import type { CatalogProduct } from '../../types/catalog';
 import {
   formatItemLocationShort,
@@ -22,6 +23,7 @@ export const InventoryAuditItemPage: React.FC = () => {
   const { itemId } = useParams<{ itemId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const base = user?.role === 'super_admin' ? '/super-admin/catalog' : '/catalog';
 
   const [item, setItem] = useState<YesStoreItemDoc | null>(null);
@@ -30,6 +32,7 @@ export const InventoryAuditItemPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [linking, setLinking] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
   const [error, setError] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<CatalogProduct | null>(null);
   const [linkMode, setLinkMode] = useState<CatalogLinkMode>('unit');
@@ -136,6 +139,32 @@ export const InventoryAuditItemPage: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Could not link item.');
     } finally {
       setLinking(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!item) return;
+    const ok = await confirm({
+      title: 'Unlink warehouse item?',
+      message: `Remove the Zoho link from this stock location? The counted quantity stays in Yes Store.`,
+      confirmLabel: 'Unlink',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setUnlinking(true);
+    setError('');
+    try {
+      await unlinkYesStoreItemFromCatalog(item.id);
+      if (siblingItems.length > 0 && item.catalogProductId) {
+        navigate(`${base}/inventory-audit/linked/${item.catalogProductId}`, { replace: true });
+        return;
+      }
+      navigate(`${base}?section=inventory-audit`, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not unlink item.');
+    } finally {
+      setUnlinking(false);
     }
   };
 
@@ -346,11 +375,22 @@ export const InventoryAuditItemPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!canLink || linking || catalogLoading || partModeInvalid}
+              disabled={!canLink || linking || unlinking || catalogLoading || partModeInvalid}
               onClick={() => void handleLink()}
             >
               {linking ? 'Linking…' : linked && canLink ? 'Update link' : 'Link item'}
             </button>
+            {linked && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={linking || unlinking}
+                onClick={() => void handleUnlink()}
+              >
+                <Unlink size={16} aria-hidden />
+                {unlinking ? 'Unlinking…' : 'Unlink item'}
+              </button>
+            )}
           </div>
         </div>
       </section>

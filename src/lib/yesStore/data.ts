@@ -1,6 +1,7 @@
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -298,6 +299,27 @@ export async function batchLinkYesStoreItemsToCatalog(
       }),
     ),
   );
+}
+
+export async function unlinkYesStoreItemFromCatalog(itemId: string): Promise<void> {
+  await updateDoc(itemRef(itemId), {
+    catalogProductId: deleteField(),
+    catalogProductName: deleteField(),
+    catalogProductSku: deleteField(),
+    catalogLinkMode: deleteField(),
+    partLabel: deleteField(),
+    unitsPerProduct: deleteField(),
+    linkedAt: deleteField(),
+    linkedByUid: deleteField(),
+    linkedByName: deleteField(),
+    updatedAt: now(),
+  });
+}
+
+export async function batchUnlinkYesStoreItemsFromCatalog(itemIds: string[]): Promise<void> {
+  const uniqueIds = [...new Set(itemIds.map(id => id.trim()).filter(Boolean))];
+  if (!uniqueIds.length) return;
+  await Promise.all(uniqueIds.map(id => unlinkYesStoreItemFromCatalog(id)));
 }
 
 export async function fetchDisplayNamesForUids(uids: string[]): Promise<Map<string, string>> {
