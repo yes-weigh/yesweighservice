@@ -3,9 +3,11 @@ import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import {
   buildInventoryAuditListRows,
   formatQtyDifference,
+  resolveAuditorDisplayName,
   type InventoryAuditLinkedGroup,
   type InventoryAuditListRow,
 } from '../../lib/yesStore/inventoryAudit';
+import { formatAuditDateTime } from '../../lib/yesStore/format';
 import {
   formatItemLocationShort,
   isYesStoreItemLinked,
@@ -21,6 +23,7 @@ export type InventoryAuditLinkFilter = 'all' | 'linked' | 'unlinked';
 export interface WarehouseInventoryAuditListProps {
   items: YesStoreItemDoc[];
   catalogProducts?: CatalogProduct[];
+  auditorNamesByUid?: Map<string, string>;
   loading?: boolean;
   onRefresh?: () => void;
   onItemClick?: (item: YesStoreItemDoc) => void;
@@ -41,6 +44,7 @@ function catalogMap(products: CatalogProduct[] | undefined): Map<string, Catalog
 export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListProps> = ({
   items,
   catalogProducts,
+  auditorNamesByUid,
   loading = false,
   onRefresh,
   onItemClick,
@@ -157,6 +161,8 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                 </>
               )}
               {showLinkStatus && <th>Status</th>}
+              {showLinkStatus && <th>Last audited</th>}
+              {showLinkStatus && <th>Audited by</th>}
             </tr>
           </thead>
           <tbody>
@@ -177,6 +183,11 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                   group.totals.mode === 'bundle'
                     ? `${group.totals.countedQty} (${group.totals.rawCountedQty} parts)`
                     : String(group.totals.countedQty);
+                const auditedBy = resolveAuditorDisplayName(
+                  group.lastAuditedByName,
+                  group.lastAuditedByUid,
+                  auditorNamesByUid,
+                );
 
                 return (
                   <tr
@@ -229,6 +240,14 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                           )}
                         </span>
                       </td>
+                    )}
+                    {showLinkStatus && (
+                      <td className="wh-item-table__audit-date">
+                        {formatAuditDateTime(group.lastAuditedAt)}
+                      </td>
+                    )}
+                    {showLinkStatus && (
+                      <td className="wh-item-table__audit-by">{auditedBy}</td>
                     )}
                   </tr>
                 );
@@ -283,6 +302,8 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                       </span>
                     </td>
                   )}
+                  {showLinkStatus && <td className="wh-item-table__empty">—</td>}
+                  {showLinkStatus && <td className="wh-item-table__empty">—</td>}
                 </tr>
               );
             })}

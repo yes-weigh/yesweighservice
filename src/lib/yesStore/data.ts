@@ -220,6 +220,31 @@ export async function updateItem(
   await updateDoc(itemRef(itemId), payload);
 }
 
+function buildAuditStamp(auditor: { uid: string; displayName?: string | null }) {
+  const timestamp = now();
+  return {
+    lastAuditedAt: timestamp,
+    lastAuditedByUid: auditor.uid,
+    lastAuditedByName: auditor.displayName?.trim() || null,
+  };
+}
+
+export async function updateInventoryAuditCount(
+  itemId: string,
+  quantity: number,
+  auditor: { uid: string; displayName?: string | null },
+): Promise<YesStoreItemDoc> {
+  const normalizedQty = Math.max(1, Math.floor(quantity));
+  await updateDoc(itemRef(itemId), {
+    quantity: normalizedQty,
+    ...buildAuditStamp(auditor),
+    updatedAt: now(),
+  });
+  const updated = await getItem(itemId);
+  if (!updated) throw new Error('Audit item not found after update.');
+  return updated;
+}
+
 export async function linkYesStoreItemToCatalog(
   itemId: string,
   product: { id: string; name: string; sku: string | null },
@@ -228,11 +253,15 @@ export async function linkYesStoreItemToCatalog(
     mode?: CatalogLinkMode;
     partLabel?: string | null;
     unitsPerProduct?: number;
+    linkedByName?: string | null;
   },
 ): Promise<void> {
   const mode = options?.mode === 'part' ? 'part' : 'unit';
   const unitsPerProduct = Math.max(1, Math.floor(options?.unitsPerProduct ?? 1));
   const partLabel = options?.partLabel?.trim() || null;
+  const linkedByName = options?.linkedByName?.trim() || null;
+  const auditStamp = buildAuditStamp({ uid: linkedByUid, displayName: linkedByName });
+  const linkedAt = now();
 
   await updateDoc(itemRef(itemId), {
     catalogProductId: product.id,
@@ -241,10 +270,26 @@ export async function linkYesStoreItemToCatalog(
     catalogLinkMode: mode,
     partLabel: mode === 'part' ? partLabel : null,
     unitsPerProduct: mode === 'part' ? unitsPerProduct : 1,
-    linkedAt: now(),
+    linkedAt,
     linkedByUid,
+    linkedByName,
+    ...auditStamp,
     updatedAt: now(),
   });
+}
+
+export async function fetchDisplayNamesForUids(uids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(uids.map(uid => uid.trim()).filter(Boolean))];
+  const names = new Map<string, string>();
+  await Promise.all(
+    unique.map(async uid => {
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (!snap.exists()) return;
+      const displayName = String(snap.data().displayName ?? '').trim();
+      if (displayName) names.set(uid, displayName);
+    }),
+  );
+  return names;
 }
 
 export async function listItemsByCatalogProduct(catalogProductId: string): Promise<YesStoreItemDoc[]> {

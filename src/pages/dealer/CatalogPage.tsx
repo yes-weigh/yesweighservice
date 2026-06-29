@@ -24,7 +24,8 @@ import {
   syncCatalog,
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
-import { listAllItems } from '../../lib/yesStore/data';
+import { listAllItems, fetchDisplayNamesForUids } from '../../lib/yesStore/data';
+import { readItemAuditedByName, readItemAuditedByUid } from '../../lib/yesStore/inventoryAudit';
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
@@ -95,6 +96,7 @@ export const CatalogPage: React.FC = () => {
   const [linkEditorSaving, setLinkEditorSaving] = useState(false);
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [auditAuditorNames, setAuditAuditorNames] = useState<Map<string, string>>(new Map());
 
   const sectionParam = searchParams.get('section');
   const categoryFromUrl = searchParams.get('category') ?? '';
@@ -144,7 +146,20 @@ export const CatalogPage: React.FC = () => {
   const loadAuditItems = useCallback(async () => {
     setAuditLoading(true);
     try {
-      setAuditItems(await listAllItems());
+      const items = await listAllItems();
+      setAuditItems(items);
+      const uids = [
+        ...new Set(
+          items
+            .filter(item => readItemAuditedByUid(item) && !readItemAuditedByName(item))
+            .map(item => readItemAuditedByUid(item)!),
+        ),
+      ];
+      if (uids.length) {
+        setAuditAuditorNames(await fetchDisplayNamesForUids(uids));
+      } else {
+        setAuditAuditorNames(new Map());
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load inventory audit records.');
     } finally {
@@ -704,6 +719,7 @@ export const CatalogPage: React.FC = () => {
           <WarehouseInventoryAuditList
             items={auditItems}
             catalogProducts={catalog?.items}
+            auditorNamesByUid={auditAuditorNames}
             loading={auditLoading}
             onRefresh={() => void loadAuditItems()}
             combinedLocation

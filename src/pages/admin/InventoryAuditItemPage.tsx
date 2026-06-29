@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Link2 } from 'lucide-react';
 import { CatalogProductLinkPicker } from '../../components/yesStore/CatalogProductLinkPicker';
+import { InventoryAuditQtyEditor } from '../../components/yesStore/InventoryAuditQtyEditor';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -128,6 +129,7 @@ export const InventoryAuditItemPage: React.FC = () => {
         mode: linkMode,
         partLabel: linkMode === 'part' ? partLabel.trim() : null,
         unitsPerProduct: linkMode === 'part' ? unitsPerProduct : 1,
+        linkedByName: user.displayName,
       });
       navigate(`${base}/inventory-audit/linked/${selectedProduct.id}`, { replace: true });
     } catch (err) {
@@ -211,9 +213,12 @@ export const InventoryAuditItemPage: React.FC = () => {
 
       <section className="catalog-inventory-audit-detail__hero panel glass">
         <div className="catalog-inventory-audit-detail__summary">
-          <p className="catalog-inventory-audit-detail__summary-line">
-            Counted qty: <strong>{readItemQuantity(item)}</strong>
-          </p>
+          <InventoryAuditQtyEditor
+            item={item}
+            onSaved={updated => {
+              setItem(updated);
+            }}
+          />
           <span
             className={`catalog-inventory-audit-detail__status catalog-inventory-audit-detail__status--${
               linked ? 'linked' : 'unlinked'

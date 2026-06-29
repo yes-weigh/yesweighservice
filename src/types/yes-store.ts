@@ -62,6 +62,11 @@ export interface YesStoreItemDoc {
   catalogProductSku?: string | null;
   linkedAt?: string | null;
   linkedByUid?: string | null;
+  linkedByName?: string | null;
+  /** Last time an auditor confirmed or updated the counted qty. */
+  lastAuditedAt?: string | null;
+  lastAuditedByUid?: string | null;
+  lastAuditedByName?: string | null;
   /** How this bin counts toward a linked Zoho product. */
   catalogLinkMode?: CatalogLinkMode | null;
   /** Bundle part name (e.g. Part A) when catalogLinkMode is part. */

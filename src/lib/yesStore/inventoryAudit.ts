@@ -39,6 +39,9 @@ export interface InventoryAuditLinkedGroup {
   catalogProductSku: string | null;
   items: YesStoreItemDoc[];
   totals: InventoryAuditGroupTotals;
+  lastAuditedAt: string | null;
+  lastAuditedByName: string | null;
+  lastAuditedByUid: string | null;
 }
 
 export type InventoryAuditListRow =
@@ -59,6 +62,70 @@ function partLabelFor(item: YesStoreItemDoc): string {
   const label = item.partLabel?.trim();
   if (label) return label;
   return formatItemLocationShort(item.rackId, item.rowNumber, item.binNumber);
+}
+
+export function readItemAuditedAt(item: YesStoreItemDoc): string | null {
+  const lastAuditedAt = item.lastAuditedAt?.trim();
+  if (lastAuditedAt) return lastAuditedAt;
+  const linkedAt = item.linkedAt?.trim();
+  if (linkedAt) return linkedAt;
+  return item.updatedAt?.trim() || null;
+}
+
+export function readItemAuditedByName(item: YesStoreItemDoc): string | null {
+  const lastAuditedByName = item.lastAuditedByName?.trim();
+  if (lastAuditedByName) return lastAuditedByName;
+  return item.linkedByName?.trim() || null;
+}
+
+export function readItemAuditedByUid(item: YesStoreItemDoc): string | null {
+  const lastAuditedByUid = item.lastAuditedByUid?.trim();
+  if (lastAuditedByUid) return lastAuditedByUid;
+  return item.linkedByUid?.trim() || null;
+}
+
+export function resolveGroupLastAudit(items: YesStoreItemDoc[]): {
+  lastAuditedAt: string | null;
+  lastAuditedByName: string | null;
+  lastAuditedByUid: string | null;
+} {
+  let latest: YesStoreItemDoc | null = null;
+  let latestTime = 0;
+
+  for (const item of items) {
+    const auditedAt = readItemAuditedAt(item);
+    if (!auditedAt) continue;
+    const time = new Date(auditedAt).getTime();
+    if (Number.isNaN(time)) continue;
+    if (!latest || time >= latestTime) {
+      latest = item;
+      latestTime = time;
+    }
+  }
+
+  if (!latest) {
+    return { lastAuditedAt: null, lastAuditedByName: null, lastAuditedByUid: null };
+  }
+
+  return {
+    lastAuditedAt: readItemAuditedAt(latest),
+    lastAuditedByName: readItemAuditedByName(latest),
+    lastAuditedByUid: readItemAuditedByUid(latest),
+  };
+}
+
+export function resolveAuditorDisplayName(
+  name: string | null | undefined,
+  uid: string | null | undefined,
+  namesByUid?: Map<string, string>,
+): string {
+  const trimmed = name?.trim();
+  if (trimmed) return trimmed;
+  const resolvedUid = uid?.trim();
+  if (resolvedUid && namesByUid?.has(resolvedUid)) {
+    return namesByUid.get(resolvedUid) || '—';
+  }
+  return '—';
 }
 
 export function groupUsesBundleMode(items: YesStoreItemDoc[]): boolean {
@@ -150,6 +217,7 @@ export function buildInventoryAuditLinkedGroups(
     .map(([catalogProductId, groupItems]) => {
       const first = groupItems[0];
       const catalog = catalogById?.get(catalogProductId);
+      const audit = resolveGroupLastAudit(groupItems);
       return {
         catalogProductId,
         catalogProductName: first.catalogProductName?.trim() || catalog?.name || 'Linked item',
@@ -160,6 +228,7 @@ export function buildInventoryAuditLinkedGroups(
           ),
         ),
         totals: calculateGroupTotals(groupItems, catalog),
+        ...audit,
       };
     })
     .sort((a, b) => a.catalogProductName.localeCompare(b.catalogProductName));

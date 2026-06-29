@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, ExternalLink } from 'lucide-react';
 import { CatalogProductLinkPreview } from '../../components/yesStore/CatalogProductLinkPreview';
+import { InventoryAuditQtyEditor } from '../../components/yesStore/InventoryAuditQtyEditor';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -9,8 +10,13 @@ import { fetchCatalog, formatStockQuantity } from '../../lib/catalog';
 import {
   calculateGroupTotals,
   formatQtyDifference,
+  resolveAuditorDisplayName,
+  resolveGroupLastAudit,
+  readItemAuditedByName,
+  readItemAuditedByUid,
 } from '../../lib/yesStore/inventoryAudit';
-import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
+import { formatAuditDateTime } from '../../lib/yesStore/format';
+import { fetchDisplayNamesForUids, listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 
@@ -22,6 +28,7 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
 
   const [items, setItems] = useState<YesStoreItemDoc[]>([]);
   const [catalogProduct, setCatalogProduct] = useState<CatalogProduct | null>(null);
+  const [auditorNamesByUid, setAuditorNamesByUid] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -42,6 +49,26 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
       }
       setItems(groupItems);
       setCatalogProduct(catalog.items.find(p => p.id === catalogProductId) ?? null);
+      const audit = resolveGroupLastAudit(groupItems);
+      const uidsToResolve = [
+        ...new Set(
+          groupItems
+            .filter(
+              bin =>
+                readItemAuditedByUid(bin) &&
+                !readItemAuditedByName(bin),
+            )
+            .map(bin => readItemAuditedByUid(bin)!),
+        ),
+      ];
+      if (audit.lastAuditedByUid && !audit.lastAuditedByName && !uidsToResolve.includes(audit.lastAuditedByUid)) {
+        uidsToResolve.push(audit.lastAuditedByUid);
+      }
+      if (uidsToResolve.length) {
+        setAuditorNamesByUid(await fetchDisplayNamesForUids(uidsToResolve));
+      } else {
+        setAuditorNamesByUid(new Map());
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load linked audit group.');
     } finally {
@@ -56,6 +83,13 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
   const totals = useMemo(
     () => calculateGroupTotals(items, catalogProduct),
     [items, catalogProduct],
+  );
+
+  const lastAudit = useMemo(() => resolveGroupLastAudit(items), [items]);
+  const lastAuditedBy = resolveAuditorDisplayName(
+    lastAudit.lastAuditedByName,
+    lastAudit.lastAuditedByUid,
+    auditorNamesByUid,
   );
 
   const productName =
@@ -103,6 +137,10 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
     );
   }
 
+  const handleItemSaved = (updated: YesStoreItemDoc) => {
+    setItems(current => current.map(item => (item.id === updated.id ? updated : item)));
+  };
+
   const diffClass =
     totals.difference != null && totals.difference !== 0
       ? totals.difference > 0
@@ -126,6 +164,15 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
       )}
 
       <section className="catalog-inventory-audit-detail__hero panel glass">
+        <div className="catalog-inventory-audit-detail__audit-meta">
+          <span>
+            Last audited: <strong>{formatAuditDateTime(lastAudit.lastAuditedAt)}</strong>
+          </span>
+          <span>
+            Audited by: <strong>{lastAuditedBy}</strong>
+          </span>
+        </div>
+
         <div className="catalog-inventory-audit-detail__qty-compare catalog-inventory-audit-detail__qty-compare--hero">
           <div className="catalog-inventory-audit-detail__qty-compare-item">
             <span className="catalog-inventory-audit-detail__qty-compare-label">Zoho qty</span>
@@ -163,7 +210,11 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
         </h2>
 
         <div className="catalog-inventory-audit-group-locations__list">
-          {totals.parts.map(part => (
+          {totals.parts.map(part => {
+            const binItem = items.find(item => item.id === part.itemId);
+            if (!binItem) return null;
+
+            return (
             <article key={part.itemId} className="catalog-inventory-audit-group-locations__card">
               <div className="catalog-inventory-audit-group-locations__card-head">
                 <div>
@@ -181,8 +232,14 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
                 </Link>
               </div>
 
+              <InventoryAuditQtyEditor
+                item={binItem}
+                auditorNamesByUid={auditorNamesByUid}
+                compact
+                onSaved={handleItemSaved}
+              />
+
               <div className="catalog-inventory-audit-group-locations__stats">
-                <span>Counted: <strong>{part.countedQty}</strong></span>
                 {totals.mode === 'bundle' && (
                   <>
                     <span>Per unit: <strong>{part.unitsPerProduct}</strong></span>
@@ -204,7 +261,8 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
                 ))}
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
       </section>
     </div>
