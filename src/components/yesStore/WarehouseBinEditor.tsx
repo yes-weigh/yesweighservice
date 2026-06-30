@@ -15,6 +15,7 @@ import {
   updateItem,
 } from '../../lib/yesStore/data';
 import { deleteYesStorePhotos, uploadYesStorePhoto, validateYesStoreImage } from '../../lib/yesStore/photos';
+import { YesStorePhotoImg } from './YesStorePhotoImg';
 import { pendingFromFile, type PhotoSlot } from './ItemPhotoQtyForm';
 import { WarehouseWizardShell, WizardNextButton } from './WarehouseWizardShell';
 
@@ -90,11 +91,6 @@ function savedPhotos(slots: [PhotoSlot | null, PhotoSlot | null]): YesStorePhoto
 
 function slotsUploading(slots: [PhotoSlot | null, PhotoSlot | null]): boolean {
   return slots.some(s => s?.kind === 'pending' && s.uploading);
-}
-
-function slotPreview(slot: PhotoSlot | null): string | null {
-  if (!slot) return null;
-  return slot.kind === 'saved' ? slot.photo.url : slot.pending.previewUrl;
 }
 
 function slotUploading(slot: PhotoSlot | null): boolean {
@@ -429,19 +425,23 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
                     <div className="wh-item-row__photos">
                       {([0, 1] as const).map(slotIndex => {
                         const slot = row.slots[slotIndex];
-                        const preview = slotPreview(slot);
+                        const pendingPreview =
+                          slot?.kind === 'pending' ? slot.pending.previewUrl : null;
                         const isUploading = slotUploading(slot);
+                        const hasImage = slot?.kind === 'saved' || Boolean(pendingPreview);
                         return (
                           <button
                             key={slotIndex}
                             type="button"
-                            className={`wh-photo-slot ${preview ? 'has-image' : ''} ${isUploading ? 'is-uploading' : ''}`}
+                            className={`wh-photo-slot ${hasImage ? 'has-image' : ''} ${isUploading ? 'is-uploading' : ''}`}
                             onClick={() => openPhotoPicker(row.key, slotIndex)}
                             disabled={isUploading}
                             aria-label={`Item ${index + 1} photo ${slotIndex + 1}`}
                           >
-                            {preview ? (
-                              <img src={preview} alt="" />
+                            {slot?.kind === 'saved' ? (
+                              <YesStorePhotoImg photo={slot.photo} emptyClassName="wh-photo-slot__empty" />
+                            ) : pendingPreview ? (
+                              <img src={pendingPreview} alt="" />
                             ) : (
                               <Camera size={20} aria-hidden />
                             )}

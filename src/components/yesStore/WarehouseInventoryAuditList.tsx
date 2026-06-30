@@ -57,6 +57,8 @@ function isSelectableRow(row: InventoryAuditListRow): row is { kind: 'item'; ite
   return row.kind === 'item' && !isYesStoreItemLinked(row.item);
 }
 
+import { YesStorePhotoImg } from './YesStorePhotoImg';
+
 function AuditTilePhotos({ photos }: { photos: YesStoreItemDoc['photos'] }) {
   const slots = [photos[0], photos[1]];
   return (
@@ -64,7 +66,7 @@ function AuditTilePhotos({ photos }: { photos: YesStoreItemDoc['photos'] }) {
       {slots.map((photo, index) => (
         <div key={index} className="wh-audit-tile__photo">
           {photo ? (
-            <img src={photo.url} alt="" loading="lazy" />
+            <YesStorePhotoImg photo={photo} />
           ) : (
             <span className="wh-audit-tile__photo-empty text-muted">—</span>
           )}

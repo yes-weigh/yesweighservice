@@ -1,13 +1,14 @@
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { collection, doc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { db, app, storage } from '../../firebase';
+import { auth, db, app, storage } from '../../firebase';
 import { compressImageForUpload } from '../compressImage';
 import { formatStorageUploadError } from '../storageErrors';
 import type { YesStorePhoto } from '../../types/yes-store';
 
 const functions = getFunctions(app, 'asia-south1');
 const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
+const YES_STORE_PATH_RE = /^yesStore\/(rack|row|bin|item)\/[^/]+\/[^/]+$/;
 
 const ALLOWED_TYPES = new Set([
   'image/jpeg',
@@ -17,6 +18,9 @@ const ALLOWED_TYPES = new Set([
   'image/heic',
   'image/heif',
 ]);
+
+const resolvedUrlCache = new Map<string, { url: string; at: number }>();
+const RESOLVED_URL_CACHE_MS = 55 * 60 * 1000;
 
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop()?.toLowerCase();
@@ -77,8 +81,40 @@ export function validateYesStoreImage(file: File): string | null {
   return null;
 }
 
+/** Recover storage path from Firestore when only an old signed URL was saved. */
+export function inferYesStoreStoragePath(
+  photo: Pick<YesStorePhoto, 'storagePath' | 'url'>,
+): string | null {
+  const direct = photo.storagePath?.trim();
+  if (direct && YES_STORE_PATH_RE.test(direct)) return direct;
+
+  const url = photo.url?.trim() ?? '';
+  if (!url) return null;
+
+  const gcs = /storage\.googleapis\.com\/[^/]+\/(yesStore\/[^?]+)/i.exec(url);
+  if (gcs?.[1]) return decodeURIComponent(gcs[1]);
+
+  const fb = /firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/([^?]+)/i.exec(url);
+  if (fb?.[1]) return decodeURIComponent(fb[1].replace(/\+/g, ' '));
+
+  return null;
+}
+
+function isUsableLegacyPhotoUrl(url: string): boolean {
+  if (/X-Goog-Algorithm=/i.test(url)) return false;
+  if (/storage\.googleapis\.com/i.test(url) && !/token=/i.test(url)) return false;
+  return true;
+}
+
 function storagePathForPhoto(level: string, parentId: string, photoId: string, ext: string): string {
   return `yesStore/${level}/${parentId}/${photoId}.${ext}`;
+}
+
+async function ensureSignedIn(): Promise<void> {
+  await auth.authStateReady();
+  if (!auth.currentUser) {
+    throw new Error('Sign in required.');
+  }
 }
 
 async function uploadYesStorePhotoViaFunction(
@@ -178,10 +214,67 @@ export async function uploadYesStorePhoto(
 }
 
 export async function deleteYesStorePhotoFile(photo: YesStorePhoto): Promise<void> {
-  if (!photo.storagePath) return;
-  await deleteObject(ref(storage, photo.storagePath)).catch(() => undefined);
+  const storagePath = inferYesStoreStoragePath(photo);
+  if (!storagePath) return;
+  await deleteObject(ref(storage, storagePath)).catch(() => undefined);
 }
 
 export async function deleteYesStorePhotos(photos: YesStorePhoto[]): Promise<void> {
   await Promise.all(photos.map(photo => deleteYesStorePhotoFile(photo)));
+}
+
+async function refreshYesStorePhotoUrlViaFunction(storagePath: string): Promise<string> {
+  const callable = httpsCallable<{ storagePath: string }, { url: string }>(
+    functions,
+    'getYesStorePhotoUrlFn',
+    { timeout: 60_000 },
+  );
+  const result = await callable({ storagePath });
+  return result.data.url;
+}
+
+async function resolveFromStoragePath(storagePath: string): Promise<string> {
+  const cached = resolvedUrlCache.get(storagePath);
+  if (cached && Date.now() - cached.at < RESOLVED_URL_CACHE_MS) {
+    return cached.url;
+  }
+
+  let url: string;
+  try {
+    url = await refreshYesStorePhotoUrlViaFunction(storagePath);
+  } catch (fnErr) {
+    if (!isCallableUnavailable(fnErr)) {
+      await ensureSignedIn();
+      try {
+        url = await getDownloadURL(ref(storage, storagePath));
+      } catch {
+        throw fnErr;
+      }
+    } else {
+      await ensureSignedIn();
+      url = await getDownloadURL(ref(storage, storagePath));
+    }
+  }
+
+  resolvedUrlCache.set(storagePath, { url, at: Date.now() });
+  return url;
+}
+
+/** Resolve a display URL from storagePath — never returns expired GCS signed URLs from Firestore. */
+export async function resolveYesStorePhotoUrl(photo: YesStorePhoto): Promise<string> {
+  const storagePath = inferYesStoreStoragePath(photo);
+  if (storagePath) {
+    return resolveFromStoragePath(storagePath);
+  }
+
+  const legacy = photo.url?.trim();
+  if (legacy && isUsableLegacyPhotoUrl(legacy)) {
+    return legacy;
+  }
+
+  throw new Error('Photo unavailable.');
+}
+
+export async function resolveYesStorePhotoUrls(photos: YesStorePhoto[]): Promise<string[]> {
+  return Promise.all(photos.map(photo => resolveYesStorePhotoUrl(photo)));
 }

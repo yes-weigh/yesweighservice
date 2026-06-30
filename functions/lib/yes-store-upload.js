@@ -4,8 +4,6 @@ import { getStorage } from 'firebase-admin/storage';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 const MAX_BYTES = 12 * 1024 * 1024;
-/** GCS V4 signed URLs expire after at most 7 days (604800 s). */
-const READ_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const YES_STORE_LEVELS = new Set(['rack', 'row', 'bin', 'item']);
 const SAFE_SEGMENT = /^[a-z0-9][a-z0-9._-]*$/i;
@@ -100,19 +98,32 @@ function assertYesStoreStoragePath(storagePath) {
   return path;
 }
 
-async function signedReadUrl(storagePath) {
+function firebaseDownloadUrl(bucketName, storagePath, token) {
+  const encoded = encodeURIComponent(storagePath);
+  return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encoded}?alt=media&token=${token}`;
+}
+
+async function durableReadUrl(storagePath) {
   const bucket = getStorage().bucket();
   const file = bucket.file(storagePath);
   const [exists] = await file.exists();
   if (!exists) {
     throw new HttpsError('not-found', 'File not found.');
   }
-  const [url] = await file.getSignedUrl({
-    version: 'v4',
-    action: 'read',
-    expires: Date.now() + READ_TTL_MS,
-  });
-  return url;
+
+  const [metadata] = await file.getMetadata();
+  let token = metadata?.metadata?.firebaseStorageDownloadTokens;
+  if (!token) {
+    token = randomUUID();
+    await file.setMetadata({
+      metadata: {
+        ...(metadata.metadata || {}),
+        firebaseStorageDownloadTokens: token,
+      },
+    });
+  }
+
+  return firebaseDownloadUrl(bucket.name, storagePath, token);
 }
 
 export async function uploadYesStorePhoto(callerUid, input) {
@@ -152,17 +163,18 @@ export async function uploadYesStorePhoto(callerUid, input) {
   const storagePath = buildYesStorePath(level, parentId, photoId, ext);
   const bucket = getStorage().bucket();
   const file = bucket.file(storagePath);
+  const downloadToken = randomUUID();
 
   await file.save(buffer, {
     metadata: {
       contentType: mediaType.startsWith('image/') ? mediaType : 'image/jpeg',
       metadata: {
-        firebaseStorageDownloadTokens: randomUUID(),
+        firebaseStorageDownloadTokens: downloadToken,
       },
     },
   });
 
-  const url = await signedReadUrl(storagePath);
+  const url = firebaseDownloadUrl(bucket.name, storagePath, downloadToken);
 
   return {
     id: photoId,
@@ -176,6 +188,6 @@ export async function uploadYesStorePhoto(callerUid, input) {
 export async function getYesStorePhotoUrl(callerUid, input) {
   const storagePath = assertYesStoreStoragePath(input?.storagePath);
   await requireYesStoreUser(callerUid);
-  const url = await signedReadUrl(storagePath);
+  const url = await durableReadUrl(storagePath);
   return { url };
 }

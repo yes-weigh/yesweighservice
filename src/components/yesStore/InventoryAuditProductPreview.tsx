@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Calendar,
   CheckCircle2,
@@ -14,7 +14,7 @@ import type { LucideIcon } from 'lucide-react';
 import { StockBadge } from '../catalog/StockBadge';
 import { formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import {
-  collectWarehouseAuditPhotoUrls,
+  collectWarehouseAuditPhotos,
   formatQtyDifference,
   resolveGroupLinkInfo,
   resolveGroupWarehouseCount,
@@ -22,6 +22,7 @@ import {
   type InventoryAuditGroupTotals,
 } from '../../lib/yesStore/inventoryAudit';
 import { formatAuditDateTime } from '../../lib/yesStore/format';
+import { resolveYesStorePhotoUrls } from '../../lib/yesStore/photos';
 import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 import { AuditIconPanel, AuditIconRow, type AuditIconTone } from './AuditIconRow';
@@ -73,7 +74,19 @@ export const InventoryAuditProductPreview: React.FC<InventoryAuditProductPreview
     linkInfo.linkedByUid,
     linkerNamesByUid,
   );
-  const warehousePhotoUrls = collectWarehouseAuditPhotoUrls(items);
+  const warehousePhotos = useMemo(() => collectWarehouseAuditPhotos(items), [items]);
+  const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolveYesStorePhotoUrls(warehousePhotos).then(urls => {
+      if (!cancelled) setWarehousePhotoUrls(urls);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [warehousePhotos]);
+
   const galleryUrls = [
     ...(product.imageUrl ? [product.imageUrl] : []),
     ...warehousePhotoUrls.filter(url => url !== product.imageUrl),

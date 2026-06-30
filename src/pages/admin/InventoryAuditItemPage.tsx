@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Link2, Unlink } from 'lucide-react';
 import { CatalogProductLinkPicker } from '../../components/yesStore/CatalogProductLinkPicker';
 import { InventoryAuditQtyEditor } from '../../components/yesStore/InventoryAuditQtyEditor';
+import { YesStorePhotoImg } from '../../components/yesStore/YesStorePhotoImg';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -256,7 +257,7 @@ export const InventoryAuditItemPage: React.FC = () => {
           {[0, 1].map(index => (
             <div key={index} className="catalog-inventory-audit-detail__photo">
               {photos[index] ? (
-                <img src={photos[index].url} alt={`Audit photo ${index + 1}`} />
+                <YesStorePhotoImg photo={photos[index]} alt={`Audit photo ${index + 1}`} />
               ) : (
                 <span className="catalog-inventory-audit-detail__photo-empty text-muted">No photo</span>
               )}

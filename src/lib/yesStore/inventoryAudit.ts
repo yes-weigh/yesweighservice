@@ -4,6 +4,7 @@ import {
   readItemQuantity,
   type CatalogLinkMode,
   type YesStoreItemDoc,
+  type YesStorePhoto,
 } from '../../types/yes-store';
 
 export interface InventoryAuditLinkInput {
@@ -326,6 +327,20 @@ export function resolveGroupWarehouseCount(items: YesStoreItemDoc[]): {
     lastCountedAt: readItemCountedAt(latest),
     countedByName: readItemCountedByName(latest),
   };
+}
+
+export function collectWarehouseAuditPhotos(items: YesStoreItemDoc[]): YesStorePhoto[] {
+  const photos: YesStorePhoto[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    for (const photo of item.photos ?? []) {
+      const key = photo.storagePath?.trim() || photo.id;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      photos.push(photo);
+    }
+  }
+  return photos;
 }
 
 export function collectWarehouseAuditPhotoUrls(items: YesStoreItemDoc[]): string[] {
