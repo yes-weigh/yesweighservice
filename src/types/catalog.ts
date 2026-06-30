@@ -18,6 +18,7 @@ export interface CatalogProduct {
   taxPercentage: number;
   reorderLevel?: number;
   syncedAt?: string;
+  warehouses?: CatalogWarehouse[];
 }
 
 export interface CatalogCategory {

@@ -70,24 +70,29 @@ export function isGenericSparePartsCategory(category: Pick<CatalogCategory, 'nam
   return name === 'generic spare parts' || name === 'generic spares';
 }
 
+/** True when a Zoho item belongs on the Spare parts tab (not shop Categories). */
+export function isCatalogSparePartProduct(
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+  categories: CatalogCategory[] = [],
+): boolean {
+  const genericCategoryIds = new Set(
+    categories.filter(isGenericSparePartsCategory).map(c => c.id),
+  );
+  if (!hasCatalogCategory(product)) return true;
+  if (product.categoryId && genericCategoryIds.has(product.categoryId)) return true;
+  if (product.categoryName && isGenericSparePartsCategory({ name: product.categoryName })) {
+    return true;
+  }
+  return false;
+}
+
 /** Spare parts tab — Generic spare parts category and uncategorized Zoho items only. */
 export function getCatalogSparePartsPool(
   products: CatalogProduct[],
   categories: CatalogCategory[] = [],
 ): CatalogProduct[] {
-  const genericCategoryIds = new Set(
-    categories.filter(isGenericSparePartsCategory).map(c => c.id),
-  );
-
   return excludeHiddenCatalogProducts(
-    products.filter(product => {
-      if (!hasCatalogCategory(product)) return true;
-      if (product.categoryId && genericCategoryIds.has(product.categoryId)) return true;
-      if (product.categoryName && isGenericSparePartsCategory({ name: product.categoryName })) {
-        return true;
-      }
-      return false;
-    }),
+    products.filter(product => isCatalogSparePartProduct(product, categories)),
     categories,
   );
 }
@@ -106,6 +111,42 @@ export function hasCatalogCategory(product: Pick<CatalogProduct, 'categoryId'>):
 /** Active products assigned to a Zoho category — shown on Products. */
 export function getCategorizedProducts(products: CatalogProduct[]): CatalogProduct[] {
   return products.filter(hasCatalogCategory);
+}
+
+/** Shop / Categories catalog — categorized items excluding the spare-parts pool. */
+export function getShopCatalogProducts(
+  products: CatalogProduct[],
+  categories: CatalogCategory[] = [],
+): CatalogProduct[] {
+  return products.filter(
+    p => hasCatalogCategory(p) && !isCatalogSparePartProduct(p, categories),
+  );
+}
+
+export const SPARE_WAREHOUSE_LOCATION_FILTERS = [
+  { key: 'all', label: 'All', warehouseName: null },
+  { key: 'cochin', label: 'Cochin', warehouseName: 'Cochin' },
+  { key: 'headOffice', label: 'Head Office', warehouseName: 'Head Office' },
+] as const;
+
+export type SpareWarehouseLocationFilter = typeof SPARE_WAREHOUSE_LOCATION_FILTERS[number]['key'];
+
+export function catalogProductWarehouseStock(
+  product: Pick<CatalogProduct, 'warehouses'>,
+  warehouseName: string,
+): number {
+  const target = warehouseName.trim().toLowerCase();
+  const match = (product.warehouses ?? []).find(
+    w => w.warehouseName.trim().toLowerCase() === target,
+  );
+  return match?.stock ?? 0;
+}
+
+export function catalogProductHasWarehouseStock(
+  product: Pick<CatalogProduct, 'warehouses'>,
+  warehouseName: string,
+): boolean {
+  return catalogProductWarehouseStock(product, warehouseName) > 0;
 }
 
 /** Zoho uncategorized items (no category_id) — shown on Spares. */
@@ -175,9 +216,27 @@ function catalogErrorMessage(err: unknown): string {
   return 'Unable to load product catalog.';
 }
 
+function mapWarehouse(data: unknown): CatalogProduct['warehouses'] {
+  if (!Array.isArray(data)) return undefined;
+  return data
+    .map(entry => {
+      if (!entry || typeof entry !== 'object') return null;
+      const row = entry as Record<string, unknown>;
+      const warehouseName = String(row.warehouseName ?? '').trim();
+      if (!warehouseName) return null;
+      return {
+        warehouseId: String(row.warehouseId ?? ''),
+        warehouseName,
+        stock: Number(row.stock ?? 0),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+}
+
 function mapProduct(data: Record<string, unknown>): CatalogProduct {
   const syncedAt = data.syncedAt as string | undefined;
   const rawImageUrl = (data.imageUrl as string | null) ?? null;
+  const warehouses = mapWarehouse(data.warehouses);
   return {
     id: String(data.id ?? ''),
     name: String(data.name ?? ''),
@@ -196,6 +255,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     taxPercentage: Number(data.taxPercentage ?? 0),
     reorderLevel: Number(data.reorderLevel ?? 0),
     syncedAt,
+    ...(warehouses?.length ? { warehouses } : {}),
   };
 }
 

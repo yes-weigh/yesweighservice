@@ -138,26 +138,26 @@ function normaliseProductCategory(product) {
   };
 }
 
-/** Fill category_id via Zoho bulk itemdetails for products still missing a category. */
-async function enrichMissingCategoryIds(accessToken, orgId, products) {
-  const missingIds = products
-    .filter(p => p.status === 'active' && !p.categoryId)
-    .map(p => p.id);
-
-  if (!missingIds.length) return products;
+/** Fill category_id and warehouse stock via Zoho bulk itemdetails. */
+async function enrichProductsFromBulkDetails(accessToken, orgId, products) {
+  const activeIds = products.filter(p => p.status === 'active').map(p => p.id);
+  if (!activeIds.length) return products;
 
   const byId = new Map(products.map(p => [p.id, { ...p }]));
 
-  for (let i = 0; i < missingIds.length; i += BULK_DETAIL_CHUNK) {
-    const chunk = missingIds.slice(i, i + BULK_DETAIL_CHUNK);
+  for (let i = 0; i < activeIds.length; i += BULK_DETAIL_CHUNK) {
+    const chunk = activeIds.slice(i, i + BULK_DETAIL_CHUNK);
     try {
       const details = await fetchBulkItemDetails(accessToken, orgId, chunk);
       for (const item of details) {
         const product = byId.get(item.id);
-        if (!product || product.categoryId) continue;
-        if (item.categoryId) {
+        if (!product) continue;
+        if (!product.categoryId && item.categoryId) {
           product.categoryId = item.categoryId;
           product.categoryName = item.categoryName || product.categoryName;
+        }
+        if (item.warehouses?.length) {
+          product.warehouses = item.warehouses;
         }
       }
     } catch (err) {
@@ -287,7 +287,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
 
   const products = await fetchAllProducts(accessToken, organizationId);
   let enrichedProducts = products.map(normaliseProductCategory);
-  enrichedProducts = await enrichMissingCategoryIds(accessToken, organizationId, enrichedProducts);
+  enrichedProducts = await enrichProductsFromBulkDetails(accessToken, organizationId, enrichedProducts);
 
   const existingSnap = await db.collection(PRODUCTS_COLLECTION).get();
   const existingMap = new Map(existingSnap.docs.map(doc => [doc.id, doc.data()]));
@@ -345,6 +345,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       taxName: product.taxName || null,
       taxPercentage: product.taxPercentage,
       reorderLevel: product.reorderLevel,
+      warehouses: Array.isArray(product.warehouses) ? product.warehouses : [],
       syncedAt: now,
       organizationId,
     };

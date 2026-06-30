@@ -44,6 +44,24 @@ export function getStockStatus(stock, reorderLevel) {
   return 'in_stock';
 }
 
+export function normaliseWarehouses(raw) {
+  const list = Array.isArray(raw?.warehouses) ? raw.warehouses : [];
+  return list
+    .filter(w => w?.warehouse_name || w?.name)
+    .map(w => ({
+      warehouseId: String(w.warehouse_id ?? ''),
+      warehouseName: String(w.warehouse_name ?? w.name ?? ''),
+      stock: Number(
+        w.warehouse_accounting_stock_on_hand
+        ?? w.warehouse_accounting_available_for_sale_stock
+        ?? w.warehouse_stock_accounting
+        ?? w.warehouse_stock_on_hand
+        ?? w.stock
+        ?? 0,
+      ),
+    }));
+}
+
 export function normaliseItem(raw) {
   let stockRaw = 0;
   if (raw.account_stock_on_hand != null) stockRaw = raw.account_stock_on_hand;
@@ -72,6 +90,7 @@ export function normaliseItem(raw) {
     taxName: String(raw.tax_name ?? ''),
     taxPercentage: Number(raw.tax_percentage ?? 0),
     reorderLevel,
+    warehouses: normaliseWarehouses(raw),
   };
 }
 
@@ -215,6 +234,7 @@ export async function fetchBulkItemDetails(accessToken, orgId, itemIds) {
       categoryId: categoryId || null,
       categoryName: categoryId ? String(raw.category_name ?? '').trim() || null : null,
       status: String(raw.status ?? 'active'),
+      warehouses: normaliseWarehouses(raw),
     };
   }).filter(item => item.id);
 }
@@ -268,20 +288,7 @@ export async function fetchProductDetail(accessToken, orgId, itemId) {
   );
   const reorderLevel = Number(item.reorder_level ?? 0);
 
-  const warehouses = (item.warehouses ?? [])
-    .filter(w => w.warehouse_name || w.name)
-    .map(w => ({
-      warehouseId: String(w.warehouse_id ?? ''),
-      warehouseName: String(w.warehouse_name ?? w.name ?? ''),
-      stock: Number(
-        w.warehouse_accounting_stock_on_hand
-        ?? w.warehouse_accounting_available_for_sale_stock
-        ?? w.warehouse_stock_accounting
-        ?? w.warehouse_stock_on_hand
-        ?? w.stock
-        ?? 0,
-      ),
-    }));
+  const warehouses = normaliseWarehouses(item);
 
   return {
     id: String(item.item_id ?? itemId),

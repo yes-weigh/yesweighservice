@@ -192,6 +192,29 @@ const LayoutShell: React.FC = () => {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  const topBarRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!isMobile || !headerSlot) return undefined;
+    const bar = topBarRef.current;
+    const main = bar?.closest('.main-content') as HTMLElement | null;
+    if (!bar || !main) return undefined;
+
+    const syncHeaderHeight = () => {
+      main.style.setProperty('--header-height', `${Math.ceil(bar.getBoundingClientRect().height)}px`);
+    };
+
+    syncHeaderHeight();
+    const observer = new ResizeObserver(syncHeaderHeight);
+    observer.observe(bar);
+    window.addEventListener('resize', syncHeaderHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', syncHeaderHeight);
+      main.style.removeProperty('--header-height');
+    };
+  }, [isMobile, headerSlot, topBarAction, location.pathname]);
+
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
@@ -396,6 +419,7 @@ const LayoutShell: React.FC = () => {
 
       <main className={`main-content ${collapsed && !isMobile ? 'expanded' : ''}`}>
         <header
+          ref={topBarRef}
           className={[
             'top-bar',
             headerSlot && isMobile ? 'top-bar--with-slot' : '',

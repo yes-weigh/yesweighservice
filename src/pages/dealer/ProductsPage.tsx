@@ -8,7 +8,7 @@ import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
-  getCategorizedProducts,
+  getShopCatalogProducts,
   getCategoriesForProducts,
   saveCatalogCategoryOrder,
   syncCatalog,
@@ -47,7 +47,7 @@ export const ProductsPage: React.FC = () => {
 
   const catalogProducts = useMemo(
     () => excludeHiddenCatalogProducts(
-      getCategorizedProducts(catalog?.items ?? []),
+      getShopCatalogProducts(catalog?.items ?? [], catalog?.categories ?? []),
       catalog?.categories ?? [],
     ),
     [catalog?.items, catalog?.categories],

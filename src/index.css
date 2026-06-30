@@ -674,6 +674,34 @@ html::-webkit-scrollbar {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.catalog-header-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.catalog-header-toolbar .catalog-search,
+.catalog-header-toolbar .invoices-header-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.catalog-header-toolbar__action {
+  flex-shrink: 0;
+}
+
+.catalog-header-toolbar__action .catalog-sync-btn,
+.catalog-header-toolbar__action .zoho-sync-btn {
+  min-height: 2.35rem;
+  padding: 0.42rem 0.55rem;
+}
+
+.catalog-header-toolbar__action .catalog-smart-bar__sync-label {
+  display: none;
+}
+
 .profile-btn {
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.04);
@@ -2533,6 +2561,10 @@ html::-webkit-scrollbar {
   padding-top: calc(var(--catalog-section-bar-height) + 0.35rem);
 }
 
+.catalog-page--smart.catalog-page--flat .catalog-spares-page .catalog-browse {
+  padding-top: 0;
+}
+
 .catalog-search {
   flex: 1;
   min-width: 180px;
@@ -3199,7 +3231,18 @@ html::-webkit-scrollbar {
 }
 
 .catalog-spares-map-filters {
+  margin-bottom: 0;
+}
+
+.catalog-spares-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   margin-bottom: 0.75rem;
+}
+
+.catalog-spares-location-filters {
+  margin-bottom: 0;
 }
 
 .catalog-spares-page {
@@ -3992,6 +4035,10 @@ html::-webkit-scrollbar {
     --catalog-section-bar-height: 2.15rem;
   }
 
+  .catalog-page--smart.catalog-page--admin-tabs {
+    --catalog-section-bar-height: 2.85rem;
+  }
+
   .catalog-page--smart.catalog-page--flat {
     --catalog-section-bar-height: 2.65rem;
   }
@@ -4059,6 +4106,11 @@ html::-webkit-scrollbar {
     padding-top: calc(var(--catalog-section-bar-height) + var(--spares-all-spares-scroll-gap));
   }
 
+  .spares-page--all-spares .catalog-spares-page .catalog-browse,
+  .catalog-page--smart.catalog-page--flat .catalog-spares-page .catalog-browse {
+    padding-top: 0;
+  }
+
   .spares-page .spares-mode-bar--all-spares,
   .catalog-page .spares-mode-bar--all-spares {
     padding: 0.28rem max(0.625rem, env(safe-area-inset-left, 0px)) 0.32rem;
@@ -4091,8 +4143,13 @@ html::-webkit-scrollbar {
   }
 
   .spares-page .spares-mode-bar,
-  .catalog-page .spares-mode-bar {
+  .catalog-page .spares-mode-bar,
+  .catalog-page .catalog-smart-bar {
+    position: fixed;
+    top: var(--header-height);
     left: 0;
+    right: 0;
+    z-index: 36;
     padding: 0.35rem max(0.625rem, env(safe-area-inset-left, 0px)) 0.4rem;
     padding-right: max(0.625rem, env(safe-area-inset-right, 0px));
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);

@@ -42,9 +42,11 @@ export const CatalogUnifiedResults: React.FC<CatalogUnifiedResultsProps> = ({
 }) => {
   const navigate = useNavigate();
 
+  const spareIdSet = useMemo(() => new Set(spares.map(spare => spare.id)), [spares]);
+
   const productHits = useMemo(
-    () => products.filter(p => matchesQuery(p, query)),
-    [products, query],
+    () => products.filter(p => matchesQuery(p, query) && !spareIdSet.has(p.id)),
+    [products, query, spareIdSet],
   );
 
   const spareHits = useMemo(
