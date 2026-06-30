@@ -114,7 +114,18 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.catalog-inventory-audit__view-toggle {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .catalog-inventory-audit__view-toggle {
+    display: flex;
+  }
 }
 
 /* —— Audit mockup icon rows —— */
@@ -344,10 +355,141 @@
 }
 
 .wh-audit-tile-list {
+  margin-bottom: 0.5rem;
+}
+
+.wh-audit-tile-list--list {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  margin-bottom: 0.5rem;
+}
+
+.wh-audit-tile-list--grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+@media (min-width: 1200px) {
+  .wh-audit-tile-list--grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.wh-audit-tile--grid-card {
+  gap: 0.35rem;
+  padding: 0.45rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  height: 100%;
+}
+
+.wh-audit-tile__grid-top {
+  position: relative;
+}
+
+.wh-audit-tile__grid-photo {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(8, 15, 30, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.wh-audit-tile__grid-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wh-audit-tile__grid-photo .wh-audit-tile__photo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0.75rem;
+}
+
+.wh-audit-tile__grid-select {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  z-index: 2;
+  display: inline-flex;
+  padding: 0.12rem;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.wh-audit-tile__grid-select input {
+  width: 0.8rem;
+  height: 0.8rem;
+  cursor: pointer;
+}
+
+.wh-audit-tile__grid-badge {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 2;
+}
+
+.wh-audit-tile__grid-badge .wh-item-table__status {
+  padding: 0.1rem 0.32rem;
+  font-size: 0.5rem;
+}
+
+.wh-audit-tile__grid-title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wh-audit-tile__grid-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+.wh-audit-tile__grid-qty {
+  flex-shrink: 0;
+}
+
+.wh-audit-tile__grid-location {
+  flex-shrink: 0;
+  margin-left: auto;
+  text-align: right;
+  color: #cbd5e1;
+}
+
+.wh-audit-tile--grid-card .audit-icon-row--compact {
+  padding: 0;
+  gap: 0.28rem;
+}
+
+.wh-audit-tile--grid-card .audit-icon-row--compact .audit-icon-row__icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 5px;
+}
+
+.wh-audit-tile--grid-card .audit-icon-row__value--compact {
+  font-size: 0.625rem;
+  line-height: 1.3;
 }
 
 .wh-audit-tile {

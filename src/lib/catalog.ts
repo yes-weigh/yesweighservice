@@ -67,7 +67,11 @@ export function excludeHiddenCatalogProducts(
 /** Zoho category that holds generic spare parts (not shop product categories). */
 export function isGenericSparePartsCategory(category: Pick<CatalogCategory, 'name'>): boolean {
   const name = category.name.trim().toLowerCase();
-  return name === 'generic spare parts' || name === 'generic spares';
+  return (
+    name === 'generic spare parts'
+    || name === 'generic spares'
+    || name.includes('generic spare')
+  );
 }
 
 /** True when a Zoho item belongs on the Spare parts tab (not shop Categories). */
@@ -227,6 +231,40 @@ export function getCategoriesForProducts(
 ): CatalogCategory[] {
   const ids = new Set(products.map(p => p.categoryId).filter(Boolean) as string[]);
   return categories.filter(c => ids.has(c.id));
+}
+
+/** Categories grid for shop browse — includes Generic spare parts for staff catalog views. */
+export function getShopCatalogCategories(
+  categories: CatalogCategory[],
+  shopProducts: CatalogProduct[],
+  spareProducts: CatalogProduct[],
+): CatalogCategory[] {
+  const fromShop = getCategoriesForProducts(categories, shopProducts);
+  const included = new Set(fromShop.map(c => c.id));
+
+  const genericSpareCategories = categories
+    .filter(c => isGenericSparePartsCategory(c) && !included.has(c.id))
+    .map(cat => {
+      const productCount = spareProducts.filter(p => p.categoryId === cat.id).length;
+      if (productCount <= 0) return null;
+      return { ...cat, productCount };
+    })
+    .filter((c): c is CatalogCategory => c !== null);
+
+  return [...fromShop, ...genericSpareCategories];
+}
+
+/** Products shown when drilling into a category from the shop browse grid. */
+export function getBrowseCatalogProducts(
+  shopProducts: CatalogProduct[],
+  spareProducts: CatalogProduct[],
+  categories: CatalogCategory[],
+  activeCategoryId: string,
+): CatalogProduct[] {
+  if (!activeCategoryId) return shopProducts;
+  const activeCategory = categories.find(c => c.id === activeCategoryId);
+  if (!activeCategory || !isGenericSparePartsCategory(activeCategory)) return shopProducts;
+  return spareProducts.filter(p => p.categoryId === activeCategoryId);
 }
 
 function catalogErrorMessage(err: unknown): string {

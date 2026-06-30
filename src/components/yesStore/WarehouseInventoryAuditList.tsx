@@ -3,7 +3,9 @@ import {
   ChevronLeft,
   ChevronRight,
   GitCompare,
+  LayoutGrid,
   Link2,
+  List,
   RefreshCw,
   Unlink,
   User,
@@ -29,6 +31,25 @@ import type { CatalogProduct } from '../../types/catalog';
 
 const PAGE_SIZE = 25;
 
+type InventoryAuditViewMode = 'grid' | 'list';
+
+function useMinWidth(minWidthPx: number): boolean {
+  const query = `(min-width: ${minWidthPx}px)`;
+  const [matches, setMatches] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia(query).matches : false,
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const onChange = () => setMatches(mediaQuery.matches);
+    onChange();
+    mediaQuery.addEventListener('change', onChange);
+    return () => mediaQuery.removeEventListener('change', onChange);
+  }, [query]);
+
+  return matches;
+}
+
 export type InventoryAuditLinkFilter = 'all' | 'linked' | 'unlinked';
 
 export interface WarehouseInventoryAuditListProps {
@@ -46,15 +67,12 @@ export interface WarehouseInventoryAuditListProps {
   className?: string;
   showLinkStatus?: boolean;
   batchLinkEnabled?: boolean;
+  showViewToggle?: boolean;
 }
 
 function catalogMap(products: CatalogProduct[] | undefined): Map<string, CatalogProduct> | undefined {
   if (!products?.length) return undefined;
   return new Map(products.map(product => [product.id, product]));
-}
-
-function isSelectableRow(row: InventoryAuditListRow): row is { kind: 'item'; item: YesStoreItemDoc } {
-  return row.kind === 'item' && !isYesStoreItemLinked(row.item);
 }
 
 import { YesStorePhotoImg } from './YesStorePhotoImg';
@@ -72,6 +90,19 @@ function AuditTilePhotos({ photos }: { photos: YesStoreItemDoc['photos'] }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function AuditTileGridPhoto({ photos }: { photos: YesStoreItemDoc['photos'] }) {
+  const photo = photos[0];
+  return (
+    <div className="wh-audit-tile__grid-photo">
+      {photo ? (
+        <YesStorePhotoImg photo={photo} />
+      ) : (
+        <span className="wh-audit-tile__photo-empty text-muted">—</span>
+      )}
     </div>
   );
 }
@@ -103,10 +134,16 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   className = '',
   showLinkStatus = false,
   batchLinkEnabled = false,
+  showViewToggle = false,
 }) => {
   const [page, setPage] = useState(1);
   const [linkFilter, setLinkFilter] = useState<InventoryAuditLinkFilter>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [viewMode, setViewMode] = useState<InventoryAuditViewMode>('grid');
+  const isDesktopWeb = useMinWidth(768);
+  const layoutMode: InventoryAuditViewMode =
+    showViewToggle && isDesktopWeb ? viewMode : 'list';
+  const useGridCards = layoutMode === 'grid';
 
   const showBatchSelect = batchLinkEnabled && linkFilter !== 'linked';
 
@@ -140,16 +177,6 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
     [listRows, page],
   );
 
-  const pageSelectableIds = useMemo(
-    () => pageRows.filter(isSelectableRow).map(row => row.item.id),
-    [pageRows],
-  );
-
-  const allPageSelected =
-    pageSelectableIds.length > 0 && pageSelectableIds.every(id => selectedIds.has(id));
-
-  const somePageSelected = pageSelectableIds.some(id => selectedIds.has(id));
-
   const selectedItems = useMemo(
     () => [...selectedIds].map(id => itemsById.get(id)).filter((item): item is YesStoreItemDoc => Boolean(item)),
     [selectedIds, itemsById],
@@ -182,18 +209,6 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
       const next = new Set(prev);
       if (next.has(itemId)) next.delete(itemId);
       else next.add(itemId);
-      return next;
-    });
-  };
-
-  const togglePageSelection = () => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (allPageSelected) {
-        pageSelectableIds.forEach(id => next.delete(id));
-      } else {
-        pageSelectableIds.forEach(id => next.add(id));
-      }
       return next;
     });
   };
@@ -253,19 +268,31 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
           {showBatchSelect && selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
         </span>
         <div className="catalog-inventory-audit__toolbar-actions">
-          {showBatchSelect && pageSelectableIds.length > 0 && (
-            <label className="wh-audit-tile__select-all text-sm">
-              <input
-                type="checkbox"
-                aria-label="Select all unlinked items on this page"
-                checked={allPageSelected}
-                ref={input => {
-                  if (input) input.indeterminate = !allPageSelected && somePageSelected;
-                }}
-                onChange={togglePageSelection}
-              />
-              Select page
-            </label>
+          {showViewToggle && (
+            <div
+              className="catalog-inventory-audit__view-toggle catalog-view-toggle"
+              role="group"
+              aria-label="Inventory audit view"
+            >
+              <button
+                type="button"
+                className={viewMode === 'grid' ? 'active' : ''}
+                onClick={() => setViewMode('grid')}
+                aria-label="Grid view"
+                aria-pressed={viewMode === 'grid'}
+              >
+                <LayoutGrid size={15} />
+              </button>
+              <button
+                type="button"
+                className={viewMode === 'list' ? 'active' : ''}
+                onClick={() => setViewMode('list')}
+                aria-label="List view"
+                aria-pressed={viewMode === 'list'}
+              >
+                <List size={15} />
+              </button>
+            </div>
           )}
           {showBatchSelect && selectedIds.size > 0 && onBatchLink && (
             <button
@@ -294,7 +321,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
         <p className="text-muted warehouse-app__empty">{filterEmptyMessage}</p>
       ) : (
         <>
-          <div className="wh-audit-tile-list">
+          <div className={`wh-audit-tile-list wh-audit-tile-list--${layoutMode}`}>
             {pageRows.map(row => {
               if (row.kind === 'group') {
                 const { group } = row;
@@ -315,9 +342,38 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                 return (
                   <article
                     key={group.catalogProductId}
-                    className={`wh-audit-tile wh-audit-tile--item wh-audit-tile--group${clickable ? ' wh-audit-tile--clickable' : ''}`}
+                    className={`wh-audit-tile wh-audit-tile--item wh-audit-tile--group${
+                      useGridCards ? ' wh-audit-tile--grid-card' : ''
+                    }${clickable ? ' wh-audit-tile--clickable' : ''}`}
                     onClick={clickable ? () => onGroupClick?.(group) : undefined}
                   >
+                    {useGridCards ? (
+                      <>
+                        <div className="wh-audit-tile__grid-top">
+                          <AuditTileGridPhoto photos={firstPhotos} />
+                          <div className="wh-audit-tile__grid-badge">
+                            <AuditStatusBadge linked />
+                          </div>
+                        </div>
+                        <h3 className="wh-audit-tile__grid-title">{group.catalogProductName}</h3>
+                        <p className="wh-audit-tile__grid-details">
+                          <span className="wh-audit-tile__grid-qty">Qty {countedQty}</span>
+                          {group.items.length > 1 && (
+                            <span className="wh-audit-tile__grid-location">
+                              {group.items.length} locations
+                            </span>
+                          )}
+                        </p>
+                        <AuditAttributionRow
+                          icon={User}
+                          tone="orange"
+                          auditedBy={auditedBy}
+                          auditedAt={group.lastCountedAt}
+                          bare
+                        />
+                      </>
+                    ) : (
+                      <>
                     <div className="wh-audit-tile__hero">
                       <AuditTilePhotos photos={firstPhotos} />
                       <div className="wh-audit-tile__qty-block">
@@ -401,6 +457,8 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                         total={group.items.length}
                       />
                     ))}
+                      </>
+                    )}
                   </article>
                 );
               }
@@ -422,45 +480,40 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
               return (
                 <article
                   key={item.id}
-                  className={`wh-audit-tile wh-audit-tile--item wh-audit-tile--dense${clickable ? ' wh-audit-tile--clickable' : ''}${
+                  className={`wh-audit-tile wh-audit-tile--item${
+                    useGridCards ? ' wh-audit-tile--grid-card' : ' wh-audit-tile--dense'
+                  }${clickable ? ' wh-audit-tile--clickable' : ''}${
                     selectedIds.has(item.id) ? ' wh-audit-tile--selected' : ''
                   }`}
                   onClick={clickable ? () => onItemClick?.(item) : undefined}
                 >
-                  <div className="wh-audit-tile__dense-row">
-                    {showBatchSelect && (
-                      <div
-                        className="wh-audit-tile__select"
-                        onClick={event => event.stopPropagation()}
-                      >
-                        {selectable ? (
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${locationLabel}`}
-                            checked={selectedIds.has(item.id)}
-                            onChange={() => toggleItem(item.id)}
-                          />
-                        ) : null}
+                  {useGridCards ? (
+                    <>
+                      <div className="wh-audit-tile__grid-top">
+                        {showBatchSelect && selectable && (
+                          <label
+                            className="wh-audit-tile__grid-select"
+                            onClick={event => event.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${locationLabel}`}
+                              checked={selectedIds.has(item.id)}
+                              onChange={() => toggleItem(item.id)}
+                            />
+                          </label>
+                        )}
+                        <AuditTileGridPhoto photos={photos} />
+                        {showLinkStatus && (
+                          <div className="wh-audit-tile__grid-badge">
+                            <AuditStatusBadge linked={linked} />
+                          </div>
+                        )}
                       </div>
-                    )}
-                    <AuditTilePhotos photos={photos} />
-                    <div className="wh-audit-tile__qty-inline">
-                      <span className="wh-audit-tile__qty-value" aria-label={`Quantity ${quantity}`}>
-                        {quantity}
-                      </span>
-                      <span className="wh-audit-tile__qty-label">Qty</span>
-                    </div>
-                    <AuditTileStockLocation
-                      rackId={item.rackId}
-                      rowNumber={item.rowNumber}
-                      binNumber={item.binNumber}
-                      variant="strip"
-                      className="wh-audit-tile__dense-location"
-                    />
-                  </div>
-
-                  <div className="wh-audit-tile__dense-meta">
-                    <div className="wh-audit-tile__dense-audit">
+                      <p className="wh-audit-tile__grid-details">
+                        <span className="wh-audit-tile__grid-qty">Qty {quantity}</span>
+                        <span className="wh-audit-tile__grid-location">{locationLabel}</span>
+                      </p>
                       <AuditAttributionRow
                         icon={User}
                         tone="orange"
@@ -468,13 +521,62 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                         auditedAt={auditedAt}
                         bare
                       />
-                    </div>
-                    {showLinkStatus && (
-                      <div className="wh-audit-tile__status">
-                        <AuditStatusBadge linked={linked} />
+                    </>
+                  ) : (
+                    <>
+                      <div className="wh-audit-tile__dense-row">
+                        {showBatchSelect && (
+                          <div
+                            className="wh-audit-tile__select"
+                            onClick={event => event.stopPropagation()}
+                          >
+                            {selectable ? (
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${locationLabel}`}
+                                checked={selectedIds.has(item.id)}
+                                onChange={() => toggleItem(item.id)}
+                              />
+                            ) : null}
+                          </div>
+                        )}
+                        <AuditTilePhotos photos={photos} />
+                        <div className="wh-audit-tile__qty-inline">
+                          <span
+                            className="wh-audit-tile__qty-value"
+                            aria-label={`Quantity ${quantity}`}
+                          >
+                            {quantity}
+                          </span>
+                          <span className="wh-audit-tile__qty-label">Qty</span>
+                        </div>
+                        <AuditTileStockLocation
+                          rackId={item.rackId}
+                          rowNumber={item.rowNumber}
+                          binNumber={item.binNumber}
+                          variant="strip"
+                          className="wh-audit-tile__dense-location"
+                        />
                       </div>
-                    )}
-                  </div>
+
+                      <div className="wh-audit-tile__dense-meta">
+                        <div className="wh-audit-tile__dense-audit">
+                          <AuditAttributionRow
+                            icon={User}
+                            tone="orange"
+                            auditedBy={auditedBy}
+                            auditedAt={auditedAt}
+                            bare
+                          />
+                        </div>
+                        {showLinkStatus && (
+                          <div className="wh-audit-tile__status">
+                            <AuditStatusBadge linked={linked} />
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </article>
               );
             })}

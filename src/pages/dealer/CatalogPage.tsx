@@ -20,6 +20,8 @@ import {
   fetchSpareLinkIndex,
   getCategorizedProducts,
   getShopCatalogProducts,
+  getShopCatalogCategories,
+  getBrowseCatalogProducts,
   getCategoriesForProducts,
   getCatalogSparePartsPool,
   getUnlinkedSpares,
@@ -150,6 +152,14 @@ export const CatalogPage: React.FC = () => {
     setSpareLocationFilters(new Set());
   }, []);
 
+  const applySpareFilters = useCallback(
+    (catalogFilters: Set<SpareCatalogFilter>, locationFilters: Set<SpareWarehouseLocationFilter>) => {
+      setSpareCatalogFilters(new Set(catalogFilters));
+      setSpareLocationFilters(new Set(locationFilters));
+    },
+    [],
+  );
+
   const sectionParam = searchParams.get('section');
   const categoryFromUrl = searchParams.get('category') ?? '';
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') ?? '');
@@ -272,14 +282,30 @@ export const CatalogPage: React.FC = () => {
     [catalog?.items, catalog?.categories],
   );
 
-  const shopCategories = useMemo(
-    () => getCategoriesForProducts(catalog?.categories ?? [], shopProducts),
-    [catalog?.categories, shopProducts],
-  );
-
   const spareParts = useMemo(
     () => getCatalogSparePartsPool(catalog?.items ?? [], catalog?.categories ?? []),
     [catalog?.items, catalog?.categories],
+  );
+
+  const shopCategories = useMemo(() => {
+    const categories = catalog?.categories ?? [];
+    if (!canSync) {
+      return getCategoriesForProducts(categories, shopProducts);
+    }
+    return getShopCatalogCategories(categories, shopProducts, spareParts);
+  }, [catalog?.categories, shopProducts, spareParts, canSync]);
+
+  const browseProducts = useMemo(
+    () => excludeHiddenCatalogProducts(
+      getBrowseCatalogProducts(
+        shopProducts,
+        spareParts,
+        catalog?.categories ?? [],
+        categoryFromUrl,
+      ),
+      catalog?.categories ?? [],
+    ),
+    [shopProducts, spareParts, catalog?.categories, categoryFromUrl],
   );
 
   const filteredSpareParts = useMemo(() => {
@@ -724,15 +750,18 @@ export const CatalogPage: React.FC = () => {
 
   const sparePartsFilters = useMemo(
     () => (
-      <CatalogSparesMultiFilters
-        spareCatalogFilters={spareCatalogFilters}
-        onToggleCatalogFilter={toggleSpareCatalogFilter}
-        spareLocationFilters={spareLocationFilters}
-        onToggleLocationFilter={toggleSpareLocationFilter}
-        spareCatalogFilterCounts={spareCatalogFilterCounts}
-        spareLocationFilterCounts={spareLocationFilterCounts}
-        onClearAll={clearSpareFilters}
-      />
+      <div className="catalog-spares-filters-panel panel glass">
+        <CatalogSparesMultiFilters
+          spareCatalogFilters={spareCatalogFilters}
+          onToggleCatalogFilter={toggleSpareCatalogFilter}
+          spareLocationFilters={spareLocationFilters}
+          onToggleLocationFilter={toggleSpareLocationFilter}
+          spareCatalogFilterCounts={spareCatalogFilterCounts}
+          spareLocationFilterCounts={spareLocationFilterCounts}
+          onClearAll={clearSpareFilters}
+          footerMode="clear-only"
+        />
+      </div>
     ),
     [
       spareCatalogFilters,
@@ -801,10 +830,8 @@ export const CatalogPage: React.FC = () => {
           open={mobileSparesFiltersOpen}
           onClose={() => setMobileSparesFiltersOpen(false)}
           spareCatalogFilters={spareCatalogFilters}
-          onToggleCatalogFilter={toggleSpareCatalogFilter}
           spareLocationFilters={spareLocationFilters}
-          onToggleLocationFilter={toggleSpareLocationFilter}
-          onClearAll={clearSpareFilters}
+          onApplyFilters={applySpareFilters}
           spareCatalogFilterCounts={spareCatalogFilterCounts}
           spareLocationFilterCounts={spareLocationFilterCounts}
         />
@@ -827,7 +854,7 @@ export const CatalogPage: React.FC = () => {
 
       {focus === 'browse' && (
         <CatalogBrowse
-          products={shopProducts}
+          products={browseProducts}
           categories={shopCategories}
           isLoading={loading}
           showToolbar={false}
@@ -948,6 +975,7 @@ export const CatalogPage: React.FC = () => {
             onRefresh={() => void loadAuditItems()}
             showLinkStatus
             batchLinkEnabled
+            showViewToggle
             onBatchLink={setBatchLinkItems}
             onItemClick={item => navigate(`${pathname}/inventory-audit/${item.id}`)}
             onGroupClick={group =>
