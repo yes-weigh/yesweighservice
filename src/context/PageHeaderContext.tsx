@@ -15,6 +15,8 @@ export type PageHeaderConfig = {
   onBack?: (() => void) | null;
   onTitleClick?: (() => void) | null;
   titleExpanded?: boolean;
+  /** Mobile: menu + inline search + action in one row (hide page title). */
+  mobileCompactHeader?: boolean;
 };
 
 type PageHeaderContextValue = {
@@ -40,7 +42,8 @@ function configsEqual(a: PageHeaderConfig, b: PageHeaderConfig): boolean {
     && a.showBack === b.showBack
     && a.onBack === b.onBack
     && a.onTitleClick === b.onTitleClick
-    && a.titleExpanded === b.titleExpanded;
+    && a.titleExpanded === b.titleExpanded
+    && a.mobileCompactHeader === b.mobileCompactHeader;
 }
 
 const PageHeaderContext = createContext<PageHeaderContextValue | null>(null);
@@ -94,19 +97,27 @@ export function usePageHeader() {
   return ctx;
 }
 
-export function useCatalogPageHeader(config: PageHeaderConfig) {
+export function useCatalogPageHeader(config: PageHeaderConfig, enabled = true) {
   const ctx = useContext(PageHeaderContext);
   const setPageHeader = ctx?.setPageHeader;
-  const { title = null, subtitle = null, showBack = false, onBack = null, onTitleClick = null, titleExpanded = false } = config;
+  const {
+    title = null,
+    subtitle = null,
+    showBack = false,
+    onBack = null,
+    onTitleClick = null,
+    titleExpanded = false,
+    mobileCompactHeader = false,
+  } = config;
   const onBackRef = useRef(onBack);
   const onTitleClickRef = useRef(onTitleClick);
   onBackRef.current = onBack;
   onTitleClickRef.current = onTitleClick;
 
   useEffect(() => {
-    if (!setPageHeader) return undefined;
+    if (!setPageHeader || !enabled) return undefined;
 
-    if (!title && !showBack) {
+    if (!title && !showBack && !mobileCompactHeader) {
       setPageHeader(emptyConfig);
       return undefined;
     }
@@ -126,9 +137,10 @@ export function useCatalogPageHeader(config: PageHeaderConfig) {
       onBack: stableOnBack,
       onTitleClick: stableOnTitleClick,
       titleExpanded,
+      mobileCompactHeader,
     });
     return () => setPageHeader(emptyConfig);
-  }, [setPageHeader, title, subtitle, showBack, onTitleClick, titleExpanded]);
+  }, [setPageHeader, enabled, title, subtitle, showBack, onTitleClick, titleExpanded, mobileCompactHeader]);
 }
 
 export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) {

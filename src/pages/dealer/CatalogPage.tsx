@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Boxes, ClipboardList, LayoutGrid, RefreshCw, Search, X } from 'lucide-react';
+import { AlertCircle, Boxes, ClipboardList, LayoutGrid, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { CatalogSparesFilterSheet } from '../../components/catalog/CatalogSparesFilterSheet';
+import { CatalogSparesMultiFilters } from '../../components/catalog/CatalogSparesMultiFilters';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
@@ -22,8 +24,11 @@ import {
   getCatalogSparePartsPool,
   getUnlinkedSpares,
   isSparesExcludedCategory,
-  SPARE_WAREHOUSE_LOCATION_FILTERS,
+  matchesSpareCatalogFilters,
+  matchesSpareLocationFilters,
+  catalogProductHasImage,
   catalogProductHasWarehouseStock,
+  type SpareCatalogFilter,
   type SpareWarehouseLocationFilter,
   saveCatalogCategoryOrder,
   saveCatalogSpareProductLinks,
@@ -40,8 +45,6 @@ import type { YesStoreItemDoc } from '../../types/yes-store';
 type CatalogFocus = 'browse' | 'search' | 'all-spares' | 'unlinked' | 'map' | 'inventory-audit';
 
 type AdminCatalogSection = 'categories' | 'spares' | 'inventory-audit';
-
-type SpareProductMapFilter = 'unmapped' | 'mapped' | 'all';
 
 function parseCatalogFocus(
   section: string | null,
@@ -120,8 +123,32 @@ export const CatalogPage: React.FC = () => {
   const [auditAuditorNames, setAuditAuditorNames] = useState<Map<string, string>>(new Map());
   const [batchLinkItems, setBatchLinkItems] = useState<YesStoreItemDoc[] | null>(null);
   const [unlinkingGroupId, setUnlinkingGroupId] = useState<string | null>(null);
-  const [spareMapFilter, setSpareMapFilter] = useState<SpareProductMapFilter>('all');
-  const [spareLocationFilter, setSpareLocationFilter] = useState<SpareWarehouseLocationFilter>('all');
+  const [spareCatalogFilters, setSpareCatalogFilters] = useState<Set<SpareCatalogFilter>>(() => new Set());
+  const [spareLocationFilters, setSpareLocationFilters] = useState<Set<SpareWarehouseLocationFilter>>(() => new Set());
+  const [mobileSparesFiltersOpen, setMobileSparesFiltersOpen] = useState(false);
+
+  const toggleSpareCatalogFilter = useCallback((key: SpareCatalogFilter) => {
+    setSpareCatalogFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const toggleSpareLocationFilter = useCallback((key: SpareWarehouseLocationFilter) => {
+    setSpareLocationFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const clearSpareFilters = useCallback(() => {
+    setSpareCatalogFilters(new Set());
+    setSpareLocationFilters(new Set());
+  }, []);
 
   const sectionParam = searchParams.get('section');
   const categoryFromUrl = searchParams.get('category') ?? '';
@@ -258,30 +285,26 @@ export const CatalogPage: React.FC = () => {
   const filteredSpareParts = useMemo(() => {
     let items = spareParts;
     if (isSuperAdmin && linkedSpareIds) {
-      if (spareMapFilter === 'mapped') {
-        items = items.filter(product => linkedSpareIds.has(product.id));
-      } else if (spareMapFilter === 'unmapped') {
-        items = items.filter(product => !linkedSpareIds.has(product.id));
-      }
+      items = items.filter(product => matchesSpareCatalogFilters(product, spareCatalogFilters, linkedSpareIds));
     }
-    if (isSuperAdmin && spareLocationFilter !== 'all') {
-      const location = SPARE_WAREHOUSE_LOCATION_FILTERS.find(option => option.key === spareLocationFilter);
-      if (location?.warehouseName) {
-        items = items.filter(product => catalogProductHasWarehouseStock(product, location.warehouseName));
-      }
+    if (isSuperAdmin) {
+      items = items.filter(product => matchesSpareLocationFilters(product, spareLocationFilters));
     }
     return items;
-  }, [isSuperAdmin, spareParts, spareMapFilter, spareLocationFilter, linkedSpareIds]);
+  }, [isSuperAdmin, spareParts, spareCatalogFilters, spareLocationFilters, linkedSpareIds]);
 
-  const spareMapFilterCounts = useMemo(() => {
+  const spareCatalogFilterCounts = useMemo(() => {
     const ids = linkedSpareIds ?? new Set<string>();
     const mapped = spareParts.filter(product => ids.has(product.id)).length;
     const all = spareParts.length;
-    return { all, mapped, unmapped: all - mapped };
+    return {
+      unmapped: all - mapped,
+      mapped,
+      withoutImage: spareParts.filter(product => !catalogProductHasImage(product)).length,
+    };
   }, [spareParts, linkedSpareIds]);
 
   const spareLocationFilterCounts = useMemo(() => ({
-    all: spareParts.length,
     cochin: spareParts.filter(product => catalogProductHasWarehouseStock(product, 'Cochin')).length,
     headOffice: spareParts.filter(product => catalogProductHasWarehouseStock(product, 'Head Office')).length,
   }), [spareParts]);
@@ -485,7 +508,15 @@ export const CatalogPage: React.FC = () => {
     title: showActiveFocus ? FOCUS_LABELS[focus] : null,
     showBack: showActiveFocus || (isSuperAdmin && Boolean(categoryId)),
     onBack: categoryId ? () => setCategoryId('') : clearFocus,
+    mobileCompactHeader: isMobile && showHeaderSearch,
   });
+
+  const showMobileSparesFilters = isSuperAdmin && focus === 'all-spares' && isMobile;
+  const hasActiveSpareFilters = spareCatalogFilters.size > 0 || spareLocationFilters.size > 0;
+
+  useEffect(() => {
+    if (focus !== 'all-spares') setMobileSparesFiltersOpen(false);
+  }, [focus]);
 
   const syncButton = useMemo(
     () => (canSync ? (
@@ -505,65 +536,65 @@ export const CatalogPage: React.FC = () => {
   );
 
   const headerSearch = useMemo(
-    () => {
-      const searchField = (
-        <div className="catalog-search invoices-header-search">
-          <Search size={15} aria-hidden />
-          <input
-            type="search"
-            placeholder={isMobile ? 'Search products, spare parts…' : 'Search products, spare parts, SKU…'}
-            value={searchQuery}
-            onChange={e => handleSearchChange(e.target.value)}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => window.setTimeout(() => setSearchFocused(false), 180)}
-            aria-label="Search catalog"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              className="invoices-header-search__clear"
-              onClick={() => {
-                handleSearchChange('');
-                if (focus === 'search') {
-                  if (isSuperAdmin) setAdminSection('categories');
-                  else setFocus('browse');
-                }
-              }}
-              aria-label="Clear search"
-            >
-              <X size={16} />
-            </button>
-          )}
-        </div>
-      );
+    () => (
+      <div className="catalog-search invoices-header-search">
+        <Search size={15} aria-hidden />
+        <input
+          type="search"
+          placeholder={isMobile ? 'Search products, spare parts…' : 'Search products, spare parts, SKU…'}
+          value={searchQuery}
+          onChange={e => handleSearchChange(e.target.value)}
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => window.setTimeout(() => setSearchFocused(false), 180)}
+          aria-label="Search catalog"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className="invoices-header-search__clear"
+            onClick={() => {
+              handleSearchChange('');
+              if (focus === 'search') {
+                if (isSuperAdmin) setAdminSection('categories');
+                else setFocus('browse');
+              }
+            }}
+            aria-label="Clear search"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+    ),
+    [searchQuery, handleSearchChange, focus, isSuperAdmin, setAdminSection, setFocus, isMobile],
+  );
 
-      if (isMobile && canSync && showHeaderSearch) {
-        return (
-          <div className="catalog-header-toolbar">
-            {searchField}
-            <div className="catalog-header-toolbar__action">{syncButton}</div>
-          </div>
-        );
-      }
-
-      return searchField;
-    },
-    [
-      searchQuery,
-      handleSearchChange,
-      focus,
-      isSuperAdmin,
-      setAdminSection,
-      setFocus,
-      isMobile,
-      canSync,
-      showHeaderSearch,
-      syncButton,
-    ],
+  const mobileFilterButton = useMemo(
+    () => (
+      <button
+        type="button"
+        className={[
+          'catalog-header-filter-btn',
+          mobileSparesFiltersOpen ? 'catalog-header-filter-btn--open' : '',
+          hasActiveSpareFilters ? 'catalog-header-filter-btn--active' : '',
+        ].filter(Boolean).join(' ')}
+        onClick={() => setMobileSparesFiltersOpen(open => !open)}
+        aria-expanded={mobileSparesFiltersOpen}
+        aria-haspopup="dialog"
+        aria-label="Open spare part filters"
+        title="Filters"
+      >
+        <SlidersHorizontal size={20} strokeWidth={2.25} />
+      </button>
+    ),
+    [mobileSparesFiltersOpen, hasActiveSpareFilters],
   );
 
   usePageHeaderSlot(headerSearch, showHeaderSearch);
-  useTopBarAction(syncButton, Boolean(canSync && showHeaderSearch && !isMobile));
+  useTopBarAction(
+    showMobileSparesFilters ? mobileFilterButton : syncButton,
+    showMobileSparesFilters || Boolean(canSync && showHeaderSearch && !isMobile),
+  );
 
   const hasSmartBarContent = isSuperAdmin
     || showShortcuts
@@ -691,6 +722,29 @@ export const CatalogPage: React.FC = () => {
 
   const flatListSearch = isFlatList ? searchQuery : '';
 
+  const sparePartsFilters = useMemo(
+    () => (
+      <CatalogSparesMultiFilters
+        spareCatalogFilters={spareCatalogFilters}
+        onToggleCatalogFilter={toggleSpareCatalogFilter}
+        spareLocationFilters={spareLocationFilters}
+        onToggleLocationFilter={toggleSpareLocationFilter}
+        spareCatalogFilterCounts={spareCatalogFilterCounts}
+        spareLocationFilterCounts={spareLocationFilterCounts}
+        onClearAll={clearSpareFilters}
+      />
+    ),
+    [
+      spareCatalogFilters,
+      spareLocationFilters,
+      spareCatalogFilterCounts,
+      spareLocationFilterCounts,
+      toggleSpareCatalogFilter,
+      toggleSpareLocationFilter,
+      clearSpareFilters,
+    ],
+  );
+
   if (loading && !catalog) {
     return (
       <div className="page-content fade-in products-page spares-page catalog-page catalog-page--smart">
@@ -741,6 +795,20 @@ export const CatalogPage: React.FC = () => {
       )}
 
       {smartBar}
+
+      {showMobileSparesFilters && (
+        <CatalogSparesFilterSheet
+          open={mobileSparesFiltersOpen}
+          onClose={() => setMobileSparesFiltersOpen(false)}
+          spareCatalogFilters={spareCatalogFilters}
+          onToggleCatalogFilter={toggleSpareCatalogFilter}
+          spareLocationFilters={spareLocationFilters}
+          onToggleLocationFilter={toggleSpareLocationFilter}
+          onClearAll={clearSpareFilters}
+          spareCatalogFilterCounts={spareCatalogFilterCounts}
+          spareLocationFilterCounts={spareLocationFilterCounts}
+        />
+      )}
 
       {focus === 'search' && (
         <CatalogUnifiedResults
@@ -847,87 +915,24 @@ export const CatalogPage: React.FC = () => {
             enableCart={canUseCart(user?.role)}
             showStockQuantity={showStockQuantity}
             returnView="spares"
-            manageItemLabel={isSuperAdmin && canSync && spareMapFilter === 'unmapped' ? 'Link to products' : undefined}
+            manageItemLabel={isSuperAdmin && canSync && spareCatalogFilters.has('unmapped') ? 'Link to products' : undefined}
             onManageItem={
-              isSuperAdmin && canSync && spareMapFilter === 'unmapped'
+              isSuperAdmin && canSync && spareCatalogFilters.has('unmapped')
                 ? spare => void openLinkEditor(spare)
                 : undefined
             }
-            listHeaderExtra={
-              isSuperAdmin ? (
-                <div className="catalog-spares-filters">
-                  <div
-                    className="catalog-inventory-audit__filters catalog-spares-map-filters"
-                    role="tablist"
-                    aria-label="Spare-to-product mapping filter"
-                  >
-                    {(['unmapped', 'mapped', 'all'] as const).map(option => {
-                      const count = spareMapFilterCounts[option];
-                      const label =
-                        option === 'all' ? 'All' : option === 'mapped' ? 'Mapped' : 'Unmapped';
-                      return (
-                        <button
-                          key={option}
-                          type="button"
-                          role="tab"
-                          aria-selected={spareMapFilter === option}
-                          className={`catalog-inventory-audit__filter-chip${spareMapFilter === option ? ' is-active' : ''}`}
-                          onClick={() => setSpareMapFilter(option)}
-                        >
-                          {label}
-                          <span className="catalog-inventory-audit__filter-chip-count">{count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div
-                    className="catalog-inventory-audit__filters catalog-spares-location-filters"
-                    role="tablist"
-                    aria-label="Warehouse location filter"
-                  >
-                    {SPARE_WAREHOUSE_LOCATION_FILTERS.map(option => {
-                      const count = spareLocationFilterCounts[option.key];
-                      return (
-                        <button
-                          key={option.key}
-                          type="button"
-                          role="tab"
-                          aria-selected={spareLocationFilter === option.key}
-                          className={`catalog-inventory-audit__filter-chip${spareLocationFilter === option.key ? ' is-active' : ''}`}
-                          onClick={() => setSpareLocationFilter(option.key)}
-                        >
-                          {option.label}
-                          <span className="catalog-inventory-audit__filter-chip-count">{count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : undefined
-            }
+            listHeaderExtra={isSuperAdmin && !isMobile ? sparePartsFilters : undefined}
             emptyTitle={
-              isSuperAdmin && spareLocationFilter !== 'all'
+              isSuperAdmin && hasActiveSpareFilters
                 ? flatListSearch.trim()
-                  ? `No spare parts at ${SPARE_WAREHOUSE_LOCATION_FILTERS.find(o => o.key === spareLocationFilter)?.label ?? 'this location'} match your search`
-                  : `No spare parts in stock at ${SPARE_WAREHOUSE_LOCATION_FILTERS.find(o => o.key === spareLocationFilter)?.label ?? 'this location'}`
-                : isSuperAdmin && spareMapFilter === 'mapped'
-                ? flatListSearch.trim()
-                  ? 'No mapped spare parts match your search'
-                  : 'No spare parts mapped to products yet'
-                : isSuperAdmin && spareMapFilter === 'unmapped'
-                  ? flatListSearch.trim()
-                    ? 'No unmapped spare parts match your search'
-                    : 'All spare parts are mapped to products'
-                  : undefined
+                  ? 'No spare parts match your search and filters'
+                  : 'No spare parts match the selected filters'
+                : undefined
             }
             emptyHint={
-              isSuperAdmin && spareLocationFilter !== 'all' && spareLocationFilterCounts[spareLocationFilter] === 0
-                ? 'Run Sync from Zoho to refresh warehouse stock by location.'
-                : isSuperAdmin && spareMapFilter === 'mapped'
-                ? 'Map spares from a product detail page or the Unmapped filter.'
-                : isSuperAdmin && spareMapFilter === 'unmapped'
-                  ? 'Open a spare to map it to compatible products.'
-                  : undefined
+              isSuperAdmin && hasActiveSpareFilters
+                ? 'Try clearing filters or run Sync from Zoho to refresh stock by location.'
+                : undefined
             }
           />
         </div>

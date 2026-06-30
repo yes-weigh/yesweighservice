@@ -324,7 +324,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     title: browseHeaderTitle,
     showBack: Boolean(browseHeaderTitle),
     onBack: clearFilters,
-  });
+  }, !hideFilterBar);
 
   const filterProps = {
     search,

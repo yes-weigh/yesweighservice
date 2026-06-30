@@ -213,7 +213,7 @@ const LayoutShell: React.FC = () => {
       window.removeEventListener('resize', syncHeaderHeight);
       main.style.removeProperty('--header-height');
     };
-  }, [isMobile, headerSlot, topBarAction, location.pathname]);
+  }, [isMobile, headerSlot, topBarAction, location.pathname, pageHeader.mobileCompactHeader]);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -319,6 +319,7 @@ const LayoutShell: React.FC = () => {
       : (currentNavItem?.label ?? 'Dashboard');
   const displayTitle = pageHeader.title ?? pageTitle;
   const showHeaderBack = Boolean(pageHeader.showBack && pageHeader.onBack);
+  const mobileCompactHeader = Boolean(pageHeader.mobileCompactHeader && isMobile);
 
   const handleNavClick = (path: string) => {
     const isCatalogRoot = path.endsWith('/catalog');
@@ -422,8 +423,9 @@ const LayoutShell: React.FC = () => {
           ref={topBarRef}
           className={[
             'top-bar',
-            headerSlot && isMobile ? 'top-bar--with-slot' : '',
+            headerSlot && isMobile && !mobileCompactHeader ? 'top-bar--with-slot' : '',
             headerSlot && !isMobile ? 'top-bar--with-inline-slot' : '',
+            mobileCompactHeader ? 'top-bar--compact-search' : '',
           ].filter(Boolean).join(' ')}
         >
           <div className="top-bar__primary">
@@ -447,7 +449,11 @@ const LayoutShell: React.FC = () => {
               <ArrowLeft size={22} />
             </button>
           )}
-          {dealerListPath ? (
+          {mobileCompactHeader ? (
+            <div className="top-bar__slot top-bar__slot--compact">
+              {headerSlot}
+            </div>
+          ) : dealerListPath ? (
             <button
               type="button"
               className="top-bar__title-block page-title page-title--nav-back"
@@ -511,7 +517,7 @@ const LayoutShell: React.FC = () => {
             </button>
           ))}
           </div>
-          {headerSlot && isMobile && (
+          {headerSlot && isMobile && !mobileCompactHeader && (
             <div className="top-bar__slot">
               {headerSlot}
             </div>

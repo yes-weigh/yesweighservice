@@ -83,18 +83,20 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             <span className="catalog-product-card__sku">{product.sku}</span>
           )}
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>
-          <div className="catalog-product-card__price">
-            <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-            <span>{product.rate.toLocaleString('en-IN')}</span>
+          <div className="catalog-product-card__price-row">
+            <div className="catalog-product-card__price">
+              <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+              <span>{product.rate.toLocaleString('en-IN')}</span>
+            </div>
+            {showStockQuantity && (
+              <StockQuantity
+                stock={product.stock}
+                unit={product.unit}
+                status={product.stockStatus}
+                compact
+              />
+            )}
           </div>
-          {showStockQuantity && (
-            <StockQuantity
-              stock={product.stock}
-              unit={product.unit}
-              status={product.stockStatus}
-              compact
-            />
-          )}
           {linkedSpareCount !== undefined && (
             <span
               className={`catalog-product-card__spare-count ${linkedSpareCount === 0 ? 'catalog-product-card__spare-count--none' : ''}`}
@@ -122,7 +124,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           aria-label={manageLabel}
           title={manageLabel}
         >
-          <Link2 size={16} />
+          <Link2 size={14} />
         </button>
       )}
 

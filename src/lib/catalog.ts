@@ -124,12 +124,45 @@ export function getShopCatalogProducts(
 }
 
 export const SPARE_WAREHOUSE_LOCATION_FILTERS = [
-  { key: 'all', label: 'All', warehouseName: null },
   { key: 'cochin', label: 'Cochin', warehouseName: 'Cochin' },
   { key: 'headOffice', label: 'Head Office', warehouseName: 'Head Office' },
 ] as const;
 
 export type SpareWarehouseLocationFilter = typeof SPARE_WAREHOUSE_LOCATION_FILTERS[number]['key'];
+
+export const SPARE_CATALOG_FILTERS = [
+  { key: 'unmapped', label: 'Unmapped' },
+  { key: 'mapped', label: 'Mapped' },
+  { key: 'withoutImage', label: 'Without image' },
+] as const;
+
+export type SpareCatalogFilter = typeof SPARE_CATALOG_FILTERS[number]['key'];
+
+export function matchesSpareCatalogFilters(
+  product: CatalogProduct,
+  filters: ReadonlySet<SpareCatalogFilter>,
+  linkedSpareIds: Set<string>,
+): boolean {
+  if (filters.size === 0) return true;
+  if (filters.has('unmapped') && linkedSpareIds.has(product.id)) return false;
+  if (filters.has('mapped') && !linkedSpareIds.has(product.id)) return false;
+  if (filters.has('withoutImage') && catalogProductHasImage(product)) return false;
+  return true;
+}
+
+export function matchesSpareLocationFilters(
+  product: Pick<CatalogProduct, 'warehouses'>,
+  filters: ReadonlySet<SpareWarehouseLocationFilter>,
+): boolean {
+  if (filters.size === 0) return true;
+  return SPARE_WAREHOUSE_LOCATION_FILTERS.some(
+    option => filters.has(option.key) && catalogProductHasWarehouseStock(product, option.warehouseName),
+  );
+}
+
+export function catalogProductHasImage(product: Pick<CatalogProduct, 'imageUrl'>): boolean {
+  return Boolean(product.imageUrl?.trim());
+}
 
 export function catalogProductWarehouseStock(
   product: Pick<CatalogProduct, 'warehouses'>,
