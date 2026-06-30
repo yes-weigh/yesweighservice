@@ -511,6 +511,21 @@ export async function patchProductCategory(productId, categoryId, categoryName) 
   }, { merge: true });
 }
 
+export async function patchProductStatus(productId, status) {
+  const id = String(productId ?? '').trim();
+  const normalized = String(status ?? '').trim().toLowerCase();
+  if (!id) throw new Error('productId is required.');
+  if (normalized !== 'active' && normalized !== 'inactive') {
+    throw new Error('status must be active or inactive');
+  }
+
+  const db = getFirestore();
+  await db.collection(PRODUCTS_COLLECTION).doc(id).set({
+    status: normalized,
+    syncedAt: new Date().toISOString(),
+  }, { merge: true });
+}
+
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 export async function saveCategoryOrder(categories) {

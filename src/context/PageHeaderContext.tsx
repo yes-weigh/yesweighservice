@@ -47,8 +47,16 @@ const PageHeaderContext = createContext<PageHeaderContextValue | null>(null);
 
 export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [config, setConfig] = useState<PageHeaderConfig>(emptyConfig);
-  const [headerSlot, setHeaderSlot] = useState<React.ReactNode>(null);
-  const [topBarAction, setTopBarAction] = useState<React.ReactNode>(null);
+  const [headerSlot, setHeaderSlotState] = useState<React.ReactNode>(null);
+  const [topBarAction, setTopBarActionState] = useState<React.ReactNode>(null);
+
+  const setHeaderSlot = useCallback((slot: React.ReactNode) => {
+    setHeaderSlotState(prev => (Object.is(prev, slot) ? prev : slot));
+  }, []);
+
+  const setTopBarAction = useCallback((slot: React.ReactNode) => {
+    setTopBarActionState(prev => (Object.is(prev, slot) ? prev : slot));
+  }, []);
 
   const setPageHeader = useCallback((next: PageHeaderConfig) => {
     setConfig(prev => (configsEqual(prev, next) ? prev : next));
@@ -56,8 +64,6 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const clearPageHeader = useCallback(() => {
     setConfig(prev => (configsEqual(prev, emptyConfig) ? prev : emptyConfig));
-    setHeaderSlot(null);
-    setTopBarAction(null);
   }, []);
 
   const value = useMemo(
@@ -70,7 +76,7 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setTopBarAction,
       clearPageHeader,
     }),
-    [config, headerSlot, topBarAction, setPageHeader, clearPageHeader],
+    [config, headerSlot, topBarAction, setPageHeader, setHeaderSlot, setTopBarAction, clearPageHeader],
   );
 
   return (
@@ -91,7 +97,6 @@ export function usePageHeader() {
 export function useCatalogPageHeader(config: PageHeaderConfig) {
   const ctx = useContext(PageHeaderContext);
   const setPageHeader = ctx?.setPageHeader;
-  const clearPageHeader = ctx?.clearPageHeader;
   const { title = null, subtitle = null, showBack = false, onBack = null, onTitleClick = null, titleExpanded = false } = config;
   const onBackRef = useRef(onBack);
   const onTitleClickRef = useRef(onTitleClick);
@@ -99,10 +104,10 @@ export function useCatalogPageHeader(config: PageHeaderConfig) {
   onTitleClickRef.current = onTitleClick;
 
   useEffect(() => {
-    if (!setPageHeader || !clearPageHeader) return undefined;
+    if (!setPageHeader) return undefined;
 
     if (!title && !showBack) {
-      clearPageHeader();
+      setPageHeader(emptyConfig);
       return undefined;
     }
 
@@ -122,18 +127,24 @@ export function useCatalogPageHeader(config: PageHeaderConfig) {
       onTitleClick: stableOnTitleClick,
       titleExpanded,
     });
-    return () => clearPageHeader();
-  }, [setPageHeader, clearPageHeader, title, subtitle, showBack, onTitleClick, titleExpanded]);
+    return () => setPageHeader(emptyConfig);
+  }, [setPageHeader, title, subtitle, showBack, onTitleClick, titleExpanded]);
 }
 
 export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) {
   const ctx = useContext(PageHeaderContext);
   const setHeaderSlot = ctx?.setHeaderSlot;
+  const slotRef = useRef(slot);
+  slotRef.current = slot;
 
   useEffect(() => {
     if (!setHeaderSlot) return undefined;
-    setHeaderSlot(enabled ? slot : null);
     return () => setHeaderSlot(null);
+  }, [setHeaderSlot]);
+
+  useEffect(() => {
+    if (!setHeaderSlot) return;
+    setHeaderSlot(enabled ? slotRef.current : null);
   }, [setHeaderSlot, enabled, slot]);
 }
 
@@ -145,11 +156,11 @@ export function useTopBarAction(slot: React.ReactNode | null, enabled = true) {
 
   useEffect(() => {
     if (!setTopBarAction) return undefined;
-    setTopBarAction(enabled ? slotRef.current : null);
-  }, [setTopBarAction, enabled, slot]);
-
-  useEffect(() => {
-    if (!setTopBarAction) return undefined;
     return () => setTopBarAction(null);
   }, [setTopBarAction]);
+
+  useEffect(() => {
+    if (!setTopBarAction) return;
+    setTopBarAction(enabled ? slotRef.current : null);
+  }, [setTopBarAction, enabled, slot]);
 }

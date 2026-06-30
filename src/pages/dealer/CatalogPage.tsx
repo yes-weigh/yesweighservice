@@ -8,7 +8,7 @@ import { WarehouseInventoryAuditList } from '../../components/yesStore/Warehouse
 import { InventoryAuditBatchLinkModal } from '../../components/yesStore/InventoryAuditBatchLinkModal';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
-import { useCatalogPageHeader } from '../../context/PageHeaderContext';
+import { useCatalogPageHeader, usePageHeaderSlot, useTopBarAction } from '../../context/PageHeaderContext';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
@@ -27,6 +27,7 @@ import {
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
 import { listAllItems, fetchDisplayNamesForUids, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
+import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
@@ -191,8 +192,20 @@ export const CatalogPage: React.FC = () => {
 
       setUnlinkingGroupId(group.catalogProductId);
       setError(null);
+      const catalogProductId = group.catalogProductId.trim();
       try {
         await batchUnlinkYesStoreItemsFromCatalog(group.items.map(item => item.id));
+        try {
+          await reconcileCatalogAuditImagesOnZoho(catalogProductId);
+        } catch (syncErr) {
+          setError(
+            syncErr instanceof Error
+              ? `Unlinked, but Zoho photo cleanup failed: ${syncErr.message}`
+              : 'Unlinked, but Zoho photo cleanup failed.',
+          );
+          await loadAuditItems();
+          return;
+        }
         await loadAuditItems();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not unlink warehouse item.');
@@ -386,7 +399,7 @@ export const CatalogPage: React.FC = () => {
     }
   };
 
-  const handleSync = async () => {
+  const handleSync = useCallback(async () => {
     setSyncing(true);
     setError(null);
     try {
@@ -398,7 +411,7 @@ export const CatalogPage: React.FC = () => {
     } finally {
       setSyncing(false);
     }
-  };
+  }, [loadCatalog, loadLinkedSpareIds]);
 
   const openLinkEditor = async (spare: CatalogProduct) => {
     setLinkEditorSpare(spare);
@@ -428,23 +441,10 @@ export const CatalogPage: React.FC = () => {
 
   const smartBarRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const bar = smartBarRef.current;
-    if (!bar) return;
-    const root = bar.closest('.catalog-page') as HTMLElement | null;
-    const setBarHeight = () => {
-      const height = `${bar.offsetHeight}px`;
-      if (root) root.style.setProperty('--catalog-section-bar-height', height);
-    };
-    setBarHeight();
-    const observer = new ResizeObserver(setBarHeight);
-    observer.observe(bar);
-    return () => observer.disconnect();
-  }, [canSync, focus, searchFocused, searchQuery, unlinkedSpares.length, isSuperAdmin]);
-
   const showShortcuts = !isSuperAdmin && searchFocused && !searchQuery.trim() && focus === 'browse';
   const showActiveFocus = !isSuperAdmin && focus !== 'browse' && focus !== 'search';
   const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit';
+  const showHeaderSearch = showAdminSearch || !isSuperAdmin;
 
   const activeAdminTab: AdminCatalogSection = adminSection === 'search' || !adminSection
     ? 'categories'
@@ -456,21 +456,66 @@ export const CatalogPage: React.FC = () => {
     onBack: categoryId ? () => setCategoryId('') : clearFocus,
   });
 
-  const syncButton = canSync ? (
-    <button
-      type="button"
-      className="btn btn-primary catalog-sync-btn zoho-sync-btn catalog-smart-bar__sync"
-      disabled={syncing || loading}
-      onClick={() => void handleSync()}
-      title="Sync from Zoho"
-      aria-label="Sync from Zoho"
-    >
-      <RefreshCw size={16} className={syncing ? 'spin-icon' : undefined} />
-      <span className="catalog-smart-bar__sync-label">{syncing ? 'Syncing…' : 'Sync'}</span>
-    </button>
-  ) : null;
+  const syncButton = useMemo(
+    () => (canSync ? (
+      <button
+        type="button"
+        className="btn btn-primary catalog-sync-btn zoho-sync-btn catalog-smart-bar__sync"
+        disabled={syncing || loading}
+        onClick={() => void handleSync()}
+        title="Sync from Zoho"
+        aria-label="Sync from Zoho"
+      >
+        <RefreshCw size={16} className={syncing ? 'spin-icon' : undefined} />
+        <span className="catalog-smart-bar__sync-label">{syncing ? 'Syncing…' : 'Sync'}</span>
+      </button>
+    ) : null),
+    [canSync, syncing, loading, handleSync],
+  );
 
-  const smartBar = (
+  const headerSearch = useMemo(
+    () => (
+      <div className="catalog-search invoices-header-search">
+        <Search size={15} aria-hidden />
+        <input
+          type="search"
+          placeholder="Search products, spare parts, SKU…"
+          value={searchQuery}
+          onChange={e => handleSearchChange(e.target.value)}
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => window.setTimeout(() => setSearchFocused(false), 180)}
+          aria-label="Search catalog"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className="invoices-header-search__clear"
+            onClick={() => {
+              handleSearchChange('');
+              if (focus === 'search') {
+                if (isSuperAdmin) setAdminSection('categories');
+                else setFocus('browse');
+              }
+            }}
+            aria-label="Clear search"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+    ),
+    [searchQuery, handleSearchChange, focus, isSuperAdmin, setAdminSection, setFocus],
+  );
+
+  usePageHeaderSlot(headerSearch, showHeaderSearch);
+  useTopBarAction(syncButton, Boolean(canSync && showHeaderSearch));
+
+  const hasSmartBarContent = isSuperAdmin
+    || showShortcuts
+    || showActiveFocus
+    || (canSync && !isSuperAdmin && unlinkedSpares.length > 0 && focus === 'browse' && !showShortcuts);
+
+  const smartBar = hasSmartBarContent ? (
     <div
       ref={smartBarRef}
       className={`catalog-smart-bar spares-mode-bar${isSuperAdmin ? ' catalog-smart-bar--admin-tabs' : ''}`}
@@ -509,40 +554,6 @@ export const CatalogPage: React.FC = () => {
               <span className="spares-mode-toggle__label">Inventory audit</span>
             </button>
           </div>
-        </div>
-      )}
-
-      {(showAdminSearch || !isSuperAdmin) && (
-        <div className="catalog-smart-bar__row">
-          <div className="catalog-smart-bar__search catalog-search">
-            <Search size={16} aria-hidden />
-            <input
-              type="search"
-              placeholder="Search products, spare parts, SKU…"
-              value={searchQuery}
-              onChange={e => handleSearchChange(e.target.value)}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => window.setTimeout(() => setSearchFocused(false), 180)}
-              aria-label="Search catalog"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                className="catalog-smart-bar__clear"
-                onClick={() => {
-                  handleSearchChange('');
-                  if (focus === 'search') {
-                    if (isSuperAdmin) setAdminSection('categories');
-                    else setFocus('browse');
-                  }
-                }}
-                aria-label="Clear search"
-              >
-                <X size={16} />
-              </button>
-            )}
-          </div>
-          {syncButton}
         </div>
       )}
 
@@ -604,7 +615,24 @@ export const CatalogPage: React.FC = () => {
         </button>
       )}
     </div>
-  );
+  ) : null;
+
+  useEffect(() => {
+    const bar = smartBarRef.current;
+    const root = document.querySelector('.catalog-page') as HTMLElement | null;
+    if (!bar) {
+      if (root) root.style.setProperty('--catalog-section-bar-height', '0px');
+      return;
+    }
+    const setBarHeight = () => {
+      const height = `${bar.offsetHeight}px`;
+      if (root) root.style.setProperty('--catalog-section-bar-height', height);
+    };
+    setBarHeight();
+    const observer = new ResizeObserver(setBarHeight);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [canSync, focus, searchFocused, searchQuery, unlinkedSpares.length, isSuperAdmin, hasSmartBarContent]);
 
   const flatListSearch = isFlatList ? searchQuery : '';
 

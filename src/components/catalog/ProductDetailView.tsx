@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import {
   ArrowLeft,
+  Ban,
   Camera,
   ChevronRight,
   Download,
@@ -19,17 +20,27 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   formatCurrency,
+  formatStockQuantity,
   getCategorizedProducts,
   getUncategorizedProducts,
   hasCatalogCategory,
   saveCatalogProductSpareLinks,
   saveCatalogSpareProductLinks,
+  setCatalogProductStatus,
   uploadCatalogProductImage,
 } from '../../lib/catalog';
 import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
+import { useConfirm } from '../../context/ConfirmContext';
+import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
+import {
+  calculateGroupTotals,
+  formatQtyDifference,
+  type InventoryAuditGroupTotals,
+} from '../../lib/yesStore/inventoryAudit';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
+import type { YesStoreItemDoc } from '../../types/yes-store';
 import {
   buildProductNavState,
   buildSpareNavState,
@@ -38,7 +49,7 @@ import {
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { SpareLinkEditor } from './SpareLinkEditor';
-import { StockBadge, StockQuantity } from './StockBadge';
+import { StockBadge } from './StockBadge';
 
 function formatProductTitle(name: string): string {
   return name
@@ -65,11 +76,14 @@ export const ProductDetailView: React.FC<{
   variant?: 'app' | 'public';
   showWarehouseStock?: boolean;
   showStockQuantity?: boolean;
+  showAuditedStock?: boolean;
   showCartActions?: boolean;
   ordersPath?: string;
   showRelatedLinks?: boolean;
   manageSpareLinks?: boolean;
   canUploadImage?: boolean;
+  canSetInactive?: boolean;
+  onInactiveSuccess?: () => void;
   productsBasePath?: string;
   sparesBasePath?: string;
   currentNavState?: CatalogNavState | null;
@@ -82,11 +96,14 @@ export const ProductDetailView: React.FC<{
   variant = 'app',
   showWarehouseStock = false,
   showStockQuantity = false,
+  showAuditedStock = false,
   showCartActions = false,
   ordersPath = '/dealer/orders',
   showRelatedLinks = false,
   manageSpareLinks = false,
   canUploadImage = false,
+  canSetInactive = false,
+  onInactiveSuccess,
   productsBasePath = '/dealer/catalog',
   sparesBasePath = '/dealer/catalog/spare',
   currentNavState = null,
@@ -102,6 +119,7 @@ export const ProductDetailView: React.FC<{
   }, [backPath, backState, navigate]);
   const { addItem, getQuantity } = useCart();
   const { flyToCart } = useCartFly();
+  const confirm = useConfirm();
   const [quantity, setQuantity] = useState(1);
   const [addedFlash, setAddedFlash] = useState(false);
   const [product, setProduct] = useState<CatalogProductDetail | CatalogProduct | null>(preview);
@@ -117,6 +135,10 @@ export const ProductDetailView: React.FC<{
   const [imageUploading, setImageUploading] = useState(false);
   const [imageDownloading, setImageDownloading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const theme = useMemo(
@@ -159,6 +181,90 @@ export const ProductDetailView: React.FC<{
       active = false;
     };
   }, [productId, preview]);
+
+  useEffect(() => {
+    if (!showAuditedStock || !productId) {
+      setAuditItems([]);
+      return;
+    }
+
+    let active = true;
+    setAuditLoading(true);
+    void listItemsByCatalogProduct(productId)
+      .then(items => {
+        if (active) setAuditItems(items);
+      })
+      .catch(() => {
+        if (active) setAuditItems([]);
+      })
+      .finally(() => {
+        if (active) setAuditLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [showAuditedStock, productId]);
+
+  const auditTotals = useMemo<InventoryAuditGroupTotals | null>(() => {
+    if (!showAuditedStock || !product || auditItems.length === 0) return null;
+    return calculateGroupTotals(auditItems, product);
+  }, [showAuditedStock, product, auditItems]);
+
+  const auditedStockLabel = useMemo(() => {
+    if (!auditTotals) return null;
+    if (auditTotals.mode === 'bundle') {
+      return `${auditTotals.countedQty} complete (${auditTotals.rawCountedQty} parts)`;
+    }
+    return formatStockQuantity(auditTotals.countedQty, product?.unit ?? 'pcs');
+  }, [auditTotals, product?.unit]);
+
+  const summaryColumns = useMemo(() => {
+    const cols: Array<{
+      key: string;
+      label: string;
+      tone: 'price' | 'zoho' | 'audited' | 'diff';
+      diffState?: 'over' | 'under' | 'match';
+    }> = [{ key: 'price', label: 'Dealer price', tone: 'price' }];
+
+    if (showStockQuantity) {
+      cols.push({ key: 'zoho', label: 'Zoho stock', tone: 'zoho' });
+    }
+    if (showAuditedStock) {
+      cols.push({ key: 'audited', label: 'Audited stock', tone: 'audited' });
+    }
+    if (showAuditedStock && auditTotals?.difference != null) {
+      const difference = auditTotals.difference;
+      cols.push({
+        key: 'diff',
+        label: 'Difference',
+        tone: 'diff',
+        diffState: difference > 0 ? 'over' : difference < 0 ? 'under' : 'match',
+      });
+    }
+    return cols;
+  }, [showStockQuantity, showAuditedStock, auditTotals?.difference]);
+
+  const stockColumns = useMemo(
+    () => summaryColumns.filter(col => col.key !== 'price'),
+    [summaryColumns],
+  );
+
+  const renderStockValue = (key: string) => {
+    if (!product) return null;
+    switch (key) {
+      case 'zoho':
+        return formatStockQuantity(product.stock, product.unit);
+      case 'audited':
+        return auditLoading ? '…' : auditedStockLabel ?? '—';
+      case 'diff':
+        return auditTotals?.difference != null
+          ? formatQtyDifference(auditTotals.difference)
+          : '—';
+      default:
+        return null;
+    }
+  };
 
   const isCategorizedProduct = product ? hasCatalogCategory(product) : false;
   const isSpareItem = product ? !hasCatalogCategory(product) : false;
@@ -286,6 +392,29 @@ export const ProductDetailView: React.FC<{
     }
   };
 
+  const handleSetInactive = async () => {
+    if (!product || !canSetInactive || statusUpdating) return;
+
+    const ok = await confirm({
+      title: 'Set inactive on Zoho?',
+      message: `“${product.name}” will be marked inactive in Zoho and removed from the dealer catalog.`,
+      confirmLabel: 'Set inactive',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setStatusUpdating(true);
+    setStatusError(null);
+    try {
+      await setCatalogProductStatus(product.id, 'inactive');
+      onInactiveSuccess?.();
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : 'Could not set item inactive on Zoho.');
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
   if (error && !product) {
     return (
       <div className={`product-detail-page product-detail-page--${variant}`}>
@@ -325,9 +454,6 @@ export const ProductDetailView: React.FC<{
         }
       : null,
     detail?.preferredVendor ? { label: 'Vendor', value: detail.preferredVendor } : null,
-    showStockQuantity
-      ? { label: 'Stock on hand', value: `${product.stock.toLocaleString('en-IN')} ${product.unit}` }
-      : null,
   ].filter((row): row is { label: string; value: string } => Boolean(row));
 
   return (
@@ -418,27 +544,84 @@ export const ProductDetailView: React.FC<{
             <p className="product-detail-page__sku">Model: {product.sku}</p>
           )}
 
-          <div className="product-detail-page__price-block">
-            <div className="product-detail-page__price">
-              <IndianRupee size={22} strokeWidth={2.5} aria-hidden />
-              <span>{formatCurrency(product.rate).replace('₹', '').trim()}</span>
+          <div className="product-detail-page__summary-panel">
+            <div
+              className={[
+                'product-detail-page__summary-table',
+                stockColumns.length === 0 ? 'product-detail-page__summary-table--price-only' : '',
+              ].filter(Boolean).join(' ')}
+              style={{ '--stock-cols': stockColumns.length } as React.CSSProperties}
+            >
+              <div className="product-detail-page__summary-price-hero">
+                <span className="product-detail-page__summary-price-kicker">Dealer price</span>
+                <div className="product-detail-page__summary-price-amount">
+                  <IndianRupee size={22} strokeWidth={2.5} aria-hidden />
+                  <span>{formatCurrency(product.rate).replace('₹', '').trim()}</span>
+                </div>
+                <span className="product-detail-page__summary-gst-pill">+GST</span>
+              </div>
+
+              {stockColumns.length > 0 && (
+                <>
+                  <div className="product-detail-page__summary-stock-labels" role="row">
+                    {stockColumns.map(col => (
+                      <div
+                        key={col.key}
+                        role="columnheader"
+                        className={[
+                          'product-detail-page__summary-cell',
+                          'product-detail-page__summary-cell--label',
+                          `product-detail-page__summary-cell--${col.tone}`,
+                          col.diffState ? `is-${col.diffState}` : '',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        {col.label}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="product-detail-page__summary-stock-values" role="row">
+                    {stockColumns.map(col => (
+                      <div
+                        key={col.key}
+                        role="cell"
+                        className={[
+                          'product-detail-page__summary-cell',
+                          'product-detail-page__summary-cell--value',
+                          `product-detail-page__summary-cell--${col.tone}`,
+                          col.diffState ? `is-${col.diffState}` : '',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        {renderStockValue(col.key)}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
-            <p className="product-detail-page__price-note">Dealer price (excl. taxes where applicable)</p>
+
+            {loading && showStockQuantity && (
+              <p className="product-detail-page__loading-note">Updating Zoho stock…</p>
+            )}
           </div>
 
-          <div className="product-detail-page__availability">
-            <StockBadge status={product.stockStatus} variant="tile" />
-            {showStockQuantity && (
-              <StockQuantity
-                stock={product.stock}
-                unit={product.unit}
-                status={product.stockStatus}
-              />
-            )}
-            {loading && (
-              <span className="product-detail-page__loading-note">Updating stock…</span>
-            )}
-          </div>
+          {canSetInactive && (isCategorizedProduct || isSpareItem) && (
+            <div className="product-detail-page__admin-actions">
+              <button
+                type="button"
+                className="btn btn-secondary product-detail-page__inactive-btn"
+                onClick={() => void handleSetInactive()}
+                disabled={statusUpdating}
+              >
+                {statusUpdating
+                  ? <RefreshCw size={16} className="spin-icon" aria-hidden />
+                  : <Ban size={16} aria-hidden />}
+                Set inactive on Zoho
+              </button>
+              {statusError && (
+                <p className="product-detail-page__status-error text-sm">{statusError}</p>
+              )}
+            </div>
+          )}
 
           {showCartActions && (
             <div className="product-detail-page__cart">

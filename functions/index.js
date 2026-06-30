@@ -9,11 +9,13 @@ import {
   resolveOrganizationId,
   fetchProductDetail,
   moveProductToCategory,
+  setProductStatus,
 } from './lib/zoho.js';
 import {
   syncCatalogToFirestore,
   readCatalogFromFirestore,
   patchProductCategory,
+  patchProductStatus,
   saveCategoryOrder,
   uploadCategoryThumbnail,
   uploadProductImage,
@@ -24,7 +26,7 @@ import {
   saveProductSpareMap,
   saveSpareProductMap,
 } from './lib/spare-links.js';
-import { deleteManagedUserAccount } from './lib/user-delete.js';
+import { syncLinkedAuditPhotosToZoho, reconcileLinkedAuditPhotosOnZoho } from './lib/audit-zoho-images.js';
 import { syncCustomersToFirestore } from './lib/zoho-customers.js';
 import {
   listDealers,
@@ -369,6 +371,97 @@ export const uploadCatalogProductImage = onCall(
       return await uploadProductImage(productId, buffer, contentType, accessToken, organizationId);
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Product image upload failed.');
+    }
+  },
+);
+
+/** Set Zoho item active/inactive — super admin only. */
+export const setCatalogProductStatus = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    const status = String(request.data?.status ?? '').trim().toLowerCase();
+
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+    if (status !== 'active' && status !== 'inactive') {
+      throw new HttpsError('invalid-argument', 'status must be active or inactive.');
+    }
+
+    const secrets = zohoSecrets();
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+
+    try {
+      await setProductStatus(accessToken, organizationId, productId, status);
+      await patchProductStatus(productId, status);
+      return { ok: true, status };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not update item status on Zoho.');
+    }
+  },
+);
+
+/** Push linked warehouse audit photos (2 per bin) to Zoho item images — super admin only. */
+export const syncCatalogAuditImagesToZoho = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 300,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
+    if (!catalogProductId) {
+      throw new HttpsError('invalid-argument', 'catalogProductId is required.');
+    }
+
+    try {
+      return await syncLinkedAuditPhotosToZoho(
+        catalogProductId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not sync audit photos to Zoho.');
+    }
+  },
+);
+
+/** Remove orphaned audit photos from Zoho after warehouse bins are unlinked — super admin only. */
+export const reconcileCatalogAuditImagesOnZoho = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 300,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
+    if (!catalogProductId) {
+      throw new HttpsError('invalid-argument', 'catalogProductId is required.');
+    }
+
+    try {
+      return await reconcileLinkedAuditPhotosOnZoho(
+        catalogProductId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not reconcile audit photos on Zoho.');
     }
   },
 );

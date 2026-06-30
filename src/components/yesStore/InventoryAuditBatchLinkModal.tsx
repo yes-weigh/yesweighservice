@@ -3,6 +3,7 @@ import { Link2, X } from 'lucide-react';
 import { CatalogProductLinkPicker } from './CatalogProductLinkPicker';
 import { useAuth } from '../../context/AuthContext';
 import { batchLinkYesStoreItemsToCatalog } from '../../lib/yesStore/data';
+import { syncCatalogAuditImagesToZoho } from '../../lib/yesStore/syncAuditImages';
 import { formatItemLocationShort, type YesStoreItemDoc } from '../../types/yes-store';
 import type { CatalogProduct } from '../../types/catalog';
 
@@ -37,6 +38,16 @@ export const InventoryAuditBatchLinkModal: React.FC<InventoryAuditBatchLinkModal
         user.uid,
         { linkedByName: user.displayName, mode: 'unit' },
       );
+      try {
+        await syncCatalogAuditImagesToZoho(selectedProduct.id);
+      } catch (syncErr) {
+        setError(
+          syncErr instanceof Error
+            ? `Linked, but Zoho photo sync failed: ${syncErr.message}`
+            : 'Linked, but Zoho photo sync failed.',
+        );
+        return;
+      }
       onLinked(selectedProduct.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not link selected items.');

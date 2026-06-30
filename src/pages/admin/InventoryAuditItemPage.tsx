@@ -11,6 +11,7 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { fetchCatalog, formatStockQuantity } from '../../lib/catalog';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { getItem, linkYesStoreItemToCatalog, listItemsByCatalogProduct, unlinkYesStoreItemFromCatalog } from '../../lib/yesStore/data';
+import { syncCatalogAuditImagesToZoho, reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import type { CatalogProduct } from '../../types/catalog';
 import {
   formatItemLocationShort,
@@ -135,6 +136,16 @@ export const InventoryAuditItemPage: React.FC = () => {
         unitsPerProduct: linkMode === 'part' ? unitsPerProduct : 1,
         linkedByName: user.displayName,
       });
+      try {
+        await syncCatalogAuditImagesToZoho(selectedProduct.id);
+      } catch (syncErr) {
+        setError(
+          syncErr instanceof Error
+            ? `Linked, but Zoho photo sync failed: ${syncErr.message}`
+            : 'Linked, but Zoho photo sync failed.',
+        );
+        return;
+      }
       navigate(`${base}/inventory-audit/linked/${selectedProduct.id}`, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not link item.');
@@ -155,10 +166,23 @@ export const InventoryAuditItemPage: React.FC = () => {
 
     setUnlinking(true);
     setError('');
+    const catalogProductId = item.catalogProductId?.trim() || '';
     try {
       await unlinkYesStoreItemFromCatalog(item.id);
-      if (siblingItems.length > 0 && item.catalogProductId) {
-        navigate(`${base}/inventory-audit/linked/${item.catalogProductId}`, { replace: true });
+      if (catalogProductId) {
+        try {
+          await reconcileCatalogAuditImagesOnZoho(catalogProductId);
+        } catch (syncErr) {
+          setError(
+            syncErr instanceof Error
+              ? `Unlinked, but Zoho photo cleanup failed: ${syncErr.message}`
+              : 'Unlinked, but Zoho photo cleanup failed.',
+          );
+          return;
+        }
+      }
+      if (siblingItems.length > 0 && catalogProductId) {
+        navigate(`${base}/inventory-audit/linked/${catalogProductId}`, { replace: true });
         return;
       }
       navigate(`${base}?section=inventory-audit`, { replace: true });

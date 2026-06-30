@@ -514,6 +514,23 @@ export async function assignProductCategory(
   }
 }
 
+export type CatalogProductStatus = 'active' | 'inactive';
+
+export async function setCatalogProductStatus(
+  productId: string,
+  status: CatalogProductStatus,
+): Promise<void> {
+  const callable = httpsCallable<
+    { productId: string; status: CatalogProductStatus },
+    { ok: boolean; status: CatalogProductStatus }
+  >(functions, 'setCatalogProductStatus');
+  try {
+    await callable({ productId, status });
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
 export type CatalogSpareLinkKind = 'spares' | 'products';
 
 export interface CatalogSpareLinksResponse {

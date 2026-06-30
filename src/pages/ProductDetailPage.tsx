@@ -1,8 +1,9 @@
-import React from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import React, { useCallback } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole, canUseCart } from '../types';
 import { canViewCatalogStock, canViewWarehouseStock } from '../lib/dealerAccess';
+import { canNavigateBackInApp } from '../lib/navigation';
 import {
   catalogBaseForRole,
   isCatalogSpareDetailPath,
@@ -13,6 +14,7 @@ import { ProductDetailView } from '../components/catalog/ProductDetailView';
 
 export const ProductDetailPage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { productId } = useParams<{ productId: string }>();
   const location = useLocation();
   const isPublic = location.pathname.startsWith('/oc/');
@@ -33,6 +35,8 @@ export const ProductDetailPage: React.FC = () => {
   const showCartActions = canUseCart(user?.role);
   const manageSpareLinks = user?.role === 'staff' || user?.role === 'super_admin';
   const canUploadImage = manageSpareLinks;
+  const canSetInactive = user?.role === 'super_admin';
+  const showAuditedStock = user?.role === 'staff' || user?.role === 'super_admin';
   const showRelatedLinks =
     !isPublic
     && (manageSpareLinks || user?.role === 'dealer' || user?.role === 'dealer_staff');
@@ -40,6 +44,15 @@ export const ProductDetailPage: React.FC = () => {
   const productsBasePath = catalogBase;
   const sparesBasePath = `${catalogBase}/spare`;
   const currentNavState = navState;
+
+  const handleInactiveSuccess = useCallback(() => {
+    if (canNavigateBackInApp()) {
+      navigate(-1);
+      return;
+    }
+    if (backState) navigate(backPath, { state: backState });
+    else navigate(backPath);
+  }, [backPath, backState, navigate]);
 
   if (!productId) {
     return null;
@@ -56,10 +69,13 @@ export const ProductDetailPage: React.FC = () => {
         variant={isPublic ? 'public' : 'app'}
         showWarehouseStock={showWarehouseStock}
         showStockQuantity={showStockQuantity}
+        showAuditedStock={showAuditedStock}
         showCartActions={showCartActions}
         showRelatedLinks={showRelatedLinks}
         manageSpareLinks={manageSpareLinks}
         canUploadImage={canUploadImage}
+        canSetInactive={canSetInactive}
+        onInactiveSuccess={handleInactiveSuccess}
         productsBasePath={productsBasePath}
         sparesBasePath={sparesBasePath}
         ordersPath={ordersPath}

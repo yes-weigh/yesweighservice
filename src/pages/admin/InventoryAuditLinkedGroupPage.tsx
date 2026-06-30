@@ -10,6 +10,7 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { fetchCatalog } from '../../lib/catalog';
 import { calculateGroupTotals } from '../../lib/yesStore/inventoryAudit';
 import { listItemsByCatalogProduct, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
+import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import type { CatalogProduct } from '../../types/catalog';
 import { formatItemLocationShort, readItemQuantity, type YesStoreItemDoc } from '../../types/yes-store';
 
@@ -83,15 +84,28 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
 
     setUnlinkingAll(true);
     setError('');
+    const productId = catalogProductId?.trim() || '';
     try {
       await batchUnlinkYesStoreItemsFromCatalog(items.map(item => item.id));
+      if (productId) {
+        try {
+          await reconcileCatalogAuditImagesOnZoho(productId);
+        } catch (syncErr) {
+          setError(
+            syncErr instanceof Error
+              ? `Unlinked, but Zoho photo cleanup failed: ${syncErr.message}`
+              : 'Unlinked, but Zoho photo cleanup failed.',
+          );
+          return;
+        }
+      }
       navigate(`${base}?section=inventory-audit`, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not unlink stock locations.');
     } finally {
       setUnlinkingAll(false);
     }
-  }, [base, confirm, items, navigate, productName]);
+  }, [base, catalogProductId, confirm, items, navigate, productName]);
 
   useCatalogPageHeader({
     title: productName,

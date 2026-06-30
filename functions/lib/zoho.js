@@ -375,22 +375,21 @@ export async function uploadProductImageToZoho(accessToken, orgId, itemId, buffe
   return payload ?? { ok: true };
 }
 
-/** Assign Zoho item category — India org requires label_rate (MRP) on PUT. */
-export async function moveProductToCategory(accessToken, orgId, itemId, categoryId) {
+async function fetchZohoItemForUpdate(accessToken, orgId, itemId) {
   const detailUrl = `${ZOHO_API_BASE}/items/${itemId}?organization_id=${orgId}`;
   const detailRes = await fetch(detailUrl, { headers: authHeaders(accessToken, orgId) });
   const detailData = await detailRes.json();
   if (detailData.code !== 0 || !detailData.item) {
     throw new Error(`Zoho item fetch failed: ${detailData.message ?? 'unknown error'}`);
   }
+  return detailData.item;
+}
 
+async function putZohoItemUpdate(accessToken, orgId, itemId, updateBody) {
   const putUrl = `${ZOHO_API_BASE}/items/${itemId}`;
   const params = new URLSearchParams();
   params.set('organization_id', orgId);
-  params.set('JSONString', JSON.stringify({
-    category_id: categoryId,
-    label_rate: resolveLabelRate(detailData.item),
-  }));
+  params.set('JSONString', JSON.stringify(updateBody));
 
   const response = await fetch(putUrl, {
     method: 'PUT',
@@ -403,6 +402,33 @@ export async function moveProductToCategory(accessToken, orgId, itemId, category
 
   const payload = await response.json();
   if (payload.code !== 0) {
-    throw new Error(payload.message || 'Zoho category assignment failed');
+    throw new Error(payload.message || 'Zoho item update failed');
   }
+}
+
+/** Assign Zoho item category — India org requires label_rate (MRP) on PUT. */
+export async function moveProductToCategory(accessToken, orgId, itemId, categoryId) {
+  const item = await fetchZohoItemForUpdate(accessToken, orgId, itemId);
+  await putZohoItemUpdate(accessToken, orgId, itemId, {
+    category_id: categoryId,
+    label_rate: resolveLabelRate(item),
+  });
+}
+
+/** Mark a Zoho inventory item active or inactive — India org requires label_rate on PUT. */
+export async function setProductStatus(accessToken, orgId, itemId, status) {
+  const normalized = String(status ?? '').trim().toLowerCase();
+  if (normalized !== 'active' && normalized !== 'inactive') {
+    throw new Error('status must be active or inactive');
+  }
+
+  const item = await fetchZohoItemForUpdate(accessToken, orgId, itemId);
+  const body = {
+    status: normalized,
+    label_rate: resolveLabelRate(item),
+  };
+  const categoryId = normaliseCategoryId(item.category_id);
+  if (categoryId) body.category_id = categoryId;
+
+  await putZohoItemUpdate(accessToken, orgId, itemId, body);
 }
