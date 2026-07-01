@@ -36,11 +36,17 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import {
   calculateGroupTotals,
+  collectWarehouseAuditPhotos,
   formatQtyDifference,
   type InventoryAuditGroupTotals,
 } from '../../lib/yesStore/inventoryAudit';
+import { resolveYesStorePhotoUrls } from '../../lib/yesStore/photos';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
-import type { YesStoreItemDoc } from '../../types/yes-store';
+import {
+  formatItemLocationShort,
+  readItemQuantity,
+  type YesStoreItemDoc,
+} from '../../types/yes-store';
 import {
   buildProductNavState,
   buildSpareNavState,
@@ -139,7 +145,10 @@ export const ProductDetailView: React.FC<{
   const [statusError, setStatusError] = useState<string | null>(null);
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
+  const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
 
   const theme = useMemo(
     () => getCategoryTheme(themeIndexFromId(productId)),
@@ -205,6 +214,35 @@ export const ProductDetailView: React.FC<{
       active = false;
     };
   }, [showAuditedStock, productId]);
+
+  const warehousePhotos = useMemo(
+    () => collectWarehouseAuditPhotos(auditItems),
+    [auditItems],
+  );
+
+  useEffect(() => {
+    let active = true;
+    void resolveYesStorePhotoUrls(warehousePhotos).then(urls => {
+      if (active) setWarehousePhotoUrls(urls);
+    });
+    return () => {
+      active = false;
+    };
+  }, [warehousePhotos]);
+
+  const galleryUrls = useMemo(() => {
+    const primary = product?.imageUrl?.trim() ?? '';
+    const urls = primary ? [primary] : [];
+    for (const url of warehousePhotoUrls) {
+      if (url && !urls.includes(url)) urls.push(url);
+    }
+    return urls;
+  }, [product?.imageUrl, warehousePhotoUrls]);
+
+  useEffect(() => {
+    setActiveGalleryIndex(0);
+    if (carouselRef.current) carouselRef.current.scrollLeft = 0;
+  }, [galleryUrls]);
 
   const auditTotals = useMemo<InventoryAuditGroupTotals | null>(() => {
     if (!showAuditedStock || !product || auditItems.length === 0) return null;
@@ -375,12 +413,30 @@ export const ProductDetailView: React.FC<{
     }
   };
 
+  const currentGalleryUrl = galleryUrls[activeGalleryIndex] ?? product?.imageUrl ?? null;
+
+  const handleCarouselScroll = () => {
+    const track = carouselRef.current;
+    if (!track || galleryUrls.length <= 1) return;
+    const slideWidth = track.clientWidth;
+    if (slideWidth <= 0) return;
+    const index = Math.round(track.scrollLeft / slideWidth);
+    setActiveGalleryIndex(Math.min(Math.max(index, 0), galleryUrls.length - 1));
+  };
+
+  const scrollToGalleryIndex = (index: number) => {
+    const track = carouselRef.current;
+    if (!track) return;
+    track.scrollTo({ left: index * track.clientWidth, behavior: 'smooth' });
+    setActiveGalleryIndex(index);
+  };
+
   const handleImageDownload = async () => {
-    if (!product?.imageUrl) return;
+    if (!product || !currentGalleryUrl) return;
     setImageDownloading(true);
     setImageError(null);
     try {
-      await downloadCatalogProductImage(product.imageUrl, {
+      await downloadCatalogProductImage(currentGalleryUrl, {
         productName: product.name,
         sku: product.sku,
         productId: product.id,
@@ -469,16 +525,57 @@ export const ProductDetailView: React.FC<{
 
       <div className="product-detail-page__layout">
         <section className="product-detail-page__gallery">
-          <div className="product-detail-page__image-stage">
+          <div
+            className={[
+              'product-detail-page__image-stage',
+              galleryUrls.length > 1 ? 'product-detail-page__image-stage--carousel' : '',
+            ].filter(Boolean).join(' ')}
+          >
             <StockBadge status={product.stockStatus} overlay variant="tile" />
-            {product.imageUrl ? (
-              <CategoryThumbnail src={product.imageUrl} />
+            {galleryUrls.length > 1 ? (
+              <>
+                <div
+                  ref={carouselRef}
+                  className="product-detail-page__carousel"
+                  onScroll={handleCarouselScroll}
+                  role="region"
+                  aria-label="Product images"
+                >
+                  {galleryUrls.map((url, index) => (
+                    <div key={`${url}-${index}`} className="product-detail-page__carousel-slide">
+                      <CategoryThumbnail src={url} />
+                    </div>
+                  ))}
+                </div>
+                <div
+                  className="product-detail-page__carousel-dots"
+                  role="tablist"
+                  aria-label="Image navigation"
+                >
+                  {galleryUrls.map((_, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      role="tab"
+                      className={[
+                        'product-detail-page__carousel-dot',
+                        index === activeGalleryIndex ? 'is-active' : '',
+                      ].filter(Boolean).join(' ')}
+                      aria-label={`Image ${index + 1} of ${galleryUrls.length}`}
+                      aria-selected={index === activeGalleryIndex}
+                      onClick={() => scrollToGalleryIndex(index)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : galleryUrls.length === 1 ? (
+              <CategoryThumbnail src={galleryUrls[0]} />
             ) : (
               <Package size={72} className="product-detail-page__placeholder" aria-hidden />
             )}
             {canUploadImage && (
               <div className="product-detail-page__image-actions">
-                {product.imageUrl && (
+                {currentGalleryUrl && (
                   <button
                     type="button"
                     className="product-detail-page__image-action"
@@ -538,7 +635,25 @@ export const ProductDetailView: React.FC<{
             </p>
           )}
 
-          <h1 className="product-detail-page__title">{formatProductTitle(product.name)}</h1>
+          <div className="product-detail-page__title-row">
+            <h1 className="product-detail-page__title">{formatProductTitle(product.name)}</h1>
+            {canSetInactive && (isCategorizedProduct || isSpareItem) && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm product-detail-page__inactive-btn product-detail-page__inactive-btn--inline"
+                onClick={() => void handleSetInactive()}
+                disabled={statusUpdating}
+              >
+                {statusUpdating
+                  ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                  : <Ban size={15} aria-hidden />}
+                Set inactive on Zoho
+              </button>
+            )}
+          </div>
+          {statusError && (
+            <p className="product-detail-page__status-error text-sm">{statusError}</p>
+          )}
 
           {product.sku && (
             <p className="product-detail-page__sku">Model: {product.sku}</p>
@@ -604,22 +719,76 @@ export const ProductDetailView: React.FC<{
             )}
           </div>
 
-          {canSetInactive && (isCategorizedProduct || isSpareItem) && (
-            <div className="product-detail-page__admin-actions">
-              <button
-                type="button"
-                className="btn btn-secondary product-detail-page__inactive-btn"
-                onClick={() => void handleSetInactive()}
-                disabled={statusUpdating}
-              >
-                {statusUpdating
-                  ? <RefreshCw size={16} className="spin-icon" aria-hidden />
-                  : <Ban size={16} aria-hidden />}
-                Set inactive on Zoho
-              </button>
-              {statusError && (
-                <p className="product-detail-page__status-error text-sm">{statusError}</p>
-              )}
+          {showAuditedStock && auditTotals && auditTotals.parts.length > 0 && (
+            <div className="product-detail-page__stock-locations">
+              <h2 className="product-detail-page__stock-locations-title">
+                Stock locations ({auditTotals.parts.length})
+              </h2>
+              {auditTotals.parts.map((part, locationIndex) => {
+                const binItem = auditItems.find(item => item.id === part.itemId);
+                if (!binItem) return null;
+
+                const locationShort = formatItemLocationShort(
+                  binItem.rackId,
+                  binItem.rowNumber,
+                  binItem.binNumber,
+                );
+                const showPartLabel =
+                  auditTotals.mode === 'bundle' && part.partLabel.trim() !== locationShort;
+                const quantity = formatStockQuantity(
+                  readItemQuantity(binItem),
+                  product.unit,
+                );
+                const isBundle = auditTotals.mode === 'bundle';
+                const locationCols = isBundle ? 5 : 4;
+
+                const labelCells = isBundle
+                  ? ['Rack', 'Row', 'Bin', 'Part', 'Counted qty']
+                  : ['Rack', 'Row', 'Bin', 'Counted qty'];
+                const valueCells = [
+                  { key: 'rack', tone: 'location' as const, value: binItem.rackId.toUpperCase() },
+                  { key: 'row', tone: 'location' as const, value: String(binItem.rowNumber) },
+                  { key: 'bin', tone: 'location' as const, value: String(binItem.binNumber) },
+                  ...(isBundle
+                    ? [{
+                        key: 'part',
+                        tone: 'zoho' as const,
+                        value: showPartLabel ? part.partLabel : '—',
+                      }]
+                    : []),
+                  { key: 'qty', tone: 'audited' as const, value: quantity },
+                ];
+
+                return (
+                  <div
+                    key={part.itemId}
+                    className="product-detail-page__location-table"
+                    style={{ '--location-cols': locationCols } as React.CSSProperties}
+                    aria-label={`Stock location ${locationIndex + 1} of ${auditTotals.parts.length}`}
+                  >
+                    {labelCells.map(label => (
+                      <div
+                        key={label}
+                        className="product-detail-page__summary-cell product-detail-page__summary-cell--label product-detail-page__summary-cell--location"
+                      >
+                        {label}
+                      </div>
+                    ))}
+                    {valueCells.map(cell => (
+                      <div
+                        key={cell.key}
+                        className={[
+                          'product-detail-page__summary-cell',
+                          'product-detail-page__summary-cell--value',
+                          `product-detail-page__summary-cell--${cell.tone}`,
+                        ].join(' ')}
+                      >
+                        {cell.value}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           )}
 
