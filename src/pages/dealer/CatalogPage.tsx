@@ -28,9 +28,18 @@ import {
   isSparesExcludedCategory,
   matchesSpareCatalogFilters,
   matchesSpareLocationFilters,
+  matchesSpareAuditStatusFilters,
+  matchesSpareStockStatusFilters,
+  buildAuditedCatalogProductIds,
+  catalogProductIsAudited,
   catalogProductHasImage,
   catalogProductHasWarehouseStock,
+  catalogProductHasPositiveStock,
+  catalogProductHasZeroStock,
+  catalogProductHasNegativeStock,
   type SpareCatalogFilter,
+  type SpareAuditStatusFilter,
+  type SpareStockStatusFilter,
   type SpareWarehouseLocationFilter,
   saveCatalogCategoryOrder,
   saveCatalogSpareProductLinks,
@@ -126,7 +135,9 @@ export const CatalogPage: React.FC = () => {
   const [batchLinkItems, setBatchLinkItems] = useState<YesStoreItemDoc[] | null>(null);
   const [unlinkingGroupId, setUnlinkingGroupId] = useState<string | null>(null);
   const [spareCatalogFilters, setSpareCatalogFilters] = useState<Set<SpareCatalogFilter>>(() => new Set());
+  const [spareStockStatusFilters, setSpareStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
   const [spareLocationFilters, setSpareLocationFilters] = useState<Set<SpareWarehouseLocationFilter>>(() => new Set());
+  const [spareAuditStatusFilters, setSpareAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
   const [mobileSparesFiltersOpen, setMobileSparesFiltersOpen] = useState(false);
 
   const toggleSpareCatalogFilter = useCallback((key: SpareCatalogFilter) => {
@@ -147,15 +158,42 @@ export const CatalogPage: React.FC = () => {
     });
   }, []);
 
+  const toggleSpareStockStatusFilter = useCallback((key: SpareStockStatusFilter) => {
+    setSpareStockStatusFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const toggleSpareAuditStatusFilter = useCallback((key: SpareAuditStatusFilter) => {
+    setSpareAuditStatusFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   const clearSpareFilters = useCallback(() => {
     setSpareCatalogFilters(new Set());
+    setSpareStockStatusFilters(new Set());
     setSpareLocationFilters(new Set());
+    setSpareAuditStatusFilters(new Set());
   }, []);
 
   const applySpareFilters = useCallback(
-    (catalogFilters: Set<SpareCatalogFilter>, locationFilters: Set<SpareWarehouseLocationFilter>) => {
+    (
+      catalogFilters: Set<SpareCatalogFilter>,
+      stockStatusFilters: Set<SpareStockStatusFilter>,
+      locationFilters: Set<SpareWarehouseLocationFilter>,
+      auditStatusFilters: Set<SpareAuditStatusFilter>,
+    ) => {
       setSpareCatalogFilters(new Set(catalogFilters));
+      setSpareStockStatusFilters(new Set(stockStatusFilters));
       setSpareLocationFilters(new Set(locationFilters));
+      setSpareAuditStatusFilters(new Set(auditStatusFilters));
     },
     [],
   );
@@ -270,7 +308,7 @@ export const CatalogPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!isSuperAdmin || focus !== 'inventory-audit') return;
+    if (!isSuperAdmin || (focus !== 'inventory-audit' && focus !== 'all-spares')) return;
     void loadAuditItems();
   }, [isSuperAdmin, focus, loadAuditItems]);
 
@@ -308,16 +346,36 @@ export const CatalogPage: React.FC = () => {
     [shopProducts, spareParts, catalog?.categories, categoryFromUrl],
   );
 
+  const auditedCatalogProductIds = useMemo(
+    () => buildAuditedCatalogProductIds(auditItems),
+    [auditItems],
+  );
+
   const filteredSpareParts = useMemo(() => {
     let items = spareParts;
     if (isSuperAdmin && linkedSpareIds) {
       items = items.filter(product => matchesSpareCatalogFilters(product, spareCatalogFilters, linkedSpareIds));
     }
     if (isSuperAdmin) {
+      items = items.filter(product => matchesSpareAuditStatusFilters(
+        product,
+        spareAuditStatusFilters,
+        auditedCatalogProductIds,
+      ));
+      items = items.filter(product => matchesSpareStockStatusFilters(product, spareStockStatusFilters));
       items = items.filter(product => matchesSpareLocationFilters(product, spareLocationFilters));
     }
     return items;
-  }, [isSuperAdmin, spareParts, spareCatalogFilters, spareLocationFilters, linkedSpareIds]);
+  }, [
+    isSuperAdmin,
+    spareParts,
+    spareCatalogFilters,
+    spareStockStatusFilters,
+    spareAuditStatusFilters,
+    spareLocationFilters,
+    linkedSpareIds,
+    auditedCatalogProductIds,
+  ]);
 
   const spareCatalogFilterCounts = useMemo(() => {
     const ids = linkedSpareIds ?? new Set<string>();
@@ -326,9 +384,21 @@ export const CatalogPage: React.FC = () => {
     return {
       unmapped: all - mapped,
       mapped,
-      withoutImage: spareParts.filter(product => !catalogProductHasImage(product)).length,
+      withImage: spareParts.filter(product => catalogProductHasImage(product)).length,
+      missingImage: spareParts.filter(product => !catalogProductHasImage(product)).length,
     };
   }, [spareParts, linkedSpareIds]);
+
+  const spareStockStatusFilterCounts = useMemo(() => ({
+    withStock: spareParts.filter(product => catalogProductHasPositiveStock(product)).length,
+    zeroStock: spareParts.filter(product => catalogProductHasZeroStock(product)).length,
+    negativeStock: spareParts.filter(product => catalogProductHasNegativeStock(product)).length,
+  }), [spareParts]);
+
+  const spareAuditStatusFilterCounts = useMemo(() => ({
+    audited: spareParts.filter(product => catalogProductIsAudited(product, auditedCatalogProductIds)).length,
+    notAudited: spareParts.filter(product => !catalogProductIsAudited(product, auditedCatalogProductIds)).length,
+  }), [spareParts, auditedCatalogProductIds]);
 
   const spareLocationFilterCounts = useMemo(() => ({
     cochin: spareParts.filter(product => catalogProductHasWarehouseStock(product, 'Cochin')).length,
@@ -538,7 +608,11 @@ export const CatalogPage: React.FC = () => {
   });
 
   const showMobileSparesFilters = isSuperAdmin && focus === 'all-spares' && isMobile;
-  const hasActiveSpareFilters = spareCatalogFilters.size > 0 || spareLocationFilters.size > 0;
+  const hasActiveSpareFilters =
+    spareCatalogFilters.size > 0
+    || spareStockStatusFilters.size > 0
+    || spareLocationFilters.size > 0
+    || spareAuditStatusFilters.size > 0;
 
   useEffect(() => {
     if (focus !== 'all-spares') setMobileSparesFiltersOpen(false);
@@ -754,10 +828,16 @@ export const CatalogPage: React.FC = () => {
         <CatalogSparesMultiFilters
           spareCatalogFilters={spareCatalogFilters}
           onToggleCatalogFilter={toggleSpareCatalogFilter}
+          spareStockStatusFilters={spareStockStatusFilters}
+          onToggleStockStatusFilter={toggleSpareStockStatusFilter}
           spareLocationFilters={spareLocationFilters}
           onToggleLocationFilter={toggleSpareLocationFilter}
+          spareAuditStatusFilters={spareAuditStatusFilters}
+          onToggleAuditStatusFilter={toggleSpareAuditStatusFilter}
           spareCatalogFilterCounts={spareCatalogFilterCounts}
+          spareStockStatusFilterCounts={spareStockStatusFilterCounts}
           spareLocationFilterCounts={spareLocationFilterCounts}
+          spareAuditStatusFilterCounts={spareAuditStatusFilterCounts}
           onClearAll={clearSpareFilters}
           footerMode="clear-only"
         />
@@ -765,11 +845,17 @@ export const CatalogPage: React.FC = () => {
     ),
     [
       spareCatalogFilters,
+      spareStockStatusFilters,
       spareLocationFilters,
+      spareAuditStatusFilters,
       spareCatalogFilterCounts,
+      spareStockStatusFilterCounts,
       spareLocationFilterCounts,
+      spareAuditStatusFilterCounts,
       toggleSpareCatalogFilter,
+      toggleSpareStockStatusFilter,
       toggleSpareLocationFilter,
+      toggleSpareAuditStatusFilter,
       clearSpareFilters,
     ],
   );
@@ -830,10 +916,14 @@ export const CatalogPage: React.FC = () => {
           open={mobileSparesFiltersOpen}
           onClose={() => setMobileSparesFiltersOpen(false)}
           spareCatalogFilters={spareCatalogFilters}
+          spareStockStatusFilters={spareStockStatusFilters}
           spareLocationFilters={spareLocationFilters}
+          spareAuditStatusFilters={spareAuditStatusFilters}
           onApplyFilters={applySpareFilters}
           spareCatalogFilterCounts={spareCatalogFilterCounts}
+          spareStockStatusFilterCounts={spareStockStatusFilterCounts}
           spareLocationFilterCounts={spareLocationFilterCounts}
+          spareAuditStatusFilterCounts={spareAuditStatusFilterCounts}
         />
       )}
 

@@ -134,10 +134,26 @@ export const SPARE_WAREHOUSE_LOCATION_FILTERS = [
 
 export type SpareWarehouseLocationFilter = typeof SPARE_WAREHOUSE_LOCATION_FILTERS[number]['key'];
 
+export const SPARE_AUDIT_STATUS_FILTERS = [
+  { key: 'audited', label: 'Audited' },
+  { key: 'notAudited', label: 'Not audited' },
+] as const;
+
+export type SpareAuditStatusFilter = typeof SPARE_AUDIT_STATUS_FILTERS[number]['key'];
+
+export const SPARE_STOCK_STATUS_FILTERS = [
+  { key: 'withStock', label: 'With stock' },
+  { key: 'zeroStock', label: 'Zero stock' },
+  { key: 'negativeStock', label: 'Negative stock' },
+] as const;
+
+export type SpareStockStatusFilter = typeof SPARE_STOCK_STATUS_FILTERS[number]['key'];
+
 export const SPARE_CATALOG_FILTERS = [
   { key: 'unmapped', label: 'Unmapped' },
   { key: 'mapped', label: 'Mapped' },
-  { key: 'withoutImage', label: 'Without image' },
+  { key: 'withImage', label: 'With image' },
+  { key: 'missingImage', label: 'Missing image' },
 ] as const;
 
 export type SpareCatalogFilter = typeof SPARE_CATALOG_FILTERS[number]['key'];
@@ -150,7 +166,8 @@ export function matchesSpareCatalogFilters(
   if (filters.size === 0) return true;
   if (filters.has('unmapped') && linkedSpareIds.has(product.id)) return false;
   if (filters.has('mapped') && !linkedSpareIds.has(product.id)) return false;
-  if (filters.has('withoutImage') && catalogProductHasImage(product)) return false;
+  if (filters.has('withImage') && !catalogProductHasImage(product)) return false;
+  if (filters.has('missingImage') && catalogProductHasImage(product)) return false;
   return true;
 }
 
@@ -161,6 +178,61 @@ export function matchesSpareLocationFilters(
   if (filters.size === 0) return true;
   return SPARE_WAREHOUSE_LOCATION_FILTERS.some(
     option => filters.has(option.key) && catalogProductHasWarehouseStock(product, option.warehouseName),
+  );
+}
+
+export function catalogProductHasPositiveStock(product: Pick<CatalogProduct, 'stock'>): boolean {
+  return product.stock > 0;
+}
+
+export function catalogProductHasZeroStock(product: Pick<CatalogProduct, 'stock'>): boolean {
+  return product.stock === 0;
+}
+
+export function catalogProductHasNegativeStock(product: Pick<CatalogProduct, 'stock'>): boolean {
+  return product.stock < 0;
+}
+
+export function matchesSpareStockStatusFilters(
+  product: Pick<CatalogProduct, 'stock'>,
+  filters: ReadonlySet<SpareStockStatusFilter>,
+): boolean {
+  if (filters.size === 0) return true;
+  return (
+    (filters.has('withStock') && catalogProductHasPositiveStock(product))
+    || (filters.has('zeroStock') && catalogProductHasZeroStock(product))
+    || (filters.has('negativeStock') && catalogProductHasNegativeStock(product))
+  );
+}
+
+export function buildAuditedCatalogProductIds(
+  auditItems: ReadonlyArray<{ catalogProductId?: string | null }>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const item of auditItems) {
+    const id = item.catalogProductId?.trim();
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+export function catalogProductIsAudited(
+  product: Pick<CatalogProduct, 'id'>,
+  auditedCatalogProductIds: ReadonlySet<string>,
+): boolean {
+  return auditedCatalogProductIds.has(product.id);
+}
+
+export function matchesSpareAuditStatusFilters(
+  product: Pick<CatalogProduct, 'id'>,
+  filters: ReadonlySet<SpareAuditStatusFilter>,
+  auditedCatalogProductIds: ReadonlySet<string>,
+): boolean {
+  if (filters.size === 0) return true;
+  const isAudited = catalogProductIsAudited(product, auditedCatalogProductIds);
+  return (
+    (filters.has('audited') && isAudited)
+    || (filters.has('notAudited') && !isAudited)
   );
 }
 
