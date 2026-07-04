@@ -139,6 +139,7 @@ export const CatalogPage: React.FC = () => {
   const [spareLocationFilters, setSpareLocationFilters] = useState<Set<SpareWarehouseLocationFilter>>(() => new Set());
   const [spareAuditStatusFilters, setSpareAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
   const [mobileSparesFiltersOpen, setMobileSparesFiltersOpen] = useState(false);
+  const [webSparesFiltersOpen, setWebSparesFiltersOpen] = useState(true);
 
   const toggleSpareCatalogFilter = useCallback((key: SpareCatalogFilter) => {
     setSpareCatalogFilters(prev => {
@@ -839,7 +840,11 @@ export const CatalogPage: React.FC = () => {
           spareLocationFilterCounts={spareLocationFilterCounts}
           spareAuditStatusFilterCounts={spareAuditStatusFilterCounts}
           onClearAll={clearSpareFilters}
-          footerMode="clear-only"
+          layout="compact"
+          footerMode="none"
+          collapsible
+          expanded={webSparesFiltersOpen}
+          onToggleExpanded={() => setWebSparesFiltersOpen(open => !open)}
         />
       </div>
     ),
@@ -857,6 +862,7 @@ export const CatalogPage: React.FC = () => {
       toggleSpareLocationFilter,
       toggleSpareAuditStatusFilter,
       clearSpareFilters,
+      webSparesFiltersOpen,
     ],
   );
 

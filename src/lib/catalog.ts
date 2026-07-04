@@ -342,18 +342,22 @@ export function getBrowseCatalogProducts(
 function catalogErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const code = 'code' in err ? String((err as { code: string }).code) : '';
-    const message = 'message' in err ? String((err as { message: string }).message) : '';
+    const message = 'message' in err ? String((err as { message: string }).message).trim() : '';
+
     if (code === 'functions/deadline-exceeded' || message.includes('deadline-exceeded')) {
       return 'Catalog sync timed out. Deploy the latest functions and try again — sync should finish in under a minute.';
     }
-    if (
-      code === 'functions/internal'
-      || message.includes('CORS')
+
+    const isMissingFunction =
+      code === 'functions/not-found'
+      || /not[- ]found/i.test(message)
       || message.includes('Failed to fetch')
-      || message.includes('not-found')
-    ) {
-      return 'Cloud Function unavailable. Deploy the latest functions (saveCatalogCategoryOrder, uploadCatalogCategoryThumbnail) to Firebase.';
+      || message.includes('CORS');
+
+    if (isMissingFunction) {
+      return 'Cloud Function not deployed yet. Run: firebase deploy --only functions';
     }
+
     if (message) return message;
   }
   return 'Unable to load product catalog.';

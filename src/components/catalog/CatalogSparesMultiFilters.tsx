@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import {
   SPARE_AUDIT_STATUS_FILTERS,
   SPARE_CATALOG_FILTERS,
@@ -12,6 +12,7 @@ import {
 } from '../../lib/catalog';
 
 export type CatalogSparesFiltersFooterMode = 'none' | 'clear-only' | 'apply';
+export type CatalogSparesFiltersLayout = 'stack' | 'compact';
 
 export interface CatalogSparesMultiFiltersProps {
   spareCatalogFilters: ReadonlySet<SpareCatalogFilter>;
@@ -30,6 +31,10 @@ export interface CatalogSparesMultiFiltersProps {
   onClose?: () => void;
   onApply?: () => void;
   footerMode?: CatalogSparesFiltersFooterMode;
+  layout?: CatalogSparesFiltersLayout;
+  collapsible?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
   className?: string;
 }
 
@@ -65,6 +70,30 @@ function FilterOptionRow({
   );
 }
 
+function FilterChip({
+  label,
+  count,
+  active,
+  onToggle,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`catalog-inventory-audit__filter-chip${active ? ' is-active' : ''}`}
+      aria-pressed={active}
+      onClick={onToggle}
+    >
+      {label}
+      <span className="catalog-inventory-audit__filter-chip-count">{count}</span>
+    </button>
+  );
+}
+
 export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps> = ({
   spareCatalogFilters,
   onToggleCatalogFilter,
@@ -82,6 +111,10 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
   onClose,
   onApply,
   footerMode = 'clear-only',
+  layout = 'stack',
+  collapsible = false,
+  expanded = true,
+  onToggleExpanded,
   className = '',
 }) => {
   const activeFilterCount =
@@ -90,89 +123,155 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
     + spareLocationFilters.size
     + spareAuditStatusFilters.size;
   const hasActiveFilters = activeFilterCount > 0;
-  const showFooter = footerMode !== 'none';
+  const isCompact = layout === 'compact';
+  const isExpanded = !collapsible || expanded;
+  const showFooter = footerMode !== 'none' && !isCompact;
+
+  const renderOptions = (
+    options: ReadonlyArray<{ key: string; label: string }>,
+    counts: Record<string, number>,
+    selected: ReadonlySet<string>,
+    onToggle: (key: string) => void,
+    idPrefix: string,
+    ariaLabel: string,
+  ) => (
+    <div className="catalog-spares-multi-filters__options" role="group" aria-label={ariaLabel}>
+      {options.map(option => {
+        const checked = selected.has(option.key);
+        if (isCompact) {
+          return (
+            <FilterChip
+              key={option.key}
+              label={option.label}
+              count={counts[option.key]}
+              active={checked}
+              onToggle={() => onToggle(option.key)}
+            />
+          );
+        }
+        return (
+          <FilterOptionRow
+            key={option.key}
+            id={`${idPrefix}-${option.key}`}
+            label={option.label}
+            count={counts[option.key]}
+            checked={checked}
+            onToggle={() => onToggle(option.key)}
+          />
+        );
+      })}
+    </div>
+  );
 
   return (
-    <div className={`catalog-spares-multi-filters ${className}`.trim()}>
+    <div
+      className={[
+        'catalog-spares-multi-filters',
+        isCompact ? 'catalog-spares-multi-filters--compact' : '',
+        collapsible && !isExpanded ? 'catalog-spares-multi-filters--collapsed' : '',
+        className,
+      ].filter(Boolean).join(' ')}
+    >
       <div className="catalog-spares-multi-filters__header">
-        <span className="catalog-spares-multi-filters__title">Filters</span>
-        {onClose ? (
+        {collapsible ? (
           <button
             type="button"
-            className="catalog-spares-multi-filters__close"
-            onClick={onClose}
-            aria-label="Close filters"
+            className="catalog-spares-multi-filters__toggle"
+            onClick={onToggleExpanded}
+            aria-expanded={isExpanded}
           >
-            <X size={18} strokeWidth={2.25} aria-hidden />
+            <ChevronDown
+              size={16}
+              strokeWidth={2.25}
+              className={[
+                'catalog-spares-multi-filters__toggle-chevron',
+                isExpanded ? 'is-open' : '',
+              ].filter(Boolean).join(' ')}
+              aria-hidden
+            />
+            <span className="catalog-spares-multi-filters__title">Filters</span>
+            {hasActiveFilters && (
+              <span className="catalog-spares-multi-filters__active-badge">{activeFilterCount}</span>
+            )}
           </button>
-        ) : null}
+        ) : (
+          <span className="catalog-spares-multi-filters__title">Filters</span>
+        )}
+        <div className="catalog-spares-multi-filters__header-actions">
+          {isCompact && (isExpanded || hasActiveFilters) && (
+            <button
+              type="button"
+              className="catalog-spares-multi-filters__clear-link"
+              onClick={onClearAll}
+              disabled={!hasActiveFilters}
+            >
+              Clear all
+            </button>
+          )}
+          {onClose ? (
+            <button
+              type="button"
+              className="catalog-spares-multi-filters__close"
+              onClick={onClose}
+              aria-label="Close filters"
+            >
+              <X size={18} strokeWidth={2.25} aria-hidden />
+            </button>
+          ) : null}
+        </div>
       </div>
 
+      {isExpanded && (
       <div className="catalog-spares-multi-filters__body">
-      <div className="catalog-spares-multi-filters__group">
-        <span className="catalog-spares-multi-filters__label">Product status</span>
-        <div className="catalog-spares-multi-filters__options" role="group" aria-label="Product status filters">
-          {SPARE_CATALOG_FILTERS.map(option => (
-            <FilterOptionRow
-              key={option.key}
-              id={`spare-filter-${option.key}`}
-              label={option.label}
-              count={spareCatalogFilterCounts[option.key]}
-              checked={spareCatalogFilters.has(option.key)}
-              onToggle={() => onToggleCatalogFilter(option.key)}
-            />
-          ))}
+        <div className="catalog-spares-multi-filters__group">
+          <span className="catalog-spares-multi-filters__label">Product status</span>
+          {renderOptions(
+            SPARE_CATALOG_FILTERS,
+            spareCatalogFilterCounts,
+            spareCatalogFilters,
+            key => onToggleCatalogFilter(key as SpareCatalogFilter),
+            'spare-filter',
+            'Product status filters',
+          )}
         </div>
-      </div>
 
-      <div className="catalog-spares-multi-filters__group">
-        <span className="catalog-spares-multi-filters__label">Stock status</span>
-        <div className="catalog-spares-multi-filters__options" role="group" aria-label="Stock status filters">
-          {SPARE_STOCK_STATUS_FILTERS.map(option => (
-            <FilterOptionRow
-              key={option.key}
-              id={`spare-stock-${option.key}`}
-              label={option.label}
-              count={spareStockStatusFilterCounts[option.key]}
-              checked={spareStockStatusFilters.has(option.key)}
-              onToggle={() => onToggleStockStatusFilter(option.key)}
-            />
-          ))}
+        <div className="catalog-spares-multi-filters__group">
+          <span className="catalog-spares-multi-filters__label">Stock status</span>
+          {renderOptions(
+            SPARE_STOCK_STATUS_FILTERS,
+            spareStockStatusFilterCounts,
+            spareStockStatusFilters,
+            key => onToggleStockStatusFilter(key as SpareStockStatusFilter),
+            'spare-stock',
+            'Stock status filters',
+          )}
         </div>
-      </div>
 
-      <div className="catalog-spares-multi-filters__group">
-        <span className="catalog-spares-multi-filters__label">Storage location</span>
-        <div className="catalog-spares-multi-filters__options" role="group" aria-label="Storage location filters">
-          {SPARE_WAREHOUSE_LOCATION_FILTERS.map(option => (
-            <FilterOptionRow
-              key={option.key}
-              id={`spare-location-${option.key}`}
-              label={option.label}
-              count={spareLocationFilterCounts[option.key]}
-              checked={spareLocationFilters.has(option.key)}
-              onToggle={() => onToggleLocationFilter(option.key)}
-            />
-          ))}
+        <div className="catalog-spares-multi-filters__group">
+          <span className="catalog-spares-multi-filters__label">Storage location</span>
+          {renderOptions(
+            SPARE_WAREHOUSE_LOCATION_FILTERS,
+            spareLocationFilterCounts,
+            spareLocationFilters,
+            key => onToggleLocationFilter(key as SpareWarehouseLocationFilter),
+            'spare-location',
+            'Storage location filters',
+          )}
         </div>
-      </div>
 
-      <div className="catalog-spares-multi-filters__group">
-        <span className="catalog-spares-multi-filters__label">Audit status</span>
-        <div className="catalog-spares-multi-filters__options" role="group" aria-label="Audit status filters">
-          {SPARE_AUDIT_STATUS_FILTERS.map(option => (
-            <FilterOptionRow
-              key={option.key}
-              id={`spare-audit-${option.key}`}
-              label={option.label}
-              count={spareAuditStatusFilterCounts[option.key]}
-              checked={spareAuditStatusFilters.has(option.key)}
-              onToggle={() => onToggleAuditStatusFilter(option.key)}
-            />
-          ))}
+        <div className="catalog-spares-multi-filters__group">
+          <span className="catalog-spares-multi-filters__label">Audit status</span>
+          {renderOptions(
+            SPARE_AUDIT_STATUS_FILTERS,
+            spareAuditStatusFilterCounts,
+            spareAuditStatusFilters,
+            key => onToggleAuditStatusFilter(key as SpareAuditStatusFilter),
+            'spare-audit',
+            'Audit status filters',
+          )}
         </div>
       </div>
-      </div>
+      )}
 
       {showFooter && (
         <div className="catalog-spares-multi-filters__footer">
