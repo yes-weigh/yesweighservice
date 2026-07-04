@@ -4,10 +4,7 @@ import {
   formatStockQuantity,
   catalogProductWarehouseStock,
 } from '../../lib/catalog';
-import {
-  CATALOG_INVENTORY_SITE_CONFIG,
-  type CatalogInventorySiteConfig,
-} from '../../lib/catalogInventorySites';
+import type { CatalogInventorySiteConfig } from '../../lib/catalogInventorySites';
 import {
   calculateGroupTotals,
   type InventoryAuditGroupTotals,
