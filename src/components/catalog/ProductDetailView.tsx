@@ -331,21 +331,23 @@ export const ProductDetailView: React.FC<{
     const cols: Array<{
       key: string;
       label: string;
+      shortLabel: string;
       tone: 'price' | 'zoho' | 'audited' | 'diff';
       diffState?: 'over' | 'under' | 'match';
-    }> = [{ key: 'price', label: 'Dealer price', tone: 'price' }];
+    }> = [{ key: 'price', label: 'Dealer price', shortLabel: 'Price', tone: 'price' }];
 
     if (showStockQuantity) {
-      cols.push({ key: 'zoho', label: 'Zoho stock', tone: 'zoho' });
+      cols.push({ key: 'zoho', label: 'Zoho stock', shortLabel: 'Zoho', tone: 'zoho' });
     }
     if (showAuditedStock) {
-      cols.push({ key: 'audited', label: 'Audited stock', tone: 'audited' });
+      cols.push({ key: 'audited', label: 'Audited stock', shortLabel: 'Audited', tone: 'audited' });
     }
     if (showAuditedStock && summaryDifference != null) {
       const difference = summaryDifference;
       cols.push({
         key: 'diff',
         label: 'Difference',
+        shortLabel: 'Diff',
         tone: 'diff',
         diffState: difference > 0 ? 'over' : difference < 0 ? 'under' : 'match',
       });
@@ -870,7 +872,10 @@ export const ProductDetailView: React.FC<{
               style={{ '--stock-cols': stockColumns.length } as React.CSSProperties}
             >
               <div className="product-detail-page__summary-price-hero">
-                <span className="product-detail-page__summary-price-kicker">Dealer price</span>
+                <span className="product-detail-page__summary-price-kicker">
+                  <span className="product-detail-page__summary-label-full">Dealer price</span>
+                  <span className="product-detail-page__summary-label-short">Price</span>
+                </span>
                 <div className="product-detail-page__summary-price-amount">
                   <IndianRupee size={22} strokeWidth={2.5} aria-hidden />
                   <span>{formatCurrency(product.rate).replace('₹', '').trim()}</span>
@@ -892,7 +897,8 @@ export const ProductDetailView: React.FC<{
                           col.diffState ? `is-${col.diffState}` : '',
                         ].filter(Boolean).join(' ')}
                       >
-                        {col.label}
+                        <span className="product-detail-page__summary-label-full">{col.label}</span>
+                        <span className="product-detail-page__summary-label-short">{col.shortLabel}</span>
                       </div>
                     ))}
                   </div>

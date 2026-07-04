@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 import {
   formatStockQuantity,
   catalogProductWarehouseStock,
@@ -53,7 +53,7 @@ function HeadOfficeLocationTable({
 
   return (
     <div className="product-site-stock__table-wrap product-site-stock__table-wrap--store">
-      <table className="product-site-stock__table">
+      <table className="product-site-stock__table product-site-stock__table--hero-values">
         <thead>
           <tr>
             <th>Rack</th>
@@ -128,8 +128,110 @@ function rowsFromRecord(
   }));
 }
 
-function CochinLocationEditor({
+function LocationDropdownField({
+  label,
+  value,
+  onChange,
+  disabled,
+  placeholder = 'Select',
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="product-site-stock__dropdown-field">
+      <span className="product-site-stock__dropdown-label">{label}</span>
+      <select
+        className="product-site-stock__dropdown"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        disabled={disabled}
+        aria-label={label}
+      >
+        <option value="">{placeholder}</option>
+        {options.map(option => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function CochinEditRow({
+  row,
+  zones,
+  zoneRows,
+  saving,
+  canRemove,
+  onUpdate,
+  onRemove,
+}: {
+  row: EditableCochinRow;
+  zones: WarehouseZoneDoc[];
+  zoneRows: WarehouseZoneRowDoc[];
+  saving: boolean;
+  canRemove: boolean;
+  onUpdate: (patch: Partial<EditableCochinRow>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="product-site-stock__edit-row">
+      <LocationDropdownField
+        label="Zone"
+        value={row.zoneId}
+        disabled={saving || zones.length === 0}
+        onChange={zoneId => onUpdate({ zoneId, zoneRowNumber: '' })}
+        options={zones.map(zone => ({
+          value: zone.id,
+          label: `${zone.id.toUpperCase()}${zone.label ? ` — ${zone.label}` : ''}`,
+        }))}
+      />
+      <LocationDropdownField
+        label="Row"
+        value={row.zoneRowNumber}
+        disabled={saving || !row.zoneId || zoneRows.length === 0}
+        onChange={zoneRowNumber => onUpdate({ zoneRowNumber })}
+        options={zoneRows.map(zoneRow => ({
+          value: String(zoneRow.number),
+          label: String(zoneRow.number),
+        }))}
+      />
+      <label className="product-site-stock__dropdown-field">
+        <span className="product-site-stock__dropdown-label">Qty</span>
+        <input
+          type="number"
+          className="product-site-stock__dropdown product-site-stock__dropdown--qty"
+          min={0}
+          step={1}
+          value={row.quantity}
+          onChange={e => onUpdate({ quantity: e.target.value })}
+          disabled={saving}
+          aria-label="Counted qty"
+        />
+      </label>
+      <button
+        type="button"
+        className="product-site-stock__row-remove product-site-stock__row-remove--inline"
+        onClick={onRemove}
+        disabled={saving || !canRemove}
+        aria-label="Remove row"
+      >
+        <Trash2 size={14} aria-hidden />
+      </button>
+    </div>
+  );
+}
+
+function CochinLocationSection({
   product,
+  siteConfig,
   record,
   canEdit,
   editorUid,
@@ -137,6 +239,7 @@ function CochinLocationEditor({
   onSaved,
 }: {
   product: CatalogProduct;
+  siteConfig: CatalogInventorySiteConfig;
   record: CatalogSiteInventoryDoc | null;
   canEdit: boolean;
   editorUid: string;
@@ -146,6 +249,7 @@ function CochinLocationEditor({
   const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
   const [rows, setRows] = useState<EditableCochinRow[]>(() => [createEditableRow()]);
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -168,13 +272,27 @@ function CochinLocationEditor({
   }, []);
 
   useEffect(() => {
-    setRows(rowsFromRecord(record, zones[0]?.id ?? ''));
-  }, [record, zones]);
+    if (!editing) {
+      setRows(rowsFromRecord(record, zones[0]?.id ?? ''));
+    }
+  }, [record, zones, editing]);
 
   const readOnlyLocations = useMemo(
     () => getCatalogSiteInventoryLocations(record),
     [record],
   );
+
+  const startEditing = () => {
+    setRows(rowsFromRecord(record, zones[0]?.id ?? ''));
+    setError('');
+    setEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setRows(rowsFromRecord(record, zones[0]?.id ?? ''));
+    setError('');
+    setEditing(false);
+  };
 
   const updateRow = (id: string, patch: Partial<EditableCochinRow>) => {
     setRows(prev => prev.map(row => (row.id === id ? { ...row, ...patch } : row)));
@@ -206,6 +324,7 @@ function CochinLocationEditor({
         updatedByName: editorName,
       });
       onSaved(saved);
+      setEditing(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save Cochin stock.');
     } finally {
@@ -213,150 +332,118 @@ function CochinLocationEditor({
     }
   };
 
-  if (canEdit) {
-    return (
-      <div className="product-site-stock__editor-table">
+  return (
+    <section
+      className={[
+        'product-site-stock',
+        editing ? 'product-site-stock--editing' : '',
+      ].filter(Boolean).join(' ')}
+    >
+      <header className="product-site-stock__header">
+        <h3 className="product-site-stock__title">{siteConfig.warehouseName}</h3>
+        <div className="product-site-stock__header-actions">
+          <SiteTypeBadge site={siteConfig.site} />
+          {canEdit && (
+            <button
+              type="button"
+              className={[
+                'product-site-stock__edit-btn',
+                editing ? 'product-site-stock__edit-btn--active' : '',
+              ].filter(Boolean).join(' ')}
+              title={editing ? 'Cancel editing' : 'Edit warehouse locations'}
+              aria-label={editing ? 'Cancel editing' : 'Edit warehouse locations'}
+              aria-pressed={editing}
+              onClick={() => (editing ? cancelEditing() : startEditing())}
+            >
+              {editing ? <X size={15} aria-hidden /> : <Pencil size={15} aria-hidden />}
+            </button>
+          )}
+        </div>
+      </header>
+
+      {editing && canEdit ? (
+        <div className="product-site-stock__editor-modern">
+          {rows.map(row => (
+            <CochinEditRow
+              key={row.id}
+              row={row}
+              zones={zones}
+              zoneRows={row.zoneId ? (rowsByZone[row.zoneId] ?? []) : []}
+              saving={saving}
+              canRemove={rows.length > 1}
+              onUpdate={patch => updateRow(row.id, patch)}
+              onRemove={() => removeRow(row.id)}
+            />
+          ))}
+
+          <button
+            type="button"
+            className="product-site-stock__add-row-btn"
+            disabled={saving}
+            onClick={addRow}
+          >
+            <Plus size={14} aria-hidden />
+            Add row
+          </button>
+
+          {zones.length === 0 && (
+            <p className="product-site-stock__hint text-muted text-sm">
+              Add warehouse zones in Settings → Warehouse first.
+            </p>
+          )}
+          {error && <p className="product-site-stock__error text-sm">{error}</p>}
+
+          <div className="product-site-stock__editor-toolbar product-site-stock__editor-toolbar--modern">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={saving}
+              onClick={cancelEditing}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm product-site-stock__save-btn"
+              disabled={saving}
+              onClick={() => void handleSave()}
+            >
+              <Save size={14} aria-hidden />
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      ) : readOnlyLocations.length > 0 ? (
         <div className="product-site-stock__table-wrap product-site-stock__table-wrap--warehouse">
-          <table className="product-site-stock__table product-site-stock__table--editable">
+          <table className="product-site-stock__table product-site-stock__table--hero-values">
             <thead>
               <tr>
                 <th>Zone</th>
                 <th>Row</th>
-                <th>Counted qty</th>
-                <th className="product-site-stock__table-action-col">
-                  <button
-                    type="button"
-                    className="product-site-stock__row-add"
-                    onClick={addRow}
-                    disabled={saving}
-                    aria-label="Add row"
-                  >
-                    <Plus size={14} aria-hidden />
-                  </button>
-                </th>
+                <th>Qty</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(row => {
-                const zoneRows = row.zoneId ? (rowsByZone[row.zoneId] ?? []) : [];
-                return (
-                  <tr key={row.id}>
-                    <td>
-                      <select
-                        className="product-site-stock__table-input"
-                        value={row.zoneId}
-                        onChange={e => updateRow(row.id, {
-                          zoneId: e.target.value,
-                          zoneRowNumber: '',
-                        })}
-                        disabled={saving}
-                        aria-label="Zone"
-                      >
-                        <option value="">Select</option>
-                        {zones.map(zone => (
-                          <option key={zone.id} value={zone.id}>
-                            {zone.id.toUpperCase()}{zone.label ? ` — ${zone.label}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        className="product-site-stock__table-input"
-                        value={row.zoneRowNumber}
-                        onChange={e => updateRow(row.id, { zoneRowNumber: e.target.value })}
-                        disabled={saving || !row.zoneId}
-                        aria-label="Row"
-                      >
-                        <option value="">Select</option>
-                        {zoneRows.map(zoneRow => (
-                          <option key={zoneRow.id} value={zoneRow.number}>
-                            {zoneRow.number}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        className="product-site-stock__table-input product-site-stock__table-input--qty"
-                        min={0}
-                        step={1}
-                        value={row.quantity}
-                        onChange={e => updateRow(row.id, { quantity: e.target.value })}
-                        disabled={saving}
-                        aria-label="Counted qty"
-                      />
-                    </td>
-                    <td className="product-site-stock__table-action-col">
-                      <button
-                        type="button"
-                        className="product-site-stock__row-remove"
-                        onClick={() => removeRow(row.id)}
-                        disabled={saving || rows.length <= 1}
-                        aria-label="Remove row"
-                      >
-                        <Trash2 size={14} aria-hidden />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {readOnlyLocations.map((loc, index) => (
+                <tr key={`${loc.zoneId}-${loc.zoneRowNumber}-${index}`}>
+                  <td>{loc.zoneId.toUpperCase()}</td>
+                  <td>{loc.zoneRowNumber}</td>
+                  <td className="product-site-stock__qty-cell">
+                    {formatStockQuantity(loc.quantity, product.unit)}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-
-        {zones.length === 0 && (
-          <p className="text-muted text-sm">Add warehouse zones in Settings → Warehouse first.</p>
-        )}
-        {error && <p className="product-site-stock__error text-sm">{error}</p>}
-
-        <div className="product-site-stock__editor-toolbar">
-          <button
-            type="button"
-            className="btn btn-primary btn-sm product-site-stock__save-btn"
-            disabled={saving}
-            onClick={() => void handleSave()}
-          >
-            <Save size={14} aria-hidden />
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (readOnlyLocations.length === 0) {
-    return (
-      <p className="product-site-stock__empty text-muted text-sm">
-        No warehouse count recorded yet.
-      </p>
-    );
-  }
-
-  return (
-    <div className="product-site-stock__table-wrap product-site-stock__table-wrap--warehouse">
-      <table className="product-site-stock__table">
-        <thead>
-          <tr>
-            <th>Zone</th>
-            <th>Row</th>
-            <th>Qty</th>
-          </tr>
-        </thead>
-        <tbody>
-          {readOnlyLocations.map((loc, index) => (
-            <tr key={`${loc.zoneId}-${loc.zoneRowNumber}-${index}`}>
-              <td>{loc.zoneId.toUpperCase()}</td>
-              <td>{loc.zoneRowNumber}</td>
-              <td className="product-site-stock__qty-cell">
-                {formatStockQuantity(loc.quantity, product.unit)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+      ) : (
+        <p className="product-site-stock__empty text-muted text-sm">
+          {canEdit
+            ? 'No warehouse count recorded yet. Tap the pen icon to add locations.'
+            : 'No warehouse count recorded yet.'}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -388,6 +475,20 @@ export const ProductSiteStockLocations: React.FC<{
     });
   }, [siteConfig.site, siteConfig.warehouseName, auditItems, product]);
 
+  if (siteConfig.site === 'cochin') {
+    return (
+      <CochinLocationSection
+        product={product}
+        siteConfig={siteConfig}
+        record={cochinRecord}
+        canEdit={canEditCochin}
+        editorUid={editorUid}
+        editorName={editorName}
+        onSaved={onCochinSaved}
+      />
+    );
+  }
+
   return (
     <section className="product-site-stock">
       <header className="product-site-stock__header">
@@ -395,27 +496,16 @@ export const ProductSiteStockLocations: React.FC<{
         <SiteTypeBadge site={siteConfig.site} />
       </header>
 
-      {siteConfig.site === 'head_office' ? (
-        headOfficeTotals && headOfficeTotals.parts.length > 0 ? (
-          <HeadOfficeLocationTable
-            product={product}
-            auditItems={auditItems}
-            auditTotals={headOfficeTotals}
-          />
-        ) : (
-          <p className="product-site-stock__empty text-muted text-sm">
-            No store room bins linked to this item yet.
-          </p>
-        )
-      ) : (
-        <CochinLocationEditor
+      {headOfficeTotals && headOfficeTotals.parts.length > 0 ? (
+        <HeadOfficeLocationTable
           product={product}
-          record={cochinRecord}
-          canEdit={canEditCochin}
-          editorUid={editorUid}
-          editorName={editorName}
-          onSaved={onCochinSaved}
+          auditItems={auditItems}
+          auditTotals={headOfficeTotals}
         />
+      ) : (
+        <p className="product-site-stock__empty text-muted text-sm">
+          No store room bins linked to this item yet.
+        </p>
       )}
     </section>
   );
