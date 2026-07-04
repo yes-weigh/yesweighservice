@@ -734,6 +734,26 @@ export async function setCatalogProductStatus(
   }
 }
 
+export async function updateCatalogProductDetails(
+  productId: string,
+  input: { name: string; sku: string },
+): Promise<{ name: string; sku: string }> {
+  const callable = httpsCallable<
+    { productId: string; name: string; sku: string },
+    { ok: boolean; name: string; sku: string }
+  >(functions, 'updateCatalogProductDetails');
+  try {
+    const result = await callable({
+      productId,
+      name: input.name.trim(),
+      sku: input.sku.trim(),
+    });
+    return { name: result.data.name, sku: result.data.sku };
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
 export type CatalogSpareLinkKind = 'spares' | 'products';
 
 export interface CatalogSpareLinksResponse {

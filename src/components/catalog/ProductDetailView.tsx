@@ -10,9 +10,12 @@ import {
   IndianRupee,
   Link2,
   Package,
+  Pencil,
   RefreshCw,
+  Save,
   ShoppingCart,
   Tag,
+  X,
 } from 'lucide-react';
 import {
   downloadCatalogProductImage,
@@ -27,6 +30,7 @@ import {
   saveCatalogProductSpareLinks,
   saveCatalogSpareProductLinks,
   setCatalogProductStatus,
+  updateCatalogProductDetails,
   uploadCatalogProductImage,
 } from '../../lib/catalog';
 import { getCategoryTheme } from '../../lib/category-display';
@@ -42,11 +46,18 @@ import {
 } from '../../lib/yesStore/inventoryAudit';
 import { resolveYesStorePhotoUrls } from '../../lib/yesStore/photos';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
+import { useAuth } from '../../context/AuthContext';
+import { getCatalogSiteInventory } from '../../lib/catalogSiteInventory/data';
 import {
-  formatItemLocationShort,
-  readItemQuantity,
-  type YesStoreItemDoc,
-} from '../../types/yes-store';
+  CATALOG_INVENTORY_SITE_CONFIG,
+  resolveActiveInventorySites,
+} from '../../lib/catalogInventorySites';
+import { ProductSiteStockLocations } from './ProductSiteStockLocations';
+import {
+  catalogSiteInventoryTotalQuantity,
+  type CatalogSiteInventoryDoc,
+} from '../../types/catalog-site-inventory';
+import type { YesStoreItemDoc } from '../../types/yes-store';
 import {
   buildProductNavState,
   buildSpareNavState,
@@ -87,7 +98,7 @@ export const ProductDetailView: React.FC<{
   ordersPath?: string;
   showRelatedLinks?: boolean;
   manageSpareLinks?: boolean;
-  canUploadImage?: boolean;
+  canEditProductDetails?: boolean;
   canSetInactive?: boolean;
   onInactiveSuccess?: () => void;
   productsBasePath?: string;
@@ -107,7 +118,7 @@ export const ProductDetailView: React.FC<{
   ordersPath = '/dealer/orders',
   showRelatedLinks = false,
   manageSpareLinks = false,
-  canUploadImage = false,
+  canEditProductDetails = false,
   canSetInactive = false,
   onInactiveSuccess,
   productsBasePath = '/dealer/catalog',
@@ -115,6 +126,7 @@ export const ProductDetailView: React.FC<{
   currentNavState = null,
 }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const goBack = useCallback(() => {
     if (canNavigateBackInApp()) {
       navigate(-1);
@@ -143,8 +155,14 @@ export const ProductDetailView: React.FC<{
   const [imageError, setImageError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [productEditMode, setProductEditMode] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editSku, setEditSku] = useState('');
+  const [detailsSaving, setDetailsSaving] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [cochinRecord, setCochinRecord] = useState<CatalogSiteInventoryDoc | null>(null);
   const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -215,6 +233,37 @@ export const ProductDetailView: React.FC<{
     };
   }, [showAuditedStock, productId]);
 
+  useEffect(() => {
+    if (!showAuditedStock || !productId) {
+      setCochinRecord(null);
+      return;
+    }
+
+    let active = true;
+    void getCatalogSiteInventory(productId, 'cochin')
+      .then(record => {
+        if (active) setCochinRecord(record);
+      })
+      .catch(() => {
+        if (active) setCochinRecord(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [showAuditedStock, productId]);
+
+  const activeInventorySites = useMemo(() => {
+    if (!product || !showAuditedStock) return [];
+    return resolveActiveInventorySites({
+      product,
+      auditItems,
+      cochinRecord,
+    });
+  }, [product, showAuditedStock, auditItems, cochinRecord]);
+
+  const canEditCochin = showAuditedStock && (user?.role === 'super_admin' || user?.role === 'staff');
+
   const warehousePhotos = useMemo(
     () => collectWarehouseAuditPhotos(auditItems),
     [auditItems],
@@ -249,13 +298,34 @@ export const ProductDetailView: React.FC<{
     return calculateGroupTotals(auditItems, product);
   }, [showAuditedStock, product, auditItems]);
 
+  const summaryAuditedQty = useMemo(() => {
+    if (!showAuditedStock || !product) return null;
+    let total = 0;
+    let hasAny = false;
+    if (activeInventorySites.includes('head_office') && auditTotals) {
+      total += auditTotals.countedQty;
+      hasAny = true;
+    }
+    if (activeInventorySites.includes('cochin') && cochinRecord) {
+      total += catalogSiteInventoryTotalQuantity(cochinRecord);
+      hasAny = true;
+    }
+    if (hasAny) return total;
+    return auditTotals?.countedQty ?? null;
+  }, [showAuditedStock, product, activeInventorySites, auditTotals, cochinRecord]);
+
+  const summaryDifference = useMemo(() => {
+    if (!showAuditedStock || !product || summaryAuditedQty == null) return null;
+    return summaryAuditedQty - product.stock;
+  }, [showAuditedStock, product, summaryAuditedQty]);
+
   const auditedStockLabel = useMemo(() => {
-    if (!auditTotals) return null;
-    if (auditTotals.mode === 'bundle') {
+    if (summaryAuditedQty == null) return null;
+    if (auditTotals?.mode === 'bundle' && activeInventorySites.length === 1 && activeInventorySites[0] === 'head_office') {
       return `${auditTotals.countedQty} complete (${auditTotals.rawCountedQty} parts)`;
     }
-    return formatStockQuantity(auditTotals.countedQty, product?.unit ?? 'pcs');
-  }, [auditTotals, product?.unit]);
+    return formatStockQuantity(summaryAuditedQty, product?.unit ?? 'pcs');
+  }, [summaryAuditedQty, auditTotals, activeInventorySites, product?.unit]);
 
   const summaryColumns = useMemo(() => {
     const cols: Array<{
@@ -271,8 +341,8 @@ export const ProductDetailView: React.FC<{
     if (showAuditedStock) {
       cols.push({ key: 'audited', label: 'Audited stock', tone: 'audited' });
     }
-    if (showAuditedStock && auditTotals?.difference != null) {
-      const difference = auditTotals.difference;
+    if (showAuditedStock && summaryDifference != null) {
+      const difference = summaryDifference;
       cols.push({
         key: 'diff',
         label: 'Difference',
@@ -281,7 +351,7 @@ export const ProductDetailView: React.FC<{
       });
     }
     return cols;
-  }, [showStockQuantity, showAuditedStock, auditTotals?.difference]);
+  }, [showStockQuantity, showAuditedStock, summaryDifference]);
 
   const stockColumns = useMemo(
     () => summaryColumns.filter(col => col.key !== 'price'),
@@ -296,8 +366,8 @@ export const ProductDetailView: React.FC<{
       case 'audited':
         return auditLoading ? '…' : auditedStockLabel ?? '—';
       case 'diff':
-        return auditTotals?.difference != null
-          ? formatQtyDifference(auditTotals.difference)
+        return summaryDifference != null
+          ? formatQtyDifference(summaryDifference)
           : '—';
       default:
         return null;
@@ -383,6 +453,10 @@ export const ProductDetailView: React.FC<{
   }, [product, relatedKind, currentNavState]);
 
   const detail = product as CatalogProductDetail | null;
+  const warehousesWithStock = useMemo(
+    () => detail?.warehouses?.filter(w => w.warehouseName && w.stock > 0) ?? [],
+    [detail?.warehouses],
+  );
   const outOfStock = product?.stockStatus === 'out_of_stock';
   const cartQty = product ? getQuantity(product.id) : 0;
 
@@ -398,7 +472,7 @@ export const ProductDetailView: React.FC<{
   const handleImagePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file || !product || !canUploadImage) return;
+    if (!file || !product || !productEditMode || !canEditProductDetails) return;
 
     setImageUploading(true);
     setImageError(null);
@@ -410,6 +484,49 @@ export const ProductDetailView: React.FC<{
       setImageError(err instanceof Error ? err.message : 'Could not upload image.');
     } finally {
       setImageUploading(false);
+    }
+  };
+
+  const startProductEdit = () => {
+    if (!product || !canEditProductDetails) return;
+    setEditName(product.name);
+    setEditSku(product.sku ?? '');
+    setDetailsError(null);
+    setProductEditMode(true);
+  };
+
+  const cancelProductEdit = () => {
+    setProductEditMode(false);
+    setDetailsError(null);
+    setEditName('');
+    setEditSku('');
+  };
+
+  const handleSaveProductDetails = async () => {
+    if (!product || !canEditProductDetails || detailsSaving) return;
+
+    const name = editName.trim();
+    const sku = editSku.trim();
+    if (!name) {
+      setDetailsError('Item name is required.');
+      return;
+    }
+    if (!sku) {
+      setDetailsError('Item SKU is required.');
+      return;
+    }
+
+    setDetailsSaving(true);
+    setDetailsError(null);
+    try {
+      const saved = await updateCatalogProductDetails(product.id, { name, sku });
+      const syncedAt = new Date().toISOString();
+      setProduct(prev => (prev ? { ...prev, name: saved.name, sku: saved.sku, syncedAt } : prev));
+      setProductEditMode(false);
+    } catch (err) {
+      setDetailsError(err instanceof Error ? err.message : 'Could not save item details.');
+    } finally {
+      setDetailsSaving(false);
     }
   };
 
@@ -499,7 +616,6 @@ export const ProductDetailView: React.FC<{
   }
 
   const specRows = [
-    product.sku ? { label: 'SKU / Model', value: product.sku } : null,
     product.categoryName ? { label: 'Category', value: product.categoryName } : null,
     product.unit ? { label: 'Unit', value: product.unit } : null,
     detail?.hsn ? { label: 'HSN', value: detail.hsn } : null,
@@ -524,120 +640,162 @@ export const ProductDetailView: React.FC<{
       </button>
 
       <div className="product-detail-page__layout">
-        <section className="product-detail-page__gallery">
-          <div
-            className={[
-              'product-detail-page__image-stage',
-              galleryUrls.length > 1 ? 'product-detail-page__image-stage--carousel' : '',
-            ].filter(Boolean).join(' ')}
-          >
-            <StockBadge status={product.stockStatus} overlay variant="tile" />
-            {galleryUrls.length > 1 ? (
-              <>
-                <div
-                  ref={carouselRef}
-                  className="product-detail-page__carousel"
-                  onScroll={handleCarouselScroll}
-                  role="region"
-                  aria-label="Product images"
-                >
-                  {galleryUrls.map((url, index) => (
-                    <div key={`${url}-${index}`} className="product-detail-page__carousel-slide">
-                      <CategoryThumbnail src={url} />
-                    </div>
-                  ))}
-                </div>
-                <div
-                  className="product-detail-page__carousel-dots"
-                  role="tablist"
-                  aria-label="Image navigation"
-                >
-                  {galleryUrls.map((_, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      role="tab"
-                      className={[
-                        'product-detail-page__carousel-dot',
-                        index === activeGalleryIndex ? 'is-active' : '',
-                      ].filter(Boolean).join(' ')}
-                      aria-label={`Image ${index + 1} of ${galleryUrls.length}`}
-                      aria-selected={index === activeGalleryIndex}
-                      onClick={() => scrollToGalleryIndex(index)}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : galleryUrls.length === 1 ? (
-              <CategoryThumbnail src={galleryUrls[0]} />
-            ) : (
-              <Package size={72} className="product-detail-page__placeholder" aria-hidden />
-            )}
-            {canUploadImage && (
-              <div className="product-detail-page__image-actions">
-                {currentGalleryUrl && (
-                  <button
-                    type="button"
-                    className="product-detail-page__image-action"
-                    title="Download product photo"
-                    aria-label="Download product photo"
-                    disabled={imageDownloading || imageUploading}
-                    onClick={() => void handleImageDownload()}
-                  >
-                    {imageDownloading
-                      ? <RefreshCw size={18} className="spin-icon" aria-hidden />
-                      : <Download size={18} aria-hidden />}
-                  </button>
-                )}
+        <div className="product-detail-page__hero">
+          <section className="product-detail-page__gallery">
+            <div
+              className={[
+                'product-detail-page__image-stage',
+                galleryUrls.length > 1 ? 'product-detail-page__image-stage--carousel' : '',
+                canEditProductDetails ? 'product-detail-page__image-stage--editable' : '',
+                productEditMode ? 'product-detail-page__image-stage--editing' : '',
+              ].filter(Boolean).join(' ')}
+            >
+              <StockBadge status={product.stockStatus} overlay variant="tile" />
+              {canEditProductDetails && (
                 <button
                   type="button"
-                  className="product-detail-page__image-action"
-                  title="Capture or upload product photo"
-                  aria-label="Capture or upload product photo"
-                  disabled={imageUploading || imageDownloading}
-                  onClick={() => imageInputRef.current?.click()}
+                  className={[
+                    'product-detail-page__edit-details-btn',
+                    productEditMode ? 'is-active' : '',
+                  ].filter(Boolean).join(' ')}
+                  title={productEditMode ? 'Editing item details' : 'Edit item details'}
+                  aria-label={productEditMode ? 'Editing item details' : 'Edit item details'}
+                  aria-pressed={productEditMode}
+                  onClick={() => (productEditMode ? cancelProductEdit() : startProductEdit())}
                 >
-                  {imageUploading
-                    ? <RefreshCw size={18} className="spin-icon" aria-hidden />
-                    : <Camera size={18} aria-hidden />}
+                  {productEditMode ? <X size={16} aria-hidden /> : <Pencil size={16} aria-hidden />}
                 </button>
-                <input
-                  ref={imageInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="product-detail-page__image-input"
-                  aria-label="Product photo"
-                  onChange={e => void handleImagePick(e)}
-                />
-              </div>
+              )}
+              {galleryUrls.length > 1 ? (
+                <>
+                  <div
+                    ref={carouselRef}
+                    className="product-detail-page__carousel"
+                    onScroll={handleCarouselScroll}
+                    role="region"
+                    aria-label="Product images"
+                  >
+                    {galleryUrls.map((url, index) => (
+                      <div key={`${url}-${index}`} className="product-detail-page__carousel-slide">
+                        <CategoryThumbnail src={url} />
+                      </div>
+                    ))}
+                  </div>
+                  <span className="product-detail-page__carousel-count" aria-hidden>
+                    {activeGalleryIndex + 1}/{galleryUrls.length}
+                  </span>
+                  <div
+                    className="product-detail-page__carousel-dots"
+                    role="tablist"
+                    aria-label="Image navigation"
+                  >
+                    {galleryUrls.map((_, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        role="tab"
+                        className={[
+                          'product-detail-page__carousel-dot',
+                          index === activeGalleryIndex ? 'is-active' : '',
+                        ].filter(Boolean).join(' ')}
+                        aria-label={`Image ${index + 1} of ${galleryUrls.length}`}
+                        aria-selected={index === activeGalleryIndex}
+                        onClick={() => scrollToGalleryIndex(index)}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : galleryUrls.length === 1 ? (
+                <CategoryThumbnail src={galleryUrls[0]} />
+              ) : (
+                <Package size={72} className="product-detail-page__placeholder" aria-hidden />
+              )}
+            </div>
+            {imageError && (
+              <p className="product-detail-page__image-error text-sm">{imageError}</p>
             )}
-          </div>
-          {imageError && (
-            <p className="product-detail-page__image-error text-sm">{imageError}</p>
-          )}
-        </section>
+          </section>
 
-        <section className="product-detail-page__info">
-          {product.categoryName && (
-            <p className="product-detail-page__breadcrumb">
-              <Tag size={13} aria-hidden />
-              <span>{product.categoryName}</span>
-              <ChevronRight size={14} aria-hidden />
-              <span>{isSpareItem ? 'Spare' : 'Product'}</span>
-            </p>
-          )}
+          <section className="product-detail-page__basics">
+            {product.categoryName && (
+              <p className="product-detail-page__breadcrumb">
+                <Tag size={13} aria-hidden />
+                <span>{product.categoryName}</span>
+                <ChevronRight size={14} aria-hidden />
+                <span>{isSpareItem ? 'Spare' : 'Product'}</span>
+              </p>
+            )}
 
-          {!product.categoryName && isSpareItem && (
-            <p className="product-detail-page__breadcrumb">
-              <Tag size={13} aria-hidden />
-              <span>Spare part</span>
-            </p>
-          )}
+            {!product.categoryName && isSpareItem && (
+              <p className="product-detail-page__breadcrumb">
+                <Tag size={13} aria-hidden />
+                <span>Spare part</span>
+              </p>
+            )}
 
-          <div className="product-detail-page__title-row">
-            <h1 className="product-detail-page__title">{formatProductTitle(product.name)}</h1>
-            {canSetInactive && (isCategorizedProduct || isSpareItem) && (
+            <h1 className="product-detail-page__title">
+              {productEditMode ? (
+                <input
+                  type="text"
+                  className="product-detail-page__title-input"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  disabled={detailsSaving}
+                  aria-label="Item name"
+                />
+              ) : (
+                formatProductTitle(product.name)
+              )}
+            </h1>
+
+            {(product.sku || productEditMode) && (
+              productEditMode ? (
+                <label className="product-detail-page__sku-field">
+                  <span className="product-detail-page__sku-label">Model</span>
+                  <input
+                    type="text"
+                    className="product-detail-page__sku-input"
+                    value={editSku}
+                    onChange={e => setEditSku(e.target.value)}
+                    disabled={detailsSaving}
+                    aria-label="Item SKU"
+                  />
+                </label>
+              ) : (
+                <p className="product-detail-page__sku">Model: {product.sku}</p>
+              )
+            )}
+
+            {productEditMode && (
+              <>
+                {detailsError && (
+                  <p className="product-detail-page__details-error text-sm">{detailsError}</p>
+                )}
+                <div className="product-detail-page__details-edit-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={detailsSaving || imageUploading}
+                    onClick={() => void handleSaveProductDetails()}
+                  >
+                    {detailsSaving
+                      ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                      : <Save size={15} aria-hidden />}
+                    {detailsSaving ? 'Saving…' : 'Save to Zoho'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={detailsSaving || imageUploading}
+                    onClick={cancelProductEdit}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+
+            {!productEditMode && canSetInactive && (isCategorizedProduct || isSpareItem) && (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm product-detail-page__inactive-btn product-detail-page__inactive-btn--inline"
@@ -650,15 +808,59 @@ export const ProductDetailView: React.FC<{
                 Set inactive on Zoho
               </button>
             )}
-          </div>
-          {statusError && (
-            <p className="product-detail-page__status-error text-sm">{statusError}</p>
-          )}
+            {statusError && (
+              <p className="product-detail-page__status-error text-sm">{statusError}</p>
+            )}
 
-          {product.sku && (
-            <p className="product-detail-page__sku">Model: {product.sku}</p>
-          )}
+            {productEditMode && canEditProductDetails && (
+              <div className="product-detail-page__media-actions">
+                {currentGalleryUrl && (
+                  <button
+                    type="button"
+                    className="product-detail-page__media-action"
+                    title="Download product photo"
+                    aria-label="Download product photo"
+                    disabled={imageDownloading || imageUploading}
+                    onClick={() => void handleImageDownload()}
+                  >
+                    <span className="product-detail-page__media-action-icon">
+                      {imageDownloading
+                        ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                        : <Download size={18} aria-hidden />}
+                    </span>
+                    <span className="product-detail-page__media-action-label">Download</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="product-detail-page__media-action"
+                  title="Capture or upload product photo"
+                  aria-label="Capture or upload product photo"
+                  disabled={imageUploading || imageDownloading}
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  <span className="product-detail-page__media-action-icon">
+                    {imageUploading
+                      ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                      : <Camera size={18} aria-hidden />}
+                  </span>
+                  <span className="product-detail-page__media-action-label">Take Photo</span>
+                </button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="product-detail-page__image-input"
+                  aria-label="Product photo"
+                  onChange={e => void handleImagePick(e)}
+                />
+              </div>
+            )}
+          </section>
+        </div>
 
+        <section className="product-detail-page__main">
           <div className="product-detail-page__summary-panel">
             <div
               className={[
@@ -719,76 +921,22 @@ export const ProductDetailView: React.FC<{
             )}
           </div>
 
-          {showAuditedStock && auditTotals && auditTotals.parts.length > 0 && (
+          {showAuditedStock && activeInventorySites.length > 0 && (
             <div className="product-detail-page__stock-locations">
-              <h2 className="product-detail-page__stock-locations-title">
-                Stock locations ({auditTotals.parts.length})
-              </h2>
-              {auditTotals.parts.map((part, locationIndex) => {
-                const binItem = auditItems.find(item => item.id === part.itemId);
-                if (!binItem) return null;
-
-                const locationShort = formatItemLocationShort(
-                  binItem.rackId,
-                  binItem.rowNumber,
-                  binItem.binNumber,
-                );
-                const showPartLabel =
-                  auditTotals.mode === 'bundle' && part.partLabel.trim() !== locationShort;
-                const quantity = formatStockQuantity(
-                  readItemQuantity(binItem),
-                  product.unit,
-                );
-                const isBundle = auditTotals.mode === 'bundle';
-                const locationCols = isBundle ? 5 : 4;
-
-                const labelCells = isBundle
-                  ? ['Rack', 'Row', 'Bin', 'Part', 'Counted qty']
-                  : ['Rack', 'Row', 'Bin', 'Counted qty'];
-                const valueCells = [
-                  { key: 'rack', tone: 'location' as const, value: binItem.rackId.toUpperCase() },
-                  { key: 'row', tone: 'location' as const, value: String(binItem.rowNumber) },
-                  { key: 'bin', tone: 'location' as const, value: String(binItem.binNumber) },
-                  ...(isBundle
-                    ? [{
-                        key: 'part',
-                        tone: 'zoho' as const,
-                        value: showPartLabel ? part.partLabel : '—',
-                      }]
-                    : []),
-                  { key: 'qty', tone: 'audited' as const, value: quantity },
-                ];
-
-                return (
-                  <div
-                    key={part.itemId}
-                    className="product-detail-page__location-table"
-                    style={{ '--location-cols': locationCols } as React.CSSProperties}
-                    aria-label={`Stock location ${locationIndex + 1} of ${auditTotals.parts.length}`}
-                  >
-                    {labelCells.map(label => (
-                      <div
-                        key={label}
-                        className="product-detail-page__summary-cell product-detail-page__summary-cell--label product-detail-page__summary-cell--location"
-                      >
-                        {label}
-                      </div>
-                    ))}
-                    {valueCells.map(cell => (
-                      <div
-                        key={cell.key}
-                        className={[
-                          'product-detail-page__summary-cell',
-                          'product-detail-page__summary-cell--value',
-                          `product-detail-page__summary-cell--${cell.tone}`,
-                        ].join(' ')}
-                      >
-                        {cell.value}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
+              <h2 className="product-detail-page__stock-locations-title">Storage locations</h2>
+              {activeInventorySites.map(site => (
+                <ProductSiteStockLocations
+                  key={site}
+                  product={product as CatalogProductDetail}
+                  siteConfig={CATALOG_INVENTORY_SITE_CONFIG[site]}
+                  auditItems={site === 'head_office' ? auditItems : []}
+                  cochinRecord={site === 'cochin' ? cochinRecord : null}
+                  canEditCochin={canEditCochin}
+                  editorUid={user?.uid ?? ''}
+                  editorName={user?.displayName}
+                  onCochinSaved={setCochinRecord}
+                />
+              ))}
             </div>
           )}
 
@@ -856,11 +1004,11 @@ export const ProductDetailView: React.FC<{
             </div>
           )}
 
-          {showWarehouseStock && detail?.warehouses && detail.warehouses.length > 0 && (
+          {showWarehouseStock && warehousesWithStock.length > 0 && (
             <div className="product-detail-page__section">
               <h2>Availability by warehouse</h2>
               <ul className="product-detail-page__warehouses">
-                {detail.warehouses.map(w => (
+                {warehousesWithStock.map(w => (
                   <li key={w.warehouseId}>
                     <span>{w.warehouseName}</span>
                     <strong>

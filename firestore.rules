@@ -617,5 +617,20 @@ service cloud.firestore {
     match /yesStoreItems/{itemId} {
       allow read, write: if canAccessYesStore();
     }
+
+    match /warehouseZones/{zoneId} {
+      allow read: if isOpsUser() || isWarehouse();
+      allow write: if isSuperAdmin();
+    }
+
+    match /warehouseZoneRows/{rowId} {
+      allow read: if isOpsUser() || isWarehouse();
+      allow write: if isSuperAdmin();
+    }
+
+    match /catalogSiteInventory/{docId} {
+      allow read: if isOpsUser() || isWarehouse();
+      allow write: if isSuperAdmin() || isStaff();
+    }
   }
 }

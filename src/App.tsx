@@ -31,6 +31,10 @@ import { AdminInvoicePdfViewerPage } from './pages/admin/AdminInvoicePdfViewerPa
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
+import { SettingsLayout } from './pages/admin/SettingsLayout';
+import { SettingsProfileTab } from './pages/admin/settings/SettingsProfileTab';
+import { WarehouseLocationsTab } from './pages/admin/settings/WarehouseLocationsTab';
+import { StoreRoomTab } from './pages/admin/settings/StoreRoomTab';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -172,7 +176,12 @@ const App: React.FC = () => (
               </Route>
               <Route path="invoices/sync" element={<AdminInvoiceSyncPage />} />
               {superAdminOpsRoutes}
-              <Route path="profile" element={<ProfilePage />} />
+              <Route path="settings" element={<SettingsLayout />}>
+                <Route path="profile" element={<SettingsProfileTab />} />
+                <Route path="warehouse" element={<WarehouseLocationsTab />} />
+                <Route path="store-room" element={<StoreRoomTab />} />
+              </Route>
+              <Route path="profile" element={<Navigate to="/super-admin/settings/profile" replace />} />
             </Route>
           </Route>
 

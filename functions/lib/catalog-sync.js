@@ -527,6 +527,23 @@ export async function patchProductStatus(productId, status) {
   }, { merge: true });
 }
 
+export async function patchProductDetails(productId, input) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+
+  const name = String(input?.name ?? '').trim();
+  const sku = String(input?.sku ?? '').trim();
+  if (!name) throw new Error('Item name is required.');
+  if (!sku) throw new Error('Item SKU is required.');
+
+  const db = getFirestore();
+  await db.collection(PRODUCTS_COLLECTION).doc(id).set({
+    name,
+    sku,
+    syncedAt: new Date().toISOString(),
+  }, { merge: true });
+}
+
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 export async function saveCategoryOrder(categories) {

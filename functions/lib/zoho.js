@@ -439,3 +439,23 @@ export async function setProductStatus(accessToken, orgId, itemId, status) {
 
   await putZohoItemUpdate(accessToken, orgId, itemId, body);
 }
+
+/** Update item name and SKU on Zoho — India org requires label_rate on PUT. */
+export async function updateProductDetails(accessToken, orgId, itemId, input) {
+  const name = String(input?.name ?? '').trim();
+  const sku = String(input?.sku ?? '').trim();
+  if (!name) throw new Error('Item name is required.');
+  if (!sku) throw new Error('Item SKU is required.');
+
+  const item = await fetchZohoItemForUpdate(accessToken, orgId, itemId);
+  const body = {
+    name,
+    sku,
+    label_rate: resolveLabelRate(item),
+  };
+  const categoryId = normaliseCategoryId(item.category_id);
+  if (categoryId) body.category_id = categoryId;
+  if (item.status) body.status = item.status;
+
+  await putZohoItemUpdate(accessToken, orgId, itemId, body);
+}

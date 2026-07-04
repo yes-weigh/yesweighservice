@@ -134,6 +134,66 @@ export async function ensureBin(
   return docData;
 }
 
+export async function listRacks(): Promise<YesStoreRackDoc[]> {
+  const snap = await getDocs(collection(db, 'yesStoreRacks'));
+  return snap.docs
+    .map(d => d.data() as YesStoreRackDoc)
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export async function listRowsByRack(rackId: string): Promise<YesStoreRowDoc[]> {
+  const snap = await getDocs(
+    query(collection(db, 'yesStoreRows'), where('rackId', '==', rackId.toLowerCase())),
+  );
+  return snap.docs
+    .map(d => d.data() as YesStoreRowDoc)
+    .sort((a, b) => a.number - b.number);
+}
+
+export async function listBinsByRow(
+  rackId: string,
+  rowNumber: RowNumber,
+): Promise<YesStoreBinDoc[]> {
+  const rowId = rowDocId(rackId, rowNumber);
+  const snap = await getDocs(
+    query(collection(db, 'yesStoreBins'), where('rowId', '==', rowId)),
+  );
+  return snap.docs
+    .map(d => d.data() as YesStoreBinDoc)
+    .sort((a, b) => a.number - b.number);
+}
+
+export async function countItemsInBin(
+  rackId: string,
+  rowNumber: RowNumber,
+  binNumber: BinNumber,
+): Promise<number> {
+  const items = await listItemsInBin(rackId, rowNumber, binNumber);
+  return items.length;
+}
+
+export async function deleteRackIfEmpty(rackId: string): Promise<void> {
+  const rows = await listRowsByRack(rackId);
+  if (rows.length) throw new Error('Remove all rows before deleting this rack.');
+  await deleteDoc(rackRef(rackId));
+}
+
+export async function deleteRowIfEmpty(rackId: string, rowNumber: RowNumber): Promise<void> {
+  const bins = await listBinsByRow(rackId, rowNumber);
+  if (bins.length) throw new Error('Remove all bins before deleting this row.');
+  await deleteDoc(rowRef(rackId, rowNumber));
+}
+
+export async function deleteBinIfEmpty(
+  rackId: string,
+  rowNumber: RowNumber,
+  binNumber: BinNumber,
+): Promise<void> {
+  const count = await countItemsInBin(rackId, rowNumber, binNumber);
+  if (count > 0) throw new Error('This bin has audited items. Clear or move them first.');
+  await deleteDoc(binRef(rackId, rowNumber, binNumber));
+}
+
 export async function listItemsInBin(
   rackId: string,
   rowNumber: RowNumber,

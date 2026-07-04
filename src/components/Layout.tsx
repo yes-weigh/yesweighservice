@@ -24,6 +24,7 @@ import {
   FileText,
   ShoppingCart,
   UserCircle,
+  Settings,
   Users,
   Building2,
   Menu,
@@ -277,7 +278,11 @@ const LayoutShell: React.FC = () => {
 
   const navItems = getNavItems();
   const home = homePathForRole(user.role);
-  const profilePath = `${home}/profile`;
+  const isSuperAdmin = user.role === 'super_admin';
+  const footerNavPath = isSuperAdmin ? `${home}/settings` : `${home}/profile`;
+  const isFooterNavActive = isSuperAdmin
+    ? location.pathname === footerNavPath || location.pathname.startsWith(`${footerNavPath}/`)
+    : location.pathname === footerNavPath;
 
   const currentNavItem = navItems.find(item => {
     if (location.pathname === item.path) return true;
@@ -285,7 +290,6 @@ const LayoutShell: React.FC = () => {
     return location.pathname.startsWith(`${item.path}/`);
   });
 
-  const isProfileActive = profilePath !== null && location.pathname === profilePath;
   const isCatalogSpareDetail = /\/catalog\/spare\/[^/]+$/.test(location.pathname);
   const isCatalogProductDetail = /\/catalog\/[^/]+$/.test(location.pathname)
     && !isCatalogSpareDetail
@@ -304,8 +308,8 @@ const LayoutShell: React.FC = () => {
   const isInvoiceDetail = /\/invoices\/[^/]+(\/(invoice(\/view)?|payments|logistic|qc))?$/.test(location.pathname);
   const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname)
     && !location.pathname.endsWith('/complaint-guidelines');
-  const pageTitle = isProfileActive
-    ? 'Profile'
+  const pageTitle = isFooterNavActive
+    ? (isSuperAdmin ? 'Settings' : 'Profile')
     : isDealerDetail
       ? 'Dealer'
     : isInvoiceDetail
@@ -400,19 +404,21 @@ const LayoutShell: React.FC = () => {
           ))}
         </nav>
 
-        {profilePath && (
+        {footerNavPath && (
           <div className="sidebar-profile">
             <button
               type="button"
-              className={`nav-item ${isProfileActive ? 'active' : ''}`}
-              onClick={() => handleNavClick(profilePath)}
-              aria-label="Open profile"
-              title="Profile"
+              className={`nav-item ${isFooterNavActive ? 'active' : ''}`}
+              onClick={() => handleNavClick(isSuperAdmin ? `${home}/settings/profile` : footerNavPath)}
+              aria-label={isSuperAdmin ? 'Open settings' : 'Open profile'}
+              title={isSuperAdmin ? 'Settings' : 'Profile'}
             >
               <span className="nav-icon">
-                <UserCircle size={20} />
+                {isSuperAdmin ? <Settings size={20} /> : <UserCircle size={20} />}
               </span>
-              {!collapsed && <span className="nav-label">Profile</span>}
+              {!collapsed && (
+                <span className="nav-label">{isSuperAdmin ? 'Settings' : 'Profile'}</span>
+              )}
             </button>
           </div>
         )}

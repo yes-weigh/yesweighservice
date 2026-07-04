@@ -34,7 +34,7 @@ export const ProductDetailPage: React.FC = () => {
   const showStockQuantity = showWarehouseStock || canViewCatalogStock(user);
   const showCartActions = canUseCart(user?.role);
   const manageSpareLinks = user?.role === 'staff' || user?.role === 'super_admin';
-  const canUploadImage = manageSpareLinks;
+  const canEditProductDetails = manageSpareLinks;
   const canSetInactive = user?.role === 'super_admin';
   const showAuditedStock = user?.role === 'staff' || user?.role === 'super_admin';
   const showRelatedLinks =
@@ -73,7 +73,7 @@ export const ProductDetailPage: React.FC = () => {
         showCartActions={showCartActions}
         showRelatedLinks={showRelatedLinks}
         manageSpareLinks={manageSpareLinks}
-        canUploadImage={canUploadImage}
+        canEditProductDetails={canEditProductDetails}
         canSetInactive={canSetInactive}
         onInactiveSuccess={handleInactiveSuccess}
         productsBasePath={productsBasePath}

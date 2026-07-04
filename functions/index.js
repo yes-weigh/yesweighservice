@@ -10,12 +10,14 @@ import {
   fetchProductDetail,
   moveProductToCategory,
   setProductStatus,
+  updateProductDetails,
 } from './lib/zoho.js';
 import {
   syncCatalogToFirestore,
   readCatalogFromFirestore,
   patchProductCategory,
   patchProductStatus,
+  patchProductDetails,
   saveCategoryOrder,
   uploadCategoryThumbnail,
   uploadProductImage,
@@ -406,6 +408,45 @@ export const setCatalogProductStatus = onCall(
       return { ok: true, status };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update item status on Zoho.');
+    }
+  },
+);
+
+/** Update Zoho item name and SKU — staff / super admin only. */
+export const updateCatalogProductDetails = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    const name = String(request.data?.name ?? '').trim();
+    const sku = String(request.data?.sku ?? '').trim();
+
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+    if (!name) {
+      throw new HttpsError('invalid-argument', 'name is required.');
+    }
+    if (!sku) {
+      throw new HttpsError('invalid-argument', 'sku is required.');
+    }
+
+    const secrets = zohoSecrets();
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+
+    try {
+      await updateProductDetails(accessToken, organizationId, productId, { name, sku });
+      await patchProductDetails(productId, { name, sku });
+      return { ok: true, name, sku };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not update item details on Zoho.');
     }
   },
 );
