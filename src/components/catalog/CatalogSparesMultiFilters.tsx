@@ -108,6 +108,7 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
         ) : null}
       </div>
 
+      <div className="catalog-spares-multi-filters__body">
       <div className="catalog-spares-multi-filters__group">
         <span className="catalog-spares-multi-filters__label">Product status</span>
         <div className="catalog-spares-multi-filters__options" role="group" aria-label="Product status filters">
@@ -170,6 +171,7 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
             />
           ))}
         </div>
+      </div>
       </div>
 
       {showFooter && (
