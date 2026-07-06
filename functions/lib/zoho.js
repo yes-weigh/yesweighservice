@@ -382,6 +382,38 @@ export async function uploadProductImageToZoho(accessToken, orgId, itemId, buffe
   return payload ?? { ok: true };
 }
 
+/** Remove the primary item image from Zoho Inventory. */
+export async function deleteProductImageFromZoho(accessToken, orgId, itemId) {
+  const url = `${ZOHO_API_BASE}/items/${itemId}/image?organization_id=${orgId}`;
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+  });
+
+  if (response.status === 404) {
+    return { ok: true };
+  }
+
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (payload?.code !== undefined && payload.code !== 0) {
+    throw new Error(payload.message || 'Zoho image delete failed.');
+  }
+  if (!response.ok) {
+    throw new Error(payload?.message || `Zoho image delete failed (${response.status}).`);
+  }
+
+  return payload ?? { ok: true };
+}
+
 async function fetchZohoItemForUpdate(accessToken, orgId, itemId) {
   const detailUrl = `${ZOHO_API_BASE}/items/${itemId}?organization_id=${orgId}`;
   const detailRes = await fetch(detailUrl, { headers: authHeaders(accessToken, orgId) });

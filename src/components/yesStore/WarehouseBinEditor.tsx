@@ -14,6 +14,7 @@ import {
   listItemsInBin,
   updateItem,
 } from '../../lib/yesStore/data';
+import { recordCatalogProductAuditForYesStoreItem } from '../../lib/catalogProductAudit/data';
 import { deleteYesStorePhotos, uploadYesStorePhoto, validateYesStoreImage } from '../../lib/yesStore/photos';
 import { YesStorePhotoImg } from './YesStorePhotoImg';
 import { pendingFromFile, type PhotoSlot } from './ItemPhotoQtyForm';
@@ -180,10 +181,12 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
           prev.map(r => (r.key === rowKey ? itemToRow(created) : r)),
         );
         onSaved?.();
+        void recordCatalogProductAuditForYesStoreItem(created.id).catch(() => undefined);
         return true;
       }
 
       row.slots.forEach(revokePending);
+      const savedItemId = row.itemId;
       setRows(prev =>
         prev.map(r =>
           r.key === rowKey
@@ -203,6 +206,9 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
         ),
       );
       onSaved?.();
+      if (savedItemId) {
+        void recordCatalogProductAuditForYesStoreItem(savedItemId).catch(() => undefined);
+      }
       return true;
     } catch (err: unknown) {
       setRows(prev =>

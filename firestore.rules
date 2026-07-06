@@ -189,6 +189,11 @@ service cloud.firestore {
     match /catalogProducts/{productId} {
       allow read: if true;
       allow write: if false;
+
+      match /auditLogs/{logId} {
+        allow read: if isOpsUser() || isWarehouse();
+        allow write: if false;
+      }
     }
 
     match /catalogCategories/{categoryId} {

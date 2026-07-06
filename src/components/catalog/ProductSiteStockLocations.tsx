@@ -14,6 +14,7 @@ import {
   listWarehouseZones,
 } from '../../lib/warehouseLocations/data';
 import { saveCatalogSiteInventory } from '../../lib/catalogSiteInventory/data';
+import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import {
   getCatalogSiteInventoryLocations,
@@ -325,6 +326,7 @@ function CochinLocationSection({
       });
       onSaved(saved);
       setEditing(false);
+      void recordCatalogProductAudit(product.id, 'cochin_inventory').catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save Cochin stock.');
     } finally {

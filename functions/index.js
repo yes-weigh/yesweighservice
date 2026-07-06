@@ -8,22 +8,27 @@ import {
   getAccessToken,
   resolveOrganizationId,
   fetchProductDetail,
-  moveProductToCategory,
-  setProductStatus,
-  updateProductDetails,
 } from './lib/zoho.js';
 import {
   syncCatalogToFirestore,
   readCatalogFromFirestore,
-  patchProductCategory,
-  patchProductStatus,
-  patchProductDetails,
   patchProductPackageInfo,
   readPackageInfo,
   saveCategoryOrder,
   uploadCategoryThumbnail,
-  uploadProductImage,
 } from './lib/catalog-sync.js';
+import {
+  mutateCatalogProductDetails,
+  mutateCatalogProductStatus,
+  mutateCatalogProductCategory,
+  mutateCatalogProductImageUpload,
+  mutateCatalogProductImageDelete,
+} from './lib/catalog-product-mutations.js';
+import {
+  recordCatalogProductAudit as persistCatalogProductAudit,
+  listCatalogProductAuditLogs,
+  backfillLegacyCatalogProductAudits,
+} from './lib/catalog-product-audit.js';
 import {
   getLinkedSparesForProduct,
   getLinkedProductsForSpare,
@@ -218,6 +223,9 @@ export const getCatalogProductDetail = onCall(
       if (packageInfo) {
         detail.packageInfo = packageInfo;
       }
+      if (data?.auditSnapshot) {
+        detail.auditSnapshot = data.auditSnapshot;
+      }
     }
 
     return detail;
@@ -376,9 +384,43 @@ export const uploadCatalogProductImage = onCall(
     const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
 
     try {
-      return await uploadProductImage(productId, buffer, contentType, accessToken, organizationId);
+      return await mutateCatalogProductImageUpload(
+        productId,
+        buffer,
+        contentType,
+        accessToken,
+        organizationId,
+      );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Product image upload failed.');
+    }
+  },
+);
+
+/** Delete product/spare image from Zoho + Firebase cache — staff / super admin only. */
+export const deleteCatalogProductImage = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+
+    const secrets = zohoSecrets();
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+
+    try {
+      return await mutateCatalogProductImageDelete(productId, accessToken, organizationId);
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Product image delete failed.');
     }
   },
 );
@@ -409,8 +451,7 @@ export const setCatalogProductStatus = onCall(
     const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
 
     try {
-      await setProductStatus(accessToken, organizationId, productId, status);
-      await patchProductStatus(productId, status);
+      await mutateCatalogProductStatus(accessToken, organizationId, productId, status);
       return { ok: true, status };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update item status on Zoho.');
@@ -448,9 +489,8 @@ export const updateCatalogProductDetails = onCall(
     const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
 
     try {
-      await updateProductDetails(accessToken, organizationId, productId, { name, sku });
-      await patchProductDetails(productId, { name, sku });
-      return { ok: true, name, sku };
+      const saved = await mutateCatalogProductDetails(accessToken, organizationId, productId, { name, sku });
+      return { ok: true, ...saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update item details on Zoho.');
     }
@@ -490,6 +530,95 @@ export const updateCatalogProductPackageInfo = onCall(
       return { ok: true, packageInfo: saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not save package information.');
+    }
+  },
+);
+
+/** Record a product-level inventory audit snapshot (live Zoho + warehouse counts). */
+export const recordCatalogProductAudit = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SYNC_ROLES);
+
+    const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
+    const trigger = String(request.data?.trigger ?? 'manual').trim();
+
+    if (!catalogProductId) {
+      throw new HttpsError('invalid-argument', 'catalogProductId is required.');
+    }
+    if (!['warehouse_count', 'cochin_inventory', 'manual'].includes(trigger)) {
+      throw new HttpsError('invalid-argument', 'Invalid audit trigger.');
+    }
+
+    const userSnap = uid ? await getFirestore().doc(`users/${uid}`).get() : null;
+    const displayName = userSnap?.exists
+      ? String(userSnap.data()?.displayName ?? userSnap.data()?.name ?? '').trim() || null
+      : null;
+
+    try {
+      const result = await persistCatalogProductAudit(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        catalogProductId,
+        { trigger, editor: { uid: uid ?? null, displayName } },
+      );
+      return result;
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not record product audit.');
+    }
+  },
+);
+
+/** List audit history for a catalog product. */
+export const getCatalogProductAuditLogs = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
+    const max = Number(request.data?.max ?? 20);
+
+    if (!catalogProductId) {
+      throw new HttpsError('invalid-argument', 'catalogProductId is required.');
+    }
+
+    try {
+      const logs = await listCatalogProductAuditLogs(catalogProductId, max);
+      return { logs };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not load audit history.');
+    }
+  },
+);
+
+/** Migrate existing warehouse + Cochin counts into audit snapshots (idempotent). */
+export const backfillCatalogProductAuditsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const dryRun = Boolean(request.data?.dryRun);
+    const onlyMissing = request.data?.onlyMissing !== false;
+
+    try {
+      return await backfillLegacyCatalogProductAudits({ dryRun, onlyMissing });
+    } catch (err) {
+      console.error('backfillCatalogProductAudits failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Audit backfill failed.');
     }
   },
 );
@@ -573,8 +702,7 @@ export const assignCatalogProductCategory = onCall(
     const accessToken = await getAccessToken(secrets);
     const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
 
-    await moveProductToCategory(accessToken, organizationId, productId, categoryId);
-    await patchProductCategory(productId, categoryId, categoryName);
+    await mutateCatalogProductCategory(accessToken, organizationId, productId, categoryId, categoryName);
 
     return { ok: true };
   },

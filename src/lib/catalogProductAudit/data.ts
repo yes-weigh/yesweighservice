@@ -1,0 +1,90 @@
+import {
+  collection,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+} from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db } from '../../firebase';
+import type {
+  CatalogProductAuditLog,
+  CatalogProductAuditSnapshot,
+  CatalogProductAuditTrigger,
+} from '../../types/catalog-product-audit';
+import { getItem } from '../yesStore/data';
+
+const functions = getFunctions(app, 'asia-south1');
+
+function mapAuditLog(id: string, data: Record<string, unknown>): CatalogProductAuditLog {
+  return {
+    id,
+    catalogProductId: String(data.catalogProductId ?? ''),
+    auditedAt: String(data.auditedAt ?? ''),
+    auditedByUid: (data.auditedByUid as string | null) ?? null,
+    auditedByName: (data.auditedByName as string | null) ?? null,
+    mode: data.mode === 'bundle' ? 'bundle' : 'unit',
+    headOfficeQty: Number(data.headOfficeQty ?? 0),
+    cochinQty: Number(data.cochinQty ?? 0),
+    physicalQty: Number(data.physicalQty ?? 0),
+    rawPhysicalQty: data.rawPhysicalQty != null ? Number(data.rawPhysicalQty) : null,
+    zohoQtyAtAudit: Number(data.zohoQtyAtAudit ?? 0),
+    baselineDifference: Number(data.baselineDifference ?? 0),
+    trigger: (data.trigger as CatalogProductAuditTrigger) ?? 'manual',
+  };
+}
+
+export function mapAuditSnapshot(data: unknown): CatalogProductAuditSnapshot | null {
+  if (!data || typeof data !== 'object') return null;
+  const row = data as Record<string, unknown>;
+  if (!row.lastAuditedAt || row.baselineDifference == null) return null;
+  return {
+    lastAuditLogId: String(row.lastAuditLogId ?? ''),
+    lastAuditedAt: String(row.lastAuditedAt),
+    lastAuditedByUid: (row.lastAuditedByUid as string | null) ?? null,
+    lastAuditedByName: (row.lastAuditedByName as string | null) ?? null,
+    baselineDifference: Number(row.baselineDifference),
+    physicalQtyAtAudit: Number(row.physicalQtyAtAudit ?? 0),
+    zohoQtyAtAudit: Number(row.zohoQtyAtAudit ?? 0),
+    mode: row.mode === 'bundle' ? 'bundle' : 'unit',
+    headOfficeQtyAtAudit: Number(row.headOfficeQtyAtAudit ?? 0),
+    cochinQtyAtAudit: Number(row.cochinQtyAtAudit ?? 0),
+  };
+}
+
+export async function fetchCatalogProductAuditLogs(
+  catalogProductId: string,
+  max = 20,
+): Promise<CatalogProductAuditLog[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, 'catalogProducts', catalogProductId, 'auditLogs'),
+      orderBy('auditedAt', 'desc'),
+      limit(max),
+    ),
+  );
+  return snap.docs.map(docSnap => mapAuditLog(docSnap.id, docSnap.data() as Record<string, unknown>));
+}
+
+export async function recordCatalogProductAudit(
+  catalogProductId: string,
+  trigger: CatalogProductAuditTrigger = 'manual',
+): Promise<{ log: CatalogProductAuditLog; skipped: boolean }> {
+  const callable = httpsCallable<
+    { catalogProductId: string; trigger: CatalogProductAuditTrigger },
+    { log: CatalogProductAuditLog; skipped: boolean }
+  >(functions, 'recordCatalogProductAudit', { timeout: 60_000 });
+
+  const result = await callable({ catalogProductId, trigger });
+  return result.data;
+}
+
+/** Record a product audit after a linked yesStore bin count changes. */
+export async function recordCatalogProductAuditForYesStoreItem(
+  itemId: string,
+): Promise<{ log: CatalogProductAuditLog; skipped: boolean } | null> {
+  const item = await getItem(itemId);
+  const catalogProductId = item?.catalogProductId?.trim();
+  if (!catalogProductId) return null;
+  return recordCatalogProductAudit(catalogProductId, 'warehouse_count');
+}

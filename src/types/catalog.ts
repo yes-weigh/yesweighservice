@@ -1,3 +1,5 @@
+import type { CatalogProductAuditSnapshot } from './catalog-product-audit';
+
 export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
 
 /** Pieces-per-package and physical dimensions — stored in Firestore only (not synced to Zoho). */
@@ -38,6 +40,8 @@ export interface CatalogProduct {
   warehouses?: CatalogWarehouse[];
   /** Firestore-only packaging details (master carton + single box). */
   packageInfo?: CatalogPackageInfo | null;
+  /** Latest recorded inventory audit snapshot (Firestore only). */
+  auditSnapshot?: CatalogProductAuditSnapshot | null;
 }
 
 export interface CatalogCategory {

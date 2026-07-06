@@ -23,6 +23,7 @@ import {
 } from '../../lib/yesStore/inventoryAudit';
 import { formatAuditDateTime } from '../../lib/yesStore/format';
 import { resolveYesStorePhotoUrls } from '../../lib/yesStore/photos';
+import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 import { AuditIconPanel, AuditIconRow, type AuditIconTone } from './AuditIconRow';
@@ -32,6 +33,7 @@ interface InventoryAuditProductPreviewProps {
   items: YesStoreItemDoc[];
   totals: InventoryAuditGroupTotals;
   linkerNamesByUid?: Map<string, string>;
+  cochinQty?: number;
 }
 
 function iconMetaForLabel(label: string): { icon: LucideIcon; tone: AuditIconTone } {
@@ -66,6 +68,7 @@ export const InventoryAuditProductPreview: React.FC<InventoryAuditProductPreview
   items,
   totals,
   linkerNamesByUid,
+  cochinQty = 0,
 }) => {
   const warehouseCount = resolveGroupWarehouseCount(items);
   const linkInfo = resolveGroupLinkInfo(items);
@@ -92,17 +95,27 @@ export const InventoryAuditProductPreview: React.FC<InventoryAuditProductPreview
     ...warehousePhotoUrls.filter(url => url !== product.imageUrl),
   ];
 
-  const auditedQtyLabel =
-    totals.mode === 'bundle'
+  const livePhysicalQty = totals.countedQty + cochinQty;
+  const adjusted = resolveAdjustedAuditDisplay({
+    currentZohoQty: product.stock,
+    snapshot: product.auditSnapshot ?? null,
+    livePhysicalQty,
+  });
+
+  const auditedQtyLabel = adjusted.displayAuditedQty == null
+    ? '—'
+    : totals.mode === 'bundle' && !adjusted.hasAuditSnapshot
       ? `${totals.countedQty} complete (${totals.rawCountedQty} parts)`
-      : String(totals.countedQty);
+      : adjusted.hasAuditSnapshot && totals.mode === 'bundle'
+        ? `${adjusted.displayAuditedQty} adj. (${totals.rawCountedQty} parts live)`
+        : formatStockQuantity(adjusted.displayAuditedQty, product.unit);
 
   const differenceText =
-    totals.difference != null ? formatQtyDifference(totals.difference) : '—';
+    adjusted.displayDifference != null ? formatQtyDifference(adjusted.displayDifference) : '—';
 
   const differenceClass =
-    totals.difference != null && totals.difference !== 0
-      ? `is-audit-diff ${totals.difference > 0 ? 'is-over' : 'is-under'}`
+    adjusted.displayDifference != null && adjusted.displayDifference !== 0
+      ? `is-audit-diff ${adjusted.displayDifference > 0 ? 'is-over' : 'is-under'}`
       : 'is-audit-diff';
 
   const infoRows: { label: string; value: string }[] = [
@@ -111,9 +124,12 @@ export const InventoryAuditProductPreview: React.FC<InventoryAuditProductPreview
     { label: 'Price', value: formatCurrency(product.rate) },
     {
       label: 'Last audited',
-      value: formatAuditDateTime(warehouseCount.lastCountedAt),
+      value: formatAuditDateTime(adjusted.lastAuditedAt ?? warehouseCount.lastCountedAt),
     },
-    { label: 'Audited by', value: warehouseCount.countedByName },
+    {
+      label: 'Audited by',
+      value: adjusted.lastAuditedByName?.trim() || warehouseCount.countedByName,
+    },
     { label: 'Linked by', value: linkedBy },
     {
       label: 'Linked at',

@@ -113,6 +113,10 @@ jobs:
           ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
         run: node functions/scripts/ci-sync-catalog.mjs
 
+      - name: Backfill catalog product audit snapshots
+        if: env.GOOGLE_APPLICATION_CREDENTIALS != ''
+        run: node functions/scripts/ci-backfill-catalog-product-audits.mjs
+
       - name: Verify Functions deploy
         if: env.FUNCTIONS_DEPLOY_FAILED == 'true'
         run: |

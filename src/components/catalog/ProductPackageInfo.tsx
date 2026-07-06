@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pencil, Save, X } from 'lucide-react';
 import { formatStockQuantity, updateCatalogProductPackageInfo } from '../../lib/catalog';
 import type { CatalogPackageCarton, CatalogPackageInfo, CatalogProduct } from '../../types/catalog';
 
 type CartonKind = 'masterCarton' | 'singleBox';
 
-const CARTON_LABELS: Record<CartonKind, string> = {
-  masterCarton: 'Master Carton',
-  singleBox: 'Single Box',
-};
+const CARTON_ROWS: { kind: CartonKind; label: string }[] = [
+  { kind: 'masterCarton', label: 'Master Carton' },
+  { kind: 'singleBox', label: 'Single Box' },
+];
 
 type EditableCarton = {
   quantity: string;
@@ -74,150 +74,43 @@ function formatDimension(value: number | null | undefined): string {
   return String(value);
 }
 
-function CartonTable({
+const EDIT_FIELDS: Array<{
+  key: keyof EditableCarton;
+  placeholder: string;
+  label: string;
+  step: string;
+  min: number;
+}> = [
+  { key: 'quantity', placeholder: 'pc', label: 'Quantity per package', step: '1', min: 1 },
+  { key: 'weightKg', placeholder: 'kg', label: 'Weight in kg', step: '0.01', min: 0 },
+  { key: 'lengthCm', placeholder: '', label: 'Length in cm', step: '0.1', min: 0 },
+  { key: 'breadthCm', placeholder: '', label: 'Breadth in cm', step: '0.1', min: 0 },
+  { key: 'heightCm', placeholder: '', label: 'Height in cm', step: '0.1', min: 0 },
+];
+
+function CartonRow({
+  kind,
+  label,
   product,
   carton,
-  editing,
-  form,
-  onFormChange,
-}: {
-  product: CatalogProduct;
-  carton: CatalogPackageCarton | null | undefined;
-  editing: boolean;
-  form: EditableCarton;
-  onFormChange: (patch: Partial<EditableCarton>) => void;
-}) {
-  if (editing) {
-    return (
-      <div className="product-package__table-wrap">
-        <table className="product-package__table product-package__table--editable">
-          <thead>
-            <tr>
-              <th>Qty</th>
-              <th>Weight</th>
-              <th>L (cm)</th>
-              <th>B (cm)</th>
-              <th>H (cm)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  className="product-package__input"
-                  value={form.quantity}
-                  onChange={e => onFormChange({ quantity: e.target.value })}
-                  placeholder="pc"
-                  aria-label="Quantity per package"
-                />
-              </td>
-              <td>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  className="product-package__input"
-                  value={form.weightKg}
-                  onChange={e => onFormChange({ weightKg: e.target.value })}
-                  placeholder="kg"
-                  aria-label="Weight in kg"
-                />
-              </td>
-              <td>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  className="product-package__input"
-                  value={form.lengthCm}
-                  onChange={e => onFormChange({ lengthCm: e.target.value })}
-                  aria-label="Length in cm"
-                />
-              </td>
-              <td>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  className="product-package__input"
-                  value={form.breadthCm}
-                  onChange={e => onFormChange({ breadthCm: e.target.value })}
-                  aria-label="Breadth in cm"
-                />
-              </td>
-              <td>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  className="product-package__input"
-                  value={form.heightCm}
-                  onChange={e => onFormChange({ heightCm: e.target.value })}
-                  aria-label="Height in cm"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-
-  const hasData = carton && [carton.quantity, carton.weightKg, carton.lengthCm, carton.breadthCm, carton.heightCm]
-    .some(v => v != null);
-
-  if (!hasData) {
-    return <p className="product-package__empty">No package details recorded yet.</p>;
-  }
-
-  return (
-    <div className="product-package__table-wrap">
-      <table className="product-package__table product-package__table--hero-values">
-        <thead>
-          <tr>
-            <th>Qty</th>
-            <th>Weight</th>
-            <th>L (cm)</th>
-            <th>B (cm)</th>
-            <th>H (cm)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td className="product-package__qty-cell">
-              {carton?.quantity != null
-                ? formatStockQuantity(carton.quantity, product.unit)
-                : '—'}
-            </td>
-            <td className="product-package__weight-cell">{formatWeight(carton?.weightKg)}</td>
-            <td>{formatDimension(carton?.lengthCm)}</td>
-            <td>{formatDimension(carton?.breadthCm)}</td>
-            <td>{formatDimension(carton?.heightCm)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function CartonCard({
-  kind,
-  product,
   packageInfo,
   canEdit,
+  editingKind,
+  onEditingKindChange,
   onSaved,
 }: {
   kind: CartonKind;
+  label: string;
   product: CatalogProduct;
+  carton: CatalogPackageCarton | null | undefined;
   packageInfo: CatalogPackageInfo | null | undefined;
   canEdit: boolean;
+  editingKind: CartonKind | null;
+  onEditingKindChange: (kind: CartonKind | null) => void;
   onSaved: (info: CatalogPackageInfo) => void;
 }) {
-  const carton = packageInfo?.[kind] ?? null;
-  const [editing, setEditing] = useState(false);
+  const editing = editingKind === kind;
+  const rowRef = useRef<HTMLTableRowElement>(null);
   const [form, setForm] = useState<EditableCarton>(() => cartonToEditable(carton));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -227,6 +120,25 @@ function CartonCard({
       setForm(cartonToEditable(carton));
     }
   }, [carton, editing]);
+
+  const handleCancel = useCallback(() => {
+    setForm(cartonToEditable(carton));
+    setError(null);
+    onEditingKindChange(null);
+  }, [carton, onEditingKindChange]);
+
+  useEffect(() => {
+    if (!editing || saving) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (rowRef.current?.contains(target)) return;
+      handleCancel();
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [editing, saving, handleCancel]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -242,7 +154,7 @@ function CartonCard({
           : packageInfo?.singleBox ?? null,
       });
       onSaved(saved);
-      setEditing(false);
+      onEditingKindChange(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save package information.');
     } finally {
@@ -250,60 +162,79 @@ function CartonCard({
     }
   };
 
-  const handleCancel = () => {
-    setForm(cartonToEditable(carton));
-    setError(null);
-    setEditing(false);
-  };
-
   return (
-    <div className={['product-package__card', editing ? 'product-package--editing' : ''].filter(Boolean).join(' ')}>
-      <div className="product-package__header">
-        <h3 className="product-package__title">{CARTON_LABELS[kind]}</h3>
-        {canEdit && !editing && (
-          <button
-            type="button"
-            className="product-package__edit-btn"
-            onClick={() => setEditing(true)}
-            aria-label={`Edit ${CARTON_LABELS[kind]}`}
-          >
-            <Pencil size={14} />
-          </button>
-        )}
-        {canEdit && editing && (
-          <div className="product-package__header-actions">
+    <tr ref={rowRef} className={editing ? 'product-package__row--editing' : ''}>
+      <th scope="row" className="product-package__type-cell">
+        <span className="product-package__type-label">{label}</span>
+        {error && <span className="product-package__row-error">{error}</span>}
+      </th>
+      {editing ? (
+        EDIT_FIELDS.map(field => (
+          <td key={field.key} className="product-package__value-cell">
+            <input
+              type="number"
+              min={field.min}
+              step={field.step}
+              className="product-package__input"
+              value={form[field.key]}
+              onChange={e => setForm(prev => ({ ...prev, [field.key]: e.target.value }))}
+              placeholder={field.placeholder}
+              aria-label={`${label} ${field.label}`}
+            />
+          </td>
+        ))
+      ) : (
+        <>
+          <td className="product-package__value-cell product-package__value-cell--qty">
+            {carton?.quantity != null
+              ? formatStockQuantity(carton.quantity, product.unit)
+              : '—'}
+          </td>
+          <td className="product-package__value-cell product-package__value-cell--weight">
+            {formatWeight(carton?.weightKg)}
+          </td>
+          <td className="product-package__value-cell">{formatDimension(carton?.lengthCm)}</td>
+          <td className="product-package__value-cell">{formatDimension(carton?.breadthCm)}</td>
+          <td className="product-package__value-cell">{formatDimension(carton?.heightCm)}</td>
+        </>
+      )}
+      {canEdit && (
+        <td className="product-package__action-cell">
+          {!editing ? (
             <button
               type="button"
-              className="btn btn-secondary btn-sm product-package__save-btn"
-              onClick={() => void handleSave()}
-              disabled={saving}
+              className="product-package__edit-btn"
+              onClick={() => onEditingKindChange(kind)}
+              disabled={editingKind != null && editingKind !== kind}
+              aria-label={`Edit ${label}`}
             >
-              <Save size={14} />
-              {saving ? 'Saving…' : 'Save'}
+              <Pencil size={12} />
             </button>
-            <button
-              type="button"
-              className="product-package__edit-btn product-package__edit-btn--active"
-              onClick={handleCancel}
-              disabled={saving}
-              aria-label="Cancel editing"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
-      </div>
-
-      <CartonTable
-        product={product}
-        carton={carton}
-        editing={editing}
-        form={form}
-        onFormChange={patch => setForm(prev => ({ ...prev, ...patch }))}
-      />
-
-      {error && <p className="product-package__error">{error}</p>}
-    </div>
+          ) : (
+            <div className="product-package__row-actions">
+              <button
+                type="button"
+                className="product-package__icon-btn product-package__icon-btn--save"
+                onClick={() => void handleSave()}
+                disabled={saving}
+                aria-label={`Save ${label}`}
+              >
+                <Save size={12} />
+              </button>
+              <button
+                type="button"
+                className="product-package__icon-btn product-package__icon-btn--cancel"
+                onClick={handleCancel}
+                disabled={saving}
+                aria-label={`Cancel editing ${label}`}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+        </td>
+      )}
+    </tr>
   );
 }
 
@@ -318,28 +249,41 @@ export const ProductPackageInfo: React.FC<{
   canEdit = false,
   onPackageInfoChange,
 }) => {
-  const handleSaved = (info: CatalogPackageInfo) => {
-    onPackageInfoChange?.(info);
-  };
+  const [editingKind, setEditingKind] = useState<CartonKind | null>(null);
 
   return (
     <div className="product-detail-page__package-info">
       <h2 className="product-detail-page__stock-locations-title">Package information</h2>
-      <div className="product-detail-page__package-cards">
-        <CartonCard
-          kind="masterCarton"
-          product={product}
-          packageInfo={packageInfo}
-          canEdit={canEdit}
-          onSaved={handleSaved}
-        />
-        <CartonCard
-          kind="singleBox"
-          product={product}
-          packageInfo={packageInfo}
-          canEdit={canEdit}
-          onSaved={handleSaved}
-        />
+      <div className="product-package__table-wrap">
+        <table className="product-package__table">
+          <thead>
+            <tr>
+              <th scope="col" className="product-package__type-col">Type</th>
+              <th scope="col">Qty</th>
+              <th scope="col">Weight</th>
+              <th scope="col">L (cm)</th>
+              <th scope="col">B (cm)</th>
+              <th scope="col">H (cm)</th>
+              {canEdit && <th scope="col" className="product-package__action-col" title="Actions" />}
+            </tr>
+          </thead>
+          <tbody>
+            {CARTON_ROWS.map(row => (
+              <CartonRow
+                key={row.kind}
+                kind={row.kind}
+                label={row.label}
+                product={product}
+                carton={packageInfo?.[row.kind] ?? null}
+                packageInfo={packageInfo}
+                canEdit={canEdit}
+                editingKind={editingKind}
+                onEditingKindChange={setEditingKind}
+                onSaved={info => onPackageInfoChange?.(info)}
+              />
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

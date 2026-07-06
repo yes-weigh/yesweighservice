@@ -7,6 +7,7 @@ import {
   resolveOrganizationId,
   downloadProductImage,
   uploadProductImageToZoho,
+  deleteProductImageFromZoho,
   normaliseCategoryId,
 } from './zoho.js';
 
@@ -350,6 +351,14 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       organizationId,
     };
 
+    const packageInfo = readPackageInfo(existing?.packageInfo);
+    if (packageInfo) {
+      doc.packageInfo = packageInfo;
+    }
+    if (existing?.auditSnapshot) {
+      doc.auditSnapshot = existing.auditSnapshot;
+    }
+
     batch.set(db.collection(PRODUCTS_COLLECTION).doc(product.id), doc, { merge: true });
     batchCount += 1;
     syncedCount += 1;
@@ -503,6 +512,7 @@ export async function readCatalogFromFirestore() {
   };
 }
 
+/** @internal Firestore cache only — call via catalog-product-mutations after Zoho succeeds. */
 export async function patchProductCategory(productId, categoryId, categoryName) {
   const db = getFirestore();
   await db.collection(PRODUCTS_COLLECTION).doc(productId).set({
@@ -512,6 +522,7 @@ export async function patchProductCategory(productId, categoryId, categoryName) 
   }, { merge: true });
 }
 
+/** @internal Firestore cache only — call via catalog-product-mutations after Zoho succeeds. */
 export async function patchProductStatus(productId, status) {
   const id = String(productId ?? '').trim();
   const normalized = String(status ?? '').trim().toLowerCase();
@@ -527,6 +538,7 @@ export async function patchProductStatus(productId, status) {
   }, { merge: true });
 }
 
+/** @internal Firestore cache only — call via catalog-product-mutations after Zoho succeeds. */
 export async function patchProductDetails(productId, input) {
   const id = String(productId ?? '').trim();
   if (!id) throw new Error('productId is required.');
@@ -693,6 +705,7 @@ export async function uploadCategoryThumbnail(categoryId, categoryName, buffer, 
   return { thumbnailUrl };
 }
 
+/** Zoho first, then Storage + Firestore cache. */
 export async function uploadProductImage(productId, buffer, contentType, accessToken, organizationId) {
   const id = String(productId ?? '').trim();
   if (!id) throw new Error('productId is required.');
@@ -726,4 +739,29 @@ export async function uploadProductImage(productId, buffer, contentType, accessT
   }, { merge: true });
 
   return { imageUrl };
+}
+
+/** Zoho first, then Storage cleanup + Firestore cache. */
+export async function deleteProductImage(productId, accessToken, organizationId) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+
+  await deleteProductImageFromZoho(accessToken, organizationId, id);
+
+  const bucket = getStorage().bucket();
+  for (const ext of ['jpg', 'jpeg', 'png', 'webp', 'gif']) {
+    try {
+      await bucket.file(`catalog/products/${id}.${ext}`).delete({ ignoreNotFound: true });
+    } catch {
+      // Best-effort cache cleanup only.
+    }
+  }
+
+  const now = new Date().toISOString();
+  await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set({
+    imageUrl: null,
+    syncedAt: now,
+  }, { merge: true });
+
+  return { ok: true };
 }

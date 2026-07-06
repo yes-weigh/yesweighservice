@@ -11,6 +11,7 @@ import type {
   CatalogResponse,
   CatalogStats,
 } from '../types/catalog';
+import { mapAuditSnapshot } from './catalogProductAudit/data';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -423,6 +424,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
   const rawImageUrl = (data.imageUrl as string | null) ?? null;
   const warehouses = mapWarehouse(data.warehouses);
   const packageInfo = mapPackageInfo(data.packageInfo);
+  const auditSnapshot = mapAuditSnapshot(data.auditSnapshot);
   return {
     id: String(data.id ?? ''),
     name: String(data.name ?? ''),
@@ -443,6 +445,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     syncedAt,
     ...(warehouses?.length ? { warehouses } : {}),
     ...(packageInfo ? { packageInfo } : {}),
+    ...(auditSnapshot ? { auditSnapshot } : {}),
   };
 }
 
@@ -656,6 +659,7 @@ export async function uploadCatalogCategoryThumbnail(
   }
 }
 
+/** Zoho + Firestore cache — uploads primary image to Zoho before updating Firestore. */
 export async function uploadCatalogProductImage(
   productId: string,
   file: File,
@@ -674,6 +678,20 @@ export async function uploadCatalogProductImage(
       imageBase64,
     });
     return withCatalogImageCacheBust(result.data.imageUrl, Date.now()) ?? result.data.imageUrl;
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** Zoho + Firestore cache — removes primary image from Zoho before clearing Firestore. */
+export async function deleteCatalogProductImage(productId: string): Promise<void> {
+  const callable = httpsCallable<{ productId: string }, { ok: boolean }>(
+    functions,
+    'deleteCatalogProductImage',
+    { timeout: 60_000 },
+  );
+  try {
+    await callable({ productId });
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -745,6 +763,7 @@ export async function syncCatalog(): Promise<{ syncedCount: number; syncedAt: st
   }
 }
 
+/** Zoho + Firestore cache — assigns category on Zoho before updating Firestore. */
 export async function assignProductCategory(
   productId: string,
   categoryId: string,
@@ -763,6 +782,7 @@ export async function assignProductCategory(
 
 export type CatalogProductStatus = 'active' | 'inactive';
 
+/** Zoho + Firestore cache — updates item status on Zoho before updating Firestore. */
 export async function setCatalogProductStatus(
   productId: string,
   status: CatalogProductStatus,
@@ -778,6 +798,7 @@ export async function setCatalogProductStatus(
   }
 }
 
+/** Zoho + Firestore cache — pushes name/sku to Zoho before updating Firestore. */
 export async function updateCatalogProductDetails(
   productId: string,
   input: { name: string; sku: string },
@@ -798,6 +819,7 @@ export async function updateCatalogProductDetails(
   }
 }
 
+/** Firestore only — package dimensions are never sent to Zoho. */
 export async function updateCatalogProductPackageInfo(
   productId: string,
   input: {

@@ -15,6 +15,8 @@ import {
   Save,
   ShoppingCart,
   Tag,
+  Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import {
@@ -32,6 +34,7 @@ import {
   setCatalogProductStatus,
   updateCatalogProductDetails,
   uploadCatalogProductImage,
+  deleteCatalogProductImage,
 } from '../../lib/catalog';
 import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
@@ -54,6 +57,8 @@ import {
 } from '../../lib/catalogInventorySites';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { ProductPackageInfo } from './ProductPackageInfo';
+import { ProductAuditHistory } from './ProductAuditHistory';
+import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import {
   catalogSiteInventoryTotalQuantity,
   type CatalogSiteInventoryDoc,
@@ -152,6 +157,7 @@ export const ProductDetailView: React.FC<{
   const [editorSaving, setEditorSaving] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
+  const [imageDeleting, setImageDeleting] = useState(false);
   const [imageDownloading, setImageDownloading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
@@ -167,6 +173,7 @@ export const ProductDetailView: React.FC<{
   const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const captureInputRef = useRef<HTMLInputElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
 
   const theme = useMemo(
@@ -299,7 +306,7 @@ export const ProductDetailView: React.FC<{
     return calculateGroupTotals(auditItems, product);
   }, [showAuditedStock, product, auditItems]);
 
-  const summaryAuditedQty = useMemo(() => {
+  const livePhysicalQty = useMemo(() => {
     if (!showAuditedStock || !product) return null;
     let total = 0;
     let hasAny = false;
@@ -315,18 +322,38 @@ export const ProductDetailView: React.FC<{
     return auditTotals?.countedQty ?? null;
   }, [showAuditedStock, product, activeInventorySites, auditTotals, cochinRecord]);
 
-  const summaryDifference = useMemo(() => {
-    if (!showAuditedStock || !product || summaryAuditedQty == null) return null;
-    return summaryAuditedQty - product.stock;
-  }, [showAuditedStock, product, summaryAuditedQty]);
+  const adjustedAudit = useMemo(
+    () => resolveAdjustedAuditDisplay({
+      currentZohoQty: product?.stock ?? null,
+      snapshot: product?.auditSnapshot ?? null,
+      livePhysicalQty,
+    }),
+    [product?.stock, product?.auditSnapshot, livePhysicalQty],
+  );
+
+  const summaryAuditedQty = showAuditedStock ? adjustedAudit.displayAuditedQty : null;
+  const summaryDifference = showAuditedStock ? adjustedAudit.displayDifference : null;
 
   const auditedStockLabel = useMemo(() => {
     if (summaryAuditedQty == null) return null;
-    if (auditTotals?.mode === 'bundle' && activeInventorySites.length === 1 && activeInventorySites[0] === 'head_office') {
-      return `${auditTotals.countedQty} complete (${auditTotals.rawCountedQty} parts)`;
+    if (
+      adjustedAudit.hasAuditSnapshot
+      && auditTotals?.mode === 'bundle'
+      && activeInventorySites.length === 1
+      && activeInventorySites[0] === 'head_office'
+    ) {
+      const physicalAtAudit = adjustedAudit.physicalQtyAtAudit ?? summaryAuditedQty;
+      return `${physicalAtAudit} complete (${auditTotals.rawCountedQty} parts)`;
     }
     return formatStockQuantity(summaryAuditedQty, product?.unit ?? 'pcs');
-  }, [summaryAuditedQty, auditTotals, activeInventorySites, product?.unit]);
+  }, [
+    summaryAuditedQty,
+    adjustedAudit.hasAuditSnapshot,
+    adjustedAudit.physicalQtyAtAudit,
+    auditTotals,
+    activeInventorySites,
+    product?.unit,
+  ]);
 
   const summaryColumns = useMemo(() => {
     const cols: Array<{
@@ -483,12 +510,40 @@ export const ProductDetailView: React.FC<{
       const imageUrl = await uploadCatalogProductImage(product.id, file);
       const syncedAt = new Date().toISOString();
       setProduct(prev => (prev ? { ...prev, imageUrl, syncedAt } : prev));
+      setActiveGalleryIndex(0);
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Could not upload image.');
     } finally {
       setImageUploading(false);
     }
   };
+
+  const handleImageDelete = async () => {
+    if (!product || !productEditMode || !canEditProductDetails || !product.imageUrl) return;
+
+    const ok = await confirm({
+      title: 'Delete product photo?',
+      message: 'This removes the catalog photo from Zoho and the app. Warehouse audit photos are not affected.',
+      confirmLabel: 'Delete photo',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setImageDeleting(true);
+    setImageError(null);
+    try {
+      await deleteCatalogProductImage(product.id);
+      const syncedAt = new Date().toISOString();
+      setProduct(prev => (prev ? { ...prev, imageUrl: null, syncedAt } : prev));
+      setActiveGalleryIndex(0);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Could not delete image.');
+    } finally {
+      setImageDeleting(false);
+    }
+  };
+
+  const imageBusy = imageUploading || imageDeleting || imageDownloading;
 
   const startProductEdit = () => {
     if (!product || !canEditProductDetails) return;
@@ -713,6 +768,77 @@ export const ProductDetailView: React.FC<{
               ) : (
                 <Package size={72} className="product-detail-page__placeholder" aria-hidden />
               )}
+              {productEditMode && canEditProductDetails && (
+                <div className="product-detail-page__image-actions">
+                  {product.imageUrl && (
+                    <button
+                      type="button"
+                      className="product-detail-page__image-action"
+                      title="Download product photo"
+                      aria-label="Download product photo"
+                      disabled={imageBusy}
+                      onClick={() => void handleImageDownload()}
+                    >
+                      {imageDownloading
+                        ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                        : <Download size={18} aria-hidden />}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="product-detail-page__image-action"
+                    title="Upload product photo"
+                    aria-label="Upload product photo"
+                    disabled={imageBusy}
+                    onClick={() => imageInputRef.current?.click()}
+                  >
+                    {imageUploading
+                      ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                      : <Upload size={18} aria-hidden />}
+                  </button>
+                  <button
+                    type="button"
+                    className="product-detail-page__image-action"
+                    title="Capture product photo"
+                    aria-label="Capture product photo"
+                    disabled={imageBusy}
+                    onClick={() => captureInputRef.current?.click()}
+                  >
+                    <Camera size={18} aria-hidden />
+                  </button>
+                  {product.imageUrl && (
+                    <button
+                      type="button"
+                      className="product-detail-page__image-action product-detail-page__image-action--danger"
+                      title="Delete product photo"
+                      aria-label="Delete product photo"
+                      disabled={imageBusy}
+                      onClick={() => void handleImageDelete()}
+                    >
+                      {imageDeleting
+                        ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                        : <Trash2 size={18} aria-hidden />}
+                    </button>
+                  )}
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="product-detail-page__image-input"
+                    aria-label="Upload product photo"
+                    onChange={e => void handleImagePick(e)}
+                  />
+                  <input
+                    ref={captureInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="product-detail-page__image-input"
+                    aria-label="Capture product photo"
+                    onChange={e => void handleImagePick(e)}
+                  />
+                </div>
+              )}
             </div>
             {imageError && (
               <p className="product-detail-page__image-error text-sm">{imageError}</p>
@@ -778,7 +904,7 @@ export const ProductDetailView: React.FC<{
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
-                    disabled={detailsSaving || imageUploading}
+                    disabled={detailsSaving || imageBusy}
                     onClick={() => void handleSaveProductDetails()}
                   >
                     {detailsSaving
@@ -789,7 +915,7 @@ export const ProductDetailView: React.FC<{
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    disabled={detailsSaving || imageUploading}
+                    disabled={detailsSaving || imageBusy}
                     onClick={cancelProductEdit}
                   >
                     Cancel
@@ -813,52 +939,6 @@ export const ProductDetailView: React.FC<{
             )}
             {statusError && (
               <p className="product-detail-page__status-error text-sm">{statusError}</p>
-            )}
-
-            {productEditMode && canEditProductDetails && (
-              <div className="product-detail-page__media-actions">
-                {currentGalleryUrl && (
-                  <button
-                    type="button"
-                    className="product-detail-page__media-action"
-                    title="Download product photo"
-                    aria-label="Download product photo"
-                    disabled={imageDownloading || imageUploading}
-                    onClick={() => void handleImageDownload()}
-                  >
-                    <span className="product-detail-page__media-action-icon">
-                      {imageDownloading
-                        ? <RefreshCw size={18} className="spin-icon" aria-hidden />
-                        : <Download size={18} aria-hidden />}
-                    </span>
-                    <span className="product-detail-page__media-action-label">Download</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="product-detail-page__media-action"
-                  title="Capture or upload product photo"
-                  aria-label="Capture or upload product photo"
-                  disabled={imageUploading || imageDownloading}
-                  onClick={() => imageInputRef.current?.click()}
-                >
-                  <span className="product-detail-page__media-action-icon">
-                    {imageUploading
-                      ? <RefreshCw size={18} className="spin-icon" aria-hidden />
-                      : <Camera size={18} aria-hidden />}
-                  </span>
-                  <span className="product-detail-page__media-action-label">Take Photo</span>
-                </button>
-                <input
-                  ref={imageInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="product-detail-page__image-input"
-                  aria-label="Product photo"
-                  onChange={e => void handleImagePick(e)}
-                />
-              </div>
             )}
           </section>
         </div>
@@ -954,6 +1034,17 @@ export const ProductDetailView: React.FC<{
               canEdit={canEditProductDetails}
               onPackageInfoChange={info => {
                 setProduct(prev => (prev ? { ...prev, packageInfo: info } : prev));
+              }}
+            />
+          )}
+
+          {showAuditedStock && product && (
+            <ProductAuditHistory
+              product={product}
+              livePhysicalQty={livePhysicalQty}
+              canRecord={canEditProductDetails}
+              onSnapshotChange={snapshot => {
+                setProduct(prev => (prev ? { ...prev, auditSnapshot: snapshot } : prev));
               }}
             />
           )}
