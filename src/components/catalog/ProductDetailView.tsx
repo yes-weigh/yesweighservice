@@ -53,6 +53,7 @@ import {
   resolveActiveInventorySites,
 } from '../../lib/catalogInventorySites';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
+import { ProductPackageInfo } from './ProductPackageInfo';
 import {
   catalogSiteInventoryTotalQuantity,
   type CatalogSiteInventoryDoc,
@@ -944,6 +945,17 @@ export const ProductDetailView: React.FC<{
                 />
               ))}
             </div>
+          )}
+
+          {showAuditedStock && product && (
+            <ProductPackageInfo
+              product={product}
+              packageInfo={product.packageInfo}
+              canEdit={canEditProductDetails}
+              onPackageInfoChange={info => {
+                setProduct(prev => (prev ? { ...prev, packageInfo: info } : prev));
+              }}
+            />
           )}
 
           {showCartActions && (

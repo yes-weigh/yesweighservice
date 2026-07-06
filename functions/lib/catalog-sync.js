@@ -544,6 +544,94 @@ export async function patchProductDetails(productId, input) {
   }, { merge: true });
 }
 
+function parseOptionalPositiveNumber(value, { allowZero = false, integer = false } = {}) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  if (integer) {
+    if (!Number.isInteger(num)) return null;
+    if (num < 0 || (!allowZero && num <= 0)) return null;
+    return num;
+  }
+  if (num < 0 || (!allowZero && num <= 0)) return null;
+  return Math.round(num * 100) / 100;
+}
+
+function normalizePackageCarton(input) {
+  if (!input || typeof input !== 'object') return null;
+  const quantity = parseOptionalPositiveNumber(input.quantity, { integer: true });
+  const weightKg = parseOptionalPositiveNumber(input.weightKg);
+  const lengthCm = parseOptionalPositiveNumber(input.lengthCm);
+  const breadthCm = parseOptionalPositiveNumber(input.breadthCm);
+  const heightCm = parseOptionalPositiveNumber(input.heightCm);
+  const hasValue = [quantity, weightKg, lengthCm, breadthCm, heightCm].some(v => v != null);
+  if (!hasValue) return null;
+  return { quantity, weightKg, lengthCm, breadthCm, heightCm };
+}
+
+function readPackageCarton(data) {
+  if (!data || typeof data !== 'object') return null;
+  const quantity = data.quantity != null ? Number(data.quantity) : null;
+  const weightKg = data.weightKg != null ? Number(data.weightKg) : null;
+  const lengthCm = data.lengthCm != null ? Number(data.lengthCm) : null;
+  const breadthCm = data.breadthCm != null ? Number(data.breadthCm) : null;
+  const heightCm = data.heightCm != null ? Number(data.heightCm) : null;
+  const hasValue = [quantity, weightKg, lengthCm, breadthCm, heightCm].some(
+    v => v != null && Number.isFinite(v),
+  );
+  if (!hasValue) return null;
+  return {
+    quantity: Number.isFinite(quantity) ? quantity : null,
+    weightKg: Number.isFinite(weightKg) ? weightKg : null,
+    lengthCm: Number.isFinite(lengthCm) ? lengthCm : null,
+    breadthCm: Number.isFinite(breadthCm) ? breadthCm : null,
+    heightCm: Number.isFinite(heightCm) ? heightCm : null,
+  };
+}
+
+export function readPackageInfo(data) {
+  if (!data || typeof data !== 'object') return null;
+  const masterCarton = readPackageCarton(data.masterCarton);
+  const singleBox = readPackageCarton(data.singleBox);
+  if (!masterCarton && !singleBox) return null;
+  return {
+    masterCarton,
+    singleBox,
+    updatedAt: data.updatedAt ?? null,
+    updatedByUid: data.updatedByUid ?? null,
+    updatedByName: data.updatedByName ?? null,
+  };
+}
+
+/** Firestore-only — package dimensions are never pushed to Zoho. */
+export async function patchProductPackageInfo(productId, input, editor = {}) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+
+  const masterCarton = normalizePackageCarton(input?.masterCarton);
+  const singleBox = normalizePackageCarton(input?.singleBox);
+  const now = new Date().toISOString();
+
+  const db = getFirestore();
+  await db.collection(PRODUCTS_COLLECTION).doc(id).set({
+    packageInfo: {
+      masterCarton,
+      singleBox,
+      updatedAt: now,
+      updatedByUid: editor.uid ?? null,
+      updatedByName: editor.displayName ?? null,
+    },
+  }, { merge: true });
+
+  return {
+    masterCarton,
+    singleBox,
+    updatedAt: now,
+    updatedByUid: editor.uid ?? null,
+    updatedByName: editor.displayName ?? null,
+  };
+}
+
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 export async function saveCategoryOrder(categories) {

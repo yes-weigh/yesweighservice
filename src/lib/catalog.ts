@@ -4,6 +4,8 @@ import { app, db } from '../firebase';
 import { compressImageForUpload } from './compressImage';
 import type {
   CatalogCategory,
+  CatalogPackageCarton,
+  CatalogPackageInfo,
   CatalogProduct,
   CatalogProductDetail,
   CatalogResponse,
@@ -380,10 +382,47 @@ function mapWarehouse(data: unknown): CatalogProduct['warehouses'] {
     .filter((row): row is NonNullable<typeof row> => row !== null);
 }
 
+function mapPackageCarton(data: unknown): CatalogPackageCarton | null {
+  if (!data || typeof data !== 'object') return null;
+  const row = data as Record<string, unknown>;
+  const quantity = row.quantity != null ? Number(row.quantity) : null;
+  const weightKg = row.weightKg != null ? Number(row.weightKg) : null;
+  const lengthCm = row.lengthCm != null ? Number(row.lengthCm) : null;
+  const breadthCm = row.breadthCm != null ? Number(row.breadthCm) : null;
+  const heightCm = row.heightCm != null ? Number(row.heightCm) : null;
+  const hasValue = [quantity, weightKg, lengthCm, breadthCm, heightCm].some(
+    v => v != null && Number.isFinite(v),
+  );
+  if (!hasValue) return null;
+  return {
+    quantity: Number.isFinite(quantity) ? quantity : null,
+    weightKg: Number.isFinite(weightKg) ? weightKg : null,
+    lengthCm: Number.isFinite(lengthCm) ? lengthCm : null,
+    breadthCm: Number.isFinite(breadthCm) ? breadthCm : null,
+    heightCm: Number.isFinite(heightCm) ? heightCm : null,
+  };
+}
+
+function mapPackageInfo(data: unknown): CatalogPackageInfo | null {
+  if (!data || typeof data !== 'object') return null;
+  const row = data as Record<string, unknown>;
+  const masterCarton = mapPackageCarton(row.masterCarton);
+  const singleBox = mapPackageCarton(row.singleBox);
+  if (!masterCarton && !singleBox) return null;
+  return {
+    masterCarton,
+    singleBox,
+    updatedAt: (row.updatedAt as string | null) ?? null,
+    updatedByUid: (row.updatedByUid as string | null) ?? null,
+    updatedByName: (row.updatedByName as string | null) ?? null,
+  };
+}
+
 function mapProduct(data: Record<string, unknown>): CatalogProduct {
   const syncedAt = data.syncedAt as string | undefined;
   const rawImageUrl = (data.imageUrl as string | null) ?? null;
   const warehouses = mapWarehouse(data.warehouses);
+  const packageInfo = mapPackageInfo(data.packageInfo);
   return {
     id: String(data.id ?? ''),
     name: String(data.name ?? ''),
@@ -403,6 +442,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     reorderLevel: Number(data.reorderLevel ?? 0),
     syncedAt,
     ...(warehouses?.length ? { warehouses } : {}),
+    ...(packageInfo ? { packageInfo } : {}),
   };
 }
 
@@ -753,6 +793,33 @@ export async function updateCatalogProductDetails(
       sku: input.sku.trim(),
     });
     return { name: result.data.name, sku: result.data.sku };
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export async function updateCatalogProductPackageInfo(
+  productId: string,
+  input: {
+    masterCarton: CatalogPackageCarton | null;
+    singleBox: CatalogPackageCarton | null;
+  },
+): Promise<CatalogPackageInfo> {
+  const callable = httpsCallable<
+    {
+      productId: string;
+      masterCarton: CatalogPackageCarton | null;
+      singleBox: CatalogPackageCarton | null;
+    },
+    { ok: boolean; packageInfo: CatalogPackageInfo }
+  >(functions, 'updateCatalogProductPackageInfo');
+  try {
+    const result = await callable({
+      productId,
+      masterCarton: input.masterCarton,
+      singleBox: input.singleBox,
+    });
+    return result.data.packageInfo;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

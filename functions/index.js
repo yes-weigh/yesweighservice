@@ -18,6 +18,8 @@ import {
   patchProductCategory,
   patchProductStatus,
   patchProductDetails,
+  patchProductPackageInfo,
+  readPackageInfo,
   saveCategoryOrder,
   uploadCategoryThumbnail,
   uploadProductImage,
@@ -211,6 +213,10 @@ export const getCatalogProductDetail = onCall(
       }
       if (data?.syncedAt) {
         detail.syncedAt = data.syncedAt;
+      }
+      const packageInfo = readPackageInfo(data?.packageInfo);
+      if (packageInfo) {
+        detail.packageInfo = packageInfo;
       }
     }
 
@@ -447,6 +453,43 @@ export const updateCatalogProductDetails = onCall(
       return { ok: true, name, sku };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update item details on Zoho.');
+    }
+  },
+);
+
+/** Update master carton / single box packaging — Firestore only, not synced to Zoho. */
+export const updateCatalogProductPackageInfo = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SYNC_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+
+    const userSnap = uid ? await getFirestore().doc(`users/${uid}`).get() : null;
+    const displayName = userSnap?.exists
+      ? String(userSnap.data()?.displayName ?? userSnap.data()?.name ?? '').trim() || null
+      : null;
+
+    try {
+      const saved = await patchProductPackageInfo(
+        productId,
+        {
+          masterCarton: request.data?.masterCarton ?? null,
+          singleBox: request.data?.singleBox ?? null,
+        },
+        { uid: uid ?? null, displayName },
+      );
+      return { ok: true, packageInfo: saved };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not save package information.');
     }
   },
 );

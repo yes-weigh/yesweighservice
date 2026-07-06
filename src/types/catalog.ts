@@ -1,5 +1,22 @@
 export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
 
+/** Pieces-per-package and physical dimensions — stored in Firestore only (not synced to Zoho). */
+export interface CatalogPackageCarton {
+  quantity: number | null;
+  weightKg: number | null;
+  lengthCm: number | null;
+  breadthCm: number | null;
+  heightCm: number | null;
+}
+
+export interface CatalogPackageInfo {
+  masterCarton: CatalogPackageCarton | null;
+  singleBox: CatalogPackageCarton | null;
+  updatedAt?: string | null;
+  updatedByUid?: string | null;
+  updatedByName?: string | null;
+}
+
 export interface CatalogProduct {
   id: string;
   name: string;
@@ -19,6 +36,8 @@ export interface CatalogProduct {
   reorderLevel?: number;
   syncedAt?: string;
   warehouses?: CatalogWarehouse[];
+  /** Firestore-only packaging details (master carton + single box). */
+  packageInfo?: CatalogPackageInfo | null;
 }
 
 export interface CatalogCategory {
