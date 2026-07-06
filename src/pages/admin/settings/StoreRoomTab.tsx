@@ -8,6 +8,7 @@ import {
   type YesStoreBinDoc,
   type YesStoreRackDoc,
   type YesStoreRowDoc,
+  VALID_RACK_LETTERS,
 } from '../../../types/yes-store';
 import {
   deleteBinIfEmpty,
@@ -39,12 +40,7 @@ function nextBinNumber(bins: YesStoreBinDoc[]): BinNumber | null {
 
 function unusedRackLetters(racks: YesStoreRackDoc[]): string[] {
   const used = new Set(racks.map(rack => rack.id.toLowerCase()));
-  const letters: string[] = [];
-  for (let code = 65; code <= 90; code += 1) {
-    const letter = String.fromCharCode(code).toLowerCase();
-    if (!used.has(letter)) letters.push(letter);
-  }
-  return letters;
+  return VALID_RACK_LETTERS.filter(letter => !used.has(letter));
 }
 
 export const StoreRoomTab: React.FC = () => {
