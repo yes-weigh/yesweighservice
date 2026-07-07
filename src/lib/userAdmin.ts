@@ -53,6 +53,7 @@ export type UpdateUserProfilePatch = Partial<
     | 'staffPermissions'
     | 'staffKamId'
     | 'staffTeamId'
+    | 'staffLogisticsSite'
     | 'dealerTier'
     | 'dealerAccessMode'
     | 'dealerPermissions'
@@ -103,6 +104,7 @@ export type CreateUserInput = {
   staffPermissions?: StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  staffLogisticsSite?: import('../types/staff-logistics').StaffLogisticsSite | null;
   dealerTier?: DealerTier;
   dealerAccessMode?: DealerAccessMode;
   dealerPermissions?: DealerPermission[];
@@ -141,6 +143,7 @@ export async function createUserProfile(
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
     staffKamId: input.role === 'staff' ? input.staffKamId ?? null : undefined,
     staffTeamId: input.role === 'staff' ? input.staffTeamId ?? null : undefined,
+    staffLogisticsSite: input.role === 'staff' ? input.staffLogisticsSite ?? null : undefined,
     dealerTier: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerTier ?? 'standard' : undefined,
     dealerAccessMode: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerAccessMode ?? 'tier' : undefined,
     dealerPermissions: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerPermissions ?? [] : undefined,

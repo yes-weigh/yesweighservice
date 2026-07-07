@@ -23,6 +23,7 @@ import {
   uploadHrPhoto,
 } from '../../lib/hrStaff';
 import { registerUser, updateUserProfile } from '../../lib/userAdmin';
+import { loadDefaultStaffLogisticsSite } from '../../lib/logisticsSettings';
 import { parseLoginId } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
@@ -37,6 +38,11 @@ import {
   type StaffHrProfile,
 } from '../../types/staff-hr';
 import type { Kam } from '../../types/dealers';
+import {
+  STAFF_LOGISTICS_SITES,
+  STAFF_LOGISTICS_SITE_LABELS,
+  type StaffLogisticsSite,
+} from '../../types/staff-logistics';
 
 type HrStaffFormPageProps = {
   basePath: string;
@@ -60,6 +66,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
   const [account, setAccount] = useState(EMPTY_ACCOUNT);
   const [hr, setHr] = useState<StaffHrProfile>(emptyHrProfile());
   const [roleDraft, setRoleDraft] = useState<StaffRoleDraft>(EMPTY_STAFF_ROLE_DRAFT);
+  const [logisticsSite, setLogisticsSite] = useState<StaffLogisticsSite>('head_office');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [docFiles, setDocFiles] = useState<Partial<Record<HrDocumentType, File>>>({});
@@ -88,6 +95,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
       });
       setHr(readHrProfileFromDoc(record));
       setRoleDraft(staffRoleDraftFromRecord(record, roles));
+      setLogisticsSite(record.staffLogisticsSite ?? 'head_office');
       void resolveHrPhotoUrl(record.uid, record).then(url => {
         if (url) setPhotoPreview(url);
       });
@@ -113,6 +121,9 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
               staffAccessMode: 'role',
             }, roles));
           }
+          void loadDefaultStaffLogisticsSite()
+            .then(site => setLogisticsSite(site))
+            .catch(() => undefined);
         }
       }),
     ]);
@@ -156,6 +167,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
           phone: account.phone || undefined,
           email: account.email || undefined,
           ...accessPayload,
+          staffLogisticsSite: logisticsSite,
           ...hrProfileToFirestorePatch(hr),
         });
       } else {
@@ -171,6 +183,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
           phone: account.phone || undefined,
           email: account.email || undefined,
           ...accessPayload,
+          staffLogisticsSite: logisticsSite,
           createdByUid: user.uid,
           hr: hrProfileToFirestorePatch(hr) as Parameters<typeof registerUser>[1]['hr'],
         });
@@ -341,6 +354,21 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
                   value={hr.hrJoinDate?.slice(0, 10) ?? ''}
                   onChange={e => setHrField('hrJoinDate', e.target.value || null)}
                 />
+              </label>
+              <label className="hr-staff-form__field">
+                <span>Logistics location</span>
+                <select
+                  className="input-field"
+                  value={logisticsSite}
+                  onChange={e => setLogisticsSite(e.target.value as StaffLogisticsSite)}
+                  required
+                >
+                  {STAFF_LOGISTICS_SITES.map(site => (
+                    <option key={site} value={site}>
+                      {STAFF_LOGISTICS_SITE_LABELS[site]}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
           </section>

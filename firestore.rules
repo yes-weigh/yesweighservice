@@ -105,13 +105,18 @@ service cloud.firestore {
       return m == 'department' || m == 'custom' || m == 'role';
     }
 
+    function validStaffLogisticsSite(site) {
+      return site == null || site == 'cochin' || site == 'head_office';
+    }
+
     function validStaffAccessFields(data) {
       return (!('staffDepartment' in data) || validStaffDepartment(data.staffDepartment))
         && (!('staffAccessMode' in data) || validStaffAccessMode(data.staffAccessMode))
         && (!('staffPermissions' in data) || data.staffPermissions is list)
         && (!('staffKamId' in data) || data.staffKamId == null || data.staffKamId is string)
         && (!('staffTeamId' in data) || data.staffTeamId == null || data.staffTeamId is string)
-        && (!('staffRoleId' in data) || data.staffRoleId == null || data.staffRoleId is string);
+        && (!('staffRoleId' in data) || data.staffRoleId == null || data.staffRoleId is string)
+        && (!('staffLogisticsSite' in data) || validStaffLogisticsSite(data.staffLogisticsSite));
     }
 
     function validDealerTier(t) {
@@ -183,7 +188,11 @@ service cloud.firestore {
 
     match /appSettings/{docId} {
       allow read: if signedIn();
-      allow write: if signedIn() && (bootstrapOpen() || (docId == 'productSettings' && isSuperAdmin()));
+      allow write: if signedIn() && (
+        bootstrapOpen()
+        || (docId == 'productSettings' && isSuperAdmin())
+        || (docId == 'logisticsSettings' && isSuperAdmin())
+      );
     }
 
     match /catalogProducts/{productId} {

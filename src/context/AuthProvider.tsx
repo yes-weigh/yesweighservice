@@ -83,6 +83,7 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       staffPermissions: data.staffPermissions,
       staffKamId: data.staffKamId ?? null,
       staffTeamId: data.staffTeamId ?? null,
+      staffLogisticsSite: data.staffLogisticsSite ?? null,
       dealerTier,
       dealerAccessMode,
       dealerPermissions,

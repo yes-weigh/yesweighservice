@@ -60,6 +60,8 @@ export interface User {
   /** Links sales staff to KAM record for dealer scoping */
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  /** HR staff logistics site */
+  staffLogisticsSite?: import('./types/staff-logistics').StaffLogisticsSite | null;
   /** Dealer portal only */
   dealerTier?: import('./types/dealer-access').DealerTier;
   dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
@@ -100,6 +102,7 @@ export interface FirestoreUserDoc {
   staffPermissions?: import('./types/staff-access').StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  staffLogisticsSite?: import('./types/staff-logistics').StaffLogisticsSite | null;
   dealerTier?: import('./types/dealer-access').DealerTier;
   dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
   dealerPermissions?: import('./types/dealer-access').DealerPermission[];

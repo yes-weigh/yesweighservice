@@ -36,6 +36,7 @@ import { SettingsProfileTab } from './pages/admin/settings/SettingsProfileTab';
 import { WarehouseLocationsTab } from './pages/admin/settings/WarehouseLocationsTab';
 import { StoreRoomTab } from './pages/admin/settings/StoreRoomTab';
 import { ProductSettingsTab } from './pages/admin/settings/ProductSettingsTab';
+import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTab';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -182,6 +183,7 @@ const App: React.FC = () => (
                 <Route path="warehouse" element={<WarehouseLocationsTab />} />
                 <Route path="store-room" element={<StoreRoomTab />} />
                 <Route path="product" element={<ProductSettingsTab />} />
+                <Route path="logistics" element={<LogisticsSettingsTab />} />
               </Route>
               <Route path="profile" element={<Navigate to="/super-admin/settings/profile" replace />} />
             </Route>

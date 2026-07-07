@@ -1,12 +1,13 @@
 import React, { useEffect } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Box, Layers, Package, UserCircle } from 'lucide-react';
+import { Box, Layers, Package, Truck, UserCircle } from 'lucide-react';
 
 const tabs = [
   { id: 'profile', label: 'Profile', path: '/super-admin/settings/profile', icon: <UserCircle size={16} /> },
   { id: 'warehouse', label: 'Warehouse', path: '/super-admin/settings/warehouse', icon: <Layers size={16} /> },
   { id: 'store-room', label: 'Store room', path: '/super-admin/settings/store-room', icon: <Box size={16} /> },
   { id: 'product', label: 'Product settings', path: '/super-admin/settings/product', icon: <Package size={16} /> },
+  { id: 'logistics', label: 'Logistics', path: '/super-admin/settings/logistics', icon: <Truck size={16} /> },
 ] as const;
 
 export const SettingsLayout: React.FC = () => {
@@ -31,7 +32,7 @@ export const SettingsLayout: React.FC = () => {
         <div>
           <h2>Settings</h2>
           <p className="text-muted text-sm">
-            Account profile, warehouse zones, store room layout, and product settings.
+            Account profile, warehouse zones, store room layout, product settings, and logistics.
           </p>
         </div>
       </header>

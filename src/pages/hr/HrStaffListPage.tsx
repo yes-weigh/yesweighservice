@@ -10,6 +10,7 @@ import { resolveProfileLogin } from '../../lib/profileLogin';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
 import { STAFF_DEPARTMENTS, STAFF_DEPARTMENT_LABELS, type StaffDepartment } from '../../types/staff-access';
+import { staffLogisticsSiteLabel } from '../../types/staff-logistics';
 
 type HrStaffListPageProps = {
   basePath: string;
@@ -138,6 +139,7 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
                 <p className="text-sm text-muted">
                   {aadhar ? formatAadharDisplay(aadhar) : '—'}
                   {record.phone ? ` · ${record.phone}` : ''}
+                  {record.staffLogisticsSite ? ` · ${staffLogisticsSiteLabel(record.staffLogisticsSite)}` : ''}
                 </p>
                 <span className={`hr-staff-list__status ${record.active === false ? 'is-inactive' : ''}`}>
                   {record.active === false ? 'Inactive' : 'Active'}

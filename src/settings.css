@@ -351,6 +351,119 @@
   margin-bottom: 0;
 }
 
+.settings-logistics {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.settings-logistics__default {
+  padding: 0.85rem 0.95rem;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-logistics__default-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.settings-logistics__title {
+  margin: 0 0 0.2rem;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: #e2e8f0;
+}
+
+.settings-logistics__default-field {
+  max-width: 14rem;
+}
+
+.settings-logistics__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.settings-logistics__summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.35);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.settings-logistics__table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.settings-logistics__table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 32rem;
+}
+
+.settings-logistics__table th,
+.settings-logistics__table td {
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  vertical-align: top;
+}
+
+.settings-logistics__table th {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.settings-logistics__table tr:last-child td {
+  border-bottom: none;
+}
+
+.settings-logistics__staff-link {
+  color: #fdba74;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.settings-logistics__staff-link:hover {
+  text-decoration: underline;
+}
+
+.settings-logistics__inactive {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.settings-logistics__site-select {
+  width: 100%;
+  max-width: 12rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.55);
+  color: inherit;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+}
+
+.settings-logistics__unassigned {
+  display: block;
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 640px) {
   .settings-locations__header {
     flex-direction: column;

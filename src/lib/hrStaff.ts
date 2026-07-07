@@ -91,7 +91,6 @@ export type HrPhotoUploadResult = {
 };
 
 export function hrPhotoStoragePathFromRecord(
-  userId: string,
   data: Pick<FirestoreUserDoc, 'hrPhotoStoragePath' | 'hrPhotoUrl'>,
 ): string | null {
   const stored = data.hrPhotoStoragePath?.trim();
@@ -122,7 +121,7 @@ export async function resolveHrPhotoUrl(
   userId: string,
   data: Pick<FirestoreUserDoc, 'hrPhotoStoragePath' | 'hrPhotoUrl'>,
 ): Promise<string | null> {
-  const storagePath = hrPhotoStoragePathFromRecord(userId, data);
+  const storagePath = hrPhotoStoragePathFromRecord(data);
   if (storagePath) {
     try {
       return await getHrFileUrl(storagePath);
