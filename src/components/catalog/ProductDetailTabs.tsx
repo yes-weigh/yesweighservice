@@ -1,0 +1,257 @@
+import React, { useMemo, useState } from 'react';
+import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
+import type { CatalogSiteInventoryDoc, CatalogInventorySite } from '../../types/catalog-site-inventory';
+import type { CatalogInventorySiteConfig } from '../../lib/catalogInventorySites';
+import type { YesStoreItemDoc } from '../../types/yes-store';
+import type { CatalogNavState } from '../../lib/catalogNav';
+import { RelatedCatalogItems } from './RelatedCatalogItems';
+import { ProductAuditHistory } from './ProductAuditHistory';
+import { ProductSiteStockLocations } from './ProductSiteStockLocations';
+
+export type ProductDetailTabId =
+  | 'spare'
+  | 'audit'
+  | 'sales'
+  | 'nc'
+  | 'purchase'
+  | 'support'
+  | 'stock'
+  | 'documents';
+
+const TAB_DEFS: { id: ProductDetailTabId; label: string }[] = [
+  { id: 'spare', label: 'Spare' },
+  { id: 'audit', label: 'Audit' },
+  { id: 'sales', label: 'Sales' },
+  { id: 'nc', label: 'NC' },
+  { id: 'purchase', label: 'Purchase' },
+  { id: 'support', label: 'Support' },
+  { id: 'stock', label: 'Stock' },
+  { id: 'documents', label: 'Documents' },
+];
+
+function TabPlaceholder({ label }: { label: string }) {
+  return (
+    <div className="product-detail-tab-panel__placeholder">
+      <p className="product-detail-tab-panel__placeholder-title">{label}</p>
+      <p className="text-muted text-sm">Coming soon.</p>
+    </div>
+  );
+}
+
+function TabPanelBody({ children }: { children: React.ReactNode }) {
+  return <div className="product-detail-tab-panel__body">{children}</div>;
+}
+
+export const ProductDetailTabs: React.FC<{
+  product: CatalogProduct;
+  activeTab?: ProductDetailTabId;
+  onActiveTabChange?: (tab: ProductDetailTabId) => void;
+  showSpareTab: boolean;
+  showAuditTab: boolean;
+  showStockTab: boolean;
+  relatedItems: CatalogProduct[];
+  relatedKind: 'spares' | 'products';
+  relatedLoading: boolean;
+  linkError: string | null;
+  manageSpareLinks: boolean;
+  showStockQuantity: boolean;
+  showCartActions: boolean;
+  productsBasePath: string;
+  sparesBasePath: string;
+  onOpenLinkEditor: () => void;
+  relatedLinkState: (item: CatalogProduct) => CatalogNavState;
+  livePhysicalQty: number | null;
+  canEditProductDetails: boolean;
+  onAuditSnapshotChange: (snapshot: NonNullable<CatalogProduct['auditSnapshot']>) => void;
+  activeInventorySites: CatalogInventorySite[];
+  siteConfigByKey: Record<CatalogInventorySite, CatalogInventorySiteConfig>;
+  auditItems: YesStoreItemDoc[];
+  cochinRecord: CatalogSiteInventoryDoc | null;
+  canEditCochin: boolean;
+  editorUid: string;
+  editorName?: string | null;
+  onCochinSaved: (record: CatalogSiteInventoryDoc) => void;
+}> = ({
+  product,
+  activeTab: controlledTab,
+  onActiveTabChange,
+  showSpareTab,
+  showAuditTab,
+  showStockTab,
+  relatedItems,
+  relatedKind,
+  relatedLoading,
+  linkError,
+  manageSpareLinks,
+  showStockQuantity,
+  showCartActions,
+  productsBasePath,
+  sparesBasePath,
+  onOpenLinkEditor,
+  relatedLinkState,
+  livePhysicalQty,
+  canEditProductDetails,
+  onAuditSnapshotChange,
+  activeInventorySites,
+  siteConfigByKey,
+  auditItems,
+  cochinRecord,
+  canEditCochin,
+  editorUid,
+  editorName,
+  onCochinSaved,
+}) => {
+  const [internalTab, setInternalTab] = useState<ProductDetailTabId>('spare');
+  const activeTab = controlledTab ?? internalTab;
+
+  const setActiveTab = (tab: ProductDetailTabId) => {
+    onActiveTabChange?.(tab);
+    if (controlledTab === undefined) setInternalTab(tab);
+  };
+
+  const spareTitle = relatedKind === 'spares' ? 'Mapped spares' : 'Mapped products';
+  const spareEmpty = relatedKind === 'spares'
+    ? 'No spares mapped to this product yet.'
+    : 'No products mapped to this spare yet.';
+
+  const panelId = useMemo(
+    () => (tab: ProductDetailTabId) => `product-detail-tab-panel-${tab}`,
+    [],
+  );
+
+  return (
+    <div className="product-detail-tabs">
+      <div
+        className="product-detail-tabs__track"
+        role="tablist"
+        aria-label="Product information"
+      >
+        {TAB_DEFS.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            id={`product-detail-tab-${tab.id}`}
+            aria-selected={activeTab === tab.id}
+            aria-controls={panelId(tab.id)}
+            className={`product-detail-tabs__btn${activeTab === tab.id ? ' is-active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="product-detail-tabs__panels">
+        <div
+          id={panelId('spare')}
+          role="tabpanel"
+          aria-labelledby="product-detail-tab-spare"
+          hidden={activeTab !== 'spare'}
+          className="product-detail-tab-panel"
+        >
+          <TabPanelBody>
+            {showSpareTab ? (
+              <>
+                <RelatedCatalogItems
+                items={relatedItems}
+                title={spareTitle}
+                emptyMessage={spareEmpty}
+                detailBasePath={relatedKind === 'spares' ? sparesBasePath : productsBasePath}
+                loading={relatedLoading}
+                showStockQuantity={showStockQuantity}
+                enableCart={showCartActions && relatedKind === 'spares'}
+                getLinkState={relatedLinkState}
+                embedded
+                headerAction={
+                  manageSpareLinks ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={onOpenLinkEditor}
+                    >
+                      {relatedKind === 'spares' ? 'Map spares' : 'Map products'}
+                    </button>
+                  ) : undefined
+                }
+              />
+              {linkError && (
+                <p className="related-catalog-section__error text-sm">{linkError}</p>
+              )}
+            </>
+            ) : (
+              <TabPlaceholder label="Spare mapping" />
+            )}
+          </TabPanelBody>
+        </div>
+
+        <div
+          id={panelId('audit')}
+          role="tabpanel"
+          aria-labelledby="product-detail-tab-audit"
+          hidden={activeTab !== 'audit'}
+          className="product-detail-tab-panel"
+        >
+          <TabPanelBody>
+            {showAuditTab ? (
+              <ProductAuditHistory
+              product={product}
+              livePhysicalQty={livePhysicalQty}
+              canRecord={canEditProductDetails}
+              embedded
+              onSnapshotChange={onAuditSnapshotChange}
+            />
+            ) : (
+              <TabPlaceholder label="Audit history" />
+            )}
+          </TabPanelBody>
+        </div>
+
+        {(['sales', 'nc', 'purchase', 'support', 'documents'] as const).map(tabId => (
+          <div
+            key={tabId}
+            id={panelId(tabId)}
+            role="tabpanel"
+            aria-labelledby={`product-detail-tab-${tabId}`}
+            hidden={activeTab !== tabId}
+            className="product-detail-tab-panel"
+          >
+            <TabPanelBody>
+              <TabPlaceholder label={TAB_DEFS.find(t => t.id === tabId)?.label ?? tabId} />
+            </TabPanelBody>
+          </div>
+        ))}
+
+        <div
+          id={panelId('stock')}
+          role="tabpanel"
+          aria-labelledby="product-detail-tab-stock"
+          hidden={activeTab !== 'stock'}
+          className="product-detail-tab-panel"
+        >
+          <TabPanelBody>
+            {showStockTab && activeInventorySites.length > 0 ? (
+              <div className="product-detail-page__stock-locations product-detail-page__stock-locations--tab">
+                {activeInventorySites.map(site => (
+                  <ProductSiteStockLocations
+                    key={site}
+                    product={product as CatalogProductDetail}
+                    siteConfig={siteConfigByKey[site]}
+                    auditItems={site === 'head_office' ? auditItems : []}
+                    cochinRecord={site === 'cochin' ? cochinRecord : null}
+                    canEditCochin={canEditCochin}
+                    editorUid={editorUid}
+                    editorName={editorName}
+                    onCochinSaved={onCochinSaved}
+                  />
+                ))}
+              </div>
+            ) : (
+              <TabPlaceholder label="Stock" />
+            )}
+          </TabPanelBody>
+        </div>
+      </div>
+    </div>
+  );
+};

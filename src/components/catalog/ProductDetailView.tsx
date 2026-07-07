@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Download,
   IndianRupee,
-  Link2,
   Package,
   Pencil,
   RefreshCw,
@@ -24,6 +23,7 @@ import {
   fetchCatalog,
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
+  assignProductCategory,
   formatCurrency,
   formatStockQuantity,
   getCategorizedProducts,
@@ -48,16 +48,15 @@ import {
   type InventoryAuditGroupTotals,
 } from '../../lib/yesStore/inventoryAudit';
 import { resolveYesStorePhotoUrls } from '../../lib/yesStore/photos';
-import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
+import type { CatalogProduct, CatalogProductDetail, CatalogCategory } from '../../types/catalog';
 import { useAuth } from '../../context/AuthContext';
 import { getCatalogSiteInventory } from '../../lib/catalogSiteInventory/data';
 import {
   CATALOG_INVENTORY_SITE_CONFIG,
   resolveActiveInventorySites,
 } from '../../lib/catalogInventorySites';
-import { ProductSiteStockLocations } from './ProductSiteStockLocations';
+import { ProductDetailTabs } from './ProductDetailTabs';
 import { ProductPackageInfo } from './ProductPackageInfo';
-import { ProductAuditHistory } from './ProductAuditHistory';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import {
   catalogSiteInventoryTotalQuantity,
@@ -70,9 +69,9 @@ import {
   type CatalogNavState,
 } from '../../lib/catalogNav';
 import { CategoryThumbnail } from './CategoryThumbnail';
-import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { SpareLinkEditor } from './SpareLinkEditor';
 import { StockBadge } from './StockBadge';
+import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 
 function formatProductTitle(name: string): string {
   return name
@@ -165,6 +164,9 @@ export const ProductDetailView: React.FC<{
   const [productEditMode, setProductEditMode] = useState(false);
   const [editName, setEditName] = useState('');
   const [editSku, setEditSku] = useState('');
+  const [editCategoryId, setEditCategoryId] = useState('');
+  const [categoryOptions, setCategoryOptions] = useState<CatalogCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [detailsSaving, setDetailsSaving] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
@@ -175,6 +177,39 @@ export const ProductDetailView: React.FC<{
   const imageInputRef = useRef<HTMLInputElement>(null);
   const captureInputRef = useRef<HTMLInputElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const [titleInView, setTitleInView] = useState(true);
+
+  const scrolledHeaderTitle = useMemo(() => {
+    if (variant !== 'app' || titleInView || !product) return null;
+    return formatProductTitle(productEditMode ? editName || product.name : product.name);
+  }, [variant, titleInView, product, productEditMode, editName]);
+
+  useCatalogPageHeader({
+    title: scrolledHeaderTitle,
+    showBack: variant === 'app',
+    onBack: goBack,
+  }, variant === 'app');
+
+  useEffect(() => {
+    if (variant !== 'app') return undefined;
+    const node = titleRef.current;
+    if (!node) return undefined;
+
+    const headerHeight = getComputedStyle(document.documentElement)
+      .getPropertyValue('--header-height')
+      .trim() || '72px';
+    const observer = new IntersectionObserver(
+      ([entry]) => setTitleInView(entry.isIntersecting),
+      { root: null, rootMargin: `-${headerHeight} 0px 0px 0px`, threshold: 0 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [variant, product?.id, productEditMode]);
+
+  useEffect(() => {
+    setTitleInView(true);
+  }, [product?.id]);
 
   const theme = useMemo(
     () => getCategoryTheme(themeIndexFromId(productId)),
@@ -549,16 +584,50 @@ export const ProductDetailView: React.FC<{
     if (!product || !canEditProductDetails) return;
     setEditName(product.name);
     setEditSku(product.sku ?? '');
+    setEditCategoryId(product.categoryId ?? '');
     setDetailsError(null);
+    setStatusError(null);
     setProductEditMode(true);
   };
 
   const cancelProductEdit = () => {
     setProductEditMode(false);
     setDetailsError(null);
+    setStatusError(null);
     setEditName('');
     setEditSku('');
+    setEditCategoryId('');
+    setCategoryOptions([]);
   };
+
+  useEffect(() => {
+    if (!productEditMode || !canEditProductDetails) return;
+
+    let active = true;
+    setCategoriesLoading(true);
+    void fetchCatalog()
+      .then(data => {
+        if (!active) return;
+        const sorted = [...data.categories]
+          .filter(cat => cat.id)
+          .sort((a, b) => {
+            const orderDiff = a.displayOrder - b.displayOrder;
+            if (orderDiff !== 0) return orderDiff;
+            return a.name.localeCompare(b.name);
+          });
+        setCategoryOptions(sorted);
+      })
+      .catch(() => {
+        if (active) setCategoryOptions([]);
+      })
+      .finally(() => {
+        if (active) setCategoriesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [productEditMode, canEditProductDetails]);
 
   const handleSaveProductDetails = async () => {
     if (!product || !canEditProductDetails || detailsSaving) return;
@@ -574,13 +643,47 @@ export const ProductDetailView: React.FC<{
       return;
     }
 
+    const nextCategoryId = editCategoryId.trim();
+    const categoryChanged = nextCategoryId !== (product.categoryId ?? '');
+    let nextCategoryName = product.categoryName ?? null;
+
+    if (categoryChanged) {
+      if (!nextCategoryId) {
+        setDetailsError('Category is required.');
+        return;
+      }
+      const selected = categoryOptions.find(cat => cat.id === nextCategoryId);
+      if (!selected) {
+        setDetailsError('Select a valid category.');
+        return;
+      }
+      nextCategoryName = selected.name;
+    }
+
     setDetailsSaving(true);
     setDetailsError(null);
     try {
+      if (categoryChanged && nextCategoryId && nextCategoryName) {
+        await assignProductCategory(product.id, nextCategoryId, nextCategoryName);
+      }
       const saved = await updateCatalogProductDetails(product.id, { name, sku });
       const syncedAt = new Date().toISOString();
-      setProduct(prev => (prev ? { ...prev, name: saved.name, sku: saved.sku, syncedAt } : prev));
+      setProduct(prev => (
+        prev
+          ? {
+              ...prev,
+              name: saved.name,
+              sku: saved.sku,
+              syncedAt,
+              ...(categoryChanged
+                ? { categoryId: nextCategoryId, categoryName: nextCategoryName }
+                : {}),
+            }
+          : prev
+      ));
       setProductEditMode(false);
+      setEditCategoryId('');
+      setCategoryOptions([]);
     } catch (err) {
       setDetailsError(err instanceof Error ? err.message : 'Could not save item details.');
     } finally {
@@ -624,7 +727,7 @@ export const ProductDetailView: React.FC<{
   };
 
   const handleSetInactive = async () => {
-    if (!product || !canSetInactive || statusUpdating) return;
+    if (!product || !canSetInactive || !productEditMode || statusUpdating) return;
 
     const ok = await confirm({
       title: 'Set inactive on Zoho?',
@@ -649,10 +752,12 @@ export const ProductDetailView: React.FC<{
   if (error && !product) {
     return (
       <div className={`product-detail-page product-detail-page--${variant}`}>
-        <button type="button" className="product-detail-page__back" onClick={goBack}>
-          <ArrowLeft size={18} />
-          <span>{backLabel}</span>
-        </button>
+        {variant === 'public' && (
+          <button type="button" className="product-detail-page__back" onClick={goBack}>
+            <ArrowLeft size={18} />
+            <span>{backLabel}</span>
+          </button>
+        )}
         <div className="product-detail-page__error panel glass">
           <Package size={40} />
           <h2>Product unavailable</h2>
@@ -688,14 +793,12 @@ export const ProductDetailView: React.FC<{
 
   return (
     <div className={`product-detail-page product-detail-page--${variant}`} style={cardStyle}>
-      <button
-        type="button"
-        className="product-detail-page__back"
-        onClick={goBack}
-      >
-        <ArrowLeft size={18} />
-        <span>{backLabel}</span>
-      </button>
+      {variant === 'public' && (
+        <button type="button" className="product-detail-page__back" onClick={goBack}>
+          <ArrowLeft size={18} />
+          <span>{backLabel}</span>
+        </button>
+      )}
 
       <div className="product-detail-page__layout">
         <div className="product-detail-page__hero">
@@ -862,7 +965,7 @@ export const ProductDetailView: React.FC<{
               </p>
             )}
 
-            <h1 className="product-detail-page__title">
+            <h1 ref={titleRef} className="product-detail-page__title">
               {productEditMode ? (
                 <input
                   type="text"
@@ -895,50 +998,73 @@ export const ProductDetailView: React.FC<{
               )
             )}
 
+            {productEditMode && canEditProductDetails && (
+              <label className="product-detail-page__sku-field product-detail-page__category-field">
+                <span className="product-detail-page__sku-label">Category</span>
+                <select
+                  className="product-detail-page__category-select"
+                  value={editCategoryId}
+                  onChange={e => setEditCategoryId(e.target.value)}
+                  disabled={detailsSaving || categoriesLoading}
+                  aria-label="Item category"
+                >
+                  <option value="">
+                    {categoriesLoading ? 'Loading categories…' : 'Select category'}
+                  </option>
+                  {categoryOptions.map(cat => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             {productEditMode && (
               <>
                 {detailsError && (
                   <p className="product-detail-page__details-error text-sm">{detailsError}</p>
                 )}
+                {statusError && (
+                  <p className="product-detail-page__status-error text-sm">{statusError}</p>
+                )}
                 <div className="product-detail-page__details-edit-actions">
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    disabled={detailsSaving || imageBusy}
-                    onClick={() => void handleSaveProductDetails()}
-                  >
-                    {detailsSaving
-                      ? <RefreshCw size={15} className="spin-icon" aria-hidden />
-                      : <Save size={15} aria-hidden />}
-                    {detailsSaving ? 'Saving…' : 'Save to Zoho'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    disabled={detailsSaving || imageBusy}
-                    onClick={cancelProductEdit}
-                  >
-                    Cancel
-                  </button>
+                  <div className="product-detail-page__details-edit-actions-row">
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm product-detail-page__details-edit-save"
+                      disabled={detailsSaving || imageBusy || categoriesLoading}
+                      onClick={() => void handleSaveProductDetails()}
+                    >
+                      {detailsSaving
+                        ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                        : <Save size={15} aria-hidden />}
+                      {detailsSaving ? 'Saving…' : 'Save to Zoho'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm product-detail-page__details-edit-cancel"
+                      disabled={detailsSaving || imageBusy}
+                      onClick={cancelProductEdit}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {canSetInactive && (isCategorizedProduct || isSpareItem) && (
+                    <button
+                      type="button"
+                      className="btn btn-sm product-detail-page__inactive-btn product-detail-page__details-edit-inactive"
+                      onClick={() => void handleSetInactive()}
+                      disabled={statusUpdating || detailsSaving || imageBusy}
+                    >
+                      {statusUpdating
+                        ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                        : <Ban size={15} aria-hidden />}
+                      Set inactive on Zoho
+                    </button>
+                  )}
                 </div>
               </>
-            )}
-
-            {!productEditMode && canSetInactive && (isCategorizedProduct || isSpareItem) && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm product-detail-page__inactive-btn product-detail-page__inactive-btn--inline"
-                onClick={() => void handleSetInactive()}
-                disabled={statusUpdating}
-              >
-                {statusUpdating
-                  ? <RefreshCw size={15} className="spin-icon" aria-hidden />
-                  : <Ban size={15} aria-hidden />}
-                Set inactive on Zoho
-              </button>
-            )}
-            {statusError && (
-              <p className="product-detail-page__status-error text-sm">{statusError}</p>
             )}
           </section>
         </div>
@@ -1007,47 +1133,6 @@ export const ProductDetailView: React.FC<{
               <p className="product-detail-page__loading-note">Updating Zoho stock…</p>
             )}
           </div>
-
-          {showAuditedStock && activeInventorySites.length > 0 && (
-            <div className="product-detail-page__stock-locations">
-              <h2 className="product-detail-page__stock-locations-title">Storage locations</h2>
-              {activeInventorySites.map(site => (
-                <ProductSiteStockLocations
-                  key={site}
-                  product={product as CatalogProductDetail}
-                  siteConfig={CATALOG_INVENTORY_SITE_CONFIG[site]}
-                  auditItems={site === 'head_office' ? auditItems : []}
-                  cochinRecord={site === 'cochin' ? cochinRecord : null}
-                  canEditCochin={canEditCochin}
-                  editorUid={user?.uid ?? ''}
-                  editorName={user?.displayName}
-                  onCochinSaved={setCochinRecord}
-                />
-              ))}
-            </div>
-          )}
-
-          {showAuditedStock && product && (
-            <ProductPackageInfo
-              product={product}
-              packageInfo={product.packageInfo}
-              canEdit={canEditProductDetails}
-              onPackageInfoChange={info => {
-                setProduct(prev => (prev ? { ...prev, packageInfo: info } : prev));
-              }}
-            />
-          )}
-
-          {showAuditedStock && product && (
-            <ProductAuditHistory
-              product={product}
-              livePhysicalQty={livePhysicalQty}
-              canRecord={canEditProductDetails}
-              onSnapshotChange={snapshot => {
-                setProduct(prev => (prev ? { ...prev, auditSnapshot: snapshot } : prev));
-              }}
-            />
-          )}
 
           {showCartActions && (
             <div className="product-detail-page__cart">
@@ -1129,38 +1214,49 @@ export const ProductDetailView: React.FC<{
             </div>
           )}
 
-          {showLinksSection && (isCategorizedProduct || isSpareItem) && (
-            <>
-              <RelatedCatalogItems
-                items={relatedItems}
-                title={relatedKind === 'spares' ? 'Compatible spares' : 'Compatible products'}
-                emptyMessage={
-                  relatedKind === 'spares'
-                    ? 'No spares mapped yet for this product.'
-                    : 'No products mapped yet for this spare.'
-                }
-                detailBasePath={relatedKind === 'spares' ? sparesBasePath : productsBasePath}
-                loading={relatedLoading}
-                showStockQuantity={showStockQuantity}
-                enableCart={showCartActions && relatedKind === 'spares'}
-                getLinkState={relatedLinkState}
-                headerAction={
-                  manageSpareLinks ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => void openLinkEditor()}
-                    >
-                      <Link2 size={15} />
-                      {relatedKind === 'spares' ? 'Map spares' : 'Map products'}
-                    </button>
-                  ) : undefined
-                }
+          {variant !== 'public' && product && (
+            <div className="product-detail-page__tabbed-area">
+            {showAuditedStock && (
+              <ProductPackageInfo
+                product={product}
+                packageInfo={product.packageInfo}
+                canEdit={canEditProductDetails}
+                onPackageInfoChange={info => {
+                  setProduct(prev => (prev ? { ...prev, packageInfo: info } : prev));
+                }}
               />
-              {linkError && (
-                <p className="related-catalog-section__error text-sm">{linkError}</p>
-              )}
-            </>
+            )}
+            <ProductDetailTabs
+              product={product}
+              showSpareTab={showLinksSection && (isCategorizedProduct || isSpareItem)}
+              showAuditTab={showAuditedStock}
+              showStockTab={showAuditedStock}
+              relatedItems={relatedItems}
+              relatedKind={relatedKind}
+              relatedLoading={relatedLoading}
+              linkError={linkError}
+              manageSpareLinks={manageSpareLinks}
+              showStockQuantity={showStockQuantity}
+              showCartActions={showCartActions}
+              productsBasePath={productsBasePath ?? backPath}
+              sparesBasePath={sparesBasePath ?? `${backPath}/spare`}
+              onOpenLinkEditor={() => void openLinkEditor()}
+              relatedLinkState={relatedLinkState}
+              livePhysicalQty={livePhysicalQty}
+              canEditProductDetails={canEditProductDetails}
+              onAuditSnapshotChange={snapshot => {
+                setProduct(prev => (prev ? { ...prev, auditSnapshot: snapshot } : prev));
+              }}
+              activeInventorySites={activeInventorySites}
+              siteConfigByKey={CATALOG_INVENTORY_SITE_CONFIG}
+              auditItems={auditItems}
+              cochinRecord={cochinRecord}
+              canEditCochin={canEditCochin}
+              editorUid={user?.uid ?? ''}
+              editorName={user?.displayName}
+              onCochinSaved={setCochinRecord}
+            />
+            </div>
           )}
         </section>
       </div>

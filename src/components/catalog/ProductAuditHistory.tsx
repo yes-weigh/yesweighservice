@@ -1,17 +1,41 @@
-import React, { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, RefreshCw, User } from 'lucide-react';
 import { formatStockQuantity } from '../../lib/catalog';
 import { fetchCatalogProductAuditLogs } from '../../lib/catalogProductAudit/data';
-import { formatAuditDateTime } from '../../lib/yesStore/format';
-import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
+import { formatAuditDate, formatAuditTime } from '../../lib/yesStore/format';
 import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditLog, CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
-import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 
-function triggerLabel(trigger: CatalogProductAuditLog['trigger']): string {
-  if (trigger === 'warehouse_count') return 'Warehouse count';
-  if (trigger === 'cochin_inventory') return 'Cochin locations';
-  return 'Manual';
+const AVATAR_TONES = [
+  { bg: '#ede9fe', color: '#6d28d9' },
+  { bg: '#dbeafe', color: '#1d4ed8' },
+  { bg: '#dcfce7', color: '#15803d' },
+  { bg: '#ffedd5', color: '#c2410c' },
+  { bg: '#fce7f3', color: '#be185d' },
+] as const;
+
+function auditorDisplayName(name: string | null | undefined): string {
+  const trimmed = name?.trim();
+  return trimmed || 'Unknown auditor';
+}
+
+function avatarTone(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash + name.charCodeAt(i) * (i + 1)) % 9973;
+  }
+  return AVATAR_TONES[hash % AVATAR_TONES.length];
+}
+
+function diffClassName(value: number): string {
+  if (value < 0) return 'product-audit-log__diff is-under';
+  if (value > 0) return 'product-audit-log__diff is-over';
+  return 'product-audit-log__diff is-even';
+}
+
+function diffDisplay(value: number): string {
+  if (value > 0) return `+${value}`;
+  return String(value);
 }
 
 export const ProductAuditHistory: React.FC<{
@@ -19,24 +43,21 @@ export const ProductAuditHistory: React.FC<{
   snapshot?: CatalogProductAuditSnapshot | null;
   livePhysicalQty: number | null;
   canRecord?: boolean;
+  embedded?: boolean;
   onSnapshotChange?: (snapshot: CatalogProductAuditSnapshot) => void;
 }> = ({
   product,
   snapshot = product.auditSnapshot ?? null,
-  livePhysicalQty,
+  livePhysicalQty: _livePhysicalQty,
   canRecord = false,
+  embedded = false,
   onSnapshotChange,
 }) => {
   const [logs, setLogs] = useState<CatalogProductAuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const adjusted = resolveAdjustedAuditDisplay({
-    currentZohoQty: product.stock,
-    snapshot,
-    livePhysicalQty,
-  });
+  const [sortDirection, setSortDirection] = useState<'desc' | 'asc'>('desc');
 
   useEffect(() => {
     let active = true;
@@ -55,6 +76,18 @@ export const ProductAuditHistory: React.FC<{
       active = false;
     };
   }, [product.id, snapshot?.lastAuditedAt]);
+
+  const sortedLogs = useMemo(() => {
+    const rows = [...logs];
+    rows.sort((a, b) => {
+      const aTime = new Date(a.auditedAt).getTime();
+      const bTime = new Date(b.auditedAt).getTime();
+      const safeA = Number.isNaN(aTime) ? 0 : aTime;
+      const safeB = Number.isNaN(bTime) ? 0 : bTime;
+      return sortDirection === 'desc' ? safeB - safeA : safeA - safeB;
+    });
+    return rows;
+  }, [logs, sortDirection]);
 
   const handleRecord = async () => {
     setRecording(true);
@@ -87,19 +120,22 @@ export const ProductAuditHistory: React.FC<{
     }
   };
 
-  if (!adjusted.hasAuditSnapshot && logs.length === 0 && !loading && !canRecord) {
-    return null;
-  }
+  const toggleSort = () => {
+    setSortDirection(prev => (prev === 'desc' ? 'asc' : 'desc'));
+  };
 
   return (
-    <div className="product-audit-history">
-      <div className="product-audit-history__head">
-        <h2 className="product-detail-page__stock-locations-title">Audit history</h2>
+    <div className={`product-audit-log ${embedded ? 'product-audit-log--embedded' : ''}`}>
+      <div className="product-audit-log__header">
+        <div className="product-audit-log__title-block">
+          <h3 className="product-audit-log__title">Audit Log List</h3>
+          <p className="product-audit-log__count">Total Logs: {loading ? '…' : logs.length}</p>
+        </div>
         {canRecord && (
           <button
             type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={recording}
+            className="btn btn-primary btn-sm product-audit-log__record-btn"
+            disabled={recording || loading}
             onClick={() => void handleRecord()}
           >
             {recording ? <RefreshCw size={14} className="spin-icon" aria-hidden /> : null}
@@ -108,51 +144,94 @@ export const ProductAuditHistory: React.FC<{
         )}
       </div>
 
-      {adjusted.hasAuditSnapshot && (
-        <p className="product-audit-history__note text-muted">
-          Last audit {formatAuditDateTime(adjusted.lastAuditedAt)}
-          {adjusted.lastAuditedByName ? ` by ${adjusted.lastAuditedByName}` : ''}.
-          {' '}Difference locked at {formatQtyDifference(adjusted.baselineDifference ?? 0)} — displayed audited qty
-          adjusts when Zoho stock changes.
-        </p>
-      )}
+      {error && <p className="product-audit-log__error">{error}</p>}
 
-      {error && <p className="product-audit-history__error">{error}</p>}
-
-      {loading ? (
-        <p className="product-audit-history__loading text-muted">Loading audit history…</p>
-      ) : logs.length === 0 ? (
-        <p className="product-audit-history__empty text-muted">No audit snapshots recorded yet.</p>
-      ) : (
-        <div className="product-audit-history__table-wrap">
-          <table className="product-audit-history__table">
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>By</th>
-                <th>Physical</th>
-                <th>Zoho</th>
-                <th>Diff</th>
-                <th>Source</th>
+      <div className="product-audit-log__table-wrap">
+        <table className="product-audit-log__table">
+          <colgroup>
+            <col className="product-audit-log__col product-audit-log__col--auditor" />
+            <col className="product-audit-log__col product-audit-log__col--date" />
+            <col className="product-audit-log__col product-audit-log__col--qty" />
+            <col className="product-audit-log__col product-audit-log__col--qty" />
+            <col className="product-audit-log__col product-audit-log__col--diff" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">
+                <span className="product-audit-log__th-full">Auditor Name</span>
+                <span className="product-audit-log__th-short">Auditor</span>
+              </th>
+              <th scope="col">
+                <button
+                  type="button"
+                  className="product-audit-log__sort-btn"
+                  onClick={toggleSort}
+                  aria-label={`Sort by date and time ${sortDirection === 'desc' ? 'oldest first' : 'newest first'}`}
+                >
+                  <span className="product-audit-log__th-full">Date &amp; Time</span>
+                  <span className="product-audit-log__th-short">Date</span>
+                  {sortDirection === 'desc'
+                    ? <ArrowDown size={12} aria-hidden />
+                    : <ArrowUp size={12} aria-hidden />}
+                </button>
+              </th>
+              <th scope="col">Zoho</th>
+              <th scope="col">Audit</th>
+              <th scope="col">Diff</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr className="product-audit-log__empty-row">
+                <td colSpan={5}>Loading audit logs…</td>
               </tr>
-            </thead>
-            <tbody>
-              {logs.map(log => (
-                <tr key={log.id}>
-                  <td>{formatAuditDateTime(log.auditedAt)}</td>
-                  <td>{log.auditedByName?.trim() || '—'}</td>
-                  <td>{formatStockQuantity(log.physicalQty, product.unit)}</td>
-                  <td>{formatStockQuantity(log.zohoQtyAtAudit, product.unit)}</td>
-                  <td className={log.baselineDifference > 0 ? 'is-over' : log.baselineDifference < 0 ? 'is-under' : ''}>
-                    {formatQtyDifference(log.baselineDifference)}
-                  </td>
-                  <td>{triggerLabel(log.trigger)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            ) : sortedLogs.length === 0 ? (
+              <tr className="product-audit-log__empty-row">
+                <td colSpan={5}>No audit logs yet.</td>
+              </tr>
+            ) : (
+              sortedLogs.map(log => {
+                const name = auditorDisplayName(log.auditedByName);
+                const tone = avatarTone(name);
+                return (
+                  <tr key={log.id}>
+                    <td>
+                      <div className="product-audit-log__auditor">
+                        <span
+                          className="product-audit-log__avatar"
+                          style={{ background: tone.bg, color: tone.color }}
+                          aria-hidden
+                        >
+                          <User size={16} strokeWidth={2.2} />
+                        </span>
+                        <span className="product-audit-log__auditor-text">
+                          <strong>{name}</strong>
+                          <span>Auditor</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="product-audit-log__datetime">
+                        <strong>{formatAuditDate(log.auditedAt)}</strong>
+                        <span>{formatAuditTime(log.auditedAt)}</span>
+                      </div>
+                    </td>
+                    <td className="product-audit-log__qty">
+                      {formatStockQuantity(log.zohoQtyAtAudit, product.unit)}
+                    </td>
+                    <td className="product-audit-log__qty">
+                      {formatStockQuantity(log.physicalQty, product.unit)}
+                    </td>
+                    <td className={diffClassName(log.baselineDifference)}>
+                      {diffDisplay(log.baselineDifference)}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

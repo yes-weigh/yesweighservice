@@ -115,6 +115,8 @@ export const RelatedCatalogItems: React.FC<{
   showStockQuantity?: boolean;
   enableCart?: boolean;
   getLinkState?: (item: CatalogProduct) => CatalogNavState;
+  /** Hide section heading when rendered inside product detail tabs. */
+  embedded?: boolean;
 }> = ({
   items,
   title,
@@ -125,27 +127,37 @@ export const RelatedCatalogItems: React.FC<{
   showStockQuantity = false,
   enableCart = false,
   getLinkState,
+  embedded = false,
 }) => {
   const navigate = useNavigate();
 
   if (loading) {
     return (
-      <div className="product-detail-page__section related-catalog">
-        <div className="related-catalog__header">
-          <h2>{title}</h2>
-          {headerAction}
-        </div>
+      <div className={`related-catalog ${embedded ? '' : 'product-detail-page__section'}`}>
+        {!embedded && (
+          <div className="related-catalog__header">
+            <h2>{title}</h2>
+            {headerAction}
+          </div>
+        )}
         <p className="text-muted text-sm">Loading…</p>
       </div>
     );
   }
 
   return (
-    <div className="product-detail-page__section related-catalog">
-      <div className="related-catalog__header">
-        <h2>{title}</h2>
-        {headerAction}
-      </div>
+    <div className={`related-catalog ${embedded ? '' : 'product-detail-page__section'}`}>
+      {!embedded && (
+        <div className="related-catalog__header">
+          <h2>{title}</h2>
+          {headerAction}
+        </div>
+      )}
+      {embedded && headerAction && (
+        <div className="related-catalog__header related-catalog__header--embedded">
+          {headerAction}
+        </div>
+      )}
       {items.length === 0 ? (
         <p className="related-catalog__empty text-muted text-sm">{emptyMessage}</p>
       ) : (

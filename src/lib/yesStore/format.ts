@@ -40,6 +40,17 @@ export function formatAuditDateTime(iso: string | null | undefined): string {
   });
 }
 
+export function formatAuditTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 /** Compact tile line: "Diya, 27 Jun 2026, 02:50 pm" */
 export function formatAuditAttribution(
   auditedBy: string | null | undefined,
