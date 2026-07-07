@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Alleppey Parcel Service">
-  <g fill="#dc2626">
-    <rect x="18" y="18" width="22" height="22" transform="rotate(45 29 29)"/>
-    <rect x="52" y="18" width="22" height="22" transform="rotate(45 63 29)"/>
-    <rect x="18" y="52" width="22" height="22" transform="rotate(45 29 63)"/>
-    <rect x="52" y="52" width="22" height="22" transform="rotate(45 63 63)"/>
-  </g>
-  <text x="78" y="72" font-family="Arial Black, Arial, sans-serif" font-size="28" font-weight="900" fill="#dc2626">APS</text>
-</svg>

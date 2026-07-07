@@ -13,18 +13,20 @@ export interface DeliveryMethod {
   id: DeliveryMethodId;
   label: string;
   image: string;
+  tagline: string;
+  recommended?: boolean;
 }
 
 export const DELIVERY_METHODS: DeliveryMethod[] = [
-  { id: 'st_courier', label: 'ST COURIER', image: '/logistics/st-courier.svg' },
-  { id: 'trackon', label: 'TRACKON', image: '/logistics/trackon.svg' },
-  { id: 'delhivery', label: 'DELHIVERY', image: '/logistics/delhivery.svg' },
-  { id: 'bluedart', label: 'BLUEDART', image: '/logistics/bluedart.svg' },
-  { id: 'dtdc', label: 'DTDC', image: '/logistics/dtdc.svg' },
-  { id: 'ecosafe', label: 'ECO SAFE', image: '/logistics/ecosafe.svg' },
-  { id: 'aps', label: 'ALLEPPEY PARCEL SERVICE L.L.P', image: '/logistics/aps.svg' },
-  { id: 'personal_collection', label: 'PERSONAL COLLECTION', image: '/logistics/personal-collection.svg' },
-  { id: 'own_vehicle', label: 'OWN VEHICLE', image: '/logistics/own-vehicle.svg' },
+  { id: 'st_courier', label: 'ST COURIER', image: '/logistics/st-courier.png', tagline: 'Kerala & Tamil Nadu', recommended: true },
+  { id: 'trackon', label: 'TRACKON', image: '/logistics/trackon.png', tagline: 'Tamil Nadu' },
+  { id: 'delhivery', label: 'DELHIVERY', image: '/logistics/delhivery.png', tagline: 'All India' },
+  { id: 'bluedart', label: 'BLUE DART', image: '/logistics/bluedart.png', tagline: 'All India' },
+  { id: 'dtdc', label: 'DTDC', image: '/logistics/dtdc.png', tagline: 'Kerala' },
+  { id: 'ecosafe', label: 'ECO SAFE', image: '/logistics/ecosafe.png', tagline: 'Bangalore' },
+  { id: 'aps', label: 'ALLEPPEY PARCEL SERVICE L.L.P', image: '/logistics/aps.png', tagline: 'Kerala' },
+  { id: 'personal_collection', label: 'PERSONAL COLLECTION', image: '/logistics/personal-collection.png', tagline: 'Customer pickup at counter' },
+  { id: 'own_vehicle', label: 'OWN VEHICLE', image: '/logistics/own-vehicle.png', tagline: 'Delivered by our fleet' },
 ];
 
 export function deliveryMethodLabel(id: DeliveryMethodId): string {

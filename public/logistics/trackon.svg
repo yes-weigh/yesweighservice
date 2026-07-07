@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Trackon">
-  <polygon points="18,88 42,24 66,88" fill="#f97316"/>
-  <polygon points="42,88 66,24 90,88" fill="#ea580c"/>
-  <polygon points="30,88 54,40 78,88" fill="#fdba74" opacity=".55"/>
-  <text x="24" y="108" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#ea580c">Trackon</text>
-</svg>

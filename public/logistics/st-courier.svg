@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="ST Courier">
-  <circle cx="60" cy="60" r="52" fill="#1f9d55"/>
-  <ellipse cx="60" cy="60" rx="46" ry="46" fill="none" stroke="#0d6b38" stroke-width="2"/>
-  <path d="M60 18c-18 10-28 24-30 42 8-2 18-2 30 0 12-2 22-2 30 0-2-18-12-32-30-42z" fill="#2fbf71" opacity=".35"/>
-  <text x="42" y="72" font-family="Arial Black, Arial, sans-serif" font-size="34" font-weight="900" fill="#e11d48">S</text>
-  <text x="62" y="72" font-family="Arial Black, Arial, sans-serif" font-size="34" font-weight="900" fill="#2563eb">T</text>
-</svg>
