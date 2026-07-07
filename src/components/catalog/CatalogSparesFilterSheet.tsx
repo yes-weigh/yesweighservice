@@ -9,6 +9,8 @@ import type {
   SpareWarehouseLocationFilter,
 } from '../../lib/catalog';
 
+const EMPTY_SPARE_LOCATION_FILTERS: ReadonlySet<SpareWarehouseLocationFilter> = new Set();
+
 export interface CatalogSparesFilterSheetProps {
   open: boolean;
   onClose: () => void;
@@ -35,7 +37,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
   variant = 'spares',
   spareCatalogFilters,
   spareStockStatusFilters,
-  spareLocationFilters = new Set(),
+  spareLocationFilters = EMPTY_SPARE_LOCATION_FILTERS,
   spareAuditStatusFilters,
   onApplyFilters,
   spareCatalogFilterCounts,
