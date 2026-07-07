@@ -14,7 +14,7 @@ export const COURIER_PARTNERS: CourierPartner[] = [
   { id: 'dtdc', label: 'DTDC', image: '/logistics/dtdc.png' },
   { id: 'ecosafe', label: 'Ecosafe', image: '/logistics/ecosafe.png' },
   { id: 'aps', label: 'Alleppey Parcel Service', image: '/logistics/aps.png' },
-  { id: 'customer_pickup', label: 'Customer Pickup', image: '/logistics/personal-collection.png' },
+  { id: 'personal_collection', label: 'Customer Pickup', image: '/logistics/personal-collection.png' },
   { id: 'own_vehicle', label: 'Own Vehicle', image: '/logistics/own-vehicle.png' },
   { id: 'transport_lorry', label: 'Transport / Lorry', image: '/logistics/own-vehicle.png' },
 ];

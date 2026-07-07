@@ -1,131 +1,162 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Package, Plus, Truck } from 'lucide-react';
 import { useTopBarAction } from '../../context/PageHeaderContext';
-import { AddCourierPartnerDialog } from '../../components/logistics/AddCourierPartnerDialog';
-import { CourierDispatchDetail } from '../../components/logistics/CourierDispatchDetail';
-import { courierPartnerLabel } from '../../constants/courierPartners';
-import { createCourierDispatch } from '../../lib/logisticsDispatch';
-import type { CourierDispatch, CourierPartnerFormDraft } from '../../types/logistics-dispatch';
+import { BookCourierFlow } from '../../components/logistics/BookCourierFlow';
+import { CourierPartnerPicker } from '../../components/logistics/CourierPartnerPicker';
+import { LogisticsBookingDetail } from '../../components/logistics/LogisticsBookingDetail';
+import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
+import { isLogisticsPartnerId, logisticsPartnerLabel } from '../../constants/logisticsPartners';
+import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
+import { LOGISTICS_BOOKING_STATUSES } from '../../lib/logisticsBooking';
+import type { LogisticsBooking } from '../../types/logistics-dispatch';
+
+type FlowStep = 'closed' | 'partner' | 'book';
 
 export const LogisticsPage: React.FC = () => {
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [dispatches, setDispatches] = useState<CourierDispatch[]>([]);
-  const [activeDispatchId, setActiveDispatchId] = useState<string | null>(null);
+  const [flowStep, setFlowStep] = useState<FlowStep>('closed');
+  const [selectedPartnerId, setSelectedPartnerId] = useState<LogisticsPartnerId | null>(null);
+  const [bookings, setBookings] = useState<LogisticsBooking[]>([]);
+  const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
 
-  const activeDispatch = useMemo(
-    () => dispatches.find(item => item.id === activeDispatchId) ?? null,
-    [dispatches, activeDispatchId],
+  const activeBooking = useMemo(
+    () => bookings.find(item => item.id === activeBookingId) ?? null,
+    [bookings, activeBookingId],
   );
 
-  const openDialog = useCallback(() => {
-    setDialogOpen(true);
+  const flowOpen = flowStep !== 'closed';
+
+  const openFlow = useCallback(() => {
+    setFlowStep('partner');
+    setSelectedPartnerId(null);
   }, []);
 
-  const closeDialog = useCallback(() => {
-    setDialogOpen(false);
+  const closeFlow = useCallback(() => {
+    setFlowStep('closed');
+    setSelectedPartnerId(null);
   }, []);
 
-  const handleContinue = useCallback((draft: CourierPartnerFormDraft) => {
-    const created = createCourierDispatch(draft);
-    if (!created) return;
-    setDispatches(prev => [created, ...prev]);
-    setActiveDispatchId(created.id);
-    setDialogOpen(false);
+  const handlePartnerSelect = useCallback((methodId: string) => {
+    if (!isLogisticsPartnerId(methodId)) return;
+    setSelectedPartnerId(methodId);
+    setFlowStep('book');
   }, []);
 
-  const handleUpdateDispatch = useCallback((next: CourierDispatch) => {
-    setDispatches(prev => prev.map(item => (item.id === next.id ? next : item)));
+  const handleBookingComplete = useCallback((booking: LogisticsBooking) => {
+    setBookings(prev => [booking, ...prev]);
+    setActiveBookingId(booking.id);
+    closeFlow();
+  }, [closeFlow]);
+
+  const handleUpdateBooking = useCallback((next: LogisticsBooking) => {
+    setBookings(prev => prev.map(item => (item.id === next.id ? next : item)));
   }, []);
 
-  const handleMarkDispatched = useCallback(() => {
-    if (!activeDispatch) return;
-    const next: CourierDispatch = {
-      ...activeDispatch,
-      status: 'dispatched',
-      dispatchedAt: new Date().toISOString(),
-      podFileName: activeDispatch.podFileName ?? 'dispatch-proof.pdf',
-    };
-    handleUpdateDispatch(next);
-  }, [activeDispatch, handleUpdateDispatch]);
+  const handleAdvanceStatus = useCallback((booking: LogisticsBooking, status: LogisticsBooking['status']) => {
+    handleUpdateBooking({ ...booking, status });
+  }, [handleUpdateBooking]);
 
   const topBarAction = useMemo(
     () => (
       <button
         type="button"
         className="cart-header-btn cart-header-btn--primary"
-        onClick={openDialog}
-        aria-label="Add logistic partner"
-        title="Add logistic partner"
+        onClick={openFlow}
+        aria-label="Add logistics"
+        title="Add logistics"
       >
         <Plus size={22} />
       </button>
     ),
-    [openDialog],
+    [openFlow],
   );
 
-  useTopBarAction(topBarAction, !dialogOpen);
+  useTopBarAction(topBarAction, !flowOpen);
 
   return (
     <div className="page-content fade-in logistics-page">
-      {activeDispatch ? (
-        <CourierDispatchDetail
-          dispatch={activeDispatch}
-          onUpdate={handleUpdateDispatch}
-          onMarkDispatched={handleMarkDispatched}
+      {activeBooking ? (
+        <LogisticsBookingDetail
+          booking={activeBooking}
+          onUpdate={handleUpdateBooking}
+          onAdvanceStatus={status => handleAdvanceStatus(activeBooking, status)}
         />
-      ) : dispatches.length === 0 ? (
+      ) : bookings.length === 0 ? (
         <div className="logistics-page__empty panel glass">
           <Truck size={40} aria-hidden />
           <h3>Logistics</h3>
           <p className="text-muted text-sm">
-            Bridge packing completed orders to courier assignment, pickup, and final dispatch.
+            Book courier shipments, generate slips, and track delivery from booking to doorstep.
           </p>
-          <button type="button" className="btn btn-primary btn-sm" onClick={openDialog}>
-            Add Logistic Partner
+          <button type="button" className="btn btn-primary btn-sm" onClick={openFlow}>
+            Add Logistics
           </button>
         </div>
       ) : (
-        <section className="logistics-page__list panel glass" aria-label="Courier dispatches">
-          <h3 className="logistics-page__list-title">Courier dispatches</h3>
+        <section className="logistics-page__list panel glass" aria-label="Logistics bookings">
+          <h3 className="logistics-page__list-title">Logistics bookings</h3>
           <ul className="logistics-page__entries">
-            {dispatches.map(dispatch => (
-              <li key={dispatch.id}>
-                <button
-                  type="button"
-                  className="logistics-page__entry logistics-page__entry--button"
-                  onClick={() => setActiveDispatchId(dispatch.id)}
-                >
-                  <span className="logistics-page__entry-icon" aria-hidden>
-                    <Package size={18} />
-                  </span>
-                  <div className="logistics-page__entry-copy">
-                    <strong>{courierPartnerLabel(dispatch.courierPartnerId)}</strong>
-                    <span className="text-muted text-sm">
-                      {dispatch.orderRef} · {dispatch.trackingNumber}
+            {bookings.map(booking => {
+              const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
+              const statusLabel = LOGISTICS_BOOKING_STATUSES.find(item => item.id === booking.status)?.label;
+              return (
+                <li key={booking.id}>
+                  <button
+                    type="button"
+                    className="logistics-page__entry logistics-page__entry--button"
+                    onClick={() => setActiveBookingId(booking.id)}
+                  >
+                    <span className="logistics-page__entry-logo-wrap" aria-hidden>
+                      {partner ? (
+                        <img src={partner.image} alt="" className="logistics-page__entry-logo" />
+                      ) : (
+                        <Package size={18} />
+                      )}
                     </span>
-                    <span className={`logistics-page__entry-status logistics-page__entry-status--${dispatch.status}`}>
-                      {dispatch.status === 'dispatched' ? 'Dispatched' : 'In progress'}
-                    </span>
-                  </div>
-                </button>
-              </li>
-            ))}
+                    <div className="logistics-page__entry-copy">
+                      <strong>{logisticsPartnerLabel(booking.partnerId)}</strong>
+                      <span className="text-muted text-sm">
+                        {booking.orderRef} · {booking.consignmentNo}
+                      </span>
+                      <span className={`logistics-page__entry-status logistics-page__entry-status--${booking.status}`}>
+                        {statusLabel}
+                      </span>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
 
-      {activeDispatch && dispatches.length > 1 && (
+      {activeBooking && bookings.length > 1 && (
         <button
           type="button"
           className="btn btn-secondary btn-sm logistics-page__back-list"
-          onClick={() => setActiveDispatchId(null)}
+          onClick={() => setActiveBookingId(null)}
         >
-          View all dispatches
+          View all bookings
         </button>
       )}
 
-      {dialogOpen && (
-        <AddCourierPartnerDialog onClose={closeDialog} onContinue={handleContinue} />
+      {flowStep === 'partner' && (
+        <CourierPartnerPicker
+          partners={LOGISTICS_PARTNERS}
+          titleLead="LOGISTIC"
+          titleAccent="PARTNER"
+          subtitle="Select a logistics partner to book courier"
+          ariaLabel="Logistics partners"
+          onClose={closeFlow}
+          onSelect={handlePartnerSelect}
+        />
+      )}
+
+      {flowStep === 'book' && selectedPartnerId && (
+        <BookCourierFlow
+          partnerId={selectedPartnerId}
+          onClose={closeFlow}
+          onComplete={handleBookingComplete}
+        />
       )}
     </div>
   );

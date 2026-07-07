@@ -1,11 +1,12 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, ShieldCheck, Star, Truck } from 'lucide-react';
-import { DELIVERY_METHODS } from '../../constants/deliveryMethods';
+import { DELIVERY_METHODS, type DeliveryMethod } from '../../constants/deliveryMethods';
 
 interface CourierPartnerPickerProps {
   onClose: () => void;
   onSelect: (methodId: string) => void;
+  partners?: DeliveryMethod[];
   titleLead?: string;
   titleAccent?: string;
   subtitle?: string;
@@ -15,6 +16,7 @@ interface CourierPartnerPickerProps {
 export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
   onClose,
   onSelect,
+  partners = DELIVERY_METHODS,
   titleLead = 'DELIVERY',
   titleAccent = 'METHOD',
   subtitle = 'Choose your preferred delivery option',
@@ -54,7 +56,7 @@ export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
       </header>
 
       <div className="delivery-method-dialog__grid" role="listbox" aria-label={ariaLabel}>
-        {DELIVERY_METHODS.map(method => (
+        {partners.map(method => (
           <button
             key={method.id}
             type="button"

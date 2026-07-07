@@ -1,14 +1,59 @@
-export type CourierPartnerId =
-  | 'delhivery'
-  | 'bluedart'
-  | 'dtdc'
-  | 'trackon'
-  | 'st_courier'
-  | 'ecosafe'
-  | 'aps'
-  | 'transport_lorry'
-  | 'own_vehicle'
-  | 'customer_pickup';
+import type { LogisticsPartnerId } from '../constants/logisticsPartners';
+
+export type LogisticsBookingStatus =
+  | 'courier_booked'
+  | 'pickup_pending'
+  | 'in_transit'
+  | 'delivered';
+
+export interface DealerDeliveryAddress {
+  id: string;
+  label: string;
+  lines: string[];
+  city: string;
+  state: string;
+  pincode: string;
+}
+
+export interface LogisticsBookingDraft {
+  partnerId: LogisticsPartnerId;
+  barcodeRaw: string;
+  consignmentNo: string;
+  branch: string;
+  serviceType: string;
+  bookingDate: string;
+  deliveryAddressId: string;
+  numberOfBoxes: string;
+  totalWeightKg: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  notes: string;
+}
+
+export interface LogisticsBooking {
+  id: string;
+  orderRef: string;
+  partnerId: LogisticsPartnerId;
+  consignmentNo: string;
+  branch: string;
+  serviceType: string;
+  bookingDate: string;
+  deliveryAddress: DealerDeliveryAddress;
+  numberOfBoxes: number;
+  totalWeightKg: number;
+  lengthCm: number | null;
+  widthCm: number | null;
+  heightCm: number | null;
+  notes: string;
+  courierSlipGenerated: boolean;
+  packingSlipGenerated: boolean;
+  status: LogisticsBookingStatus;
+  createdAt: string;
+}
+
+/** @deprecated Use LogisticsPartnerId from logisticsPartners */
+export type CourierPartnerId = LogisticsPartnerId | 'ecosafe' | 'aps' | 'transport_lorry';
 
 export type CourierDispatchPhase =
   | 'courier_assigned'
