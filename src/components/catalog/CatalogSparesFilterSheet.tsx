@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CatalogSparesMultiFilters } from './CatalogSparesMultiFilters';
 import type {
+  CategorizedProductFilter,
   SpareAuditStatusFilter,
   SpareCatalogFilter,
   SpareStockStatusFilter,
@@ -10,17 +12,18 @@ import type {
 export interface CatalogSparesFilterSheetProps {
   open: boolean;
   onClose: () => void;
-  spareCatalogFilters: ReadonlySet<SpareCatalogFilter>;
+  variant?: 'spares' | 'products';
+  spareCatalogFilters: ReadonlySet<SpareCatalogFilter | CategorizedProductFilter>;
   spareStockStatusFilters: ReadonlySet<SpareStockStatusFilter>;
-  spareLocationFilters: ReadonlySet<SpareWarehouseLocationFilter>;
+  spareLocationFilters?: ReadonlySet<SpareWarehouseLocationFilter>;
   spareAuditStatusFilters: ReadonlySet<SpareAuditStatusFilter>;
   onApplyFilters: (
-    catalogFilters: Set<SpareCatalogFilter>,
+    catalogFilters: Set<SpareCatalogFilter | CategorizedProductFilter>,
     stockStatusFilters: Set<SpareStockStatusFilter>,
     locationFilters: Set<SpareWarehouseLocationFilter>,
     auditStatusFilters: Set<SpareAuditStatusFilter>,
   ) => void;
-  spareCatalogFilterCounts: Record<SpareCatalogFilter, number>;
+  spareCatalogFilterCounts: Record<string, number>;
   spareStockStatusFilterCounts: Record<SpareStockStatusFilter, number>;
   spareLocationFilterCounts: Record<SpareWarehouseLocationFilter, number>;
   spareAuditStatusFilterCounts: Record<SpareAuditStatusFilter, number>;
@@ -29,9 +32,10 @@ export interface CatalogSparesFilterSheetProps {
 export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> = ({
   open,
   onClose,
+  variant = 'spares',
   spareCatalogFilters,
   spareStockStatusFilters,
-  spareLocationFilters,
+  spareLocationFilters = new Set(),
   spareAuditStatusFilters,
   onApplyFilters,
   spareCatalogFilterCounts,
@@ -39,7 +43,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
   spareLocationFilterCounts,
   spareAuditStatusFilterCounts,
 }) => {
-  const [draftCatalogFilters, setDraftCatalogFilters] = useState<Set<SpareCatalogFilter>>(
+  const [draftCatalogFilters, setDraftCatalogFilters] = useState<Set<SpareCatalogFilter | CategorizedProductFilter>>(
     () => new Set(spareCatalogFilters),
   );
   const [draftStockStatusFilters, setDraftStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(
@@ -69,11 +73,14 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
-  const toggleDraftCatalogFilter = useCallback((key: SpareCatalogFilter) => {
+  const toggleDraftCatalogFilter = useCallback((key: string) => {
     setDraftCatalogFilters(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key as SpareCatalogFilter | CategorizedProductFilter)) {
+        next.delete(key as SpareCatalogFilter | CategorizedProductFilter);
+      } else {
+        next.add(key as SpareCatalogFilter | CategorizedProductFilter);
+      }
       return next;
     });
   }, []);
@@ -131,7 +138,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <>
       <button
         type="button"
@@ -143,10 +150,10 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
         className="catalog-filter-dropdown panel glass"
         role="dialog"
         aria-modal="true"
-        aria-label="Filter spare parts"
-        onClick={event => event.stopPropagation()}
+        aria-label={variant === 'products' ? 'Filter categorized products' : 'Filter spare parts'}
       >
         <CatalogSparesMultiFilters
+          variant={variant}
           spareCatalogFilters={draftCatalogFilters}
           onToggleCatalogFilter={toggleDraftCatalogFilter}
           spareStockStatusFilters={draftStockStatusFilters}
@@ -166,6 +173,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
           className="catalog-spares-multi-filters--dropdown"
         />
       </div>
-    </>
+    </>,
+    document.body,
   );
 };

@@ -1,29 +1,31 @@
 import React from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import {
+  CATEGORIZED_PRODUCT_FILTERS,
   SPARE_AUDIT_STATUS_FILTERS,
   SPARE_CATALOG_FILTERS,
   SPARE_STOCK_STATUS_FILTERS,
   SPARE_WAREHOUSE_LOCATION_FILTERS,
   type SpareAuditStatusFilter,
-  type SpareCatalogFilter,
   type SpareStockStatusFilter,
   type SpareWarehouseLocationFilter,
 } from '../../lib/catalog';
 
 export type CatalogSparesFiltersFooterMode = 'none' | 'clear-only' | 'apply';
 export type CatalogSparesFiltersLayout = 'stack' | 'compact';
+export type CatalogSparesFiltersVariant = 'spares' | 'products';
 
 export interface CatalogSparesMultiFiltersProps {
-  spareCatalogFilters: ReadonlySet<SpareCatalogFilter>;
-  onToggleCatalogFilter: (key: SpareCatalogFilter) => void;
+  variant?: CatalogSparesFiltersVariant;
+  spareCatalogFilters: ReadonlySet<string>;
+  onToggleCatalogFilter: (key: string) => void;
   spareStockStatusFilters: ReadonlySet<SpareStockStatusFilter>;
   onToggleStockStatusFilter: (key: SpareStockStatusFilter) => void;
   spareLocationFilters: ReadonlySet<SpareWarehouseLocationFilter>;
   onToggleLocationFilter: (key: SpareWarehouseLocationFilter) => void;
   spareAuditStatusFilters: ReadonlySet<SpareAuditStatusFilter>;
   onToggleAuditStatusFilter: (key: SpareAuditStatusFilter) => void;
-  spareCatalogFilterCounts: Record<SpareCatalogFilter, number>;
+  spareCatalogFilterCounts: Record<string, number>;
   spareStockStatusFilterCounts: Record<SpareStockStatusFilter, number>;
   spareLocationFilterCounts: Record<SpareWarehouseLocationFilter, number>;
   spareAuditStatusFilterCounts: Record<SpareAuditStatusFilter, number>;
@@ -95,6 +97,7 @@ function FilterChip({
 }
 
 export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps> = ({
+  variant = 'spares',
   spareCatalogFilters,
   onToggleCatalogFilter,
   spareStockStatusFilters,
@@ -117,10 +120,13 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
   onToggleExpanded,
   className = '',
 }) => {
+  const catalogFilterOptions = variant === 'products' ? CATEGORIZED_PRODUCT_FILTERS : SPARE_CATALOG_FILTERS;
+  const catalogFilterGroupLabel = variant === 'products' ? 'Spare mapping' : 'Product status';
+  const showLocationFilters = variant === 'spares';
   const activeFilterCount =
     spareCatalogFilters.size
     + spareStockStatusFilters.size
-    + spareLocationFilters.size
+    + (showLocationFilters ? spareLocationFilters.size : 0)
     + spareAuditStatusFilters.size;
   const hasActiveFilters = activeFilterCount > 0;
   const isCompact = layout === 'compact';
@@ -224,14 +230,14 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
       {isExpanded && (
       <div className="catalog-spares-multi-filters__body">
         <div className="catalog-spares-multi-filters__group">
-          <span className="catalog-spares-multi-filters__label">Product status</span>
+          <span className="catalog-spares-multi-filters__label">{catalogFilterGroupLabel}</span>
           {renderOptions(
-            SPARE_CATALOG_FILTERS,
+            catalogFilterOptions,
             spareCatalogFilterCounts,
             spareCatalogFilters,
-            key => onToggleCatalogFilter(key as SpareCatalogFilter),
-            'spare-filter',
-            'Product status filters',
+            onToggleCatalogFilter,
+            variant === 'products' ? 'product-filter' : 'spare-filter',
+            `${catalogFilterGroupLabel} filters`,
           )}
         </div>
 
@@ -247,6 +253,7 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
           )}
         </div>
 
+        {showLocationFilters && (
         <div className="catalog-spares-multi-filters__group">
           <span className="catalog-spares-multi-filters__label">Storage location</span>
           {renderOptions(
@@ -258,6 +265,7 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
             'Storage location filters',
           )}
         </div>
+        )}
 
         <div className="catalog-spares-multi-filters__group">
           <span className="catalog-spares-multi-filters__label">Audit status</span>

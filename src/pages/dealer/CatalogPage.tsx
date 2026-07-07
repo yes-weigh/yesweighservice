@@ -26,6 +26,7 @@ import {
   getUnlinkedSpares,
   isSparesExcludedCategory,
   matchesSpareCatalogFilters,
+  matchesCategorizedProductFilters,
   matchesSpareLocationFilters,
   matchesSpareAuditStatusFilters,
   matchesSpareStockStatusFilters,
@@ -37,6 +38,7 @@ import {
   catalogProductHasZeroStock,
   catalogProductHasNegativeStock,
   type SpareCatalogFilter,
+  type CategorizedProductFilter,
   type SpareAuditStatusFilter,
   type SpareStockStatusFilter,
   type SpareWarehouseLocationFilter,
@@ -140,18 +142,36 @@ export const CatalogPage: React.FC = () => {
   const [spareLocationFilters, setSpareLocationFilters] = useState<Set<SpareWarehouseLocationFilter>>(() => new Set());
   const [spareAuditStatusFilters, setSpareAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
   const [sparesFiltersOpen, setSparesFiltersOpen] = useState(false);
+  const [productCatalogFilters, setProductCatalogFilters] = useState<Set<CategorizedProductFilter>>(() => new Set());
+  const [productStockStatusFilters, setProductStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
+  const [productAuditStatusFilters, setProductAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
+  const [productsFiltersOpen, setProductsFiltersOpen] = useState(false);
 
   const applySpareFilters = useCallback(
     (
-      catalogFilters: Set<SpareCatalogFilter>,
+      catalogFilters: Set<SpareCatalogFilter | CategorizedProductFilter>,
       stockStatusFilters: Set<SpareStockStatusFilter>,
       locationFilters: Set<SpareWarehouseLocationFilter>,
       auditStatusFilters: Set<SpareAuditStatusFilter>,
     ) => {
-      setSpareCatalogFilters(new Set(catalogFilters));
+      setSpareCatalogFilters(new Set([...catalogFilters] as SpareCatalogFilter[]));
       setSpareStockStatusFilters(new Set(stockStatusFilters));
       setSpareLocationFilters(new Set(locationFilters));
       setSpareAuditStatusFilters(new Set(auditStatusFilters));
+    },
+    [],
+  );
+
+  const applyProductFilters = useCallback(
+    (
+      catalogFilters: Set<SpareCatalogFilter | CategorizedProductFilter>,
+      stockStatusFilters: Set<SpareStockStatusFilter>,
+      _locationFilters: Set<SpareWarehouseLocationFilter>,
+      auditStatusFilters: Set<SpareAuditStatusFilter>,
+    ) => {
+      setProductCatalogFilters(new Set([...catalogFilters] as CategorizedProductFilter[]));
+      setProductStockStatusFilters(new Set(stockStatusFilters));
+      setProductAuditStatusFilters(new Set(auditStatusFilters));
     },
     [],
   );
@@ -266,7 +286,7 @@ export const CatalogPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!isSuperAdmin || (focus !== 'inventory-audit' && focus !== 'all-spares')) return;
+    if (!isSuperAdmin || (focus !== 'inventory-audit' && focus !== 'all-spares' && focus !== 'browse')) return;
     void loadAuditItems();
   }, [isSuperAdmin, focus, loadAuditItems]);
 
@@ -305,6 +325,33 @@ export const CatalogPage: React.FC = () => {
     () => buildAuditedCatalogProductIds(auditItems),
     [auditItems],
   );
+
+  const filteredBrowseProducts = useMemo(() => {
+    if (!isSuperAdmin) return browseProducts;
+    let items = browseProducts;
+    if (spareCountByProductId) {
+      items = items.filter(product => matchesCategorizedProductFilters(
+        product,
+        productCatalogFilters,
+        spareCountByProductId,
+      ));
+    }
+    items = items.filter(product => matchesSpareStockStatusFilters(product, productStockStatusFilters));
+    items = items.filter(product => matchesSpareAuditStatusFilters(
+      product,
+      productAuditStatusFilters,
+      auditedCatalogProductIds,
+    ));
+    return items;
+  }, [
+    isSuperAdmin,
+    browseProducts,
+    productCatalogFilters,
+    productStockStatusFilters,
+    productAuditStatusFilters,
+    spareCountByProductId,
+    auditedCatalogProductIds,
+  ]);
 
   const filteredSpareParts = useMemo(() => {
     let items = spareParts;
@@ -386,6 +433,38 @@ export const CatalogPage: React.FC = () => {
   );
 
   const categoryId = categoryFromUrl;
+
+  const productFilterCountBase = useMemo(() => {
+    if (!categoryId) return browseProducts;
+    return browseProducts.filter(product => product.categoryId === categoryId);
+  }, [browseProducts, categoryId]);
+
+  const productCatalogFilterCounts = useMemo(() => {
+    const spareCounts = spareCountByProductId ?? new Map<string, number>();
+    const spareMapped = productFilterCountBase.filter(
+      product => (spareCounts.get(product.id) ?? 0) > 0,
+    ).length;
+    const all = productFilterCountBase.length;
+    return {
+      spareMapped,
+      spareNotMapped: all - spareMapped,
+      withImage: productFilterCountBase.filter(product => catalogProductHasImage(product)).length,
+      missingImage: productFilterCountBase.filter(product => !catalogProductHasImage(product)).length,
+    };
+  }, [productFilterCountBase, spareCountByProductId]);
+
+  const productStockStatusFilterCounts = useMemo(() => ({
+    withStock: productFilterCountBase.filter(product => catalogProductHasPositiveStock(product)).length,
+    zeroStock: productFilterCountBase.filter(product => catalogProductHasZeroStock(product)).length,
+    negativeStock: productFilterCountBase.filter(product => catalogProductHasNegativeStock(product)).length,
+  }), [productFilterCountBase]);
+
+  const productAuditStatusFilterCounts = useMemo(() => ({
+    audited: productFilterCountBase.filter(product => catalogProductIsAudited(product, auditedCatalogProductIds)).length,
+    notAudited: productFilterCountBase.filter(
+      product => !catalogProductIsAudited(product, auditedCatalogProductIds),
+    ).length,
+  }), [productFilterCountBase, auditedCatalogProductIds]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
@@ -589,14 +668,23 @@ export const CatalogPage: React.FC = () => {
   });
 
   const showSparesFilters = isSuperAdmin && focus === 'all-spares';
+  const showProductFilters = isSuperAdmin && focus === 'browse';
   const hasActiveSpareFilters =
     spareCatalogFilters.size > 0
     || spareStockStatusFilters.size > 0
     || spareLocationFilters.size > 0
     || spareAuditStatusFilters.size > 0;
+  const hasActiveProductFilters =
+    productCatalogFilters.size > 0
+    || productStockStatusFilters.size > 0
+    || productAuditStatusFilters.size > 0;
 
   useEffect(() => {
     if (focus !== 'all-spares') setSparesFiltersOpen(false);
+  }, [focus]);
+
+  useEffect(() => {
+    if (focus !== 'browse') setProductsFiltersOpen(false);
   }, [focus]);
 
   const sparesFilterButton = useMemo(
@@ -620,6 +708,27 @@ export const CatalogPage: React.FC = () => {
     [sparesFiltersOpen, hasActiveSpareFilters],
   );
 
+  const productsFilterButton = useMemo(
+    () => (
+      <button
+        type="button"
+        className={[
+          'catalog-header-filter-btn',
+          productsFiltersOpen ? 'catalog-header-filter-btn--open' : '',
+          hasActiveProductFilters ? 'catalog-header-filter-btn--active' : '',
+        ].filter(Boolean).join(' ')}
+        onClick={() => setProductsFiltersOpen(open => !open)}
+        aria-expanded={productsFiltersOpen}
+        aria-haspopup="dialog"
+        aria-label="Open product filters"
+        title="Filters"
+      >
+        <SlidersHorizontal size={20} strokeWidth={2.25} />
+      </button>
+    ),
+    [productsFiltersOpen, hasActiveProductFilters],
+  );
+
   const syncButton = useMemo(
     () => (canSync ? (
       <button
@@ -638,15 +747,27 @@ export const CatalogPage: React.FC = () => {
   );
 
   const topBarAction = useMemo(() => {
-    if (!showSparesFilters) return syncButton;
-    if (isMobile) return sparesFilterButton;
+    const filterButton = showSparesFilters
+      ? sparesFilterButton
+      : showProductFilters
+        ? productsFilterButton
+        : null;
+    if (!filterButton) return syncButton;
+    if (isMobile) return filterButton;
     return (
       <div className="catalog-header-actions">
-        {sparesFilterButton}
+        {filterButton}
         {syncButton}
       </div>
     );
-  }, [showSparesFilters, isMobile, sparesFilterButton, syncButton]);
+  }, [
+    showSparesFilters,
+    showProductFilters,
+    isMobile,
+    sparesFilterButton,
+    productsFilterButton,
+    syncButton,
+  ]);
 
   const headerSearch = useMemo(
     () => (
@@ -685,7 +806,7 @@ export const CatalogPage: React.FC = () => {
   usePageHeaderSlot(headerSearch, showHeaderSearch);
   useTopBarAction(
     topBarAction,
-    showSparesFilters || Boolean(canSync && showHeaderSearch && !isMobile),
+    showSparesFilters || showProductFilters || Boolean(canSync && showHeaderSearch && !isMobile),
   );
 
   const hasSmartBarContent = isSuperAdmin
@@ -881,6 +1002,22 @@ export const CatalogPage: React.FC = () => {
         />
       )}
 
+      {showProductFilters && (
+        <CatalogSparesFilterSheet
+          open={productsFiltersOpen}
+          onClose={() => setProductsFiltersOpen(false)}
+          variant="products"
+          spareCatalogFilters={productCatalogFilters}
+          spareStockStatusFilters={productStockStatusFilters}
+          spareAuditStatusFilters={productAuditStatusFilters}
+          onApplyFilters={applyProductFilters}
+          spareCatalogFilterCounts={productCatalogFilterCounts}
+          spareStockStatusFilterCounts={productStockStatusFilterCounts}
+          spareLocationFilterCounts={spareLocationFilterCounts}
+          spareAuditStatusFilterCounts={productAuditStatusFilterCounts}
+        />
+      )}
+
       {focus === 'search' && (
         <CatalogUnifiedResults
           query={searchQuery}
@@ -898,7 +1035,7 @@ export const CatalogPage: React.FC = () => {
 
       {focus === 'browse' && (
         <CatalogBrowse
-          products={browseProducts}
+          products={isSuperAdmin ? filteredBrowseProducts : browseProducts}
           categories={shopCategories}
           isLoading={loading}
           showToolbar={false}
@@ -914,6 +1051,16 @@ export const CatalogPage: React.FC = () => {
           spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
           activeCategoryId={categoryId}
           onActiveCategoryChange={setCategoryId}
+          emptyTitle={
+            isSuperAdmin && hasActiveProductFilters
+              ? 'No products match the selected filters'
+              : undefined
+          }
+          emptyHint={
+            isSuperAdmin && hasActiveProductFilters
+              ? 'Try clearing filters or run Sync from Zoho to refresh stock.'
+              : undefined
+          }
         />
       )}
 

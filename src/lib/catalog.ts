@@ -180,6 +180,15 @@ export const SPARE_CATALOG_FILTERS = [
 
 export type SpareCatalogFilter = typeof SPARE_CATALOG_FILTERS[number]['key'];
 
+export const CATEGORIZED_PRODUCT_FILTERS = [
+  { key: 'spareMapped', label: 'Spare mapped' },
+  { key: 'spareNotMapped', label: 'Spare not mapped' },
+  { key: 'withImage', label: 'Image' },
+  { key: 'missingImage', label: 'Without' },
+] as const;
+
+export type CategorizedProductFilter = typeof CATEGORIZED_PRODUCT_FILTERS[number]['key'];
+
 export function matchesSpareCatalogFilters(
   product: CatalogProduct,
   filters: ReadonlySet<SpareCatalogFilter>,
@@ -188,6 +197,21 @@ export function matchesSpareCatalogFilters(
   if (filters.size === 0) return true;
   if (filters.has('unmapped') && linkedSpareIds.has(product.id)) return false;
   if (filters.has('mapped') && !linkedSpareIds.has(product.id)) return false;
+  if (filters.has('withImage') && !catalogProductHasImage(product)) return false;
+  if (filters.has('missingImage') && catalogProductHasImage(product)) return false;
+  return true;
+}
+
+export function matchesCategorizedProductFilters(
+  product: CatalogProduct,
+  filters: ReadonlySet<CategorizedProductFilter>,
+  spareCountByProductId: ReadonlyMap<string, number>,
+): boolean {
+  if (filters.size === 0) return true;
+  const spareCount = spareCountByProductId.get(product.id) ?? 0;
+  const hasLinkedSpares = spareCount > 0;
+  if (filters.has('spareMapped') && !hasLinkedSpares) return false;
+  if (filters.has('spareNotMapped') && hasLinkedSpares) return false;
   if (filters.has('withImage') && !catalogProductHasImage(product)) return false;
   if (filters.has('missingImage') && catalogProductHasImage(product)) return false;
   return true;
