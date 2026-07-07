@@ -13,6 +13,7 @@ import { InvoiceSectionPlaceholderPage } from './InvoiceSectionPlaceholderPage';
 import { WarrantySupportPage } from './WarrantySupportPage';
 import { SupportRequestDetailPage } from './SupportRequestDetailPage';
 import { ComplaintGuidelinesPage } from './ComplaintGuidelinesPage';
+import { LogisticsPage } from './LogisticsPage';
 
 function DealerInvoicesRoute() {
   const { user } = useAuth();
@@ -87,12 +88,7 @@ export const DealerMenuPages = {
       description="Promotional content, dealership media assets, and campaign materials."
     />
   ),
-  Logistics: () => (
-    <PagePlaceholder
-      title="Logistics"
-      description="Track shipments, deliveries, and dispatch status for your orders."
-    />
-  ),
+  Logistics: LogisticsPage,
   Loyalty: () => (
     <PagePlaceholder
       title="Loyalty"

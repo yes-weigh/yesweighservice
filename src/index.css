@@ -8532,6 +8532,278 @@ html::-webkit-scrollbar {
   color: #f87171;
 }
 
+.logistics-page__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 2rem 1.25rem;
+  text-align: center;
+}
+
+.logistics-page__empty h3 {
+  margin: 0;
+}
+
+.logistics-page__list {
+  padding: 0.85rem 0.9rem;
+}
+
+.logistics-page__list-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+.logistics-page__entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.logistics-page__entry {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.logistics-page__entry-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.logistics-page__entry-logo {
+  width: 2rem;
+  height: 2rem;
+  object-fit: contain;
+}
+
+.logistics-page__entry-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.logistics-page__entry-copy strong {
+  font-size: 0.8125rem;
+  line-height: 1.2;
+}
+
+.delivery-method-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0;
+}
+
+.delivery-method-dialog {
+  width: min(100%, 28rem);
+  max-height: 100dvh;
+  overflow: auto;
+  background: #050505;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 0.65rem 1rem;
+}
+
+.delivery-method-dialog__header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+.delivery-method-dialog__back,
+.delivery-method-dialog__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 2px solid #f97316;
+  border-radius: 999px;
+  background: transparent;
+  color: #f97316;
+  cursor: pointer;
+}
+
+.delivery-method-dialog__close {
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+.delivery-method-dialog__hero {
+  text-align: center;
+  min-width: 0;
+}
+
+.delivery-method-dialog__hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f97316;
+  margin-bottom: 0.2rem;
+}
+
+.delivery-method-dialog__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.delivery-method-dialog__title-accent {
+  color: #f97316;
+  margin-left: 0.35rem;
+}
+
+.delivery-method-dialog__subtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: #cbd5e1;
+}
+
+.delivery-method-dialog__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  flex: 1;
+}
+
+.delivery-method-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.25rem 0.5rem;
+  border: 2px solid #f97316;
+  border-radius: 12px;
+  background: transparent;
+  color: #f97316;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.delivery-method-card:hover,
+.delivery-method-card:focus-visible {
+  background: rgba(249, 115, 22, 0.08);
+  outline: none;
+}
+
+.delivery-method-card__logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.35rem;
+  height: 3.35rem;
+  border-radius: 999px;
+  background: #fff;
+  overflow: hidden;
+  padding: 0.25rem;
+}
+
+.delivery-method-card__logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.delivery-method-card__label {
+  font-size: 0.5rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.delivery-method-dialog__footer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 2px solid #f97316;
+  border-radius: 12px;
+  background: rgba(249, 115, 22, 0.06);
+}
+
+.delivery-method-dialog__footer-icon {
+  color: #f97316;
+  flex-shrink: 0;
+}
+
+.delivery-method-dialog__footer-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.delivery-method-dialog__footer-copy strong {
+  font-size: 0.6875rem;
+  letter-spacing: 0.03em;
+}
+
+.delivery-method-dialog__footer-copy span {
+  font-size: 0.625rem;
+  color: #cbd5e1;
+}
+
+.delivery-method-dialog__footer-box {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+@media (min-width: 480px) {
+  .delivery-method-backdrop {
+    padding: 1rem;
+    align-items: center;
+  }
+
+  .delivery-method-dialog {
+    border-radius: 16px;
+    border: 1px solid #1f2937;
+    max-height: min(92dvh, 760px);
+    padding: 1rem 0.85rem 1.1rem;
+  }
+
+  .delivery-method-card__logo-wrap {
+    width: 3.75rem;
+    height: 3.75rem;
+  }
+
+  .delivery-method-card__label {
+    font-size: 0.5625rem;
+  }
+}
+
 .spare-link-editor-backdrop {
   position: fixed;
   inset: 0;
