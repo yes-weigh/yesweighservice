@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, Boxes, ClipboardList, LayoutGrid, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { CatalogSparesFilterSheet } from '../../components/catalog/CatalogSparesFilterSheet';
-import { CatalogSparesMultiFilters } from '../../components/catalog/CatalogSparesMultiFilters';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
@@ -140,51 +139,7 @@ export const CatalogPage: React.FC = () => {
   const [spareStockStatusFilters, setSpareStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
   const [spareLocationFilters, setSpareLocationFilters] = useState<Set<SpareWarehouseLocationFilter>>(() => new Set());
   const [spareAuditStatusFilters, setSpareAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
-  const [mobileSparesFiltersOpen, setMobileSparesFiltersOpen] = useState(false);
-  const [webSparesFiltersOpen, setWebSparesFiltersOpen] = useState(true);
-
-  const toggleSpareCatalogFilter = useCallback((key: SpareCatalogFilter) => {
-    setSpareCatalogFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  const toggleSpareLocationFilter = useCallback((key: SpareWarehouseLocationFilter) => {
-    setSpareLocationFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  const toggleSpareStockStatusFilter = useCallback((key: SpareStockStatusFilter) => {
-    setSpareStockStatusFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  const toggleSpareAuditStatusFilter = useCallback((key: SpareAuditStatusFilter) => {
-    setSpareAuditStatusFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  const clearSpareFilters = useCallback(() => {
-    setSpareCatalogFilters(new Set());
-    setSpareStockStatusFilters(new Set());
-    setSpareLocationFilters(new Set());
-    setSpareAuditStatusFilters(new Set());
-  }, []);
+  const [sparesFiltersOpen, setSparesFiltersOpen] = useState(false);
 
   const applySpareFilters = useCallback(
     (
@@ -636,7 +591,7 @@ export const CatalogPage: React.FC = () => {
     mobileCompactHeader: isMobile && showHeaderSearch,
   });
 
-  const showMobileSparesFilters = isSuperAdmin && focus === 'all-spares' && isMobile;
+  const showSparesFilters = isSuperAdmin && focus === 'all-spares';
   const hasActiveSpareFilters =
     spareCatalogFilters.size > 0
     || spareStockStatusFilters.size > 0
@@ -644,8 +599,29 @@ export const CatalogPage: React.FC = () => {
     || spareAuditStatusFilters.size > 0;
 
   useEffect(() => {
-    if (focus !== 'all-spares') setMobileSparesFiltersOpen(false);
+    if (focus !== 'all-spares') setSparesFiltersOpen(false);
   }, [focus]);
+
+  const sparesFilterButton = useMemo(
+    () => (
+      <button
+        type="button"
+        className={[
+          'catalog-header-filter-btn',
+          sparesFiltersOpen ? 'catalog-header-filter-btn--open' : '',
+          hasActiveSpareFilters ? 'catalog-header-filter-btn--active' : '',
+        ].filter(Boolean).join(' ')}
+        onClick={() => setSparesFiltersOpen(open => !open)}
+        aria-expanded={sparesFiltersOpen}
+        aria-haspopup="dialog"
+        aria-label="Open spare part filters"
+        title="Filters"
+      >
+        <SlidersHorizontal size={20} strokeWidth={2.25} />
+      </button>
+    ),
+    [sparesFiltersOpen, hasActiveSpareFilters],
+  );
 
   const syncButton = useMemo(
     () => (canSync ? (
@@ -663,6 +639,17 @@ export const CatalogPage: React.FC = () => {
     ) : null),
     [canSync, syncing, loading, handleSync],
   );
+
+  const topBarAction = useMemo(() => {
+    if (!showSparesFilters) return syncButton;
+    if (isMobile) return sparesFilterButton;
+    return (
+      <div className="catalog-header-actions">
+        {sparesFilterButton}
+        {syncButton}
+      </div>
+    );
+  }, [showSparesFilters, isMobile, sparesFilterButton, syncButton]);
 
   const headerSearch = useMemo(
     () => (
@@ -698,31 +685,10 @@ export const CatalogPage: React.FC = () => {
     [searchQuery, handleSearchChange, focus, isSuperAdmin, setAdminSection, setFocus, isMobile],
   );
 
-  const mobileFilterButton = useMemo(
-    () => (
-      <button
-        type="button"
-        className={[
-          'catalog-header-filter-btn',
-          mobileSparesFiltersOpen ? 'catalog-header-filter-btn--open' : '',
-          hasActiveSpareFilters ? 'catalog-header-filter-btn--active' : '',
-        ].filter(Boolean).join(' ')}
-        onClick={() => setMobileSparesFiltersOpen(open => !open)}
-        aria-expanded={mobileSparesFiltersOpen}
-        aria-haspopup="dialog"
-        aria-label="Open spare part filters"
-        title="Filters"
-      >
-        <SlidersHorizontal size={20} strokeWidth={2.25} />
-      </button>
-    ),
-    [mobileSparesFiltersOpen, hasActiveSpareFilters],
-  );
-
   usePageHeaderSlot(headerSearch, showHeaderSearch);
   useTopBarAction(
-    showMobileSparesFilters ? mobileFilterButton : syncButton,
-    showMobileSparesFilters || Boolean(canSync && showHeaderSearch && !isMobile),
+    topBarAction,
+    showSparesFilters || Boolean(canSync && showHeaderSearch && !isMobile),
   );
 
   const hasSmartBarContent = isSuperAdmin
@@ -851,49 +817,6 @@ export const CatalogPage: React.FC = () => {
 
   const flatListSearch = isFlatList ? searchQuery : '';
 
-  const sparePartsFilters = useMemo(
-    () => (
-      <div className="catalog-spares-filters-panel panel glass">
-        <CatalogSparesMultiFilters
-          spareCatalogFilters={spareCatalogFilters}
-          onToggleCatalogFilter={toggleSpareCatalogFilter}
-          spareStockStatusFilters={spareStockStatusFilters}
-          onToggleStockStatusFilter={toggleSpareStockStatusFilter}
-          spareLocationFilters={spareLocationFilters}
-          onToggleLocationFilter={toggleSpareLocationFilter}
-          spareAuditStatusFilters={spareAuditStatusFilters}
-          onToggleAuditStatusFilter={toggleSpareAuditStatusFilter}
-          spareCatalogFilterCounts={spareCatalogFilterCounts}
-          spareStockStatusFilterCounts={spareStockStatusFilterCounts}
-          spareLocationFilterCounts={spareLocationFilterCounts}
-          spareAuditStatusFilterCounts={spareAuditStatusFilterCounts}
-          onClearAll={clearSpareFilters}
-          layout="compact"
-          footerMode="none"
-          collapsible
-          expanded={webSparesFiltersOpen}
-          onToggleExpanded={() => setWebSparesFiltersOpen(open => !open)}
-        />
-      </div>
-    ),
-    [
-      spareCatalogFilters,
-      spareStockStatusFilters,
-      spareLocationFilters,
-      spareAuditStatusFilters,
-      spareCatalogFilterCounts,
-      spareStockStatusFilterCounts,
-      spareLocationFilterCounts,
-      spareAuditStatusFilterCounts,
-      toggleSpareCatalogFilter,
-      toggleSpareStockStatusFilter,
-      toggleSpareLocationFilter,
-      toggleSpareAuditStatusFilter,
-      clearSpareFilters,
-      webSparesFiltersOpen,
-    ],
-  );
-
   if (loading && !catalog) {
     return (
       <div className="page-content fade-in products-page spares-page catalog-page catalog-page--smart">
@@ -945,10 +868,10 @@ export const CatalogPage: React.FC = () => {
 
       {smartBar}
 
-      {showMobileSparesFilters && (
+      {showSparesFilters && (
         <CatalogSparesFilterSheet
-          open={mobileSparesFiltersOpen}
-          onClose={() => setMobileSparesFiltersOpen(false)}
+          open={sparesFiltersOpen}
+          onClose={() => setSparesFiltersOpen(false)}
           spareCatalogFilters={spareCatalogFilters}
           spareStockStatusFilters={spareStockStatusFilters}
           spareLocationFilters={spareLocationFilters}
@@ -1074,7 +997,6 @@ export const CatalogPage: React.FC = () => {
                 ? spare => void openLinkEditor(spare)
                 : undefined
             }
-            listHeaderExtra={isSuperAdmin && !isMobile ? sparePartsFilters : undefined}
             emptyTitle={
               isSuperAdmin && hasActiveSpareFilters
                 ? flatListSearch.trim()

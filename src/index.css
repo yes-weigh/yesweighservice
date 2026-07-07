@@ -668,6 +668,13 @@ html::-webkit-scrollbar {
   background: var(--accent-primary);
 }
 
+.catalog-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
 .top-bar__slot {
   width: 100%;
   min-width: 0;
