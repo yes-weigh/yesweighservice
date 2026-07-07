@@ -3036,6 +3036,20 @@ html::-webkit-scrollbar {
 }
 
 /* E-commerce product cards — vertical tile (Flipkart / Amazon mobile pattern) */
+.catalog-product-card--editable {
+  cursor: grab;
+}
+
+.catalog-product-card--editable:active {
+  cursor: grabbing;
+}
+
+.catalog-product-card--drag-over {
+  outline: 2px dashed var(--accent-primary);
+  outline-offset: 2px;
+  transform: scale(1.02);
+}
+
 .catalog-product-card {
   position: relative;
   display: flex;

@@ -42,6 +42,8 @@ export interface CatalogProduct {
   packageInfo?: CatalogPackageInfo | null;
   /** Latest recorded inventory audit snapshot (Firestore only). */
   auditSnapshot?: CatalogProductAuditSnapshot | null;
+  /** Display order within category — Firestore only (not synced to Zoho). */
+  displayOrder?: number;
 }
 
 export interface CatalogCategory {

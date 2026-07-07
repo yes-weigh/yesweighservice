@@ -17,6 +17,15 @@ export interface ProductBrowseCardProps {
   onManage?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   linkedSpareCount?: number;
   warehouseLinked?: boolean;
+  editable?: boolean;
+  dragProps?: {
+    draggable: boolean;
+    onDragStart: React.DragEventHandler;
+    onDragOver: React.DragEventHandler;
+    onDragLeave: React.DragEventHandler;
+    onDrop: React.DragEventHandler;
+    onDragEnd: React.DragEventHandler;
+  };
 }
 
 function formatProductTitle(name: string): string {
@@ -37,10 +46,13 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   onManage,
   linkedSpareCount,
   warehouseLinked = false,
+  editable = false,
+  dragProps,
 }) => {
   const { addItem, isInCart } = useCart();
   const { flyToCart } = useCartFly();
   const [addedFlash, setAddedFlash] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const theme = getCategoryTheme(index);
   const outOfStock = product.stockStatus === 'out_of_stock';
   const inCart = isInCart(product.id);
@@ -63,8 +75,28 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 
   return (
     <article
+      {...(editable ? dragProps : {})}
       style={cardStyle}
-      className={`catalog-product-card ${outOfStock ? 'catalog-product-card--unavailable' : ''} ${inCart ? 'catalog-product-card--in-cart' : ''}`}
+      className={[
+        'catalog-product-card',
+        outOfStock ? 'catalog-product-card--unavailable' : '',
+        inCart ? 'catalog-product-card--in-cart' : '',
+        editable ? 'catalog-product-card--editable' : '',
+        dragOver ? 'catalog-product-card--drag-over' : '',
+      ].filter(Boolean).join(' ')}
+      onDragOver={editable ? e => {
+        e.preventDefault();
+        setDragOver(true);
+        dragProps?.onDragOver(e);
+      } : undefined}
+      onDragLeave={editable ? e => {
+        setDragOver(false);
+        dragProps?.onDragLeave(e);
+      } : undefined}
+      onDrop={editable ? e => {
+        setDragOver(false);
+        dragProps?.onDrop(e);
+      } : undefined}
     >
       <button type="button" className="catalog-product-card__main" onClick={onSelect}>
         <div className="catalog-product-card__media">

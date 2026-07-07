@@ -16,6 +16,8 @@ import {
   getUnlinkedSpares,
   isSparesExcludedCategory,
   saveCatalogCategoryOrder,
+  saveCatalogCategoryProductOrder,
+  applyCategoryProductDisplayOrder,
   saveCatalogSpareProductLinks,
   syncCatalog,
   uploadCatalogCategoryThumbnail,
@@ -160,6 +162,32 @@ export const SparesPage: React.FC = () => {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save category order.');
+      await loadCatalog();
+    }
+  };
+
+  const handleCategoryProductsReorder = async (
+    categoryId: string,
+    nextProducts: CatalogProduct[],
+  ) => {
+    const orderById = new Map(nextProducts.map((product, index) => [product.id, index]));
+    setCatalog(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        items: applyCategoryProductDisplayOrder(prev.items, categoryId, orderById),
+      };
+    });
+    try {
+      await saveCatalogCategoryProductOrder(
+        categoryId,
+        nextProducts.map((product, index) => ({
+          id: product.id,
+          displayOrder: index,
+        })),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save product order.');
       await loadCatalog();
     }
   };
@@ -386,6 +414,7 @@ export const SparesPage: React.FC = () => {
           filterMode={canSync ? 'full' : 'minimal'}
           manageCategories={canSync}
           onCategoriesReorder={canSync ? cats => void handleCategoriesReorder(cats) : undefined}
+          onCategoryProductsReorder={canSync ? (catId, products) => void handleCategoryProductsReorder(catId, products) : undefined}
           onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
           productsBasePath={`${pathname}/product`}
           enableCart={canUseCart(user?.role)}

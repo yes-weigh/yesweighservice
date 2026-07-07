@@ -5,7 +5,7 @@
  *   name, sku, status, categoryId, categoryName, imageUrl
  *
  * Firestore-only overlays (never push to Zoho):
- *   packageInfo, spare-link maps, catalogSiteInventory, yesStore audit links
+ *   packageInfo, spare-link maps, catalogSiteInventory, yesStore audit links, displayOrder
  */
 import {
   updateProductDetails,

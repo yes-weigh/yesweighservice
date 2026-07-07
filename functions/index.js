@@ -15,6 +15,7 @@ import {
   patchProductPackageInfo,
   readPackageInfo,
   saveCategoryOrder,
+  saveCategoryProductOrder,
   uploadCategoryThumbnail,
 } from './lib/catalog-sync.js';
 import {
@@ -308,6 +309,43 @@ export const saveCatalogCategoryOrder = onCall(
 
     await saveCategoryOrder(payload);
     return { ok: true, count: payload.length };
+  },
+);
+
+/** Save drag-and-drop product order within a category — staff / super admin only. */
+export const saveCatalogCategoryProductOrder = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const categoryId = String(request.data?.categoryId ?? '').trim();
+    const products = request.data?.products;
+    if (!categoryId) {
+      throw new HttpsError('invalid-argument', 'categoryId is required.');
+    }
+    if (!Array.isArray(products) || products.length === 0) {
+      throw new HttpsError('invalid-argument', 'products array is required.');
+    }
+
+    const payload = products.map((product, index) => ({
+      id: String(product.id ?? '').trim(),
+      displayOrder: Number.isFinite(product.displayOrder) ? product.displayOrder : index,
+    })).filter(product => product.id);
+
+    if (!payload.length) {
+      throw new HttpsError('invalid-argument', 'No valid products provided.');
+    }
+
+    try {
+      await saveCategoryProductOrder(categoryId, payload);
+      return { ok: true, count: payload.length };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not save product order.');
+    }
   },
 );
 

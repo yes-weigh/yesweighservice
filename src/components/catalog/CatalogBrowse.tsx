@@ -9,7 +9,7 @@ import {
   Package,
   Search,
 } from 'lucide-react';
-import { isHiddenCatalogCategory } from '../../lib/catalog';
+import { compareCatalogProductsInCategory, isHiddenCatalogCategory } from '../../lib/catalog';
 import { buildProductNavState, buildSpareNavState, catalogOriginFromReturnView } from '../../lib/catalogNav';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -18,6 +18,7 @@ import { CategoryBrowseCard } from './CategoryBrowseCard';
 import { CategoryBrowseSection } from './CategoryBrowseSection';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
 import { ProductBrowseCard } from './ProductBrowseCard';
+import { ProductFolderGrid } from './ProductFolderGrid';
 import { ProductImageFrame } from './ProductImageFrame';
 import { StockBadge, StockQuantity } from './StockBadge';
 
@@ -40,6 +41,7 @@ export interface CatalogBrowseProps {
   /** Staff/super_admin — drag reorder + category image upload */
   manageCategories?: boolean;
   onCategoriesReorder?: (categories: CatalogCategory[]) => void;
+  onCategoryProductsReorder?: (categoryId: string, products: CatalogProduct[]) => void;
   onCategoryThumbnail?: (
     categoryId: string,
     categoryName: string,
@@ -201,6 +203,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   onReset,
   manageCategories = false,
   onCategoriesReorder,
+  onCategoryProductsReorder,
   onCategoryThumbnail,
   productsBasePath,
   enableCart = false,
@@ -297,8 +300,20 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     if (stockFilter) {
       list = list.filter(p => p.stockStatus === stockFilter);
     }
+    if (activeCategory && !search.trim() && !stockFilter) {
+      list = [...list].sort(compareCatalogProductsInCategory);
+    }
     return list;
   }, [products, search, activeCategory, stockFilter]);
+
+  const canReorderCategoryProducts = Boolean(
+    manageCategories
+    && onCategoryProductsReorder
+    && activeCategory
+    && !search.trim()
+    && !stockFilter
+    && !flatBrowse,
+  );
 
   const showProducts = flatBrowse || Boolean(activeCategory || search.trim() || stockFilter);
   const activeCategoryName = filteredCategories.find(c => c.id === activeCategory)?.name;
@@ -459,6 +474,18 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   : 'Try adjusting your filters or search term.')}
               </span>
             </div>
+          ) : canReorderCategoryProducts && (filterMode === 'minimal' || viewMode === 'grid') ? (
+            <ProductFolderGrid
+              products={filteredProducts}
+              onProductSelect={openProduct}
+              onReorder={nextProducts => onCategoryProductsReorder!(activeCategory, nextProducts)}
+              enableCart={enableCart}
+              showStockQuantity={showStockQuantity}
+              manageItemLabel={onManageItem ? manageItemLabel : undefined}
+              onManageItem={onManageItem}
+              spareLinkCountByProductId={spareLinkCountByProductId}
+              warehouseLinkedProductIds={warehouseLinkedProductIds}
+            />
           ) : filterMode === 'minimal' || viewMode === 'grid' ? (
             <div className="catalog-grid catalog-grid--tiles">
               {filteredProducts.map((product, idx) => (

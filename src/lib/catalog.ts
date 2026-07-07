@@ -446,7 +446,32 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     ...(warehouses?.length ? { warehouses } : {}),
     ...(packageInfo ? { packageInfo } : {}),
     ...(auditSnapshot ? { auditSnapshot } : {}),
+    displayOrder: Number.isFinite(Number(data.displayOrder))
+      ? Number(data.displayOrder)
+      : 999,
   };
+}
+
+/** Sort products within a category — custom order first, then name. */
+export function compareCatalogProductsInCategory(
+  a: CatalogProduct,
+  b: CatalogProduct,
+): number {
+  const orderDiff = (a.displayOrder ?? 999) - (b.displayOrder ?? 999);
+  if (orderDiff !== 0) return orderDiff;
+  return a.name.localeCompare(b.name);
+}
+
+export function applyCategoryProductDisplayOrder(
+  items: CatalogProduct[],
+  categoryId: string,
+  orderById: Map<string, number>,
+): CatalogProduct[] {
+  return items.map(item => {
+    if (item.categoryId !== categoryId) return item;
+    const order = orderById.get(item.id);
+    return order !== undefined ? { ...item, displayOrder: order } : item;
+  });
 }
 
 function mapCategory(data: Record<string, unknown>): CatalogCategory {
@@ -629,6 +654,21 @@ export async function saveCatalogCategoryOrder(
   >(functions, 'saveCatalogCategoryOrder');
   try {
     await callable({ categories });
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export async function saveCatalogCategoryProductOrder(
+  categoryId: string,
+  products: Array<{ id: string; displayOrder: number }>,
+): Promise<void> {
+  const callable = httpsCallable<
+    { categoryId: string; products: Array<{ id: string; displayOrder: number }> },
+    { ok: boolean }
+  >(functions, 'saveCatalogCategoryProductOrder');
+  try {
+    await callable({ categoryId, products });
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

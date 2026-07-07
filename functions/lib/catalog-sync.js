@@ -358,6 +358,9 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     if (existing?.auditSnapshot) {
       doc.auditSnapshot = existing.auditSnapshot;
     }
+    if (Number.isFinite(existing?.displayOrder)) {
+      doc.displayOrder = existing.displayOrder;
+    }
 
     batch.set(db.collection(PRODUCTS_COLLECTION).doc(product.id), doc, { merge: true });
     batchCount += 1;
@@ -668,6 +671,39 @@ export async function saveCategoryOrder(categories) {
 
   await batch.commit();
   return { ok: true, count: categories.length };
+}
+
+export async function saveCategoryProductOrder(categoryId, products) {
+  const catId = String(categoryId ?? '').trim();
+  if (!catId) throw new Error('categoryId is required.');
+  if (!Array.isArray(products) || products.length === 0) {
+    throw new Error('products array is required.');
+  }
+
+  const db = getFirestore();
+  const batch = db.batch();
+  const now = new Date().toISOString();
+  let count = 0;
+
+  for (let i = 0; i < products.length; i++) {
+    const product = products[i];
+    const id = String(product?.id ?? '').trim();
+    if (!id) continue;
+    batch.set(
+      db.collection(PRODUCTS_COLLECTION).doc(id),
+      {
+        displayOrder: Number.isFinite(product.displayOrder) ? product.displayOrder : i,
+        displayOrderUpdatedAt: now,
+      },
+      { merge: true },
+    );
+    count += 1;
+  }
+
+  if (!count) throw new Error('No valid products provided.');
+
+  await batch.commit();
+  return { ok: true, categoryId: catId, count };
 }
 
 export async function uploadCategoryThumbnail(categoryId, categoryName, buffer, contentType) {
