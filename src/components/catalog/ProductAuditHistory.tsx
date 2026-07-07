@@ -1,30 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, RefreshCw, User } from 'lucide-react';
+import { ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
 import { formatStockQuantity } from '../../lib/catalog';
 import { fetchCatalogProductAuditLogs } from '../../lib/catalogProductAudit/data';
 import { formatAuditDate, formatAuditTime } from '../../lib/yesStore/format';
 import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditLog, CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
-const AVATAR_TONES = [
-  { bg: '#ede9fe', color: '#6d28d9' },
-  { bg: '#dbeafe', color: '#1d4ed8' },
-  { bg: '#dcfce7', color: '#15803d' },
-  { bg: '#ffedd5', color: '#c2410c' },
-  { bg: '#fce7f3', color: '#be185d' },
-] as const;
-
 function auditorDisplayName(name: string | null | undefined): string {
   const trimmed = name?.trim();
   return trimmed || 'Unknown auditor';
-}
-
-function avatarTone(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i += 1) {
-    hash = (hash + name.charCodeAt(i) * (i + 1)) % 9973;
-  }
-  return AVATAR_TONES[hash % AVATAR_TONES.length];
 }
 
 function diffClassName(value: number): string {
@@ -177,7 +161,7 @@ export const ProductAuditHistory: React.FC<{
               </th>
               <th scope="col">Zoho</th>
               <th scope="col">Audit</th>
-              <th scope="col">Diff</th>
+              <th scope="col">+/-</th>
             </tr>
           </thead>
           <tbody>
@@ -192,23 +176,10 @@ export const ProductAuditHistory: React.FC<{
             ) : (
               sortedLogs.map(log => {
                 const name = auditorDisplayName(log.auditedByName);
-                const tone = avatarTone(name);
                 return (
                   <tr key={log.id}>
                     <td>
-                      <div className="product-audit-log__auditor">
-                        <span
-                          className="product-audit-log__avatar"
-                          style={{ background: tone.bg, color: tone.color }}
-                          aria-hidden
-                        >
-                          <User size={16} strokeWidth={2.2} />
-                        </span>
-                        <span className="product-audit-log__auditor-text">
-                          <strong>{name}</strong>
-                          <span>Auditor</span>
-                        </span>
-                      </div>
+                      <strong className="product-audit-log__auditor-name">{name}</strong>
                     </td>
                     <td>
                       <div className="product-audit-log__datetime">

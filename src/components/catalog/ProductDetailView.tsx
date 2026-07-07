@@ -56,7 +56,7 @@ import {
   CATALOG_INVENTORY_SITE_CONFIG,
   resolveActiveInventorySites,
 } from '../../lib/catalogInventorySites';
-import { ProductDetailTabs } from './ProductDetailTabs';
+import { ProductDetailTabs, DEALER_PRODUCT_DETAIL_TABS } from './ProductDetailTabs';
 import { ProductPackageInfo } from './ProductPackageInfo';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
@@ -147,7 +147,7 @@ export const ProductDetailView: React.FC<{
   const { addItem, getQuantity } = useCart();
   const { flyToCart } = useCartFly();
   const confirm = useConfirm();
-  const [quantity, setQuantity] = useState(1);
+  const [quantityText, setQuantityText] = useState('1');
   const [addedFlash, setAddedFlash] = useState(false);
   const [product, setProduct] = useState<CatalogProductDetail | CatalogProduct | null>(preview);
   const [loading, setLoading] = useState(true);
@@ -564,8 +564,24 @@ export const ProductDetailView: React.FC<{
   const outOfStock = product?.stockStatus === 'out_of_stock';
   const cartQty = product ? getQuantity(product.id) : 0;
 
+  const parseQuantity = useCallback((value: string) => Math.max(1, parseInt(value, 10) || 1), []);
+
+  const bumpQuantity = useCallback((delta: number) => {
+    setQuantityText(current => String(Math.max(1, parseQuantity(current) + delta)));
+  }, [parseQuantity]);
+
+  const commitQuantityText = useCallback(() => {
+    setQuantityText(current => String(parseQuantity(current)));
+  }, [parseQuantity]);
+
+  useEffect(() => {
+    setQuantityText('1');
+  }, [productId]);
+
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!product || outOfStock) return;
+    const quantity = parseQuantity(quantityText);
+    setQuantityText(String(quantity));
     if (addItem(product, quantity)) {
       flyToCart(event.currentTarget, { imageUrl: product.imageUrl });
       setAddedFlash(true);
@@ -1197,17 +1213,32 @@ export const ProductDetailView: React.FC<{
                 <button
                   type="button"
                   className="product-detail-page__qty-btn"
-                  onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                  disabled={quantity <= 1}
+                  onClick={() => bumpQuantity(-1)}
+                  disabled={parseQuantity(quantityText) <= 1}
                   aria-label="Decrease quantity"
                 >
                   −
                 </button>
-                <span className="product-detail-page__qty-value">{quantity}</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="product-detail-page__qty-input"
+                  value={quantityText}
+                  onChange={e => {
+                    const value = e.target.value;
+                    if (value === '' || /^\d+$/.test(value)) {
+                      setQuantityText(value);
+                    }
+                  }}
+                  onBlur={commitQuantityText}
+                  onFocus={e => e.target.select()}
+                  aria-label="Quantity"
+                />
                 <button
                   type="button"
                   className="product-detail-page__qty-btn"
-                  onClick={() => setQuantity(q => q + 1)}
+                  onClick={() => bumpQuantity(1)}
                   aria-label="Increase quantity"
                 >
                   +
@@ -1285,6 +1316,7 @@ export const ProductDetailView: React.FC<{
             )}
             <ProductDetailTabs
               product={product}
+              visibleTabs={showCartActions ? DEALER_PRODUCT_DETAIL_TABS : undefined}
               showSpareTab={showLinksSection && (isCategorizedProduct || isSpareItem)}
               showAuditTab={showAuditedStock}
               relatedItems={relatedItems}

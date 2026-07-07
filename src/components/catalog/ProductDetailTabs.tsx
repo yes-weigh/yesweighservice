@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import { RelatedCatalogItems } from './RelatedCatalogItems';
@@ -24,6 +24,8 @@ const TAB_DEFS: { id: ProductDetailTabId; label: string }[] = [
   { id: 'stock', label: 'Stock' },
   { id: 'documents', label: 'Documents' },
 ];
+
+export const DEALER_PRODUCT_DETAIL_TABS: ProductDetailTabId[] = ['spare', 'support', 'documents'];
 
 function TabPlaceholder({ label }: { label: string }) {
   return (
@@ -58,6 +60,7 @@ export const ProductDetailTabs: React.FC<{
   livePhysicalQty: number | null;
   canEditProductDetails: boolean;
   onAuditSnapshotChange: (snapshot: NonNullable<CatalogProduct['auditSnapshot']>) => void;
+  visibleTabs?: readonly ProductDetailTabId[];
 }> = ({
   product,
   activeTab: controlledTab,
@@ -78,14 +81,27 @@ export const ProductDetailTabs: React.FC<{
   livePhysicalQty,
   canEditProductDetails,
   onAuditSnapshotChange,
+  visibleTabs,
 }) => {
   const [internalTab, setInternalTab] = useState<ProductDetailTabId>('spare');
   const activeTab = controlledTab ?? internalTab;
+
+  const visibleTabDefs = useMemo(() => {
+    const allowed = visibleTabs ?? TAB_DEFS.map(tab => tab.id);
+    return TAB_DEFS.filter(tab => allowed.includes(tab.id));
+  }, [visibleTabs]);
 
   const setActiveTab = (tab: ProductDetailTabId) => {
     onActiveTabChange?.(tab);
     if (controlledTab === undefined) setInternalTab(tab);
   };
+
+  useEffect(() => {
+    if (!visibleTabDefs.some(tab => tab.id === activeTab)) {
+      const fallback = visibleTabDefs[0]?.id ?? 'spare';
+      setActiveTab(fallback);
+    }
+  }, [activeTab, visibleTabDefs]);
 
   const spareTitle = relatedKind === 'spares' ? 'Mapped spares' : 'Mapped products';
   const spareEmpty = relatedKind === 'spares'
@@ -104,7 +120,7 @@ export const ProductDetailTabs: React.FC<{
         role="tablist"
         aria-label="Product information"
       >
-        {TAB_DEFS.map(tab => (
+        {visibleTabDefs.map(tab => (
           <button
             key={tab.id}
             type="button"
@@ -121,6 +137,7 @@ export const ProductDetailTabs: React.FC<{
       </div>
 
       <div className="product-detail-tabs__panels">
+        {visibleTabDefs.some(tab => tab.id === 'spare') && (
         <div
           id={panelId('spare')}
           role="tabpanel"
@@ -162,7 +179,9 @@ export const ProductDetailTabs: React.FC<{
             )}
           </TabPanelBody>
         </div>
+        )}
 
+        {visibleTabDefs.some(tab => tab.id === 'audit') && (
         <div
           id={panelId('audit')}
           role="tabpanel"
@@ -184,8 +203,11 @@ export const ProductDetailTabs: React.FC<{
             )}
           </TabPanelBody>
         </div>
+        )}
 
-        {(['sales', 'nc', 'purchase', 'support', 'documents'] as const).map(tabId => (
+        {(['sales', 'nc', 'purchase', 'support', 'documents'] as const)
+          .filter(tabId => visibleTabDefs.some(tab => tab.id === tabId))
+          .map(tabId => (
           <div
             key={tabId}
             id={panelId(tabId)}
@@ -200,6 +222,7 @@ export const ProductDetailTabs: React.FC<{
           </div>
         ))}
 
+        {visibleTabDefs.some(tab => tab.id === 'stock') && (
         <div
           id={panelId('stock')}
           role="tabpanel"
@@ -211,6 +234,7 @@ export const ProductDetailTabs: React.FC<{
             <TabPlaceholder label="Stock" />
           </TabPanelBody>
         </div>
+        )}
       </div>
     </div>
   );
