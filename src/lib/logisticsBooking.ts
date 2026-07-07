@@ -103,7 +103,15 @@ const PARTNER_SERVICE: Record<LogisticsPartnerId, string> = {
   own_vehicle: 'Direct',
 };
 
-/** Mock barcode parse — in production, wire to camera / scanner SDK. */
+/**
+ * Parse a scanned/entered courier code into booking fields.
+ *
+ * Supports two inputs:
+ *  - Pipe-delimited seed format `partner|consignment|branch|service|date`
+ *    (used by the demo generator / structured labels).
+ *  - A plain consignment number straight off a courier barcode — kept
+ *    verbatim, since the scanned code IS the consignment number.
+ */
 export function parseCourierBarcode(
   raw: string,
   partnerId: LogisticsPartnerId,
@@ -111,20 +119,20 @@ export function parseCourierBarcode(
   const trimmed = raw.trim();
   if (!trimmed) return {};
 
-  const parts = trimmed.split('|').map(part => part.trim());
-  if (parts.length >= 4) {
+  if (trimmed.includes('|')) {
+    const parts = trimmed.split('|').map(part => part.trim());
     return {
-      consignmentNo: parts[1] ?? '',
-      branch: parts[2] ?? PARTNER_BRANCH[partnerId],
-      serviceType: parts[3] ?? PARTNER_SERVICE[partnerId],
-      bookingDate: parts[4]?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+      consignmentNo: parts[1] || parts[0] || '',
+      branch: parts[2] || PARTNER_BRANCH[partnerId],
+      serviceType: parts[3] || PARTNER_SERVICE[partnerId],
+      bookingDate: parts[4]?.slice(0, 10) || new Date().toISOString().slice(0, 10),
     };
   }
 
-  const prefix = partnerId.slice(0, 3).toUpperCase();
-  const suffix = trimmed.replace(/\D/g, '').slice(-8).padStart(8, '0');
+  // Plain barcode: use the full scanned value as the consignment number.
+  const consignmentNo = trimmed.replace(/\s+/g, '').toUpperCase();
   return {
-    consignmentNo: `${prefix}${suffix}`,
+    consignmentNo,
     branch: PARTNER_BRANCH[partnerId],
     serviceType: PARTNER_SERVICE[partnerId],
     bookingDate: new Date().toISOString().slice(0, 10),
