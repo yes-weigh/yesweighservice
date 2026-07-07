@@ -450,7 +450,7 @@ export const SparesPage: React.FC = () => {
           emptyHint={
             sparesSearch.trim()
               ? 'Try a different name or SKU.'
-              : 'Every uncategorized spare in the catalog is mapped to at least one product.'
+              : 'Every spare in the catalog is mapped to at least one product.'
           }
         />
       ) : (

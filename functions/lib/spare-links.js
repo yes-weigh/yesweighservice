@@ -2,10 +2,43 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 const MAP_COLLECTION = 'catalogProductSpareMap';
 const PRODUCTS_COLLECTION = 'catalogProducts';
+const CATEGORIES_COLLECTION = 'catalogCategories';
 
 function hasCategoryId(product) {
   const id = String(product?.categoryId ?? '').trim();
   return Boolean(id && id !== '-1');
+}
+
+function isGenericSparePartsCategoryName(name) {
+  const normalized = String(name ?? '').trim().toLowerCase();
+  return (
+    normalized === 'generic spare parts'
+    || normalized === 'generic spares'
+    || normalized.includes('generic spare')
+  );
+}
+
+async function loadGenericSpareCategoryIds(db) {
+  const snap = await db.collection(CATEGORIES_COLLECTION).get();
+  const ids = new Set();
+  for (const doc of snap.docs) {
+    if (isGenericSparePartsCategoryName(doc.data()?.name)) {
+      ids.add(doc.id);
+    }
+  }
+  return ids;
+}
+
+function isGenericSpareProduct(product, genericCategoryIds) {
+  if (isGenericSparePartsCategoryName(product?.categoryName)) return true;
+  const categoryId = String(product?.categoryId ?? '').trim();
+  return Boolean(categoryId && genericCategoryIds.has(categoryId));
+}
+
+function isLinkableSpare(product, genericCategoryIds) {
+  if (!product) return false;
+  if (!hasCategoryId(product)) return true;
+  return isGenericSpareProduct(product, genericCategoryIds);
 }
 
 function toClientProduct(data) {
@@ -44,13 +77,14 @@ export async function getLinkedSparesForProduct(productId) {
     return [];
   }
 
+  const genericCategoryIds = await loadGenericSpareCategoryIds(db);
   const mapSnap = await db.collection(MAP_COLLECTION).doc(String(productId)).get();
   const spareIds = mapSnap.exists ? (mapSnap.data().spareIds ?? []) : [];
 
   const spares = [];
   for (const spareId of spareIds) {
     const spare = await readActiveProduct(db, spareId);
-    if (spare && !hasCategoryId(spare)) {
+    if (spare && isLinkableSpare(spare, genericCategoryIds)) {
       spares.push(toClientProduct(spare));
     }
   }
@@ -61,7 +95,8 @@ export async function getLinkedSparesForProduct(productId) {
 export async function getLinkedProductsForSpare(spareId) {
   const db = getFirestore();
   const spare = await readActiveProduct(db, spareId);
-  if (!spare || hasCategoryId(spare)) {
+  const genericCategoryIds = await loadGenericSpareCategoryIds(db);
+  if (!spare || !isLinkableSpare(spare, genericCategoryIds)) {
     return [];
   }
 
@@ -88,10 +123,13 @@ async function assertCategorizedProduct(db, productId) {
   return product;
 }
 
-async function assertUncategorizedSpare(db, spareId) {
+async function assertLinkableSpare(db, spareId) {
   const spare = await readActiveProduct(db, spareId);
   if (!spare) throw new Error('Spare not found in catalog.');
-  if (hasCategoryId(spare)) throw new Error('Item is not an uncategorized spare.');
+  const genericCategoryIds = await loadGenericSpareCategoryIds(db);
+  if (!isLinkableSpare(spare, genericCategoryIds)) {
+    throw new Error('Item is not a spare part (uncategorized or Generic spare parts only).');
+  }
   return spare;
 }
 
@@ -104,7 +142,7 @@ export async function saveProductSpareMap(productId, spareIds, uid) {
 
   const uniqueSpareIds = [...new Set((spareIds ?? []).map(s => String(s).trim()).filter(Boolean))];
   for (const spareId of uniqueSpareIds) {
-    await assertUncategorizedSpare(db, spareId);
+    await assertLinkableSpare(db, spareId);
   }
 
   const now = new Date().toISOString();
@@ -130,7 +168,7 @@ export async function saveSpareProductMap(spareId, productIds, uid) {
   const id = String(spareId ?? '').trim();
   if (!id) throw new Error('spareId is required.');
 
-  await assertUncategorizedSpare(db, id);
+  await assertLinkableSpare(db, id);
 
   const uniqueProductIds = [...new Set((productIds ?? []).map(p => String(p).trim()).filter(Boolean))];
   for (const productId of uniqueProductIds) {

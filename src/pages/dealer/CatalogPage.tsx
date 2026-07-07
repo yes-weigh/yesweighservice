@@ -285,11 +285,8 @@ export const CatalogPage: React.FC = () => {
 
   const shopCategories = useMemo(() => {
     const categories = catalog?.categories ?? [];
-    if (!canSync) {
-      return getCategoriesForProducts(categories, shopProducts);
-    }
     return getShopCatalogCategories(categories, shopProducts, spareParts);
-  }, [catalog?.categories, shopProducts, spareParts, canSync]);
+  }, [catalog?.categories, shopProducts, spareParts]);
 
   const browseProducts = useMemo(
     () => excludeHiddenCatalogProducts(
