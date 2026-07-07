@@ -18,6 +18,7 @@ import { canManageHr } from '../../lib/staffAccess';
 import {
   hrProfileToFirestorePatch,
   readHrProfileFromDoc,
+  resolveHrPhotoUrl,
   uploadHrDocument,
   uploadHrPhoto,
 } from '../../lib/hrStaff';
@@ -87,7 +88,9 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
       });
       setHr(readHrProfileFromDoc(record));
       setRoleDraft(staffRoleDraftFromRecord(record, roles));
-      if (record.hrPhotoUrl) setPhotoPreview(record.hrPhotoUrl);
+      void resolveHrPhotoUrl(record.uid, record).then(url => {
+        if (url) setPhotoPreview(url);
+      });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
@@ -118,7 +121,18 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
   const onPhotoPick = (file: File | null) => {
     setPhotoFile(file);
     if (photoPreview?.startsWith('blob:')) URL.revokeObjectURL(photoPreview);
-    setPhotoPreview(file ? URL.createObjectURL(file) : hr.hrPhotoUrl ?? null);
+    if (file) {
+      setPhotoPreview(URL.createObjectURL(file));
+      return;
+    }
+    if (uid) {
+      void resolveHrPhotoUrl(uid, {
+        hrPhotoStoragePath: hr.hrPhotoStoragePath,
+        hrPhotoUrl: hr.hrPhotoUrl,
+      }).then(url => setPhotoPreview(url));
+      return;
+    }
+    setPhotoPreview(null);
   };
 
   const setHrField = <K extends keyof StaffHrProfile>(key: K, value: StaffHrProfile[K]) => {
@@ -162,9 +176,11 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
         });
       }
 
-      let photoUrl = hr.hrPhotoUrl ?? null;
+      let photoStoragePath = hr.hrPhotoStoragePath ?? null;
       if (photoFile && targetUid) {
-        photoUrl = await uploadHrPhoto(targetUid, photoFile);
+        const uploaded = await uploadHrPhoto(targetUid, photoFile);
+        photoStoragePath = uploaded.storagePath;
+        setPhotoPreview(uploaded.url);
       }
 
       const documents = { ...(hr.hrDocuments ?? {}) };
@@ -174,9 +190,13 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
         documents[type] = await uploadHrDocument(targetUid, type, file);
       }
 
-      if (targetUid && (photoUrl !== hr.hrPhotoUrl || Object.keys(docFiles).length > 0)) {
+      if (
+        targetUid
+        && (photoStoragePath !== hr.hrPhotoStoragePath || Object.keys(docFiles).length > 0)
+      ) {
         await updateUserProfile(db, targetUid, {
-          hrPhotoUrl: photoUrl,
+          hrPhotoStoragePath: photoStoragePath,
+          hrPhotoUrl: null,
           hrDocuments: documents,
         });
       }

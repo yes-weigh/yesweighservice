@@ -57,6 +57,7 @@ export type UpdateUserProfilePatch = Partial<
     | 'dealerAccessMode'
     | 'dealerPermissions'
     | 'hrPhotoUrl'
+    | 'hrPhotoStoragePath'
     | 'hrResidentialAddress'
     | 'hrPostalCode'
     | 'hrBloodGroup'
@@ -73,6 +74,7 @@ export type UpdateUserProfilePatch = Partial<
 
 export type CreateStaffHrInput = {
   hrPhotoUrl?: string | null;
+  hrPhotoStoragePath?: string | null;
   hrResidentialAddress?: string | null;
   hrPostalCode?: string | null;
   hrBloodGroup?: string | null;
@@ -148,6 +150,7 @@ export async function createUserProfile(
     clearTextPassword: input.password,
     ...(input.role === 'staff' && input.hr ? {
       hrPhotoUrl: input.hr.hrPhotoUrl ?? null,
+      hrPhotoStoragePath: input.hr.hrPhotoStoragePath ?? null,
       hrResidentialAddress: input.hr.hrResidentialAddress ?? null,
       hrPostalCode: input.hr.hrPostalCode ?? null,
       hrBloodGroup: input.hr.hrBloodGroup ?? null,

@@ -1,12 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
-import type { CatalogSiteInventoryDoc, CatalogInventorySite } from '../../types/catalog-site-inventory';
-import type { CatalogInventorySiteConfig } from '../../lib/catalogInventorySites';
-import type { YesStoreItemDoc } from '../../types/yes-store';
+import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { ProductAuditHistory } from './ProductAuditHistory';
-import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 
 export type ProductDetailTabId =
   | 'spare'
@@ -48,7 +44,6 @@ export const ProductDetailTabs: React.FC<{
   onActiveTabChange?: (tab: ProductDetailTabId) => void;
   showSpareTab: boolean;
   showAuditTab: boolean;
-  showStockTab: boolean;
   relatedItems: CatalogProduct[];
   relatedKind: 'spares' | 'products';
   relatedLoading: boolean;
@@ -63,21 +58,12 @@ export const ProductDetailTabs: React.FC<{
   livePhysicalQty: number | null;
   canEditProductDetails: boolean;
   onAuditSnapshotChange: (snapshot: NonNullable<CatalogProduct['auditSnapshot']>) => void;
-  activeInventorySites: CatalogInventorySite[];
-  siteConfigByKey: Record<CatalogInventorySite, CatalogInventorySiteConfig>;
-  auditItems: YesStoreItemDoc[];
-  cochinRecord: CatalogSiteInventoryDoc | null;
-  canEditCochin: boolean;
-  editorUid: string;
-  editorName?: string | null;
-  onCochinSaved: (record: CatalogSiteInventoryDoc) => void;
 }> = ({
   product,
   activeTab: controlledTab,
   onActiveTabChange,
   showSpareTab,
   showAuditTab,
-  showStockTab,
   relatedItems,
   relatedKind,
   relatedLoading,
@@ -92,14 +78,6 @@ export const ProductDetailTabs: React.FC<{
   livePhysicalQty,
   canEditProductDetails,
   onAuditSnapshotChange,
-  activeInventorySites,
-  siteConfigByKey,
-  auditItems,
-  cochinRecord,
-  canEditCochin,
-  editorUid,
-  editorName,
-  onCochinSaved,
 }) => {
   const [internalTab, setInternalTab] = useState<ProductDetailTabId>('spare');
   const activeTab = controlledTab ?? internalTab;
@@ -230,25 +208,7 @@ export const ProductDetailTabs: React.FC<{
           className="product-detail-tab-panel"
         >
           <TabPanelBody>
-            {showStockTab && activeInventorySites.length > 0 ? (
-              <div className="product-detail-page__stock-locations product-detail-page__stock-locations--tab">
-                {activeInventorySites.map(site => (
-                  <ProductSiteStockLocations
-                    key={site}
-                    product={product as CatalogProductDetail}
-                    siteConfig={siteConfigByKey[site]}
-                    auditItems={site === 'head_office' ? auditItems : []}
-                    cochinRecord={site === 'cochin' ? cochinRecord : null}
-                    canEditCochin={canEditCochin}
-                    editorUid={editorUid}
-                    editorName={editorName}
-                    onCochinSaved={onCochinSaved}
-                  />
-                ))}
-              </div>
-            ) : (
-              <TabPlaceholder label="Stock" />
-            )}
+            <TabPlaceholder label="Stock" />
           </TabPanelBody>
         </div>
       </div>

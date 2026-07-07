@@ -5,6 +5,7 @@ import { RefreshCw, Search, Users } from 'lucide-react';
 import { db } from '../../firebase';
 import { fetchStaffRoles } from '../../lib/staffRoles';
 import { formatAadharDisplay, readHrProfileFromDoc } from '../../lib/hrStaff';
+import { HrStaffPhoto } from '../../components/hr/HrStaffPhoto';
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
@@ -113,8 +114,13 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
                 className="hr-staff-list__card panel glass"
               >
                 <div className="hr-staff-list__card-head">
-                  {hr.hrPhotoUrl ? (
-                    <img src={hr.hrPhotoUrl} alt="" className="hr-staff-list__photo" />
+                  {hr.hrPhotoStoragePath || hr.hrPhotoUrl ? (
+                    <HrStaffPhoto
+                      userId={record.uid}
+                      photo={record}
+                      className="hr-staff-list__photo"
+                      placeholderClassName="hr-staff-list__photo hr-staff-list__photo--placeholder"
+                    />
                   ) : (
                     <div className="hr-staff-list__photo hr-staff-list__photo--placeholder">
                       <Users size={20} />

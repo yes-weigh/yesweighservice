@@ -19,6 +19,7 @@ export type HrDocuments = Partial<Record<HrDocumentType, HrDocumentMeta>>;
 
 export interface StaffHrProfile {
   hrPhotoUrl?: string | null;
+  hrPhotoStoragePath?: string | null;
   hrResidentialAddress?: string | null;
   hrPostalCode?: string | null;
   hrBloodGroup?: string | null;
@@ -37,6 +38,7 @@ export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] a
 export function emptyHrProfile(): StaffHrProfile {
   return {
     hrPhotoUrl: null,
+    hrPhotoStoragePath: null,
     hrResidentialAddress: null,
     hrPostalCode: null,
     hrBloodGroup: null,

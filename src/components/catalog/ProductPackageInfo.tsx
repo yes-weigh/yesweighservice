@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Save, X } from 'lucide-react';
 import { formatStockQuantity, updateCatalogProductPackageInfo } from '../../lib/catalog';
+import { loadMasterCartonQuantities } from '../../lib/catalogProductSettings';
 import type { CatalogPackageCarton, CatalogPackageInfo, CatalogProduct } from '../../types/catalog';
 
 type CartonKind = 'masterCarton' | 'singleBox';
@@ -109,6 +110,7 @@ function CartonSection({
   editing,
   form,
   onFormChange,
+  quantityOptions,
 }: {
   label: string;
   product: CatalogProduct;
@@ -116,6 +118,7 @@ function CartonSection({
   editing: boolean;
   form: EditableCarton;
   onFormChange: (next: EditableCarton) => void;
+  quantityOptions?: number[] | null;
 }) {
   const displayValue = (key: keyof EditableCarton): string => {
     if (key === 'quantity') {
@@ -128,6 +131,14 @@ function CartonSection({
     if (key === 'breadthCm') return formatDimension(carton?.breadthCm);
     return formatDimension(carton?.heightCm);
   };
+
+  const quantitySelectOptions = useMemo(() => {
+    if (!quantityOptions) return [];
+    const values = new Set(quantityOptions);
+    const current = Number(form.quantity);
+    if (Number.isFinite(current) && current > 0) values.add(current);
+    return [...values].sort((a, b) => a - b);
+  }, [quantityOptions, form.quantity]);
 
   return (
     <section className={`product-package__section ${editing ? 'product-package__section--editing' : ''}`}>
@@ -147,6 +158,23 @@ function CartonSection({
               {editing ? (
                 VALUE_COLUMNS.map(col => {
                   const field = EDIT_FIELD_META[col.key];
+                  if (col.key === 'quantity' && quantityOptions) {
+                    return (
+                      <td key={col.key} className="product-package__value-cell">
+                        <select
+                          className="product-package__input product-package__select"
+                          value={form.quantity}
+                          onChange={e => onFormChange({ ...form, quantity: e.target.value })}
+                          aria-label={`${label} ${field.label}`}
+                        >
+                          <option value="">—</option>
+                          {quantitySelectOptions.map(qty => (
+                            <option key={qty} value={String(qty)}>{qty}</option>
+                          ))}
+                        </select>
+                      </td>
+                    );
+                  }
                   return (
                     <td key={col.key} className="product-package__value-cell">
                       <input
@@ -202,6 +230,21 @@ export const ProductPackageInfo: React.FC<{
   const [form, setForm] = useState<PackageForm>(() => packageInfoToForm(packageInfo));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [masterCartonQuantities, setMasterCartonQuantities] = useState<number[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void loadMasterCartonQuantities()
+      .then(values => {
+        if (active) setMasterCartonQuantities(values);
+      })
+      .catch(() => {
+        if (active) setMasterCartonQuantities([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!editing) {
@@ -301,6 +344,11 @@ export const ProductPackageInfo: React.FC<{
               editing={editing}
               form={form[row.kind]}
               onFormChange={next => setForm(prev => ({ ...prev, [row.kind]: next }))}
+              quantityOptions={
+                row.kind === 'masterCarton' && masterCartonQuantities.length > 0
+                  ? masterCartonQuantities
+                  : null
+              }
             />
           </React.Fragment>
         ))}

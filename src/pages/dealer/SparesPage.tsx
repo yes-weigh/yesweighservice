@@ -10,9 +10,9 @@ import {
   fetchCatalog,
   fetchCatalogSpareLinks,
   fetchSpareLinkIndex,
-  getCategorizedProducts,
+  getCatalogSparePartsPool,
+  getFinishedGoodsForSpareMapping,
   getCategoriesForProducts,
-  getUncategorizedProducts,
   getUnlinkedSpares,
   isSparesExcludedCategory,
   saveCatalogCategoryOrder,
@@ -90,21 +90,21 @@ export const SparesPage: React.FC = () => {
   }, [loadLinkedSpareIds]);
 
   const sparesProducts = useMemo(
-    () => getUncategorizedProducts(catalog?.items ?? []),
-    [catalog?.items],
+    () => getCatalogSparePartsPool(catalog?.items ?? [], catalog?.categories ?? []),
+    [catalog?.items, catalog?.categories],
   );
 
   const unlinkedSpares = useMemo(() => {
     if (!linkedSpareIds) return [];
-    return getUnlinkedSpares(catalog?.items ?? [], linkedSpareIds);
-  }, [catalog?.items, linkedSpareIds]);
+    return getUnlinkedSpares(
+      catalog?.items ?? [],
+      linkedSpareIds,
+      catalog?.categories ?? [],
+    );
+  }, [catalog?.items, catalog?.categories, linkedSpareIds]);
 
   const catalogProducts = useMemo(
-    () => getCategorizedProducts(catalog?.items ?? [])
-      .filter(p => {
-        const cat = catalog?.categories?.find(c => c.id === p.categoryId);
-        return !cat || !isSparesExcludedCategory(cat);
-      }),
+    () => getFinishedGoodsForSpareMapping(catalog?.items ?? [], catalog?.categories ?? []),
     [catalog?.items, catalog?.categories],
   );
 
@@ -115,8 +115,8 @@ export const SparesPage: React.FC = () => {
   );
 
   const productPool = useMemo(
-    () => getCategorizedProducts(catalog?.items ?? []),
-    [catalog?.items],
+    () => getFinishedGoodsForSpareMapping(catalog?.items ?? [], catalog?.categories ?? []),
+    [catalog?.items, catalog?.categories],
   );
 
   const setViewMode = (mode: SparesViewMode) => {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink, User } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import type { UserRecord } from '../../types';
 import type { HrDocumentType } from '../../types/staff-hr';
 import { HR_DOCUMENT_LABELS, HR_DOCUMENT_TYPES } from '../../types/staff-hr';
@@ -11,6 +11,7 @@ import {
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import { formatLoginIdDisplay, loginIdTypeLabel } from '../../lib/loginAuth';
 import { staffDepartmentLabel } from '../../lib/staffAccess';
+import { HrStaffPhoto } from './HrStaffPhoto';
 
 type HrStaffProfileViewProps = {
   record: UserRecord;
@@ -44,11 +45,11 @@ export const HrStaffProfileView: React.FC<HrStaffProfileViewProps> = ({
     <div className={`hr-profile panel glass ${compact ? 'hr-profile--compact' : ''}`}>
       <header className="hr-profile__header">
         <div className="hr-profile__avatar">
-          {hr.hrPhotoUrl ? (
-            <img src={hr.hrPhotoUrl} alt="" />
-          ) : (
-            <User size={32} aria-hidden />
-          )}
+          <HrStaffPhoto
+            userId={record.uid}
+            photo={hr.hrPhotoStoragePath || hr.hrPhotoUrl ? record : null}
+            iconSize={32}
+          />
         </div>
         <div className="hr-profile__identity">
           <h2 className="hr-profile__name">{record.displayName}</h2>

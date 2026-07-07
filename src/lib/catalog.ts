@@ -104,6 +104,25 @@ export function getCatalogSparePartsPool(
   );
 }
 
+/** Spare pool for product↔spare linking (uncategorized + generic spare parts). */
+export function getSparesForSpareMapping(
+  products: CatalogProduct[],
+  categories: CatalogCategory[] = [],
+): CatalogProduct[] {
+  return getCatalogSparePartsPool(products, categories);
+}
+
+/** Finished-goods pool for product↔spare linking (shop products, excluding SANOFT etc.). */
+export function getFinishedGoodsForSpareMapping(
+  products: CatalogProduct[],
+  categories: CatalogCategory[] = [],
+): CatalogProduct[] {
+  return getShopCatalogProducts(products, categories).filter(product => {
+    const category = categories.find(cat => cat.id === product.categoryId);
+    return !category || !isSparesExcludedCategory(category);
+  });
+}
+
 /** Categories hidden on Spares → By product (software keys / SANOFT). */
 export function isSparesExcludedCategory(category: Pick<CatalogCategory, 'name'>): boolean {
   return SPARES_EXCLUDED_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
@@ -292,12 +311,15 @@ export async function fetchLinkedSpareIds(): Promise<Set<string>> {
   return linkedSpareIds;
 }
 
-/** Uncategorized catalog items not mapped to any product. */
+/** Spare-parts pool items not mapped to any finished good. */
 export function getUnlinkedSpares(
   products: CatalogProduct[],
   linkedSpareIds: Set<string>,
+  categories: CatalogCategory[] = [],
 ): CatalogProduct[] {
-  return getUncategorizedProducts(products).filter(p => !linkedSpareIds.has(p.id));
+  return getCatalogSparePartsPool(products, categories).filter(
+    p => !linkedSpareIds.has(p.id),
+  );
 }
 
 export function getCategoriesForProducts(

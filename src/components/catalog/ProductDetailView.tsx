@@ -26,9 +26,10 @@ import {
   assignProductCategory,
   formatCurrency,
   formatStockQuantity,
-  getCategorizedProducts,
-  getUncategorizedProducts,
+  getFinishedGoodsForSpareMapping,
+  getSparesForSpareMapping,
   hasCatalogCategory,
+  isCatalogSparePartProduct,
   saveCatalogProductSpareLinks,
   saveCatalogSpareProductLinks,
   setCatalogProductStatus,
@@ -57,6 +58,7 @@ import {
 } from '../../lib/catalogInventorySites';
 import { ProductDetailTabs } from './ProductDetailTabs';
 import { ProductPackageInfo } from './ProductPackageInfo';
+import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import {
   catalogSiteInventoryTotalQuantity,
@@ -96,6 +98,7 @@ export const ProductDetailView: React.FC<{
   backState?: CatalogNavState | null;
   preview?: CatalogProduct | null;
   variant?: 'app' | 'public';
+  isSpareDetail?: boolean;
   showWarehouseStock?: boolean;
   showStockQuantity?: boolean;
   showAuditedStock?: boolean;
@@ -116,6 +119,7 @@ export const ProductDetailView: React.FC<{
   backState = null,
   preview = null,
   variant = 'app',
+  isSpareDetail = false,
   showWarehouseStock = false,
   showStockQuantity = false,
   showAuditedStock = false,
@@ -166,6 +170,7 @@ export const ProductDetailView: React.FC<{
   const [editSku, setEditSku] = useState('');
   const [editCategoryId, setEditCategoryId] = useState('');
   const [categoryOptions, setCategoryOptions] = useState<CatalogCategory[]>([]);
+  const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [detailsSaving, setDetailsSaving] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
@@ -251,6 +256,40 @@ export const ProductDetailView: React.FC<{
       active = false;
     };
   }, [productId, preview]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchCatalog()
+      .then(data => {
+        if (active) setCatalogCategories(data.categories ?? []);
+      })
+      .catch(() => {
+        if (active) setCatalogCategories([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [productId]);
+
+  const spareClassificationCategories = useMemo((): CatalogCategory[] => {
+    if (categoryOptions.length > 0) return categoryOptions;
+    if (catalogCategories.length > 0) return catalogCategories;
+    if (!product?.categoryId) return [];
+    return [{
+      id: product.categoryId,
+      name: product.categoryName ?? '',
+      productCount: 0,
+      displayOrder: 0,
+      thumbnailUrl: null,
+    }];
+  }, [categoryOptions, catalogCategories, product?.categoryId, product?.categoryName]);
+
+  const isSpareItem = product
+    ? isCatalogSparePartProduct(product, spareClassificationCategories)
+    : false;
+  const isCategorizedProduct = Boolean(
+    product && hasCatalogCategory(product) && !isSpareItem,
+  );
 
   useEffect(() => {
     if (!showAuditedStock || !productId) {
@@ -439,8 +478,7 @@ export const ProductDetailView: React.FC<{
     }
   };
 
-  const isCategorizedProduct = product ? hasCatalogCategory(product) : false;
-  const isSpareItem = product ? !hasCatalogCategory(product) : false;
+
   const showLinksSection = showRelatedLinks || manageSpareLinks;
 
   const loadRelatedLinks = useCallback(async () => {
@@ -470,9 +508,10 @@ export const ProductDetailView: React.FC<{
     setLinkError(null);
     try {
       const catalog = await fetchCatalog();
+      const categories = catalog.categories ?? [];
       const pool = isCategorizedProduct
-        ? getUncategorizedProducts(catalog.items)
-        : getCategorizedProducts(catalog.items);
+        ? getSparesForSpareMapping(catalog.items, categories)
+        : getFinishedGoodsForSpareMapping(catalog.items, categories);
       setEditorPool(pool);
       setEditorOpen(true);
     } catch (err) {
@@ -1134,6 +1173,24 @@ export const ProductDetailView: React.FC<{
             )}
           </div>
 
+          {showAuditedStock && activeInventorySites.length > 0 && product && (
+            <div className="product-detail-page__stock-locations product-detail-page__stock-locations--summary">
+              {activeInventorySites.map(site => (
+                <ProductSiteStockLocations
+                  key={site}
+                  product={product as CatalogProductDetail}
+                  siteConfig={CATALOG_INVENTORY_SITE_CONFIG[site]}
+                  auditItems={site === 'head_office' ? auditItems : []}
+                  cochinRecord={site === 'cochin' ? cochinRecord : null}
+                  canEditCochin={canEditCochin}
+                  editorUid={user?.uid ?? ''}
+                  editorName={user?.displayName}
+                  onCochinSaved={setCochinRecord}
+                />
+              ))}
+            </div>
+          )}
+
           {showCartActions && (
             <div className="product-detail-page__cart">
               <div className="product-detail-page__qty" aria-label="Quantity">
@@ -1216,7 +1273,7 @@ export const ProductDetailView: React.FC<{
 
           {variant !== 'public' && product && (
             <div className="product-detail-page__tabbed-area">
-            {showAuditedStock && (
+            {showAuditedStock && !isSpareDetail && !isSpareItem && (
               <ProductPackageInfo
                 product={product}
                 packageInfo={product.packageInfo}
@@ -1230,7 +1287,6 @@ export const ProductDetailView: React.FC<{
               product={product}
               showSpareTab={showLinksSection && (isCategorizedProduct || isSpareItem)}
               showAuditTab={showAuditedStock}
-              showStockTab={showAuditedStock}
               relatedItems={relatedItems}
               relatedKind={relatedKind}
               relatedLoading={relatedLoading}
@@ -1247,14 +1303,6 @@ export const ProductDetailView: React.FC<{
               onAuditSnapshotChange={snapshot => {
                 setProduct(prev => (prev ? { ...prev, auditSnapshot: snapshot } : prev));
               }}
-              activeInventorySites={activeInventorySites}
-              siteConfigByKey={CATALOG_INVENTORY_SITE_CONFIG}
-              auditItems={auditItems}
-              cochinRecord={cochinRecord}
-              canEditCochin={canEditCochin}
-              editorUid={user?.uid ?? ''}
-              editorName={user?.displayName}
-              onCochinSaved={setCochinRecord}
             />
             </div>
           )}

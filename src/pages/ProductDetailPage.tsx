@@ -67,6 +67,7 @@ export const ProductDetailPage: React.FC = () => {
         backState={backState}
         preview={preview && preview.id === productId ? preview : null}
         variant={isPublic ? 'public' : 'app'}
+        isSpareDetail={isSpare}
         showWarehouseStock={showWarehouseStock}
         showStockQuantity={showStockQuantity}
         showAuditedStock={showAuditedStock}

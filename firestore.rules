@@ -183,7 +183,7 @@ service cloud.firestore {
 
     match /appSettings/{docId} {
       allow read: if signedIn();
-      allow write: if signedIn() && bootstrapOpen();
+      allow write: if signedIn() && (bootstrapOpen() || (docId == 'productSettings' && isSuperAdmin()));
     }
 
     match /catalogProducts/{productId} {

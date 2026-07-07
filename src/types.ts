@@ -66,6 +66,7 @@ export interface User {
   dealerPermissions?: import('./types/dealer-access').DealerPermission[];
   /** Company staff HR profile */
   hrPhotoUrl?: string | null;
+  hrPhotoStoragePath?: string | null;
   hrResidentialAddress?: string | null;
   hrPostalCode?: string | null;
   hrBloodGroup?: string | null;
@@ -103,6 +104,7 @@ export interface FirestoreUserDoc {
   dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
   dealerPermissions?: import('./types/dealer-access').DealerPermission[];
   hrPhotoUrl?: string | null;
+  hrPhotoStoragePath?: string | null;
   hrResidentialAddress?: string | null;
   hrPostalCode?: string | null;
   hrBloodGroup?: string | null;

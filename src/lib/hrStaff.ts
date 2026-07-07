@@ -83,7 +83,71 @@ export function hrUploadErrorMessage(err: unknown, fallback: string): string {
   );
 }
 
-async function uploadHrPhotoViaFunction(userId: string, file: File): Promise<string> {
+const HR_PHOTO_EXTENSIONS = ['jpg', 'png', 'webp', 'gif'] as const;
+
+export type HrPhotoUploadResult = {
+  url: string;
+  storagePath: string;
+};
+
+export function hrPhotoStoragePathFromRecord(
+  userId: string,
+  data: Pick<FirestoreUserDoc, 'hrPhotoStoragePath' | 'hrPhotoUrl'>,
+): string | null {
+  const stored = data.hrPhotoStoragePath?.trim();
+  if (stored?.startsWith('hr/')) return stored;
+
+  const legacy = data.hrPhotoUrl?.trim();
+  if (legacy?.startsWith('hr/')) return legacy;
+
+  return null;
+}
+
+function isSignedStorageUrl(url: string): boolean {
+  return url.includes('X-Goog-Signature') || url.includes('GoogleAccessId=');
+}
+
+async function probeHrPhotoUrl(userId: string): Promise<string | null> {
+  for (const ext of HR_PHOTO_EXTENSIONS) {
+    try {
+      return await getHrFileUrl(hrPhotoPath(userId, ext));
+    } catch {
+      // try next extension
+    }
+  }
+  return null;
+}
+
+export async function resolveHrPhotoUrl(
+  userId: string,
+  data: Pick<FirestoreUserDoc, 'hrPhotoStoragePath' | 'hrPhotoUrl'>,
+): Promise<string | null> {
+  const storagePath = hrPhotoStoragePathFromRecord(userId, data);
+  if (storagePath) {
+    try {
+      return await getHrFileUrl(storagePath);
+    } catch {
+      // fall through to legacy / probe
+    }
+  }
+
+  const legacyUrl = data.hrPhotoUrl?.trim();
+  if (legacyUrl?.startsWith('https://')) {
+    if (isSignedStorageUrl(legacyUrl)) {
+      const probed = await probeHrPhotoUrl(userId);
+      if (probed) return probed;
+    }
+    return legacyUrl;
+  }
+
+  if (legacyUrl || storagePath) {
+    return probeHrPhotoUrl(userId);
+  }
+
+  return null;
+}
+
+async function uploadHrPhotoViaFunction(userId: string, file: File): Promise<HrPhotoUploadResult> {
   const compressed = await compressImageForUpload(file);
   const callable = httpsCallable<
     {
@@ -93,7 +157,7 @@ async function uploadHrPhotoViaFunction(userId: string, file: File): Promise<str
       fileBase64: string;
       fileName: string;
     },
-    { url: string }
+    { url: string; storagePath: string }
   >(functions, 'uploadHrStaffFileFn', { timeout: 120_000 });
 
   const result = await callable({
@@ -103,7 +167,10 @@ async function uploadHrPhotoViaFunction(userId: string, file: File): Promise<str
     fileBase64: await fileToBase64(compressed, MAX_PHOTO_BYTES),
     fileName: compressed.name,
   });
-  return result.data.url;
+  return {
+    url: result.data.url,
+    storagePath: result.data.storagePath,
+  };
 }
 
 async function uploadHrDocumentViaFunction(
@@ -138,12 +205,15 @@ async function uploadHrDocumentViaFunction(
   };
 }
 
-async function uploadHrPhotoViaClient(userId: string, file: File): Promise<string> {
+async function uploadHrPhotoViaClient(userId: string, file: File): Promise<HrPhotoUploadResult> {
   const ext = extFromFile(file);
   const path = hrPhotoPath(userId, ext);
   const storageRef = ref(storage, path);
   await uploadBytes(storageRef, file, { contentType: file.type });
-  return getDownloadURL(storageRef);
+  return {
+    url: await getDownloadURL(storageRef),
+    storagePath: path,
+  };
 }
 
 async function uploadHrDocumentViaClient(
@@ -162,7 +232,7 @@ async function uploadHrDocumentViaClient(
   };
 }
 
-export async function uploadHrPhoto(userId: string, file: File): Promise<string> {
+export async function uploadHrPhoto(userId: string, file: File): Promise<HrPhotoUploadResult> {
   if (file.size > MAX_PHOTO_BYTES) throw new Error('Photo must be under 5 MB.');
   if (!file.type.startsWith('image/')) throw new Error('Photo must be an image.');
 
@@ -246,6 +316,7 @@ export async function deleteHrStorageFile(storagePath: string): Promise<void> {
 export function readHrProfileFromDoc(data: FirestoreUserDoc): StaffHrProfile {
   return {
     hrPhotoUrl: data.hrPhotoUrl ?? null,
+    hrPhotoStoragePath: data.hrPhotoStoragePath ?? null,
     hrResidentialAddress: data.hrResidentialAddress ?? null,
     hrPostalCode: data.hrPostalCode ?? null,
     hrBloodGroup: data.hrBloodGroup ?? null,
@@ -263,6 +334,7 @@ export function readHrProfileFromDoc(data: FirestoreUserDoc): StaffHrProfile {
 export function hrProfileToFirestorePatch(profile: StaffHrProfile): Record<string, unknown> {
   return {
     hrPhotoUrl: profile.hrPhotoUrl ?? null,
+    hrPhotoStoragePath: profile.hrPhotoStoragePath ?? null,
     hrResidentialAddress: profile.hrResidentialAddress?.trim() || null,
     hrPostalCode: profile.hrPostalCode?.trim() || null,
     hrBloodGroup: profile.hrBloodGroup || null,

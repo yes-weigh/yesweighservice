@@ -17,7 +17,7 @@ import {
   fetchCatalog,
   fetchCatalogSpareLinks,
   fetchSpareLinkIndex,
-  getCategorizedProducts,
+  getFinishedGoodsForSpareMapping,
   getShopCatalogProducts,
   getShopCatalogCategories,
   getBrowseCatalogProducts,
@@ -365,15 +365,15 @@ export const CatalogPage: React.FC = () => {
 
   const unlinkedSpares = useMemo(() => {
     if (!linkedSpareIds) return [];
-    return getUnlinkedSpares(catalog?.items ?? [], linkedSpareIds);
-  }, [catalog?.items, linkedSpareIds]);
+    return getUnlinkedSpares(
+      catalog?.items ?? [],
+      linkedSpareIds,
+      catalog?.categories ?? [],
+    );
+  }, [catalog?.items, catalog?.categories, linkedSpareIds]);
 
   const mapProducts = useMemo(
-    () => getCategorizedProducts(catalog?.items ?? [])
-      .filter(p => {
-        const cat = catalog?.categories?.find(c => c.id === p.categoryId);
-        return !cat || !isSparesExcludedCategory(cat);
-      }),
+    () => getFinishedGoodsForSpareMapping(catalog?.items ?? [], catalog?.categories ?? []),
     [catalog?.items, catalog?.categories],
   );
 
@@ -384,8 +384,8 @@ export const CatalogPage: React.FC = () => {
   );
 
   const productPool = useMemo(
-    () => getCategorizedProducts(catalog?.items ?? []),
-    [catalog?.items],
+    () => getFinishedGoodsForSpareMapping(catalog?.items ?? [], catalog?.categories ?? []),
+    [catalog?.items, catalog?.categories],
   );
 
   const categoryId = categoryFromUrl;

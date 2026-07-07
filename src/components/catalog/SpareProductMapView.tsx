@@ -16,9 +16,8 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   formatCurrency,
-  getCategorizedProducts,
-  getUncategorizedProducts,
-  isSparesExcludedCategory,
+  getFinishedGoodsForSpareMapping,
+  getSparesForSpareMapping,
   saveCatalogProductSpareLinks,
 } from '../../lib/catalog';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
@@ -297,14 +296,11 @@ export const SpareProductMapView: React.FC<{
         fetchCatalog(),
         fetchCatalogSpareLinks({ productId }),
       ]);
-      const sparePool = getUncategorizedProducts(catalog.items);
+      const categories = catalog.categories ?? [];
+      const sparePool = getSparesForSpareMapping(catalog.items, categories);
       const linkedIds = links.items.map(item => item.id);
-      const catalogProducts = getCategorizedProducts(catalog.items)
-        .filter(item => item.id !== productId)
-        .filter(item => {
-          const cat = catalog.categories?.find(c => c.id === item.categoryId);
-          return !cat || !isSparesExcludedCategory(cat);
-        });
+      const catalogProducts = getFinishedGoodsForSpareMapping(catalog.items, categories)
+        .filter(item => item.id !== productId);
       setPool(sparePool);
       setProductPool(catalogProducts);
       setPicked(new Set(linkedIds));
