@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   FileText,
+  Keyboard,
   MapPin,
   Package,
   Printer,
@@ -21,12 +22,12 @@ import {
   createLogisticsBooking,
   emptyBookingDraft,
   formatDealerAddress,
-  mockScanBarcode,
   packingSlipFileName,
   parseCourierBarcode,
   type BookCourierStep,
 } from '../../lib/logisticsBooking';
 import type { LogisticsBooking, LogisticsBookingDraft } from '../../types/logistics-dispatch';
+import { BarcodeScanner } from './BarcodeScanner';
 
 interface BookCourierFlowProps {
   partnerId: LogisticsPartnerId;
@@ -71,7 +72,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [step, setStep] = useState<BookCourierStep>('scan');
   const [draft, setDraft] = useState<LogisticsBookingDraft>(() => emptyBookingDraft(partnerId));
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
-  const [scanning, setScanning] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   const updateDraft = useCallback(<K extends keyof LogisticsBookingDraft>(
     key: K,
@@ -80,33 +81,28 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     setDraft(prev => ({ ...prev, [key]: value }));
   }, []);
 
-  const handleMockScan = useCallback(() => {
-    setScanning(true);
-    window.setTimeout(() => {
-      const raw = mockScanBarcode(partnerId);
-      const parsed = parseCourierBarcode(raw, partnerId);
-      setDraft(prev => ({
-        ...prev,
-        barcodeRaw: raw,
-        consignmentNo: parsed.consignmentNo ?? prev.consignmentNo,
-        branch: parsed.branch ?? prev.branch,
-        serviceType: parsed.serviceType ?? prev.serviceType,
-        bookingDate: parsed.bookingDate ?? prev.bookingDate,
-      }));
-      setScanning(false);
-      setStep('details');
-    }, 650);
-  }, [partnerId]);
-
-  const handleBarcodeSubmit = useCallback(() => {
-    const parsed = parseCourierBarcode(draft.barcodeRaw, partnerId);
+  const applyScannedCode = useCallback((raw: string) => {
+    const parsed = parseCourierBarcode(raw, partnerId);
     setDraft(prev => ({
       ...prev,
-      ...parsed,
-      partnerId,
+      barcodeRaw: raw,
+      consignmentNo: parsed.consignmentNo ?? prev.consignmentNo,
+      branch: parsed.branch ?? prev.branch,
+      serviceType: parsed.serviceType ?? prev.serviceType,
+      bookingDate: parsed.bookingDate ?? prev.bookingDate,
     }));
+  }, [partnerId]);
+
+  const handleCameraDetected = useCallback((raw: string) => {
+    applyScannedCode(raw);
+    setCameraOpen(false);
     setStep('details');
-  }, [draft.barcodeRaw, partnerId]);
+  }, [applyScannedCode]);
+
+  const handleBarcodeSubmit = useCallback(() => {
+    applyScannedCode(draft.barcodeRaw);
+    setStep('details');
+  }, [applyScannedCode, draft.barcodeRaw]);
 
   const handleConfirmBooking = useCallback(() => {
     const created = createLogisticsBooking(draft);
@@ -204,32 +200,54 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <p className="book-courier__hint text-muted text-sm">
                 Scan the consignment barcode on the courier slip, or enter the code manually.
               </p>
-              <div className="book-courier__scan-visual" aria-hidden>
-                <Barcode size={48} strokeWidth={1.25} />
-              </div>
-              <label className="courier-dialog__field">
-                <span>Barcode / slip code</span>
-                <input
-                  type="text"
-                  value={draft.barcodeRaw}
-                  onChange={event => updateDraft('barcodeRaw', event.target.value)}
-                  placeholder="Scan or type barcode"
-                  autoComplete="off"
+
+              {cameraOpen ? (
+                <BarcodeScanner
+                  onDetected={handleCameraDetected}
+                  onClose={() => setCameraOpen(false)}
                 />
-              </label>
-              <div className="book-courier__actions">
+              ) : (
                 <button
                   type="button"
-                  className="btn btn-primary"
-                  disabled={scanning}
-                  onClick={handleMockScan}
+                  className="book-courier__scan-visual book-courier__scan-visual--button"
+                  onClick={() => setCameraOpen(true)}
                 >
-                  <ScanLine size={16} aria-hidden />
-                  {scanning ? 'Scanning…' : 'Scan barcode'}
+                  <Barcode size={44} strokeWidth={1.25} aria-hidden />
+                  <span>Tap to open camera scanner</span>
                 </button>
+              )}
+
+              <div className="book-courier__actions">
+                {!cameraOpen && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setCameraOpen(true)}
+                  >
+                    <ScanLine size={16} aria-hidden />
+                    Scan with camera
+                  </button>
+                )}
+              </div>
+
+              <div className="book-courier__manual">
+                <span className="book-courier__manual-label">
+                  <Keyboard size={14} aria-hidden />
+                  Or enter manually
+                </span>
+                <label className="courier-dialog__field">
+                  <span>Barcode / slip code</span>
+                  <input
+                    type="text"
+                    value={draft.barcodeRaw}
+                    onChange={event => updateDraft('barcodeRaw', event.target.value)}
+                    placeholder="Scan or type barcode"
+                    autoComplete="off"
+                  />
+                </label>
                 <button
                   type="button"
-                  className="btn btn-secondary"
+                  className="btn btn-secondary book-courier__next"
                   disabled={!draft.barcodeRaw.trim()}
                   onClick={handleBarcodeSubmit}
                 >
