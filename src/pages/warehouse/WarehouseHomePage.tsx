@@ -7,9 +7,10 @@ import { WarehouseRackPicker } from '../../components/yesStore/WarehouseRackPick
 import { WarehouseRowPicker } from '../../components/yesStore/WarehouseRowPicker';
 import { WarehouseBinPicker } from '../../components/yesStore/WarehouseBinPicker';
 import { WarehouseBinEditor } from '../../components/yesStore/WarehouseBinEditor';
+import { WarehouseItemEditor } from '../../components/yesStore/WarehouseItemEditor';
 import { WarehouseInventoryAuditList } from '../../components/yesStore/WarehouseInventoryAuditList';
 
-type WizardStep = null | 'rack' | 'row' | 'bin' | 'editor';
+type WizardStep = null | 'rack' | 'row' | 'bin' | 'editor' | 'item-edit';
 
 type DraftLocation = {
   rackId?: string;
@@ -23,6 +24,7 @@ export const WarehouseHomePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [wizard, setWizard] = useState<WizardStep>(null);
   const [draft, setDraft] = useState<DraftLocation>({});
+  const [editItem, setEditItem] = useState<YesStoreItemDoc | null>(null);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -40,6 +42,7 @@ export const WarehouseHomePage: React.FC = () => {
   const resetWizard = () => {
     setWizard(null);
     setDraft({});
+    setEditItem(null);
   };
 
   const goHome = () => {
@@ -52,13 +55,9 @@ export const WarehouseHomePage: React.FC = () => {
     setWizard('rack');
   };
 
-  const openBin = (rackId: string, rowNumber: RowNumber, binNumber: BinNumber) => {
-    setDraft({ rackId, rowNumber, binNumber });
-    setWizard('editor');
-  };
-
   const openFromList = (item: YesStoreItemDoc) => {
-    openBin(item.rackId, item.rowNumber, item.binNumber);
+    setEditItem(item);
+    setWizard('item-edit');
   };
 
   if (wizard === 'rack') {
@@ -110,6 +109,17 @@ export const WarehouseHomePage: React.FC = () => {
         rowNumber={draft.rowNumber}
         binNumber={draft.binNumber}
         onBack={() => setWizard('bin')}
+        onHome={goHome}
+        onSaved={() => void loadItems()}
+      />
+    );
+  }
+
+  if (wizard === 'item-edit' && editItem) {
+    return (
+      <WarehouseItemEditor
+        item={editItem}
+        onBack={goHome}
         onHome={goHome}
         onSaved={() => void loadItems()}
       />

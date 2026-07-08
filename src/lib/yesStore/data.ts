@@ -293,6 +293,43 @@ export async function updateItem(
   await updateDoc(itemRef(itemId), payload);
 }
 
+export async function updateItemDetails(
+  itemId: string,
+  input: {
+    rackId: string;
+    rowNumber: RowNumber;
+    binNumber: BinNumber;
+    quantity: number;
+    photos: YesStorePhoto[];
+  },
+  countedBy?: { uid: string; displayName?: string | null },
+): Promise<YesStoreItemDoc> {
+  const rackId = input.rackId.toLowerCase();
+  if (!isValidRackId(rackId)) throw new Error('Select a valid rack.');
+  if (!isValidRowNumber(input.rowNumber)) throw new Error('Select a valid row.');
+  if (!isValidBinNumber(input.binNumber)) throw new Error('Select a valid bin.');
+  if (!input.photos.length) throw new Error('Add at least one photo.');
+  if (input.photos.length > MAX_ITEM_PHOTOS) {
+    throw new Error(`Maximum ${MAX_ITEM_PHOTOS} photos per item.`);
+  }
+  const quantity = Math.max(1, Math.floor(input.quantity));
+  await ensureBin(rackId, input.rowNumber, input.binNumber);
+  await updateDoc(itemRef(itemId), {
+    rackId,
+    rowId: rowDocId(rackId, input.rowNumber),
+    rowNumber: input.rowNumber,
+    binId: binDocId(rackId, input.rowNumber, input.binNumber),
+    binNumber: input.binNumber,
+    quantity,
+    photos: input.photos.slice(0, MAX_ITEM_PHOTOS),
+    updatedAt: now(),
+    ...buildCountStamp(countedBy),
+  });
+  const updated = await getItem(itemId);
+  if (!updated) throw new Error('Item not found after saving.');
+  return updated;
+}
+
 export async function updateInventoryAuditCount(
   itemId: string,
   quantity: number,
