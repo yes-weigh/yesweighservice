@@ -2,8 +2,10 @@ import React from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Headphones, Package } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
 import { formatCurrency } from '../../lib/catalog';
 import { supportBasePath } from '../../lib/dealerSupport';
+import { buildInvoiceBookingDraftPatch } from '../../lib/logisticsPrefill';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import type { SupportProductDraft } from '../../types/dealer-support';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
@@ -31,10 +33,23 @@ export const InvoiceDocumentPage: React.FC = () => {
 
   if (!invoice) return null;
 
-  const dealerId = user?.role === 'dealer' ? user.uid : (user?.dealerId ?? '');
+  const dealerId = user?.role === 'dealer' ? user.uid : (user?.dealerId ?? user?.uid ?? '');
+  const zohoCustomerId = user?.zohoCustomerId?.trim() || '';
+  const courierEntry = {
+    draftPatch: buildInvoiceBookingDraftPatch(
+      invoice,
+      invoiceId,
+      zohoCustomerId,
+      dealerId || zohoCustomerId,
+    ),
+    dealerQuery: invoice.customerName ?? undefined,
+  };
 
   return (
     <>
+      <section className="invoice-detail-actions panel glass">
+        <BookCourierEntryButton entry={courierEntry} size="sm" />
+      </section>
       {dealerId && (
         <RelatedSupportRequests
           dealerId={dealerId}

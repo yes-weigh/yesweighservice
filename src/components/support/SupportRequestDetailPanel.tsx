@@ -13,6 +13,8 @@ import { isSupportOpen } from '../../lib/supportStatus';
 import type { User as AppUser } from '../../types';
 import type { DealerSupportRequest, SupportOpenStage } from '../../types/dealer-support';
 import { SUPPORT_OPEN_STAGE_LABELS } from '../../types/dealer-support';
+import { BookCourierEntryButton } from '../logistics/BookCourierEntryButton';
+import { buildSupportBookingDraftPatch } from '../../lib/logisticsPrefill';
 import { SupportAssigneeSelect } from './SupportAssigneeSelect';
 import { SupportRequestTicketInfo } from './SupportRequestTicketInfo';
 
@@ -207,6 +209,13 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
             <div className="support-detail-card__divider" aria-hidden />
 
             <div className="support-detail-staff-actions">
+              <BookCourierEntryButton
+                entry={{
+                  draftPatch: buildSupportBookingDraftPatch(request),
+                  dealerQuery: request.dealerName ?? undefined,
+                }}
+                size="sm"
+              />
               {canApproveCourier && (
                 <button
                   type="button"

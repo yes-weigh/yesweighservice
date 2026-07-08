@@ -1,49 +1,85 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Barcode,
+  Camera,
   Check,
+  CheckCircle2,
   ChevronLeft,
-  FileText,
+  Download,
   Keyboard,
   MapPin,
+  Minus,
   Package,
+  Pencil,
+  Plus,
   Printer,
   ScanLine,
-  Truck,
+  Search,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
+import { fetchDealerById, fetchDealers } from '../../lib/dealers';
+import { fetchCatalog } from '../../lib/catalog';
 import {
   BOOK_COURIER_STEPS,
-  MOCK_DEALER_ADDRESSES,
-  bookingSummaryLines,
-  courierSlipFileName,
-  createLogisticsBooking,
+  PACKAGE_TYPES,
+  bookStepProgressIndex,
+  computeVolumetricWeight,
   emptyBookingDraft,
-  formatDealerAddress,
-  packingSlipFileName,
+  packageTypeLabel,
   parseCourierBarcode,
   type BookCourierStep,
 } from '../../lib/logisticsBooking';
-import type { LogisticsBooking, LogisticsBookingDraft } from '../../types/logistics-dispatch';
+import {
+  dealerMatchesLogisticsQuery,
+  resolveDeliveryAddress,
+  zohoDealerToSnapshot,
+} from '../../lib/logisticsDealers';
+import { persistLogisticsBooking } from '../../lib/logisticsBookings';
+import { loadLogisticsSettings } from '../../lib/logisticsSettings';
+import type { User } from '../../types';
+import type { ZohoDealer } from '../../types/dealers';
+import type {
+  DeliveryAddressKind,
+  LogisticsBooking,
+  LogisticsBookingDraft,
+  LogisticsDealerSnapshot,
+  PackageType,
+  ShipmentItem,
+} from '../../types/logistics-dispatch';
+import type { StaffLogisticsSite } from '../../types/staff-logistics';
+import { STAFF_LOGISTICS_SITES, STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
+import type { CatalogProduct } from '../../types/catalog';
 import { BarcodeScanner } from './BarcodeScanner';
 
 interface BookCourierFlowProps {
   partnerId: LogisticsPartnerId;
+  user: User;
+  initialDraft?: Partial<LogisticsBookingDraft>;
+  initialDealerQuery?: string;
   onClose: () => void;
   onComplete: (booking: LogisticsBooking) => void;
 }
 
-function StepProgress({ step }: { step: BookCourierStep }) {
-  const activeIndex = BOOK_COURIER_STEPS.findIndex(item => item.id === step);
-  const visibleSteps = BOOK_COURIER_STEPS.filter(item => item.id !== 'complete');
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
+function StepProgress({ step }: { step: BookCourierStep }) {
+  const activeIndex = bookStepProgressIndex(step);
   return (
     <ol className="book-courier__progress" aria-label="Booking progress">
-      {visibleSteps.map((item, index) => {
+      {BOOK_COURIER_STEPS.map((item, index) => {
         const done = index < activeIndex;
-        const current = item.id === step;
+        const current = index === activeIndex;
         return (
           <li
             key={item.id}
@@ -66,13 +102,99 @@ function StepProgress({ step }: { step: BookCourierStep }) {
 
 export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   partnerId,
+  user,
+  initialDraft,
+  initialDealerQuery,
   onClose,
   onComplete,
 }) => {
   const [step, setStep] = useState<BookCourierStep>('scan');
-  const [draft, setDraft] = useState<LogisticsBookingDraft>(() => emptyBookingDraft(partnerId));
+  const [draft, setDraft] = useState<LogisticsBookingDraft>(() => ({
+    ...emptyBookingDraft(partnerId),
+    ...initialDraft,
+    partnerId,
+  }));
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [dealerQuery, setDealerQuery] = useState(initialDealerQuery ?? '');
+  const [dealers, setDealers] = useState<ZohoDealer[]>([]);
+  const [dealersLoading, setDealersLoading] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogHits, setCatalogHits] = useState<CatalogProduct[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [editingCourier, setEditingCourier] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const finalPhotoInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedDealer = useMemo<LogisticsDealerSnapshot | null>(() => {
+    const dealer = dealers.find(item => item.id === draft.zohoCustomerId);
+    return dealer ? zohoDealerToSnapshot(dealer) : null;
+  }, [dealers, draft.zohoCustomerId]);
+
+  const filteredDealers = useMemo(
+    () => dealers.filter(dealer => dealerMatchesLogisticsQuery(dealer, dealerQuery)),
+    [dealers, dealerQuery],
+  );
+
+  const volumetricWeight = useMemo(
+    () => computeVolumetricWeight(
+      draft.lengthCm ? Number.parseFloat(draft.lengthCm) : null,
+      draft.widthCm ? Number.parseFloat(draft.widthCm) : null,
+      draft.heightCm ? Number.parseFloat(draft.heightCm) : null,
+    ),
+    [draft.lengthCm, draft.widthCm, draft.heightCm],
+  );
+
+  useEffect(() => {
+    const zohoId = initialDraft?.zohoCustomerId?.trim();
+    if (!zohoId) return;
+    let cancelled = false;
+    void fetchDealerById(zohoId)
+      .then(dealer => {
+        if (!cancelled) {
+          setDealers(prev => (prev.some(item => item.id === dealer.id) ? prev : [dealer, ...prev]));
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [initialDraft?.zohoCustomerId]);
+
+  useEffect(() => {
+    if (step !== 'address') return;
+    let cancelled = false;
+    setDealersLoading(true);
+    void fetchDealers({ q: dealerQuery, limit: 30, page: 1 })
+      .then(response => {
+        if (!cancelled) setDealers(response.data);
+      })
+      .catch(() => {
+        if (!cancelled) setDealers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setDealersLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [step, dealerQuery]);
+
+  useEffect(() => {
+    void loadLogisticsSettings().then(settings => {
+      const site = user.staffLogisticsSite ?? settings.defaultStaffLogisticsSite;
+      setDraft(prev => ({ ...prev, shipFromSite: site }));
+    });
+  }, [user.staffLogisticsSite]);
+
+  useEffect(() => {
+    if (step !== 'box' || draft.source !== 'manual') return;
+    void fetchCatalog().then(response => {
+      const q = catalogQuery.trim().toLowerCase();
+      const hits = response.items.filter(product => {
+        if (!q) return true;
+        return product.name.toLowerCase().includes(q)
+          || (product.sku?.toLowerCase().includes(q) ?? false);
+      }).slice(0, 8);
+      setCatalogHits(hits);
+    });
+  }, [step, catalogQuery, draft.source]);
 
   const updateDraft = useCallback(<K extends keyof LogisticsBookingDraft>(
     key: K,
@@ -96,68 +218,189 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const handleCameraDetected = useCallback((raw: string) => {
     applyScannedCode(raw);
     setCameraOpen(false);
-    setStep('details');
+    setStep('address');
   }, [applyScannedCode]);
 
-  const handleBarcodeSubmit = useCallback(() => {
+  const handleScanContinue = useCallback(() => {
     applyScannedCode(draft.barcodeRaw);
-    setStep('details');
+    setStep('address');
   }, [applyScannedCode, draft.barcodeRaw]);
 
-  const handleConfirmBooking = useCallback(() => {
-    const created = createLogisticsBooking(draft);
-    if (!created) return;
-    setBooking(created);
-    setStep('complete');
-  }, [draft]);
+  const setItemPhoto = useCallback((itemId: string, photoUrl: string | null) => {
+    setDraft(prev => ({
+      ...prev,
+      shipmentItems: prev.shipmentItems.map(item =>
+        item.id === itemId ? { ...item, photoUrl } : item,
+      ),
+    }));
+  }, []);
 
-  const handleGenerateCourierSlip = useCallback(() => {
-    if (!booking) return;
-    setBooking(prev => prev ? { ...prev, courierSlipGenerated: true } : prev);
-  }, [booking]);
+  const addCatalogItem = useCallback((product: CatalogProduct) => {
+    setDraft(prev => ({
+      ...prev,
+      shipmentItems: [
+        ...prev.shipmentItems,
+        {
+          id: `item-${product.id}-${Date.now()}`,
+          name: product.name,
+          sku: product.sku ?? null,
+          catalogProductId: product.id,
+          quantity: 1,
+          serialNumbers: [],
+          photoStoragePath: null,
+          photoUrl: null,
+        },
+      ],
+    }));
+    setCatalogQuery('');
+  }, []);
 
-  const handleGeneratePackingSlip = useCallback(() => {
-    if (!booking) return;
-    setBooking(prev => prev ? { ...prev, packingSlipGenerated: true } : prev);
-  }, [booking]);
+  const removeShipmentItem = useCallback((itemId: string) => {
+    setDraft(prev => ({
+      ...prev,
+      shipmentItems: prev.shipmentItems.filter(item => item.id !== itemId),
+    }));
+  }, []);
+
+  const handleItemPhotoChange = useCallback(async (itemId: string, file: File | undefined) => {
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    setItemPhoto(itemId, dataUrl);
+  }, [setItemPhoto]);
+
+  const handleFinalPhotoChange = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    updateDraft('finalPackagePhoto', dataUrl);
+  }, [updateDraft]);
+
+  const buildLabelHtml = useCallback(() => {
+    const dealer = selectedDealer;
+    const delivery = dealer
+      ? resolveDeliveryAddress(dealer, draft.deliveryAddressKind)
+      : '';
+    const rows: Array<[string, string]> = [
+      ['Service', draft.serviceType],
+      ['Branch', draft.branch],
+      ['Boxes', String(draft.numberOfBoxes)],
+      ['Weight', `${(Number.parseFloat(draft.actualWeightKg) || 0).toFixed(2)} kg`],
+      ['Package', packageTypeLabel(draft.packageType)],
+      ['Date', draft.bookingDate],
+    ];
+    return `
+      <div class="label">
+        <div class="label__partner">${logisticsPartnerLabel(partnerId)}</div>
+        <div class="label__title">COURIER SHIPMENT LABEL</div>
+        <div class="label__track">
+          <span>CONSIGNMENT NO.</span>
+          <strong>${draft.consignmentNo}</strong>
+          <div class="label__bars"></div>
+          <div class="label__num">${draft.consignmentNo}</div>
+        </div>
+        <div class="label__to">
+          <span>DELIVER TO</span>
+          <strong>${dealer?.name ?? ''} (${dealer?.code ?? ''})</strong>
+          <div>${dealer?.contactPerson ?? ''} · ${dealer?.mobile ?? ''}</div>
+          <div>${delivery}</div>
+        </div>
+        <table class="label__meta">${rows
+          .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
+          .join('')}</table>
+      </div>`;
+  }, [draft, partnerId, selectedDealer]);
+
+  const openLabelWindow = useCallback((autoPrint: boolean) => {
+    const win = window.open('', '_blank', 'width=460,height=720');
+    if (!win) return;
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8" />
+      <title>Courier Label ${draft.consignmentNo}</title>
+      <style>
+        * { box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
+        body { margin: 0; padding: 16px; background: #fff; color: #111; }
+        .label { border: 2px solid #111; border-radius: 8px; padding: 16px; max-width: 380px; margin: 0 auto; }
+        .label__partner { font-size: 20px; font-weight: 800; text-transform: uppercase; }
+        .label__title { font-size: 11px; letter-spacing: 2px; color: #555; margin-bottom: 12px; }
+        .label__track { border: 1px dashed #111; border-radius: 6px; padding: 10px; text-align: center; margin-bottom: 12px; }
+        .label__track span { font-size: 10px; letter-spacing: 1px; color: #555; display: block; }
+        .label__track strong { font-size: 18px; letter-spacing: 1px; }
+        .label__bars { height: 46px; margin: 8px 0 4px; background: repeating-linear-gradient(90deg, #111 0, #111 2px, #fff 2px, #fff 4px, #111 4px, #111 7px, #fff 7px, #fff 9px); }
+        .label__num { font-size: 14px; letter-spacing: 3px; }
+        .label__to { border-top: 1px solid #ddd; padding-top: 10px; margin-bottom: 12px; font-size: 12px; }
+        .label__to span { font-size: 10px; letter-spacing: 1px; color: #555; display: block; }
+        .label__to strong { font-size: 14px; display: block; margin-bottom: 2px; }
+        .label__meta { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .label__meta td { border-top: 1px solid #eee; padding: 4px 0; }
+        .label__meta td:first-child { color: #555; width: 40%; }
+        @media print { body { padding: 0; } }
+      </style></head><body>${buildLabelHtml()}</body></html>`);
+    win.document.close();
+    win.focus();
+    if (autoPrint) {
+      win.setTimeout(() => win.print(), 300);
+    }
+  }, [buildLabelHtml, draft.consignmentNo]);
+
+  const handleGenerateLabel = useCallback(() => {
+    updateDraft('labelGenerated', true);
+    setStep('label');
+  }, [updateDraft]);
+
+  const handleConfirmShipment = useCallback(async () => {
+    if (!selectedDealer) return;
+    setSaving(true);
+    try {
+      const created = await persistLogisticsBooking({
+        draft,
+        dealer: selectedDealer,
+        createdBy: user,
+      });
+      setBooking(created);
+      setStep('complete');
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not save shipment.');
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, selectedDealer, user]);
 
   const handleFinish = useCallback(() => {
     if (booking) onComplete(booking);
   }, [booking, onComplete]);
 
-  const canProceedFromDetails = Boolean(
-    draft.consignmentNo.trim() && draft.branch.trim() && draft.serviceType.trim() && draft.bookingDate,
-  );
-  const canProceedFromAddress = Boolean(draft.deliveryAddressId);
-  const canProceedFromPackage = Boolean(draft.numberOfBoxes.trim() && draft.totalWeightKg.trim());
+  const adjustBoxes = useCallback((delta: number) => {
+    setDraft(prev => ({ ...prev, numberOfBoxes: Math.max(1, prev.numberOfBoxes + delta) }));
+  }, []);
 
-  const summaryLines = useMemo(
-    () => (booking ? bookingSummaryLines(booking) : bookingSummaryLines({
-      ...draft,
-      id: '',
-      orderRef: '—',
-      deliveryAddress: MOCK_DEALER_ADDRESSES.find(a => a.id === draft.deliveryAddressId) ?? MOCK_DEALER_ADDRESSES[0],
-      numberOfBoxes: Number.parseInt(draft.numberOfBoxes, 10) || 0,
-      totalWeightKg: Number.parseFloat(draft.totalWeightKg) || 0,
-      lengthCm: draft.lengthCm ? Number.parseFloat(draft.lengthCm) : null,
-      widthCm: draft.widthCm ? Number.parseFloat(draft.widthCm) : null,
-      heightCm: draft.heightCm ? Number.parseFloat(draft.heightCm) : null,
-      courierSlipGenerated: false,
-      packingSlipGenerated: false,
-      status: 'courier_booked',
-      createdAt: new Date().toISOString(),
-    })),
-    [booking, draft],
+  const allItemsPhotographed = draft.shipmentItems.length > 0
+    && draft.shipmentItems.every(item => item.photoUrl || item.photoStoragePath);
+  const canProceedScan = Boolean(draft.barcodeRaw.trim() || draft.consignmentNo.trim());
+  const canProceedAddress = Boolean(draft.zohoCustomerId);
+  const canProceedBox = Boolean(
+    draft.numberOfBoxes >= 1 &&
+    (Number.parseFloat(draft.actualWeightKg) || 0) > 0 &&
+    allItemsPhotographed,
   );
 
   const goBack = () => {
-    if (step === 'scan') onClose();
-    else if (step === 'details') setStep('scan');
-    else if (step === 'address') setStep('details');
-    else if (step === 'package') setStep('address');
-    else if (step === 'review') setStep('package');
-    else if (step === 'complete') setStep('review');
+    switch (step) {
+      case 'scan': onClose(); break;
+      case 'address': setStep('scan'); break;
+      case 'box': setStep('address'); break;
+      case 'review': setStep('box'); break;
+      case 'label': setStep('review'); break;
+      case 'final_photo': setStep('label'); break;
+      case 'complete': break;
+      default: onClose();
+    }
   };
+
+  const stepNumberLabel = (() => {
+    const idx = bookStepProgressIndex(step);
+    if (idx < BOOK_COURIER_STEPS.length) return `Step ${idx + 1} of ${BOOK_COURIER_STEPS.length}`;
+    if (step === 'label') return 'Shipment label';
+    if (step === 'final_photo') return 'Final package photo';
+    return 'Completed';
+  })();
 
   return createPortal(
     <div className="delivery-method-backdrop" role="presentation" onClick={onClose}>
@@ -172,40 +415,41 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         <span className="delivery-method-dialog__glow delivery-method-dialog__glow--br" aria-hidden />
 
         <header className="delivery-method-dialog__header">
-          <button type="button" className="delivery-method-dialog__back" onClick={goBack} aria-label="Go back">
-            <ChevronLeft size={22} aria-hidden />
-          </button>
+          {step !== 'complete' ? (
+            <button type="button" className="delivery-method-dialog__back" onClick={goBack} aria-label="Go back">
+              <ChevronLeft size={22} aria-hidden />
+            </button>
+          ) : (
+            <span className="delivery-method-dialog__header-spacer" aria-hidden />
+          )}
           <div className="delivery-method-dialog__hero">
-            <span className="delivery-method-dialog__hero-icon" aria-hidden>
-              <Truck size={34} strokeWidth={1.8} />
-            </span>
             <h2 id="book-courier-title" className="delivery-method-dialog__title">
               <span>BOOK</span>
               <span className="delivery-method-dialog__title-accent">COURIER</span>
             </h2>
-            <p className="delivery-method-dialog__subtitle">{logisticsPartnerLabel(partnerId)}</p>
+            <p className="delivery-method-dialog__subtitle">
+              {logisticsPartnerLabel(partnerId)} · {stepNumberLabel}
+            </p>
           </div>
           <span className="delivery-method-dialog__header-spacer" aria-hidden />
         </header>
 
-        <StepProgress step={step} />
+        {step !== 'complete' && <StepProgress step={step} />}
 
         <div className="book-courier__body">
+          {/* SCREEN 1 — SCAN */}
           {step === 'scan' && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 <ScanLine size={18} aria-hidden />
-                Scan courier slip / barcode
+                Scan <span className="accent">Courier</span> Barcode
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                Scan the consignment barcode on the courier slip, or enter the code manually.
+                Scan the barcode on the courier slip or enter the code manually.
               </p>
 
               {cameraOpen ? (
-                <BarcodeScanner
-                  onDetected={handleCameraDetected}
-                  onClose={() => setCameraOpen(false)}
-                />
+                <BarcodeScanner onDetected={handleCameraDetected} onClose={() => setCameraOpen(false)} />
               ) : (
                 <button
                   type="button"
@@ -213,19 +457,15 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   onClick={() => setCameraOpen(true)}
                 >
                   <Barcode size={44} strokeWidth={1.25} aria-hidden />
-                  <span>Tap to open camera scanner</span>
+                  <span>Tap to scan barcode</span>
                 </button>
               )}
 
               <div className="book-courier__actions">
                 {!cameraOpen && (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => setCameraOpen(true)}
-                  >
-                    <ScanLine size={16} aria-hidden />
-                    Scan with camera
+                  <button type="button" className="btn btn-primary" onClick={() => setCameraOpen(true)}>
+                    <Camera size={16} aria-hidden />
+                    Scan with Camera
                   </button>
                 )}
               </div>
@@ -236,264 +476,571 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   Or enter manually
                 </span>
                 <label className="courier-dialog__field">
-                  <span>Barcode / slip code</span>
+                  <span>Consignment / barcode number</span>
                   <input
                     type="text"
                     value={draft.barcodeRaw}
                     onChange={event => updateDraft('barcodeRaw', event.target.value)}
-                    placeholder="Scan or type barcode"
+                    placeholder="Enter consignment / barcode"
                     autoComplete="off"
+                    inputMode="text"
                   />
                 </label>
-                <button
-                  type="button"
-                  className="btn btn-secondary book-courier__next"
-                  disabled={!draft.barcodeRaw.trim()}
-                  onClick={handleBarcodeSubmit}
-                >
-                  Continue with code
-                </button>
               </div>
-            </section>
-          )}
 
-          {step === 'details' && (
-            <section className="book-courier__section">
-              <h3 className="book-courier__section-title">Courier details</h3>
-              <p className="book-courier__hint text-muted text-sm">Auto-filled from scan — verify and edit if needed.</p>
-              <label className="courier-dialog__field">
-                <span>Logistics partner</span>
-                <input type="text" readOnly value={logisticsPartnerLabel(partnerId)} />
-              </label>
-              <label className="courier-dialog__field">
-                <span>Consignment no.</span>
-                <input
-                  type="text"
-                  value={draft.consignmentNo}
-                  onChange={event => updateDraft('consignmentNo', event.target.value)}
-                  required
-                />
-              </label>
-              <div className="courier-dialog__field-row">
-                <label className="courier-dialog__field">
-                  <span>Branch</span>
-                  <input
-                    type="text"
-                    value={draft.branch}
-                    onChange={event => updateDraft('branch', event.target.value)}
-                  />
-                </label>
-                <label className="courier-dialog__field">
-                  <span>Service type</span>
-                  <input
-                    type="text"
-                    value={draft.serviceType}
-                    onChange={event => updateDraft('serviceType', event.target.value)}
-                  />
-                </label>
-              </div>
-              <label className="courier-dialog__field">
-                <span>Booking date</span>
-                <input
-                  type="date"
-                  value={draft.bookingDate}
-                  onChange={event => updateDraft('bookingDate', event.target.value)}
-                />
-              </label>
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                disabled={!canProceedFromDetails}
-                onClick={() => setStep('address')}
+                disabled={!canProceedScan}
+                onClick={handleScanContinue}
               >
-                Continue
+                Confirm &amp; Next
               </button>
             </section>
           )}
 
+          {/* SCREEN 2 — ADDRESS */}
           {step === 'address' && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 <MapPin size={18} aria-hidden />
-                Dealer delivery address
+                Select <span className="accent">Delivery</span> Address
               </h3>
-              <div className="book-courier__address-list" role="radiogroup" aria-label="Delivery address">
-                {MOCK_DEALER_ADDRESSES.map(address => (
+              <label className="book-courier__search">
+                <Search size={16} aria-hidden />
+                <input
+                  type="text"
+                  value={dealerQuery}
+                  onChange={event => setDealerQuery(event.target.value)}
+                  placeholder="Search dealer by name, code or mobile"
+                  autoComplete="off"
+                />
+              </label>
+              <div className="book-courier__dealer-list" role="radiogroup" aria-label="Dealer">
+                {dealersLoading && <p className="text-muted text-sm">Loading dealers…</p>}
+                {filteredDealers.map(dealer => {
+                  const snapshot = zohoDealerToSnapshot(dealer);
+                  return (
                   <label
-                    key={address.id}
-                    className={`book-courier__address-card${draft.deliveryAddressId === address.id ? ' is-selected' : ''}`}
+                    key={dealer.id}
+                    className={`book-courier__dealer-card${draft.zohoCustomerId === dealer.id ? ' is-selected' : ''}`}
                   >
                     <input
                       type="radio"
-                      name="delivery-address"
-                      value={address.id}
-                      checked={draft.deliveryAddressId === address.id}
-                      onChange={() => updateDraft('deliveryAddressId', address.id)}
+                      name="dealer"
+                      value={dealer.id}
+                      checked={draft.zohoCustomerId === dealer.id}
+                      onChange={() => {
+                        updateDraft('zohoCustomerId', dealer.id);
+                        updateDraft('dealerId', dealer.portalUserId?.trim() || dealer.id);
+                      }}
                     />
-                    <span className="book-courier__address-copy">
-                      <strong>{address.label}</strong>
-                      <span>{formatDealerAddress(address)}</span>
+                    <span className="book-courier__dealer-copy">
+                      <strong>{snapshot.name}</strong>
+                      <span className="book-courier__dealer-code">{snapshot.code}</span>
+                      <span>{snapshot.contactPerson} · {snapshot.mobile}</span>
+                      <span className="book-courier__address-block">
+                        <strong>Shipping</strong>
+                        {snapshot.shippingAddress}
+                      </span>
+                      <span className="book-courier__address-block">
+                        <strong>Billing</strong>
+                        {snapshot.billingAddress}
+                      </span>
                     </span>
                   </label>
-                ))}
+                  );
+                })}
+                {!dealersLoading && filteredDealers.length === 0 && (
+                  <p className="text-muted text-sm">No dealers match “{dealerQuery}”.</p>
+                )}
               </div>
-              <button
-                type="button"
-                className="btn btn-primary book-courier__next"
-                disabled={!canProceedFromAddress}
-                onClick={() => setStep('package')}
-              >
-                Continue
-              </button>
-            </section>
-          )}
 
-          {step === 'package' && (
-            <section className="book-courier__section">
-              <h3 className="book-courier__section-title">
-                <Package size={18} aria-hidden />
-                Package details
-              </h3>
-              <div className="courier-dialog__field-row">
-                <label className="courier-dialog__field">
-                  <span>Number of boxes</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={draft.numberOfBoxes}
-                    onChange={event => updateDraft('numberOfBoxes', event.target.value)}
-                  />
-                </label>
-                <label className="courier-dialog__field">
-                  <span>Total weight (kg)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={draft.totalWeightKg}
-                    onChange={event => updateDraft('totalWeightKg', event.target.value)}
-                  />
-                </label>
-              </div>
-              <p className="book-courier__hint text-muted text-sm">Dimensions (optional)</p>
-              <div className="courier-dialog__field-row book-courier__dims">
-                <label className="courier-dialog__field">
-                  <span>L (cm)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={draft.lengthCm}
-                    onChange={event => updateDraft('lengthCm', event.target.value)}
-                  />
-                </label>
-                <label className="courier-dialog__field">
-                  <span>W (cm)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={draft.widthCm}
-                    onChange={event => updateDraft('widthCm', event.target.value)}
-                  />
-                </label>
-                <label className="courier-dialog__field">
-                  <span>H (cm)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={draft.heightCm}
-                    onChange={event => updateDraft('heightCm', event.target.value)}
-                  />
-                </label>
-              </div>
-              <label className="courier-dialog__field">
-                <span>Notes</span>
-                <textarea
-                  rows={3}
-                  value={draft.notes}
-                  onChange={event => updateDraft('notes', event.target.value)}
-                  placeholder="Fragile, handle with care, etc."
-                />
-              </label>
-              <button
-                type="button"
-                className="btn btn-primary book-courier__next"
-                disabled={!canProceedFromPackage}
-                onClick={() => setStep('review')}
-              >
-                Continue
-              </button>
-            </section>
-          )}
-
-          {step === 'review' && (
-            <section className="book-courier__section">
-              <h3 className="book-courier__section-title">Review &amp; confirm</h3>
-              <dl className="book-courier__review">
-                {summaryLines.map(row => (
-                  <div key={row.label}>
-                    <dt>{row.label}</dt>
-                    <dd>{row.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              <button type="button" className="btn btn-primary book-courier__next" onClick={handleConfirmBooking}>
-                Confirm booking
-              </button>
-            </section>
-          )}
-
-          {step === 'complete' && booking && (
-            <section className="book-courier__section">
-              <h3 className="book-courier__section-title">Booking summary</h3>
-              <div className="book-courier__summary-badge">
-                <Check size={16} aria-hidden />
-                Courier booked · {booking.consignmentNo}
-              </div>
-              <dl className="book-courier__review">
-                {bookingSummaryLines(booking).map(row => (
-                  <div key={row.label}>
-                    <dt>{row.label}</dt>
-                    <dd>{row.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="book-courier__slip-actions">
-                <button
-                  type="button"
-                  className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
-                  onClick={handleGenerateCourierSlip}
-                >
-                  <Printer size={14} aria-hidden />
-                  {booking.courierSlipGenerated ? 'Courier slip ready' : 'Generate courier slip'}
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-secondary btn-sm${booking.packingSlipGenerated ? ' is-done' : ''}`}
-                  onClick={handleGeneratePackingSlip}
-                >
-                  <FileText size={14} aria-hidden />
-                  {booking.packingSlipGenerated ? 'Packing slip ready' : 'Generate packing slip'}
-                </button>
-              </div>
-              {(booking.courierSlipGenerated || booking.packingSlipGenerated) && (
-                <p className="book-courier__slip-names text-muted text-sm">
-                  {booking.courierSlipGenerated && courierSlipFileName(booking)}
-                  {booking.courierSlipGenerated && booking.packingSlipGenerated && ' · '}
-                  {booking.packingSlipGenerated && packingSlipFileName(booking)}
-                </p>
+              {draft.zohoCustomerId && (
+                <fieldset className="book-courier__delivery-kind">
+                  <legend>Deliver to</legend>
+                  {(['shipping', 'billing'] as DeliveryAddressKind[]).map(kind => (
+                    <label key={kind} className="book-courier__delivery-option">
+                      <input
+                        type="radio"
+                        name="delivery-kind"
+                        checked={draft.deliveryAddressKind === kind}
+                        onChange={() => updateDraft('deliveryAddressKind', kind)}
+                      />
+                      <span>{kind === 'shipping' ? 'Shipping address' : 'Billing address'}</span>
+                    </label>
+                  ))}
+                </fieldset>
               )}
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                onClick={handleFinish}
+                disabled={!canProceedAddress}
+                onClick={() => setStep('box')}
               >
-                View booking
+                Confirm &amp; Next
               </button>
             </section>
           )}
+
+          {/* SCREEN 3 — BOX DETAILS */}
+          {step === 'box' && (
+            <section className="book-courier__section">
+              <h3 className="book-courier__section-title">
+                <Package size={18} aria-hidden />
+                Box &amp; <span className="accent">Package</span> Details
+              </h3>
+
+              <div className="book-courier__stepper">
+                <span>Number of Boxes</span>
+                <div className="book-courier__stepper-controls">
+                  <button type="button" onClick={() => adjustBoxes(-1)} aria-label="Decrease boxes">
+                    <Minus size={16} aria-hidden />
+                  </button>
+                  <strong>{draft.numberOfBoxes}</strong>
+                  <button type="button" onClick={() => adjustBoxes(1)} aria-label="Increase boxes">
+                    <Plus size={16} aria-hidden />
+                  </button>
+                </div>
+              </div>
+
+              <label className="courier-dialog__field">
+                <span>Actual Weight (kg)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={draft.actualWeightKg}
+                  onChange={event => updateDraft('actualWeightKg', event.target.value)}
+                  placeholder="0.00"
+                />
+              </label>
+
+              <p className="book-courier__hint text-muted text-sm">Dimensions (cm)</p>
+              <div className="courier-dialog__field-row book-courier__dims">
+                <label className="courier-dialog__field">
+                  <span>L</span>
+                  <input type="number" min="0" value={draft.lengthCm}
+                    onChange={event => updateDraft('lengthCm', event.target.value)} />
+                </label>
+                <label className="courier-dialog__field">
+                  <span>W</span>
+                  <input type="number" min="0" value={draft.widthCm}
+                    onChange={event => updateDraft('widthCm', event.target.value)} />
+                </label>
+                <label className="courier-dialog__field">
+                  <span>H</span>
+                  <input type="number" min="0" value={draft.heightCm}
+                    onChange={event => updateDraft('heightCm', event.target.value)} />
+                </label>
+              </div>
+
+              <div className="book-courier__volumetric">
+                <span>Volumetric Weight</span>
+                <strong>{volumetricWeight.toFixed(2)} kg</strong>
+              </div>
+
+              <label className="courier-dialog__field">
+                <span>Package Type</span>
+                <select
+                  value={draft.packageType}
+                  onChange={event => updateDraft('packageType', event.target.value as PackageType)}
+                >
+                  {PACKAGE_TYPES.map(type => (
+                    <option key={type.id} value={type.id}>{type.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="courier-dialog__field">
+                <span>Note (optional)</span>
+                <textarea
+                  rows={2}
+                  value={draft.notes}
+                  onChange={event => updateDraft('notes', event.target.value)}
+                  placeholder="Enter notes…"
+                />
+              </label>
+
+              <label className="courier-dialog__field">
+                <span>Ship from site</span>
+                <select
+                  value={draft.shipFromSite}
+                  onChange={event => updateDraft('shipFromSite', event.target.value as StaffLogisticsSite)}
+                >
+                  {STAFF_LOGISTICS_SITES.map(site => (
+                    <option key={site} value={site}>{STAFF_LOGISTICS_SITE_LABELS[site]}</option>
+                  ))}
+                </select>
+              </label>
+
+              {draft.source === 'manual' && (
+                <div className="book-courier__catalog-search">
+                  <label className="book-courier__search">
+                    <Search size={16} aria-hidden />
+                    <input
+                      type="search"
+                      value={catalogQuery}
+                      onChange={event => setCatalogQuery(event.target.value)}
+                      placeholder="Search catalog products to add"
+                    />
+                  </label>
+                  {catalogHits.length > 0 && (
+                    <ul className="book-courier__catalog-hits">
+                      {catalogHits.map(product => (
+                        <li key={product.id}>
+                          <button type="button" onClick={() => addCatalogItem(product)}>
+                            <strong>{product.name}</strong>
+                            <span className="text-muted">{product.sku}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              <div className="book-courier__items">
+                <h4 className="book-courier__items-title">
+                  Shipment Items
+                  <span className={`book-courier__items-flag${allItemsPhotographed ? ' is-done' : ''}`}>
+                    {draft.shipmentItems.filter(i => i.photoUrl || i.photoStoragePath).length}/{draft.shipmentItems.length} photographed
+                  </span>
+                </h4>
+                <p className="book-courier__hint text-muted text-sm">
+                  Photograph packed contents <strong>before closing the box</strong>. Required.
+                </p>
+                <ul className="book-courier__item-list">
+                  {draft.shipmentItems.map(item => (
+                    <ShipmentItemRow
+                      key={item.id}
+                      item={item}
+                      onCapture={file => void handleItemPhotoChange(item.id, file)}
+                      onClear={() => setItemPhoto(item.id, null)}
+                      onPreview={() => item.photoUrl && setPreviewPhoto(item.photoUrl)}
+                      onRemove={draft.source !== 'manual' ? () => removeShipmentItem(item.id) : undefined}
+                    />
+                  ))}
+                </ul>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary book-courier__next"
+                disabled={!canProceedBox}
+                onClick={() => setStep('review')}
+              >
+                Confirm &amp; Next
+              </button>
+            </section>
+          )}
+
+          {/* SCREEN 4 — REVIEW */}
+          {step === 'review' && (
+            <section className="book-courier__section">
+              <h3 className="book-courier__section-title">
+                Review &amp; <span className="accent">Confirm</span>
+              </h3>
+
+              <div className="book-courier__review-card">
+                <div className="book-courier__review-head">
+                  <h4>Courier Details</h4>
+                  <button type="button" className="book-courier__edit" onClick={() => setEditingCourier(v => !v)}>
+                    <Pencil size={13} aria-hidden /> {editingCourier ? 'Done' : 'Edit'}
+                  </button>
+                </div>
+                {editingCourier ? (
+                  <div className="book-courier__review-edit">
+                    <label className="courier-dialog__field">
+                      <span>Consignment / tracking no.</span>
+                      <input type="text" value={draft.consignmentNo}
+                        onChange={e => updateDraft('consignmentNo', e.target.value)} />
+                    </label>
+                    <div className="courier-dialog__field-row">
+                      <label className="courier-dialog__field">
+                        <span>Service type</span>
+                        <input type="text" value={draft.serviceType}
+                          onChange={e => updateDraft('serviceType', e.target.value)} />
+                      </label>
+                      <label className="courier-dialog__field">
+                        <span>Branch</span>
+                        <input type="text" value={draft.branch}
+                          onChange={e => updateDraft('branch', e.target.value)} />
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <dl className="book-courier__kv">
+                    <div><dt>Partner</dt><dd>{logisticsPartnerLabel(partnerId)}</dd></div>
+                    <div><dt>Tracking No.</dt><dd>{draft.consignmentNo}</dd></div>
+                    <div><dt>Service Type</dt><dd>{draft.serviceType}</dd></div>
+                    <div><dt>Branch</dt><dd>{draft.branch}</dd></div>
+                  </dl>
+                )}
+              </div>
+
+              <div className="book-courier__review-card">
+                <div className="book-courier__review-head">
+                  <h4>Delivery Address</h4>
+                  <button type="button" className="book-courier__edit" onClick={() => setStep('address')}>
+                    <Pencil size={13} aria-hidden /> Edit
+                  </button>
+                </div>
+                {selectedDealer && (
+                  <p className="book-courier__review-address">
+                    <strong>{selectedDealer.name}</strong>
+                    <span className="book-courier__dealer-code">{selectedDealer.code}</span>
+                    <span>{selectedDealer.contactPerson} · {selectedDealer.mobile}</span>
+                    <span className="text-muted">{resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="book-courier__review-card">
+                <div className="book-courier__review-head">
+                  <h4>Package Details</h4>
+                  <button type="button" className="book-courier__edit" onClick={() => setStep('box')}>
+                    <Pencil size={13} aria-hidden /> Edit
+                  </button>
+                </div>
+                <dl className="book-courier__kv">
+                  <div><dt>No. of Boxes</dt><dd>{draft.numberOfBoxes}</dd></div>
+                  <div><dt>Actual Weight</dt><dd>{(Number.parseFloat(draft.actualWeightKg) || 0).toFixed(2)} kg</dd></div>
+                  <div>
+                    <dt>Dimensions (LxWxH)</dt>
+                    <dd>{draft.lengthCm && draft.widthCm && draft.heightCm
+                      ? `${draft.lengthCm} x ${draft.widthCm} x ${draft.heightCm} cm` : '—'}</dd>
+                  </div>
+                  <div><dt>Volumetric Weight</dt><dd>{volumetricWeight.toFixed(2)} kg</dd></div>
+                  <div><dt>Package Type</dt><dd>{packageTypeLabel(draft.packageType)}</dd></div>
+                </dl>
+              </div>
+
+              <div className="book-courier__review-card">
+                <div className="book-courier__review-head">
+                  <h4>Package Photos</h4>
+                </div>
+                <div className="book-courier__gallery">
+                  {draft.shipmentItems.map(item => item.photoUrl && (
+                    <div key={item.id} className="book-courier__thumb">
+                      <button type="button" onClick={() => setPreviewPhoto(item.photoUrl!)} aria-label={`Preview ${item.name}`}>
+                        <img src={item.photoUrl} alt={item.name} />
+                      </button>
+                      <button
+                        type="button"
+                        className="book-courier__thumb-del"
+                        onClick={() => setItemPhoto(item.id, null)}
+                        aria-label={`Delete ${item.name} photo`}
+                      >
+                        <Trash2 size={12} aria-hidden />
+                      </button>
+                      <span>{item.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary book-courier__next"
+                disabled={!allItemsPhotographed}
+                onClick={handleGenerateLabel}
+              >
+                Generate Label
+              </button>
+            </section>
+          )}
+
+          {/* SCREEN 5 — SHIPMENT LABEL */}
+          {step === 'label' && (
+            <section className="book-courier__section">
+              <h3 className="book-courier__section-title">Shipment <span className="accent">Label</span></h3>
+              <div className="book-courier__label-preview">
+                <div className="book-courier__label-partner">{logisticsPartnerLabel(partnerId)}</div>
+                <div className="book-courier__label-caption">COURIER SHIPMENT LABEL</div>
+                <div className="book-courier__label-track">
+                  <span>CONSIGNMENT NO.</span>
+                  <strong>{draft.consignmentNo}</strong>
+                  <div className="book-courier__label-bars" aria-hidden />
+                  <div className="book-courier__label-num">{draft.consignmentNo}</div>
+                </div>
+                {selectedDealer && (
+                  <div className="book-courier__label-to">
+                    <span>DELIVER TO</span>
+                    <strong>{selectedDealer.name}</strong>
+                    <span className="text-muted">{resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)}</span>
+                  </div>
+                )}
+              </div>
+              <div className="book-courier__slip-actions">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => openLabelWindow(true)}>
+                  <Printer size={14} aria-hidden /> Print
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => openLabelWindow(false)}>
+                  <Download size={14} aria-hidden /> Download PDF
+                </button>
+              </div>
+              <p className="book-courier__paste-note">
+                <Check size={14} aria-hidden />
+                Paste the label on the package.
+              </p>
+              <button type="button" className="btn btn-primary book-courier__next" onClick={() => setStep('final_photo')}>
+                Next
+              </button>
+            </section>
+          )}
+
+          {/* SCREEN 6 — FINAL PACKAGE PHOTO */}
+          {step === 'final_photo' && (
+            <section className="book-courier__section">
+              <h3 className="book-courier__section-title">
+                Upload <span className="accent">Final</span> Package Photo
+              </h3>
+              <p className="book-courier__hint text-muted text-sm">
+                Capture proof that the courier label is pasted correctly on the package.
+              </p>
+
+              {draft.finalPackagePhoto ? (
+                <div className="book-courier__final-photo">
+                  <img src={draft.finalPackagePhoto} alt="Final package" onClick={() => setPreviewPhoto(draft.finalPackagePhoto)} />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => finalPhotoInputRef.current?.click()}
+                  >
+                    <Camera size={14} aria-hidden /> Retake
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="book-courier__scan-visual book-courier__scan-visual--button"
+                  onClick={() => finalPhotoInputRef.current?.click()}
+                >
+                  <Camera size={40} strokeWidth={1.25} aria-hidden />
+                  <span>Tap to capture package photo</span>
+                </button>
+              )}
+              <input
+                ref={finalPhotoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                hidden
+                onChange={event => void handleFinalPhotoChange(event.target.files?.[0])}
+              />
+
+              <button
+                type="button"
+                className="btn btn-primary book-courier__next"
+                disabled={saving || !draft.finalPackagePhoto}
+                onClick={() => void handleConfirmShipment()}
+              >
+                <CheckCircle2 size={16} aria-hidden /> {saving ? 'Saving…' : 'Confirm Shipment'}
+              </button>
+            </section>
+          )}
+
+          {/* SCREEN 7 — COMPLETED */}
+          {step === 'complete' && booking && (
+            <section className="book-courier__section book-courier__success">
+              <div className="book-courier__success-badge">
+                <CheckCircle2 size={44} aria-hidden />
+              </div>
+              <h3 className="book-courier__success-title">Shipment Booked Successfully</h3>
+              <div className="book-courier__success-track">
+                <span>Tracking Number</span>
+                <strong>{booking.trackingNo}</strong>
+              </div>
+              <dl className="book-courier__kv">
+                <div><dt>Courier</dt><dd>{logisticsPartnerLabel(booking.partnerId)}</dd></div>
+                <div><dt>Dealer</dt><dd>{booking.dealer.name}</dd></div>
+                <div><dt>Boxes</dt><dd>{booking.numberOfBoxes}</dd></div>
+                <div><dt>Weight</dt><dd>{booking.actualWeightKg.toFixed(2)} kg</dd></div>
+              </dl>
+              <div className="book-courier__success-actions">
+                <button type="button" className="btn btn-secondary" onClick={onClose}>Done</button>
+                <button type="button" className="btn btn-primary" onClick={handleFinish}>View Shipment</button>
+              </div>
+            </section>
+          )}
         </div>
+
+        {previewPhoto && (
+          <div className="book-courier__lightbox" role="dialog" aria-modal="true" onClick={() => setPreviewPhoto(null)}>
+            <button type="button" className="book-courier__lightbox-close" aria-label="Close preview">
+              <X size={20} aria-hidden />
+            </button>
+            <img src={previewPhoto} alt="Preview" onClick={event => event.stopPropagation()} />
+          </div>
+        )}
       </div>
     </div>,
     document.body,
+  );
+};
+
+interface ShipmentItemRowProps {
+  item: ShipmentItem;
+  onCapture: (file: File | undefined) => void;
+  onClear: () => void;
+  onPreview: () => void;
+  onRemove?: () => void;
+}
+
+const ShipmentItemRow: React.FC<ShipmentItemRowProps> = ({
+  item,
+  onCapture,
+  onClear,
+  onPreview,
+  onRemove,
+}) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <li className={`book-courier__item${item.photoUrl || item.photoStoragePath ? ' is-done' : ''}`}>
+      <div className="book-courier__item-info">
+        <strong>{item.name}</strong>
+        <span className="text-muted">×{item.quantity}</span>
+        {item.serialNumbers && item.serialNumbers.length > 0 && (
+          <span className="book-courier__item-serials text-muted text-sm">
+            S/N: {item.serialNumbers.join(', ')}
+          </span>
+        )}
+      </div>
+      {item.photoUrl || item.photoStoragePath ? (
+        <div className="book-courier__item-actions">
+          <button type="button" className="book-courier__item-thumb" onClick={onPreview} aria-label="Preview photo">
+            <img src={item.photoUrl ?? ''} alt="" />
+          </button>
+          <button type="button" className="book-courier__item-clear" onClick={onClear} aria-label="Remove photo">
+            <Trash2 size={14} aria-hidden />
+          </button>
+          {onRemove && (
+            <button type="button" className="book-courier__item-clear" onClick={onRemove} aria-label="Remove item">
+              <Minus size={14} aria-hidden />
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="book-courier__item-actions">
+          <button type="button" className="book-courier__item-upload" onClick={() => inputRef.current?.click()}>
+            <Camera size={14} aria-hidden /> Upload Photo
+          </button>
+          {onRemove && (
+            <button type="button" className="book-courier__item-clear" onClick={onRemove} aria-label="Remove item">
+              <Minus size={14} aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={event => onCapture(event.target.files?.[0])}
+      />
+    </li>
   );
 };

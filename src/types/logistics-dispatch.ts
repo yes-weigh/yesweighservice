@@ -1,55 +1,114 @@
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
+import type { StaffLogisticsSite } from './staff-logistics';
 
 export type LogisticsBookingStatus =
   | 'courier_booked'
   | 'pickup_pending'
   | 'in_transit'
-  | 'delivered';
+  | 'delivered'
+  | 'cancelled';
 
-export interface DealerDeliveryAddress {
+export type LogisticsBookingSource = 'manual' | 'invoice' | 'support';
+
+export type DeliveryAddressKind = 'shipping' | 'billing';
+
+export type PackageType = 'carton' | 'wooden' | 'pallet' | 'plastic';
+
+/** Snapshot of the Zoho customer at booking time. */
+export interface LogisticsDealerSnapshot {
+  zohoCustomerId: string;
+  /** Portal user uid when linked, otherwise Zoho contact id. */
+  dealerId: string;
+  name: string;
+  code: string;
+  contactPerson: string;
+  mobile: string;
+  shippingAddress: string;
+  billingAddress: string;
+}
+
+/** @deprecated use LogisticsDealerSnapshot */
+export type Dealer = LogisticsDealerSnapshot;
+
+export interface ShipmentItem {
   id: string;
-  label: string;
-  lines: string[];
-  city: string;
-  state: string;
-  pincode: string;
+  name: string;
+  sku?: string | null;
+  catalogProductId?: string | null;
+  quantity: number;
+  serialNumbers?: string[];
+  photoStoragePath: string | null;
+  /** Resolved download URL or transient preview before persist. */
+  photoUrl?: string | null;
 }
 
 export interface LogisticsBookingDraft {
   partnerId: LogisticsPartnerId;
+  source: LogisticsBookingSource;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  supportRequestId: string | null;
+  supportRequestNumber: string | null;
   barcodeRaw: string;
   consignmentNo: string;
   branch: string;
   serviceType: string;
   bookingDate: string;
-  deliveryAddressId: string;
-  numberOfBoxes: string;
-  totalWeightKg: string;
+  zohoCustomerId: string;
+  dealerId: string;
+  deliveryAddressKind: DeliveryAddressKind;
+  shipFromSite: StaffLogisticsSite;
+  numberOfBoxes: number;
+  actualWeightKg: string;
   lengthCm: string;
   widthCm: string;
   heightCm: string;
+  packageType: PackageType;
   notes: string;
+  shipmentItems: ShipmentItem[];
+  /** Transient data URL until uploaded on confirm. */
+  finalPackagePhoto: string | null;
+  labelGenerated: boolean;
 }
 
 export interface LogisticsBooking {
   id: string;
   orderRef: string;
+  source: LogisticsBookingSource;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  supportRequestId: string | null;
+  supportRequestNumber: string | null;
   partnerId: LogisticsPartnerId;
   consignmentNo: string;
+  trackingNo: string;
   branch: string;
   serviceType: string;
   bookingDate: string;
-  deliveryAddress: DealerDeliveryAddress;
+  dealer: LogisticsDealerSnapshot;
+  deliveryAddressKind: DeliveryAddressKind;
+  deliveryAddress: string;
+  shipFromSite: StaffLogisticsSite;
+  shipFromAddress: string;
   numberOfBoxes: number;
-  totalWeightKg: number;
+  actualWeightKg: number;
+  volumetricWeightKg: number;
   lengthCm: number | null;
   widthCm: number | null;
   heightCm: number | null;
+  packageType: PackageType;
   notes: string;
+  shipmentItems: ShipmentItem[];
+  finalPackagePhoto: string | null;
+  finalPackagePhotoStoragePath: string | null;
+  labelGenerated: boolean;
   courierSlipGenerated: boolean;
   packingSlipGenerated: boolean;
   status: LogisticsBookingStatus;
   createdAt: string;
+  updatedAt: string;
+  createdByUid: string;
+  createdByName: string;
 }
 
 /** @deprecated Use LogisticsPartnerId from logisticsPartners */

@@ -6,6 +6,7 @@ import {
   listHrStaffUsers,
   loadLogisticsSettings,
   saveDefaultStaffLogisticsSite,
+  saveLogisticsFromAddresses,
 } from '../../../lib/logisticsSettings';
 import { updateUserProfile } from '../../../lib/userAdmin';
 import { db } from '../../../firebase';
@@ -22,6 +23,14 @@ export const LogisticsSettingsTab: React.FC = () => {
   const { user } = useAuth();
   const [defaultSite, setDefaultSite] = useState<StaffLogisticsSite>('head_office');
   const [draftDefaultSite, setDraftDefaultSite] = useState<StaffLogisticsSite>('head_office');
+  const [fromAddresses, setFromAddresses] = useState<Record<StaffLogisticsSite, string>>({
+    cochin: '',
+    head_office: '',
+  });
+  const [draftFromAddresses, setDraftFromAddresses] = useState<Record<StaffLogisticsSite, string>>({
+    cochin: '',
+    head_office: '',
+  });
   const [staff, setStaff] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -37,6 +46,8 @@ export const LogisticsSettingsTab: React.FC = () => {
       ]);
       setDefaultSite(settings.defaultStaffLogisticsSite);
       setDraftDefaultSite(settings.defaultStaffLogisticsSite);
+      setFromAddresses(settings.fromAddresses);
+      setDraftFromAddresses(settings.fromAddresses);
       setStaff(staffUsers);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load logistics settings.');
@@ -50,6 +61,9 @@ export const LogisticsSettingsTab: React.FC = () => {
   }, [loadAll]);
 
   const defaultDirty = draftDefaultSite !== defaultSite;
+  const fromAddressesDirty = STAFF_LOGISTICS_SITES.some(
+    site => draftFromAddresses[site] !== fromAddresses[site],
+  );
 
   const staffBySite = useMemo(() => {
     const counts: Record<StaffLogisticsSite, number> = {
@@ -71,6 +85,20 @@ export const LogisticsSettingsTab: React.FC = () => {
       setDraftDefaultSite(saved);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save default logistics location.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleSaveFromAddresses = async () => {
+    setBusyKey('from-addresses');
+    setError('');
+    try {
+      const saved = await saveLogisticsFromAddresses(draftFromAddresses, user?.uid ?? null);
+      setFromAddresses(saved);
+      setDraftFromAddresses(saved);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save ship-from addresses.');
     } finally {
       setBusyKey(null);
     }
@@ -135,6 +163,41 @@ export const LogisticsSettingsTab: React.FC = () => {
               ))}
             </select>
           </label>
+        </div>
+
+        <div className="settings-logistics__default panel glass">
+          <div className="settings-logistics__default-head">
+            <div>
+              <h4 className="settings-logistics__title">Ship-from addresses</h4>
+              <p className="text-muted text-sm">
+                Free-text origin address used on courier labels for each logistics site.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={!fromAddressesDirty || busyKey != null}
+              onClick={() => void handleSaveFromAddresses()}
+            >
+              <Save size={15} aria-hidden />
+              Save addresses
+            </button>
+          </div>
+          {STAFF_LOGISTICS_SITES.map(site => (
+            <label key={site} className="settings-locations__field settings-logistics__from-field">
+              <span>{STAFF_LOGISTICS_SITE_LABELS[site]}</span>
+              <textarea
+                rows={4}
+                value={draftFromAddresses[site]}
+                disabled={busyKey === 'from-addresses'}
+                onChange={event => setDraftFromAddresses(prev => ({
+                  ...prev,
+                  [site]: event.target.value,
+                }))}
+                placeholder="Company name, address lines, city, state, pincode, phone"
+              />
+            </label>
+          ))}
         </div>
 
         <div className="settings-logistics__summary">

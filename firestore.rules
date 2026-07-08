@@ -646,5 +646,50 @@ service cloud.firestore {
       allow read: if isOpsUser() || isWarehouse();
       allow write: if isSuperAdmin() || isStaff();
     }
+
+    function isLogisticsBookingDealerAccess(data) {
+      return (isDealer() && (
+          data.dealerId == request.auth.uid
+          || (userDoc().keys().hasAny(['zohoCustomerId'])
+              && data.zohoCustomerId == userDoc().zohoCustomerId)
+        ))
+        || (isDealerStaff() && data.dealerId == userDealerId(userDoc()));
+    }
+
+    function validLogisticsBookingCreate() {
+      let data = request.resource.data;
+      return isOpsUser()
+        && data.partnerId is string
+        && data.consignmentNo is string
+        && data.consignmentNo.size() > 0
+        && data.zohoCustomerId is string
+        && data.dealerId is string
+        && data.dealerSnapshot is map
+        && data.status == 'courier_booked'
+        && data.createdByUid == request.auth.uid
+        && data.createdAt is string
+        && data.updatedAt is string;
+    }
+
+    function validLogisticsBookingOpsUpdate() {
+      return isOpsUser()
+        && request.resource.data.dealerId == resource.data.dealerId
+        && request.resource.data.zohoCustomerId == resource.data.zohoCustomerId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdByUid == resource.data.createdByUid;
+    }
+
+    match /logisticsBookings/{bookingId} {
+      allow read: if isActiveUser() && (
+        isOpsUser()
+        || isLogisticsBookingDealerAccess(resource.data)
+      );
+
+      allow create: if isActiveUser() && validLogisticsBookingCreate();
+
+      allow update: if isActiveUser() && isOpsUser() && validLogisticsBookingOpsUpdate();
+
+      allow delete: if isSuperAdmin();
+    }
   }
 }

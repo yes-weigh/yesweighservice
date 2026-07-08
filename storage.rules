@@ -172,5 +172,24 @@ service firebase.storage {
       allow create, update: if canYesStoreUser() && validYesStoreImage();
       allow delete: if canYesStoreUser();
     }
+
+    function canAccessLogisticsBooking(bookingId) {
+      let path = /databases/(default)/documents/logisticsBookings/$(bookingId);
+      let booking = firestore.get(path).data;
+      return firestore.exists(path)
+        && isActivePortalUser()
+        && (
+          isOpsUser()
+          || booking.dealerId == resolvedDealerIdForUser()
+          || (userDoc().keys().hasAny(['zohoCustomerId'])
+              && booking.zohoCustomerId == userDoc().zohoCustomerId)
+        );
+    }
+
+    match /logistics/{bookingId}/{slot}/{fileName} {
+      allow read: if canAccessLogisticsBooking(bookingId);
+      allow create, update: if isOpsUser() && validSupportMedia();
+      allow delete: if isOpsUser();
+    }
   }
 }
