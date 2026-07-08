@@ -1,10 +1,9 @@
 import type { NavigateFunction } from 'react-router-dom';
 import type { DealerSupportRequest } from '../types/dealer-support';
-import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
+import type { DealerInvoiceDetail } from '../types/invoices';
 import type { Role } from '../types';
 import { homePathForRole } from '../types';
-import type { LogisticsBookingDraft, ShipmentItem } from '../types/logistics-dispatch';
-import { isFreightInvoiceLineItem, isStampingInvoiceLineItem } from './invoices';
+import type { LogisticsBookingDraft } from '../types/logistics-dispatch';
 
 export const LOGISTICS_ENTRY_STATE_KEY = 'logisticsEntry';
 
@@ -27,29 +26,12 @@ export function navigateToLogisticsBooking(
   });
 }
 
-export function lineItemToShipmentItem(item: DealerInvoiceLineItem): ShipmentItem {
-  return {
-    id: `inv-${item.id}`,
-    name: item.name,
-    sku: item.sku,
-    catalogProductId: item.itemId,
-    quantity: item.quantity,
-    serialNumbers: item.serialNumbers ?? [],
-    photoStoragePath: null,
-    photoUrl: null,
-  };
-}
-
 export function buildInvoiceBookingDraftPatch(
   invoice: DealerInvoiceDetail,
   invoiceId: string,
   zohoCustomerId: string,
   dealerId: string,
 ): Partial<LogisticsBookingDraft> {
-  const shipmentItems = invoice.lineItems
-    .filter(item => !isFreightInvoiceLineItem(item) && !isStampingInvoiceLineItem(item))
-    .map(lineItemToShipmentItem);
-
   return {
     source: 'invoice',
     invoiceId,
@@ -58,7 +40,6 @@ export function buildInvoiceBookingDraftPatch(
     supportRequestNumber: null,
     zohoCustomerId,
     dealerId,
-    shipmentItems,
   };
 }
 
@@ -71,20 +52,6 @@ export function buildSupportBookingDraftPatch(
     ? request.dealerId
     : zohoCustomerId;
 
-  const shipmentItems: ShipmentItem[] = [];
-  if (request.product) {
-    shipmentItems.push({
-      id: `sup-${request.product.lineItemId ?? request.id}`,
-      name: request.product.name,
-      sku: request.product.sku,
-      catalogProductId: request.product.itemId,
-      quantity: request.product.quantity,
-      serialNumbers: request.product.serialNumber ? [request.product.serialNumber] : [],
-      photoStoragePath: null,
-      photoUrl: null,
-    });
-  }
-
   return {
     source: 'support',
     invoiceId: request.invoiceId,
@@ -93,6 +60,5 @@ export function buildSupportBookingDraftPatch(
     supportRequestNumber: request.requestNumber,
     zohoCustomerId,
     dealerId,
-    shipmentItems,
   };
 }

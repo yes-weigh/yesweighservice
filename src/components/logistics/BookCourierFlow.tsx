@@ -7,10 +7,9 @@ import {
   CheckCircle2,
   ChevronLeft,
   Keyboard,
-  Link2,
+  Lock,
   Mail,
   MapPin,
-  Minus,
   Package,
   Pencil,
   Plus,
@@ -22,15 +21,14 @@ import {
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { fetchDealerById, fetchDealers } from '../../lib/dealers';
-import { fetchCatalog } from '../../lib/catalog';
 import {
   BOOK_COURIER_STEPS,
-  PACKAGE_TYPES,
   SHIPMENT_MODES,
+  VOLUMETRIC_WEIGHT_DIVISOR,
   bookStepProgressIndex,
   computeVolumetricWeight,
   emptyBookingDraft,
-  packageTypeLabel,
+  emptyShipmentBoxDraft,
   parseCourierBarcode,
   type BookCourierStep,
 } from '../../lib/logisticsBooking';
@@ -48,14 +46,26 @@ import type {
   LogisticsBooking,
   LogisticsBookingDraft,
   LogisticsDealerSnapshot,
-  PackageType,
-  ShipmentItem,
+  ShipmentBoxDraft,
   ShipmentMode,
 } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { STAFF_LOGISTICS_SITES, STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
-import type { CatalogProduct } from '../../types/catalog';
 import { BarcodeScanner } from './BarcodeScanner';
+
+type BoxNumberField = 'lengthCm' | 'widthCm' | 'heightCm' | 'weightKg';
+
+function newPhotoId(): string {
+  return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function boxVolumetric(box: ShipmentBoxDraft): number {
+  return computeVolumetricWeight(
+    box.lengthCm ? Number.parseFloat(box.lengthCm) : null,
+    box.widthCm ? Number.parseFloat(box.widthCm) : null,
+    box.heightCm ? Number.parseFloat(box.heightCm) : null,
+  );
+}
 
 interface BookCourierFlowProps {
   partnerId: LogisticsPartnerId;
@@ -121,11 +131,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [dealerQuery, setDealerQuery] = useState(initialDealerQuery ?? '');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
   const [dealersLoading, setDealersLoading] = useState(false);
-  const [catalogQuery, setCatalogQuery] = useState('');
-  const [catalogHits, setCatalogHits] = useState<CatalogProduct[]>([]);
-  const [showCatalog, setShowCatalog] = useState(false);
-  const [newItemName, setNewItemName] = useState('');
-  const [newItemQty, setNewItemQty] = useState(1);
   const [saving, setSaving] = useState(false);
   const [editingCourier, setEditingCourier] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
@@ -141,14 +146,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     [dealers, dealerQuery],
   );
 
-  const volumetricWeight = useMemo(
-    () => computeVolumetricWeight(
-      draft.lengthCm ? Number.parseFloat(draft.lengthCm) : null,
-      draft.widthCm ? Number.parseFloat(draft.widthCm) : null,
-      draft.heightCm ? Number.parseFloat(draft.heightCm) : null,
-    ),
-    [draft.lengthCm, draft.widthCm, draft.heightCm],
-  );
+  const addressTiles = useMemo(() => {
+    if (!selectedDealer) return [] as Array<{ kind: DeliveryAddressKind; address: string }>;
+    const shipping = selectedDealer.shippingAddress?.trim() ?? '';
+    const billing = selectedDealer.billingAddress?.trim() ?? '';
+    const tiles: Array<{ kind: DeliveryAddressKind; address: string }> = [];
+    if (shipping) tiles.push({ kind: 'shipping', address: shipping });
+    // Only add billing when it exists and differs from shipping.
+    if (billing && billing !== shipping) tiles.push({ kind: 'billing', address: billing });
+    return tiles;
+  }, [selectedDealer]);
 
   useEffect(() => {
     const zohoId = initialDraft?.zohoCustomerId?.trim();
@@ -196,22 +203,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     });
   }, [user.staffLogisticsSite]);
 
-  useEffect(() => {
-    if (step !== 'box' || !showCatalog) return;
-    const q = catalogQuery.trim().toLowerCase();
-    if (!q) {
-      setCatalogHits([]);
-      return;
-    }
-    void fetchCatalog().then(response => {
-      const hits = response.items.filter(product =>
-        product.name.toLowerCase().includes(q)
-          || (product.sku?.toLowerCase().includes(q) ?? false),
-      ).slice(0, 8);
-      setCatalogHits(hits);
-    });
-  }, [step, catalogQuery, showCatalog]);
-
   const updateDraft = useCallback(<K extends keyof LogisticsBookingDraft>(
     key: K,
     value: LogisticsBookingDraft[K],
@@ -241,81 +232,69 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     setStep('address');
   }, [applyScannedCode, draft.barcodeRaw]);
 
-  const setItemPhoto = useCallback((itemId: string, photoUrl: string | null) => {
+  const selectDealer = useCallback((dealer: ZohoDealer) => {
+    const snapshot = zohoDealerToSnapshot(dealer);
+    setDealers(prev => (prev.some(item => item.id === dealer.id) ? prev : [dealer, ...prev]));
     setDraft(prev => ({
       ...prev,
-      shipmentItems: prev.shipmentItems.map(item =>
-        item.id === itemId ? { ...item, photoUrl } : item,
-      ),
+      zohoCustomerId: dealer.id,
+      dealerId: dealer.portalUserId?.trim() || dealer.id,
+      deliveryAddressKind: snapshot.shippingAddress?.trim() ? 'shipping' : 'billing',
     }));
+    setDealerQuery('');
   }, []);
 
-  const addCatalogItem = useCallback((product: CatalogProduct) => {
-    setDraft(prev => ({
-      ...prev,
-      shipmentItems: [
-        ...prev.shipmentItems,
-        {
-          id: `item-${product.id}-${Date.now()}`,
-          name: product.name,
-          sku: product.sku ?? null,
-          catalogProductId: product.id,
-          quantity: 1,
-          serialNumbers: [],
-          photoStoragePath: null,
-          photoUrl: null,
-        },
-      ],
-    }));
-    setCatalogQuery('');
-    setCatalogHits([]);
-    setShowCatalog(false);
+  const clearDealer = useCallback(() => {
+    setDraft(prev => ({ ...prev, zohoCustomerId: '', dealerId: '' }));
+    setDealerQuery('');
   }, []);
-
-  const addTypedItem = useCallback(() => {
-    const name = newItemName.trim();
-    if (!name) return;
-    const quantity = Math.max(1, Math.floor(newItemQty) || 1);
-    setDraft(prev => ({
-      ...prev,
-      shipmentItems: [
-        ...prev.shipmentItems,
-        {
-          id: `item-typed-${Date.now()}`,
-          name,
-          sku: null,
-          catalogProductId: null,
-          quantity,
-          serialNumbers: [],
-          photoStoragePath: null,
-          photoUrl: null,
-        },
-      ],
-    }));
-    setNewItemName('');
-    setNewItemQty(1);
-  }, [newItemName, newItemQty]);
 
   const setShipmentMode = useCallback((mode: ShipmentMode) => {
     setDraft(prev => ({
       ...prev,
       shipmentMode: mode,
-      numberOfBoxes: mode === 'envelope' ? 1 : prev.numberOfBoxes,
+      boxes: mode === 'envelope'
+        ? prev.boxes.slice(0, 1)
+        : (prev.boxes.length ? prev.boxes : [emptyShipmentBoxDraft()]),
     }));
   }, []);
 
-  const removeShipmentItem = useCallback((itemId: string) => {
+  const updateBoxField = useCallback((boxId: string, key: BoxNumberField, value: string) => {
     setDraft(prev => ({
       ...prev,
-      shipmentItems: prev.shipmentItems.filter(item => item.id !== itemId),
+      boxes: prev.boxes.map(box => (box.id === boxId ? { ...box, [key]: value } : box)),
     }));
   }, []);
 
-  const handleItemPhotoChange = useCallback(async (itemId: string, file: File | undefined) => {
+  const addBox = useCallback(() => {
+    setDraft(prev => ({ ...prev, boxes: [...prev.boxes, emptyShipmentBoxDraft()] }));
+  }, []);
+
+  const removeBox = useCallback((boxId: string) => {
+    setDraft(prev => (prev.boxes.length <= 1
+      ? prev
+      : { ...prev, boxes: prev.boxes.filter(box => box.id !== boxId) }));
+  }, []);
+
+  const addBoxPhoto = useCallback(async (boxId: string, file: File | undefined) => {
     if (!file) return;
     const dataUrl = await fileToDataUrl(file);
-    setItemPhoto(itemId, dataUrl);
-  }, [setItemPhoto]);
+    setDraft(prev => ({
+      ...prev,
+      boxes: prev.boxes.map(box => (box.id === boxId
+        ? { ...box, photos: [...box.photos, { id: newPhotoId(), url: dataUrl }] }
+        : box)),
+    }));
+  }, []);
+
+  const removeBoxPhoto = useCallback((boxId: string, photoId: string) => {
+    setDraft(prev => ({
+      ...prev,
+      boxes: prev.boxes.map(box => (box.id === boxId
+        ? { ...box, photos: box.photos.filter(photo => photo.id !== photoId) }
+        : box)),
+    }));
+  }, []);
 
   const handleFinalPhotoChange = useCallback(async (file: File | undefined) => {
     if (!file) return;
@@ -345,21 +324,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     if (booking) onComplete(booking);
   }, [booking, onComplete]);
 
-  const adjustBoxes = useCallback((delta: number) => {
-    setDraft(prev => ({ ...prev, numberOfBoxes: Math.max(1, prev.numberOfBoxes + delta) }));
-  }, []);
-
   const isEnvelope = draft.shipmentMode === 'envelope';
-  const allItemsPhotographed = draft.shipmentItems.length > 0
-    && draft.shipmentItems.every(item => item.photoUrl || item.photoStoragePath);
   const canProceedScan = Boolean(draft.barcodeRaw.trim() || draft.consignmentNo.trim());
-  const canProceedAddress = Boolean(draft.zohoCustomerId);
-  const canProceedBox = Boolean(
-    allItemsPhotographed &&
-    (isEnvelope || (
-      draft.numberOfBoxes >= 1 &&
-      (Number.parseFloat(draft.actualWeightKg) || 0) > 0
-    )),
+  const boxesValid = draft.boxes.length > 0 && draft.boxes.every(box => {
+    const hasInsidePhoto = box.photos.length > 0;
+    if (isEnvelope) return hasInsidePhoto;
+    return hasInsidePhoto && (Number.parseFloat(box.weightKg) || 0) > 0;
+  });
+  const canProceedBox = boxesValid;
+  const totalActualWeight = draft.boxes.reduce(
+    (total, box) => total + (Number.parseFloat(box.weightKg) || 0),
+    0,
   );
 
   const goBack = () => {
@@ -485,84 +460,103 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <MapPin size={18} aria-hidden />
                 Select <span className="accent">Delivery</span> Address
               </h3>
-              <label className="book-courier__search">
-                <Search size={16} aria-hidden />
-                <input
-                  type="text"
-                  value={dealerQuery}
-                  onChange={event => setDealerQuery(event.target.value)}
-                  placeholder="Search dealer by name, code or mobile"
-                  autoComplete="off"
-                />
-              </label>
-              <div className="book-courier__dealer-list" role="radiogroup" aria-label="Dealer">
-                {dealersLoading && <p className="text-muted text-sm">Loading dealers…</p>}
-                {filteredDealers.map(dealer => {
-                  const snapshot = zohoDealerToSnapshot(dealer);
-                  return (
-                  <label
-                    key={dealer.id}
-                    className={`book-courier__dealer-card${draft.zohoCustomerId === dealer.id ? ' is-selected' : ''}`}
-                  >
+              {!selectedDealer ? (
+                <div className="book-courier__autosuggest">
+                  <label className="book-courier__search">
+                    <Search size={16} aria-hidden />
                     <input
-                      type="radio"
-                      name="dealer"
-                      value={dealer.id}
-                      checked={draft.zohoCustomerId === dealer.id}
-                      onChange={() => {
-                        updateDraft('zohoCustomerId', dealer.id);
-                        updateDraft('dealerId', dealer.portalUserId?.trim() || dealer.id);
-                      }}
+                      type="text"
+                      value={dealerQuery}
+                      onChange={event => setDealerQuery(event.target.value)}
+                      placeholder="Search dealer by name, code or mobile"
+                      autoComplete="off"
                     />
-                    <span className="book-courier__dealer-copy">
-                      <strong>{snapshot.name}</strong>
-                      <span className="book-courier__dealer-code">{snapshot.code}</span>
-                      <span>{snapshot.contactPerson} · {snapshot.mobile}</span>
-                      <span className="book-courier__address-block">
-                        <strong>Shipping</strong>
-                        {snapshot.shippingAddress}
-                      </span>
-                      <span className="book-courier__address-block">
-                        <strong>Billing</strong>
-                        {snapshot.billingAddress}
+                  </label>
+                  {dealerQuery.trim() && (
+                    <div className="book-courier__suggest" role="listbox" aria-label="Dealer suggestions">
+                      {dealersLoading && (
+                        <p className="book-courier__suggest-empty text-muted text-sm">Searching…</p>
+                      )}
+                      {!dealersLoading && filteredDealers.map(dealer => {
+                        const snapshot = zohoDealerToSnapshot(dealer);
+                        return (
+                          <button
+                            key={dealer.id}
+                            type="button"
+                            role="option"
+                            aria-selected={false}
+                            className="book-courier__suggest-item"
+                            onClick={() => selectDealer(dealer)}
+                          >
+                            <strong>{snapshot.name}</strong>
+                            <span className="book-courier__dealer-code">{snapshot.code}</span>
+                            <span className="text-muted">{snapshot.contactPerson} · {snapshot.mobile}</span>
+                          </button>
+                        );
+                      })}
+                      {!dealersLoading && filteredDealers.length === 0 && (
+                        <p className="book-courier__suggest-empty text-muted text-sm">
+                          No dealers match “{dealerQuery}”.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="book-courier__selected-dealer">
+                  <div className="book-courier__selected-head">
+                    <span className="book-courier__selected-copy">
+                      <strong>{selectedDealer.name}</strong>
+                      <span className="book-courier__dealer-code">{selectedDealer.code}</span>
+                      <span className="text-muted">
+                        {selectedDealer.contactPerson} · {selectedDealer.mobile}
                       </span>
                     </span>
-                  </label>
-                  );
-                })}
-                {!dealersLoading && filteredDealers.length === 0 && (
-                  <p className="text-muted text-sm">
-                    {dealerQuery.trim()
-                      ? `No dealers match “${dealerQuery}”.`
-                      : 'Start typing to search for a dealer.'}
-                  </p>
-                )}
-              </div>
+                    <button type="button" className="book-courier__change" onClick={clearDealer}>
+                      <Pencil size={13} aria-hidden /> Change
+                    </button>
+                  </div>
 
-              {draft.zohoCustomerId && (
-                <fieldset className="book-courier__delivery-kind">
-                  <legend>Deliver to</legend>
-                  {(['shipping', 'billing'] as DeliveryAddressKind[]).map(kind => (
-                    <label key={kind} className="book-courier__delivery-option">
-                      <input
-                        type="radio"
-                        name="delivery-kind"
-                        checked={draft.deliveryAddressKind === kind}
-                        onChange={() => updateDraft('deliveryAddressKind', kind)}
-                      />
-                      <span>{kind === 'shipping' ? 'Shipping address' : 'Billing address'}</span>
-                    </label>
-                  ))}
-                </fieldset>
+                  <p className="book-courier__address-heading">Deliver to</p>
+                  <div className="book-courier__address-tiles">
+                    {addressTiles.map(tile => {
+                      const selected = draft.deliveryAddressKind === tile.kind;
+                      return (
+                        <div
+                          key={tile.kind}
+                          className={`book-courier__address-tile${selected ? ' is-selected' : ''}`}
+                        >
+                          <button
+                            type="button"
+                            className="book-courier__address-tile-main"
+                            onClick={() => updateDraft('deliveryAddressKind', tile.kind)}
+                          >
+                            <span className="book-courier__address-tile-head">
+                              <span className="book-courier__address-tile-label">
+                                {tile.kind === 'shipping' ? 'Shipping address' : 'Billing address'}
+                              </span>
+                              {selected && <Check size={15} strokeWidth={3} aria-hidden />}
+                            </span>
+                            <span className="book-courier__address-tile-body">{tile.address}</span>
+                          </button>
+                          {selected && (
+                            <button
+                              type="button"
+                              className="btn btn-primary book-courier__address-next"
+                              onClick={() => setStep('box')}
+                            >
+                              Next
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {addressTiles.length === 0 && (
+                      <p className="text-muted text-sm">No delivery address on file for this dealer.</p>
+                    )}
+                  </div>
+                </div>
               )}
-              <button
-                type="button"
-                className="btn btn-primary book-courier__next"
-                disabled={!canProceedAddress}
-                onClick={() => setStep('box')}
-              >
-                Confirm &amp; Next
-              </button>
             </section>
           )}
 
@@ -590,85 +584,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 ))}
               </div>
 
-              {isEnvelope ? (
-                <p className="book-courier__hint text-muted text-sm">
-                  Envelope shipments don&apos;t need weight or dimensions. Just list the contents below.
-                </p>
-              ) : (
-                <>
-                  <div className="book-courier__stepper">
-                    <span>Number of Boxes</span>
-                    <div className="book-courier__stepper-controls">
-                      <button type="button" onClick={() => adjustBoxes(-1)} aria-label="Decrease boxes">
-                        <Minus size={16} aria-hidden />
-                      </button>
-                      <strong>{draft.numberOfBoxes}</strong>
-                      <button type="button" onClick={() => adjustBoxes(1)} aria-label="Increase boxes">
-                        <Plus size={16} aria-hidden />
-                      </button>
-                    </div>
-                  </div>
-
-                  <label className="courier-dialog__field">
-                    <span>Actual Weight (kg)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={draft.actualWeightKg}
-                      onChange={event => updateDraft('actualWeightKg', event.target.value)}
-                      placeholder="0.00"
-                    />
-                  </label>
-
-                  <p className="book-courier__hint text-muted text-sm">Dimensions (cm)</p>
-                  <div className="courier-dialog__field-row book-courier__dims">
-                    <label className="courier-dialog__field">
-                      <span>L</span>
-                      <input type="number" min="0" value={draft.lengthCm}
-                        onChange={event => updateDraft('lengthCm', event.target.value)} />
-                    </label>
-                    <label className="courier-dialog__field">
-                      <span>W</span>
-                      <input type="number" min="0" value={draft.widthCm}
-                        onChange={event => updateDraft('widthCm', event.target.value)} />
-                    </label>
-                    <label className="courier-dialog__field">
-                      <span>H</span>
-                      <input type="number" min="0" value={draft.heightCm}
-                        onChange={event => updateDraft('heightCm', event.target.value)} />
-                    </label>
-                  </div>
-
-                  <div className="book-courier__volumetric">
-                    <span>Volumetric Weight</span>
-                    <strong>{volumetricWeight.toFixed(2)} kg</strong>
-                  </div>
-
-                  <label className="courier-dialog__field">
-                    <span>Package Type</span>
-                    <select
-                      value={draft.packageType}
-                      onChange={event => updateDraft('packageType', event.target.value as PackageType)}
-                    >
-                      {PACKAGE_TYPES.map(type => (
-                        <option key={type.id} value={type.id}>{type.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              )}
-
-              <label className="courier-dialog__field">
-                <span>Note (optional)</span>
-                <textarea
-                  rows={2}
-                  value={draft.notes}
-                  onChange={event => updateDraft('notes', event.target.value)}
-                  placeholder="Enter notes…"
-                />
-              </label>
-
               <label className="courier-dialog__field">
                 <span>Ship from site</span>
                 <select
@@ -681,105 +596,28 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 </select>
               </label>
 
-              <div className="book-courier__add-item">
-                <label className="courier-dialog__field book-courier__add-item-name">
-                  <span>Add item</span>
-                  <input
-                    type="text"
-                    value={newItemName}
-                    onChange={event => setNewItemName(event.target.value)}
-                    onKeyDown={event => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        addTypedItem();
-                      }
-                    }}
-                    placeholder="Type item name"
-                    autoComplete="off"
+              <div className="book-courier__boxes">
+                {draft.boxes.map((box, index) => (
+                  <BoxCard
+                    key={box.id}
+                    box={box}
+                    index={index}
+                    isEnvelope={isEnvelope}
+                    canRemove={!isEnvelope && draft.boxes.length > 1}
+                    onField={(key, value) => updateBoxField(box.id, key, value)}
+                    onAddPhoto={file => void addBoxPhoto(box.id, file)}
+                    onRemovePhoto={photoId => removeBoxPhoto(box.id, photoId)}
+                    onPreview={setPreviewPhoto}
+                    onRemoveBox={() => removeBox(box.id)}
                   />
-                </label>
-                <label className="courier-dialog__field book-courier__add-item-qty">
-                  <span>Qty</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={newItemQty}
-                    onChange={event => setNewItemQty(Math.max(1, Number.parseInt(event.target.value, 10) || 1))}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm book-courier__add-item-btn"
-                  onClick={addTypedItem}
-                  disabled={!newItemName.trim()}
-                >
-                  <Plus size={16} aria-hidden /> Add
-                </button>
+                ))}
               </div>
 
-              <div className="book-courier__catalog-toggle-wrap">
-                <button
-                  type="button"
-                  className="book-courier__catalog-toggle"
-                  onClick={() => setShowCatalog(v => !v)}
-                  aria-expanded={showCatalog}
-                >
-                  <Link2 size={14} aria-hidden />
-                  {showCatalog ? 'Hide catalogue search' : 'Link a catalogue product (optional)'}
+              {!isEnvelope && (
+                <button type="button" className="book-courier__add-box" onClick={addBox}>
+                  <Plus size={16} aria-hidden /> Add another box
                 </button>
-                {showCatalog && (
-                  <div className="book-courier__catalog-search">
-                    <label className="book-courier__search">
-                      <Search size={16} aria-hidden />
-                      <input
-                        type="search"
-                        value={catalogQuery}
-                        onChange={event => setCatalogQuery(event.target.value)}
-                        placeholder="Search catalogue products"
-                      />
-                    </label>
-                    {catalogHits.length > 0 && (
-                      <ul className="book-courier__catalog-hits">
-                        {catalogHits.map(product => (
-                          <li key={product.id}>
-                            <button type="button" onClick={() => addCatalogItem(product)}>
-                              <strong>{product.name}</strong>
-                              <span className="text-muted">{product.sku}</span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {catalogQuery.trim() && catalogHits.length === 0 && (
-                      <p className="text-muted text-sm">No catalogue products match “{catalogQuery}”.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="book-courier__items">
-                <h4 className="book-courier__items-title">
-                  Shipment Items
-                  <span className={`book-courier__items-flag${allItemsPhotographed ? ' is-done' : ''}`}>
-                    {draft.shipmentItems.filter(i => i.photoUrl || i.photoStoragePath).length}/{draft.shipmentItems.length} photographed
-                  </span>
-                </h4>
-                <p className="book-courier__hint text-muted text-sm">
-                  Photograph packed contents <strong>before closing the box</strong>. Required.
-                </p>
-                <ul className="book-courier__item-list">
-                  {draft.shipmentItems.map(item => (
-                    <ShipmentItemRow
-                      key={item.id}
-                      item={item}
-                      onCapture={file => void handleItemPhotoChange(item.id, file)}
-                      onClear={() => setItemPhoto(item.id, null)}
-                      onPreview={() => item.photoUrl && setPreviewPhoto(item.photoUrl)}
-                      onRemove={() => removeShipmentItem(item.id)}
-                    />
-                  ))}
-                </ul>
-              </div>
+              )}
 
               <button
                 type="button"
@@ -864,15 +702,19 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   <div><dt>Shipment Type</dt><dd>{isEnvelope ? 'Envelope' : 'Box'}</dd></div>
                   {!isEnvelope && (
                     <>
-                      <div><dt>No. of Boxes</dt><dd>{draft.numberOfBoxes}</dd></div>
-                      <div><dt>Actual Weight</dt><dd>{(Number.parseFloat(draft.actualWeightKg) || 0).toFixed(2)} kg</dd></div>
-                      <div>
-                        <dt>Dimensions (LxWxH)</dt>
-                        <dd>{draft.lengthCm && draft.widthCm && draft.heightCm
-                          ? `${draft.lengthCm} x ${draft.widthCm} x ${draft.heightCm} cm` : '—'}</dd>
-                      </div>
-                      <div><dt>Volumetric Weight</dt><dd>{volumetricWeight.toFixed(2)} kg</dd></div>
-                      <div><dt>Package Type</dt><dd>{packageTypeLabel(draft.packageType)}</dd></div>
+                      <div><dt>No. of Boxes</dt><dd>{draft.boxes.length}</dd></div>
+                      <div><dt>Total Actual Weight</dt><dd>{totalActualWeight.toFixed(2)} kg</dd></div>
+                      {draft.boxes.map((box, index) => (
+                        <div key={box.id}>
+                          <dt>Box {index + 1}</dt>
+                          <dd>
+                            {box.lengthCm && box.widthCm && box.heightCm
+                              ? `${box.lengthCm} × ${box.widthCm} × ${box.heightCm} cm · `
+                              : ''}
+                            {(Number.parseFloat(box.weightKg) || 0).toFixed(2)} kg
+                          </dd>
+                        </div>
+                      ))}
                     </>
                   )}
                 </dl>
@@ -883,29 +725,21 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   <h4>Package Photos</h4>
                 </div>
                 <div className="book-courier__gallery">
-                  {draft.shipmentItems.map(item => item.photoUrl && (
-                    <div key={item.id} className="book-courier__thumb">
-                      <button type="button" onClick={() => setPreviewPhoto(item.photoUrl!)} aria-label={`Preview ${item.name}`}>
-                        <img src={item.photoUrl} alt={item.name} />
+                  {draft.boxes.flatMap((box, boxIndex) => box.photos.map(photo => (
+                    <div key={photo.id} className="book-courier__thumb">
+                      <button type="button" onClick={() => setPreviewPhoto(photo.url)} aria-label={`Preview box ${boxIndex + 1} photo`}>
+                        <img src={photo.url} alt={`Box ${boxIndex + 1}`} />
                       </button>
-                      <button
-                        type="button"
-                        className="book-courier__thumb-del"
-                        onClick={() => setItemPhoto(item.id, null)}
-                        aria-label={`Delete ${item.name} photo`}
-                      >
-                        <Trash2 size={12} aria-hidden />
-                      </button>
-                      <span>{item.name}</span>
+                      <span>Box {boxIndex + 1}</span>
                     </div>
-                  ))}
+                  )))}
                 </div>
               </div>
 
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                disabled={!allItemsPhotographed}
+                disabled={!boxesValid}
                 onClick={() => setStep('final_photo')}
               >
                 Next
@@ -1003,67 +837,157 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   );
 };
 
-interface ShipmentItemRowProps {
-  item: ShipmentItem;
-  onCapture: (file: File | undefined) => void;
-  onClear: () => void;
-  onPreview: () => void;
-  onRemove?: () => void;
+interface BoxCardProps {
+  box: ShipmentBoxDraft;
+  index: number;
+  isEnvelope: boolean;
+  canRemove: boolean;
+  onField: (key: BoxNumberField, value: string) => void;
+  onAddPhoto: (file: File | undefined) => void;
+  onRemovePhoto: (photoId: string) => void;
+  onPreview: (url: string) => void;
+  onRemoveBox: () => void;
 }
 
-const ShipmentItemRow: React.FC<ShipmentItemRowProps> = ({
-  item,
-  onCapture,
-  onClear,
+const BoxCard: React.FC<BoxCardProps> = ({
+  box,
+  index,
+  isEnvelope,
+  canRemove,
+  onField,
+  onAddPhoto,
+  onRemovePhoto,
   onPreview,
-  onRemove,
+  onRemoveBox,
 }) => {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const volumetric = boxVolumetric(box);
+  const actual = Number.parseFloat(box.weightKg) || 0;
+  const chargeable = Math.max(actual, volumetric);
+
   return (
-    <li className={`book-courier__item${item.photoUrl || item.photoStoragePath ? ' is-done' : ''}`}>
-      <div className="book-courier__item-info">
-        <strong>{item.name}</strong>
-        <span className="text-muted">×{item.quantity}</span>
-        {item.serialNumbers && item.serialNumbers.length > 0 && (
-          <span className="book-courier__item-serials text-muted text-sm">
-            S/N: {item.serialNumbers.join(', ')}
-          </span>
+    <section className="book-courier__box">
+      <div className="book-courier__box-head">
+        <h4>{isEnvelope ? 'Envelope' : `Box ${index + 1}`}</h4>
+        {canRemove && (
+          <button type="button" className="book-courier__box-remove" onClick={onRemoveBox} aria-label={`Remove box ${index + 1}`}>
+            <Trash2 size={15} aria-hidden />
+          </button>
         )}
       </div>
-      {item.photoUrl || item.photoStoragePath ? (
-        <div className="book-courier__item-actions">
-          <button type="button" className="book-courier__item-thumb" onClick={onPreview} aria-label="Preview photo">
-            <img src={item.photoUrl ?? ''} alt="" />
-          </button>
-          <button type="button" className="book-courier__item-clear" onClick={onClear} aria-label="Remove photo">
-            <Trash2 size={14} aria-hidden />
-          </button>
-          {onRemove && (
-            <button type="button" className="book-courier__item-clear" onClick={onRemove} aria-label="Remove item">
-              <Minus size={14} aria-hidden />
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="book-courier__item-actions">
-          <button type="button" className="book-courier__item-upload" onClick={() => inputRef.current?.click()}>
-            <Camera size={14} aria-hidden /> Upload Photo
-          </button>
-          {onRemove && (
-            <button type="button" className="book-courier__item-clear" onClick={onRemove} aria-label="Remove item">
-              <Minus size={14} aria-hidden />
-            </button>
-          )}
-        </div>
+
+      {!isEnvelope && (
+        <>
+          <p className="book-courier__box-label">Weight</p>
+          <div className="book-courier__weight-cards">
+            <label className="book-courier__weight-card">
+              <span className="book-courier__weight-card-title"><Lock size={13} aria-hidden /> Actual Weight</span>
+              <span className="book-courier__weight-card-value">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={box.weightKg}
+                  onChange={event => onField('weightKg', event.target.value)}
+                  placeholder="0.00"
+                  aria-label="Actual weight in kg"
+                />
+                <em>kg</em>
+              </span>
+            </label>
+            <div className="book-courier__weight-card">
+              <span className="book-courier__weight-card-title"><Package size={13} aria-hidden /> Volumetric Weight</span>
+              <span className="book-courier__weight-card-value">
+                <strong>{volumetric.toFixed(2)}</strong>
+                <em>kg</em>
+              </span>
+            </div>
+          </div>
+          <div className="book-courier__chargeable">
+            <span>Chargeable Weight</span>
+            <strong>{chargeable.toFixed(2)} kg</strong>
+          </div>
+
+          <p className="book-courier__box-label">Dimensions (cm)</p>
+          <div className="book-courier__dim-cards">
+            {([
+              ['Length (L)', 'lengthCm'],
+              ['Breadth (W)', 'widthCm'],
+              ['Height (H)', 'heightCm'],
+            ] as Array<[string, BoxNumberField]>).map(([label, key]) => (
+              <label className="book-courier__dim-card" key={key}>
+                <span className="book-courier__dim-card-title">{label}</span>
+                <span className="book-courier__dim-card-value">
+                  <input
+                    type="number"
+                    min="0"
+                    value={box[key]}
+                    onChange={event => onField(key, event.target.value)}
+                    placeholder="0"
+                    aria-label={label}
+                  />
+                  <em>cm</em>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="book-courier__vol-formula">
+            <span><Package size={14} aria-hidden /> Volumetric Weight = (L × W × H) / {VOLUMETRIC_WEIGHT_DIVISOR}</span>
+            <strong>{volumetric.toFixed(2)} kg</strong>
+          </div>
+        </>
       )}
+
+      <p className="book-courier__box-label">
+        {isEnvelope ? 'Envelope Photos' : 'Package Photos'}
+        <span className="book-courier__box-req"> * inside photo required</span>
+      </p>
+      <div className="book-courier__photo-grid">
+        {box.photos.map((photo, photoIndex) => (
+          <div className="book-courier__photo-cell" key={photo.id}>
+            <button
+              type="button"
+              className="book-courier__photo-open"
+              onClick={() => onPreview(photo.url)}
+              aria-label={`Preview photo ${photoIndex + 1}`}
+            >
+              <img src={photo.url} alt="" />
+            </button>
+            <button
+              type="button"
+              className="book-courier__photo-del"
+              onClick={() => onRemovePhoto(photo.id)}
+              aria-label={`Remove photo ${photoIndex + 1}`}
+            >
+              <X size={13} aria-hidden />
+            </button>
+            <span className="book-courier__photo-cap">
+              {photoIndex === 0 ? 'Inside view' : `Photo ${photoIndex + 1}`}
+            </span>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="book-courier__photo-add"
+          onClick={() => photoInputRef.current?.click()}
+        >
+          <Camera size={20} aria-hidden />
+          <span>{box.photos.length === 0 ? 'Add inside photo' : 'Add photo'}</span>
+          {box.photos.length > 0 && <em className="book-courier__photo-add-opt">Optional</em>}
+        </button>
+      </div>
       <input
-        ref={inputRef}
+        ref={photoInputRef}
         type="file"
         accept="image/*"
         capture="environment"
         hidden
-        onChange={event => onCapture(event.target.files?.[0])}
+        onChange={event => {
+          onAddPhoto(event.target.files?.[0]);
+          event.target.value = '';
+        }}
       />
-    </li>
+    </section>
   );
 };

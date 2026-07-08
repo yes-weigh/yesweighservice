@@ -5,7 +5,8 @@ import type {
   LogisticsBookingDraft,
   LogisticsBookingStatus,
   LogisticsDocumentType,
-  PackageType,
+  ShipmentBox,
+  ShipmentBoxDraft,
   ShipmentMode,
 } from '../types/logistics-dispatch';
 
@@ -39,15 +40,23 @@ export function shipmentModeLabel(id: ShipmentMode): string {
   return SHIPMENT_MODES.find(item => item.id === id)?.label ?? id;
 }
 
-export const PACKAGE_TYPES: ReadonlyArray<{ id: PackageType; label: string }> = [
-  { id: 'carton', label: 'Carton Box' },
-  { id: 'wooden', label: 'Wooden Box' },
-  { id: 'pallet', label: 'Pallet' },
-  { id: 'plastic', label: 'Plastic Box' },
-];
+let boxCounter = 0;
 
-export function packageTypeLabel(id: PackageType): string {
-  return PACKAGE_TYPES.find(item => item.id === id)?.label ?? id;
+export function emptyShipmentBoxDraft(): ShipmentBoxDraft {
+  boxCounter += 1;
+  return {
+    id: `box-${Date.now()}-${boxCounter}`,
+    lengthCm: '',
+    widthCm: '',
+    heightCm: '',
+    weightKg: '',
+    photos: [],
+  };
+}
+
+/** Per-box chargeable weight = max(actual, volumetric). */
+export function boxChargeableWeight(box: Pick<ShipmentBox, 'weightKg' | 'volumetricWeightKg'>): number {
+  return Math.max(box.weightKg || 0, box.volumetricWeightKg || 0);
 }
 
 /**
@@ -66,7 +75,7 @@ export function statusForDocument(
   return bookingStatusIndex(current) >= bookingStatusIndex(target) ? current : target;
 }
 
-export const VOLUMETRIC_WEIGHT_DIVISOR = 2500;
+export const VOLUMETRIC_WEIGHT_DIVISOR = 5000;
 
 export function computeVolumetricWeight(
   lengthCm: number | null,
@@ -141,14 +150,7 @@ export function emptyBookingDraft(partnerId: LogisticsPartnerId): LogisticsBooki
     deliveryAddressKind: 'shipping',
     shipFromSite: 'head_office',
     shipmentMode: 'box',
-    numberOfBoxes: 1,
-    actualWeightKg: '',
-    lengthCm: '',
-    widthCm: '',
-    heightCm: '',
-    packageType: 'carton',
-    notes: '',
-    shipmentItems: [],
+    boxes: [emptyShipmentBoxDraft()],
     finalPackagePhoto: null,
     labelGenerated: false,
   };
@@ -202,7 +204,16 @@ export function packingSlipFileName(booking: LogisticsBooking): string {
 }
 
 export function chargeableWeight(booking: LogisticsBooking): number {
+  if (booking.boxes.length) {
+    return booking.boxes.reduce((total, box) => total + boxChargeableWeight(box), 0);
+  }
   return Math.max(booking.actualWeightKg, booking.volumetricWeightKg);
+}
+
+export function boxDimensionsLabel(box: ShipmentBox): string {
+  return box.lengthCm && box.widthCm && box.heightCm
+    ? `${box.lengthCm} × ${box.widthCm} × ${box.heightCm} cm`
+    : '—';
 }
 
 export function bookingSummaryLines(booking: LogisticsBooking): Array<{ label: string; value: string }> {
@@ -224,16 +235,9 @@ export function bookingSummaryLines(booking: LogisticsBooking): Array<{ label: s
       { label: 'Boxes', value: String(booking.numberOfBoxes) },
       { label: 'Actual weight', value: `${booking.actualWeightKg.toFixed(2)} kg` },
       { label: 'Volumetric weight', value: `${booking.volumetricWeightKg.toFixed(2)} kg` },
-      {
-        label: 'Dimensions',
-        value: booking.lengthCm && booking.widthCm && booking.heightCm
-          ? `${booking.lengthCm} × ${booking.widthCm} × ${booking.heightCm} cm`
-          : '—',
-      },
-      { label: 'Package type', value: packageTypeLabel(booking.packageType) },
+      { label: 'Chargeable weight', value: `${chargeableWeight(booking).toFixed(2)} kg` },
     );
   }
 
-  lines.push({ label: 'Notes', value: booking.notes || '—' });
   return lines;
 }

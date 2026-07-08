@@ -7,10 +7,12 @@ import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import { homePathForRole } from '../../types';
 import {
   LOGISTICS_BOOKING_STATUSES,
+  boxChargeableWeight,
+  boxDimensionsLabel,
   bookingStatusIndex,
   bookingSummaryLines,
+  chargeableWeight,
   courierSlipFileName,
-  packageTypeLabel,
   shipmentModeLabel,
   shippingLabelFileName,
 } from '../../lib/logisticsBooking';
@@ -187,32 +189,33 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 <div><dt>Boxes</dt><dd>{booking.numberOfBoxes}</dd></div>
                 <div><dt>Actual wt.</dt><dd>{booking.actualWeightKg.toFixed(2)} kg</dd></div>
                 <div><dt>Volumetric wt.</dt><dd>{booking.volumetricWeightKg.toFixed(2)} kg</dd></div>
-                {booking.lengthCm && booking.widthCm && booking.heightCm && (
-                  <div>
-                    <dt>Dimensions</dt>
-                    <dd>{booking.lengthCm} × {booking.widthCm} × {booking.heightCm} cm</dd>
+                <div><dt>Chargeable wt.</dt><dd>{chargeableWeight(booking).toFixed(2)} kg</dd></div>
+                {booking.boxes.map((box, index) => (
+                  <div key={box.id}>
+                    <dt>Box {index + 1}</dt>
+                    <dd>
+                      {boxDimensionsLabel(box)} · {boxChargeableWeight(box).toFixed(2)} kg
+                    </dd>
                   </div>
-                )}
-                <div><dt>Type</dt><dd>{packageTypeLabel(booking.packageType)}</dd></div>
+                ))}
               </>
-            )}
-            {booking.notes && (
-              <div><dt>Notes</dt><dd>{booking.notes}</dd></div>
             )}
           </dl>
         </div>
       </section>
 
-      {(booking.shipmentItems.some(item => item.photoUrl) || booking.finalPackagePhoto) && (
+      {(booking.boxes.some(box => box.photos.length) || booking.finalPackagePhoto) && (
         <section className="logistics-booking__photos">
           <h4>Package photos</h4>
           <div className="book-courier__gallery">
-            {booking.shipmentItems.map(item => item.photoUrl && (
-              <div key={item.id} className="book-courier__thumb">
-                <img src={item.photoUrl} alt={item.name} />
-                <span>{item.name}</span>
-              </div>
-            ))}
+            {booking.boxes.flatMap((box, boxIndex) => box.photos.map((photo, photoIndex) => (
+              photo.url && (
+                <div key={photo.storagePath || `${box.id}-${photoIndex}`} className="book-courier__thumb">
+                  <img src={photo.url} alt={`Box ${boxIndex + 1}`} />
+                  <span>{isEnvelope ? 'Envelope' : `Box ${boxIndex + 1}`}{photoIndex === 0 ? ' · inside' : ''}</span>
+                </div>
+              )
+            )))}
             {booking.finalPackagePhoto && (
               <div className="book-courier__thumb">
                 <img src={booking.finalPackagePhoto} alt="Final package" />

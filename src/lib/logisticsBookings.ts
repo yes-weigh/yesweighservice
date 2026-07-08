@@ -37,7 +37,7 @@ import type {
   LogisticsBookingStatus,
   LogisticsDealerSnapshot,
   LogisticsDocumentType,
-  ShipmentItem,
+  ShipmentBox,
 } from '../types/logistics-dispatch';
 import { isStaffLogisticsSite } from '../types/staff-logistics';
 
@@ -81,31 +81,38 @@ function normalizeBookingStatus(raw: string): LogisticsBookingStatus {
   }
 }
 
-function mapShipmentItem(data: DocumentData): ShipmentItem {
+function mapShipmentBox(data: DocumentData): ShipmentBox {
+  const photos = Array.isArray(data.photos)
+    ? data.photos
+        .map((photo: unknown) => (typeof photo === 'string' ? photo : (photo as DocumentData)?.storagePath))
+        .filter((path: unknown): path is string => typeof path === 'string' && path.length > 0)
+        .map((storagePath: string) => ({ storagePath, url: null as string | null }))
+    : [];
   return {
     id: String(data.id ?? ''),
-    name: String(data.name ?? ''),
-    sku: typeof data.sku === 'string' ? data.sku : null,
-    catalogProductId: typeof data.catalogProductId === 'string' ? data.catalogProductId : null,
-    quantity: Number(data.quantity) || 0,
-    serialNumbers: Array.isArray(data.serialNumbers)
-      ? data.serialNumbers.map((value: unknown) => String(value))
-      : [],
-    photoStoragePath: typeof data.photoStoragePath === 'string' ? data.photoStoragePath : null,
+    lengthCm: data.lengthCm == null ? null : Number(data.lengthCm),
+    widthCm: data.widthCm == null ? null : Number(data.widthCm),
+    heightCm: data.heightCm == null ? null : Number(data.heightCm),
+    weightKg: Number(data.weightKg) || 0,
+    volumetricWeightKg: Number(data.volumetricWeightKg) || 0,
+    photos,
   };
 }
 
 async function hydrateBookingPhotos(booking: LogisticsBooking): Promise<LogisticsBooking> {
-  const shipmentItems = await Promise.all(booking.shipmentItems.map(async item => ({
-    ...item,
-    photoUrl: item.photoStoragePath ? await resolveLogisticsPhotoUrl(item.photoStoragePath) : null,
+  const boxes = await Promise.all(booking.boxes.map(async box => ({
+    ...box,
+    photos: await Promise.all(box.photos.map(async photo => ({
+      ...photo,
+      url: photo.storagePath ? await resolveLogisticsPhotoUrl(photo.storagePath) : null,
+    }))),
   })));
   const finalPhotoUrl = booking.finalPackagePhotoStoragePath
     ? await resolveLogisticsPhotoUrl(booking.finalPackagePhotoStoragePath)
     : null;
   return {
     ...booking,
-    shipmentItems,
+    boxes,
     finalPackagePhoto: finalPhotoUrl,
   };
 }
@@ -116,8 +123,17 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     ? String(data.partnerId) as LogisticsPartnerId
     : 'st_courier';
   const status = normalizeBookingStatus(String(data.status ?? 'booked'));
-  const packageType = String(data.packageType ?? 'carton') as LogisticsBooking['packageType'];
   const shipmentMode = data.shipmentMode === 'envelope' ? 'envelope' : 'box';
+  const boxes = Array.isArray(data.boxes)
+    ? data.boxes.map((box: DocumentData) => mapShipmentBox(box))
+    : [];
+  const numberOfBoxes = boxes.length || Number(data.numberOfBoxes) || 1;
+  const actualWeightKg = boxes.length
+    ? boxes.reduce((total, box) => total + box.weightKg, 0)
+    : Number(data.actualWeightKg) || 0;
+  const volumetricWeightKg = boxes.length
+    ? boxes.reduce((total, box) => total + box.volumetricWeightKg, 0)
+    : Number(data.volumetricWeightKg) || 0;
 
   return {
     id,
@@ -139,17 +155,10 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     shipFromSite: isStaffLogisticsSite(data.shipFromSite) ? data.shipFromSite : 'head_office',
     shipFromAddress: String(data.shipFromAddress ?? ''),
     shipmentMode,
-    numberOfBoxes: Number(data.numberOfBoxes) || 1,
-    actualWeightKg: Number(data.actualWeightKg) || 0,
-    volumetricWeightKg: Number(data.volumetricWeightKg) || 0,
-    lengthCm: data.lengthCm == null ? null : Number(data.lengthCm),
-    widthCm: data.widthCm == null ? null : Number(data.widthCm),
-    heightCm: data.heightCm == null ? null : Number(data.heightCm),
-    packageType,
-    notes: String(data.notes ?? ''),
-    shipmentItems: Array.isArray(data.shipmentItems)
-      ? data.shipmentItems.map((item: DocumentData) => mapShipmentItem(item))
-      : [],
+    boxes,
+    numberOfBoxes,
+    actualWeightKg,
+    volumetricWeightKg,
     finalPackagePhoto: null,
     finalPackagePhotoStoragePath: typeof data.finalPackagePhotoStoragePath === 'string'
       ? data.finalPackagePhotoStoragePath
@@ -184,20 +193,30 @@ function matchesClientFilters(booking: LogisticsBooking, filters: LogisticsBooki
   return haystack.includes(q);
 }
 
-async function uploadDraftPhotos(bookingId: string, draft: LogisticsBookingDraft): Promise<{
-  shipmentItems: ShipmentItem[];
+async function uploadDraftBoxPhotos(bookingId: string, draft: LogisticsBookingDraft): Promise<{
+  boxes: ShipmentBox[];
   finalPackagePhotoStoragePath: string | null;
 }> {
-  const shipmentItems = await Promise.all(draft.shipmentItems.map(async item => {
-    if (!item.photoUrl && !item.photoStoragePath) {
-      throw new Error(`Photo required for ${item.name}.`);
-    }
-    if (item.photoStoragePath) {
-      return { ...item, photoStoragePath: item.photoStoragePath, photoUrl: item.photoUrl ?? null };
-    }
-    const file = await dataUrlToFile(item.photoUrl!, `${item.id}.jpg`);
-    const storagePath = await uploadLogisticsPhoto(bookingId, `item-${item.id}`, file);
-    return { ...item, photoStoragePath: storagePath, photoUrl: item.photoUrl };
+  const isEnvelope = draft.shipmentMode === 'envelope';
+  const boxes = await Promise.all(draft.boxes.map(async (box, boxIndex) => {
+    const photos = await Promise.all(box.photos.map(async (photo, photoIndex) => {
+      if (photo.storagePath) return { storagePath: photo.storagePath, url: photo.url ?? null };
+      const file = await dataUrlToFile(photo.url, `box-${boxIndex + 1}-${photoIndex + 1}.jpg`);
+      const storagePath = await uploadLogisticsPhoto(bookingId, `box-${box.id}-${photo.id}`, file);
+      return { storagePath, url: photo.url };
+    }));
+    const length = !isEnvelope && box.lengthCm ? Number.parseFloat(box.lengthCm) : null;
+    const width = !isEnvelope && box.widthCm ? Number.parseFloat(box.widthCm) : null;
+    const height = !isEnvelope && box.heightCm ? Number.parseFloat(box.heightCm) : null;
+    return {
+      id: box.id,
+      lengthCm: length,
+      widthCm: width,
+      heightCm: height,
+      weightKg: isEnvelope ? 0 : (Number.parseFloat(box.weightKg) || 0),
+      volumetricWeightKg: isEnvelope ? 0 : computeVolumetricWeight(length, width, height),
+      photos,
+    } satisfies ShipmentBox;
   }));
 
   let finalPackagePhotoStoragePath: string | null = null;
@@ -206,7 +225,7 @@ async function uploadDraftPhotos(bookingId: string, draft: LogisticsBookingDraft
     finalPackagePhotoStoragePath = await uploadLogisticsPhoto(bookingId, 'final-package', file);
   }
 
-  return { shipmentItems, finalPackagePhotoStoragePath };
+  return { boxes, finalPackagePhotoStoragePath };
 }
 
 export async function persistLogisticsBooking(
@@ -215,22 +234,23 @@ export async function persistLogisticsBooking(
   const { draft, dealer, createdBy } = input;
   if (!draft.consignmentNo.trim()) throw new Error('Consignment number is required.');
   if (!draft.zohoCustomerId.trim()) throw new Error('Select a dealer.');
-  if (!draft.shipmentItems.length) throw new Error('Add at least one shipment item.');
+  if (!draft.boxes.length) throw new Error('Add at least one box.');
+  if (draft.boxes.some(box => box.photos.length === 0)) {
+    throw new Error('Each box needs at least the inside photo.');
+  }
   if (!draft.finalPackagePhoto) throw new Error('Final package photo is required.');
 
   const settings = await loadLogisticsSettings();
   const shipFromAddress = settings.fromAddresses[draft.shipFromSite]?.trim() || '';
-  const isEnvelope = draft.shipmentMode === 'envelope';
-  const length = !isEnvelope && draft.lengthCm ? Number.parseFloat(draft.lengthCm) : null;
-  const width = !isEnvelope && draft.widthCm ? Number.parseFloat(draft.widthCm) : null;
-  const height = !isEnvelope && draft.heightCm ? Number.parseFloat(draft.heightCm) : null;
   const now = new Date().toISOString();
   const orderRef = draft.invoiceNumber
     || draft.supportRequestNumber
     || `ORD-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
 
   const bookingRef = doc(collection(db, COLLECTION));
-  const { shipmentItems, finalPackagePhotoStoragePath } = await uploadDraftPhotos(bookingRef.id, draft);
+  const { boxes, finalPackagePhotoStoragePath } = await uploadDraftBoxPhotos(bookingRef.id, draft);
+  const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
+  const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
 
   const payload = {
     orderRef,
@@ -253,22 +273,17 @@ export async function persistLogisticsBooking(
     shipFromSite: draft.shipFromSite,
     shipFromAddress,
     shipmentMode: draft.shipmentMode,
-    numberOfBoxes: isEnvelope ? 1 : Math.max(1, draft.numberOfBoxes || 1),
-    actualWeightKg: isEnvelope ? 0 : (Number.parseFloat(draft.actualWeightKg) || 0),
-    volumetricWeightKg: isEnvelope ? 0 : computeVolumetricWeight(length, width, height),
-    lengthCm: length,
-    widthCm: width,
-    heightCm: height,
-    packageType: draft.packageType,
-    notes: draft.notes.trim(),
-    shipmentItems: shipmentItems.map(item => ({
-      id: item.id,
-      name: item.name,
-      sku: item.sku ?? null,
-      catalogProductId: item.catalogProductId ?? null,
-      quantity: item.quantity,
-      serialNumbers: item.serialNumbers ?? [],
-      photoStoragePath: item.photoStoragePath,
+    numberOfBoxes: boxes.length,
+    actualWeightKg,
+    volumetricWeightKg,
+    boxes: boxes.map(box => ({
+      id: box.id,
+      lengthCm: box.lengthCm,
+      widthCm: box.widthCm,
+      heightCm: box.heightCm,
+      weightKg: box.weightKg,
+      volumetricWeightKg: box.volumetricWeightKg,
+      photos: box.photos.map(photo => ({ storagePath: photo.storagePath })),
     })),
     finalPackagePhotoStoragePath,
     labelGenerated: false,

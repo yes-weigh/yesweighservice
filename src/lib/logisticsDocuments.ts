@@ -1,7 +1,9 @@
 import { logisticsPartnerLabel } from '../constants/logisticsPartners';
 import type { LogisticsBooking } from '../types/logistics-dispatch';
 import {
-  packageTypeLabel,
+  boxChargeableWeight,
+  boxDimensionsLabel,
+  chargeableWeight,
   shipmentModeLabel,
 } from './logisticsBooking';
 
@@ -63,14 +65,9 @@ function packageMetaRows(booking: LogisticsBooking): Array<[string, string]> {
   if (booking.shipmentMode === 'box') {
     rows.push(
       ['Boxes', String(booking.numberOfBoxes)],
-      ['Weight', `${booking.actualWeightKg.toFixed(2)} kg`],
-      [
-        'Dimensions',
-        booking.lengthCm && booking.widthCm && booking.heightCm
-          ? `${booking.lengthCm} × ${booking.widthCm} × ${booking.heightCm} cm`
-          : '',
-      ],
-      ['Package', packageTypeLabel(booking.packageType)],
+      ['Actual weight', `${booking.actualWeightKg.toFixed(2)} kg`],
+      ['Volumetric weight', `${booking.volumetricWeightKg.toFixed(2)} kg`],
+      ['Chargeable weight', `${chargeableWeight(booking).toFixed(2)} kg`],
     );
   }
   return rows;
@@ -113,8 +110,14 @@ export function courierSlipHtml(booking: LogisticsBooking): string {
     ['Ship from', booking.shipFromAddress || ''],
     ['Date', booking.bookingDate],
   ];
-  const itemsRows = booking.shipmentItems
-    .map(item => `<tr><td>${escapeHtml(item.name)}${item.sku ? ` <small>(${escapeHtml(item.sku)})</small>` : ''}</td><td>${item.quantity}</td></tr>`)
+  const boxRows = booking.boxes
+    .map((box, index) => {
+      const dims = boxDimensionsLabel(box);
+      const weight = booking.shipmentMode === 'box'
+        ? `${boxChargeableWeight(box).toFixed(2)} kg`
+        : '—';
+      return `<tr><td>Box ${index + 1}${dims !== '—' ? ` <small>(${escapeHtml(dims)})</small>` : ''}</td><td>${escapeHtml(weight)}</td></tr>`;
+    })
     .join('');
   return `
     <div class="doc">
@@ -128,8 +131,8 @@ export function courierSlipHtml(booking: LogisticsBooking): string {
       </div>
       <table class="doc__meta">${metaRows(rows)}</table>
       <table class="doc__items">
-        <thead><tr><th>Item</th><th>Qty</th></tr></thead>
-        <tbody>${itemsRows || '<tr><td colspan="2">No items listed</td></tr>'}</tbody>
+        <thead><tr><th>Package</th><th>Chargeable</th></tr></thead>
+        <tbody>${boxRows || '<tr><td colspan="2">No boxes listed</td></tr>'}</tbody>
       </table>
     </div>`;
 }

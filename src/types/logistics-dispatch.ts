@@ -12,8 +12,6 @@ export type LogisticsBookingSource = 'manual' | 'invoice' | 'support';
 
 export type DeliveryAddressKind = 'shipping' | 'billing';
 
-export type PackageType = 'carton' | 'wooden' | 'pallet' | 'plastic';
-
 /** Whether the shipment is a flat envelope/document pouch or a box. */
 export type ShipmentMode = 'envelope' | 'box';
 
@@ -36,16 +34,40 @@ export interface LogisticsDealerSnapshot {
 /** @deprecated use LogisticsDealerSnapshot */
 export type Dealer = LogisticsDealerSnapshot;
 
-export interface ShipmentItem {
+/** A persisted box photo. */
+export interface ShipmentBoxPhoto {
+  storagePath: string;
+  /** Resolved download URL or transient preview. */
+  url?: string | null;
+}
+
+/** A persisted box in a shipment. */
+export interface ShipmentBox {
   id: string;
-  name: string;
-  sku?: string | null;
-  catalogProductId?: string | null;
-  quantity: number;
-  serialNumbers?: string[];
-  photoStoragePath: string | null;
-  /** Resolved download URL or transient preview before persist. */
-  photoUrl?: string | null;
+  lengthCm: number | null;
+  widthCm: number | null;
+  heightCm: number | null;
+  weightKg: number;
+  volumetricWeightKg: number;
+  /** photos[0] is the mandatory "inside" photo; the rest are optional. */
+  photos: ShipmentBoxPhoto[];
+}
+
+/** A box photo while editing (transient data URL preview or resolved URL). */
+export interface ShipmentBoxPhotoDraft {
+  id: string;
+  url: string;
+  storagePath?: string | null;
+}
+
+/** A box while editing (string inputs for the number fields). */
+export interface ShipmentBoxDraft {
+  id: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  weightKg: string;
+  photos: ShipmentBoxPhotoDraft[];
 }
 
 export interface LogisticsBookingDraft {
@@ -65,14 +87,7 @@ export interface LogisticsBookingDraft {
   deliveryAddressKind: DeliveryAddressKind;
   shipFromSite: StaffLogisticsSite;
   shipmentMode: ShipmentMode;
-  numberOfBoxes: number;
-  actualWeightKg: string;
-  lengthCm: string;
-  widthCm: string;
-  heightCm: string;
-  packageType: PackageType;
-  notes: string;
-  shipmentItems: ShipmentItem[];
+  boxes: ShipmentBoxDraft[];
   /** Transient data URL until uploaded on confirm. */
   finalPackagePhoto: string | null;
   labelGenerated: boolean;
@@ -98,15 +113,13 @@ export interface LogisticsBooking {
   shipFromSite: StaffLogisticsSite;
   shipFromAddress: string;
   shipmentMode: ShipmentMode;
+  boxes: ShipmentBox[];
+  /** Total boxes (boxes.length). */
   numberOfBoxes: number;
+  /** Sum of box actual weights. */
   actualWeightKg: number;
+  /** Sum of box volumetric weights. */
   volumetricWeightKg: number;
-  lengthCm: number | null;
-  widthCm: number | null;
-  heightCm: number | null;
-  packageType: PackageType;
-  notes: string;
-  shipmentItems: ShipmentItem[];
   finalPackagePhoto: string | null;
   finalPackagePhotoStoragePath: string | null;
   /** @deprecated legacy alias of shippingLabelGenerated */
