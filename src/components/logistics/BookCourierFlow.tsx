@@ -226,7 +226,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const handleCameraDetected = useCallback((raw: string) => {
     applyScannedCode(raw);
     setCameraOpen(false);
-    setStep('address');
   }, [applyScannedCode]);
 
   const handleScanContinue = useCallback(() => {

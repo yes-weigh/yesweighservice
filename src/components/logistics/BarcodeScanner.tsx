@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import type { IScannerControls } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { CameraOff, Loader2, X } from 'lucide-react';
 
 interface BarcodeScannerProps {
@@ -9,6 +10,41 @@ interface BarcodeScannerProps {
 }
 
 type ScannerState = 'starting' | 'scanning' | 'error' | 'unsupported';
+
+/** Short confirmation beep on a successful scan. */
+function playScanBeep() {
+  try {
+    const AudioCtx = window.AudioContext
+      ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(1046, ctx.currentTime);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.18);
+    osc.onended = () => void ctx.close();
+  } catch {
+    // Audio is best-effort; ignore failures.
+  }
+}
+
+// Formats actually used on courier slips — limiting these massively speeds up decoding.
+const COURIER_BARCODE_FORMATS = [
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.ITF,
+  BarcodeFormat.CODABAR,
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.QR_CODE,
+  BarcodeFormat.DATA_MATRIX,
+];
 
 export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -19,7 +55,14 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
 
   useEffect(() => {
     let cancelled = false;
-    const reader = new BrowserMultiFormatReader();
+    const hints = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, COURIER_BARCODE_FORMATS);
+    hints.set(DecodeHintType.TRY_HARDER, true);
+    // Default is one attempt every 500ms; scan far more frequently for a snappy feel.
+    const reader = new BrowserMultiFormatReader(hints, {
+      delayBetweenScanAttempts: 90,
+      delayBetweenScanSuccess: 90,
+    });
 
     const secure = window.isSecureContext || location.hostname === 'localhost';
     if (!navigator.mediaDevices?.getUserMedia || !secure) {
@@ -35,13 +78,20 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
     const start = async () => {
       try {
         const controls = await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: 'environment' } } },
+          {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          },
           videoRef.current!,
           (result, err) => {
             if (result && !detectedRef.current) {
               detectedRef.current = true;
-              onDetected(result.getText());
+              playScanBeep();
               controls.stop();
+              onDetected(result.getText());
             }
             void err;
           },
