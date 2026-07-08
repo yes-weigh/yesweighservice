@@ -8887,62 +8887,88 @@ html::-webkit-scrollbar {
 
 .book-courier__progress {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.5rem;
+  align-items: flex-start;
   list-style: none;
-  margin: 0 0.5rem 0.75rem;
-  padding: 0;
+  margin: 0 0.25rem 1.1rem;
+  padding: 0 0.25rem;
   z-index: 1;
   position: relative;
 }
 
 .book-courier__progress-item {
-  display: inline-flex;
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   font-size: 0.625rem;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+/* Dashed connector running to the previous step, behind the dots. */
+.book-courier__progress-item::before {
+  content: '';
+  position: absolute;
+  top: 0.85rem;
+  right: 50%;
+  left: -50%;
+  height: 0;
+  border-top: 2px dashed #334155;
+  z-index: 0;
+}
+
+.book-courier__progress-item:first-child::before {
+  display: none;
+}
+
+.book-courier__progress-item.is-done::before,
+.book-courier__progress-item.is-current::before {
+  border-top-color: #ff7a00;
 }
 
 .book-courier__progress-item.is-done,
 .book-courier__progress-item.is-current {
-  color: #e2e8f0;
+  color: #f1f5f9;
 }
 
 .book-courier__progress-dot {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.7rem;
+  height: 1.7rem;
   border-radius: 999px;
-  border: 1px solid #334155;
+  border: 2px solid #334155;
   background: #0f172a;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 }
 
 .book-courier__progress-item.is-done .book-courier__progress-dot {
-  background: #16a34a;
-  border-color: #16a34a;
+  background: #ff7a00;
+  border-color: #ff7a00;
   color: #fff;
 }
 
 .book-courier__progress-item.is-current .book-courier__progress-dot {
+  background: #ff7a00;
   border-color: #ff7a00;
-  color: #ff7a00;
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 122, 0, 0.18);
 }
 
 .book-courier__progress-label {
-  display: none;
-}
-
-@media (min-width: 480px) {
-  .book-courier__progress-label {
-    display: inline;
-  }
+  display: block;
+  line-height: 1.2;
 }
 
 .book-courier__body {

@@ -35,15 +35,15 @@ function playScanBeep() {
   }
 }
 
-// Formats actually used on courier slips — limiting these massively speeds up decoding.
+// 1D linear barcodes only — QR / matrix codes are intentionally excluded.
 const COURIER_BARCODE_FORMATS = [
   BarcodeFormat.CODE_128,
   BarcodeFormat.CODE_39,
   BarcodeFormat.ITF,
   BarcodeFormat.CODABAR,
   BarcodeFormat.EAN_13,
-  BarcodeFormat.QR_CODE,
-  BarcodeFormat.DATA_MATRIX,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
 ];
 
 export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onClose }) => {

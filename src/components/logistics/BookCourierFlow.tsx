@@ -92,7 +92,7 @@ function StepProgress({ step }: { step: BookCourierStep }) {
             ].filter(Boolean).join(' ')}
           >
             <span className="book-courier__progress-dot" aria-hidden>
-              {done ? <Check size={12} strokeWidth={3} /> : index + 1}
+              {done ? <Check size={15} strokeWidth={3} /> : index + 1}
             </span>
             <span className="book-courier__progress-label">{item.label}</span>
           </li>
@@ -166,9 +166,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   useEffect(() => {
     if (step !== 'address') return;
+    const q = dealerQuery.trim();
+    // Don't list every dealer on open — only search once the user types something.
+    if (!q) {
+      setDealersLoading(false);
+      // Keep only an already-selected dealer (e.g. from a prefilled invoice/support).
+      setDealers(prev => prev.filter(dealer => dealer.id === draft.zohoCustomerId));
+      return;
+    }
     let cancelled = false;
     setDealersLoading(true);
-    void fetchDealers({ q: dealerQuery, limit: 30, page: 1 })
+    void fetchDealers({ q, limit: 30, page: 1 })
       .then(response => {
         if (!cancelled) setDealers(response.data);
       })
@@ -179,7 +187,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         if (!cancelled) setDealersLoading(false);
       });
     return () => { cancelled = true; };
-  }, [step, dealerQuery]);
+  }, [step, dealerQuery, draft.zohoCustomerId]);
 
   useEffect(() => {
     void loadLogisticsSettings().then(settings => {
@@ -523,7 +531,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   );
                 })}
                 {!dealersLoading && filteredDealers.length === 0 && (
-                  <p className="text-muted text-sm">No dealers match “{dealerQuery}”.</p>
+                  <p className="text-muted text-sm">
+                    {dealerQuery.trim()
+                      ? `No dealers match “${dealerQuery}”.`
+                      : 'Start typing to search for a dealer.'}
+                  </p>
                 )}
               </div>
 
