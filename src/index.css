@@ -8652,11 +8652,11 @@ html::-webkit-scrollbar {
   margin-top: 0.75rem;
 }
 
-.logistics-page__entry-status--courier_booked {
+.logistics-page__entry-status--booked {
   color: #38bdf8;
 }
 
-.logistics-page__entry-status--pickup_pending {
+.logistics-page__entry-status--label_generated {
   color: #f59e0b;
 }
 
@@ -8672,38 +8672,94 @@ html::-webkit-scrollbar {
   color: #f87171;
 }
 
-.logistics-page__filters {
-  display: grid;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  padding: 0.75rem;
+.logistics-filter-dropdown {
+  padding: 0.9rem;
 }
 
-.logistics-page__filter-search {
+.logistics-filter-dropdown__head {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.7rem;
-  border: 1px solid var(--border-glass);
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.35);
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
 }
 
-.logistics-page__filter-search input {
-  flex: 1;
+.logistics-filter-dropdown__head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.logistics-filter-dropdown__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
-  color: inherit;
-  padding: 0.55rem 0;
-  outline: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: 8px;
 }
 
-.logistics-page__filters select {
+.logistics-filter-dropdown__close:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.logistics-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.logistics-filter-field > span {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.logistics-filter-field select {
   padding: 0.55rem 0.7rem;
   border-radius: 10px;
   border: 1px solid var(--border-glass);
-  background: rgba(15, 23, 42, 0.35);
+  background: rgba(15, 23, 42, 0.5);
   color: inherit;
+  font: inherit;
+  color-scheme: dark;
+}
+
+.logistics-filter-field select option,
+.logistics-filter-field select optgroup {
+  background-color: #12161d;
+  color: var(--text-primary);
+}
+
+.logistics-filter-field select option:checked {
+  background-color: var(--accent-primary, #f58220);
+  color: #fff;
+}
+
+.logistics-filter-dropdown__clear {
+  width: 100%;
+  padding: 0.6rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.logistics-filter-dropdown__clear:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.logistics-filter-dropdown__clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .logistics-page__error {
@@ -9199,6 +9255,76 @@ html::-webkit-scrollbar {
 }
 
 /* Box stepper (Screen 3) */
+.book-courier__mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.book-courier__mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.7rem 0.5rem;
+  border: 1px solid #262626;
+  border-radius: 12px;
+  background: #171717;
+  color: #cbd5e1;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.book-courier__mode-btn:hover {
+  border-color: #ff7a00;
+}
+
+.book-courier__mode-btn.is-selected {
+  border-color: #ff7a00;
+  background: rgba(255, 122, 0, 0.12);
+  color: #fff;
+}
+
+.book-courier__add-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: end;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.book-courier__add-item-qty input {
+  width: 4.5rem;
+}
+
+.book-courier__add-item-btn {
+  white-space: nowrap;
+}
+
+.book-courier__catalog-toggle-wrap {
+  margin-bottom: 0.85rem;
+}
+
+.book-courier__catalog-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0;
+  border: none;
+  background: transparent;
+  color: #ff9a3d;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.book-courier__catalog-toggle:hover {
+  color: #ffb066;
+}
+
 .book-courier__stepper {
   display: flex;
   align-items: center;
@@ -9835,7 +9961,12 @@ html::-webkit-scrollbar {
   color: #38bdf8;
 }
 
-.logistics-booking__status--pickup_pending {
+.logistics-booking__status--booked {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+}
+
+.logistics-booking__status--label_generated {
   background: rgba(245, 158, 11, 0.12);
   color: #fbbf24;
 }
@@ -9985,6 +10116,11 @@ html::-webkit-scrollbar {
 
 .logistics-booking__slip-names {
   margin: 0.45rem 0 0;
+}
+
+.logistics-booking__slip-hint {
+  margin: 0.35rem 0 0;
+  font-style: italic;
 }
 
 .logistics-booking__summary {
@@ -10532,6 +10668,26 @@ html::-webkit-scrollbar {
 .delivery-method-card__chevron {
   flex-shrink: 0;
   color: #f97316;
+}
+
+.delivery-method-card--coming-soon {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.delivery-method-card--coming-soon:hover,
+.delivery-method-card--coming-soon:focus-visible {
+  background: inherit;
+  border-color: inherit;
+}
+
+.delivery-method-card--coming-soon .delivery-method-card__logo-wrap {
+  filter: grayscale(1);
+}
+
+.delivery-method-card__badge--soon {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
 }
 
 .delivery-method-dialog__footer {

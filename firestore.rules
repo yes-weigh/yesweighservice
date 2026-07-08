@@ -665,7 +665,7 @@ service cloud.firestore {
         && data.zohoCustomerId is string
         && data.dealerId is string
         && data.dealerSnapshot is map
-        && data.status == 'courier_booked'
+        && data.status == 'booked'
         && data.createdByUid == request.auth.uid
         && data.createdAt is string
         && data.updatedAt is string;

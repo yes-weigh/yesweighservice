@@ -2,8 +2,8 @@ import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import type { StaffLogisticsSite } from './staff-logistics';
 
 export type LogisticsBookingStatus =
-  | 'courier_booked'
-  | 'pickup_pending'
+  | 'booked'
+  | 'label_generated'
   | 'in_transit'
   | 'delivered'
   | 'cancelled';
@@ -13,6 +13,12 @@ export type LogisticsBookingSource = 'manual' | 'invoice' | 'support';
 export type DeliveryAddressKind = 'shipping' | 'billing';
 
 export type PackageType = 'carton' | 'wooden' | 'pallet' | 'plastic';
+
+/** Whether the shipment is a flat envelope/document pouch or a box. */
+export type ShipmentMode = 'envelope' | 'box';
+
+/** The two printable documents generated for a shipment. */
+export type LogisticsDocumentType = 'courier_slip' | 'shipping_label';
 
 /** Snapshot of the Zoho customer at booking time. */
 export interface LogisticsDealerSnapshot {
@@ -58,6 +64,7 @@ export interface LogisticsBookingDraft {
   dealerId: string;
   deliveryAddressKind: DeliveryAddressKind;
   shipFromSite: StaffLogisticsSite;
+  shipmentMode: ShipmentMode;
   numberOfBoxes: number;
   actualWeightKg: string;
   lengthCm: string;
@@ -90,6 +97,7 @@ export interface LogisticsBooking {
   deliveryAddress: string;
   shipFromSite: StaffLogisticsSite;
   shipFromAddress: string;
+  shipmentMode: ShipmentMode;
   numberOfBoxes: number;
   actualWeightKg: number;
   volumetricWeightKg: number;
@@ -101,9 +109,12 @@ export interface LogisticsBooking {
   shipmentItems: ShipmentItem[];
   finalPackagePhoto: string | null;
   finalPackagePhotoStoragePath: string | null;
+  /** @deprecated legacy alias of shippingLabelGenerated */
   labelGenerated: boolean;
   courierSlipGenerated: boolean;
-  packingSlipGenerated: boolean;
+  shippingLabelGenerated: boolean;
+  /** @deprecated no longer surfaced in the UI */
+  packingSlipGenerated?: boolean;
   status: LogisticsBookingStatus;
   createdAt: string;
   updatedAt: string;

@@ -6,14 +6,14 @@ import {
   Check,
   CheckCircle2,
   ChevronLeft,
-  Download,
   Keyboard,
+  Link2,
+  Mail,
   MapPin,
   Minus,
   Package,
   Pencil,
   Plus,
-  Printer,
   ScanLine,
   Search,
   Trash2,
@@ -26,6 +26,7 @@ import { fetchCatalog } from '../../lib/catalog';
 import {
   BOOK_COURIER_STEPS,
   PACKAGE_TYPES,
+  SHIPMENT_MODES,
   bookStepProgressIndex,
   computeVolumetricWeight,
   emptyBookingDraft,
@@ -49,6 +50,7 @@ import type {
   LogisticsDealerSnapshot,
   PackageType,
   ShipmentItem,
+  ShipmentMode,
 } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { STAFF_LOGISTICS_SITES, STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
@@ -121,6 +123,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [dealersLoading, setDealersLoading] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogHits, setCatalogHits] = useState<CatalogProduct[]>([]);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemQty, setNewItemQty] = useState(1);
   const [saving, setSaving] = useState(false);
   const [editingCourier, setEditingCourier] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
@@ -184,17 +189,20 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }, [user.staffLogisticsSite]);
 
   useEffect(() => {
-    if (step !== 'box' || draft.source !== 'manual') return;
+    if (step !== 'box' || !showCatalog) return;
+    const q = catalogQuery.trim().toLowerCase();
+    if (!q) {
+      setCatalogHits([]);
+      return;
+    }
     void fetchCatalog().then(response => {
-      const q = catalogQuery.trim().toLowerCase();
-      const hits = response.items.filter(product => {
-        if (!q) return true;
-        return product.name.toLowerCase().includes(q)
-          || (product.sku?.toLowerCase().includes(q) ?? false);
-      }).slice(0, 8);
+      const hits = response.items.filter(product =>
+        product.name.toLowerCase().includes(q)
+          || (product.sku?.toLowerCase().includes(q) ?? false),
+      ).slice(0, 8);
       setCatalogHits(hits);
     });
-  }, [step, catalogQuery, draft.source]);
+  }, [step, catalogQuery, showCatalog]);
 
   const updateDraft = useCallback(<K extends keyof LogisticsBookingDraft>(
     key: K,
@@ -253,6 +261,40 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       ],
     }));
     setCatalogQuery('');
+    setCatalogHits([]);
+    setShowCatalog(false);
+  }, []);
+
+  const addTypedItem = useCallback(() => {
+    const name = newItemName.trim();
+    if (!name) return;
+    const quantity = Math.max(1, Math.floor(newItemQty) || 1);
+    setDraft(prev => ({
+      ...prev,
+      shipmentItems: [
+        ...prev.shipmentItems,
+        {
+          id: `item-typed-${Date.now()}`,
+          name,
+          sku: null,
+          catalogProductId: null,
+          quantity,
+          serialNumbers: [],
+          photoStoragePath: null,
+          photoUrl: null,
+        },
+      ],
+    }));
+    setNewItemName('');
+    setNewItemQty(1);
+  }, [newItemName, newItemQty]);
+
+  const setShipmentMode = useCallback((mode: ShipmentMode) => {
+    setDraft(prev => ({
+      ...prev,
+      shipmentMode: mode,
+      numberOfBoxes: mode === 'envelope' ? 1 : prev.numberOfBoxes,
+    }));
   }, []);
 
   const removeShipmentItem = useCallback((itemId: string) => {
@@ -272,77 +314,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     if (!file) return;
     const dataUrl = await fileToDataUrl(file);
     updateDraft('finalPackagePhoto', dataUrl);
-  }, [updateDraft]);
-
-  const buildLabelHtml = useCallback(() => {
-    const dealer = selectedDealer;
-    const delivery = dealer
-      ? resolveDeliveryAddress(dealer, draft.deliveryAddressKind)
-      : '';
-    const rows: Array<[string, string]> = [
-      ['Service', draft.serviceType],
-      ['Branch', draft.branch],
-      ['Boxes', String(draft.numberOfBoxes)],
-      ['Weight', `${(Number.parseFloat(draft.actualWeightKg) || 0).toFixed(2)} kg`],
-      ['Package', packageTypeLabel(draft.packageType)],
-      ['Date', draft.bookingDate],
-    ];
-    return `
-      <div class="label">
-        <div class="label__partner">${logisticsPartnerLabel(partnerId)}</div>
-        <div class="label__title">COURIER SHIPMENT LABEL</div>
-        <div class="label__track">
-          <span>CONSIGNMENT NO.</span>
-          <strong>${draft.consignmentNo}</strong>
-          <div class="label__bars"></div>
-          <div class="label__num">${draft.consignmentNo}</div>
-        </div>
-        <div class="label__to">
-          <span>DELIVER TO</span>
-          <strong>${dealer?.name ?? ''} (${dealer?.code ?? ''})</strong>
-          <div>${dealer?.contactPerson ?? ''} · ${dealer?.mobile ?? ''}</div>
-          <div>${delivery}</div>
-        </div>
-        <table class="label__meta">${rows
-          .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
-          .join('')}</table>
-      </div>`;
-  }, [draft, partnerId, selectedDealer]);
-
-  const openLabelWindow = useCallback((autoPrint: boolean) => {
-    const win = window.open('', '_blank', 'width=460,height=720');
-    if (!win) return;
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8" />
-      <title>Courier Label ${draft.consignmentNo}</title>
-      <style>
-        * { box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
-        body { margin: 0; padding: 16px; background: #fff; color: #111; }
-        .label { border: 2px solid #111; border-radius: 8px; padding: 16px; max-width: 380px; margin: 0 auto; }
-        .label__partner { font-size: 20px; font-weight: 800; text-transform: uppercase; }
-        .label__title { font-size: 11px; letter-spacing: 2px; color: #555; margin-bottom: 12px; }
-        .label__track { border: 1px dashed #111; border-radius: 6px; padding: 10px; text-align: center; margin-bottom: 12px; }
-        .label__track span { font-size: 10px; letter-spacing: 1px; color: #555; display: block; }
-        .label__track strong { font-size: 18px; letter-spacing: 1px; }
-        .label__bars { height: 46px; margin: 8px 0 4px; background: repeating-linear-gradient(90deg, #111 0, #111 2px, #fff 2px, #fff 4px, #111 4px, #111 7px, #fff 7px, #fff 9px); }
-        .label__num { font-size: 14px; letter-spacing: 3px; }
-        .label__to { border-top: 1px solid #ddd; padding-top: 10px; margin-bottom: 12px; font-size: 12px; }
-        .label__to span { font-size: 10px; letter-spacing: 1px; color: #555; display: block; }
-        .label__to strong { font-size: 14px; display: block; margin-bottom: 2px; }
-        .label__meta { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .label__meta td { border-top: 1px solid #eee; padding: 4px 0; }
-        .label__meta td:first-child { color: #555; width: 40%; }
-        @media print { body { padding: 0; } }
-      </style></head><body>${buildLabelHtml()}</body></html>`);
-    win.document.close();
-    win.focus();
-    if (autoPrint) {
-      win.setTimeout(() => win.print(), 300);
-    }
-  }, [buildLabelHtml, draft.consignmentNo]);
-
-  const handleGenerateLabel = useCallback(() => {
-    updateDraft('labelGenerated', true);
-    setStep('label');
   }, [updateDraft]);
 
   const handleConfirmShipment = useCallback(async () => {
@@ -371,14 +342,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     setDraft(prev => ({ ...prev, numberOfBoxes: Math.max(1, prev.numberOfBoxes + delta) }));
   }, []);
 
+  const isEnvelope = draft.shipmentMode === 'envelope';
   const allItemsPhotographed = draft.shipmentItems.length > 0
     && draft.shipmentItems.every(item => item.photoUrl || item.photoStoragePath);
   const canProceedScan = Boolean(draft.barcodeRaw.trim() || draft.consignmentNo.trim());
   const canProceedAddress = Boolean(draft.zohoCustomerId);
   const canProceedBox = Boolean(
-    draft.numberOfBoxes >= 1 &&
-    (Number.parseFloat(draft.actualWeightKg) || 0) > 0 &&
-    allItemsPhotographed,
+    allItemsPhotographed &&
+    (isEnvelope || (
+      draft.numberOfBoxes >= 1 &&
+      (Number.parseFloat(draft.actualWeightKg) || 0) > 0
+    )),
   );
 
   const goBack = () => {
@@ -387,8 +361,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       case 'address': setStep('scan'); break;
       case 'box': setStep('address'); break;
       case 'review': setStep('box'); break;
-      case 'label': setStep('review'); break;
-      case 'final_photo': setStep('label'); break;
+      case 'final_photo': setStep('review'); break;
       case 'complete': break;
       default: onClose();
     }
@@ -397,7 +370,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const stepNumberLabel = (() => {
     const idx = bookStepProgressIndex(step);
     if (idx < BOOK_COURIER_STEPS.length) return `Step ${idx + 1} of ${BOOK_COURIER_STEPS.length}`;
-    if (step === 'label') return 'Shipment label';
     if (step === 'final_photo') return 'Final package photo';
     return 'Completed';
   })();
@@ -588,69 +560,93 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 <Package size={18} aria-hidden />
-                Box &amp; <span className="accent">Package</span> Details
+                {isEnvelope ? 'Envelope' : 'Package'} <span className="accent">Details</span>
               </h3>
 
-              <div className="book-courier__stepper">
-                <span>Number of Boxes</span>
-                <div className="book-courier__stepper-controls">
-                  <button type="button" onClick={() => adjustBoxes(-1)} aria-label="Decrease boxes">
-                    <Minus size={16} aria-hidden />
+              <div className="book-courier__mode" role="radiogroup" aria-label="Shipment type">
+                {SHIPMENT_MODES.map(mode => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={draft.shipmentMode === mode.id}
+                    className={`book-courier__mode-btn${draft.shipmentMode === mode.id ? ' is-selected' : ''}`}
+                    onClick={() => setShipmentMode(mode.id)}
+                  >
+                    {mode.id === 'envelope' ? <Mail size={18} aria-hidden /> : <Package size={18} aria-hidden />}
+                    <span>{mode.label}</span>
                   </button>
-                  <strong>{draft.numberOfBoxes}</strong>
-                  <button type="button" onClick={() => adjustBoxes(1)} aria-label="Increase boxes">
-                    <Plus size={16} aria-hidden />
-                  </button>
-                </div>
+                ))}
               </div>
 
-              <label className="courier-dialog__field">
-                <span>Actual Weight (kg)</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={draft.actualWeightKg}
-                  onChange={event => updateDraft('actualWeightKg', event.target.value)}
-                  placeholder="0.00"
-                />
-              </label>
+              {isEnvelope ? (
+                <p className="book-courier__hint text-muted text-sm">
+                  Envelope shipments don&apos;t need weight or dimensions. Just list the contents below.
+                </p>
+              ) : (
+                <>
+                  <div className="book-courier__stepper">
+                    <span>Number of Boxes</span>
+                    <div className="book-courier__stepper-controls">
+                      <button type="button" onClick={() => adjustBoxes(-1)} aria-label="Decrease boxes">
+                        <Minus size={16} aria-hidden />
+                      </button>
+                      <strong>{draft.numberOfBoxes}</strong>
+                      <button type="button" onClick={() => adjustBoxes(1)} aria-label="Increase boxes">
+                        <Plus size={16} aria-hidden />
+                      </button>
+                    </div>
+                  </div>
 
-              <p className="book-courier__hint text-muted text-sm">Dimensions (cm)</p>
-              <div className="courier-dialog__field-row book-courier__dims">
-                <label className="courier-dialog__field">
-                  <span>L</span>
-                  <input type="number" min="0" value={draft.lengthCm}
-                    onChange={event => updateDraft('lengthCm', event.target.value)} />
-                </label>
-                <label className="courier-dialog__field">
-                  <span>W</span>
-                  <input type="number" min="0" value={draft.widthCm}
-                    onChange={event => updateDraft('widthCm', event.target.value)} />
-                </label>
-                <label className="courier-dialog__field">
-                  <span>H</span>
-                  <input type="number" min="0" value={draft.heightCm}
-                    onChange={event => updateDraft('heightCm', event.target.value)} />
-                </label>
-              </div>
+                  <label className="courier-dialog__field">
+                    <span>Actual Weight (kg)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={draft.actualWeightKg}
+                      onChange={event => updateDraft('actualWeightKg', event.target.value)}
+                      placeholder="0.00"
+                    />
+                  </label>
 
-              <div className="book-courier__volumetric">
-                <span>Volumetric Weight</span>
-                <strong>{volumetricWeight.toFixed(2)} kg</strong>
-              </div>
+                  <p className="book-courier__hint text-muted text-sm">Dimensions (cm)</p>
+                  <div className="courier-dialog__field-row book-courier__dims">
+                    <label className="courier-dialog__field">
+                      <span>L</span>
+                      <input type="number" min="0" value={draft.lengthCm}
+                        onChange={event => updateDraft('lengthCm', event.target.value)} />
+                    </label>
+                    <label className="courier-dialog__field">
+                      <span>W</span>
+                      <input type="number" min="0" value={draft.widthCm}
+                        onChange={event => updateDraft('widthCm', event.target.value)} />
+                    </label>
+                    <label className="courier-dialog__field">
+                      <span>H</span>
+                      <input type="number" min="0" value={draft.heightCm}
+                        onChange={event => updateDraft('heightCm', event.target.value)} />
+                    </label>
+                  </div>
 
-              <label className="courier-dialog__field">
-                <span>Package Type</span>
-                <select
-                  value={draft.packageType}
-                  onChange={event => updateDraft('packageType', event.target.value as PackageType)}
-                >
-                  {PACKAGE_TYPES.map(type => (
-                    <option key={type.id} value={type.id}>{type.label}</option>
-                  ))}
-                </select>
-              </label>
+                  <div className="book-courier__volumetric">
+                    <span>Volumetric Weight</span>
+                    <strong>{volumetricWeight.toFixed(2)} kg</strong>
+                  </div>
+
+                  <label className="courier-dialog__field">
+                    <span>Package Type</span>
+                    <select
+                      value={draft.packageType}
+                      onChange={event => updateDraft('packageType', event.target.value as PackageType)}
+                    >
+                      {PACKAGE_TYPES.map(type => (
+                        <option key={type.id} value={type.id}>{type.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
 
               <label className="courier-dialog__field">
                 <span>Note (optional)</span>
@@ -674,31 +670,81 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 </select>
               </label>
 
-              {draft.source === 'manual' && (
-                <div className="book-courier__catalog-search">
-                  <label className="book-courier__search">
-                    <Search size={16} aria-hidden />
-                    <input
-                      type="search"
-                      value={catalogQuery}
-                      onChange={event => setCatalogQuery(event.target.value)}
-                      placeholder="Search catalog products to add"
-                    />
-                  </label>
-                  {catalogHits.length > 0 && (
-                    <ul className="book-courier__catalog-hits">
-                      {catalogHits.map(product => (
-                        <li key={product.id}>
-                          <button type="button" onClick={() => addCatalogItem(product)}>
-                            <strong>{product.name}</strong>
-                            <span className="text-muted">{product.sku}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
+              <div className="book-courier__add-item">
+                <label className="courier-dialog__field book-courier__add-item-name">
+                  <span>Add item</span>
+                  <input
+                    type="text"
+                    value={newItemName}
+                    onChange={event => setNewItemName(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        addTypedItem();
+                      }
+                    }}
+                    placeholder="Type item name"
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="courier-dialog__field book-courier__add-item-qty">
+                  <span>Qty</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newItemQty}
+                    onChange={event => setNewItemQty(Math.max(1, Number.parseInt(event.target.value, 10) || 1))}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm book-courier__add-item-btn"
+                  onClick={addTypedItem}
+                  disabled={!newItemName.trim()}
+                >
+                  <Plus size={16} aria-hidden /> Add
+                </button>
+              </div>
+
+              <div className="book-courier__catalog-toggle-wrap">
+                <button
+                  type="button"
+                  className="book-courier__catalog-toggle"
+                  onClick={() => setShowCatalog(v => !v)}
+                  aria-expanded={showCatalog}
+                >
+                  <Link2 size={14} aria-hidden />
+                  {showCatalog ? 'Hide catalogue search' : 'Link a catalogue product (optional)'}
+                </button>
+                {showCatalog && (
+                  <div className="book-courier__catalog-search">
+                    <label className="book-courier__search">
+                      <Search size={16} aria-hidden />
+                      <input
+                        type="search"
+                        value={catalogQuery}
+                        onChange={event => setCatalogQuery(event.target.value)}
+                        placeholder="Search catalogue products"
+                      />
+                    </label>
+                    {catalogHits.length > 0 && (
+                      <ul className="book-courier__catalog-hits">
+                        {catalogHits.map(product => (
+                          <li key={product.id}>
+                            <button type="button" onClick={() => addCatalogItem(product)}>
+                              <strong>{product.name}</strong>
+                              <span className="text-muted">{product.sku}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {catalogQuery.trim() && catalogHits.length === 0 && (
+                      <p className="text-muted text-sm">No catalogue products match “{catalogQuery}”.</p>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <div className="book-courier__items">
                 <h4 className="book-courier__items-title">
@@ -718,7 +764,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       onCapture={file => void handleItemPhotoChange(item.id, file)}
                       onClear={() => setItemPhoto(item.id, null)}
                       onPreview={() => item.photoUrl && setPreviewPhoto(item.photoUrl)}
-                      onRemove={draft.source !== 'manual' ? () => removeShipmentItem(item.id) : undefined}
+                      onRemove={() => removeShipmentItem(item.id)}
                     />
                   ))}
                 </ul>
@@ -804,15 +850,20 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   </button>
                 </div>
                 <dl className="book-courier__kv">
-                  <div><dt>No. of Boxes</dt><dd>{draft.numberOfBoxes}</dd></div>
-                  <div><dt>Actual Weight</dt><dd>{(Number.parseFloat(draft.actualWeightKg) || 0).toFixed(2)} kg</dd></div>
-                  <div>
-                    <dt>Dimensions (LxWxH)</dt>
-                    <dd>{draft.lengthCm && draft.widthCm && draft.heightCm
-                      ? `${draft.lengthCm} x ${draft.widthCm} x ${draft.heightCm} cm` : '—'}</dd>
-                  </div>
-                  <div><dt>Volumetric Weight</dt><dd>{volumetricWeight.toFixed(2)} kg</dd></div>
-                  <div><dt>Package Type</dt><dd>{packageTypeLabel(draft.packageType)}</dd></div>
+                  <div><dt>Shipment Type</dt><dd>{isEnvelope ? 'Envelope' : 'Box'}</dd></div>
+                  {!isEnvelope && (
+                    <>
+                      <div><dt>No. of Boxes</dt><dd>{draft.numberOfBoxes}</dd></div>
+                      <div><dt>Actual Weight</dt><dd>{(Number.parseFloat(draft.actualWeightKg) || 0).toFixed(2)} kg</dd></div>
+                      <div>
+                        <dt>Dimensions (LxWxH)</dt>
+                        <dd>{draft.lengthCm && draft.widthCm && draft.heightCm
+                          ? `${draft.lengthCm} x ${draft.widthCm} x ${draft.heightCm} cm` : '—'}</dd>
+                      </div>
+                      <div><dt>Volumetric Weight</dt><dd>{volumetricWeight.toFixed(2)} kg</dd></div>
+                      <div><dt>Package Type</dt><dd>{packageTypeLabel(draft.packageType)}</dd></div>
+                    </>
+                  )}
                 </dl>
               </div>
 
@@ -844,53 +895,14 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 type="button"
                 className="btn btn-primary book-courier__next"
                 disabled={!allItemsPhotographed}
-                onClick={handleGenerateLabel}
+                onClick={() => setStep('final_photo')}
               >
-                Generate Label
-              </button>
-            </section>
-          )}
-
-          {/* SCREEN 5 — SHIPMENT LABEL */}
-          {step === 'label' && (
-            <section className="book-courier__section">
-              <h3 className="book-courier__section-title">Shipment <span className="accent">Label</span></h3>
-              <div className="book-courier__label-preview">
-                <div className="book-courier__label-partner">{logisticsPartnerLabel(partnerId)}</div>
-                <div className="book-courier__label-caption">COURIER SHIPMENT LABEL</div>
-                <div className="book-courier__label-track">
-                  <span>CONSIGNMENT NO.</span>
-                  <strong>{draft.consignmentNo}</strong>
-                  <div className="book-courier__label-bars" aria-hidden />
-                  <div className="book-courier__label-num">{draft.consignmentNo}</div>
-                </div>
-                {selectedDealer && (
-                  <div className="book-courier__label-to">
-                    <span>DELIVER TO</span>
-                    <strong>{selectedDealer.name}</strong>
-                    <span className="text-muted">{resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)}</span>
-                  </div>
-                )}
-              </div>
-              <div className="book-courier__slip-actions">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => openLabelWindow(true)}>
-                  <Printer size={14} aria-hidden /> Print
-                </button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => openLabelWindow(false)}>
-                  <Download size={14} aria-hidden /> Download PDF
-                </button>
-              </div>
-              <p className="book-courier__paste-note">
-                <Check size={14} aria-hidden />
-                Paste the label on the package.
-              </p>
-              <button type="button" className="btn btn-primary book-courier__next" onClick={() => setStep('final_photo')}>
                 Next
               </button>
             </section>
           )}
 
-          {/* SCREEN 6 — FINAL PACKAGE PHOTO */}
+          {/* SCREEN 5 — FINAL PACKAGE PHOTO */}
           {step === 'final_photo' && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">

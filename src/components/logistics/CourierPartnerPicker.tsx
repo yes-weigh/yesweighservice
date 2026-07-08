@@ -1,12 +1,14 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, ShieldCheck, Star, Truck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, ShieldCheck, Star, Truck } from 'lucide-react';
 import { DELIVERY_METHODS, type DeliveryMethod } from '../../constants/deliveryMethods';
 
 interface CourierPartnerPickerProps {
   onClose: () => void;
   onSelect: (methodId: string) => void;
   partners?: DeliveryMethod[];
+  /** When provided, partners not in this list are shown as "Coming soon" and are not selectable. */
+  availableIds?: readonly string[];
   titleLead?: string;
   titleAccent?: string;
   subtitle?: string;
@@ -17,6 +19,7 @@ export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
   onClose,
   onSelect,
   partners = DELIVERY_METHODS,
+  availableIds,
   titleLead = 'DELIVERY',
   titleAccent = 'METHOD',
   subtitle = 'Choose your preferred delivery option',
@@ -56,37 +59,53 @@ export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
       </header>
 
       <div className="delivery-method-dialog__grid" role="listbox" aria-label={ariaLabel}>
-        {partners.map(method => (
-          <button
-            key={method.id}
-            type="button"
-            role="option"
-            className={`delivery-method-card${method.recommended ? ' delivery-method-card--recommended' : ''}`}
-            aria-label={method.label}
-            onClick={() => onSelect(method.id)}
-          >
-            <span className="delivery-method-card__logo-wrap">
-              <img
-                src={method.image}
-                alt=""
-                className="delivery-method-card__logo"
-                loading="lazy"
-                decoding="async"
-              />
-            </span>
-            <span className="delivery-method-card__text">
-              <span className="delivery-method-card__label">{method.label}</span>
-              <span className="delivery-method-card__tagline">{method.tagline}</span>
-              {method.recommended && (
-                <span className="delivery-method-card__badge">
-                  <Star size={11} aria-hidden />
-                  Recommended
-                </span>
+        {partners.map(method => {
+          const comingSoon = availableIds ? !availableIds.includes(method.id) : false;
+          return (
+            <button
+              key={method.id}
+              type="button"
+              role="option"
+              aria-disabled={comingSoon}
+              aria-selected={false}
+              className={[
+                'delivery-method-card',
+                method.recommended && !comingSoon ? 'delivery-method-card--recommended' : '',
+                comingSoon ? 'delivery-method-card--coming-soon' : '',
+              ].filter(Boolean).join(' ')}
+              aria-label={comingSoon ? `${method.label} (coming soon)` : method.label}
+              onClick={() => { if (!comingSoon) onSelect(method.id); }}
+            >
+              <span className="delivery-method-card__logo-wrap">
+                <img
+                  src={method.image}
+                  alt=""
+                  className="delivery-method-card__logo"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </span>
+              <span className="delivery-method-card__text">
+                <span className="delivery-method-card__label">{method.label}</span>
+                <span className="delivery-method-card__tagline">{method.tagline}</span>
+                {comingSoon ? (
+                  <span className="delivery-method-card__badge delivery-method-card__badge--soon">
+                    <Clock size={11} aria-hidden />
+                    Coming soon
+                  </span>
+                ) : method.recommended && (
+                  <span className="delivery-method-card__badge">
+                    <Star size={11} aria-hidden />
+                    Recommended
+                  </span>
+                )}
+              </span>
+              {!comingSoon && (
+                <ChevronRight size={18} className="delivery-method-card__chevron" aria-hidden />
               )}
-            </span>
-            <ChevronRight size={18} className="delivery-method-card__chevron" aria-hidden />
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
 
       <footer className="delivery-method-dialog__footer">

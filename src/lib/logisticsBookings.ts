@@ -23,6 +23,7 @@ import { isInternalOpsUser } from './staffAccess';
 import { resolveDeliveryAddress } from './logisticsDealers';
 import {
   computeVolumetricWeight,
+  statusForDocument,
 } from './logisticsBooking';
 import {
   dataUrlToFile,
@@ -35,6 +36,7 @@ import type {
   LogisticsBookingDraft,
   LogisticsBookingStatus,
   LogisticsDealerSnapshot,
+  LogisticsDocumentType,
   ShipmentItem,
 } from '../types/logistics-dispatch';
 import { isStaffLogisticsSite } from '../types/staff-logistics';
@@ -61,6 +63,22 @@ function resolveDealerIdForUser(user: User): string {
 
 function isEditableStatus(status: LogisticsBookingStatus): boolean {
   return status !== 'in_transit' && status !== 'delivered' && status !== 'cancelled';
+}
+
+/** Map legacy/unknown status values onto the current pipeline statuses. */
+function normalizeBookingStatus(raw: string): LogisticsBookingStatus {
+  switch (raw) {
+    case 'label_generated':
+    case 'in_transit':
+    case 'delivered':
+    case 'cancelled':
+      return raw;
+    case 'booked':
+    case 'courier_booked':
+    case 'pickup_pending':
+    default:
+      return 'booked';
+  }
 }
 
 function mapShipmentItem(data: DocumentData): ShipmentItem {
@@ -97,8 +115,9 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
   const partnerId = isLogisticsPartnerId(String(data.partnerId ?? ''))
     ? String(data.partnerId) as LogisticsPartnerId
     : 'st_courier';
-  const status = String(data.status ?? 'courier_booked') as LogisticsBookingStatus;
+  const status = normalizeBookingStatus(String(data.status ?? 'booked'));
   const packageType = String(data.packageType ?? 'carton') as LogisticsBooking['packageType'];
+  const shipmentMode = data.shipmentMode === 'envelope' ? 'envelope' : 'box';
 
   return {
     id,
@@ -119,6 +138,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     deliveryAddress: String(data.deliveryAddress ?? resolveDeliveryAddress(dealer, 'shipping')),
     shipFromSite: isStaffLogisticsSite(data.shipFromSite) ? data.shipFromSite : 'head_office',
     shipFromAddress: String(data.shipFromAddress ?? ''),
+    shipmentMode,
     numberOfBoxes: Number(data.numberOfBoxes) || 1,
     actualWeightKg: Number(data.actualWeightKg) || 0,
     volumetricWeightKg: Number(data.volumetricWeightKg) || 0,
@@ -134,8 +154,9 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     finalPackagePhotoStoragePath: typeof data.finalPackagePhotoStoragePath === 'string'
       ? data.finalPackagePhotoStoragePath
       : null,
-    labelGenerated: Boolean(data.labelGenerated),
-    courierSlipGenerated: Boolean(data.courierSlipGenerated ?? data.labelGenerated),
+    labelGenerated: Boolean(data.shippingLabelGenerated ?? data.labelGenerated),
+    courierSlipGenerated: Boolean(data.courierSlipGenerated),
+    shippingLabelGenerated: Boolean(data.shippingLabelGenerated ?? data.labelGenerated),
     packingSlipGenerated: Boolean(data.packingSlipGenerated),
     status,
     createdAt: String(data.createdAt ?? ''),
@@ -199,9 +220,10 @@ export async function persistLogisticsBooking(
 
   const settings = await loadLogisticsSettings();
   const shipFromAddress = settings.fromAddresses[draft.shipFromSite]?.trim() || '';
-  const length = draft.lengthCm ? Number.parseFloat(draft.lengthCm) : null;
-  const width = draft.widthCm ? Number.parseFloat(draft.widthCm) : null;
-  const height = draft.heightCm ? Number.parseFloat(draft.heightCm) : null;
+  const isEnvelope = draft.shipmentMode === 'envelope';
+  const length = !isEnvelope && draft.lengthCm ? Number.parseFloat(draft.lengthCm) : null;
+  const width = !isEnvelope && draft.widthCm ? Number.parseFloat(draft.widthCm) : null;
+  const height = !isEnvelope && draft.heightCm ? Number.parseFloat(draft.heightCm) : null;
   const now = new Date().toISOString();
   const orderRef = draft.invoiceNumber
     || draft.supportRequestNumber
@@ -230,9 +252,10 @@ export async function persistLogisticsBooking(
     deliveryAddress: resolveDeliveryAddress(dealer, draft.deliveryAddressKind),
     shipFromSite: draft.shipFromSite,
     shipFromAddress,
-    numberOfBoxes: Math.max(1, draft.numberOfBoxes || 1),
-    actualWeightKg: Number.parseFloat(draft.actualWeightKg) || 0,
-    volumetricWeightKg: computeVolumetricWeight(length, width, height),
+    shipmentMode: draft.shipmentMode,
+    numberOfBoxes: isEnvelope ? 1 : Math.max(1, draft.numberOfBoxes || 1),
+    actualWeightKg: isEnvelope ? 0 : (Number.parseFloat(draft.actualWeightKg) || 0),
+    volumetricWeightKg: isEnvelope ? 0 : computeVolumetricWeight(length, width, height),
     lengthCm: length,
     widthCm: width,
     heightCm: height,
@@ -248,10 +271,11 @@ export async function persistLogisticsBooking(
       photoStoragePath: item.photoStoragePath,
     })),
     finalPackagePhotoStoragePath,
-    labelGenerated: draft.labelGenerated,
-    courierSlipGenerated: draft.labelGenerated,
+    labelGenerated: false,
+    courierSlipGenerated: false,
+    shippingLabelGenerated: false,
     packingSlipGenerated: false,
-    status: 'courier_booked' as LogisticsBookingStatus,
+    status: 'booked' as LogisticsBookingStatus,
     createdAt: now,
     updatedAt: now,
     createdByUid: createdBy.uid,
@@ -353,6 +377,31 @@ export function subscribeLogisticsBookings(
   }, err => {
     onError?.(err instanceof Error ? err : new Error('Could not load logistics bookings.'));
   });
+}
+
+export async function generateLogisticsDocument(
+  booking: LogisticsBooking,
+  document: LogisticsDocumentType,
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to generate shipment documents.');
+  }
+  const updatedAt = new Date().toISOString();
+  const status = statusForDocument(booking.status, document);
+  const patch: Record<string, unknown> = { status, updatedAt };
+  const next: LogisticsBooking = { ...booking, status, updatedAt };
+  if (document === 'courier_slip') {
+    patch.courierSlipGenerated = true;
+    next.courierSlipGenerated = true;
+  } else {
+    patch.shippingLabelGenerated = true;
+    patch.labelGenerated = true;
+    next.shippingLabelGenerated = true;
+    next.labelGenerated = true;
+  }
+  await updateDoc(doc(db, COLLECTION, booking.id), patch);
+  return next;
 }
 
 export async function updateLogisticsBookingStatus(

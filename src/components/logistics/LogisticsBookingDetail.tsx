@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ExternalLink, FileText, MapPin, Package, Printer, Truck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -11,10 +11,16 @@ import {
   bookingSummaryLines,
   courierSlipFileName,
   packageTypeLabel,
-  packingSlipFileName,
+  shipmentModeLabel,
+  shippingLabelFileName,
 } from '../../lib/logisticsBooking';
-import { canDeleteLogisticsBooking } from '../../lib/logisticsBookings';
-import type { LogisticsBooking, LogisticsBookingStatus } from '../../types/logistics-dispatch';
+import { canDeleteLogisticsBooking, generateLogisticsDocument } from '../../lib/logisticsBookings';
+import { openCourierSlipWindow, openShippingLabelWindow } from '../../lib/logisticsDocuments';
+import type {
+  LogisticsBooking,
+  LogisticsBookingStatus,
+  LogisticsDocumentType,
+} from '../../types/logistics-dispatch';
 
 interface LogisticsBookingDetailProps {
   booking: LogisticsBooking;
@@ -36,19 +42,33 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   onDelete,
 }) => {
   const { user } = useAuth();
+  const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
+  const isEnvelope = booking.shipmentMode === 'envelope';
   const currentIndex = booking.status === 'cancelled' ? -1 : bookingStatusIndex(booking.status);
-  const nextStatus = booking.status === 'cancelled'
+  // Booked → Label Generated is document-driven (generate the shipping label);
+  // ops can only manually advance once the label exists.
+  const nextStatus = booking.status === 'cancelled' || booking.status === 'booked'
     ? null
     : PROGRESS_STATUSES[currentIndex + 1]?.id;
   const basePath = user ? homePathForRole(user.role) : '/dealer';
 
-  const handleGenerateCourierSlip = () => {
-    onUpdate({ ...booking, courierSlipGenerated: true, labelGenerated: true });
-  };
-
-  const handleGeneratePackingSlip = () => {
-    onUpdate({ ...booking, packingSlipGenerated: true });
+  const handleGenerateDocument = async (document: LogisticsDocumentType) => {
+    if (document === 'courier_slip') {
+      openCourierSlipWindow(booking, false);
+    } else {
+      openShippingLabelWindow(booking, false);
+    }
+    if (!user) return;
+    setGenerating(document);
+    try {
+      const updated = await generateLogisticsDocument(booking, document, user);
+      onUpdate(updated);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not generate document.');
+    } finally {
+      setGenerating(null);
+    }
   };
 
   return (
@@ -161,16 +181,21 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             Package
           </h4>
           <dl className="logistics-booking__meta">
-            <div><dt>Boxes</dt><dd>{booking.numberOfBoxes}</dd></div>
-            <div><dt>Actual wt.</dt><dd>{booking.actualWeightKg.toFixed(2)} kg</dd></div>
-            <div><dt>Volumetric wt.</dt><dd>{booking.volumetricWeightKg.toFixed(2)} kg</dd></div>
-            {booking.lengthCm && booking.widthCm && booking.heightCm && (
-              <div>
-                <dt>Dimensions</dt>
-                <dd>{booking.lengthCm} × {booking.widthCm} × {booking.heightCm} cm</dd>
-              </div>
+            <div><dt>Shipment</dt><dd>{shipmentModeLabel(booking.shipmentMode)}</dd></div>
+            {!isEnvelope && (
+              <>
+                <div><dt>Boxes</dt><dd>{booking.numberOfBoxes}</dd></div>
+                <div><dt>Actual wt.</dt><dd>{booking.actualWeightKg.toFixed(2)} kg</dd></div>
+                <div><dt>Volumetric wt.</dt><dd>{booking.volumetricWeightKg.toFixed(2)} kg</dd></div>
+                {booking.lengthCm && booking.widthCm && booking.heightCm && (
+                  <div>
+                    <dt>Dimensions</dt>
+                    <dd>{booking.lengthCm} × {booking.widthCm} × {booking.heightCm} cm</dd>
+                  </div>
+                )}
+                <div><dt>Type</dt><dd>{packageTypeLabel(booking.packageType)}</dd></div>
+              </>
             )}
-            <div><dt>Type</dt><dd>{packageTypeLabel(booking.packageType)}</dd></div>
             {booking.notes && (
               <div><dt>Notes</dt><dd>{booking.notes}</dd></div>
             )}
@@ -205,25 +230,36 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             <button
               type="button"
               className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
-              onClick={handleGenerateCourierSlip}
+              onClick={() => void handleGenerateDocument('courier_slip')}
+              disabled={generating !== null}
             >
-              <Printer size={14} aria-hidden />
-              {booking.courierSlipGenerated ? 'Courier slip ready' : 'Generate courier slip'}
+              <FileText size={14} aria-hidden />
+              {booking.courierSlipGenerated
+                ? 'Reprint courier slip'
+                : generating === 'courier_slip' ? 'Generating…' : 'Generate courier slip'}
             </button>
             <button
               type="button"
-              className={`btn btn-secondary btn-sm${booking.packingSlipGenerated ? ' is-done' : ''}`}
-              onClick={handleGeneratePackingSlip}
+              className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
+              onClick={() => void handleGenerateDocument('shipping_label')}
+              disabled={generating !== null}
             >
-              <FileText size={14} aria-hidden />
-              {booking.packingSlipGenerated ? 'Packing slip ready' : 'Generate packing slip'}
+              <Printer size={14} aria-hidden />
+              {booking.shippingLabelGenerated
+                ? 'Reprint shipping label'
+                : generating === 'shipping_label' ? 'Generating…' : 'Generate shipping label'}
             </button>
           </div>
-          {(booking.courierSlipGenerated || booking.packingSlipGenerated) && (
+          {(booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
             <p className="text-muted text-sm logistics-booking__slip-names">
               {booking.courierSlipGenerated && courierSlipFileName(booking)}
-              {booking.courierSlipGenerated && booking.packingSlipGenerated && ' · '}
-              {booking.packingSlipGenerated && packingSlipFileName(booking)}
+              {booking.courierSlipGenerated && booking.shippingLabelGenerated && ' · '}
+              {booking.shippingLabelGenerated && shippingLabelFileName(booking)}
+            </p>
+          )}
+          {!booking.shippingLabelGenerated && booking.status === 'booked' && (
+            <p className="text-muted text-sm logistics-booking__slip-hint">
+              Generate the shipping label to move this shipment to “Label Generated”.
             </p>
           )}
         </section>

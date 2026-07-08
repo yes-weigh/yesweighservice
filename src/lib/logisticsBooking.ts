@@ -4,19 +4,40 @@ import type {
   LogisticsBooking,
   LogisticsBookingDraft,
   LogisticsBookingStatus,
+  LogisticsDocumentType,
   PackageType,
+  ShipmentMode,
 } from '../types/logistics-dispatch';
+
+/** Partners that support the full booking pipeline today. */
+export const ENABLED_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> = [
+  'st_courier',
+  'trackon',
+];
+
+export function isPipelineEnabledPartner(id: string): boolean {
+  return ENABLED_LOGISTICS_PARTNER_IDS.includes(id as LogisticsPartnerId);
+}
 
 export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
   id: LogisticsBookingStatus;
   label: string;
 }> = [
-  { id: 'courier_booked', label: 'Courier Booked' },
-  { id: 'pickup_pending', label: 'Pickup Pending' },
+  { id: 'booked', label: 'Booked' },
+  { id: 'label_generated', label: 'Label Generated' },
   { id: 'in_transit', label: 'In Transit' },
   { id: 'delivered', label: 'Delivered' },
   { id: 'cancelled', label: 'Cancelled' },
 ];
+
+export const SHIPMENT_MODES: ReadonlyArray<{ id: ShipmentMode; label: string }> = [
+  { id: 'box', label: 'Box' },
+  { id: 'envelope', label: 'Envelope' },
+];
+
+export function shipmentModeLabel(id: ShipmentMode): string {
+  return SHIPMENT_MODES.find(item => item.id === id)?.label ?? id;
+}
 
 export const PACKAGE_TYPES: ReadonlyArray<{ id: PackageType; label: string }> = [
   { id: 'carton', label: 'Carton Box' },
@@ -27,6 +48,22 @@ export const PACKAGE_TYPES: ReadonlyArray<{ id: PackageType; label: string }> = 
 
 export function packageTypeLabel(id: PackageType): string {
   return PACKAGE_TYPES.find(item => item.id === id)?.label ?? id;
+}
+
+/**
+ * Resolve the status a booking should have after a document is generated.
+ * Courier Slip ⇒ at least "Booked"; Shipping Label ⇒ at least "Label Generated".
+ * Never regresses a booking that is already further along (or terminal).
+ */
+export function statusForDocument(
+  current: LogisticsBookingStatus,
+  document: LogisticsDocumentType,
+): LogisticsBookingStatus {
+  if (current === 'cancelled' || current === 'delivered' || current === 'in_transit') {
+    return current;
+  }
+  const target: LogisticsBookingStatus = document === 'shipping_label' ? 'label_generated' : 'booked';
+  return bookingStatusIndex(current) >= bookingStatusIndex(target) ? current : target;
 }
 
 export const VOLUMETRIC_WEIGHT_DIVISOR = 2500;
@@ -103,6 +140,7 @@ export function emptyBookingDraft(partnerId: LogisticsPartnerId): LogisticsBooki
     dealerId: '',
     deliveryAddressKind: 'shipping',
     shipFromSite: 'head_office',
+    shipmentMode: 'box',
     numberOfBoxes: 1,
     actualWeightKg: '',
     lengthCm: '',
@@ -151,9 +189,14 @@ export function bookingStatusIndex(status: LogisticsBookingStatus): number {
 }
 
 export function courierSlipFileName(booking: LogisticsBooking): string {
-  return `courier-label-${booking.consignmentNo}.pdf`;
+  return `courier-slip-${booking.orderRef}.pdf`;
 }
 
+export function shippingLabelFileName(booking: LogisticsBooking): string {
+  return `shipping-label-${booking.consignmentNo}.pdf`;
+}
+
+/** @deprecated packing slip is no longer generated */
 export function packingSlipFileName(booking: LogisticsBooking): string {
   return `packing-slip-${booking.orderRef}.pdf`;
 }
@@ -163,7 +206,8 @@ export function chargeableWeight(booking: LogisticsBooking): number {
 }
 
 export function bookingSummaryLines(booking: LogisticsBooking): Array<{ label: string; value: string }> {
-  return [
+  const isEnvelope = booking.shipmentMode === 'envelope';
+  const lines: Array<{ label: string; value: string }> = [
     { label: 'Logistics partner', value: logisticsPartnerLabel(booking.partnerId) },
     { label: 'Tracking no.', value: booking.trackingNo },
     { label: 'Service type', value: booking.serviceType },
@@ -172,16 +216,24 @@ export function bookingSummaryLines(booking: LogisticsBooking): Array<{ label: s
     { label: 'Dealer', value: `${booking.dealer.name} (${booking.dealer.code})` },
     { label: 'Deliver to', value: booking.deliveryAddress },
     { label: 'Ship from', value: booking.shipFromAddress || '—' },
-    { label: 'Boxes', value: String(booking.numberOfBoxes) },
-    { label: 'Actual weight', value: `${booking.actualWeightKg.toFixed(2)} kg` },
-    { label: 'Volumetric weight', value: `${booking.volumetricWeightKg.toFixed(2)} kg` },
-    {
-      label: 'Dimensions',
-      value: booking.lengthCm && booking.widthCm && booking.heightCm
-        ? `${booking.lengthCm} × ${booking.widthCm} × ${booking.heightCm} cm`
-        : '—',
-    },
-    { label: 'Package type', value: packageTypeLabel(booking.packageType) },
-    { label: 'Notes', value: booking.notes || '—' },
+    { label: 'Shipment type', value: shipmentModeLabel(booking.shipmentMode) },
   ];
+
+  if (!isEnvelope) {
+    lines.push(
+      { label: 'Boxes', value: String(booking.numberOfBoxes) },
+      { label: 'Actual weight', value: `${booking.actualWeightKg.toFixed(2)} kg` },
+      { label: 'Volumetric weight', value: `${booking.volumetricWeightKg.toFixed(2)} kg` },
+      {
+        label: 'Dimensions',
+        value: booking.lengthCm && booking.widthCm && booking.heightCm
+          ? `${booking.lengthCm} × ${booking.widthCm} × ${booking.heightCm} cm`
+          : '—',
+      },
+      { label: 'Package type', value: packageTypeLabel(booking.packageType) },
+    );
+  }
+
+  lines.push({ label: 'Notes', value: booking.notes || '—' });
+  return lines;
 }
