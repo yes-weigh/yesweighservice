@@ -4,7 +4,7 @@ import type { CatalogNavState } from '../../lib/catalogNav';
 import type { CatalogNcDoc } from '../../types/catalog-nc';
 import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { ProductAuditHistory } from './ProductAuditHistory';
-import { ProductNcPanel } from './ProductNcPanel';
+import { ProductNcPanel, type ProductNcExistingLocation } from './ProductNcPanel';
 
 export type ProductDetailTabId =
   | 'spare'
@@ -53,7 +53,7 @@ export const ProductDetailTabs: React.FC<{
   canEditNc?: boolean;
   ncActorUid?: string;
   ncActorName?: string | null;
-  auditedQtyByLocationKey?: Map<string, number>;
+  ncExistingLocations?: ProductNcExistingLocation[];
   onNcChange?: (doc: CatalogNcDoc | null) => void;
   relatedItems: CatalogProduct[];
   relatedKind: 'spares' | 'products';
@@ -81,7 +81,7 @@ export const ProductDetailTabs: React.FC<{
   canEditNc = false,
   ncActorUid = '',
   ncActorName = null,
-  auditedQtyByLocationKey,
+  ncExistingLocations = [],
   onNcChange,
   relatedItems,
   relatedKind,
@@ -242,7 +242,7 @@ export const ProductDetailTabs: React.FC<{
                 canEdit={canEditNc}
                 actorUid={ncActorUid}
                 actorName={ncActorName}
-                auditedQtyByLocationKey={auditedQtyByLocationKey}
+                existingLocations={ncExistingLocations}
                 onNcChange={onNcChange}
                 embedded
               />

@@ -17,7 +17,6 @@ import {
   resolveNcSiteForProduct,
   uploadCatalogNcPhoto,
 } from '../../lib/catalogNc/data';
-import { listWarehouseZoneRows, listWarehouseZones } from '../../lib/warehouseLocations/data';
 import { CATALOG_INVENTORY_SITE_CONFIG } from '../../lib/catalogInventorySites';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import type { CatalogInventorySite } from '../../types/catalog-site-inventory';
@@ -25,6 +24,7 @@ import type {
   CatalogNcDoc,
   CatalogNcLine,
   CatalogNcLocation,
+  CatalogNcLocationKey,
   CatalogNcPhoto,
   NcReasonCode,
   NcResolveOutcome,
@@ -36,12 +36,15 @@ import {
   NC_RESOLVE_OUTCOMES,
   ncReasonLabel,
 } from '../../types/catalog-nc';
-import type { WarehouseZoneDoc, WarehouseZoneRowDoc } from '../../types/warehouse-locations';
-import {
-  BIN_NUMBERS,
-  ROW_NUMBERS,
-  VALID_RACK_LETTERS,
-} from '../../types/yes-store';
+import { ProductNcSelect } from './ProductNcSelect';
+
+export interface ProductNcExistingLocation {
+  key: string;
+  site: CatalogInventorySite;
+  label: string;
+  auditedQty: number;
+  location: CatalogNcLocationKey;
+}
 
 export interface ProductNcPanelProps {
   product: CatalogProduct;
@@ -51,24 +54,11 @@ export interface ProductNcPanelProps {
   canEdit: boolean;
   actorUid: string;
   actorName?: string | null;
-  /** Audited qty by location key for soft/hard validation hints. */
-  auditedQtyByLocationKey?: Map<string, number>;
+  /** Existing Cochin / Head Office locations already recorded for this item. */
+  existingLocations?: ProductNcExistingLocation[];
   onNcChange?: (doc: CatalogNcDoc | null) => void;
   /** When true, hide the close button (used inside product detail tabs). */
   embedded?: boolean;
-}
-
-function locationKeyFromParts(site: CatalogInventorySite, parts: {
-  zoneId?: string;
-  zoneRowNumber?: number;
-  rackId?: string;
-  rowNumber?: number;
-  binNumber?: number;
-}): string {
-  if (site === 'cochin') {
-    return `cochin:${(parts.zoneId ?? '').toLowerCase()}:${parts.zoneRowNumber ?? 0}`;
-  }
-  return `head_office:${(parts.rackId ?? '').toLowerCase()}:${parts.rowNumber ?? 0}:${parts.binNumber ?? 0}`;
 }
 
 export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
@@ -79,7 +69,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   canEdit,
   actorUid,
   actorName,
-  auditedQtyByLocationKey,
+  existingLocations = [],
   onNcChange,
   embedded = false,
 }) => {
@@ -89,6 +79,11 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   );
   const siteConfig = CATALOG_INVENTORY_SITE_CONFIG[site];
 
+  const siteLocations = useMemo(
+    () => existingLocations.filter(loc => loc.site === site),
+    [existingLocations, site],
+  );
+
   const [docData, setDocData] = useState<CatalogNcDoc | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -96,13 +91,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
-  const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
-  const [zoneRows, setZoneRows] = useState<WarehouseZoneRowDoc[]>([]);
-  const [zoneId, setZoneId] = useState('');
-  const [zoneRowNumber, setZoneRowNumber] = useState('');
-  const [rackId, setRackId] = useState('');
-  const [rowNumber, setRowNumber] = useState('');
-  const [binNumber, setBinNumber] = useState('');
+  const [selectedLocationKey, setSelectedLocationKey] = useState('');
   const [qty, setQty] = useState('1');
   const [reasonCode, setReasonCode] = useState<NcReasonCode>('display_issue');
   const [reasonText, setReasonText] = useState('');
@@ -137,25 +126,19 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   }, [open, load]);
 
   useEffect(() => {
-    if (!open || site !== 'cochin') return;
-    let active = true;
-    void listWarehouseZones().then(list => {
-      if (active) setZones(list);
-    });
-    return () => { active = false; };
-  }, [open, site]);
-
-  useEffect(() => {
-    if (!zoneId) {
-      setZoneRows([]);
+    if (siteLocations.length === 0) {
+      setSelectedLocationKey('');
       return;
     }
-    let active = true;
-    void listWarehouseZoneRows(zoneId).then(rows => {
-      if (active) setZoneRows(rows);
-    });
-    return () => { active = false; };
-  }, [zoneId]);
+    if (!siteLocations.some(loc => loc.key === selectedLocationKey)) {
+      setSelectedLocationKey(siteLocations[0]?.key ?? '');
+    }
+  }, [siteLocations, selectedLocationKey]);
+
+  const selectedLocation = useMemo(
+    () => siteLocations.find(loc => loc.key === selectedLocationKey) ?? null,
+    [siteLocations, selectedLocationKey],
+  );
 
   const openLines = useMemo(() => {
     if (!docData) return [];
@@ -189,37 +172,25 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
 
   const handleAddLine = async () => {
     if (!canEdit || saving) return;
+    if (!selectedLocation) {
+      setError('Select an existing storage location for this item.');
+      return;
+    }
     setSaving(true);
     setError(null);
     setWarnings([]);
     try {
-      const location = site === 'cochin'
-        ? { site, zoneId, zoneRowNumber: Number(zoneRowNumber) }
-        : {
-            site,
-            rackId,
-            rowNumber: Number(rowNumber),
-            binNumber: Number(binNumber),
-          };
-      const key = locationKeyFromParts(site, {
-        zoneId,
-        zoneRowNumber: Number(zoneRowNumber),
-        rackId,
-        rowNumber: Number(rowNumber),
-        binNumber: Number(binNumber),
-      });
-      const auditedQtyAtLocation = auditedQtyByLocationKey?.get(key) ?? null;
       const result = await addCatalogNcLine({
         catalogProductId: product.id,
         site,
-        location,
+        location: selectedLocation.location,
         qty: Number(qty),
         reasonCode,
         reasonText,
         photos,
         actorUid,
         actorName,
-        auditedQtyAtLocation,
+        auditedQtyAtLocation: selectedLocation.auditedQty,
         zohoStock: product.stock,
       });
       setDocData(result.doc);
@@ -343,117 +314,79 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
           {canEdit && (
             <section className="product-nc-panel__add">
               <h3>Add NC</h3>
-              <div className="product-nc-panel__form-grid">
-                {site === 'cochin' ? (
-                  <>
-                    <label>
-                      <span>Zone</span>
-                      <select value={zoneId} onChange={e => { setZoneId(e.target.value); setZoneRowNumber(''); }}>
-                        <option value="">Select</option>
-                        {zones.map(zone => (
-                          <option key={zone.id} value={zone.id}>{zone.id.toUpperCase()}</option>
-                        ))}
-                      </select>
+              {siteLocations.length === 0 ? (
+                <p className="text-muted text-sm">
+                  No existing {siteConfig.locationSubtitle.toLowerCase()} locations for this item yet.
+                  Add audited stock locations first, then mark NC against them.
+                </p>
+              ) : (
+                <>
+                  <div className="product-nc-panel__form-grid">
+                    <label className="product-nc-panel__span">
+                      <span>Location</span>
+                      <ProductNcSelect
+                        aria-label="Location"
+                        value={selectedLocationKey}
+                        onChange={setSelectedLocationKey}
+                        options={siteLocations.map(loc => ({
+                          value: loc.key,
+                          label: `${loc.label} · audited ${loc.auditedQty} ${product.unit}`,
+                        }))}
+                      />
                     </label>
                     <label>
-                      <span>Row</span>
-                      {zoneRows.length > 0 ? (
-                        <select value={zoneRowNumber} onChange={e => setZoneRowNumber(e.target.value)} disabled={!zoneId}>
-                          <option value="">Select</option>
-                          {zoneRows.map(row => (
-                            <option key={row.id} value={String(row.number)}>{row.number}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="number"
-                          min={1}
-                          value={zoneRowNumber}
-                          onChange={e => setZoneRowNumber(e.target.value)}
-                          disabled={!zoneId}
-                          placeholder="Row #"
-                        />
-                      )}
-                    </label>
-                  </>
-                ) : (
-                  <>
-                    <label>
-                      <span>Rack</span>
-                      <select value={rackId} onChange={e => setRackId(e.target.value)}>
-                        <option value="">Select</option>
-                        {VALID_RACK_LETTERS.map(letter => (
-                          <option key={letter} value={letter}>{letter.toUpperCase()}</option>
-                        ))}
-                      </select>
+                      <span>Qty</span>
+                      <input type="number" min={1} step={1} value={qty} onChange={e => setQty(e.target.value)} />
                     </label>
                     <label>
-                      <span>Row</span>
-                      <select value={rowNumber} onChange={e => setRowNumber(e.target.value)}>
-                        <option value="">Select</option>
-                        {ROW_NUMBERS.map(n => (
-                          <option key={n} value={String(n)}>{n}</option>
-                        ))}
-                      </select>
+                      <span>Reason</span>
+                      <ProductNcSelect
+                        aria-label="Reason"
+                        value={reasonCode}
+                        onChange={value => setReasonCode(value as NcReasonCode)}
+                        options={NC_REASON_OPTIONS.map(option => ({
+                          value: option.key,
+                          label: option.label,
+                        }))}
+                      />
                     </label>
-                    <label>
-                      <span>Bin</span>
-                      <select value={binNumber} onChange={e => setBinNumber(e.target.value)}>
-                        <option value="">Select</option>
-                        {BIN_NUMBERS.map(n => (
-                          <option key={n} value={String(n)}>{n}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </>
-                )}
-                <label>
-                  <span>Qty</span>
-                  <input type="number" min={1} step={1} value={qty} onChange={e => setQty(e.target.value)} />
-                </label>
-                <label>
-                  <span>Reason</span>
-                  <select value={reasonCode} onChange={e => setReasonCode(e.target.value as NcReasonCode)}>
-                    {NC_REASON_OPTIONS.map(option => (
-                      <option key={option.key} value={option.key}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                {reasonCode === 'other' && (
-                  <label className="product-nc-panel__span">
-                    <span>Other note</span>
-                    <input value={reasonText} onChange={e => setReasonText(e.target.value)} placeholder="Describe the issue" />
-                  </label>
-                )}
-              </div>
-
-              <div className="product-nc-panel__photos">
-                {photos.map(photo => (
-                  <div key={photo.id} className="product-nc-panel__photo">
-                    <img src={photo.url} alt="" />
-                    <button type="button" onClick={() => void removePhoto(photo)} aria-label="Remove photo">
-                      <Trash2 size={12} />
-                    </button>
+                    {reasonCode === 'other' && (
+                      <label className="product-nc-panel__span">
+                        <span>Other note</span>
+                        <input value={reasonText} onChange={e => setReasonText(e.target.value)} placeholder="Describe the issue" />
+                      </label>
+                    )}
                   </div>
-                ))}
-                {photos.length < MAX_NC_PHOTOS_PER_LINE && (
-                  <label className="product-nc-panel__photo-add">
-                    {uploadingPhoto ? <RefreshCw size={14} className="spin-icon" /> : <Camera size={14} />}
-                    <span>Photo</span>
-                    <input type="file" accept="image/*" hidden onChange={e => void handlePhotoPick(e)} />
-                  </label>
-                )}
-              </div>
 
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={saving || uploadingPhoto}
-                onClick={() => void handleAddLine()}
-              >
-                {saving ? <RefreshCw size={14} className="spin-icon" /> : <Plus size={14} />}
-                Add NC line
-              </button>
+                  <div className="product-nc-panel__photos">
+                    {photos.map(photo => (
+                      <div key={photo.id} className="product-nc-panel__photo">
+                        <img src={photo.url} alt="" />
+                        <button type="button" onClick={() => void removePhoto(photo)} aria-label="Remove photo">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                    {photos.length < MAX_NC_PHOTOS_PER_LINE && (
+                      <label className="product-nc-panel__photo-add">
+                        {uploadingPhoto ? <RefreshCw size={14} className="spin-icon" /> : <Camera size={14} />}
+                        <span>Photo</span>
+                        <input type="file" accept="image/*" hidden onChange={e => void handlePhotoPick(e)} />
+                      </label>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={saving || uploadingPhoto || !selectedLocation}
+                    onClick={() => void handleAddLine()}
+                  >
+                    {saving ? <RefreshCw size={14} className="spin-icon" /> : <Plus size={14} />}
+                    Add NC line
+                  </button>
+                </>
+              )}
             </section>
           )}
 
@@ -476,14 +409,15 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
                 </label>
                 <label>
                   <span>Outcome</span>
-                  <select
+                  <ProductNcSelect
+                    aria-label="Outcome"
                     value={resolveOutcome}
-                    onChange={e => setResolveOutcome(e.target.value as NcResolveOutcome)}
-                  >
-                    {NC_RESOLVE_OUTCOMES.map(option => (
-                      <option key={option.key} value={option.key}>{option.label}</option>
-                    ))}
-                  </select>
+                    onChange={value => setResolveOutcome(value as NcResolveOutcome)}
+                    options={NC_RESOLVE_OUTCOMES.map(option => ({
+                      value: option.key,
+                      label: option.label,
+                    }))}
+                  />
                 </label>
                 <label className="product-nc-panel__span">
                   <span>Note (optional)</span>

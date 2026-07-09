@@ -12,6 +12,7 @@ import type {
   CatalogStats,
 } from '../types/catalog';
 import { mapAuditSnapshot } from './catalogProductAudit/data';
+import { resolveAdjustedAuditDisplay } from './catalogProductAudit/display';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -159,6 +160,9 @@ export type SpareWarehouseLocationFilter = typeof SPARE_WAREHOUSE_LOCATION_FILTE
 export const SPARE_AUDIT_STATUS_FILTERS = [
   { key: 'audited', label: 'Audited' },
   { key: 'notAudited', label: 'Not audited' },
+  { key: 'zeroVariance', label: 'Zero variance' },
+  { key: 'overage', label: 'Physical overage' },
+  { key: 'shortage', label: 'Physical shortage' },
 ] as const;
 
 export type SpareAuditStatusFilter = typeof SPARE_AUDIT_STATUS_FILTERS[number]['key'];
@@ -321,8 +325,23 @@ export function catalogProductIsAudited(
   return cochinAuditedIds.has(product.id);
 }
 
+/** Audit vs book stock variance from the latest audit snapshot. */
+export function catalogProductAuditVariance(
+  product: Pick<CatalogProduct, 'stock' | 'auditSnapshot'>,
+): 'zero' | 'overage' | 'shortage' | null {
+  const adjusted = resolveAdjustedAuditDisplay({
+    currentZohoQty: product.stock,
+    snapshot: product.auditSnapshot ?? null,
+    livePhysicalQty: null,
+  });
+  if (!adjusted.hasAuditSnapshot || adjusted.displayDifference == null) return null;
+  if (adjusted.displayDifference === 0) return 'zero';
+  if (adjusted.displayDifference > 0) return 'overage';
+  return 'shortage';
+}
+
 export function matchesSpareAuditStatusFilters(
-  product: Pick<CatalogProduct, 'id' | 'categoryId' | 'categoryName'>,
+  product: Pick<CatalogProduct, 'id' | 'categoryId' | 'categoryName' | 'stock' | 'auditSnapshot'>,
   filters: ReadonlySet<SpareAuditStatusFilter>,
   categories: CatalogCategory[],
   headOfficeAuditedIds: ReadonlySet<string>,
@@ -335,9 +354,13 @@ export function matchesSpareAuditStatusFilters(
     headOfficeAuditedIds,
     cochinAuditedIds,
   );
+  const variance = catalogProductAuditVariance(product);
   return (
     (filters.has('audited') && isAudited)
     || (filters.has('notAudited') && !isAudited)
+    || (filters.has('zeroVariance') && variance === 'zero')
+    || (filters.has('overage') && variance === 'overage')
+    || (filters.has('shortage') && variance === 'shortage')
   );
 }
 

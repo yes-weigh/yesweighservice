@@ -34,6 +34,7 @@ import {
   buildCochinAuditedCatalogProductIds,
   buildHeadOfficeAuditedCatalogProductIds,
   catalogProductIsAudited,
+  catalogProductAuditVariance,
   catalogProductHasImage,
   catalogProductHasWarehouseStock,
   catalogProductHasPositiveStock,
@@ -477,6 +478,9 @@ export const CatalogPage: React.FC = () => {
   const spareAuditStatusFilterCounts = useMemo(() => ({
     audited: spareParts.filter(product => isProductAudited(product)).length,
     notAudited: spareParts.filter(product => !isProductAudited(product)).length,
+    zeroVariance: spareParts.filter(product => catalogProductAuditVariance(product) === 'zero').length,
+    overage: spareParts.filter(product => catalogProductAuditVariance(product) === 'overage').length,
+    shortage: spareParts.filter(product => catalogProductAuditVariance(product) === 'shortage').length,
   }), [spareParts, isProductAudited]);
 
   const spareLocationFilterCounts = useMemo(() => ({
@@ -539,6 +543,9 @@ export const CatalogPage: React.FC = () => {
   const productAuditStatusFilterCounts = useMemo(() => ({
     audited: productFilterCountBase.filter(product => isProductAudited(product)).length,
     notAudited: productFilterCountBase.filter(product => !isProductAudited(product)).length,
+    zeroVariance: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'zero').length,
+    overage: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'overage').length,
+    shortage: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'shortage').length,
   }), [productFilterCountBase, isProductAudited]);
 
   const productNcStatusFilterCounts = useMemo(() => {

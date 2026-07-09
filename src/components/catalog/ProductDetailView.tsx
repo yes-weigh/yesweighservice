@@ -58,6 +58,7 @@ import {
 } from '../../lib/catalogInventorySites';
 import { ProductDetailTabs, DEALER_PRODUCT_DETAIL_TABS, type ProductDetailTabId } from './ProductDetailTabs';
 import { ProductPackageInfo } from './ProductPackageInfo';
+import type { ProductNcExistingLocation } from './ProductNcPanel';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import { getCatalogProductNc } from '../../lib/catalogNc/data';
@@ -67,6 +68,7 @@ import {
   type CatalogSiteInventoryDoc,
 } from '../../types/catalog-site-inventory';
 import type { CatalogNcDoc } from '../../types/catalog-nc';
+import { formatNcLocationLabel, ncLocationKey } from '../../types/catalog-nc';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 import {
   buildProductNavState,
@@ -454,19 +456,46 @@ export const ProductDetailView: React.FC<{
 
   const summaryNcQty = showAuditedStock ? (ncDoc?.openNcQty ?? 0) : null;
 
-  const auditedQtyByLocationKey = useMemo(() => {
-    const map = new Map<string, number>();
+  const ncExistingLocations = useMemo((): ProductNcExistingLocation[] => {
+    const locations: ProductNcExistingLocation[] = [];
     for (const row of getCatalogSiteInventoryLocations(cochinRecord)) {
-      map.set(
-        `cochin:${row.zoneId.trim().toLowerCase()}:${row.zoneRowNumber}`,
-        row.quantity,
-      );
+      const location = {
+        site: 'cochin' as const,
+        zoneId: row.zoneId.trim().toLowerCase(),
+        zoneRowNumber: row.zoneRowNumber,
+      };
+      locations.push({
+        key: ncLocationKey(location),
+        site: 'cochin',
+        label: formatNcLocationLabel(location),
+        auditedQty: row.quantity,
+        location,
+      });
     }
+    const headOffice = new Map<string, ProductNcExistingLocation>();
     for (const item of auditItems) {
-      const key = `head_office:${item.rackId.trim().toLowerCase()}:${item.rowNumber}:${item.binNumber}`;
-      map.set(key, (map.get(key) ?? 0) + (item.quantity ?? 0));
+      const location = {
+        site: 'head_office' as const,
+        rackId: item.rackId.trim().toLowerCase(),
+        rowNumber: item.rowNumber,
+        binNumber: item.binNumber,
+      };
+      const key = ncLocationKey(location);
+      const existing = headOffice.get(key);
+      if (existing) {
+        existing.auditedQty += item.quantity ?? 0;
+      } else {
+        headOffice.set(key, {
+          key,
+          site: 'head_office',
+          label: formatNcLocationLabel(location),
+          auditedQty: item.quantity ?? 0,
+          location,
+        });
+      }
     }
-    return map;
+    locations.push(...headOffice.values());
+    return locations;
   }, [cochinRecord, auditItems]);
 
   const summaryColumns = useMemo(() => {
@@ -1372,7 +1401,7 @@ export const ProductDetailView: React.FC<{
               canEditNc={canEditCochin}
               ncActorUid={user?.uid ?? ''}
               ncActorName={user?.displayName}
-              auditedQtyByLocationKey={auditedQtyByLocationKey}
+              ncExistingLocations={ncExistingLocations}
               onNcChange={setNcDoc}
               relatedItems={relatedItems}
               relatedKind={relatedKind}
