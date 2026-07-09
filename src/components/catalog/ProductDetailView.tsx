@@ -185,6 +185,7 @@ export const ProductDetailView: React.FC<{
   const [cochinRecord, setCochinRecord] = useState<CatalogSiteInventoryDoc | null>(null);
   const [ncDoc, setNcDoc] = useState<CatalogNcDoc | null>(null);
   const [detailTab, setDetailTab] = useState<ProductDetailTabId | undefined>(undefined);
+  const [ncFocusLineId, setNcFocusLineId] = useState<string | null>(null);
   const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -485,8 +486,22 @@ export const ProductDetailView: React.FC<{
     cochinRecord,
   ]);
 
-  const scrollToNcSection = useCallback(() => {
+  const scrollToNcSection = useCallback((lineId?: string | null) => {
+    setNcFocusLineId(lineId ?? null);
     setDetailTab('nc');
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        document.getElementById('product-detail-tab-panel-nc')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }, 50);
+    });
+  }, []);
+
+  const handleDetailTabChange = useCallback((tab: ProductDetailTabId) => {
+    if (tab !== 'nc') setNcFocusLineId(null);
+    setDetailTab(tab);
   }, []);
 
   const summaryNcQty = showAuditedStock ? (ncDoc?.openNcQty ?? 0) : null;
@@ -1442,7 +1457,7 @@ export const ProductDetailView: React.FC<{
             <ProductDetailTabs
               product={product}
               activeTab={detailTab}
-              onActiveTabChange={setDetailTab}
+              onActiveTabChange={handleDetailTabChange}
               visibleTabs={showCartActions ? DEALER_PRODUCT_DETAIL_TABS : undefined}
               showSpareTab={showLinksSection && (isCategorizedProduct || isSpareItem)}
               showAuditTab={showAuditedStock}
@@ -1453,6 +1468,7 @@ export const ProductDetailView: React.FC<{
               ncActorName={user?.displayName}
               ncExistingLocations={ncExistingLocations}
               onNcChange={setNcDoc}
+              ncFocusLineId={ncFocusLineId}
               relatedItems={relatedItems}
               relatedKind={relatedKind}
               relatedLoading={relatedLoading}

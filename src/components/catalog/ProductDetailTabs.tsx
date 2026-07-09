@@ -55,6 +55,8 @@ export const ProductDetailTabs: React.FC<{
   ncActorName?: string | null;
   ncExistingLocations?: ProductNcExistingLocation[];
   onNcChange?: (doc: CatalogNcDoc | null) => void;
+  /** Expand this open NC line when the NC tab is shown. */
+  ncFocusLineId?: string | null;
   relatedItems: CatalogProduct[];
   relatedKind: 'spares' | 'products';
   relatedLoading: boolean;
@@ -83,6 +85,7 @@ export const ProductDetailTabs: React.FC<{
   ncActorName = null,
   ncExistingLocations = [],
   onNcChange,
+  ncFocusLineId = null,
   relatedItems,
   relatedKind,
   relatedLoading,
@@ -244,6 +247,7 @@ export const ProductDetailTabs: React.FC<{
                 actorName={ncActorName}
                 existingLocations={ncExistingLocations}
                 onNcChange={onNcChange}
+                focusLineId={ncFocusLineId}
                 embedded
               />
             ) : (

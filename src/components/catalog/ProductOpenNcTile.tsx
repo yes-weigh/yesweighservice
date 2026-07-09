@@ -38,7 +38,7 @@ export const ProductOpenNcTile: React.FC<{
   actorUid: string;
   actorName?: string | null;
   onNcChange: (doc: CatalogNcDoc | null) => void;
-  onOpenNcTab: () => void;
+  onOpenNcTab: (lineId?: string) => void;
 }> = ({
   product,
   categories,
@@ -284,8 +284,8 @@ export const ProductOpenNcTile: React.FC<{
       {!showAddForm && openLines.length === 0 ? (
         <p className="product-open-nc-tile__empty text-muted text-sm">No open NC for this item.</p>
       ) : !showAddForm ? (
-        <div className="product-open-nc-tile__table-wrap">
-          <table className="product-open-nc-tile__table">
+        <div className="product-site-stock__table-wrap product-site-stock__table-wrap--warehouse product-open-nc-tile__table-wrap">
+          <table className="product-site-stock__table product-open-nc-tile__table">
             <thead>
               <tr>
                 <th className="product-open-nc-tile__th-photo" scope="col" aria-label="Photo" />
@@ -301,11 +301,11 @@ export const ProductOpenNcTile: React.FC<{
                   <tr
                     key={line.id}
                     className="product-open-nc-tile__tr"
-                    onClick={onOpenNcTab}
+                    onClick={() => onOpenNcTab(line.id)}
                     onKeyDown={e => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        onOpenNcTab();
+                        onOpenNcTab(line.id);
                       }
                     }}
                     tabIndex={0}
@@ -321,13 +321,11 @@ export const ProductOpenNcTile: React.FC<{
                         </span>
                       )}
                     </td>
-                    <td>
-                      <strong>
-                        {line.qty} {product.unit}
-                      </strong>
+                    <td className="product-open-nc-tile__td-qty">
+                      {line.qty} {product.unit}
                     </td>
                     <td>{ncReasonLabel(line.reasonCode, line.reasonText)}</td>
-                    <td className="product-open-nc-tile__td-loc">{formatNcLocationLabel(location)}</td>
+                    <td>{formatNcLocationLabel(location)}</td>
                   </tr>
                 );
               })}

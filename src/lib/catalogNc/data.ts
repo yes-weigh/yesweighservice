@@ -1,19 +1,13 @@
 import {
-  deleteObject,
-  getDownloadURL,
-  ref,
-  uploadBytes,
-} from 'firebase/storage';
-import {
   collection,
   doc,
   getDoc,
   getDocs,
   setDoc,
 } from 'firebase/firestore';
-import { db, storage } from '../../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db } from '../../firebase';
 import { compressImageForUpload } from '../compressImage';
-import { formatStorageUploadError } from '../storageErrors';
 import { isCatalogSparePartProduct } from '../catalog';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import type { CatalogInventorySite } from '../../types/catalog-site-inventory';
@@ -43,6 +37,7 @@ import { isValidZoneId, normalizeZoneId } from '../../types/warehouse-locations'
 const COLLECTION = 'catalogProductNc';
 const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
 const MAX_EVENTS = 200;
+const functions = getFunctions(app, 'asia-south1');
 
 const now = () => new Date().toISOString();
 
@@ -60,6 +55,37 @@ function extFromFile(file: File): string {
   if (file.type === 'image/png') return 'png';
   if (file.type === 'image/webp') return 'webp';
   return 'jpg';
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not read image file.'));
+        return;
+      }
+      const base64 = result.split(',')[1];
+      if (!base64) {
+        reject(new Error('Could not read image file.'));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Could not read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function callableError(err: unknown, fallback: string): Error {
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const fbErr = err as { code?: string; message: string };
+    if (fbErr.code?.startsWith('functions/') && fbErr.message) {
+      return new Error(fbErr.message);
+    }
+  }
+  return new Error(fallback);
 }
 
 export function resolveNcSiteForProduct(
@@ -287,34 +313,41 @@ export async function uploadCatalogNcPhoto(
   const compressed = await compressImageForUpload(file, { maxBytes: 900_000 });
   const photoId = newId('photo');
   const fileName = `${photoId}.${extFromFile(compressed)}`;
-  const storagePath = `catalogNc/${catalogProductId}/${fileName}`;
   try {
-    await uploadBytes(ref(storage, storagePath), compressed, {
-      contentType: compressed.type || 'image/jpeg',
-    });
-    const url = await getDownloadURL(ref(storage, storagePath));
-    return {
-      id: photoId,
-      url,
-      storagePath,
+    const fn = httpsCallable<
+      {
+        catalogProductId: string;
+        photoId: string;
+        fileName: string;
+        contentType: string;
+        fileBase64: string;
+      },
+      CatalogNcPhoto
+    >(functions, 'uploadCatalogNcPhotoFn', { timeout: 120_000 });
+    const result = await fn({
+      catalogProductId,
+      photoId,
       fileName,
-      uploadedAt: now(),
-    };
+      contentType: compressed.type || 'image/jpeg',
+      fileBase64: await fileToBase64(compressed),
+    });
+    return result.data;
   } catch (err) {
-    throw new Error(formatStorageUploadError(
-      err,
-      'Could not upload NC photo.',
-      'Could not upload NC photo. Sign out, sign back in, and try again.',
-    ));
+    throw callableError(err, 'Could not upload NC photo.');
   }
 }
 
 export async function deleteCatalogNcPhoto(photo: CatalogNcPhoto): Promise<void> {
   if (!photo.storagePath) return;
   try {
-    await deleteObject(ref(storage, photo.storagePath));
+    const fn = httpsCallable<{ storagePath: string }, { deleted: boolean }>(
+      functions,
+      'deleteCatalogNcPhotoFn',
+      { timeout: 60_000 },
+    );
+    await fn({ storagePath: photo.storagePath });
   } catch {
-    // ignore missing
+    // ignore missing / permission races
   }
 }
 

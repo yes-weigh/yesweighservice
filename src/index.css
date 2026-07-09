@@ -3528,50 +3528,28 @@ html::-webkit-scrollbar {
 }
 
 .product-open-nc-tile__table-wrap {
-  margin: 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  margin: 0.15rem 0 0;
 }
 
 .product-open-nc-tile__table {
-  width: 100%;
-  border-collapse: collapse;
   table-layout: fixed;
-  font-size: 0.75rem;
-  color: #0f172a;
 }
 
-.product-open-nc-tile__table th {
-  padding: 0.2rem 0.35rem;
-  border-bottom: 1px solid #cbd5e1;
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  text-align: left;
-  color: #475569;
-  white-space: nowrap;
+.product-open-nc-tile__table thead th,
+.product-open-nc-tile__table tbody td {
+  font-size: 0.75rem;
+  padding: 0.4rem 0.45rem;
 }
 
 .product-open-nc-tile__th-photo,
 .product-open-nc-tile__td-photo {
-  width: 2.1rem;
-  padding-left: 0;
+  width: 2.4rem;
+  padding-left: 0.4rem;
   padding-right: 0.25rem;
 }
 
-.product-open-nc-tile__table td {
-  padding: 0.3rem 0.35rem;
-  border-bottom: 1px solid #e2e8f0;
-  vertical-align: middle;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #0f172a;
-}
-
-.product-open-nc-tile__table tbody tr:last-child td {
-  border-bottom: none;
+.product-open-nc-tile__td-photo {
+  text-align: center;
 }
 
 .product-open-nc-tile__tr {
@@ -3582,23 +3560,21 @@ html::-webkit-scrollbar {
   background: #f8fafc;
 }
 
-.product-open-nc-tile__table td strong {
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.product-open-nc-tile__td-loc {
-  color: #475569;
+.product-open-nc-tile__td-qty {
+  font-weight: 800;
+  color: #166534;
+  background: #f0fdf4;
 }
 
 .product-open-nc-tile__thumb {
   display: block;
   width: 1.75rem;
   height: 1.75rem;
+  margin: 0 auto;
   object-fit: cover;
-  border-radius: 4px;
-  border: 1px solid #cbd5e1;
-  background: #f1f5f9;
+  border-radius: 6px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
 }
 
 .product-open-nc-tile__thumb--empty {
@@ -3606,6 +3582,8 @@ html::-webkit-scrollbar {
   align-items: center;
   justify-content: center;
   color: #64748b;
+  background: #f8fafc;
+  border-color: #e2e8f0;
 }
 
 .product-open-nc-tile__add-form {

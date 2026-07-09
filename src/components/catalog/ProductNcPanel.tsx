@@ -59,6 +59,8 @@ export interface ProductNcPanelProps {
   onNcChange?: (doc: CatalogNcDoc | null) => void;
   /** When true, hide the close button (used inside product detail tabs). */
   embedded?: boolean;
+  /** Expand this open NC line when the panel opens. */
+  focusLineId?: string | null;
 }
 
 export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
@@ -72,6 +74,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   existingLocations = [],
   onNcChange,
   embedded = false,
+  focusLineId = null,
 }) => {
   const site = useMemo(
     () => resolveNcSiteForProduct(product, categories),
@@ -125,9 +128,13 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
     if (!open) return;
     void load();
     setShowAddForm(false);
-    setExpandedLineId(null);
     setResolveTarget(null);
   }, [open, load]);
+
+  useEffect(() => {
+    if (!open) return;
+    setExpandedLineId(focusLineId ?? null);
+  }, [open, focusLineId]);
 
   useEffect(() => {
     if (siteLocations.length === 0) {

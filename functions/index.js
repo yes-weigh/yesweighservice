@@ -87,6 +87,10 @@ import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
+import {
+  deleteCatalogNcPhoto as removeCatalogNcPhoto,
+  uploadCatalogNcPhoto as storeCatalogNcPhoto,
+} from './lib/catalog-nc-upload.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -1820,6 +1824,38 @@ export const uploadYesStorePhotoFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not upload warehouse photo.');
+    }
+  },
+);
+
+/** Catalog NC photo upload — Admin SDK (avoids client Storage rule 403s). */
+export const uploadCatalogNcPhotoFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await storeCatalogNcPhoto(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload NC photo.');
+    }
+  },
+);
+
+/** Delete a catalog NC photo from Storage. */
+export const deleteCatalogNcPhotoFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await removeCatalogNcPhoto(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not delete NC photo.');
     }
   },
 );

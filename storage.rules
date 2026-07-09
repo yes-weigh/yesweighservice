@@ -127,7 +127,7 @@ service firebase.storage {
     }
 
     match /catalogNc/{productId}/{fileName} {
-      allow read: if isOpsUser();
+      allow read: if true;
       allow create, update: if isOpsUser() && validSupportMedia();
       allow delete: if isOpsUser();
     }
