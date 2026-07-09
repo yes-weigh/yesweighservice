@@ -2,7 +2,8 @@ export type CatalogProductAuditTrigger =
   | 'warehouse_count'
   | 'cochin_inventory'
   | 'manual'
-  | 'legacy_backfill';
+  | 'legacy_backfill'
+  | 'zoho_sync';
 
 export interface CatalogProductAuditLog {
   id: string;
@@ -15,13 +16,13 @@ export interface CatalogProductAuditLog {
   headOfficeQty: number;
   /** Cochin warehouse site total. */
   cochinQty: number;
-  /** Combined physical count at audit time. */
+  /** Combined physical / adjusted audited qty at this entry. */
   physicalQty: number;
   /** Sum of raw part pieces when bundle mode. */
   rawPhysicalQty: number | null;
-  /** Zoho stock snapshot at audit time. */
+  /** Zoho stock at this entry. */
   zohoQtyAtAudit: number;
-  /** physicalQty - zohoQtyAtAudit — kept until the next audit. */
+  /** physicalQty - zohoQtyAtAudit — locked Diff until the next physical audit. */
   baselineDifference: number;
   trigger: CatalogProductAuditTrigger;
 }
@@ -31,7 +32,9 @@ export interface CatalogProductAuditSnapshot {
   lastAuditedAt: string;
   lastAuditedByUid: string | null;
   lastAuditedByName: string | null;
+  /** Locked variance from last physical audit. */
   baselineDifference: number;
+  /** Last counted / Zoho-adjusted audited qty. */
   physicalQtyAtAudit: number;
   zohoQtyAtAudit: number;
   mode: 'unit' | 'bundle';

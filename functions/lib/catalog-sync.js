@@ -10,6 +10,7 @@ import {
   deleteProductImageFromZoho,
   normaliseCategoryId,
 } from './zoho.js';
+import { buildZohoSyncAuditAdjustment } from './catalog-product-audit.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
 const CATEGORIES_COLLECTION = 'catalogCategories';
@@ -355,13 +356,51 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     if (packageInfo) {
       doc.packageInfo = packageInfo;
     }
-    if (existing?.auditSnapshot) {
+
+    const previousStock = Number(existing?.stock);
+    const zohoSyncEntry = buildZohoSyncAuditAdjustment(
+      existing?.auditSnapshot,
+      previousStock,
+      product.stock,
+      now,
+    );
+    if (zohoSyncEntry) {
+      const productRef = db.collection(PRODUCTS_COLLECTION).doc(product.id);
+      const logRef = productRef.collection('auditLogs').doc();
+      const log = {
+        id: logRef.id,
+        catalogProductId: product.id,
+        ...zohoSyncEntry,
+      };
+      const snapshot = {
+        lastAuditLogId: logRef.id,
+        lastAuditedAt: zohoSyncEntry.auditedAt,
+        lastAuditedByUid: null,
+        lastAuditedByName: zohoSyncEntry.auditedByName,
+        baselineDifference: zohoSyncEntry.baselineDifference,
+        physicalQtyAtAudit: zohoSyncEntry.physicalQty,
+        zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
+        mode: zohoSyncEntry.mode,
+        headOfficeQtyAtAudit: zohoSyncEntry.headOfficeQty,
+        cochinQtyAtAudit: zohoSyncEntry.cochinQty,
+      };
+      if (batchCount >= batchSize) {
+        await commitBatch();
+      }
+      batch.set(logRef, log);
+      batchCount += 1;
+      doc.auditSnapshot = snapshot;
+    } else if (existing?.auditSnapshot) {
       doc.auditSnapshot = existing.auditSnapshot;
     }
+
     if (Number.isFinite(existing?.displayOrder)) {
       doc.displayOrder = existing.displayOrder;
     }
 
+    if (batchCount >= batchSize) {
+      await commitBatch();
+    }
     batch.set(db.collection(PRODUCTS_COLLECTION).doc(product.id), doc, { merge: true });
     batchCount += 1;
     syncedCount += 1;

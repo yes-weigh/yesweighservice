@@ -3,7 +3,7 @@ import {
   AlertTriangle,
   Camera,
   CheckCircle2,
-  History,
+  ChevronDown,
   Plus,
   RefreshCw,
   Trash2,
@@ -89,7 +89,8 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
 
   const [selectedLocationKey, setSelectedLocationKey] = useState('');
   const [qty, setQty] = useState('1');
@@ -123,6 +124,9 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   useEffect(() => {
     if (!open) return;
     void load();
+    setShowAddForm(false);
+    setExpandedLineId(null);
+    setResolveTarget(null);
   }, [open, load]);
 
   useEffect(() => {
@@ -148,6 +152,46 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
         .map(line => ({ location, line }))
     ));
   }, [docData]);
+
+  const historyEvents = useMemo(
+    () => [...(docData?.events ?? [])].sort((a, b) => b.at.localeCompare(a.at)),
+    [docData],
+  );
+
+  const toggleExpand = (lineId: string) => {
+    setExpandedLineId(prev => (prev === lineId ? null : lineId));
+    if (resolveTarget?.line.id !== lineId) {
+      setResolveTarget(null);
+      setResolveNote('');
+    }
+  };
+
+  const startResolve = (location: CatalogNcLocation, line: CatalogNcLine) => {
+    setExpandedLineId(line.id);
+    setShowAddForm(false);
+    setResolveTarget({ location, line });
+    setResolveQty(String(line.qty));
+    setResolveOutcome('repaired');
+    setResolveNote('');
+    setError(null);
+  };
+
+  const cancelResolve = () => {
+    setResolveTarget(null);
+    setResolveNote('');
+  };
+
+  const openAddForm = () => {
+    setShowAddForm(true);
+    setResolveTarget(null);
+    setError(null);
+    setWarnings([]);
+  };
+
+  const closeAddForm = () => {
+    setShowAddForm(false);
+    setWarnings([]);
+  };
 
   const handlePhotoPick = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -199,6 +243,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
       setQty('1');
       setReasonText('');
       setPhotos([]);
+      setShowAddForm(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save NC.');
     } finally {
@@ -225,6 +270,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
       onNcChange?.(saved);
       setResolveTarget(null);
       setResolveNote('');
+      setExpandedLineId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not resolve NC.');
     } finally {
@@ -246,14 +292,17 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
           </p>
         </div>
         <div className="product-nc-panel__head-actions">
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => setShowHistory(v => !v)}
-          >
-            <History size={14} aria-hidden />
-            History
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              className={`btn btn-sm${showAddForm ? '' : ' btn-primary'}`}
+              onClick={() => (showAddForm ? closeAddForm() : openAddForm())}
+              aria-expanded={showAddForm}
+            >
+              {showAddForm ? <X size={14} aria-hidden /> : <Plus size={14} aria-hidden />}
+              {showAddForm ? 'Close' : 'Add NC'}
+            </button>
+          )}
           {!embedded && onClose && (
             <button type="button" className="btn btn-sm" onClick={onClose} aria-label="Close NC">
               <X size={16} />
@@ -274,45 +323,8 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
         <p className="text-muted text-sm">Loading NC…</p>
       ) : (
         <>
-          <div className="product-nc-panel__open-list">
-            {openLines.length === 0 ? (
-              <p className="text-muted text-sm">No open NC for this item.</p>
-            ) : (
-              openLines.map(({ location, line }) => (
-                <div key={line.id} className="product-nc-panel__open-row">
-                  <div className="product-nc-panel__open-main">
-                    <strong>{line.qty} {product.unit}</strong>
-                    <span>{ncReasonLabel(line.reasonCode, line.reasonText)}</span>
-                    <span className="text-muted">{formatNcLocationLabel(location)}</span>
-                    {line.photos.length > 0 && (
-                      <div className="product-nc-panel__thumbs">
-                        {line.photos.map(photo => (
-                          <img key={photo.id} src={photo.url} alt="" />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      onClick={() => {
-                        setResolveTarget({ location, line });
-                        setResolveQty(String(line.qty));
-                        setResolveOutcome('repaired');
-                      }}
-                    >
-                      <CheckCircle2 size={14} aria-hidden />
-                      Resolve
-                    </button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-
-          {canEdit && (
-            <section className="product-nc-panel__add">
+          {canEdit && showAddForm && (
+            <section className="product-nc-panel__add" aria-label="Add NC">
               <h3>Add NC</h3>
               {siteLocations.length === 0 ? (
                 <p className="text-muted text-sm">
@@ -353,7 +365,11 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
                     {reasonCode === 'other' && (
                       <label className="product-nc-panel__span">
                         <span>Other note</span>
-                        <input value={reasonText} onChange={e => setReasonText(e.target.value)} placeholder="Describe the issue" />
+                        <input
+                          value={reasonText}
+                          onChange={e => setReasonText(e.target.value)}
+                          placeholder="Describe the issue"
+                        />
                       </label>
                     )}
                   </div>
@@ -390,69 +406,154 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
             </section>
           )}
 
-          {resolveTarget && (
-            <section className="product-nc-panel__resolve">
-              <h3>Resolve NC</h3>
-              <p className="text-sm text-muted">
-                {resolveTarget.line.qty} open · {formatNcLocationLabel(resolveTarget.location)}
-              </p>
-              <div className="product-nc-panel__form-grid">
-                <label>
-                  <span>Qty to resolve</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={resolveTarget.line.qty}
-                    value={resolveQty}
-                    onChange={e => setResolveQty(e.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>Outcome</span>
-                  <ProductNcSelect
-                    aria-label="Outcome"
-                    value={resolveOutcome}
-                    onChange={value => setResolveOutcome(value as NcResolveOutcome)}
-                    options={NC_RESOLVE_OUTCOMES.map(option => ({
-                      value: option.key,
-                      label: option.label,
-                    }))}
-                  />
-                </label>
-                <label className="product-nc-panel__span">
-                  <span>Note (optional)</span>
-                  <input value={resolveNote} onChange={e => setResolveNote(e.target.value)} />
-                </label>
-              </div>
-              <div className="product-nc-panel__resolve-actions">
-                <button type="button" className="btn btn-primary btn-sm" disabled={saving} onClick={() => void handleResolve()}>
-                  Confirm resolve
-                </button>
-                <button type="button" className="btn btn-sm" onClick={() => setResolveTarget(null)}>Cancel</button>
-              </div>
-            </section>
-          )}
+          <section className="product-nc-panel__section" aria-label="Open NC">
+            <div className="product-nc-panel__section-head">
+              <h3>Open NC</h3>
+              <span className="product-nc-panel__section-count">{openLines.length}</span>
+            </div>
 
-          {showHistory && (
-            <section className="product-nc-panel__history">
+            {openLines.length === 0 ? (
+              <p className="text-muted text-sm">No open NC for this item.</p>
+            ) : (
+              <div className="product-nc-panel__open-list">
+                {openLines.map(({ location, line }) => {
+                  const isExpanded = expandedLineId === line.id;
+                  const isResolving = resolveTarget?.line.id === line.id;
+                  return (
+                    <div
+                      key={line.id}
+                      className={`product-nc-panel__tile${isExpanded ? ' is-expanded' : ''}`}
+                    >
+                      <div className="product-nc-panel__tile-top">
+                        <button
+                          type="button"
+                          className="product-nc-panel__tile-toggle"
+                          onClick={() => toggleExpand(line.id)}
+                          aria-expanded={isExpanded}
+                        >
+                          <span className="product-nc-panel__tile-main">
+                            <strong>
+                              {line.qty} {product.unit}
+                            </strong>
+                            <span>{ncReasonLabel(line.reasonCode, line.reasonText)}</span>
+                            <span className="text-muted">{formatNcLocationLabel(location)}</span>
+                          </span>
+                          <ChevronDown
+                            size={16}
+                            className={`product-nc-panel__chevron${isExpanded ? ' is-open' : ''}`}
+                            aria-hidden
+                          />
+                        </button>
+                        {canEdit && !isResolving && (
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => startResolve(location, line)}
+                          >
+                            <CheckCircle2 size={14} aria-hidden />
+                            Resolve
+                          </button>
+                        )}
+                      </div>
+
+                      {isExpanded && (
+                        <div className="product-nc-panel__tile-body">
+                          {line.photos.length > 0 && (
+                            <div className="product-nc-panel__thumbs">
+                              {line.photos.map(photo => (
+                                <img key={photo.id} src={photo.url} alt="" />
+                              ))}
+                            </div>
+                          )}
+
+                          {line.createdAt && (
+                            <p className="product-nc-panel__tile-meta text-muted text-sm">
+                              Opened {new Date(line.createdAt).toLocaleString('en-IN')}
+                              {line.createdByName ? ` · ${line.createdByName}` : ''}
+                            </p>
+                          )}
+
+                          {canEdit && isResolving && (
+                            <div className="product-nc-panel__resolve-inline">
+                              <div className="product-nc-panel__form-grid">
+                                <label>
+                                  <span>Qty to resolve</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={line.qty}
+                                    value={resolveQty}
+                                    onChange={e => setResolveQty(e.target.value)}
+                                  />
+                                </label>
+                                <label>
+                                  <span>Outcome</span>
+                                  <ProductNcSelect
+                                    aria-label="Outcome"
+                                    value={resolveOutcome}
+                                    onChange={value => setResolveOutcome(value as NcResolveOutcome)}
+                                    options={NC_RESOLVE_OUTCOMES.map(option => ({
+                                      value: option.key,
+                                      label: option.label,
+                                    }))}
+                                  />
+                                </label>
+                                <label className="product-nc-panel__span">
+                                  <span>Note (optional)</span>
+                                  <input value={resolveNote} onChange={e => setResolveNote(e.target.value)} />
+                                </label>
+                              </div>
+                              <div className="product-nc-panel__resolve-actions">
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-sm"
+                                  disabled={saving}
+                                  onClick={() => void handleResolve()}
+                                >
+                                  {saving ? <RefreshCw size={14} className="spin-icon" /> : <CheckCircle2 size={14} />}
+                                  Confirm resolve
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  disabled={saving}
+                                  onClick={cancelResolve}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="product-nc-panel__history" aria-label="NC history">
+            <div className="product-nc-panel__section-head">
               <h3>History</h3>
-              {(docData?.events ?? []).length === 0 ? (
-                <p className="text-muted text-sm">No history yet.</p>
-              ) : (
-                <ul>
-                  {(docData?.events ?? []).map(event => (
-                    <li key={event.id}>
-                      <strong>{event.summary}</strong>
-                      <span className="text-muted text-sm">
-                        {new Date(event.at).toLocaleString('en-IN')}
-                        {event.byName ? ` · ${event.byName}` : ''}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
+              <span className="product-nc-panel__section-count">{historyEvents.length}</span>
+            </div>
+            {historyEvents.length === 0 ? (
+              <p className="text-muted text-sm">No history yet.</p>
+            ) : (
+              <ul>
+                {historyEvents.map(event => (
+                  <li key={event.id}>
+                    <strong>{event.summary}</strong>
+                    <span className="text-muted text-sm">
+                      {new Date(event.at).toLocaleString('en-IN')}
+                      {event.byName ? ` · ${event.byName}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </>
       )}
     </div>

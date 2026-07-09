@@ -7,6 +7,7 @@ import {
 import type { CatalogInventorySiteConfig } from '../../lib/catalogInventorySites';
 import {
   calculateGroupTotals,
+  formatQtyDifference,
   type InventoryAuditGroupTotals,
 } from '../../lib/yesStore/inventoryAudit';
 import {
@@ -19,6 +20,7 @@ import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import {
   getCatalogSiteInventoryLocations,
   type CatalogSiteInventoryDoc,
+  type CatalogSiteInventoryLocation,
 } from '../../types/catalog-site-inventory';
 import type { WarehouseZoneDoc, WarehouseZoneRowDoc } from '../../types/warehouse-locations';
 import {
@@ -26,6 +28,61 @@ import {
   readItemQuantity,
   type YesStoreItemDoc,
 } from '../../types/yes-store';
+
+export interface SiteStockAuditAdjustment {
+  /** Zoho-adjusted audited total for this site (last audited − Zoho movement). */
+  adjustedQty: number;
+  /** Last counted location total before Zoho adjustment. */
+  lastAuditedQty: number;
+  /** Zoho movement applied to audited qty (usually negative after sales). */
+  zohoAdjustedQty: number;
+}
+
+function allocateAdjustedLocationQtys(
+  locations: CatalogSiteInventoryLocation[],
+  adjustment: SiteStockAuditAdjustment | null | undefined,
+): Array<{
+  location: CatalogSiteInventoryLocation;
+  displayQty: number;
+  lastAuditedQty: number;
+  zohoAdjustedQty: number;
+}> {
+  if (!adjustment || locations.length === 0) {
+    return locations.map(location => ({
+      location,
+      displayQty: location.quantity,
+      lastAuditedQty: location.quantity,
+      zohoAdjustedQty: 0,
+    }));
+  }
+
+  const totalLive = locations.reduce((sum, loc) => sum + loc.quantity, 0);
+  if (totalLive <= 0 || locations.length === 1) {
+    const only = locations[0];
+    return locations.map(location => ({
+      location,
+      displayQty: location === only ? adjustment.adjustedQty : 0,
+      lastAuditedQty: location.quantity,
+      zohoAdjustedQty: location === only ? adjustment.zohoAdjustedQty : 0,
+    }));
+  }
+
+  let allocatedDelta = 0;
+  return locations.map((location, index) => {
+    const isLast = index === locations.length - 1;
+    const share = location.quantity / totalLive;
+    const rowDelta = isLast
+      ? adjustment.zohoAdjustedQty - allocatedDelta
+      : Math.round(share * adjustment.zohoAdjustedQty);
+    if (!isLast) allocatedDelta += rowDelta;
+    return {
+      location,
+      displayQty: location.quantity + rowDelta,
+      lastAuditedQty: location.quantity,
+      zohoAdjustedQty: rowDelta,
+    };
+  });
+}
 
 function SiteTypeBadge({ site }: { site: CatalogInventorySiteConfig['site'] }) {
   return (
@@ -238,6 +295,7 @@ function CochinLocationSection({
   editorUid,
   editorName,
   onSaved,
+  auditAdjustment,
 }: {
   product: CatalogProduct;
   siteConfig: CatalogInventorySiteConfig;
@@ -246,6 +304,7 @@ function CochinLocationSection({
   editorUid: string;
   editorName?: string | null;
   onSaved: (record: CatalogSiteInventoryDoc) => void;
+  auditAdjustment?: SiteStockAuditAdjustment | null;
 }) {
   const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
@@ -281,6 +340,17 @@ function CochinLocationSection({
   const readOnlyLocations = useMemo(
     () => getCatalogSiteInventoryLocations(record),
     [record],
+  );
+
+  const displayLocations = useMemo(
+    () => allocateAdjustedLocationQtys(readOnlyLocations, auditAdjustment),
+    [readOnlyLocations, auditAdjustment],
+  );
+
+  const showAuditHints = Boolean(
+    auditAdjustment
+    && auditAdjustment.zohoAdjustedQty !== 0
+    && !editing,
   );
 
   const startEditing = () => {
@@ -415,7 +485,7 @@ function CochinLocationSection({
             </button>
           </div>
         </div>
-      ) : readOnlyLocations.length > 0 ? (
+      ) : displayLocations.length > 0 ? (
         <div className="product-site-stock__table-wrap product-site-stock__table-wrap--warehouse">
           <table className="product-site-stock__table product-site-stock__table--hero-values">
             <thead>
@@ -426,12 +496,22 @@ function CochinLocationSection({
               </tr>
             </thead>
             <tbody>
-              {readOnlyLocations.map((loc, index) => (
-                <tr key={`${loc.zoneId}-${loc.zoneRowNumber}-${index}`}>
-                  <td>{loc.zoneId.toUpperCase()}</td>
-                  <td>{loc.zoneRowNumber}</td>
+              {displayLocations.map(({ location, displayQty, lastAuditedQty, zohoAdjustedQty }, index) => (
+                <tr key={`${location.zoneId}-${location.zoneRowNumber}-${index}`}>
+                  <td>{location.zoneId.toUpperCase()}</td>
+                  <td>{location.zoneRowNumber}</td>
                   <td className="product-site-stock__qty-cell">
-                    {formatStockQuantity(loc.quantity, product.unit)}
+                    <span className="product-site-stock__qty-main">
+                      {formatStockQuantity(displayQty, product.unit)}
+                    </span>
+                    {showAuditHints && (
+                      <span className="product-site-stock__qty-meta">
+                        <span>Last audited {formatStockQuantity(lastAuditedQty, product.unit)}</span>
+                        <span>
+                          Zoho adj. {formatQtyDifference(zohoAdjustedQty)} {product.unit}
+                        </span>
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -458,6 +538,7 @@ export const ProductSiteStockLocations: React.FC<{
   editorUid: string;
   editorName?: string | null;
   onCochinSaved: (record: CatalogSiteInventoryDoc) => void;
+  auditAdjustment?: SiteStockAuditAdjustment | null;
 }> = ({
   product,
   siteConfig,
@@ -467,6 +548,7 @@ export const ProductSiteStockLocations: React.FC<{
   editorUid,
   editorName,
   onCochinSaved,
+  auditAdjustment = null,
 }) => {
   const headOfficeTotals = useMemo(() => {
     if (siteConfig.site !== 'head_office' || auditItems.length === 0) return null;
@@ -487,6 +569,7 @@ export const ProductSiteStockLocations: React.FC<{
         editorUid={editorUid}
         editorName={editorName}
         onSaved={onCochinSaved}
+        auditAdjustment={auditAdjustment}
       />
     );
   }

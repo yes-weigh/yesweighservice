@@ -6,8 +6,9 @@ import { formatAuditDate, formatAuditTime } from '../../lib/yesStore/format';
 import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditLog, CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
-function auditorDisplayName(name: string | null | undefined): string {
-  const trimmed = name?.trim();
+function auditorDisplayName(log: Pick<CatalogProductAuditLog, 'auditedByName' | 'trigger'>): string {
+  if (log.trigger === 'zoho_sync') return 'Zoho sync';
+  const trimmed = log.auditedByName?.trim();
   return trimmed || 'Unknown auditor';
 }
 
@@ -175,11 +176,15 @@ export const ProductAuditHistory: React.FC<{
               </tr>
             ) : (
               sortedLogs.map(log => {
-                const name = auditorDisplayName(log.auditedByName);
+                const name = auditorDisplayName(log);
+                const isZohoSync = log.trigger === 'zoho_sync';
                 return (
-                  <tr key={log.id}>
+                  <tr key={log.id} className={isZohoSync ? 'product-audit-log__row--zoho-sync' : undefined}>
                     <td>
                       <strong className="product-audit-log__auditor-name">{name}</strong>
+                      {isZohoSync && (
+                        <span className="product-audit-log__trigger-note">Stock sync</span>
+                      )}
                     </td>
                     <td>
                       <div className="product-audit-log__datetime">

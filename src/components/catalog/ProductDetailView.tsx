@@ -454,6 +454,40 @@ export const ProductDetailView: React.FC<{
     product?.unit,
   ]);
 
+  const cochinAuditAdjustment = useMemo(() => {
+    if (!showAuditedStock || !adjustedAudit.hasAuditSnapshot) return null;
+    if (adjustedAudit.displayAuditedQty == null || livePhysicalQty == null) return null;
+    if (!activeInventorySites.includes('cochin') || !cochinRecord) return null;
+
+    const cochinLive = catalogSiteInventoryTotalQuantity(cochinRecord);
+    if (cochinLive <= 0 && adjustedAudit.displayAuditedQty === livePhysicalQty) return null;
+
+    const totalZohoAdj = adjustedAudit.displayAuditedQty - livePhysicalQty;
+    if (totalZohoAdj === 0) return null;
+
+    const onlyCochin = activeInventorySites.length === 1;
+    const share = onlyCochin || livePhysicalQty <= 0 ? 1 : cochinLive / livePhysicalQty;
+    const zohoAdjustedQty = Math.round(totalZohoAdj * share);
+    const adjustedQty = cochinLive + zohoAdjustedQty;
+
+    return {
+      adjustedQty,
+      lastAuditedQty: cochinLive,
+      zohoAdjustedQty,
+    };
+  }, [
+    showAuditedStock,
+    adjustedAudit.hasAuditSnapshot,
+    adjustedAudit.displayAuditedQty,
+    livePhysicalQty,
+    activeInventorySites,
+    cochinRecord,
+  ]);
+
+  const scrollToNcSection = useCallback(() => {
+    setDetailTab('nc');
+  }, []);
+
   const summaryNcQty = showAuditedStock ? (ncDoc?.openNcQty ?? 0) : null;
 
   const ncExistingLocations = useMemo((): ProductNcExistingLocation[] => {
@@ -1242,11 +1276,11 @@ export const ProductDetailView: React.FC<{
                         col.diffState ? `is-${col.diffState}` : '',
                         col.key === 'nc' && showAuditedStock ? 'product-detail-page__summary-cell--nc-action' : '',
                       ].filter(Boolean).join(' ')}
-                      onClick={col.key === 'nc' && showAuditedStock ? () => setDetailTab('nc') : undefined}
+                      onClick={col.key === 'nc' && showAuditedStock ? scrollToNcSection : undefined}
                       onKeyDown={col.key === 'nc' && showAuditedStock ? (e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          setDetailTab('nc');
+                          scrollToNcSection();
                         }
                       } : undefined}
                       tabIndex={col.key === 'nc' && showAuditedStock ? 0 : undefined}
@@ -1277,6 +1311,7 @@ export const ProductDetailView: React.FC<{
                   editorUid={user?.uid ?? ''}
                   editorName={user?.displayName}
                   onCochinSaved={setCochinRecord}
+                  auditAdjustment={site === 'cochin' ? cochinAuditAdjustment : null}
                 />
               ))}
             </div>

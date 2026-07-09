@@ -54,7 +54,7 @@ export function mapAuditSnapshot(data: unknown): CatalogProductAuditSnapshot | n
 
 export async function fetchCatalogProductAuditLogs(
   catalogProductId: string,
-  max = 20,
+  max = 50,
 ): Promise<CatalogProductAuditLog[]> {
   const snap = await getDocs(
     query(

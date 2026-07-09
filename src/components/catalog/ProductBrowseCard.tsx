@@ -162,7 +162,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           {showAuditInfo && (
             <div className="catalog-product-card__audit">
               <p className="catalog-product-card__audit-heading">
-                Stock difference (After last audit)
+                Stock difference (after last audit)
               </p>
               <div className="catalog-product-card__audit-row">
                 <div

@@ -160,9 +160,9 @@ export type SpareWarehouseLocationFilter = typeof SPARE_WAREHOUSE_LOCATION_FILTE
 export const SPARE_AUDIT_STATUS_FILTERS = [
   { key: 'audited', label: 'Audited' },
   { key: 'notAudited', label: 'Not audited' },
-  { key: 'zeroVariance', label: 'Zero variance' },
-  { key: 'overage', label: 'Physical overage' },
-  { key: 'shortage', label: 'Physical shortage' },
+  { key: 'zeroVariance', label: 'Matched' },
+  { key: 'overage', label: 'More' },
+  { key: 'shortage', label: 'Shortage' },
 ] as const;
 
 export type SpareAuditStatusFilter = typeof SPARE_AUDIT_STATUS_FILTERS[number]['key'];
@@ -325,7 +325,7 @@ export function catalogProductIsAudited(
   return cochinAuditedIds.has(product.id);
 }
 
-/** Audit vs book stock variance from the latest audit snapshot. */
+/** Audit vs book stock variance from the locked last-audit Diff. */
 export function catalogProductAuditVariance(
   product: Pick<CatalogProduct, 'stock' | 'auditSnapshot'>,
 ): 'zero' | 'overage' | 'shortage' | null {

@@ -2,20 +2,26 @@ import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-au
 
 export interface AdjustedAuditDisplay {
   hasAuditSnapshot: boolean;
+  /**
+   * Audited qty after Zoho movement:
+   * lastCountedPhysical + (currentZoho − zohoAtLastAudit) = currentZoho + locked Diff.
+   */
   displayAuditedQty: number | null;
+  /** Locked Diff from last physical audit (unchanged by Zoho sync). */
   displayDifference: number | null;
   physicalQtyAtAudit: number | null;
   zohoQtyAtAudit: number | null;
   lastAuditedAt: string | null;
   lastAuditedByName: string | null;
   baselineDifference: number | null;
-  /** Live physical count from bins/sites (before adjustment). */
+  /** Live physical count from bins/sites. */
   livePhysicalQty: number | null;
 }
 
 /**
- * When a prior audit exists, keep the recorded difference and shift the displayed
- * audited quantity as Zoho stock moves (invoices, purchases, sync).
+ * Summary Audited tracks Zoho using the locked audit Diff.
+ * Live location totals remain available for location-card adjustments.
+ * Original physical audit rows stay in history; Zoho sync also appends history entries.
  */
 export function resolveAdjustedAuditDisplay(input: {
   currentZohoQty: number | null;

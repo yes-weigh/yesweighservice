@@ -173,6 +173,51 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
   return { log, snapshot };
 }
 
+/**
+ * When Zoho stock changes on sync, keep locked Diff and move Audited with Zoho.
+ * Returns null when there is no prior audit or stock is unchanged.
+ */
+export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, nextZohoQty, auditedAt) {
+  if (!existingSnapshot || existingSnapshot.baselineDifference == null) return null;
+
+  const prevZoho = Number(previousZohoQty);
+  const nextZoho = Number(nextZohoQty);
+  if (!Number.isFinite(prevZoho) || !Number.isFinite(nextZoho)) return null;
+  if (prevZoho === nextZoho) return null;
+
+  const baselineDifference = Number(existingSnapshot.baselineDifference);
+  const physicalQty = nextZoho + baselineDifference;
+  const mode = existingSnapshot.mode === 'bundle' ? 'bundle' : 'unit';
+  const headOfficeQty = Number(existingSnapshot.headOfficeQtyAtAudit ?? 0);
+  const cochinQty = Number(existingSnapshot.cochinQtyAtAudit ?? 0);
+  const at = auditedAt || new Date().toISOString();
+
+  return {
+    auditedAt: at,
+    auditedByUid: null,
+    auditedByName: 'Zoho sync',
+    mode,
+    headOfficeQty,
+    cochinQty,
+    physicalQty,
+    rawPhysicalQty: null,
+    zohoQtyAtAudit: nextZoho,
+    baselineDifference,
+    trigger: 'zoho_sync',
+  };
+}
+
+export async function writeZohoSyncAuditEntry(productRef, existingSnapshot, previousZohoQty, nextZohoQty, auditedAt) {
+  const entry = buildZohoSyncAuditAdjustment(
+    existingSnapshot,
+    previousZohoQty,
+    nextZohoQty,
+    auditedAt,
+  );
+  if (!entry) return null;
+  return writeCatalogProductAuditEntry(productRef, entry);
+}
+
 async function collectAuditCandidateProductIds() {
   const db = getFirestore();
   const ids = new Set();
