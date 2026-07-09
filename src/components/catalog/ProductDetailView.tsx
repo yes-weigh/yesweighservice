@@ -56,8 +56,7 @@ import {
   CATALOG_INVENTORY_SITE_CONFIG,
   resolveActiveInventorySites,
 } from '../../lib/catalogInventorySites';
-import { ProductDetailTabs, DEALER_PRODUCT_DETAIL_TABS } from './ProductDetailTabs';
-import { ProductNcPanel } from './ProductNcPanel';
+import { ProductDetailTabs, DEALER_PRODUCT_DETAIL_TABS, type ProductDetailTabId } from './ProductDetailTabs';
 import { ProductPackageInfo } from './ProductPackageInfo';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
@@ -182,7 +181,7 @@ export const ProductDetailView: React.FC<{
   const [auditLoading, setAuditLoading] = useState(false);
   const [cochinRecord, setCochinRecord] = useState<CatalogSiteInventoryDoc | null>(null);
   const [ncDoc, setNcDoc] = useState<CatalogNcDoc | null>(null);
-  const [ncPanelOpen, setNcPanelOpen] = useState(false);
+  const [detailTab, setDetailTab] = useState<ProductDetailTabId | undefined>(undefined);
   const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -1214,11 +1213,11 @@ export const ProductDetailView: React.FC<{
                         col.diffState ? `is-${col.diffState}` : '',
                         col.key === 'nc' && showAuditedStock ? 'product-detail-page__summary-cell--nc-action' : '',
                       ].filter(Boolean).join(' ')}
-                      onClick={col.key === 'nc' && showAuditedStock ? () => setNcPanelOpen(true) : undefined}
+                      onClick={col.key === 'nc' && showAuditedStock ? () => setDetailTab('nc') : undefined}
                       onKeyDown={col.key === 'nc' && showAuditedStock ? (e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          setNcPanelOpen(true);
+                          setDetailTab('nc');
                         }
                       } : undefined}
                       tabIndex={col.key === 'nc' && showAuditedStock ? 0 : undefined}
@@ -1252,20 +1251,6 @@ export const ProductDetailView: React.FC<{
                 />
               ))}
             </div>
-          )}
-
-          {showAuditedStock && product && ncPanelOpen && (
-            <ProductNcPanel
-              product={product}
-              categories={spareClassificationCategories}
-              open={ncPanelOpen}
-              onClose={() => setNcPanelOpen(false)}
-              canEdit={canEditCochin}
-              actorUid={user?.uid ?? ''}
-              actorName={user?.displayName}
-              auditedQtyByLocationKey={auditedQtyByLocationKey}
-              onNcChange={setNcDoc}
-            />
           )}
 
           {showCartActions && (
@@ -1377,9 +1362,18 @@ export const ProductDetailView: React.FC<{
             )}
             <ProductDetailTabs
               product={product}
+              activeTab={detailTab}
+              onActiveTabChange={setDetailTab}
               visibleTabs={showCartActions ? DEALER_PRODUCT_DETAIL_TABS : undefined}
               showSpareTab={showLinksSection && (isCategorizedProduct || isSpareItem)}
               showAuditTab={showAuditedStock}
+              showNcTab={showAuditedStock}
+              ncCategories={spareClassificationCategories}
+              canEditNc={canEditCochin}
+              ncActorUid={user?.uid ?? ''}
+              ncActorName={user?.displayName}
+              auditedQtyByLocationKey={auditedQtyByLocationKey}
+              onNcChange={setNcDoc}
               relatedItems={relatedItems}
               relatedKind={relatedKind}
               relatedLoading={relatedLoading}

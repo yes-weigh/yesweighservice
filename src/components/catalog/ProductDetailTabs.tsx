@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { CatalogProduct } from '../../types/catalog';
+import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
+import type { CatalogNcDoc } from '../../types/catalog-nc';
 import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { ProductAuditHistory } from './ProductAuditHistory';
+import { ProductNcPanel } from './ProductNcPanel';
 
 export type ProductDetailTabId =
   | 'spare'
@@ -46,6 +48,13 @@ export const ProductDetailTabs: React.FC<{
   onActiveTabChange?: (tab: ProductDetailTabId) => void;
   showSpareTab: boolean;
   showAuditTab: boolean;
+  showNcTab?: boolean;
+  ncCategories?: CatalogCategory[];
+  canEditNc?: boolean;
+  ncActorUid?: string;
+  ncActorName?: string | null;
+  auditedQtyByLocationKey?: Map<string, number>;
+  onNcChange?: (doc: CatalogNcDoc | null) => void;
   relatedItems: CatalogProduct[];
   relatedKind: 'spares' | 'products';
   relatedLoading: boolean;
@@ -67,6 +76,13 @@ export const ProductDetailTabs: React.FC<{
   onActiveTabChange,
   showSpareTab,
   showAuditTab,
+  showNcTab = false,
+  ncCategories = [],
+  canEditNc = false,
+  ncActorUid = '',
+  ncActorName = null,
+  auditedQtyByLocationKey,
+  onNcChange,
   relatedItems,
   relatedKind,
   relatedLoading,
@@ -88,8 +104,12 @@ export const ProductDetailTabs: React.FC<{
 
   const visibleTabDefs = useMemo(() => {
     const allowed = visibleTabs ?? TAB_DEFS.map(tab => tab.id);
-    return TAB_DEFS.filter(tab => allowed.includes(tab.id));
-  }, [visibleTabs]);
+    return TAB_DEFS.filter(tab => {
+      if (!allowed.includes(tab.id)) return false;
+      if (tab.id === 'nc' && !showNcTab) return false;
+      return true;
+    });
+  }, [visibleTabs, showNcTab]);
 
   const setActiveTab = (tab: ProductDetailTabId) => {
     onActiveTabChange?.(tab);
@@ -205,7 +225,35 @@ export const ProductDetailTabs: React.FC<{
         </div>
         )}
 
-        {(['sales', 'nc', 'purchase', 'support', 'documents'] as const)
+        {visibleTabDefs.some(tab => tab.id === 'nc') && (
+        <div
+          id={panelId('nc')}
+          role="tabpanel"
+          aria-labelledby="product-detail-tab-nc"
+          hidden={activeTab !== 'nc'}
+          className="product-detail-tab-panel"
+        >
+          <TabPanelBody>
+            {showNcTab ? (
+              <ProductNcPanel
+                product={product}
+                categories={ncCategories}
+                open={activeTab === 'nc'}
+                canEdit={canEditNc}
+                actorUid={ncActorUid}
+                actorName={ncActorName}
+                auditedQtyByLocationKey={auditedQtyByLocationKey}
+                onNcChange={onNcChange}
+                embedded
+              />
+            ) : (
+              <TabPlaceholder label="NC" />
+            )}
+          </TabPanelBody>
+        </div>
+        )}
+
+        {(['sales', 'purchase', 'support', 'documents'] as const)
           .filter(tabId => visibleTabDefs.some(tab => tab.id === tabId))
           .map(tabId => (
           <div

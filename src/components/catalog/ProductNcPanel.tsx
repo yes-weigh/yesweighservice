@@ -47,13 +47,15 @@ export interface ProductNcPanelProps {
   product: CatalogProduct;
   categories: CatalogCategory[];
   open: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   canEdit: boolean;
   actorUid: string;
   actorName?: string | null;
   /** Audited qty by location key for soft/hard validation hints. */
   auditedQtyByLocationKey?: Map<string, number>;
   onNcChange?: (doc: CatalogNcDoc | null) => void;
+  /** When true, hide the close button (used inside product detail tabs). */
+  embedded?: boolean;
 }
 
 function locationKeyFromParts(site: CatalogInventorySite, parts: {
@@ -79,6 +81,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   actorName,
   auditedQtyByLocationKey,
   onNcChange,
+  embedded = false,
 }) => {
   const site = useMemo(
     () => resolveNcSiteForProduct(product, categories),
@@ -261,7 +264,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   if (!open) return null;
 
   return (
-    <div className="product-nc-panel panel glass">
+    <div className={`product-nc-panel panel glass${embedded ? ' product-nc-panel--embedded' : ''}`}>
       <div className="product-nc-panel__head">
         <div>
           <h2 className="product-nc-panel__title">Non-Conformance (NC)</h2>
@@ -280,9 +283,11 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
             <History size={14} aria-hidden />
             History
           </button>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label="Close NC">
-            <X size={16} />
-          </button>
+          {!embedded && onClose && (
+            <button type="button" className="btn btn-sm" onClick={onClose} aria-label="Close NC">
+              <X size={16} />
+            </button>
+          )}
         </div>
       </div>
 
