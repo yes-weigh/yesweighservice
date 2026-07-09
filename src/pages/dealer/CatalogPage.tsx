@@ -417,6 +417,7 @@ export const CatalogPage: React.FC = () => {
     }
     return getShopCatalogCategories(categories, shopProducts, spareParts, {
       filteredShopProducts: applyProductBrowseFilters(shopProducts),
+      filteredSpareProducts: applyProductBrowseFilters(spareParts),
     });
   }, [
     catalog?.categories,
