@@ -12,6 +12,7 @@ export interface ProductFolderGridProps {
   onManageItem?: (product: CatalogProduct) => void;
   spareLinkCountByProductId?: Map<string, number>;
   warehouseLinkedProductIds?: Set<string>;
+  openNcQtyByProductId?: Map<string, number>;
 }
 
 export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
@@ -24,6 +25,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
   onManageItem,
   spareLinkCountByProductId,
   warehouseLinkedProductIds,
+  openNcQtyByProductId,
 }) => {
   const [localProducts, setLocalProducts] = useState<CatalogProduct[]>(products);
   const dragIdx = useRef<number | null>(null);
@@ -63,46 +65,42 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
   };
 
   return (
-    <>
-      <p className="catalog-categories__hint text-muted text-sm">
-        Drag to reorder products in this category
-      </p>
-      <div className="catalog-grid catalog-grid--tiles">
-        {localProducts.map((product, idx) => (
-          <ProductBrowseCard
-            key={product.id}
-            product={product}
-            index={idx}
-            editable
-            onSelect={() => onProductSelect(product)}
-            enableCart={enableCart}
-            showStockQuantity={showStockQuantity}
-            manageLabel={onManageItem ? manageItemLabel : undefined}
-            onManage={
-              onManageItem
-                ? event => {
-                    event.stopPropagation();
-                    onManageItem(product);
-                  }
-                : undefined
-            }
-            linkedSpareCount={
-              spareLinkCountByProductId !== undefined
-                ? spareLinkCountByProductId.get(product.id) ?? 0
-                : undefined
-            }
-            warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
-            dragProps={{
-              draggable: true,
-              onDragStart: handleDragStart(idx),
-              onDragOver: handleDragOver,
-              onDragLeave: () => undefined,
-              onDrop: handleDrop(idx),
-              onDragEnd: handleDragEnd,
-            }}
-          />
-        ))}
-      </div>
-    </>
+    <div className="catalog-grid catalog-grid--tiles">
+      {localProducts.map((product, idx) => (
+        <ProductBrowseCard
+          key={product.id}
+          product={product}
+          index={idx}
+          editable
+          onSelect={() => onProductSelect(product)}
+          enableCart={enableCart}
+          showStockQuantity={showStockQuantity}
+          manageLabel={onManageItem ? manageItemLabel : undefined}
+          onManage={
+            onManageItem
+              ? event => {
+                  event.stopPropagation();
+                  onManageItem(product);
+                }
+              : undefined
+          }
+          linkedSpareCount={
+            spareLinkCountByProductId !== undefined
+              ? spareLinkCountByProductId.get(product.id) ?? 0
+              : undefined
+          }
+          warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
+          openNcCount={openNcQtyByProductId?.get(product.id)}
+          dragProps={{
+            draggable: true,
+            onDragStart: handleDragStart(idx),
+            onDragOver: handleDragOver,
+            onDragLeave: () => undefined,
+            onDrop: handleDrop(idx),
+            onDragEnd: handleDragEnd,
+          }}
+        />
+      ))}
+    </div>
   );
 };

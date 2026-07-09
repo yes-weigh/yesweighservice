@@ -24,7 +24,7 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   assignProductCategory,
-  formatCurrency,
+  formatCurrencyWhole,
   formatStockQuantity,
   getFinishedGoodsForSpareMapping,
   getSparesForSpareMapping,
@@ -57,13 +57,17 @@ import {
   resolveActiveInventorySites,
 } from '../../lib/catalogInventorySites';
 import { ProductDetailTabs, DEALER_PRODUCT_DETAIL_TABS } from './ProductDetailTabs';
+import { ProductNcPanel } from './ProductNcPanel';
 import { ProductPackageInfo } from './ProductPackageInfo';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
+import { getCatalogProductNc } from '../../lib/catalogNc/data';
 import {
   catalogSiteInventoryTotalQuantity,
+  getCatalogSiteInventoryLocations,
   type CatalogSiteInventoryDoc,
 } from '../../types/catalog-site-inventory';
+import type { CatalogNcDoc } from '../../types/catalog-nc';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 import {
   buildProductNavState,
@@ -177,6 +181,8 @@ export const ProductDetailView: React.FC<{
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [cochinRecord, setCochinRecord] = useState<CatalogSiteInventoryDoc | null>(null);
+  const [ncDoc, setNcDoc] = useState<CatalogNcDoc | null>(null);
+  const [ncPanelOpen, setNcPanelOpen] = useState(false);
   const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -335,6 +341,24 @@ export const ProductDetailView: React.FC<{
     };
   }, [showAuditedStock, productId]);
 
+  useEffect(() => {
+    if (!showAuditedStock || !productId) {
+      setNcDoc(null);
+      return;
+    }
+    let active = true;
+    void getCatalogProductNc(productId)
+      .then(data => {
+        if (active) setNcDoc(data);
+      })
+      .catch(() => {
+        if (active) setNcDoc(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [showAuditedStock, productId]);
+
   const activeInventorySites = useMemo(() => {
     if (!product || !showAuditedStock) return [];
     return resolveActiveInventorySites({
@@ -429,14 +453,31 @@ export const ProductDetailView: React.FC<{
     product?.unit,
   ]);
 
+  const summaryNcQty = showAuditedStock ? (ncDoc?.openNcQty ?? 0) : null;
+
+  const auditedQtyByLocationKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of getCatalogSiteInventoryLocations(cochinRecord)) {
+      map.set(
+        `cochin:${row.zoneId.trim().toLowerCase()}:${row.zoneRowNumber}`,
+        row.quantity,
+      );
+    }
+    for (const item of auditItems) {
+      const key = `head_office:${item.rackId.trim().toLowerCase()}:${item.rowNumber}:${item.binNumber}`;
+      map.set(key, (map.get(key) ?? 0) + (item.quantity ?? 0));
+    }
+    return map;
+  }, [cochinRecord, auditItems]);
+
   const summaryColumns = useMemo(() => {
     const cols: Array<{
       key: string;
       label: string;
       shortLabel: string;
-      tone: 'price' | 'zoho' | 'audited' | 'diff';
+      tone: 'zoho' | 'audited' | 'diff' | 'nc';
       diffState?: 'over' | 'under' | 'match';
-    }> = [{ key: 'price', label: 'Dealer price', shortLabel: 'Price', tone: 'price' }];
+    }> = [];
 
     if (showStockQuantity) {
       cols.push({ key: 'zoho', label: 'Zoho stock', shortLabel: 'Zoho', tone: 'zoho' });
@@ -454,13 +495,11 @@ export const ProductDetailView: React.FC<{
         diffState: difference > 0 ? 'over' : difference < 0 ? 'under' : 'match',
       });
     }
+    if (showStockQuantity || showAuditedStock) {
+      cols.push({ key: 'nc', label: 'NC', shortLabel: 'NC', tone: 'nc' });
+    }
     return cols;
   }, [showStockQuantity, showAuditedStock, summaryDifference]);
-
-  const stockColumns = useMemo(
-    () => summaryColumns.filter(col => col.key !== 'price'),
-    [summaryColumns],
-  );
 
   const renderStockValue = (key: string) => {
     if (!product) return null;
@@ -473,6 +512,8 @@ export const ProductDetailView: React.FC<{
         return summaryDifference != null
           ? formatQtyDifference(summaryDifference)
           : '—';
+      case 'nc':
+        return summaryNcQty == null ? '0' : String(summaryNcQty);
       default:
         return null;
     }
@@ -1020,20 +1061,31 @@ export const ProductDetailView: React.FC<{
               </p>
             )}
 
-            <h1 ref={titleRef} className="product-detail-page__title">
-              {productEditMode ? (
-                <input
-                  type="text"
-                  className="product-detail-page__title-input"
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
-                  disabled={detailsSaving}
-                  aria-label="Item name"
-                />
-              ) : (
-                formatProductTitle(product.name)
+            <div className="product-detail-page__title-row">
+              <h1 ref={titleRef} className="product-detail-page__title">
+                {productEditMode ? (
+                  <input
+                    type="text"
+                    className="product-detail-page__title-input"
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    disabled={detailsSaving}
+                    aria-label="Item name"
+                  />
+                ) : (
+                  formatProductTitle(product.name)
+                )}
+              </h1>
+              {!productEditMode && (
+                <div className="product-detail-page__title-price" aria-label="Dealer price">
+                  <div className="product-detail-page__title-price-amount">
+                    <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
+                    <span>{formatCurrencyWhole(product.rate).replace('₹', '').trim()}</span>
+                  </div>
+                  <span className="product-detail-page__title-price-gst">+GST</span>
+                </div>
               )}
-            </h1>
+            </div>
 
             {(product.sku || productEditMode) && (
               productEditMode ? (
@@ -1125,69 +1177,64 @@ export const ProductDetailView: React.FC<{
         </div>
 
         <section className="product-detail-page__main">
-          <div className="product-detail-page__summary-panel">
-            <div
-              className={[
-                'product-detail-page__summary-table',
-                stockColumns.length === 0 ? 'product-detail-page__summary-table--price-only' : '',
-              ].filter(Boolean).join(' ')}
-              style={{ '--stock-cols': stockColumns.length } as React.CSSProperties}
-            >
-              <div className="product-detail-page__summary-price-hero">
-                <span className="product-detail-page__summary-price-kicker">
-                  <span className="product-detail-page__summary-label-full">Dealer price</span>
-                  <span className="product-detail-page__summary-label-short">Price</span>
-                </span>
-                <div className="product-detail-page__summary-price-amount">
-                  <IndianRupee size={22} strokeWidth={2.5} aria-hidden />
-                  <span>{formatCurrency(product.rate).replace('₹', '').trim()}</span>
+          {summaryColumns.length > 0 && (
+            <div className="product-detail-page__summary-panel">
+              <div
+                className="product-detail-page__summary-table"
+                style={{ '--stock-cols': summaryColumns.length } as React.CSSProperties}
+                role="table"
+                aria-label="Stock summary"
+              >
+                <div className="product-detail-page__summary-stock-labels" role="row">
+                  {summaryColumns.map(col => (
+                    <div
+                      key={col.key}
+                      role="columnheader"
+                      className={[
+                        'product-detail-page__summary-cell',
+                        'product-detail-page__summary-cell--label',
+                        `product-detail-page__summary-cell--${col.tone}`,
+                        col.diffState ? `is-${col.diffState}` : '',
+                      ].filter(Boolean).join(' ')}
+                    >
+                      <span className="product-detail-page__summary-label-full">{col.label}</span>
+                      <span className="product-detail-page__summary-label-short">{col.shortLabel}</span>
+                    </div>
+                  ))}
                 </div>
-                <span className="product-detail-page__summary-gst-pill">+GST</span>
+                <div className="product-detail-page__summary-stock-values" role="row">
+                  {summaryColumns.map(col => (
+                    <div
+                      key={col.key}
+                      role="cell"
+                      className={[
+                        'product-detail-page__summary-cell',
+                        'product-detail-page__summary-cell--value',
+                        `product-detail-page__summary-cell--${col.tone}`,
+                        col.diffState ? `is-${col.diffState}` : '',
+                        col.key === 'nc' && showAuditedStock ? 'product-detail-page__summary-cell--nc-action' : '',
+                      ].filter(Boolean).join(' ')}
+                      onClick={col.key === 'nc' && showAuditedStock ? () => setNcPanelOpen(true) : undefined}
+                      onKeyDown={col.key === 'nc' && showAuditedStock ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setNcPanelOpen(true);
+                        }
+                      } : undefined}
+                      tabIndex={col.key === 'nc' && showAuditedStock ? 0 : undefined}
+                      title={col.key === 'nc' ? 'Open Non-Conformance' : undefined}
+                    >
+                      {renderStockValue(col.key)}
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              {stockColumns.length > 0 && (
-                <>
-                  <div className="product-detail-page__summary-stock-labels" role="row">
-                    {stockColumns.map(col => (
-                      <div
-                        key={col.key}
-                        role="columnheader"
-                        className={[
-                          'product-detail-page__summary-cell',
-                          'product-detail-page__summary-cell--label',
-                          `product-detail-page__summary-cell--${col.tone}`,
-                          col.diffState ? `is-${col.diffState}` : '',
-                        ].filter(Boolean).join(' ')}
-                      >
-                        <span className="product-detail-page__summary-label-full">{col.label}</span>
-                        <span className="product-detail-page__summary-label-short">{col.shortLabel}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="product-detail-page__summary-stock-values" role="row">
-                    {stockColumns.map(col => (
-                      <div
-                        key={col.key}
-                        role="cell"
-                        className={[
-                          'product-detail-page__summary-cell',
-                          'product-detail-page__summary-cell--value',
-                          `product-detail-page__summary-cell--${col.tone}`,
-                          col.diffState ? `is-${col.diffState}` : '',
-                        ].filter(Boolean).join(' ')}
-                      >
-                        {renderStockValue(col.key)}
-                      </div>
-                    ))}
-                  </div>
-                </>
+              {loading && showStockQuantity && (
+                <p className="product-detail-page__loading-note">Updating Zoho stock…</p>
               )}
             </div>
-
-            {loading && showStockQuantity && (
-              <p className="product-detail-page__loading-note">Updating Zoho stock…</p>
-            )}
-          </div>
+          )}
 
           {showAuditedStock && activeInventorySites.length > 0 && product && (
             <div className="product-detail-page__stock-locations product-detail-page__stock-locations--summary">
@@ -1205,6 +1252,20 @@ export const ProductDetailView: React.FC<{
                 />
               ))}
             </div>
+          )}
+
+          {showAuditedStock && product && ncPanelOpen && (
+            <ProductNcPanel
+              product={product}
+              categories={spareClassificationCategories}
+              open={ncPanelOpen}
+              onClose={() => setNcPanelOpen(false)}
+              canEdit={canEditCochin}
+              actorUid={user?.uid ?? ''}
+              actorName={user?.displayName}
+              auditedQtyByLocationKey={auditedQtyByLocationKey}
+              onNcChange={setNcDoc}
+            />
           )}
 
           {showCartActions && (

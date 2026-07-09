@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { CatalogSparesMultiFilters } from './CatalogSparesMultiFilters';
 import type {
   CategorizedProductFilter,
+  NcStatusFilter,
   SpareAuditStatusFilter,
   SpareCatalogFilter,
   SpareStockStatusFilter,
@@ -10,6 +11,8 @@ import type {
 } from '../../lib/catalog';
 
 const EMPTY_SPARE_LOCATION_FILTERS: ReadonlySet<SpareWarehouseLocationFilter> = new Set();
+const EMPTY_NC_STATUS_FILTERS: ReadonlySet<NcStatusFilter> = new Set();
+const EMPTY_NC_STATUS_COUNTS: Record<NcStatusFilter, number> = { hasNc: 0, noNc: 0 };
 
 export interface CatalogSparesFilterSheetProps {
   open: boolean;
@@ -19,16 +22,19 @@ export interface CatalogSparesFilterSheetProps {
   spareStockStatusFilters: ReadonlySet<SpareStockStatusFilter>;
   spareLocationFilters?: ReadonlySet<SpareWarehouseLocationFilter>;
   spareAuditStatusFilters: ReadonlySet<SpareAuditStatusFilter>;
+  ncStatusFilters?: ReadonlySet<NcStatusFilter>;
   onApplyFilters: (
     catalogFilters: Set<SpareCatalogFilter | CategorizedProductFilter>,
     stockStatusFilters: Set<SpareStockStatusFilter>,
     locationFilters: Set<SpareWarehouseLocationFilter>,
     auditStatusFilters: Set<SpareAuditStatusFilter>,
+    ncStatusFilters: Set<NcStatusFilter>,
   ) => void;
   spareCatalogFilterCounts: Record<string, number>;
   spareStockStatusFilterCounts: Record<SpareStockStatusFilter, number>;
   spareLocationFilterCounts: Record<SpareWarehouseLocationFilter, number>;
   spareAuditStatusFilterCounts: Record<SpareAuditStatusFilter, number>;
+  ncStatusFilterCounts?: Record<NcStatusFilter, number>;
 }
 
 export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> = ({
@@ -39,11 +45,13 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
   spareStockStatusFilters,
   spareLocationFilters = EMPTY_SPARE_LOCATION_FILTERS,
   spareAuditStatusFilters,
+  ncStatusFilters = EMPTY_NC_STATUS_FILTERS,
   onApplyFilters,
   spareCatalogFilterCounts,
   spareStockStatusFilterCounts,
   spareLocationFilterCounts,
   spareAuditStatusFilterCounts,
+  ncStatusFilterCounts = EMPTY_NC_STATUS_COUNTS,
 }) => {
   const [draftCatalogFilters, setDraftCatalogFilters] = useState<Set<SpareCatalogFilter | CategorizedProductFilter>>(
     () => new Set(spareCatalogFilters),
@@ -57,6 +65,9 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
   const [draftAuditStatusFilters, setDraftAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(
     () => new Set(spareAuditStatusFilters),
   );
+  const [draftNcStatusFilters, setDraftNcStatusFilters] = useState<Set<NcStatusFilter>>(
+    () => new Set(ncStatusFilters),
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -64,7 +75,8 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
     setDraftStockStatusFilters(new Set(spareStockStatusFilters));
     setDraftLocationFilters(new Set(spareLocationFilters));
     setDraftAuditStatusFilters(new Set(spareAuditStatusFilters));
-  }, [open, spareCatalogFilters, spareStockStatusFilters, spareLocationFilters, spareAuditStatusFilters]);
+    setDraftNcStatusFilters(new Set(ncStatusFilters));
+  }, [open, spareCatalogFilters, spareStockStatusFilters, spareLocationFilters, spareAuditStatusFilters, ncStatusFilters]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -114,11 +126,21 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
     });
   }, []);
 
+  const toggleDraftNcStatusFilter = useCallback((key: NcStatusFilter) => {
+    setDraftNcStatusFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   const clearDraftFilters = useCallback(() => {
     setDraftCatalogFilters(new Set());
     setDraftStockStatusFilters(new Set());
     setDraftLocationFilters(new Set());
     setDraftAuditStatusFilters(new Set());
+    setDraftNcStatusFilters(new Set());
   }, []);
 
   const handleApply = useCallback(() => {
@@ -127,6 +149,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
       draftStockStatusFilters,
       draftLocationFilters,
       draftAuditStatusFilters,
+      draftNcStatusFilters,
     );
     onClose();
   }, [
@@ -134,6 +157,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
     draftStockStatusFilters,
     draftLocationFilters,
     draftAuditStatusFilters,
+    draftNcStatusFilters,
     onApplyFilters,
     onClose,
   ]);
@@ -168,6 +192,9 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
           spareStockStatusFilterCounts={spareStockStatusFilterCounts}
           spareLocationFilterCounts={spareLocationFilterCounts}
           spareAuditStatusFilterCounts={spareAuditStatusFilterCounts}
+          ncStatusFilters={variant === 'products' ? draftNcStatusFilters : undefined}
+          onToggleNcStatusFilter={variant === 'products' ? toggleDraftNcStatusFilter : undefined}
+          ncStatusFilterCounts={variant === 'products' ? ncStatusFilterCounts : undefined}
           onClearAll={clearDraftFilters}
           onClose={onClose}
           onApply={handleApply}

@@ -460,21 +460,15 @@ function deriveCategoriesFromProducts(items, storedCategories) {
     }
   }
 
-  const merged = new Map();
-  for (const cat of storedCategories) {
-    if (cat.id) merged.set(String(cat.id), { ...cat, id: String(cat.id) });
-  }
-  for (const [id, cat] of derived) {
-    const prev = merged.get(id);
-    merged.set(id, {
-      ...cat,
-      productCount: Math.max(cat.productCount, prev?.productCount ?? 0),
-      thumbnailUrl: prev?.thumbnailUrl || cat.thumbnailUrl,
-      displayOrder: prev?.displayOrder ?? cat.displayOrder,
-    });
-  }
-
-  return [...merged.values()]
+  return [...derived.values()]
+    .map(cat => {
+      const prev = storedMap.get(cat.id);
+      return {
+        ...cat,
+        thumbnailUrl: prev?.thumbnailUrl || cat.thumbnailUrl,
+        displayOrder: prev?.displayOrder ?? cat.displayOrder,
+      };
+    })
     .filter(cat => cat.id && cat.productCount > 0)
     .sort((a, b) => {
       const orderDiff = (a.displayOrder ?? 999) - (b.displayOrder ?? 999);

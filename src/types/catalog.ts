@@ -49,7 +49,10 @@ export interface CatalogProduct {
 export interface CatalogCategory {
   id: string;
   name: string;
+  /** Items matching the current browse filters (or all items when no filters). */
   productCount: number;
+  /** Unfiltered total — set when filters are active so the UI can show `12 Items (35)`. */
+  totalProductCount?: number;
   displayOrder: number;
   thumbnailUrl: string | null;
 }

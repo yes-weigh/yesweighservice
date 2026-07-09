@@ -30,7 +30,9 @@ import {
   matchesSpareLocationFilters,
   matchesSpareAuditStatusFilters,
   matchesSpareStockStatusFilters,
-  buildAuditedCatalogProductIds,
+  matchesNcStatusFilters,
+  buildCochinAuditedCatalogProductIds,
+  buildHeadOfficeAuditedCatalogProductIds,
   catalogProductIsAudited,
   catalogProductHasImage,
   catalogProductHasWarehouseStock,
@@ -42,6 +44,7 @@ import {
   type SpareAuditStatusFilter,
   type SpareStockStatusFilter,
   type SpareWarehouseLocationFilter,
+  type NcStatusFilter,
   saveCatalogCategoryOrder,
   saveCatalogCategoryProductOrder,
   applyCategoryProductDisplayOrder,
@@ -50,6 +53,9 @@ import {
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
 import { listAllItems, fetchDisplayNamesForUids, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
+import { listCochinSiteInventory } from '../../lib/catalogSiteInventory/data';
+import { listCatalogProductNcSummaries } from '../../lib/catalogNc/data';
+import type { CatalogSiteInventoryDoc } from '../../types/catalog-site-inventory';
 import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
 import { canUseCart } from '../../types';
@@ -133,6 +139,7 @@ export const CatalogPage: React.FC = () => {
   const [linkEditorProductIds, setLinkEditorProductIds] = useState<string[]>([]);
   const [linkEditorSaving, setLinkEditorSaving] = useState(false);
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
+  const [cochinInventory, setCochinInventory] = useState<CatalogSiteInventoryDoc[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditAuditorNames, setAuditAuditorNames] = useState<Map<string, string>>(new Map());
   const [batchLinkItems, setBatchLinkItems] = useState<YesStoreItemDoc[] | null>(null);
@@ -145,7 +152,9 @@ export const CatalogPage: React.FC = () => {
   const [productCatalogFilters, setProductCatalogFilters] = useState<Set<CategorizedProductFilter>>(() => new Set());
   const [productStockStatusFilters, setProductStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
   const [productAuditStatusFilters, setProductAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
+  const [productNcStatusFilters, setProductNcStatusFilters] = useState<Set<NcStatusFilter>>(() => new Set());
   const [productsFiltersOpen, setProductsFiltersOpen] = useState(false);
+  const [openNcQtyByProductId, setOpenNcQtyByProductId] = useState<Map<string, number>>(new Map());
 
   const applySpareFilters = useCallback(
     (
@@ -153,6 +162,7 @@ export const CatalogPage: React.FC = () => {
       stockStatusFilters: Set<SpareStockStatusFilter>,
       locationFilters: Set<SpareWarehouseLocationFilter>,
       auditStatusFilters: Set<SpareAuditStatusFilter>,
+      _ncStatusFilters: Set<NcStatusFilter>,
     ) => {
       setSpareCatalogFilters(new Set([...catalogFilters] as SpareCatalogFilter[]));
       setSpareStockStatusFilters(new Set(stockStatusFilters));
@@ -168,10 +178,12 @@ export const CatalogPage: React.FC = () => {
       stockStatusFilters: Set<SpareStockStatusFilter>,
       _locationFilters: Set<SpareWarehouseLocationFilter>,
       auditStatusFilters: Set<SpareAuditStatusFilter>,
+      ncStatusFilters: Set<NcStatusFilter>,
     ) => {
       setProductCatalogFilters(new Set([...catalogFilters] as CategorizedProductFilter[]));
       setProductStockStatusFilters(new Set(stockStatusFilters));
       setProductAuditStatusFilters(new Set(auditStatusFilters));
+      setProductNcStatusFilters(new Set(ncStatusFilters));
     },
     [],
   );
@@ -224,8 +236,14 @@ export const CatalogPage: React.FC = () => {
   const loadAuditItems = useCallback(async () => {
     setAuditLoading(true);
     try {
-      const items = await listAllItems();
+      const [items, cochinRecords, ncSummaries] = await Promise.all([
+        listAllItems(null),
+        listCochinSiteInventory(),
+        listCatalogProductNcSummaries(),
+      ]);
       setAuditItems(items);
+      setCochinInventory(cochinRecords);
+      setOpenNcQtyByProductId(ncSummaries);
       const uids = [
         ...new Set(
           items
@@ -303,11 +321,6 @@ export const CatalogPage: React.FC = () => {
     [catalog?.items, catalog?.categories],
   );
 
-  const shopCategories = useMemo(() => {
-    const categories = catalog?.categories ?? [];
-    return getShopCatalogCategories(categories, shopProducts, spareParts);
-  }, [catalog?.categories, shopProducts, spareParts]);
-
   const browseProducts = useMemo(
     () => excludeHiddenCatalogProducts(
       getBrowseCatalogProducts(
@@ -321,36 +334,96 @@ export const CatalogPage: React.FC = () => {
     [shopProducts, spareParts, catalog?.categories, categoryFromUrl],
   );
 
-  const auditedCatalogProductIds = useMemo(
-    () => buildAuditedCatalogProductIds(auditItems),
+  const headOfficeAuditedCatalogProductIds = useMemo(
+    () => buildHeadOfficeAuditedCatalogProductIds(auditItems),
     [auditItems],
   );
 
-  const filteredBrowseProducts = useMemo(() => {
-    if (!isSuperAdmin) return browseProducts;
-    let items = browseProducts;
+  const cochinAuditedCatalogProductIds = useMemo(
+    () => buildCochinAuditedCatalogProductIds(cochinInventory),
+    [cochinInventory],
+  );
+
+  const catalogCategories = catalog?.categories ?? [];
+
+  const isProductAudited = useCallback(
+    (product: CatalogProduct) => catalogProductIsAudited(
+      product,
+      catalogCategories,
+      headOfficeAuditedCatalogProductIds,
+      cochinAuditedCatalogProductIds,
+    ),
+    [
+      catalogCategories,
+      headOfficeAuditedCatalogProductIds,
+      cochinAuditedCatalogProductIds,
+    ],
+  );
+
+  const hasActiveProductFilters =
+    productCatalogFilters.size > 0
+    || productStockStatusFilters.size > 0
+    || productAuditStatusFilters.size > 0
+    || productNcStatusFilters.size > 0;
+
+  const applyProductBrowseFilters = useCallback((items: typeof shopProducts) => {
+    if (!isSuperAdmin || !hasActiveProductFilters) return items;
+    let next = items;
     if (spareCountByProductId) {
-      items = items.filter(product => matchesCategorizedProductFilters(
+      next = next.filter(product => matchesCategorizedProductFilters(
         product,
         productCatalogFilters,
         spareCountByProductId,
       ));
     }
-    items = items.filter(product => matchesSpareStockStatusFilters(product, productStockStatusFilters));
-    items = items.filter(product => matchesSpareAuditStatusFilters(
+    next = next.filter(product => matchesSpareStockStatusFilters(product, productStockStatusFilters));
+    next = next.filter(product => matchesSpareAuditStatusFilters(
       product,
       productAuditStatusFilters,
-      auditedCatalogProductIds,
+      catalogCategories,
+      headOfficeAuditedCatalogProductIds,
+      cochinAuditedCatalogProductIds,
     ));
-    return items;
+    next = next.filter(product => matchesNcStatusFilters(
+      product,
+      productNcStatusFilters,
+      openNcQtyByProductId,
+    ));
+    return next;
   }, [
     isSuperAdmin,
-    browseProducts,
+    hasActiveProductFilters,
+    spareCountByProductId,
     productCatalogFilters,
     productStockStatusFilters,
     productAuditStatusFilters,
-    spareCountByProductId,
-    auditedCatalogProductIds,
+    productNcStatusFilters,
+    catalogCategories,
+    headOfficeAuditedCatalogProductIds,
+    cochinAuditedCatalogProductIds,
+    openNcQtyByProductId,
+  ]);
+
+  const filteredBrowseProducts = useMemo(
+    () => applyProductBrowseFilters(browseProducts),
+    [applyProductBrowseFilters, browseProducts],
+  );
+
+  const shopCategories = useMemo(() => {
+    const categories = catalog?.categories ?? [];
+    if (!isSuperAdmin || !hasActiveProductFilters) {
+      return getShopCatalogCategories(categories, shopProducts, spareParts);
+    }
+    return getShopCatalogCategories(categories, shopProducts, spareParts, {
+      filteredShopProducts: applyProductBrowseFilters(shopProducts),
+    });
+  }, [
+    catalog?.categories,
+    shopProducts,
+    spareParts,
+    isSuperAdmin,
+    hasActiveProductFilters,
+    applyProductBrowseFilters,
   ]);
 
   const filteredSpareParts = useMemo(() => {
@@ -362,7 +435,9 @@ export const CatalogPage: React.FC = () => {
       items = items.filter(product => matchesSpareAuditStatusFilters(
         product,
         spareAuditStatusFilters,
-        auditedCatalogProductIds,
+        catalogCategories,
+        headOfficeAuditedCatalogProductIds,
+        cochinAuditedCatalogProductIds,
       ));
       items = items.filter(product => matchesSpareStockStatusFilters(product, spareStockStatusFilters));
       items = items.filter(product => matchesSpareLocationFilters(product, spareLocationFilters));
@@ -376,7 +451,9 @@ export const CatalogPage: React.FC = () => {
     spareAuditStatusFilters,
     spareLocationFilters,
     linkedSpareIds,
-    auditedCatalogProductIds,
+    catalogCategories,
+    headOfficeAuditedCatalogProductIds,
+    cochinAuditedCatalogProductIds,
   ]);
 
   const spareCatalogFilterCounts = useMemo(() => {
@@ -398,9 +475,9 @@ export const CatalogPage: React.FC = () => {
   }), [spareParts]);
 
   const spareAuditStatusFilterCounts = useMemo(() => ({
-    audited: spareParts.filter(product => catalogProductIsAudited(product, auditedCatalogProductIds)).length,
-    notAudited: spareParts.filter(product => !catalogProductIsAudited(product, auditedCatalogProductIds)).length,
-  }), [spareParts, auditedCatalogProductIds]);
+    audited: spareParts.filter(product => isProductAudited(product)).length,
+    notAudited: spareParts.filter(product => !isProductAudited(product)).length,
+  }), [spareParts, isProductAudited]);
 
   const spareLocationFilterCounts = useMemo(() => ({
     cochin: spareParts.filter(product => catalogProductHasWarehouseStock(product, 'Cochin')).length,
@@ -460,11 +537,19 @@ export const CatalogPage: React.FC = () => {
   }), [productFilterCountBase]);
 
   const productAuditStatusFilterCounts = useMemo(() => ({
-    audited: productFilterCountBase.filter(product => catalogProductIsAudited(product, auditedCatalogProductIds)).length,
-    notAudited: productFilterCountBase.filter(
-      product => !catalogProductIsAudited(product, auditedCatalogProductIds),
-    ).length,
-  }), [productFilterCountBase, auditedCatalogProductIds]);
+    audited: productFilterCountBase.filter(product => isProductAudited(product)).length,
+    notAudited: productFilterCountBase.filter(product => !isProductAudited(product)).length,
+  }), [productFilterCountBase, isProductAudited]);
+
+  const productNcStatusFilterCounts = useMemo(() => {
+    const hasNc = productFilterCountBase.filter(
+      product => (openNcQtyByProductId.get(product.id) ?? 0) > 0,
+    ).length;
+    return {
+      hasNc,
+      noNc: productFilterCountBase.length - hasNc,
+    };
+  }, [productFilterCountBase, openNcQtyByProductId]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
@@ -674,10 +759,6 @@ export const CatalogPage: React.FC = () => {
     || spareStockStatusFilters.size > 0
     || spareLocationFilters.size > 0
     || spareAuditStatusFilters.size > 0;
-  const hasActiveProductFilters =
-    productCatalogFilters.size > 0
-    || productStockStatusFilters.size > 0
-    || productAuditStatusFilters.size > 0;
 
   useEffect(() => {
     if (focus !== 'all-spares') setSparesFiltersOpen(false);
@@ -1010,11 +1091,13 @@ export const CatalogPage: React.FC = () => {
           spareCatalogFilters={productCatalogFilters}
           spareStockStatusFilters={productStockStatusFilters}
           spareAuditStatusFilters={productAuditStatusFilters}
+          ncStatusFilters={productNcStatusFilters}
           onApplyFilters={applyProductFilters}
           spareCatalogFilterCounts={productCatalogFilterCounts}
           spareStockStatusFilterCounts={productStockStatusFilterCounts}
           spareLocationFilterCounts={spareLocationFilterCounts}
           spareAuditStatusFilterCounts={productAuditStatusFilterCounts}
+          ncStatusFilterCounts={productNcStatusFilterCounts}
         />
       )}
 
@@ -1049,6 +1132,7 @@ export const CatalogPage: React.FC = () => {
           showStockQuantity={showStockQuantity}
           hideFilterBar
           spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
+          openNcQtyByProductId={isSuperAdmin ? openNcQtyByProductId : undefined}
           activeCategoryId={categoryId}
           onActiveCategoryChange={setCategoryId}
           emptyTitle={

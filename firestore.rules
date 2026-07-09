@@ -647,6 +647,11 @@ service cloud.firestore {
       allow write: if isSuperAdmin() || isStaff();
     }
 
+    match /catalogProductNc/{productId} {
+      allow read: if isOpsUser();
+      allow write: if isSuperAdmin() || isStaff();
+    }
+
     function isLogisticsBookingDealerAccess(data) {
       return (isDealer() && (
           data.dealerId == request.auth.uid

@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
-import { IndianRupee, Link2, Package, ShoppingCart } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
+import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
+import { formatAuditDate } from '../../lib/yesStore/format';
+import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct } from '../../types/catalog';
@@ -17,6 +20,8 @@ export interface ProductBrowseCardProps {
   onManage?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   linkedSpareCount?: number;
   warehouseLinked?: boolean;
+  /** Open Non-Conformance count — staff/super_admin only. */
+  openNcCount?: number;
   editable?: boolean;
   dragProps?: {
     draggable: boolean;
@@ -46,6 +51,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   onManage,
   linkedSpareCount,
   warehouseLinked = false,
+  openNcCount,
   editable = false,
   dragProps,
 }) => {
@@ -56,6 +62,23 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const theme = getCategoryTheme(index);
   const outOfStock = product.stockStatus === 'out_of_stock';
   const inCart = isInCart(product.id);
+
+  const auditDisplay = useMemo(() => {
+    if (!showStockQuantity || !product.auditSnapshot) return null;
+    return resolveAdjustedAuditDisplay({
+      currentZohoQty: product.stock,
+      snapshot: product.auditSnapshot,
+      livePhysicalQty: null,
+    });
+  }, [showStockQuantity, product.auditSnapshot, product.stock]);
+
+  const auditDiff = auditDisplay?.displayDifference ?? null;
+  const auditDiffState =
+    auditDiff == null ? null
+      : auditDiff > 0 ? 'over'
+        : auditDiff < 0 ? 'under'
+          : 'match';
+  const showAuditInfo = auditDisplay?.hasAuditSnapshot === true && auditDiff != null;
 
   const cardStyle = {
     '--cat-bg': theme.bg,
@@ -129,6 +152,54 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
               />
             )}
           </div>
+
+          {openNcCount != null && openNcCount > 0 && (
+            <span className="catalog-product-card__nc-badge">
+              NC {openNcCount}
+            </span>
+          )}
+
+          {showAuditInfo && (
+            <div className="catalog-product-card__audit">
+              <p className="catalog-product-card__audit-heading">
+                Stock difference (After last audit)
+              </p>
+              <div className="catalog-product-card__audit-row">
+                <div
+                  className={[
+                    'catalog-product-card__audit-diff',
+                    auditDiffState ? `catalog-product-card__audit-diff--${auditDiffState}` : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  <span className="catalog-product-card__audit-diff-icon" aria-hidden>
+                    {auditDiffState === 'under'
+                      ? <ArrowDown size={12} strokeWidth={2.75} />
+                      : auditDiffState === 'over'
+                        ? <ArrowUp size={12} strokeWidth={2.75} />
+                        : <Minus size={12} strokeWidth={2.75} />}
+                  </span>
+                  <div className="catalog-product-card__audit-diff-copy">
+                    <span className="catalog-product-card__audit-diff-value">
+                      {`${formatQtyDifference(auditDiff!)} ${product.unit}`.trim()}
+                    </span>
+                    {auditDiffState === 'over' && (
+                      <span className="catalog-product-card__audit-diff-note">(Found more)</span>
+                    )}
+                    {auditDiffState === 'under' && (
+                      <span className="catalog-product-card__audit-diff-note">(Found less)</span>
+                    )}
+                  </div>
+                </div>
+                <div className="catalog-product-card__audit-date">
+                  <span className="catalog-product-card__audit-date-label">Last audit</span>
+                  <span className="catalog-product-card__audit-date-value">
+                    {formatAuditDate(auditDisplay?.lastAuditedAt)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {linkedSpareCount !== undefined && (
             <span
               className={`catalog-product-card__spare-count ${linkedSpareCount === 0 ? 'catalog-product-card__spare-count--none' : ''}`}

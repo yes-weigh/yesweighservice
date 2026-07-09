@@ -189,6 +189,27 @@ export const CATEGORIZED_PRODUCT_FILTERS = [
 
 export type CategorizedProductFilter = typeof CATEGORIZED_PRODUCT_FILTERS[number]['key'];
 
+export const NC_STATUS_FILTERS = [
+  { key: 'hasNc', label: 'Has NC' },
+  { key: 'noNc', label: 'No NC' },
+] as const;
+
+export type NcStatusFilter = typeof NC_STATUS_FILTERS[number]['key'];
+
+export function matchesNcStatusFilters(
+  product: Pick<CatalogProduct, 'id'>,
+  filters: ReadonlySet<NcStatusFilter>,
+  openNcQtyByProductId: ReadonlyMap<string, number>,
+): boolean {
+  if (filters.size === 0) return true;
+  const qty = openNcQtyByProductId.get(product.id) ?? 0;
+  const hasNc = qty > 0;
+  return (
+    (filters.has('hasNc') && hasNc)
+    || (filters.has('noNc') && !hasNc)
+  );
+}
+
 export function matchesSpareCatalogFilters(
   product: CatalogProduct,
   filters: ReadonlySet<SpareCatalogFilter>,
@@ -251,7 +272,8 @@ export function matchesSpareStockStatusFilters(
   );
 }
 
-export function buildAuditedCatalogProductIds(
+/** Head Office store-room audits — Yes Store bins linked to a catalog product. */
+export function buildHeadOfficeAuditedCatalogProductIds(
   auditItems: ReadonlyArray<{ catalogProductId?: string | null }>,
 ): Set<string> {
   const ids = new Set<string>();
@@ -262,20 +284,57 @@ export function buildAuditedCatalogProductIds(
   return ids;
 }
 
+/** @deprecated Prefer buildHeadOfficeAuditedCatalogProductIds */
+export function buildAuditedCatalogProductIds(
+  auditItems: ReadonlyArray<{ catalogProductId?: string | null }>,
+): Set<string> {
+  return buildHeadOfficeAuditedCatalogProductIds(auditItems);
+}
+
+/** Cochin warehouse audits — catalogSiteInventory records for site `cochin`. */
+export function buildCochinAuditedCatalogProductIds(
+  records: ReadonlyArray<{ catalogProductId?: string | null; site?: string | null }>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const record of records) {
+    if (record.site && record.site !== 'cochin') continue;
+    const id = record.catalogProductId?.trim();
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * Audited means:
+ * - Generic spare parts → Head Office store room (Yes Store bins)
+ * - All other categorized products → Cochin warehouse (site inventory)
+ */
 export function catalogProductIsAudited(
-  product: Pick<CatalogProduct, 'id'>,
-  auditedCatalogProductIds: ReadonlySet<string>,
+  product: Pick<CatalogProduct, 'id' | 'categoryId' | 'categoryName'>,
+  categories: CatalogCategory[],
+  headOfficeAuditedIds: ReadonlySet<string>,
+  cochinAuditedIds: ReadonlySet<string>,
 ): boolean {
-  return auditedCatalogProductIds.has(product.id);
+  if (isCatalogSparePartProduct(product, categories)) {
+    return headOfficeAuditedIds.has(product.id);
+  }
+  return cochinAuditedIds.has(product.id);
 }
 
 export function matchesSpareAuditStatusFilters(
-  product: Pick<CatalogProduct, 'id'>,
+  product: Pick<CatalogProduct, 'id' | 'categoryId' | 'categoryName'>,
   filters: ReadonlySet<SpareAuditStatusFilter>,
-  auditedCatalogProductIds: ReadonlySet<string>,
+  categories: CatalogCategory[],
+  headOfficeAuditedIds: ReadonlySet<string>,
+  cochinAuditedIds: ReadonlySet<string>,
 ): boolean {
   if (filters.size === 0) return true;
-  const isAudited = catalogProductIsAudited(product, auditedCatalogProductIds);
+  const isAudited = catalogProductIsAudited(
+    product,
+    categories,
+    headOfficeAuditedIds,
+    cochinAuditedIds,
+  );
   return (
     (filters.has('audited') && isAudited)
     || (filters.has('notAudited') && !isAudited)
@@ -354,21 +413,62 @@ export function getCategoriesForProducts(
   return categories.filter(c => ids.has(c.id));
 }
 
+function countProductsByCategoryId(products: CatalogProduct[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const product of products) {
+    if (!product.categoryId) continue;
+    counts.set(product.categoryId, (counts.get(product.categoryId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export interface ShopCatalogCategoryOptions {
+  /** When set, category cards use these counts and keep unfiltered totals in brackets. */
+  filteredShopProducts?: CatalogProduct[];
+  filteredSpareProducts?: CatalogProduct[];
+}
+
 /** Categories grid for shop browse — includes Generic spare parts for staff catalog views. */
 export function getShopCatalogCategories(
   categories: CatalogCategory[],
   shopProducts: CatalogProduct[],
   spareProducts: CatalogProduct[],
+  options: ShopCatalogCategoryOptions = {},
 ): CatalogCategory[] {
-  const fromShop = getCategoriesForProducts(categories, shopProducts);
+  const filteredShop = options.filteredShopProducts ?? shopProducts;
+  const filteredSpare = options.filteredSpareProducts ?? spareProducts;
+  const filtersActive =
+    options.filteredShopProducts != null
+    || options.filteredSpareProducts != null;
+
+  const totalShopCounts = countProductsByCategoryId(shopProducts);
+  const filteredShopCounts = countProductsByCategoryId(filteredShop);
+
+  const fromShop = getCategoriesForProducts(categories, shopProducts)
+    .map(cat => {
+      const totalProductCount = totalShopCounts.get(cat.id) ?? 0;
+      const productCount = filteredShopCounts.get(cat.id) ?? 0;
+      if (filtersActive && productCount <= 0) return null;
+      return {
+        ...cat,
+        productCount,
+        ...(filtersActive ? { totalProductCount } : {}),
+      };
+    })
+    .filter((c): c is CatalogCategory => c !== null);
   const included = new Set(fromShop.map(c => c.id));
 
   const genericSpareCategories = categories
     .filter(c => isGenericSparePartsCategory(c) && !included.has(c.id))
     .map(cat => {
-      const productCount = spareProducts.filter(p => p.categoryId === cat.id).length;
+      const totalProductCount = spareProducts.filter(p => p.categoryId === cat.id).length;
+      const productCount = filteredSpare.filter(p => p.categoryId === cat.id).length;
       if (productCount <= 0) return null;
-      return { ...cat, productCount };
+      return {
+        ...cat,
+        productCount,
+        ...(filtersActive ? { totalProductCount } : {}),
+      };
     })
     .filter((c): c is CatalogCategory => c !== null);
 
@@ -574,7 +674,7 @@ function deriveCategoriesFromProducts(
   for (const product of products) {
     if (!hasCatalogCategory(product)) continue;
     const categoryId = product.categoryId as string;
-    const existing = storedMap.get(categoryId) ?? derived.get(categoryId);
+    const existing = derived.get(categoryId);
     if (!existing) {
       derived.set(categoryId, {
         id: categoryId,
@@ -593,21 +693,15 @@ function deriveCategoriesFromProducts(
     }
   }
 
-  const merged = new Map<string, CatalogCategory>();
-  for (const cat of stored) {
-    if (cat.id) merged.set(cat.id, { ...cat });
-  }
-  for (const [id, cat] of derived) {
-    const prev = merged.get(id);
-    merged.set(id, {
-      ...cat,
-      productCount: Math.max(cat.productCount, prev?.productCount ?? 0),
-      thumbnailUrl: prev?.thumbnailUrl || cat.thumbnailUrl,
-      displayOrder: prev?.displayOrder ?? cat.displayOrder,
-    });
-  }
-
-  return [...merged.values()]
+  return [...derived.values()]
+    .map(cat => {
+      const prev = storedMap.get(cat.id);
+      return {
+        ...cat,
+        thumbnailUrl: prev?.thumbnailUrl || cat.thumbnailUrl,
+        displayOrder: prev?.displayOrder ?? cat.displayOrder,
+      };
+    })
     .filter(cat => cat.id && cat.productCount > 0)
     .sort((a, b) => {
       const orderDiff = a.displayOrder - b.displayOrder;
@@ -996,6 +1090,15 @@ export function formatCurrency(value: number): string {
     style: 'currency',
     currency: 'INR',
     maximumFractionDigits: 2,
+  }).format(value);
+}
+
+/** Dealer price without paise — for compact product-detail display. */
+export function formatCurrencyWhole(value: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
   }).format(value);
 }
 

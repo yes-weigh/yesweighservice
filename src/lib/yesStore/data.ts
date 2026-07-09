@@ -208,7 +208,13 @@ export async function listItemsInBin(
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function listAllItems(max = 200): Promise<YesStoreItemDoc[]> {
+export async function listAllItems(max: number | null = 200): Promise<YesStoreItemDoc[]> {
+  if (max == null) {
+    const snap = await getDocs(collection(db, 'yesStoreItems'));
+    return snap.docs
+      .map(d => d.data() as YesStoreItemDoc)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
   const snap = await getDocs(
     query(
       collection(db, 'yesStoreItems'),

@@ -47,6 +47,8 @@ export function getCategoryDescription(name: string): string {
   return `Browse ${readable} products`;
 }
 
-export function formatCategoryItemCount(count: number): string {
-  return `${count} Item${count === 1 ? '' : 's'}`;
+export function formatCategoryItemCount(count: number, totalCount?: number): string {
+  const label = `${count} Item${count === 1 ? '' : 's'}`;
+  if (totalCount == null || totalCount === count) return label;
+  return `${label} (${totalCount})`;
 }

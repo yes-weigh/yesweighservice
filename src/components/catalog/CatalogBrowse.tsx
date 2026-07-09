@@ -79,6 +79,8 @@ export interface CatalogBrowseProps {
   spareLinkCountByProductId?: Map<string, number>;
   /** Super admin — Zoho products with warehouse audit bins linked. */
   warehouseLinkedProductIds?: Set<string>;
+  /** Staff/super_admin — open NC qty per product id. */
+  openNcQtyByProductId?: Map<string, number>;
   /** Override default navigation when a product tile is opened. */
   onProductSelect?: (product: CatalogProduct) => void;
 }
@@ -224,6 +226,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   emptyHint,
   spareLinkCountByProductId,
   warehouseLinkedProductIds,
+  openNcQtyByProductId,
   onProductSelect,
 }) => {
   const navigate = useNavigate();
@@ -485,6 +488,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               onManageItem={onManageItem}
               spareLinkCountByProductId={spareLinkCountByProductId}
               warehouseLinkedProductIds={warehouseLinkedProductIds}
+              openNcQtyByProductId={openNcQtyByProductId}
             />
           ) : filterMode === 'minimal' || viewMode === 'grid' ? (
             <div className="catalog-grid catalog-grid--tiles">
@@ -511,6 +515,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                       : undefined
                   }
                   warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
+                  openNcCount={openNcQtyByProductId?.get(product.id)}
                 />
               ))}
             </div>

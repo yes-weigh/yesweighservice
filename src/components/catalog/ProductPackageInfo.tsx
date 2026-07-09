@@ -13,7 +13,7 @@ const CARTON_ROWS: { kind: CartonKind; label: string }[] = [
 
 const VALUE_COLUMNS = [
   { key: 'quantity' as const, label: 'Qty' },
-  { key: 'weightKg' as const, label: 'Weight' },
+  { key: 'weightKg' as const, label: 'Weight (kg)' },
   { key: 'lengthCm' as const, label: 'L (cm)' },
   { key: 'breadthCm' as const, label: 'B (cm)' },
   { key: 'heightCm' as const, label: 'H (cm)' },
@@ -84,7 +84,7 @@ function parseEditableCarton(form: EditableCarton): CatalogPackageCarton | null 
 
 function formatWeight(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
-  return `${value.toFixed(2)} kg`;
+  return value.toFixed(2);
 }
 
 function formatDimension(value: number | null | undefined): string {

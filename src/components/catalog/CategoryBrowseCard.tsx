@@ -78,7 +78,7 @@ export const CategoryBrowseCard: React.FC<CategoryBrowseCardProps> = ({
         </div>
         {!simple && (
           <span className="catalog-category-card__count">
-            {formatCategoryItemCount(category.productCount)}
+            {formatCategoryItemCount(category.productCount, category.totalProductCount)}
             <ChevronRight size={12} strokeWidth={2.5} aria-hidden />
           </span>
         )}

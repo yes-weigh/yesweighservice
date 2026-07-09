@@ -126,6 +126,12 @@ service firebase.storage {
       allow write: if false;
     }
 
+    match /catalogNc/{productId}/{fileName} {
+      allow read: if isOpsUser();
+      allow create, update: if isOpsUser() && validSupportMedia();
+      allow delete: if isOpsUser();
+    }
+
     match /invoices/{allPaths=**} {
       allow read, write: if false;
     }

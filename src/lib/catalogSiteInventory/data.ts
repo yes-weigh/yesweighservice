@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../../firebase';
 import type {
   CatalogInventorySite,
@@ -32,6 +32,14 @@ export async function getCatalogSiteInventory(
   const snap = await getDoc(siteInventoryRef(catalogProductId, site));
   if (!snap.exists()) return null;
   return snap.data() as CatalogSiteInventoryDoc;
+}
+
+/** All Cochin warehouse site-inventory records (for catalog audit filters). */
+export async function listCochinSiteInventory(): Promise<CatalogSiteInventoryDoc[]> {
+  const snap = await getDocs(
+    query(collection(db, 'catalogSiteInventory'), where('site', '==', 'cochin')),
+  );
+  return snap.docs.map(d => d.data() as CatalogSiteInventoryDoc);
 }
 
 export async function saveCatalogSiteInventory(input: {
