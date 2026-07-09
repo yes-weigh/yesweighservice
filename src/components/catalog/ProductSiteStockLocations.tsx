@@ -20,7 +20,7 @@ import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import {
   getCatalogSiteInventoryLocations,
   type CatalogSiteInventoryDoc,
-  type CatalogSiteInventoryLocation,
+  type CatalogSiteInventoryLocationRow,
 } from '../../types/catalog-site-inventory';
 import type { WarehouseZoneDoc, WarehouseZoneRowDoc } from '../../types/warehouse-locations';
 import {
@@ -39,10 +39,10 @@ export interface SiteStockAuditAdjustment {
 }
 
 function allocateAdjustedLocationQtys(
-  locations: CatalogSiteInventoryLocation[],
+  locations: CatalogSiteInventoryLocationRow[],
   adjustment: SiteStockAuditAdjustment | null | undefined,
 ): Array<{
-  location: CatalogSiteInventoryLocation;
+  location: CatalogSiteInventoryLocationRow;
   displayQty: number;
   lastAuditedQty: number;
   zohoAdjustedQty: number;
