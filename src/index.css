@@ -3912,8 +3912,10 @@ html::-webkit-scrollbar {
   color: #64748b;
 }
 
-.product-nc-panel__form-grid .product-nc-panel__span {
+.product-nc-panel__form-grid .product-nc-location-picker__hint,
+.product-open-nc-tile__form-grid .product-nc-location-picker__hint {
   grid-column: 1 / -1;
+  margin: 0;
 }
 
 .product-nc-panel__form-grid select,

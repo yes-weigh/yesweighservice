@@ -35,9 +35,11 @@ import {
   MAX_NC_PHOTOS_PER_LINE,
   NC_REASON_OPTIONS,
   NC_RESOLVE_OUTCOMES,
+  ncLocationKey,
   ncReasonLabel,
 } from '../../types/catalog-nc';
 import { ProductNcSelect } from './ProductNcSelect';
+import { ProductNcLocationPicker } from './ProductNcLocationPicker';
 
 export interface ProductNcExistingLocation {
   key: string;
@@ -99,7 +101,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
 
-  const [selectedLocationKey, setSelectedLocationKey] = useState('');
+  const [draftLocation, setDraftLocation] = useState<CatalogNcLocationKey | null>(null);
   const [qty, setQty] = useState('1');
   const [reasonCode, setReasonCode] = useState<NcReasonCode>('display_issue');
   const [reasonText, setReasonText] = useState('');
@@ -134,6 +136,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
     void load();
     setShowAddForm(false);
     setResolveTarget(null);
+    setDraftLocation(null);
   }, [open, load]);
 
   useEffect(() => {
@@ -141,20 +144,17 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
     setExpandedLineId(focusLineId ?? null);
   }, [open, focusLineId]);
 
-  useEffect(() => {
-    if (siteLocations.length === 0) {
-      setSelectedLocationKey('');
-      return;
-    }
-    if (!siteLocations.some(loc => loc.key === selectedLocationKey)) {
-      setSelectedLocationKey(siteLocations[0]?.key ?? '');
-    }
-  }, [siteLocations, selectedLocationKey]);
-
-  const selectedLocation = useMemo(
-    () => siteLocations.find(loc => loc.key === selectedLocationKey) ?? null,
-    [siteLocations, selectedLocationKey],
-  );
+  const auditedQtyForDraft = useMemo(() => {
+    if (!draftLocation) return null;
+    const key = (() => {
+      try {
+        return ncLocationKey({ ...draftLocation, site });
+      } catch {
+        return '';
+      }
+    })();
+    return siteLocations.find(loc => loc.key === key)?.auditedQty ?? null;
+  }, [draftLocation, site, siteLocations]);
 
   const openLines = useMemo(() => {
     if (!docData) return [];
@@ -196,12 +196,14 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   const openAddForm = () => {
     setShowAddForm(true);
     setResolveTarget(null);
+    setDraftLocation(null);
     setError(null);
     setWarnings([]);
   };
 
   const closeAddForm = () => {
     setShowAddForm(false);
+    setDraftLocation(null);
     setWarnings([]);
   };
 
@@ -228,8 +230,8 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
 
   const handleAddLine = async () => {
     if (!canEdit || saving) return;
-    if (!selectedLocation) {
-      setError('Select an existing storage location for this item.');
+    if (!draftLocation) {
+      setError('Select a storage location.');
       return;
     }
     setSaving(true);
@@ -239,14 +241,14 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
       const result = await addCatalogNcLine({
         catalogProductId: product.id,
         site,
-        location: selectedLocation.location,
+        location: draftLocation,
         qty: Number(qty),
         reasonCode,
         reasonText,
         photos,
         actorUid,
         actorName,
-        auditedQtyAtLocation: selectedLocation.auditedQty,
+        auditedQtyAtLocation: auditedQtyForDraft,
         zohoStock: product.stock,
       });
       setDocData(result.doc);
@@ -255,6 +257,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
       setQty('1');
       setReasonText('');
       setPhotos([]);
+      setDraftLocation(null);
       setShowAddForm(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save NC.');
@@ -375,83 +378,73 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
           {canEdit && showAddForm && (
             <section className="product-nc-panel__add" aria-label="Add NC">
               <h3>Add NC</h3>
-              {siteLocations.length === 0 ? (
-                <p className="text-muted text-sm">
-                  No existing {siteConfig.locationSubtitle.toLowerCase()} locations for this item yet.
-                  Add audited stock locations first, then mark NC against them.
-                </p>
-              ) : (
-                <>
-                  <div className="product-nc-panel__form-grid">
-                    <label className="product-nc-panel__span">
-                      <span>Location</span>
-                      <ProductNcSelect
-                        aria-label="Location"
-                        value={selectedLocationKey}
-                        onChange={setSelectedLocationKey}
-                        options={siteLocations.map(loc => ({
-                          value: loc.key,
-                          label: `${loc.label} · audited ${loc.auditedQty} ${product.unit}`,
-                        }))}
-                      />
-                    </label>
-                    <label>
-                      <span>Qty</span>
-                      <input type="number" min={1} step={1} value={qty} onChange={e => setQty(e.target.value)} />
-                    </label>
-                    <label>
-                      <span>Reason</span>
-                      <ProductNcSelect
-                        aria-label="Reason"
-                        value={reasonCode}
-                        onChange={value => setReasonCode(value as NcReasonCode)}
-                        options={NC_REASON_OPTIONS.map(option => ({
-                          value: option.key,
-                          label: option.label,
-                        }))}
-                      />
-                    </label>
-                    {reasonCode === 'other' && (
-                      <label className="product-nc-panel__span">
-                        <span>Other note</span>
-                        <input
-                          value={reasonText}
-                          onChange={e => setReasonText(e.target.value)}
-                          placeholder="Describe the issue"
-                        />
-                      </label>
-                    )}
-                  </div>
+              <div className="product-nc-panel__form-grid">
+                <ProductNcLocationPicker
+                  site={site}
+                  value={draftLocation}
+                  onChange={setDraftLocation}
+                  disabled={saving}
+                />
+                <label>
+                  <span>Qty</span>
+                  <input type="number" min={1} step={1} value={qty} onChange={e => setQty(e.target.value)} />
+                </label>
+                <label>
+                  <span>Reason</span>
+                  <ProductNcSelect
+                    aria-label="Reason"
+                    value={reasonCode}
+                    onChange={value => setReasonCode(value as NcReasonCode)}
+                    options={NC_REASON_OPTIONS.map(option => ({
+                      value: option.key,
+                      label: option.label,
+                    }))}
+                  />
+                </label>
+                {reasonCode === 'other' && (
+                  <label className="product-nc-panel__span">
+                    <span>Other note</span>
+                    <input
+                      value={reasonText}
+                      onChange={e => setReasonText(e.target.value)}
+                      placeholder="Describe the issue"
+                    />
+                  </label>
+                )}
+                {auditedQtyForDraft != null && (
+                  <p className="text-muted text-sm product-nc-panel__span">
+                    Audited at this location: {auditedQtyForDraft} {product.unit}
+                  </p>
+                )}
+              </div>
 
-                  <div className="product-nc-panel__photos">
-                    {photos.map(photo => (
-                      <div key={photo.id} className="product-nc-panel__photo">
-                        <img src={photo.url} alt="" />
-                        <button type="button" onClick={() => void removePhoto(photo)} aria-label="Remove photo">
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    ))}
-                    {photos.length < MAX_NC_PHOTOS_PER_LINE && (
-                      <label className="product-nc-panel__photo-add">
-                        {uploadingPhoto ? <RefreshCw size={14} className="spin-icon" /> : <Camera size={14} />}
-                        <span>Photo</span>
-                        <input type="file" accept="image/*" hidden onChange={e => void handlePhotoPick(e)} />
-                      </label>
-                    )}
+              <div className="product-nc-panel__photos">
+                {photos.map(photo => (
+                  <div key={photo.id} className="product-nc-panel__photo">
+                    <img src={photo.url} alt="" />
+                    <button type="button" onClick={() => void removePhoto(photo)} aria-label="Remove photo">
+                      <Trash2 size={12} />
+                    </button>
                   </div>
+                ))}
+                {photos.length < MAX_NC_PHOTOS_PER_LINE && (
+                  <label className="product-nc-panel__photo-add">
+                    {uploadingPhoto ? <RefreshCw size={14} className="spin-icon" /> : <Camera size={14} />}
+                    <span>Photo</span>
+                    <input type="file" accept="image/*" hidden onChange={e => void handlePhotoPick(e)} />
+                  </label>
+                )}
+              </div>
 
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    disabled={saving || uploadingPhoto || !selectedLocation}
-                    onClick={() => void handleAddLine()}
-                  >
-                    {saving ? <RefreshCw size={14} className="spin-icon" /> : <Plus size={14} />}
-                    Add NC line
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={saving || uploadingPhoto || !draftLocation}
+                onClick={() => void handleAddLine()}
+              >
+                {saving ? <RefreshCw size={14} className="spin-icon" /> : <Plus size={14} />}
+                Add NC line
+              </button>
             </section>
           )}
 

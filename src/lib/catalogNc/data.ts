@@ -377,8 +377,8 @@ export async function addCatalogNcLine(input: {
   photos?: CatalogNcPhoto[];
   actorUid: string;
   actorName?: string | null;
-  /** Audited qty at the selected existing location — required. */
-  auditedQtyAtLocation: number;
+  /** Known audited qty at this location, if any — used for warnings only. */
+  auditedQtyAtLocation?: number | null;
   zohoStock?: number | null;
 }): Promise<{ doc: CatalogNcDoc; warnings: string[] }> {
   validateLocationKey(input.location, input.site);
@@ -386,10 +386,6 @@ export async function addCatalogNcLine(input: {
   if (!Number.isFinite(qty) || qty < 1) throw new Error('NC quantity must be at least 1.');
   if (input.reasonCode === 'other' && !input.reasonText?.trim()) {
     throw new Error('Add a short note for Other.');
-  }
-  const audited = Math.floor(Number(input.auditedQtyAtLocation));
-  if (!Number.isFinite(audited) || audited < 0) {
-    throw new Error('Select an existing audited location for this item.');
   }
   const photos = (input.photos ?? []).slice(0, MAX_NC_PHOTOS_PER_LINE);
   if (photos.length > MAX_NC_PHOTOS_PER_LINE) {
@@ -442,10 +438,14 @@ export async function addCatalogNcLine(input: {
   }
 
   const nextOpenAtLocation = location.openNcQty + qty;
-  if (nextOpenAtLocation > audited) {
-    throw new Error(
-      `NC at this location cannot exceed audited qty (${audited}).`,
-    );
+  const auditedRaw = input.auditedQtyAtLocation;
+  if (auditedRaw != null && Number.isFinite(Number(auditedRaw))) {
+    const audited = Math.floor(Number(auditedRaw));
+    if (audited >= 0 && nextOpenAtLocation > audited) {
+      warnings.push(
+        `NC at this location (${nextOpenAtLocation}) is higher than audited qty (${audited}).`,
+      );
+    }
   }
 
   const line: CatalogNcLine = {
