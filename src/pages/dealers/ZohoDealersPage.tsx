@@ -17,6 +17,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { DEALER_STATUS_LEGEND } from '../../lib/dealerStatus';
 import {
+  dealerContactPhone,
   dealerErrorMessage,
   exportDealersCsv,
   fetchDealerCategories,
@@ -477,7 +478,7 @@ export function ZohoDealersPage() {
                   <td>{effectivePaginationOn ? (page - 1) * limit + idx + 1 : idx + 1}</td>
                   <td>{dealer.companyName || dealer.contactName}</td>
                   <td>{dealer.firstName || '—'}</td>
-                  <td>{dealer.phone || dealer.mobile || '—'}</td>
+                  <td>{dealerContactPhone(dealer) || '—'}</td>
                   <td>
                     <select
                       className="catalog-select dealers-inline-select"

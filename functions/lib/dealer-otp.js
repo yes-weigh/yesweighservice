@@ -28,7 +28,15 @@ function dealerDisplayName(dealer) {
 }
 
 function dealerMatchesPhone(data, phone10) {
-  const candidates = [data.phone, data.mobile, data.whatsappNumber];
+  const primary = data.zohoPrimaryContact;
+  const candidates = [
+    data.mobile,
+    data.whatsappNumber,
+    data.alternateMobile,
+    primary?.mobile,
+    data.phone,
+    primary?.phone,
+  ];
   return candidates.some(value => phoneLast10(value) === phone10);
 }
 

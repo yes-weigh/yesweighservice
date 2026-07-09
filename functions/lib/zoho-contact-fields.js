@@ -95,12 +95,18 @@ export function extractZohoDetailFields(contact) {
 
 export function extractZohoCoreFields(contact) {
   if (!contact || typeof contact !== 'object') return {};
+  const contactPersons = (contact.contact_persons ?? []).map(mapContactPerson);
+  const primaryPerson = contactPersons.find(p => p.isPrimary) ?? contactPersons[0] ?? null;
+  // Prefer contact-person mobile (login number) over company/shipping phone.
+  const mobile = contact.mobile
+    ? String(contact.mobile)
+    : (primaryPerson?.mobile ? String(primaryPerson.mobile) : null);
   return {
     contactName: String(contact.contact_name || ''),
     companyName: contact.company_name ? String(contact.company_name) : null,
     email: contact.email ? String(contact.email) : null,
     phone: contact.phone ? String(contact.phone) : null,
-    mobile: contact.mobile ? String(contact.mobile) : null,
+    mobile,
     firstName: contact.first_name ? String(contact.first_name) : null,
     status: String(contact.status || 'active'),
     outstandingReceivable: Number(contact.outstanding_receivable_amount) || 0,

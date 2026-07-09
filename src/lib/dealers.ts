@@ -11,6 +11,26 @@ import { DEFAULT_DEALER_CATEGORIES } from '../types/dealers';
 
 const functions = getFunctions(app, 'asia-south1');
 
+/** Prefer contact mobile (login number) over company/shipping phone. */
+export function dealerContactPhone(dealer: Pick<
+  ZohoDealer,
+  'mobile' | 'phone' | 'whatsappNumber' | 'alternateMobile' | 'zohoPrimaryContact'
+>): string | null {
+  const candidates = [
+    dealer.mobile,
+    dealer.zohoPrimaryContact?.mobile,
+    dealer.whatsappNumber,
+    dealer.alternateMobile,
+    dealer.phone,
+    dealer.zohoPrimaryContact?.phone,
+  ];
+  for (const value of candidates) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
 function dealerErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const fb = err as { code?: string; message?: string; details?: unknown };

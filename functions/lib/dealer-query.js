@@ -311,6 +311,10 @@ function serializeFirestoreValue(value) {
 export function mapDealerForClient(dealer, kamsById, usersById) {
   const kam = dealer.kamId ? kamsById.get(dealer.kamId) : null;
   const portalUser = dealer.portalUserId ? usersById.get(dealer.portalUserId) : null;
+  const primary = dealer.zohoPrimaryContact;
+  const mobile = dealer.mobile
+    ?? primary?.mobile
+    ?? null;
   return {
     id: dealer.id,
     contactName: dealer.contactName ?? '',
@@ -319,7 +323,7 @@ export function mapDealerForClient(dealer, kamsById, usersById) {
     email: dealer.email ?? null,
     zohoEmail: dealer.zohoEmail ?? dealer.email ?? null,
     phone: dealer.phone ?? null,
-    mobile: dealer.mobile ?? null,
+    mobile,
     status: dealer.status ?? 'active',
     outstandingReceivable: Number(dealer.outstandingReceivable ?? 0),
     unusedCredits: Number(dealer.unusedCredits ?? 0),

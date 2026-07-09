@@ -230,13 +230,20 @@ export async function refreshDealerFromZoho(id, secrets, orgId, { force = false 
   const coreFields = extractZohoCoreFields(contact);
   const zohoEmail = coreFields.email ?? null;
 
+  // Prefer Zoho contact-person mobile (login number) over a stale/empty local value.
+  // Keep existing.phone as-is when set — it may be a shipping/company number.
+  const resolvedMobile = coreFields.mobile
+    ?? zohoDetailFields.zohoPrimaryContact?.mobile
+    ?? existing.mobile
+    ?? null;
+
   const patch = {
     ...coreFields,
     ...zohoDetailFields,
     zohoEmail,
     email: existing.email ?? zohoEmail,
     phone: existing.phone ?? coreFields.phone,
-    mobile: existing.mobile ?? coreFields.mobile,
+    mobile: resolvedMobile,
     firstName: existing.firstName ?? coreFields.firstName,
     syncedAt: new Date().toISOString(),
     updatedAt: FieldValue.serverTimestamp(),

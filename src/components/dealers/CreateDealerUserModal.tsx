@@ -6,6 +6,7 @@ import {
   normalizeEmail,
   normalizePhone,
 } from '../../lib/loginAuth';
+import { dealerContactPhone } from '../../lib/dealers';
 import type { ZohoDealer } from '../../types/dealers';
 
 export function resolveLoginFromDealer(dealer: ZohoDealer): {
@@ -13,7 +14,7 @@ export function resolveLoginFromDealer(dealer: ZohoDealer): {
   phone?: string;
   email?: string;
 } | null {
-  const phone = normalizePhone(dealer.phone || dealer.mobile || '');
+  const phone = normalizePhone(dealerContactPhone(dealer) || '');
   if (isValidPhone(phone)) {
     return { loginId: phone, phone };
   }

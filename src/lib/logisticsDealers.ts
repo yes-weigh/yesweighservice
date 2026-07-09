@@ -26,8 +26,10 @@ export function zohoDealerContactPerson(dealer: ZohoDealer): string {
 export function zohoDealerMobile(dealer: ZohoDealer): string {
   return (
     dealer.mobile?.trim()
-    || dealer.phone?.trim()
     || dealer.zohoPrimaryContact?.mobile?.trim()
+    || dealer.whatsappNumber?.trim()
+    || dealer.alternateMobile?.trim()
+    || dealer.phone?.trim()
     || dealer.zohoPrimaryContact?.phone?.trim()
     || '—'
   );

@@ -1,6 +1,7 @@
 import React from 'react';
 import { MapPin, Phone, Store } from 'lucide-react';
 import type { ZohoDealer } from '../../types/dealers';
+import { dealerContactPhone } from '../../lib/dealers';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { buildContactLinks } from '../../lib/phoneLinks';
 import { DealerStatusIndicator } from './DealerStatusIndicator';
@@ -23,7 +24,7 @@ export const DealerTile: React.FC<DealerTileProps> = ({
   onOpen,
 }) => {
   const name = dealer.companyName || dealer.contactName;
-  const phone = dealer.phone || dealer.mobile;
+  const phone = dealerContactPhone(dealer);
   const contactLinks = phone ? buildContactLinks(phone) : null;
   const location = [dealer.district, dealer.billingState].filter(Boolean).join(', ');
   const statusMeta = getDealerStatusMeta(dealer);
