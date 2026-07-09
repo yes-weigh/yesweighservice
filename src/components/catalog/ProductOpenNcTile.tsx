@@ -283,7 +283,7 @@ export const ProductOpenNcTile: React.FC<{
           <table className="product-site-stock__table product-site-stock__table--hero-values product-open-nc-tile__table">
             <thead>
               <tr>
-                <th>Photo</th>
+                <th className="product-open-nc-tile__th-photo">Photo</th>
                 <th>Qty</th>
                 <th>Reason</th>
                 <th>Location</th>
@@ -293,7 +293,7 @@ export const ProductOpenNcTile: React.FC<{
               {openLines.map(({ location, line }) => (
                 <tr
                   key={line.id}
-                  className="product-open-nc-tile__row"
+                  className="product-open-nc-tile__tr"
                   onClick={() => onOpenNcTab(line.id)}
                   onKeyDown={event => {
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -305,16 +305,18 @@ export const ProductOpenNcTile: React.FC<{
                   role="button"
                   aria-label={`Open NC details for ${ncReasonLabel(line.reasonCode, line.reasonText)}`}
                 >
-                  <td className="product-open-nc-tile__photo-cell">
+                  <td className="product-open-nc-tile__td-photo">
                     {line.photos[0] ? (
-                      <img src={line.photos[0].url} alt="" />
+                      <img
+                        className="product-open-nc-tile__thumb"
+                        src={line.photos[0].url}
+                        alt=""
+                      />
                     ) : (
-                      <span className="product-open-nc-tile__photo-empty">—</span>
+                      <span className="product-open-nc-tile__thumb product-open-nc-tile__thumb--empty">—</span>
                     )}
                   </td>
-                  <td className="product-site-stock__qty-cell">
-                    <span className="product-site-stock__qty-main">{line.qty}</span>
-                  </td>
+                  <td className="product-open-nc-tile__td-qty">{line.qty}</td>
                   <td>{ncReasonLabel(line.reasonCode, line.reasonText)}</td>
                   <td>{formatNcLocationLabel(location)}</td>
                 </tr>

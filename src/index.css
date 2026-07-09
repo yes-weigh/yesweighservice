@@ -3529,16 +3529,24 @@ html::-webkit-scrollbar {
 
 .product-open-nc-tile__table-wrap {
   margin: 0.15rem 0 0;
+  overflow-x: auto;
 }
 
 .product-open-nc-tile__table {
   table-layout: fixed;
+  width: 100%;
 }
 
 .product-open-nc-tile__table thead th,
 .product-open-nc-tile__table tbody td {
   font-size: 0.75rem;
   padding: 0.4rem 0.45rem;
+  vertical-align: middle;
+}
+
+.product-open-nc-tile__table img {
+  max-width: 1.75rem;
+  max-height: 1.75rem;
 }
 
 .product-open-nc-tile__th-photo,
