@@ -1292,7 +1292,7 @@ export const ProductDetailView: React.FC<{
                         col.diffState ? `is-${col.diffState}` : '',
                         col.key === 'nc' && showAuditedStock ? 'product-detail-page__summary-cell--nc-action' : '',
                       ].filter(Boolean).join(' ')}
-                      onClick={col.key === 'nc' && showAuditedStock ? scrollToNcSection : undefined}
+                      onClick={col.key === 'nc' && showAuditedStock ? () => scrollToNcSection() : undefined}
                       onKeyDown={col.key === 'nc' && showAuditedStock ? (e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
