@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Camera,
   CheckCircle2,
-  ChevronDown,
   Plus,
   RefreshCw,
   Trash2,
@@ -31,12 +30,10 @@ import type {
   NcResolveOutcome,
 } from '../../types/catalog-nc';
 import {
-  formatNcLocationLabel,
   MAX_NC_PHOTOS_PER_LINE,
   NC_REASON_OPTIONS,
   NC_RESOLVE_OUTCOMES,
   ncLocationKey,
-  ncReasonLabel,
 } from '../../types/catalog-nc';
 import { ProductNcSelect } from './ProductNcSelect';
 import { ProductNcLocationPicker } from './ProductNcLocationPicker';
@@ -99,7 +96,6 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
 
   const [draftLocation, setDraftLocation] = useState<CatalogNcLocationKey | null>(null);
   const [qty, setQty] = useState('1');
@@ -116,6 +112,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   const [resolveOutcome, setResolveOutcome] = useState<NcResolveOutcome>('repaired');
   const [resolveNote, setResolveNote] = useState('');
   const [wiping, setWiping] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,11 +136,6 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
     setDraftLocation(null);
   }, [open, load]);
 
-  useEffect(() => {
-    if (!open) return;
-    setExpandedLineId(focusLineId ?? null);
-  }, [open, focusLineId]);
-
   const auditedQtyForDraft = useMemo(() => {
     if (!draftLocation) return null;
     const key = (() => {
@@ -165,21 +157,25 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
     ));
   }, [docData]);
 
+  useEffect(() => {
+    if (!open || !focusLineId || openLines.length === 0) return;
+    const match = openLines.find(({ line }) => line.id === focusLineId);
+    if (!match) return;
+    setShowAddForm(false);
+    setResolveTarget({ location: match.location, line: match.line });
+    setResolveQty(String(match.line.qty));
+    setResolveOutcome('repaired');
+    setResolveNote('');
+  }, [open, focusLineId, openLines]);
+
   const historyEvents = useMemo(
-    () => [...(docData?.events ?? [])].sort((a, b) => b.at.localeCompare(a.at)),
+    () => [...(docData?.events ?? [])]
+      .filter(event => event.type !== 'location_added')
+      .sort((a, b) => b.at.localeCompare(a.at)),
     [docData],
   );
 
-  const toggleExpand = (lineId: string) => {
-    setExpandedLineId(prev => (prev === lineId ? null : lineId));
-    if (resolveTarget?.line.id !== lineId) {
-      setResolveTarget(null);
-      setResolveNote('');
-    }
-  };
-
   const startResolve = (location: CatalogNcLocation, line: CatalogNcLine) => {
-    setExpandedLineId(line.id);
     setShowAddForm(false);
     setResolveTarget({ location, line });
     setResolveQty(String(line.qty));
@@ -285,7 +281,6 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
       onNcChange?.(saved);
       setResolveTarget(null);
       setResolveNote('');
-      setExpandedLineId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not resolve NC.');
     } finally {
@@ -307,7 +302,6 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
       setDocData(null);
       onNcChange?.(null);
       setShowAddForm(false);
-      setExpandedLineId(null);
       setResolveTarget(null);
       setPhotos([]);
     } catch (err) {
@@ -325,9 +319,9 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
         <div>
           <h2 className="product-nc-panel__title">Non-Conformance (NC)</h2>
           <p className="product-nc-panel__subtitle text-muted text-sm">
-            {siteConfig.warehouseName} · {siteConfig.locationSubtitle}
+            {siteConfig.warehouseName}
             {' · '}
-            Open NC: <strong>{docData?.openNcQty ?? 0}</strong>
+            Open: <strong>{docData?.openNcQty ?? 0}</strong>
           </p>
         </div>
         <div className="product-nc-panel__head-actions">
@@ -457,120 +451,134 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
             {openLines.length === 0 ? (
               <p className="text-muted text-sm">No open NC for this item.</p>
             ) : (
-              <div className="product-nc-panel__open-list">
-                {openLines.map(({ location, line }) => {
-                  const isExpanded = expandedLineId === line.id;
-                  const isResolving = resolveTarget?.line.id === line.id;
-                  return (
-                    <div
-                      key={line.id}
-                      className={`product-nc-panel__tile${isExpanded ? ' is-expanded' : ''}`}
-                    >
-                      <div className="product-nc-panel__tile-top">
-                        <button
-                          type="button"
-                          className="product-nc-panel__tile-toggle"
-                          onClick={() => toggleExpand(line.id)}
-                          aria-expanded={isExpanded}
-                        >
-                          <span className="product-nc-panel__tile-main">
-                            <strong>
-                              {line.qty} {product.unit}
-                            </strong>
-                            <span>{ncReasonLabel(line.reasonCode, line.reasonText)}</span>
-                            <span className="text-muted">{formatNcLocationLabel(location)}</span>
-                          </span>
-                          <ChevronDown
-                            size={16}
-                            className={`product-nc-panel__chevron${isExpanded ? ' is-open' : ''}`}
-                            aria-hidden
-                          />
-                        </button>
-                        {canEdit && !isResolving && (
-                          <button
-                            type="button"
-                            className="btn btn-sm"
-                            onClick={() => startResolve(location, line)}
-                          >
-                            <CheckCircle2 size={14} aria-hidden />
-                            Resolve
-                          </button>
-                        )}
-                      </div>
-
-                      {isExpanded && (
-                        <div className="product-nc-panel__tile-body">
-                          {line.photos.length > 0 && (
-                            <div className="product-nc-panel__thumbs">
-                              {line.photos.map(photo => (
-                                <img key={photo.id} src={photo.url} alt="" />
-                              ))}
-                            </div>
-                          )}
-
-                          {line.createdAt && (
-                            <p className="product-nc-panel__tile-meta text-muted text-sm">
-                              Opened {new Date(line.createdAt).toLocaleString('en-IN')}
-                              {line.createdByName ? ` · ${line.createdByName}` : ''}
-                            </p>
-                          )}
-
-                          {canEdit && isResolving && (
-                            <div className="product-nc-panel__resolve-inline">
-                              <div className="product-nc-panel__form-grid">
-                                <label>
-                                  <span>Qty to resolve</span>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={line.qty}
-                                    value={resolveQty}
-                                    onChange={e => setResolveQty(e.target.value)}
-                                  />
-                                </label>
-                                <label>
-                                  <span>Outcome</span>
-                                  <ProductNcSelect
-                                    aria-label="Outcome"
-                                    value={resolveOutcome}
-                                    onChange={value => setResolveOutcome(value as NcResolveOutcome)}
-                                    options={NC_RESOLVE_OUTCOMES.map(option => ({
-                                      value: option.key,
-                                      label: option.label,
-                                    }))}
-                                  />
-                                </label>
-                                <label className="product-nc-panel__span">
-                                  <span>Note (optional)</span>
-                                  <input value={resolveNote} onChange={e => setResolveNote(e.target.value)} />
-                                </label>
-                              </div>
-                              <div className="product-nc-panel__resolve-actions">
+              <div className="product-site-stock__table-wrap product-site-stock__table-wrap--warehouse product-nc-panel__open-table-wrap">
+                <table className="product-site-stock__table product-site-stock__table--hero-values product-nc-panel__open-table">
+                  <thead>
+                    <tr>
+                      <th className="product-nc-panel__th-photo">Photo</th>
+                      {site === 'cochin' ? (
+                        <>
+                          <th>Zone</th>
+                          <th>Row</th>
+                        </>
+                      ) : (
+                        <>
+                          <th>Rack</th>
+                          <th>Row</th>
+                          <th>Bin</th>
+                        </>
+                      )}
+                      <th>Qty</th>
+                      {canEdit && <th className="product-nc-panel__th-action" />}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {openLines.map(({ location, line }) => {
+                      const isResolving = resolveTarget?.line.id === line.id;
+                      const photo = line.photos[0] ?? null;
+                      const locationCols = site === 'cochin' ? 2 : 3;
+                      const resolveColSpan = 1 + locationCols + 1 + (canEdit ? 1 : 0);
+                      return (
+                        <React.Fragment key={line.id}>
+                          <tr className={isResolving ? 'product-nc-panel__open-row--active' : undefined}>
+                            <td className="product-nc-panel__td-photo">
+                              {photo ? (
                                 <button
                                   type="button"
-                                  className="btn btn-primary btn-sm"
-                                  disabled={saving}
-                                  onClick={() => void handleResolve()}
+                                  className="product-nc-panel__thumb-btn"
+                                  onClick={() => setLightboxUrl(photo.url)}
+                                  aria-label="View NC photo"
                                 >
-                                  {saving ? <RefreshCw size={14} className="spin-icon" /> : <CheckCircle2 size={14} />}
-                                  Confirm resolve
+                                  <img
+                                    className="product-nc-panel__thumb"
+                                    src={photo.url}
+                                    alt=""
+                                  />
                                 </button>
+                              ) : (
+                                <span className="product-nc-panel__thumb product-nc-panel__thumb--empty">—</span>
+                              )}
+                            </td>
+                            {site === 'cochin' ? (
+                              <>
+                                <td>{(location.zoneId ?? '').trim().toUpperCase() || '—'}</td>
+                                <td>{location.zoneRowNumber ?? '—'}</td>
+                              </>
+                            ) : (
+                              <>
+                                <td>{(location.rackId ?? '').trim().toUpperCase() || '—'}</td>
+                                <td>{location.rowNumber ?? '—'}</td>
+                                <td>{location.binNumber ?? '—'}</td>
+                              </>
+                            )}
+                            <td className="product-nc-panel__td-qty">{line.qty}</td>
+                            {canEdit && (
+                              <td className="product-nc-panel__td-action">
                                 <button
                                   type="button"
                                   className="btn btn-sm"
-                                  disabled={saving}
-                                  onClick={cancelResolve}
+                                  onClick={() => (
+                                    isResolving ? cancelResolve() : startResolve(location, line)
+                                  )}
                                 >
-                                  Cancel
+                                  <CheckCircle2 size={14} aria-hidden />
+                                  {isResolving ? 'Cancel' : 'Resolve'}
                                 </button>
-                              </div>
-                            </div>
+                              </td>
+                            )}
+                          </tr>
+                          {canEdit && isResolving && (
+                            <tr className="product-nc-panel__resolve-row">
+                              <td colSpan={resolveColSpan}>
+                                <div className="product-nc-panel__resolve-inline">
+                                  <div className="product-nc-panel__form-grid">
+                                    <label>
+                                      <span>Qty to resolve</span>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={line.qty}
+                                        value={resolveQty}
+                                        onChange={e => setResolveQty(e.target.value)}
+                                      />
+                                    </label>
+                                    <label>
+                                      <span>Outcome</span>
+                                      <ProductNcSelect
+                                        aria-label="Outcome"
+                                        value={resolveOutcome}
+                                        onChange={value => setResolveOutcome(value as NcResolveOutcome)}
+                                        options={NC_RESOLVE_OUTCOMES.map(option => ({
+                                          value: option.key,
+                                          label: option.label,
+                                        }))}
+                                      />
+                                    </label>
+                                    <label className="product-nc-panel__span">
+                                      <span>Note (optional)</span>
+                                      <input value={resolveNote} onChange={e => setResolveNote(e.target.value)} />
+                                    </label>
+                                  </div>
+                                  <div className="product-nc-panel__resolve-actions">
+                                    <button
+                                      type="button"
+                                      className="btn btn-primary btn-sm"
+                                      disabled={saving}
+                                      onClick={() => void handleResolve()}
+                                    >
+                                      {saving ? <RefreshCw size={14} className="spin-icon" /> : <CheckCircle2 size={14} />}
+                                      Confirm resolve
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
@@ -597,6 +605,33 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
             )}
           </section>
         </>
+      )}
+
+      {lightboxUrl && (
+        <div
+          className="product-nc-panel__lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="NC photo"
+          onClick={() => setLightboxUrl(null)}
+          onKeyDown={event => {
+            if (event.key === 'Escape') setLightboxUrl(null);
+          }}
+        >
+          <button
+            type="button"
+            className="product-nc-panel__lightbox-close"
+            aria-label="Close photo"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <X size={18} aria-hidden />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="NC photo"
+            onClick={event => event.stopPropagation()}
+          />
+        </div>
       )}
     </div>
   );

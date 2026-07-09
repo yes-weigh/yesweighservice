@@ -3808,6 +3808,131 @@ html::-webkit-scrollbar {
   gap: 0.55rem;
 }
 
+.product-nc-panel__open-table-wrap {
+  margin: 0;
+}
+
+.product-nc-panel__open-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.product-nc-panel__open-table thead th,
+.product-nc-panel__open-table tbody td {
+  font-size: 0.8125rem;
+  padding: 0.45rem 0.5rem;
+  vertical-align: middle;
+}
+
+.product-nc-panel__th-photo,
+.product-nc-panel__td-photo {
+  width: 2.75rem;
+  text-align: center;
+  padding-left: 0.4rem;
+  padding-right: 0.25rem;
+}
+
+.product-nc-panel__thumb-btn {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: 6px;
+}
+
+.product-nc-panel__thumb {
+  display: block;
+  width: 1.85rem;
+  height: 1.85rem;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+
+.product-nc-panel__thumb--empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  font-size: 0.75rem;
+}
+
+.product-nc-panel__lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.85);
+  border: none;
+  cursor: zoom-out;
+}
+
+.product-nc-panel__lightbox img {
+  max-width: min(100%, 42rem);
+  max-height: 85vh;
+  border-radius: 12px;
+  object-fit: contain;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  cursor: default;
+}
+
+.product-nc-panel__lightbox-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+}
+
+.product-nc-panel__lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.product-nc-panel__td-qty {
+  font-weight: 800;
+  color: #166534;
+  background: #f0fdf4;
+  font-variant-numeric: tabular-nums;
+}
+
+.product-nc-panel__th-action,
+.product-nc-panel__td-action {
+  width: 5.5rem;
+  text-align: right;
+  padding-right: 0.35rem;
+}
+
+.product-nc-panel__td-action .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.product-nc-panel__open-row--active td {
+  background: #fff7ed;
+}
+
+.product-nc-panel__resolve-row td {
+  padding: 0.55rem 0.5rem 0.65rem;
+  background: #fffaf5;
+  border-top: none;
+}
+
 .product-nc-panel__tile {
   border: 1px solid #e2e8f0;
   border-radius: 12px;

@@ -22,7 +22,6 @@ import type {
   NcReasonCode,
 } from '../../types/catalog-nc';
 import {
-  formatNcLocationLabel,
   MAX_NC_PHOTOS_PER_LINE,
   NC_REASON_OPTIONS,
   ncLocationKey,
@@ -283,10 +282,19 @@ export const ProductOpenNcTile: React.FC<{
           <table className="product-site-stock__table product-site-stock__table--hero-values product-open-nc-tile__table">
             <thead>
               <tr>
-                <th className="product-open-nc-tile__th-photo">Photo</th>
+                {site === 'cochin' ? (
+                  <>
+                    <th>Zone</th>
+                    <th>Row</th>
+                  </>
+                ) : (
+                  <>
+                    <th>Rack</th>
+                    <th>Row</th>
+                    <th>Bin</th>
+                  </>
+                )}
                 <th>Qty</th>
-                <th>Reason</th>
-                <th>Location</th>
               </tr>
             </thead>
             <tbody>
@@ -305,20 +313,19 @@ export const ProductOpenNcTile: React.FC<{
                   role="button"
                   aria-label={`Open NC details for ${ncReasonLabel(line.reasonCode, line.reasonText)}`}
                 >
-                  <td className="product-open-nc-tile__td-photo">
-                    {line.photos[0] ? (
-                      <img
-                        className="product-open-nc-tile__thumb"
-                        src={line.photos[0].url}
-                        alt=""
-                      />
-                    ) : (
-                      <span className="product-open-nc-tile__thumb product-open-nc-tile__thumb--empty">—</span>
-                    )}
-                  </td>
+                  {site === 'cochin' ? (
+                    <>
+                      <td>{(location.zoneId ?? '').trim().toUpperCase() || '—'}</td>
+                      <td>{location.zoneRowNumber ?? '—'}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td>{(location.rackId ?? '').trim().toUpperCase() || '—'}</td>
+                      <td>{location.rowNumber ?? '—'}</td>
+                      <td>{location.binNumber ?? '—'}</td>
+                    </>
+                  )}
                   <td className="product-open-nc-tile__td-qty">{line.qty}</td>
-                  <td>{ncReasonLabel(line.reasonCode, line.reasonText)}</td>
-                  <td>{formatNcLocationLabel(location)}</td>
                 </tr>
               ))}
             </tbody>
