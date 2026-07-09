@@ -59,6 +59,7 @@ import {
 import { ProductDetailTabs, DEALER_PRODUCT_DETAIL_TABS, type ProductDetailTabId } from './ProductDetailTabs';
 import { ProductPackageInfo } from './ProductPackageInfo';
 import type { ProductNcExistingLocation } from './ProductNcPanel';
+import { ProductOpenNcTile } from './ProductOpenNcTile';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import { getCatalogProductNc } from '../../lib/catalogNc/data';
@@ -1373,6 +1374,20 @@ export const ProductDetailView: React.FC<{
                 </button>
               )}
             </div>
+          )}
+
+          {showAuditedStock && (
+            <ProductOpenNcTile
+              product={product}
+              categories={spareClassificationCategories}
+              ncDoc={ncDoc}
+              existingLocations={ncExistingLocations}
+              canAdd={canEditCochin}
+              actorUid={user?.uid ?? ''}
+              actorName={user?.displayName}
+              onNcChange={setNcDoc}
+              onOpenNcTab={scrollToNcSection}
+            />
           )}
 
           {detail?.description && (

@@ -7,7 +7,6 @@ import {
 import type { CatalogInventorySiteConfig } from '../../lib/catalogInventorySites';
 import {
   calculateGroupTotals,
-  formatQtyDifference,
   type InventoryAuditGroupTotals,
 } from '../../lib/yesStore/inventoryAudit';
 import {
@@ -347,12 +346,6 @@ function CochinLocationSection({
     [readOnlyLocations, auditAdjustment],
   );
 
-  const showAuditHints = Boolean(
-    auditAdjustment
-    && auditAdjustment.zohoAdjustedQty !== 0
-    && !editing,
-  );
-
   const startEditing = () => {
     setRows(rowsFromRecord(record, zones[0]?.id ?? ''));
     setError('');
@@ -496,7 +489,7 @@ function CochinLocationSection({
               </tr>
             </thead>
             <tbody>
-              {displayLocations.map(({ location, displayQty, lastAuditedQty, zohoAdjustedQty }, index) => (
+              {displayLocations.map(({ location, displayQty }, index) => (
                 <tr key={`${location.zoneId}-${location.zoneRowNumber}-${index}`}>
                   <td>{location.zoneId.toUpperCase()}</td>
                   <td>{location.zoneRowNumber}</td>
@@ -504,14 +497,6 @@ function CochinLocationSection({
                     <span className="product-site-stock__qty-main">
                       {formatStockQuantity(displayQty, product.unit)}
                     </span>
-                    {showAuditHints && (
-                      <span className="product-site-stock__qty-meta">
-                        <span>Last audited {formatStockQuantity(lastAuditedQty, product.unit)}</span>
-                        <span>
-                          Zoho adj. {formatQtyDifference(zohoAdjustedQty)} {product.unit}
-                        </span>
-                      </span>
-                    )}
                   </td>
                 </tr>
               ))}

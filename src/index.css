@@ -3452,6 +3452,273 @@ html::-webkit-scrollbar {
   background: #fff7ed;
 }
 
+.product-open-nc-tile {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  color: #0f172a;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.product-open-nc-tile__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.product-open-nc-tile__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  color: #64748b;
+}
+
+.product-open-nc-tile--clear .product-open-nc-tile__title-row {
+  color: #15803d;
+}
+
+.product-open-nc-tile:not(.product-open-nc-tile--clear) .product-open-nc-tile__title-row {
+  color: #c2410c;
+}
+
+.product-open-nc-tile__title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: inherit;
+}
+
+.product-open-nc-tile__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #334155;
+  background: #e2e8f0;
+  border: none;
+}
+
+.product-open-nc-tile--clear .product-open-nc-tile__count {
+  color: #166534;
+  background: #bbf7d0;
+}
+
+.product-open-nc-tile:not(.product-open-nc-tile--clear) .product-open-nc-tile__count {
+  color: #9a3412;
+  background: #fed7aa;
+}
+
+.product-open-nc-tile__add {
+  flex-shrink: 0;
+}
+
+.product-open-nc-tile__empty {
+  margin: 0;
+  color: #475569;
+}
+
+.product-open-nc-tile__table-wrap {
+  margin: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.product-open-nc-tile__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.75rem;
+  color: #0f172a;
+}
+
+.product-open-nc-tile__table th {
+  padding: 0.2rem 0.35rem;
+  border-bottom: 1px solid #cbd5e1;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-align: left;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.product-open-nc-tile__th-photo,
+.product-open-nc-tile__td-photo {
+  width: 2.1rem;
+  padding-left: 0;
+  padding-right: 0.25rem;
+}
+
+.product-open-nc-tile__table td {
+  padding: 0.3rem 0.35rem;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+}
+
+.product-open-nc-tile__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.product-open-nc-tile__tr {
+  cursor: pointer;
+}
+
+.product-open-nc-tile__tr:hover td {
+  background: #f8fafc;
+}
+
+.product-open-nc-tile__table td strong {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.product-open-nc-tile__td-loc {
+  color: #475569;
+}
+
+.product-open-nc-tile__thumb {
+  display: block;
+  width: 1.75rem;
+  height: 1.75rem;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+}
+
+.product-open-nc-tile__thumb--empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+}
+
+.product-open-nc-tile__add-form {
+  margin: 0.2rem 0 0;
+  padding: 0;
+  border: none;
+}
+
+.product-open-nc-tile__form-grid {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 0.35rem 0.45rem;
+  margin-bottom: 0.4rem;
+}
+
+.product-open-nc-tile__form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.product-open-nc-tile__form-grid .product-open-nc-tile__span {
+  grid-column: 1 / -1;
+}
+
+.product-open-nc-tile__form-grid select,
+.product-open-nc-tile__form-grid input {
+  width: 100%;
+  min-height: 1.875rem;
+  height: 1.875rem;
+  box-sizing: border-box;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #0f172a;
+  background-color: #fff;
+  color-scheme: light;
+}
+
+.product-open-nc-tile__form-grid input:focus {
+  outline: none;
+  border-color: var(--accent-primary, #f58220);
+  box-shadow: 0 0 0 2px rgba(245, 130, 32, 0.18);
+}
+
+.product-open-nc-tile__form-grid .product-nc-select__trigger {
+  min-height: 1.875rem;
+  height: 1.875rem;
+  padding: 0.2rem 0.4rem 0.2rem 0.5rem;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  color: #0f172a;
+  background: #fff;
+  font-size: 0.8125rem;
+}
+
+.product-open-nc-tile__form-grid .product-nc-select__chevron {
+  color: #475569;
+}
+
+.product-open-nc-tile__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.product-open-nc-tile__photos {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.product-open-nc-tile__photos .product-nc-panel__photo img {
+  width: 1.875rem;
+  height: 1.875rem;
+  border-radius: 6px;
+}
+
+.product-open-nc-tile__photo-add {
+  width: 1.875rem;
+  height: 1.875rem;
+  border: 1px dashed #64748b;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.product-open-nc-tile__photo-add:hover {
+  color: #0f172a;
+  border-color: var(--accent-primary, #f58220);
+  background: #fff7ed;
+}
+
+.product-open-nc-tile__submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
 .product-nc-panel {
   margin-top: 0.85rem;
   padding: 0.9rem 1rem 1rem;
