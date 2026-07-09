@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -349,6 +350,21 @@ export async function deleteCatalogNcPhoto(photo: CatalogNcPhoto): Promise<void>
   } catch {
     // ignore missing / permission races
   }
+}
+
+/** Super-admin only: permanently delete all NC data for a product (lines, history, photos). */
+export async function wipeCatalogProductNc(catalogProductId: string): Promise<void> {
+  const existing = await getCatalogProductNc(catalogProductId);
+  if (!existing) return;
+
+  const photos: CatalogNcPhoto[] = [];
+  for (const location of existing.locations) {
+    for (const line of location.lines) {
+      photos.push(...line.photos);
+    }
+  }
+  await Promise.all(photos.map(photo => deleteCatalogNcPhoto(photo)));
+  await deleteDoc(ncDocRef(catalogProductId));
 }
 
 export async function addCatalogNcLine(input: {

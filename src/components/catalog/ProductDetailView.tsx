@@ -1433,6 +1433,7 @@ export const ProductDetailView: React.FC<{
               showNcTab={showAuditedStock}
               ncCategories={spareClassificationCategories}
               canEditNc={canEditCochin}
+              canWipeNc={user?.role === 'super_admin'}
               ncActorUid={user?.uid ?? ''}
               ncActorName={user?.displayName}
               ncExistingLocations={ncExistingLocations}

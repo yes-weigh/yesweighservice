@@ -16,6 +16,7 @@ import {
   resolveCatalogNcLine,
   resolveNcSiteForProduct,
   uploadCatalogNcPhoto,
+  wipeCatalogProductNc,
 } from '../../lib/catalogNc/data';
 import { CATALOG_INVENTORY_SITE_CONFIG } from '../../lib/catalogInventorySites';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
@@ -52,6 +53,8 @@ export interface ProductNcPanelProps {
   open: boolean;
   onClose?: () => void;
   canEdit: boolean;
+  /** Super admin only — permanently wipe all NC data for this product. */
+  canWipeNc?: boolean;
   actorUid: string;
   actorName?: string | null;
   /** Existing Cochin / Head Office locations already recorded for this item. */
@@ -69,6 +72,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   open,
   onClose,
   canEdit,
+  canWipeNc = false,
   actorUid,
   actorName,
   existingLocations = [],
@@ -109,6 +113,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
   const [resolveQty, setResolveQty] = useState('1');
   const [resolveOutcome, setResolveOutcome] = useState<NcResolveOutcome>('repaired');
   const [resolveNote, setResolveNote] = useState('');
+  const [wiping, setWiping] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -285,6 +290,30 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
     }
   };
 
+  const handleWipeNc = async () => {
+    if (!canWipeNc || wiping || !docData) return;
+    const confirmed = window.confirm(
+      'Wipe all NC data for this product? This permanently deletes open lines, history, and photos.',
+    );
+    if (!confirmed) return;
+    setWiping(true);
+    setError(null);
+    setWarnings([]);
+    try {
+      await wipeCatalogProductNc(product.id);
+      setDocData(null);
+      onNcChange?.(null);
+      setShowAddForm(false);
+      setExpandedLineId(null);
+      setResolveTarget(null);
+      setPhotos([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not wipe NC data.');
+    } finally {
+      setWiping(false);
+    }
+  };
+
   if (!open) return null;
 
   return (
@@ -305,9 +334,22 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
               className={`btn btn-sm${showAddForm ? '' : ' btn-primary'}`}
               onClick={() => (showAddForm ? closeAddForm() : openAddForm())}
               aria-expanded={showAddForm}
+              disabled={wiping}
             >
               {showAddForm ? <X size={14} aria-hidden /> : <Plus size={14} aria-hidden />}
               {showAddForm ? 'Close' : 'Add NC'}
+            </button>
+          )}
+          {canWipeNc && docData && (
+            <button
+              type="button"
+              className="btn btn-sm btn-danger"
+              onClick={() => void handleWipeNc()}
+              disabled={wiping || saving}
+              title="Permanently delete all NC data for this product"
+            >
+              <Trash2 size={14} aria-hidden />
+              {wiping ? 'Wiping…' : 'Wipe NC'}
             </button>
           )}
           {!embedded && onClose && (

@@ -51,6 +51,8 @@ export const ProductDetailTabs: React.FC<{
   showNcTab?: boolean;
   ncCategories?: CatalogCategory[];
   canEditNc?: boolean;
+  /** Super admin only — show wipe-all NC control. */
+  canWipeNc?: boolean;
   ncActorUid?: string;
   ncActorName?: string | null;
   ncExistingLocations?: ProductNcExistingLocation[];
@@ -81,6 +83,7 @@ export const ProductDetailTabs: React.FC<{
   showNcTab = false,
   ncCategories = [],
   canEditNc = false,
+  canWipeNc = false,
   ncActorUid = '',
   ncActorName = null,
   ncExistingLocations = [],
@@ -243,6 +246,7 @@ export const ProductDetailTabs: React.FC<{
                 categories={ncCategories}
                 open={activeTab === 'nc'}
                 canEdit={canEditNc}
+                canWipeNc={canWipeNc}
                 actorUid={ncActorUid}
                 actorName={ncActorName}
                 existingLocations={ncExistingLocations}
