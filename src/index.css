@@ -7474,18 +7474,13 @@ html::-webkit-scrollbar {
 }
 
 .product-site-stock__qty-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.08rem;
+  display: block;
   margin-top: 0.28rem;
   font-size: 0.625rem;
   font-weight: 700;
   line-height: 1.25;
   color: #64748b !important;
   letter-spacing: 0.01em;
-}
-
-.product-site-stock__qty-meta span {
   white-space: nowrap;
 }
 

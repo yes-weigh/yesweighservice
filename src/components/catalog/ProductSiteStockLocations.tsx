@@ -9,7 +9,7 @@ import {
   calculateGroupTotals,
   type InventoryAuditGroupTotals,
 } from '../../lib/yesStore/inventoryAudit';
-import { formatAuditDate, formatAuditTime } from '../../lib/yesStore/format';
+import { formatAuditDateTime } from '../../lib/yesStore/format';
 import {
   listWarehouseZoneRows,
   listWarehouseZones,
@@ -35,18 +35,14 @@ function QtyWithAuditStamp({
   qtyLabel: string;
   auditedAt?: string | null;
 }) {
-  const dateLabel = auditedAt ? formatAuditDate(auditedAt) : '';
-  const timeLabel = auditedAt ? formatAuditTime(auditedAt) : '';
-  const hasStamp = Boolean(auditedAt && dateLabel !== '—' && timeLabel !== '—');
+  const stamp = auditedAt ? formatAuditDateTime(auditedAt) : '';
+  const hasStamp = Boolean(auditedAt && stamp && stamp !== '—');
 
   return (
     <td className="product-site-stock__qty-cell">
       <span className="product-site-stock__qty-main">{qtyLabel}</span>
       {hasStamp && (
-        <span className="product-site-stock__qty-meta">
-          <span>{dateLabel}</span>
-          <span>{timeLabel}</span>
-        </span>
+        <span className="product-site-stock__qty-meta">{stamp}</span>
       )}
     </td>
   );
