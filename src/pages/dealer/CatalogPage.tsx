@@ -55,6 +55,7 @@ import {
 } from '../../lib/catalog';
 import { listAllItems, fetchDisplayNamesForUids, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
 import { listCochinSiteInventory } from '../../lib/catalogSiteInventory/data';
+import { buildAuditedLocationByProductId } from '../../lib/catalogAuditedLocations';
 import { listCatalogProductNcSummaries } from '../../lib/catalogNc/data';
 import type { CatalogSiteInventoryDoc } from '../../types/catalog-site-inventory';
 import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
@@ -123,9 +124,11 @@ export const CatalogPage: React.FC = () => {
   const { user } = useAuth();
   const confirm = useConfirm();
   const isSuperAdmin = user?.role === 'super_admin';
+  const isStaff = user?.role === 'staff';
   const isMobile = useIsMobile();
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
   const showStockQuantity = canSync || canViewCatalogStock(user);
+  const showAuditedLocations = isSuperAdmin || isStaff;
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [linkedSpareIds, setLinkedSpareIds] = useState<Set<string> | null>(null);
@@ -305,9 +308,10 @@ export const CatalogPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!isSuperAdmin || (focus !== 'inventory-audit' && focus !== 'all-spares' && focus !== 'browse')) return;
+    if (!showAuditedLocations) return;
+    if (focus !== 'inventory-audit' && focus !== 'all-spares' && focus !== 'browse') return;
     void loadAuditItems();
-  }, [isSuperAdmin, focus, loadAuditItems]);
+  }, [showAuditedLocations, focus, loadAuditItems]);
 
   const shopProducts = useMemo(
     () => excludeHiddenCatalogProducts(
@@ -343,6 +347,13 @@ export const CatalogPage: React.FC = () => {
   const cochinAuditedCatalogProductIds = useMemo(
     () => buildCochinAuditedCatalogProductIds(cochinInventory),
     [cochinInventory],
+  );
+
+  const auditedLocationByProductId = useMemo(
+    () => (showAuditedLocations
+      ? buildAuditedLocationByProductId(auditItems, cochinInventory)
+      : undefined),
+    [showAuditedLocations, auditItems, cochinInventory],
   );
 
   const catalogCategories = catalog?.categories ?? [];
@@ -1141,6 +1152,7 @@ export const CatalogPage: React.FC = () => {
           hideFilterBar
           spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
           openNcQtyByProductId={isSuperAdmin ? openNcQtyByProductId : undefined}
+          auditedLocationByProductId={auditedLocationByProductId}
           activeCategoryId={categoryId}
           onActiveCategoryChange={setCategoryId}
           emptyTitle={
@@ -1227,6 +1239,7 @@ export const CatalogPage: React.FC = () => {
             enableCart={canUseCart(user?.role)}
             showStockQuantity={showStockQuantity}
             returnView="spares"
+            auditedLocationByProductId={auditedLocationByProductId}
             manageItemLabel={isSuperAdmin && canSync && spareCatalogFilters.has('unmapped') ? 'Link to products' : undefined}
             onManageItem={
               isSuperAdmin && canSync && spareCatalogFilters.has('unmapped')

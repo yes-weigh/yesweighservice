@@ -13,9 +13,12 @@ export const StockBadge: React.FC<{
   status: StockStatus;
   overlay?: boolean;
   variant?: 'default' | 'tile';
-}> = ({ status, overlay = false, variant = 'default' }) => {
+  /** Icon only — no “In stock” / “Out of stock” text. */
+  iconOnly?: boolean;
+}> = ({ status, overlay = false, variant = 'default', iconOnly = false }) => {
   const { cls, Icon, label, short } = STOCK_MAP[status] ?? STOCK_MAP.out_of_stock;
   const displayLabel = variant === 'tile' ? short : label;
+  const iconSize = iconOnly ? 14 : variant === 'tile' ? 12 : overlay ? 11 : 14;
 
   return (
     <div
@@ -24,10 +27,13 @@ export const StockBadge: React.FC<{
         cls,
         overlay ? 'catalog-stock--overlay' : '',
         variant === 'tile' ? 'catalog-stock--tile' : '',
+        iconOnly ? 'catalog-stock--icon-only' : '',
       ].filter(Boolean).join(' ')}
+      title={displayLabel}
+      aria-label={displayLabel}
     >
-      <Icon size={variant === 'tile' ? 12 : overlay ? 11 : 14} strokeWidth={2.5} />
-      <span>{displayLabel}</span>
+      <Icon size={iconSize} strokeWidth={2.5} aria-hidden />
+      {!iconOnly && <span>{displayLabel}</span>}
     </div>
   );
 };

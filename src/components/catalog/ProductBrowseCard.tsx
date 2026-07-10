@@ -7,6 +7,7 @@ import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct } from '../../types/catalog';
+import { AuditedSealIcon } from './AuditedSealIcon';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { StockBadge, StockQuantity } from './StockBadge';
 
@@ -22,6 +23,8 @@ export interface ProductBrowseCardProps {
   warehouseLinked?: boolean;
   /** Open Non-Conformance count — staff/super_admin only. */
   openNcCount?: number;
+  /** Audited location label (Zone·Row or Rack·Row·Bin) — staff/super_admin. */
+  auditedLocationLabel?: string | null;
   editable?: boolean;
   dragProps?: {
     draggable: boolean;
@@ -52,6 +55,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   linkedSpareCount,
   warehouseLinked = false,
   openNcCount,
+  auditedLocationLabel = null,
   editable = false,
   dragProps,
 }) => {
@@ -123,7 +127,15 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
     >
       <button type="button" className="catalog-product-card__main" onClick={onSelect}>
         <div className="catalog-product-card__media">
-          <StockBadge status={product.stockStatus} overlay variant="tile" />
+          {product.sku && (
+            <span className="catalog-product-card__sku-badge">{product.sku}</span>
+          )}
+          <StockBadge status={product.stockStatus} overlay variant="tile" iconOnly />
+          {auditedLocationLabel && (
+            <span className="catalog-product-card__location-badge" title={auditedLocationLabel}>
+              {auditedLocationLabel}
+            </span>
+          )}
           {product.imageUrl ? (
             <div className="catalog-product-card__visual" aria-hidden>
               <CategoryThumbnail src={product.imageUrl} />
@@ -134,9 +146,6 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         </div>
 
         <div className="catalog-product-card__body">
-          {product.sku && (
-            <span className="catalog-product-card__sku">{product.sku}</span>
-          )}
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>
           <div className="catalog-product-card__price-row">
             <div className="catalog-product-card__price">
@@ -165,31 +174,37 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
                 Stock difference (after last audit)
               </p>
               <div className="catalog-product-card__audit-row">
-                <div
-                  className={[
-                    'catalog-product-card__audit-diff',
-                    auditDiffState ? `catalog-product-card__audit-diff--${auditDiffState}` : '',
-                  ].filter(Boolean).join(' ')}
-                >
-                  <span className="catalog-product-card__audit-diff-icon" aria-hidden>
-                    {auditDiffState === 'under'
-                      ? <ArrowDown size={12} strokeWidth={2.75} />
-                      : auditDiffState === 'over'
-                        ? <ArrowUp size={12} strokeWidth={2.75} />
-                        : <Minus size={12} strokeWidth={2.75} />}
-                  </span>
-                  <div className="catalog-product-card__audit-diff-copy">
-                    <span className="catalog-product-card__audit-diff-value">
-                      {`${formatQtyDifference(auditDiff!)} ${product.unit}`.trim()}
-                    </span>
-                    {auditDiffState === 'over' && (
-                      <span className="catalog-product-card__audit-diff-note">(Found more)</span>
-                    )}
-                    {auditDiffState === 'under' && (
-                      <span className="catalog-product-card__audit-diff-note">(Found less)</span>
-                    )}
+                {auditDiffState === 'match' ? (
+                  <div className="catalog-product-card__audit-match">
+                    <AuditedSealIcon className="catalog-product-card__audited-seal" />
                   </div>
-                </div>
+                ) : (
+                  <div
+                    className={[
+                      'catalog-product-card__audit-diff',
+                      auditDiffState ? `catalog-product-card__audit-diff--${auditDiffState}` : '',
+                    ].filter(Boolean).join(' ')}
+                  >
+                    <span className="catalog-product-card__audit-diff-icon" aria-hidden>
+                      {auditDiffState === 'under'
+                        ? <ArrowDown size={12} strokeWidth={2.75} />
+                        : auditDiffState === 'over'
+                          ? <ArrowUp size={12} strokeWidth={2.75} />
+                          : <Minus size={12} strokeWidth={2.75} />}
+                    </span>
+                    <div className="catalog-product-card__audit-diff-copy">
+                      <span className="catalog-product-card__audit-diff-value">
+                        {`${formatQtyDifference(auditDiff!)} ${product.unit}`.trim()}
+                      </span>
+                      {auditDiffState === 'over' && (
+                        <span className="catalog-product-card__audit-diff-note">(Found more)</span>
+                      )}
+                      {auditDiffState === 'under' && (
+                        <span className="catalog-product-card__audit-diff-note">(Found less)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="catalog-product-card__audit-date">
                   <span className="catalog-product-card__audit-date-label">Last audit</span>
                   <span className="catalog-product-card__audit-date-value">
@@ -200,21 +215,25 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             </div>
           )}
 
-          {linkedSpareCount !== undefined && (
-            <span
-              className={`catalog-product-card__spare-count ${linkedSpareCount === 0 ? 'catalog-product-card__spare-count--none' : ''}`}
-            >
-              <Link2 size={12} aria-hidden />
-              {linkedSpareCount === 0
-                ? 'No spares linked'
-                : `${linkedSpareCount} spare${linkedSpareCount === 1 ? '' : 's'} linked`}
-            </span>
-          )}
-          {warehouseLinked && (
-            <span className="catalog-product-card__warehouse-link">
-              <Link2 size={12} aria-hidden />
-              Warehouse linked
-            </span>
+          {(linkedSpareCount !== undefined || warehouseLinked) && (
+            <div className="catalog-product-card__footer-meta">
+              {linkedSpareCount !== undefined && (
+                <span
+                  className={`catalog-product-card__spare-count ${linkedSpareCount === 0 ? 'catalog-product-card__spare-count--none' : ''}`}
+                >
+                  <Link2 size={12} aria-hidden />
+                  {linkedSpareCount === 0
+                    ? 'No spares linked'
+                    : `${linkedSpareCount} spare${linkedSpareCount === 1 ? '' : 's'} linked`}
+                </span>
+              )}
+              {warehouseLinked && (
+                <span className="catalog-product-card__warehouse-link">
+                  <Link2 size={12} aria-hidden />
+                  Warehouse linked
+                </span>
+              )}
+            </div>
           )}
         </div>
       </button>

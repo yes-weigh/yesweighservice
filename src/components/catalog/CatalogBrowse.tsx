@@ -81,6 +81,8 @@ export interface CatalogBrowseProps {
   warehouseLinkedProductIds?: Set<string>;
   /** Staff/super_admin — open NC qty per product id. */
   openNcQtyByProductId?: Map<string, number>;
+  /** Staff/super_admin — audited location label per product id. */
+  auditedLocationByProductId?: Map<string, string>;
   /** Override default navigation when a product tile is opened. */
   onProductSelect?: (product: CatalogProduct) => void;
 }
@@ -227,6 +229,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   spareLinkCountByProductId,
   warehouseLinkedProductIds,
   openNcQtyByProductId,
+  auditedLocationByProductId,
   onProductSelect,
 }) => {
   const navigate = useNavigate();
@@ -489,6 +492,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               spareLinkCountByProductId={spareLinkCountByProductId}
               warehouseLinkedProductIds={warehouseLinkedProductIds}
               openNcQtyByProductId={openNcQtyByProductId}
+              auditedLocationByProductId={auditedLocationByProductId}
             />
           ) : filterMode === 'minimal' || viewMode === 'grid' ? (
             <div className="catalog-grid catalog-grid--tiles">
@@ -516,6 +520,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   }
                   warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
                   openNcCount={openNcQtyByProductId?.get(product.id)}
+                  auditedLocationLabel={auditedLocationByProductId?.get(product.id)}
                 />
               ))}
             </div>

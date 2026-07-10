@@ -13,6 +13,7 @@ export interface ProductFolderGridProps {
   spareLinkCountByProductId?: Map<string, number>;
   warehouseLinkedProductIds?: Set<string>;
   openNcQtyByProductId?: Map<string, number>;
+  auditedLocationByProductId?: Map<string, string>;
 }
 
 export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
@@ -26,6 +27,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
   spareLinkCountByProductId,
   warehouseLinkedProductIds,
   openNcQtyByProductId,
+  auditedLocationByProductId,
 }) => {
   const [localProducts, setLocalProducts] = useState<CatalogProduct[]>(products);
   const dragIdx = useRef<number | null>(null);
@@ -91,6 +93,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
           }
           warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
           openNcCount={openNcQtyByProductId?.get(product.id)}
+          auditedLocationLabel={auditedLocationByProductId?.get(product.id)}
           dragProps={{
             draggable: true,
             onDragStart: handleDragStart(idx),
