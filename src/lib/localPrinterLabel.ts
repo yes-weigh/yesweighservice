@@ -185,8 +185,6 @@ export function buildGenuineSpareLabelTspl(
     // Footer (inside 2 mm padding / border)
     `BAR ${contentL},${footerTop},${contentW},1`,
     `TEXT ${contentL},${footerTop + 6},"1",0,1,1,"${printed}"`,
-    `TEXT ${contentR - 128},${footerTop + 4},"2",0,1,1,"YESWEIGH"`,
-    `TEXT ${contentR - 166},${footerTop + 20},"1",0,1,1,"PRECISION IN EVERY WEIGH"`,
 
     'PRINT 1,1',
     '',

@@ -222,11 +222,16 @@ export async function renderBinLabelCanvas(
   const locL = leftR + splitGap;
   const locR = contentR;
   const locT = headerLineY + 8;
-  const locB = bodyBottom;
+  const fullLocH = bodyBottom - locT;
+  // RACK/RAW/BIN panel is half height; QR sits in the freed space below it
+  const locH = Math.floor(fullLocH / 2);
+  const locB = locT + locH;
   const locW = locR - locL;
   const colW = Math.floor(locW / 3);
+  const qrAreaT = locB + 8;
+  const qrAreaB = bodyBottom;
 
-  // --- Left product fields ---
+  // --- Left product fields (no QR — QR is under the location panel) ---
   let y = locT;
 
   // SKU badge + value
@@ -267,46 +272,31 @@ export async function renderBinLabelCanvas(
 
   drawField('ITEM NAME', fields.itemName);
   drawField('MASTER SKU', fields.masterSku);
-  // Last field without trailing line into QR
   ctx.font = '9px Arial, Helvetica, sans-serif';
   ctx.fillText('MASTER PRODUCT', leftL, y + 9);
   ctx.font = 'bold 12px Arial, Helvetica, sans-serif';
   ctx.fillText(fields.masterProduct, leftL, y + 24);
-  y += 32;
 
-  // QR + scan hint
-  const qrSize = Math.min(78, bodyBottom - y - 16);
-  const qrImg = await loadImage(qrDataUrl);
-  if (qrImg) ctx.drawImage(qrImg, leftL, y, qrSize, qrSize);
-  drawPhoneScanIcon(ctx, leftL + qrSize + 8, y + 8, 22);
-  ctx.font = 'bold 9px Arial, Helvetica, sans-serif';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('SCAN FOR SKU INFO', leftL + qrSize + 34, y + 18);
-  ctx.font = '8px Arial, Helvetica, sans-serif';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('Scan this QR code to view product details', leftL, y + qrSize + 12);
-
-  // --- Right location panel ---
+  // --- Right location panel (half height) ---
   ctx.lineWidth = 2;
-  roundRect(ctx, locL, locT, locW, locB - locT, 6);
+  roundRect(ctx, locL, locT, locW, locH, 6);
   ctx.stroke();
 
   const headers = ['RACK', 'RAW', 'BIN'] as const;
   const values = [fields.rack, fields.raw, fields.bin];
-  const headerH = 22;
+  const headerH = 18;
+  const iconS = 18;
   for (let i = 0; i < 3; i += 1) {
     const cx = locL + i * colW;
-    // header fill
     ctx.fillStyle = '#000';
     ctx.fillRect(cx + (i === 0 ? 1 : 0), locT + 1, colW - (i === 2 ? 1 : 0), headerH);
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 11px Arial, Helvetica, sans-serif';
+    ctx.font = 'bold 10px Arial, Helvetica, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(headers[i], cx + colW / 2, locT + 1 + headerH / 2);
     ctx.fillStyle = '#000';
 
-    // divider
     if (i > 0) {
       ctx.beginPath();
       ctx.moveTo(cx, locT);
@@ -314,26 +304,45 @@ export async function renderBinLabelCanvas(
       ctx.stroke();
     }
 
-    const iconY = locT + headerH + 14;
-    const iconS = 28;
+    const iconY = locT + headerH + 6;
     const iconX = cx + (colW - iconS) / 2;
     if (i === 0) drawRackIcon(ctx, iconX, iconY, iconS);
     if (i === 1) drawBoxIcon(ctx, iconX, iconY, iconS);
     if (i === 2) drawBinIcon(ctx, iconX, iconY, iconS);
 
-    ctx.font = 'bold 42px Arial, Helvetica, sans-serif';
+    ctx.font = 'bold 28px Arial, Helvetica, sans-serif';
     ctx.textBaseline = 'middle';
-    ctx.fillText(values[i], cx + colW / 2, locT + headerH + (locB - locT - headerH) * 0.62);
+    ctx.fillText(values[i], cx + colW / 2, locT + headerH + (locH - headerH) * 0.68);
   }
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
-  // Header underline under black headers
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(locL, locT + headerH + 1);
   ctx.lineTo(locR, locT + headerH + 1);
   ctx.stroke();
+
+  // QR in the freed space under RACK/RAW/BIN
+  const qrAreaH = qrAreaB - qrAreaT;
+  const qrSize = Math.max(48, Math.min(locW * 0.42, qrAreaH - 4));
+  const qrImg = await loadImage(qrDataUrl);
+  const qrX = locL;
+  const qrY = qrAreaT + Math.max(0, Math.floor((qrAreaH - qrSize) / 2));
+  if (qrImg) ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+
+  const hintX = qrX + qrSize + 8;
+  const hintMaxW = locR - hintX;
+  drawPhoneScanIcon(ctx, hintX, qrY + 4, 18);
+  ctx.font = 'bold 9px Arial, Helvetica, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('SCAN FOR SKU INFO', hintX + 24, qrY + 14);
+  ctx.font = '8px Arial, Helvetica, sans-serif';
+  ctx.textBaseline = 'alphabetic';
+  const hintLines = wrapText(ctx, 'Scan this QR code to view product details', hintMaxW);
+  hintLines.forEach((line, idx) => {
+    ctx.fillText(line, hintX, qrY + 34 + idx * 11);
+  });
 
   // Footer
   ctx.lineWidth = 1;
@@ -347,19 +356,24 @@ export async function renderBinLabelCanvas(
   ctx.textBaseline = 'middle';
   ctx.fillText(`PRINTED ON ${formatPrintedOn(fields.printedOn)}`, contentL + 18, footerTop + 16);
 
-  // Brand right
-  const brandX = contentR - 150;
-  ctx.beginPath();
-  ctx.moveTo(brandX - 10, footerTop + 6);
-  ctx.lineTo(brandX - 10, footerTop + footerH - 4);
-  ctx.stroke();
-  drawCheckBadge(ctx, brandX, footerTop + 4, 14);
-  ctx.font = 'bold 11px Arial, Helvetica, sans-serif';
-  ctx.fillText('YESWEIGH', brandX + 18, footerTop + 12);
-  ctx.font = '7px Arial, Helvetica, sans-serif';
-  ctx.fillText('PRECISION IN EVERY WEIGH', brandX, footerTop + 26);
-
   return canvas;
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth) {
+      current = next;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.slice(0, 3);
 }
 
 /**
