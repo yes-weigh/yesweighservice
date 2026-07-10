@@ -10,27 +10,44 @@ Everyone else keeps using the PWA at https://service.yesweigh.in.
 - Rebuild the APK only when native print code or Android config changes.
 - Printer IP/port live in Firestore (`appSettings/localPrinterSettings`) — change in **Settings → Local printers**.
 
-## One-time setup (developer machine)
+## Build on this laptop (same SDK as census)
 
-1. Install [Android Studio](https://developer.android.com/studio) (SDK + platform tools).
-2. From repo root:
+Requires:
 
-```bash
-npm install
-npm run build:tcp-print
-npm run build
-npx cap add android
-npx cap sync android
-npm run cap:open
+- Android SDK at `D:\census\tools\android-sdk` (already used by census)
+- Microsoft JDK **21** (`winget install Microsoft.OpenJDK.21`)
+
+From repo root:
+
+```powershell
+.\build-apk.ps1
 ```
 
-3. In Android Studio: **Build → Build Bundle(s) / APK(s) → Build APK(s)**.
-4. Distribute the debug/release APK to warehouse / store-room / admin phones (sideload is fine for internal use).
+APK output:
 
-Later syncs (after native changes):
+```text
+android\app\build\outputs\apk\debug\app-debug.apk
+```
 
-```bash
+Install on a phone:
+
+```powershell
+adb install -r android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+Or copy the APK to the phone and open it (allow install from unknown sources).
+
+### Manual equivalent
+
+```powershell
+$env:JAVA_HOME = (Get-ChildItem 'C:\Program Files\Microsoft\jdk-21*' -Directory | Select-Object -First 1).FullName
+$env:ANDROID_HOME = 'D:\census\tools\android-sdk'
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+$env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;" + $env:Path
+
 npm run cap:sync
+cd android
+.\gradlew.bat assembleDebug
 ```
 
 ## Staff usage
@@ -44,3 +61,4 @@ npm run cap:sync
 - Test print sends a small TSPL label over TCP port **9100**.
 - If nothing prints, the printer may expect ZPL/EZPL instead of TSPL — we can switch the payload without a new APK once hosting is updated.
 - Reserve the printer IP on the router (DHCP is currently on).
+- Census uses Flutter; this app uses Capacitor — build command is `gradlew assembleDebug`, not `flutter build apk`.
