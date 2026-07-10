@@ -153,7 +153,7 @@ export const LocalPrintersTab: React.FC = () => {
         labelHeightMm: heightNumber,
         labelGapMm: gapNumber,
       });
-      setSuccess(`TSPL test label sent (${result.bytesSent} bytes) to ${host.trim()}:${portNumber}.`);
+      setSuccess(`Label bitmap sent (${result.bytesSent} bytes) to ${host.trim()}:${portNumber}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Test print failed.');
     } finally {
@@ -167,7 +167,7 @@ export const LocalPrintersTab: React.FC = () => {
         <div>
           <h3>Local printers</h3>
           <p className="text-muted text-sm">
-            TSC TE210 LAN label printer. Preview on screen, then Test print (TSPL) from the Android APK on the same Wi‑Fi.
+            TSC TE210 LAN label printer. Preview and print use the same bitmap — fix it on screen, then Test print from the APK.
           </p>
         </div>
       </header>
@@ -180,7 +180,7 @@ export const LocalPrintersTab: React.FC = () => {
           <Printer size={16} aria-hidden />
           {native
             ? `Android APK ready · ${platform}`
-            : 'Browser / PWA — preview & save here; open the APK on Wi‑Fi to test print'}
+            : 'Browser / PWA — preview & save here; open the APK on Wi‑Fi to test print (same bitmap)'}
         </div>
 
         {loading ? (
@@ -194,7 +194,7 @@ export const LocalPrintersTab: React.FC = () => {
                 <div>
                   <h4 className="settings-logistics__title">Label printer</h4>
                   <p className="text-muted text-sm">
-                    Defaults: 75 × 45.5 mm, gap 3.5 mm, port 9100. Test print sends TSPL (sample SKU 4pinCW).
+                    Defaults: 75 × 45.5 mm, gap 3.5 mm, port 9100. Test print sends the preview bitmap (sample SKU 4pinCW).
                   </p>
                 </div>
                 <div className="settings-local-printer__actions">
@@ -212,7 +212,7 @@ export const LocalPrintersTab: React.FC = () => {
                     className="btn btn-secondary btn-sm"
                     disabled={busyKey != null || dirty}
                     onClick={() => void handleTestPrint()}
-                    title={native ? 'Send TSPL sample label' : 'Requires Android APK on same Wi‑Fi'}
+                    title={native ? 'Print the exact preview bitmap' : 'Requires Android APK on same Wi‑Fi'}
                   >
                     <Printer size={15} aria-hidden />
                     {busyKey === 'test' ? 'Printing…' : 'Test print'}

@@ -90,7 +90,7 @@ export const LocalPrinterLabelPreview: React.FC<Props> = ({
       <div className="settings-local-printer-preview__head">
         <h4 className="settings-logistics__title">Label preview</h4>
         <p className="text-muted text-sm">
-          Screen preview of the Genuine Spare layout ({width} × {height} mm). Iterate here; use Test print on the APK only when ready.
+          Exact print preview ({width} × {height} mm @ 203 dpi). What you see here is what Test print sends to the TE210.
         </p>
       </div>
 

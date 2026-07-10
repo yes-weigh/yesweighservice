@@ -10,16 +10,14 @@ import {
   TEST_BIN_LABEL_SAMPLE,
   type BinLabelFields,
 } from './localPrinterLabel';
+import {
+  buildGenuineSpareLabelBitmapJob,
+  bytesToBase64,
+} from './localPrinterLabelBitmap';
 
-/** Encode UTF-8 text as base64 for the native TCP plugin. */
+/** Encode bytes/text as base64 for the native TCP plugin. */
 export function textToBase64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
+  return bytesToBase64(new TextEncoder().encode(text));
 }
 
 export function isNativePrintAvailable(): boolean {
@@ -29,7 +27,7 @@ export function isNativePrintAvailable(): boolean {
 export async function sendRawToPrinter(options: {
   host: string;
   port: number;
-  payload: string;
+  payload: string | Uint8Array;
 }): Promise<{ bytesSent: number }> {
   if (!isNativePrintAvailable()) {
     throw new Error(
@@ -37,17 +35,24 @@ export async function sendRawToPrinter(options: {
     );
   }
 
+  const dataBase64 = typeof options.payload === 'string'
+    ? textToBase64(options.payload)
+    : bytesToBase64(options.payload);
+
   const result = await TcpPrint.send({
     host: options.host,
     port: options.port,
-    dataBase64: textToBase64(options.payload),
-    timeoutMs: 8000,
+    dataBase64,
+    timeoutMs: 15000,
   });
 
   return { bytesSent: result.bytesSent };
 }
 
-/** Print Genuine Spare label via TSPL (TE210). */
+/**
+ * Print Genuine Spare label as the same canvas bitmap shown in Local printers preview.
+ * WYSIWYG: preview pixels === printer pixels (1-bit TSPL BITMAP).
+ */
 export async function sendBinLabel(options: {
   host: string;
   port: number;
@@ -56,7 +61,7 @@ export async function sendBinLabel(options: {
   labelGapMm: number;
   fields: BinLabelFields;
 }): Promise<{ bytesSent: number }> {
-  const payload = buildGenuineSpareLabelTspl(options.fields, {
+  const payload = await buildGenuineSpareLabelBitmapJob(options.fields, {
     labelWidthMm: options.labelWidthMm,
     labelHeightMm: options.labelHeightMm,
     labelGapMm: options.labelGapMm,
@@ -68,7 +73,7 @@ export async function sendBinLabel(options: {
   });
 }
 
-/** Test print uses the Genuine Spare sample via TSPL. */
+/** Test print uses the Genuine Spare sample — same renderer as the on-screen preview. */
 export async function sendTestLabel(options: {
   host: string;
   port: number;
@@ -85,6 +90,7 @@ export async function sendTestLabel(options: {
   });
 }
 
+/** Legacy vector TSPL (not used for WYSIWYG print). */
 export function buildTestLabelTspl(options?: {
   labelWidthMm?: number;
   labelHeightMm?: number;
