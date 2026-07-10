@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Printer, Save } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
+import { LocalPrinterLabelPreview } from '../../../components/admin/LocalPrinterLabelPreview';
 import {
   emptyLocalPrinterSettings,
   loadLocalPrinterSettings,
@@ -10,6 +11,7 @@ import {
   validatePrinterHost,
 } from '../../../lib/localPrinterSettings';
 import { isNativePrintAvailable, sendTestLabel } from '../../../lib/localPrinterPrint';
+import { TEST_BIN_LABEL_SAMPLE } from '../../../lib/localPrinterLabel';
 import {
   DEFAULT_LABEL_GAP_MM,
   DEFAULT_LABEL_HEIGHT_MM,
@@ -38,6 +40,11 @@ export const LocalPrintersTab: React.FC = () => {
 
   const native = isNativePrintAvailable();
   const platform = Capacitor.getPlatform();
+
+  const previewFields = useMemo(
+    () => ({ ...TEST_BIN_LABEL_SAMPLE, printedOn: new Date() }),
+    [labelWidthMm, labelHeightMm],
+  );
 
   const applySettings = (settings: ReturnType<typeof emptyLocalPrinterSettings>) => {
     setHost(settings.host);
@@ -146,7 +153,7 @@ export const LocalPrintersTab: React.FC = () => {
         labelHeightMm: heightNumber,
         labelGapMm: gapNumber,
       });
-      setSuccess(`Test label sent (${result.bytesSent} bytes) to ${host.trim()}:${portNumber}.`);
+      setSuccess(`TSPL test label sent (${result.bytesSent} bytes) to ${host.trim()}:${portNumber}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Test print failed.');
     } finally {
@@ -160,7 +167,7 @@ export const LocalPrintersTab: React.FC = () => {
         <div>
           <h3>Local printers</h3>
           <p className="text-muted text-sm">
-            TSC TE210 LAN label printer. Size/gap are physical mm; test print needs the Android APK on the same Wi‑Fi.
+            TSC TE210 LAN label printer. Preview on screen, then Test print (TSPL) from the Android APK on the same Wi‑Fi.
           </p>
         </div>
       </header>
@@ -173,7 +180,7 @@ export const LocalPrintersTab: React.FC = () => {
           <Printer size={16} aria-hidden />
           {native
             ? `Android APK ready · ${platform}`
-            : 'Browser / PWA — save settings here; open the APK on Wi‑Fi to test print'}
+            : 'Browser / PWA — preview & save here; open the APK on Wi‑Fi to test print'}
         </div>
 
         {loading ? (
@@ -181,116 +188,126 @@ export const LocalPrintersTab: React.FC = () => {
             <div className="loader-ring" />
           </div>
         ) : (
-          <div className="settings-logistics__default panel glass">
-            <div className="settings-logistics__default-head">
-              <div>
-                <h4 className="settings-logistics__title">Label printer</h4>
-                <p className="text-muted text-sm">
-                  Defaults from caliper: 75 × 45.5 mm, gap 3.5 mm, port 9100. Test print sends a bitmap of the Genuine Spare layout (sample SKU 4pinCW).
-                </p>
+          <>
+            <div className="settings-logistics__default panel glass">
+              <div className="settings-logistics__default-head">
+                <div>
+                  <h4 className="settings-logistics__title">Label printer</h4>
+                  <p className="text-muted text-sm">
+                    Defaults: 75 × 45.5 mm, gap 3.5 mm, port 9100. Test print sends TSPL (sample SKU 4pinCW).
+                  </p>
+                </div>
+                <div className="settings-local-printer__actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={!dirty || busyKey != null}
+                    onClick={() => void handleSave()}
+                  >
+                    <Save size={15} aria-hidden />
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={busyKey != null || dirty}
+                    onClick={() => void handleTestPrint()}
+                    title={native ? 'Send TSPL sample label' : 'Requires Android APK on same Wi‑Fi'}
+                  >
+                    <Printer size={15} aria-hidden />
+                    {busyKey === 'test' ? 'Printing…' : 'Test print'}
+                  </button>
+                </div>
               </div>
-              <div className="settings-local-printer__actions">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={!dirty || busyKey != null}
-                  onClick={() => void handleSave()}
-                >
-                  <Save size={15} aria-hidden />
-                  Save
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={busyKey != null || dirty}
-                  onClick={() => void handleTestPrint()}
-                  title={native ? 'Print Genuine Spare sample label' : 'Requires Android APK on same Wi‑Fi'}
-                >
-                  <Printer size={15} aria-hidden />
-                  {busyKey === 'test' ? 'Printing…' : 'Test print'}
-                </button>
-              </div>
-            </div>
 
-            <label className="settings-locations__field">
-              <span>Name</span>
-              <input
-                type="text"
-                value={name}
-                disabled={busyKey === 'save'}
-                onChange={e => setName(e.target.value)}
-                placeholder="Store room label printer"
-              />
-            </label>
-
-            <label className="settings-locations__field">
-              <span>IP address</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                spellCheck={false}
-                value={host}
-                disabled={busyKey === 'save'}
-                onChange={e => setHost(e.target.value)}
-                placeholder="192.168.1.39"
-              />
-            </label>
-
-            <label className="settings-locations__field">
-              <span>Port</span>
-              <input
-                type="number"
-                min={1}
-                max={65535}
-                value={port}
-                disabled={busyKey === 'save'}
-                onChange={e => setPort(e.target.value)}
-              />
-            </label>
-
-            <div className="settings-local-printer__dims">
               <label className="settings-locations__field">
-                <span>Width (mm)</span>
+                <span>Name</span>
+                <input
+                  type="text"
+                  value={name}
+                  disabled={busyKey === 'save'}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Store room label printer"
+                />
+              </label>
+
+              <label className="settings-locations__field">
+                <span>IP address</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={host}
+                  disabled={busyKey === 'save'}
+                  onChange={e => setHost(e.target.value)}
+                  placeholder="192.168.1.39"
+                />
+              </label>
+
+              <label className="settings-locations__field">
+                <span>Port</span>
                 <input
                   type="number"
                   min={1}
-                  max={120}
-                  step={0.1}
-                  value={labelWidthMm}
+                  max={65535}
+                  value={port}
                   disabled={busyKey === 'save'}
-                  onChange={e => setLabelWidthMm(e.target.value)}
+                  onChange={e => setPort(e.target.value)}
                 />
               </label>
-              <label className="settings-locations__field">
-                <span>Height (mm)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={500}
-                  step={0.1}
-                  value={labelHeightMm}
-                  disabled={busyKey === 'save'}
-                  onChange={e => setLabelHeightMm(e.target.value)}
-                />
-              </label>
-              <label className="settings-locations__field">
-                <span>Gap (mm)</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={25}
-                  step={0.1}
-                  value={labelGapMm}
-                  disabled={busyKey === 'save'}
-                  onChange={e => setLabelGapMm(e.target.value)}
-                />
-              </label>
+
+              <div className="settings-local-printer__dims">
+                <label className="settings-locations__field">
+                  <span>Width (mm)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={120}
+                    step={0.1}
+                    value={labelWidthMm}
+                    disabled={busyKey === 'save'}
+                    onChange={e => setLabelWidthMm(e.target.value)}
+                  />
+                </label>
+                <label className="settings-locations__field">
+                  <span>Height (mm)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    step={0.1}
+                    value={labelHeightMm}
+                    disabled={busyKey === 'save'}
+                    onChange={e => setLabelHeightMm(e.target.value)}
+                  />
+                </label>
+                <label className="settings-locations__field">
+                  <span>Gap (mm)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={25}
+                    step={0.1}
+                    value={labelGapMm}
+                    disabled={busyKey === 'save'}
+                    onChange={e => setLabelGapMm(e.target.value)}
+                  />
+                </label>
+              </div>
+              <p className="settings-local-printer__hint text-muted text-sm">
+                Preview updates when width/height change. Gap can be 0 if Feed already advances one label.
+              </p>
             </div>
-            <p className="settings-local-printer__hint text-muted text-sm">
-              Use the physical sticker size (not the TE210 self-test WIDTH if it disagrees). Gap can be 0 if Feed already advances one label.
-            </p>
-          </div>
+
+            <div className="settings-logistics__default panel glass">
+              <LocalPrinterLabelPreview
+                labelWidthMm={widthNumber}
+                labelHeightMm={heightNumber}
+                fields={previewFields}
+              />
+            </div>
+          </>
         )}
       </div>
     </section>

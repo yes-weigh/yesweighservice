@@ -514,6 +514,46 @@
   margin: 0.15rem 0 0;
 }
 
+.settings-local-printer-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.settings-local-printer-preview__head h4 {
+  margin: 0 0 0.25rem;
+}
+
+.settings-local-printer-preview__stage {
+  position: relative;
+  width: min(100%, 36rem);
+  max-width: 100%;
+  margin: 0 auto;
+  background: #e8e8e8;
+  border-radius: 10px;
+  padding: 0.85rem;
+  box-sizing: border-box;
+}
+
+.settings-local-printer-preview__canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.settings-local-printer-preview__loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(232, 232, 232, 0.65);
+  border-radius: 10px;
+  z-index: 1;
+}
+
 @media (max-width: 640px) {
   .settings-locations__header {
     flex-direction: column;
