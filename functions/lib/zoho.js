@@ -382,6 +382,101 @@ export async function uploadProductImageToZoho(accessToken, orgId, itemId, buffe
   return payload ?? { ok: true };
 }
 
+/** Append gallery images (does not replace primary unless updatePrimary is true). */
+export async function uploadProductGalleryImagesToZoho(
+  accessToken,
+  orgId,
+  itemId,
+  images,
+  options = {},
+) {
+  if (!images?.length) return { ok: true };
+
+  const url = new URL(`${ZOHO_API_BASE}/items/${itemId}/images`);
+  url.searchParams.set('organization_id', orgId);
+  if (options.updatePrimary === true) {
+    url.searchParams.set('update_primary_image', 'true');
+  }
+  if (options.removeAll === true) {
+    url.searchParams.set('remove_all', 'true');
+  }
+
+  const form = new FormData();
+  images.forEach((img, index) => {
+    const type = String(img.contentType ?? 'image/jpeg');
+    const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg';
+    form.append(
+      'image',
+      new Blob([img.buffer], { type }),
+      `gallery-${itemId}-${index + 1}.${ext}`,
+    );
+  });
+
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+    body: form,
+  });
+
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (payload?.code !== undefined && payload.code !== 0) {
+    throw new Error(payload.message || 'Zoho gallery image upload failed.');
+  }
+  if (!response.ok) {
+    throw new Error(payload?.message || `Zoho gallery image upload failed (${response.status}).`);
+  }
+
+  return payload ?? { ok: true };
+}
+
+/** Delete specific gallery images by Zoho document_id. */
+export async function deleteProductGalleryImagesFromZoho(accessToken, orgId, itemId, documentIds) {
+  const ids = [...new Set((documentIds ?? []).map(id => String(id).trim()).filter(Boolean))];
+  if (!ids.length) return { ok: true };
+
+  const url = new URL(`${ZOHO_API_BASE}/items/${itemId}/images`);
+  url.searchParams.set('organization_id', orgId);
+  url.searchParams.set('document_ids', ids.join(','));
+
+  const response = await fetch(url.toString(), {
+    method: 'DELETE',
+    headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+  });
+
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (payload?.code !== undefined && payload.code !== 0) {
+    throw new Error(payload.message || 'Zoho gallery image delete failed.');
+  }
+  if (!response.ok) {
+    throw new Error(payload?.message || `Zoho gallery image delete failed (${response.status}).`);
+  }
+
+  return payload ?? { ok: true };
+}
+
+/** Raw Zoho item payload (includes documents for gallery metadata). */
+export async function fetchZohoItemRaw(accessToken, orgId, itemId) {
+  return fetchZohoItemForUpdate(accessToken, orgId, itemId);
+}
+
 /** Remove the primary item image from Zoho Inventory. */
 export async function deleteProductImageFromZoho(accessToken, orgId, itemId) {
   const url = `${ZOHO_API_BASE}/items/${itemId}/image?organization_id=${orgId}`;

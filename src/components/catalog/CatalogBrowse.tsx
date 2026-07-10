@@ -9,7 +9,7 @@ import {
   Package,
   Search,
 } from 'lucide-react';
-import { compareCatalogProductsInCategory, isHiddenCatalogCategory } from '../../lib/catalog';
+import { compareCatalogProductsInCategory, hasCatalogCategory, isGenericSparePartsCategory, isHiddenCatalogCategory } from '../../lib/catalog';
 import { buildProductNavState, buildSpareNavState, catalogOriginFromReturnView } from '../../lib/catalogNav';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -301,7 +301,13 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
       );
     }
     if (activeCategory) {
-      list = list.filter(p => p.categoryId === activeCategory);
+      const activeCat = categories.find(c => c.id === activeCategory);
+      if (activeCat && isGenericSparePartsCategory(activeCat)) {
+        // Match admin/staff spare pool: category members + uncategorized Zoho items.
+        list = list.filter(p => p.categoryId === activeCategory || !hasCatalogCategory(p));
+      } else {
+        list = list.filter(p => p.categoryId === activeCategory);
+      }
     }
     if (stockFilter) {
       list = list.filter(p => p.stockStatus === stockFilter);
@@ -310,7 +316,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
       list = [...list].sort(compareCatalogProductsInCategory);
     }
     return list;
-  }, [products, search, activeCategory, stockFilter]);
+  }, [products, search, activeCategory, stockFilter, categories]);
 
   const canReorderCategoryProducts = Boolean(
     manageCategories

@@ -193,6 +193,31 @@ export const CATEGORIZED_PRODUCT_FILTERS = [
 
 export type CategorizedProductFilter = typeof CATEGORIZED_PRODUCT_FILTERS[number]['key'];
 
+/** Media-role catalog filters (product image + Firebase media gallery). */
+export const MEDIA_PRODUCT_FILTERS = [
+  { key: 'withImage', label: 'Has product image' },
+  { key: 'missingImage', label: 'Missing product image' },
+  { key: 'withMedia', label: 'Has media files' },
+  { key: 'missingMedia', label: 'Missing media files' },
+] as const;
+
+export type MediaProductFilter = typeof MEDIA_PRODUCT_FILTERS[number]['key'];
+
+export function matchesMediaProductFilters(
+  product: Pick<CatalogProduct, 'id' | 'imageUrl'>,
+  filters: ReadonlySet<MediaProductFilter>,
+  productIdsWithMedia: ReadonlySet<string>,
+): boolean {
+  if (filters.size === 0) return true;
+  const hasImage = catalogProductHasImage(product);
+  const hasMedia = productIdsWithMedia.has(product.id);
+  if (filters.has('withImage') && !hasImage) return false;
+  if (filters.has('missingImage') && hasImage) return false;
+  if (filters.has('withMedia') && !hasMedia) return false;
+  if (filters.has('missingMedia') && hasMedia) return false;
+  return true;
+}
+
 export const NC_STATUS_FILTERS = [
   { key: 'hasNc', label: 'Has NC' },
   { key: 'noNc', label: 'No NC' },
@@ -481,11 +506,15 @@ export function getShopCatalogCategories(
     .filter((c): c is CatalogCategory => c !== null);
   const included = new Set(fromShop.map(c => c.id));
 
+  const countSpareBrowseProducts = (list: CatalogProduct[], categoryId: string) =>
+    list.filter(p => p.categoryId === categoryId || !hasCatalogCategory(p)).length;
+
   const genericSpareCategories = categories
     .filter(c => isGenericSparePartsCategory(c) && !included.has(c.id))
     .map(cat => {
-      const totalProductCount = spareProducts.filter(p => p.categoryId === cat.id).length;
-      const productCount = filteredSpare.filter(p => p.categoryId === cat.id).length;
+      // Uncategorized Zoho items live in the spare pool and belong under this tile.
+      const totalProductCount = countSpareBrowseProducts(spareProducts, cat.id);
+      const productCount = countSpareBrowseProducts(filteredSpare, cat.id);
       if (productCount <= 0) return null;
       return {
         ...cat,
@@ -508,7 +537,10 @@ export function getBrowseCatalogProducts(
   if (!activeCategoryId) return shopProducts;
   const activeCategory = categories.find(c => c.id === activeCategoryId);
   if (!activeCategory || !isGenericSparePartsCategory(activeCategory)) return shopProducts;
-  return spareProducts.filter(p => p.categoryId === activeCategoryId);
+  // Generic Spare Parts includes its category members plus uncategorized Zoho items.
+  return spareProducts.filter(
+    p => p.categoryId === activeCategoryId || !hasCatalogCategory(p),
+  );
 }
 
 function catalogErrorMessage(err: unknown): string {
@@ -588,9 +620,50 @@ function mapPackageInfo(data: unknown): CatalogPackageInfo | null {
   };
 }
 
+function mapImageDocs(data: unknown): CatalogProduct['imageDocs'] {
+  if (!Array.isArray(data)) return undefined;
+  const docs = data
+    .map(row => {
+      if (!row || typeof row !== 'object') return null;
+      const item = row as Record<string, unknown>;
+      const documentId = String(item.documentId ?? '').trim();
+      const url = String(item.url ?? '').trim();
+      const storagePath = String(item.storagePath ?? '').trim();
+      if (!documentId || !url || !storagePath) return null;
+      return { documentId, url, storagePath };
+    })
+    .filter((d): d is NonNullable<typeof d> => d !== null);
+  return docs.length ? docs : undefined;
+}
+
+function mapProductImageUrls(
+  data: Record<string, unknown>,
+  primaryUrl: string | null,
+  syncedAt: string | undefined,
+): string[] | undefined {
+  const docs = mapImageDocs(data.imageDocs);
+  if (Array.isArray(data.imageUrls)) {
+    const urls = data.imageUrls
+      .map(url => withCatalogImageCacheBust(String(url ?? '').trim() || null, syncedAt))
+      .filter((url): url is string => Boolean(url));
+    if (urls.length) return urls;
+  }
+  if (primaryUrl) {
+    const gallery = (docs ?? []).map(doc => withCatalogImageCacheBust(doc.url, syncedAt) ?? doc.url);
+    return [primaryUrl, ...gallery.filter(url => url !== primaryUrl)];
+  }
+  if (docs?.length) {
+    return docs.map(doc => withCatalogImageCacheBust(doc.url, syncedAt) ?? doc.url);
+  }
+  return undefined;
+}
+
 function mapProduct(data: Record<string, unknown>): CatalogProduct {
   const syncedAt = data.syncedAt as string | undefined;
   const rawImageUrl = (data.imageUrl as string | null) ?? null;
+  const imageUrl = withCatalogImageCacheBust(rawImageUrl, syncedAt);
+  const imageDocs = mapImageDocs(data.imageDocs);
+  const imageUrls = mapProductImageUrls(data, imageUrl, syncedAt);
   const warehouses = mapWarehouse(data.warehouses);
   const packageInfo = mapPackageInfo(data.packageInfo);
   const auditSnapshot = mapAuditSnapshot(data.auditSnapshot);
@@ -603,7 +676,9 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     rate: Number(data.rate ?? 0),
     stock: Number(data.stock ?? 0),
     stockStatus: (data.stockStatus as CatalogProduct['stockStatus']) ?? 'out_of_stock',
-    imageUrl: withCatalogImageCacheBust(rawImageUrl, syncedAt),
+    imageUrl,
+    ...(imageUrls?.length ? { imageUrls } : {}),
+    ...(imageDocs?.length ? { imageDocs } : {}),
     categoryId: (data.categoryId as string | null) ?? null,
     categoryName: (data.categoryName as string | null) ?? null,
     status: String(data.status ?? 'active'),
@@ -862,14 +937,15 @@ export async function uploadCatalogCategoryThumbnail(
   }
 }
 
-/** Zoho + Firestore cache — uploads primary image to Zoho before updating Firestore. */
+/** Zoho + Firestore cache — replace primary or append gallery image. */
 export async function uploadCatalogProductImage(
   productId: string,
   file: File,
-): Promise<string> {
+  mode: 'replace' | 'add' = 'replace',
+): Promise<{ imageUrl: string | null; imageUrls: string[]; imageDocs?: CatalogProduct['imageDocs'] }> {
   const callable = httpsCallable<
-    { productId: string; contentType: string; imageBase64: string },
-    { imageUrl: string }
+    { productId: string; contentType: string; imageBase64: string; mode: 'replace' | 'add' },
+    { imageUrl: string | null; imageUrls?: string[]; imageDocs?: CatalogProduct['imageDocs'] }
   >(functions, 'uploadCatalogProductImage', { timeout: 120_000 });
 
   try {
@@ -879,22 +955,58 @@ export async function uploadCatalogProductImage(
       productId,
       contentType: compressed.type || 'image/jpeg',
       imageBase64,
+      mode,
     });
-    return withCatalogImageCacheBust(result.data.imageUrl, Date.now()) ?? result.data.imageUrl;
+    const syncedAt = Date.now();
+    const imageUrl = withCatalogImageCacheBust(result.data.imageUrl, syncedAt) ?? result.data.imageUrl;
+    const imageUrls = (result.data.imageUrls ?? (imageUrl ? [imageUrl] : []))
+      .map(url => withCatalogImageCacheBust(url, syncedAt) ?? url)
+      .filter(Boolean);
+    const imageDocs = result.data.imageDocs?.map(doc => ({
+      ...doc,
+      url: withCatalogImageCacheBust(doc.url, syncedAt) ?? doc.url,
+    }));
+    return { imageUrl, imageUrls, imageDocs };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
 }
 
-/** Zoho + Firestore cache — removes primary image from Zoho before clearing Firestore. */
-export async function deleteCatalogProductImage(productId: string): Promise<void> {
-  const callable = httpsCallable<{ productId: string }, { ok: boolean }>(
+/** Zoho + Firestore cache — remove primary or a gallery image. */
+export async function deleteCatalogProductImage(
+  productId: string,
+  options: { documentId?: string } = {},
+): Promise<{ imageUrl: string | null; imageUrls: string[]; imageDocs?: CatalogProduct['imageDocs'] }> {
+  const callable = httpsCallable<
+    { productId: string; documentId?: string },
+    {
+      ok: boolean;
+      imageUrl?: string | null;
+      imageUrls?: string[];
+      imageDocs?: CatalogProduct['imageDocs'];
+    }
+  >(
     functions,
     'deleteCatalogProductImage',
     { timeout: 60_000 },
   );
   try {
-    await callable({ productId });
+    const result = await callable({
+      productId,
+      ...(options.documentId ? { documentId: options.documentId } : {}),
+    });
+    const syncedAt = Date.now();
+    const imageUrl = withCatalogImageCacheBust(result.data.imageUrl ?? null, syncedAt)
+      ?? result.data.imageUrl
+      ?? null;
+    const imageUrls = (result.data.imageUrls ?? (imageUrl ? [imageUrl] : []))
+      .map(url => withCatalogImageCacheBust(url, syncedAt) ?? url)
+      .filter(Boolean);
+    return {
+      imageUrl,
+      imageUrls,
+      imageDocs: result.data.imageDocs,
+    };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

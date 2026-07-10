@@ -4,18 +4,17 @@ import {
   Film,
   Image as ImageIcon,
   Loader2,
+  Pencil,
   Plus,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
-import type { CatalogMediaFile, CatalogMediaNote, CatalogProductMediaDoc } from '../../types/catalog-media';
+import type { CatalogMediaFile, CatalogMediaKind, CatalogProductMediaDoc } from '../../types/catalog-media';
 import {
-  addCatalogMediaNote,
   deleteCatalogMediaFile,
-  deleteCatalogMediaNote,
   getCatalogProductMedia,
-  updateCatalogMediaNote,
+  updateCatalogMediaFileCaption,
   uploadCatalogMediaFile,
 } from '../../lib/catalogMedia/data';
 
@@ -27,6 +26,12 @@ type ProductMediaPanelProps = {
   actorName?: string | null;
   embedded?: boolean;
 };
+
+type PreviewState = {
+  url: string;
+  kind: CatalogMediaKind;
+  title: string;
+} | null;
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes < 1024) return `${bytes || 0} B`;
@@ -53,17 +58,29 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [noteText, setNoteText] = useState('');
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [editNoteText, setEditNoteText] = useState('');
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [showUpload, setShowUpload] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingCaption, setPendingCaption] = useState('');
+  const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
+  const [editCaptionText, setEditCaptionText] = useState('');
+  const [preview, setPreview] = useState<PreviewState>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const clearPendingUpload = () => {
+    setPendingFile(null);
+    setPendingCaption('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   useEffect(() => {
     if (!open || !catalogProductId) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setShowUpload(false);
+    setPendingFile(null);
+    setPendingCaption('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
     void getCatalogProductMedia(catalogProductId)
       .then(result => {
         if (!cancelled) setDoc(result);
@@ -82,32 +99,48 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
   }, [open, catalogProductId]);
 
   const files = doc?.files ?? [];
-  const notes = doc?.notes ?? [];
 
-  const handleUpload = async (fileList: FileList | null) => {
-    const file = fileList?.[0];
-    if (!file || !canWrite || !actorUid) return;
+  const closeUpload = () => {
+    setShowUpload(false);
+    clearPendingUpload();
+  };
+
+  const handlePickFile = (fileList: FileList | null) => {
+    const file = fileList?.[0] ?? null;
+    setPendingFile(file);
+    setError(null);
+    if (!file && fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleUpload = async () => {
+    if (!pendingFile || !canWrite || !actorUid) return;
+    const caption = pendingCaption.trim();
+    if (!caption) {
+      setError('Add a description before uploading.');
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
       const next = await uploadCatalogMediaFile({
         catalogProductId,
-        file,
+        file: pendingFile,
+        caption,
         actorUid,
         actorName,
       });
       setDoc(next);
+      closeUpload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const handleDeleteFile = async (file: CatalogMediaFile) => {
     if (!canWrite || !actorUid) return;
-    if (!window.confirm(`Delete “${file.fileName}”?`)) return;
+    if (!window.confirm(`Delete “${file.caption?.trim() || file.fileName}”?`)) return;
     setBusyId(file.id);
     setError(null);
     try {
@@ -125,66 +158,39 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
     }
   };
 
-  const handleAddNote = async () => {
-    if (!canWrite || !actorUid || !noteText.trim()) return;
-    setBusyId('note-add');
-    setError(null);
-    try {
-      const next = await addCatalogMediaNote({
-        catalogProductId,
-        text: noteText,
-        actorUid,
-        actorName,
-      });
-      setDoc(next);
-      setNoteText('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not add note.');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleSaveNote = async (note: CatalogMediaNote) => {
-    if (!canWrite || !actorUid || !editNoteText.trim()) return;
-    setBusyId(note.id);
-    setError(null);
-    try {
-      const next = await updateCatalogMediaNote({
-        catalogProductId,
-        noteId: note.id,
-        text: editNoteText,
-        actorUid,
-        actorName,
-      });
-      setDoc(next);
-      setEditingNoteId(null);
-      setEditNoteText('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update note.');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleDeleteNote = async (note: CatalogMediaNote) => {
+  const handleSaveCaption = async (file: CatalogMediaFile) => {
     if (!canWrite || !actorUid) return;
-    if (!window.confirm('Delete this note?')) return;
-    setBusyId(note.id);
+    const caption = editCaptionText.trim();
+    if (!caption) {
+      setError('Description cannot be empty.');
+      return;
+    }
+    setBusyId(file.id);
     setError(null);
     try {
-      const next = await deleteCatalogMediaNote({
+      const next = await updateCatalogMediaFileCaption({
         catalogProductId,
-        noteId: note.id,
+        fileId: file.id,
+        caption,
         actorUid,
         actorName,
       });
       setDoc(next);
+      setEditingCaptionId(null);
+      setEditCaptionText('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not delete note.');
+      setError(err instanceof Error ? err.message : 'Could not update description.');
     } finally {
       setBusyId(null);
     }
+  };
+
+  const openPreview = (file: CatalogMediaFile) => {
+    setPreview({
+      url: file.url,
+      kind: file.kind,
+      title: file.caption?.trim() || file.fileName,
+    });
   };
 
   return (
@@ -193,31 +199,9 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
         <div>
           <h3 className="product-media-panel__title">Product media</h3>
           <p className="product-media-panel__subtitle text-muted text-sm">
-            Images, PDFs, videos, and notes stored in Firebase (not synced to Zoho).
+            Images, PDFs, and videos stored in Firebase (not synced to Zoho).
           </p>
         </div>
-        {canWrite && (
-          <div className="product-media-panel__head-actions">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,application/pdf,video/mp4,video/webm,video/quicktime"
-              className="sr-only"
-              onChange={e => void handleUpload(e.target.files)}
-            />
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={uploading}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {uploading
-                ? <Loader2 size={15} className="spin-icon" aria-hidden />
-                : <Upload size={15} aria-hidden />}
-              {uploading ? 'Uploading…' : 'Upload file'}
-            </button>
-          </div>
-        )}
       </div>
 
       {error && <p className="product-media-panel__error text-sm">{error}</p>}
@@ -225,196 +209,248 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
       {loading ? (
         <p className="text-muted text-sm">Loading media…</p>
       ) : (
-        <>
-          <section className="product-media-panel__section">
-            <div className="product-media-panel__section-head">
-              <h4>Files</h4>
-              <span className="product-media-panel__section-count">{files.length}</span>
-            </div>
-            {files.length === 0 ? (
-              <p className="text-muted text-sm">No media files yet.</p>
-            ) : (
-              <ul className="product-media-panel__files">
-                {files.map(file => (
-                  <li key={file.id} className="product-media-panel__file">
-                    {file.kind === 'image' ? (
-                      <button
-                        type="button"
-                        className="product-media-panel__thumb-btn"
-                        onClick={() => setLightboxUrl(file.url)}
-                        aria-label={`View ${file.fileName}`}
-                      >
-                        <img src={file.url} alt="" className="product-media-panel__thumb" />
-                      </button>
-                    ) : (
-                      <a
-                        href={file.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="product-media-panel__file-icon"
-                        aria-label={`Open ${file.fileName}`}
-                      >
-                        <FileKindIcon kind={file.kind} />
-                      </a>
-                    )}
-                    <div className="product-media-panel__file-meta">
-                      <a href={file.url} target="_blank" rel="noreferrer" className="product-media-panel__file-name">
-                        {file.fileName}
-                      </a>
-                      <p className="text-muted text-sm">
-                        {file.kind.toUpperCase()} · {formatBytes(file.sizeBytes)}
-                        {file.uploadedByName ? ` · ${file.uploadedByName}` : ''}
-                      </p>
-                      {file.caption && <p className="product-media-panel__caption">{file.caption}</p>}
-                    </div>
-                    {canWrite && (
-                      <button
-                        type="button"
-                        className="btn btn-sm product-media-panel__file-delete"
-                        disabled={busyId === file.id}
-                        title="Delete file"
-                        aria-label={`Delete ${file.fileName}`}
-                        onClick={() => void handleDeleteFile(file)}
-                      >
-                        {busyId === file.id
-                          ? <Loader2 size={14} className="spin-icon" aria-hidden />
-                          : <Trash2 size={14} aria-hidden />}
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="product-media-panel__section">
-            <div className="product-media-panel__section-head">
-              <h4>Notes</h4>
-              <span className="product-media-panel__section-count">{notes.length}</span>
-            </div>
-
+        <section className="product-media-panel__section">
+          <div className="product-media-panel__section-head">
+            <h4>Files</h4>
+            <span className="product-media-panel__section-count">{files.length}</span>
             {canWrite && (
-              <div className="product-media-panel__note-compose">
-                <textarea
-                  className="product-media-panel__note-input"
-                  rows={3}
-                  placeholder="Add a text note…"
-                  value={noteText}
-                  onChange={e => setNoteText(e.target.value)}
-                  disabled={busyId === 'note-add'}
-                />
+              <button
+                type="button"
+                className={[
+                  'btn btn-sm product-media-panel__add-btn',
+                  showUpload ? 'is-active' : '',
+                ].filter(Boolean).join(' ')}
+                title={showUpload ? 'Close add media' : 'Add media'}
+                aria-label={showUpload ? 'Close add media' : 'Add media'}
+                aria-expanded={showUpload}
+                onClick={() => (showUpload ? closeUpload() : setShowUpload(true))}
+              >
+                {showUpload ? <X size={16} aria-hidden /> : <Plus size={16} aria-hidden />}
+              </button>
+            )}
+          </div>
+
+          {canWrite && showUpload && (
+            <div className="product-media-panel__upload-compose">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf,video/mp4,video/webm,video/quicktime"
+                className="sr-only"
+                onChange={e => handlePickFile(e.target.files)}
+              />
+              <div className="product-media-panel__upload-file-row">
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  disabled={!noteText.trim() || busyId === 'note-add'}
-                  onClick={() => void handleAddNote()}
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  {busyId === 'note-add'
-                    ? <Loader2 size={14} className="spin-icon" aria-hidden />
-                    : <Plus size={14} aria-hidden />}
-                  Add note
+                  {pendingFile ? 'Change file' : 'Choose file'}
                 </button>
+                {pendingFile ? (
+                  <p className="product-media-panel__pending-file text-sm">
+                    {pendingFile.name}
+                    <span className="text-muted"> · {formatBytes(pendingFile.size)}</span>
+                  </p>
+                ) : (
+                  <p className="text-muted text-sm">No file selected</p>
+                )}
+                {pendingFile && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={uploading}
+                    onClick={clearPendingUpload}
+                    aria-label="Clear selected file"
+                  >
+                    <X size={14} aria-hidden />
+                  </button>
+                )}
               </div>
-            )}
+              <textarea
+                className="product-media-panel__note-input"
+                rows={2}
+                placeholder="Description (required)…"
+                value={pendingCaption}
+                onChange={e => setPendingCaption(e.target.value)}
+                disabled={uploading || !pendingFile}
+                required
+              />
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!pendingFile || !pendingCaption.trim() || uploading}
+                onClick={() => void handleUpload()}
+              >
+                {uploading
+                  ? <Loader2 size={15} className="spin-icon" aria-hidden />
+                  : <Upload size={15} aria-hidden />}
+                {uploading ? 'Uploading…' : 'Upload'}
+              </button>
+            </div>
+          )}
 
-            {notes.length === 0 ? (
-              <p className="text-muted text-sm">No notes yet.</p>
-            ) : (
-              <ul className="product-media-panel__notes">
-                {notes.map(note => (
-                  <li key={note.id} className="product-media-panel__note">
-                    {editingNoteId === note.id ? (
-                      <>
+          {files.length === 0 ? (
+            <p className="text-muted text-sm">
+              {canWrite ? 'No media files yet. Tap + to add one.' : 'No media files yet.'}
+            </p>
+          ) : (
+            <ul className="product-media-panel__files">
+              {files.map(file => (
+                <li key={file.id} className="product-media-panel__file">
+                  <button
+                    type="button"
+                    className={
+                      file.kind === 'image'
+                        ? 'product-media-panel__thumb-btn'
+                        : 'product-media-panel__file-icon'
+                    }
+                    onClick={() => openPreview(file)}
+                    aria-label={`Preview ${file.caption?.trim() || file.fileName}`}
+                  >
+                    {file.kind === 'image' ? (
+                      <img src={file.url} alt="" className="product-media-panel__thumb" />
+                    ) : (
+                      <FileKindIcon kind={file.kind} />
+                    )}
+                  </button>
+                  <div className="product-media-panel__file-meta">
+                    {editingCaptionId === file.id ? (
+                      <div className="product-media-panel__caption-edit">
                         <textarea
                           className="product-media-panel__note-input"
-                          rows={3}
-                          value={editNoteText}
-                          onChange={e => setEditNoteText(e.target.value)}
-                          disabled={busyId === note.id}
+                          rows={2}
+                          value={editCaptionText}
+                          onChange={e => setEditCaptionText(e.target.value)}
+                          disabled={busyId === file.id}
+                          placeholder="Description…"
+                          aria-label="File description"
                         />
                         <div className="product-media-panel__note-actions">
                           <button
                             type="button"
                             className="btn btn-primary btn-sm"
-                            disabled={!editNoteText.trim() || busyId === note.id}
-                            onClick={() => void handleSaveNote(note)}
+                            disabled={!editCaptionText.trim() || busyId === file.id}
+                            onClick={() => void handleSaveCaption(file)}
                           >
                             Save
                           </button>
                           <button
                             type="button"
                             className="btn btn-sm"
-                            disabled={busyId === note.id}
+                            disabled={busyId === file.id}
                             onClick={() => {
-                              setEditingNoteId(null);
-                              setEditNoteText('');
+                              setEditingCaptionId(null);
+                              setEditCaptionText('');
                             }}
                           >
                             Cancel
                           </button>
                         </div>
-                      </>
+                      </div>
                     ) : (
                       <>
-                        <p className="product-media-panel__note-text">{note.text}</p>
-                        <p className="text-muted text-sm">
-                          {note.createdByName || 'Unknown'}
-                          {note.createdAt
-                            ? ` · ${new Date(note.createdAt).toLocaleString()}`
-                            : ''}
-                        </p>
-                        {canWrite && (
-                          <div className="product-media-panel__note-actions">
+                        <div className="product-media-panel__title-row">
+                          <button
+                            type="button"
+                            className={[
+                              'product-media-panel__file-title',
+                              file.caption ? '' : 'product-media-panel__file-title--empty',
+                            ].filter(Boolean).join(' ')}
+                            onClick={() => openPreview(file)}
+                          >
+                            {file.caption?.trim() || 'No description'}
+                          </button>
+                          {canWrite && (
                             <button
                               type="button"
-                              className="btn btn-sm"
-                              disabled={busyId === note.id}
+                              className="product-media-panel__edit-caption-btn"
+                              disabled={busyId === file.id}
+                              title="Edit description"
+                              aria-label="Edit description"
                               onClick={() => {
-                                setEditingNoteId(note.id);
-                                setEditNoteText(note.text);
+                                setEditingCaptionId(file.id);
+                                setEditCaptionText(file.caption ?? '');
                               }}
                             >
-                              Edit
+                              <Pencil size={14} aria-hidden />
                             </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm"
-                              disabled={busyId === note.id}
-                              onClick={() => void handleDeleteNote(note)}
-                            >
-                              {busyId === note.id
-                                ? <Loader2 size={14} className="spin-icon" aria-hidden />
-                                : <Trash2 size={14} aria-hidden />}
-                            </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
+                        <p className="text-muted text-sm product-media-panel__file-meta-line">
+                          {file.kind.toUpperCase()} · {formatBytes(file.sizeBytes)}
+                          {file.uploadedByName ? ` · ${file.uploadedByName}` : ''}
+                        </p>
                       </>
                     )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </>
+                  </div>
+                  {canWrite && (
+                    <button
+                      type="button"
+                      className="btn btn-sm product-media-panel__file-delete"
+                      disabled={busyId === file.id}
+                      title="Delete file"
+                      aria-label={`Delete ${file.caption?.trim() || file.fileName}`}
+                      onClick={() => void handleDeleteFile(file)}
+                    >
+                      {busyId === file.id
+                        ? <Loader2 size={14} className="spin-icon" aria-hidden />
+                        : <Trash2 size={14} aria-hidden />}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
 
-      {lightboxUrl && (
+      {preview && (
         <div
           className="product-media-panel__lightbox"
           role="dialog"
           aria-modal="true"
-          aria-label="Media preview"
-          onClick={() => setLightboxUrl(null)}
+          aria-label={preview.title}
+          onClick={() => setPreview(null)}
         >
           <button
             type="button"
             className="product-media-panel__lightbox-close"
             aria-label="Close preview"
-            onClick={() => setLightboxUrl(null)}
+            onClick={() => setPreview(null)}
           >
             <X size={18} aria-hidden />
           </button>
-          <img src={lightboxUrl} alt="" onClick={e => e.stopPropagation()} />
+          <div
+            className="product-media-panel__lightbox-body"
+            onClick={e => e.stopPropagation()}
+          >
+            {preview.kind === 'image' && (
+              <img src={preview.url} alt={preview.title} />
+            )}
+            {preview.kind === 'pdf' && (
+              <iframe
+                title={preview.title}
+                src={preview.url}
+                className="product-media-panel__lightbox-frame"
+              />
+            )}
+            {preview.kind === 'video' && (
+              <video
+                src={preview.url}
+                controls
+                autoPlay
+                className="product-media-panel__lightbox-video"
+              />
+            )}
+            {preview.kind === 'other' && (
+              <a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">
+                Open file
+              </a>
+            )}
+            <p className="product-media-panel__lightbox-caption">{preview.title}</p>
+          </div>
         </div>
       )}
     </div>

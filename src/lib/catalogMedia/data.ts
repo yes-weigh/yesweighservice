@@ -1,6 +1,8 @@
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
   setDoc,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -137,6 +139,23 @@ export async function getCatalogProductMedia(
   const snap = await getDoc(mediaDocRef(catalogProductId));
   if (!snap.exists()) return null;
   return mapMediaDoc(snap.data() as Record<string, unknown>, catalogProductId);
+}
+
+/** Product IDs that have at least one Firebase media file. */
+export async function listCatalogProductIdsWithMediaFiles(): Promise<Set<string>> {
+  const snap = await getDocs(collection(db, COLLECTION));
+  const ids = new Set<string>();
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() as Record<string, unknown>;
+    const files = Array.isArray(data.files) ? data.files : [];
+    const hasFile = files.some(row => {
+      if (!row || typeof row !== 'object') return false;
+      const item = row as Record<string, unknown>;
+      return Boolean(String(item.url ?? '').trim() && String(item.storagePath ?? '').trim());
+    });
+    if (hasFile) ids.add(docSnap.id);
+  }
+  return ids;
 }
 
 async function saveMediaDoc(docData: CatalogProductMediaDoc): Promise<CatalogProductMediaDoc> {

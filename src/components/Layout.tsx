@@ -273,6 +273,7 @@ const LayoutShell: React.FC = () => {
         ];
       case 'media':
         return [
+          { path: '/media', icon: <LayoutDashboard size={20} />, label: 'Home' },
           { path: '/media/catalog', icon: <Package size={20} />, label: 'Catalog' },
         ];
       default:

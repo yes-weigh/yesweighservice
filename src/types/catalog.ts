@@ -19,6 +19,13 @@ export interface CatalogPackageInfo {
   updatedByName?: string | null;
 }
 
+/** Extra Zoho gallery image cached in Firebase Storage (non-primary). */
+export interface CatalogProductImageDoc {
+  documentId: string;
+  url: string;
+  storagePath: string;
+}
+
 export interface CatalogProduct {
   id: string;
   name: string;
@@ -29,6 +36,10 @@ export interface CatalogProduct {
   stock: number;
   stockStatus: StockStatus;
   imageUrl: string | null;
+  /** Ordered gallery including primary; imageUrls[0] matches imageUrl when set. */
+  imageUrls?: string[];
+  /** Zoho document metadata for non-primary gallery images. */
+  imageDocs?: CatalogProductImageDoc[];
   categoryId: string | null;
   categoryName: string | null;
   status: string;

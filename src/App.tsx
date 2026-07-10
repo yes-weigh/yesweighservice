@@ -21,6 +21,7 @@ import { HrWorkReportPage } from './pages/hr/HrWorkReportPage';
 import { HrHolidayCalendarPage } from './pages/hr/HrHolidayCalendarPage';
 import { HrWarehousePage } from './pages/hr/HrWarehousePage';
 import { HrMediaPage } from './pages/hr/HrMediaPage';
+import { MediaHomePage } from './pages/media/MediaHomePage';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
 import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
 import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
@@ -215,7 +216,7 @@ const App: React.FC = () => (
 
           <Route element={<ProtectedRoute allowedRoles={['media']} />}>
             <Route path="/media" element={<Layout />}>
-              <Route index element={<Navigate to="/media/catalog" replace />} />
+              <Route index element={<MediaHomePage />} />
               {catalogRoutes}
               <Route path="profile" element={<ProfilePage />} />
             </Route>

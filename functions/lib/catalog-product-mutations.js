@@ -17,6 +17,7 @@ import {
   patchProductStatus,
   patchProductCategory,
   uploadProductImage,
+  addProductImage,
   deleteProductImage,
 } from './catalog-sync.js';
 
@@ -63,18 +64,27 @@ export async function mutateCatalogProductCategory(
   return { ok: true };
 }
 
-/** Upload/replace primary image on Zoho + Storage, then mirror imageUrl to Firestore. */
+/** Upload/replace primary image, or append gallery image. */
 export async function mutateCatalogProductImageUpload(
   productId,
   buffer,
   contentType,
   accessToken,
   organizationId,
+  mode = 'replace',
 ) {
+  if (mode === 'add') {
+    return addProductImage(productId, buffer, contentType, accessToken, organizationId);
+  }
   return uploadProductImage(productId, buffer, contentType, accessToken, organizationId);
 }
 
-/** Delete primary image on Zoho + Storage, then clear imageUrl in Firestore. */
-export async function mutateCatalogProductImageDelete(productId, accessToken, organizationId) {
-  return deleteProductImage(productId, accessToken, organizationId);
+/** Delete primary or a specific gallery image. */
+export async function mutateCatalogProductImageDelete(
+  productId,
+  accessToken,
+  organizationId,
+  options = {},
+) {
+  return deleteProductImage(productId, accessToken, organizationId, options);
 }

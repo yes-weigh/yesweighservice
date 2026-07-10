@@ -410,6 +410,8 @@ export const uploadCatalogProductImage = onCall(
     const productId = String(request.data?.productId ?? '').trim();
     const contentType = String(request.data?.contentType ?? 'image/jpeg').trim();
     const imageBase64 = String(request.data?.imageBase64 ?? '').trim();
+    const modeRaw = String(request.data?.mode ?? 'replace').trim().toLowerCase();
+    const mode = modeRaw === 'add' ? 'add' : 'replace';
 
     if (!productId || !imageBase64) {
       throw new HttpsError('invalid-argument', 'productId and imageBase64 are required.');
@@ -437,6 +439,7 @@ export const uploadCatalogProductImage = onCall(
         contentType,
         accessToken,
         organizationId,
+        mode,
       );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Product image upload failed.');
@@ -459,13 +462,19 @@ export const deleteCatalogProductImage = onCall(
     if (!productId) {
       throw new HttpsError('invalid-argument', 'productId is required.');
     }
+    const documentId = String(request.data?.documentId ?? '').trim() || undefined;
 
     const secrets = zohoSecrets();
     const accessToken = await getAccessToken(secrets);
     const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
 
     try {
-      return await mutateCatalogProductImageDelete(productId, accessToken, organizationId);
+      return await mutateCatalogProductImageDelete(
+        productId,
+        accessToken,
+        organizationId,
+        documentId ? { documentId } : {},
+      );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Product image delete failed.');
     }

@@ -7,6 +7,7 @@ import {
   Camera,
   ChevronRight,
   Download,
+  ImagePlus,
   IndianRupee,
   Package,
   Pencil,
@@ -201,6 +202,7 @@ export const ProductDetailView: React.FC<{
   const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const addImageInputRef = useRef<HTMLInputElement>(null);
   const captureInputRef = useRef<HTMLInputElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -401,13 +403,16 @@ export const ProductDetailView: React.FC<{
   }, [warehousePhotos]);
 
   const galleryUrls = useMemo(() => {
-    const primary = product?.imageUrl?.trim() ?? '';
-    const urls = primary ? [primary] : [];
+    const productUrls = (product?.imageUrls?.length
+      ? product.imageUrls
+      : (product?.imageUrl?.trim() ? [product.imageUrl.trim()] : [])
+    ).filter(Boolean);
+    const urls = [...productUrls];
     for (const url of warehousePhotoUrls) {
       if (url && !urls.includes(url)) urls.push(url);
     }
     return urls;
-  }, [product?.imageUrl, warehousePhotoUrls]);
+  }, [product?.imageUrl, product?.imageUrls, warehousePhotoUrls]);
 
   useEffect(() => {
     setActiveGalleryIndex(0);
@@ -690,7 +695,10 @@ export const ProductDetailView: React.FC<{
     }
   };
 
-  const handleImagePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImagePick = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+    mode: 'replace' | 'add' = 'replace',
+  ) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file || !product || !productEditMode || !editImages) return;
@@ -698,10 +706,16 @@ export const ProductDetailView: React.FC<{
     setImageUploading(true);
     setImageError(null);
     try {
-      const imageUrl = await uploadCatalogProductImage(product.id, file);
+      const result = await uploadCatalogProductImage(product.id, file, mode);
       const syncedAt = new Date().toISOString();
-      setProduct(prev => (prev ? { ...prev, imageUrl, syncedAt } : prev));
-      setActiveGalleryIndex(0);
+      setProduct(prev => (prev ? {
+        ...prev,
+        imageUrl: result.imageUrl,
+        imageUrls: result.imageUrls,
+        imageDocs: result.imageDocs,
+        syncedAt,
+      } : prev));
+      setActiveGalleryIndex(mode === 'add' ? Math.max(0, result.imageUrls.length - 1) : 0);
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Could not upload image.');
     } finally {
@@ -710,11 +724,25 @@ export const ProductDetailView: React.FC<{
   };
 
   const handleImageDelete = async () => {
-    if (!product || !productEditMode || !editImages || !product.imageUrl) return;
+    if (!product || !productEditMode || !editImages) return;
+
+    const productUrlCount = (product.imageUrls?.length
+      ? product.imageUrls.length
+      : (product.imageUrl ? 1 : 0));
+    if (productUrlCount <= 0) return;
+
+    // Only delete product images (not warehouse audit slides appended after).
+    const index = Math.min(activeGalleryIndex, productUrlCount - 1);
+    const isPrimary = index === 0;
+    const galleryDoc = !isPrimary
+      ? product.imageDocs?.[index - 1]
+      : undefined;
 
     const ok = await confirm({
-      title: 'Delete product photo?',
-      message: 'This removes the catalog photo from Zoho and the app. Warehouse audit photos are not affected.',
+      title: isPrimary ? 'Delete main photo?' : 'Delete gallery photo?',
+      message: isPrimary
+        ? 'This removes the main catalog photo from Zoho and the app. Other gallery photos stay. Warehouse audit photos are not affected.'
+        : 'This removes this gallery photo from Zoho and the app. Warehouse audit photos are not affected.',
       confirmLabel: 'Delete photo',
       destructive: true,
     });
@@ -723,9 +751,18 @@ export const ProductDetailView: React.FC<{
     setImageDeleting(true);
     setImageError(null);
     try {
-      await deleteCatalogProductImage(product.id);
+      const result = await deleteCatalogProductImage(
+        product.id,
+        galleryDoc?.documentId ? { documentId: galleryDoc.documentId } : {},
+      );
       const syncedAt = new Date().toISOString();
-      setProduct(prev => (prev ? { ...prev, imageUrl: null, syncedAt } : prev));
+      setProduct(prev => (prev ? {
+        ...prev,
+        imageUrl: result.imageUrl,
+        imageUrls: result.imageUrls,
+        imageDocs: result.imageDocs,
+        syncedAt,
+      } : prev));
       setActiveGalleryIndex(0);
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Could not delete image.');
@@ -1031,12 +1068,12 @@ export const ProductDetailView: React.FC<{
               )}
               {productEditMode && editImages && (
                 <div className="product-detail-page__image-actions">
-                  {product.imageUrl && (
+                  {galleryUrls.length > 0 && (
                     <button
                       type="button"
                       className="product-detail-page__image-action"
-                      title="Download product photo"
-                      aria-label="Download product photo"
+                      title="Download photo"
+                      aria-label="Download photo"
                       disabled={imageBusy}
                       onClick={() => void handleImageDownload()}
                     >
@@ -1048,8 +1085,8 @@ export const ProductDetailView: React.FC<{
                   <button
                     type="button"
                     className="product-detail-page__image-action"
-                    title="Upload product photo"
-                    aria-label="Upload product photo"
+                    title="Replace main photo"
+                    aria-label="Replace main photo"
                     disabled={imageBusy}
                     onClick={() => imageInputRef.current?.click()}
                   >
@@ -1060,19 +1097,29 @@ export const ProductDetailView: React.FC<{
                   <button
                     type="button"
                     className="product-detail-page__image-action"
-                    title="Capture product photo"
-                    aria-label="Capture product photo"
+                    title="Add photo"
+                    aria-label="Add photo"
+                    disabled={imageBusy}
+                    onClick={() => addImageInputRef.current?.click()}
+                  >
+                    <ImagePlus size={18} aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    className="product-detail-page__image-action"
+                    title="Capture and add photo"
+                    aria-label="Capture and add photo"
                     disabled={imageBusy}
                     onClick={() => captureInputRef.current?.click()}
                   >
                     <Camera size={18} aria-hidden />
                   </button>
-                  {product.imageUrl && (
+                  {galleryUrls.length > 0 && (
                     <button
                       type="button"
                       className="product-detail-page__image-action product-detail-page__image-action--danger"
-                      title="Delete product photo"
-                      aria-label="Delete product photo"
+                      title="Delete current photo"
+                      aria-label="Delete current photo"
                       disabled={imageBusy}
                       onClick={() => void handleImageDelete()}
                     >
@@ -1086,8 +1133,16 @@ export const ProductDetailView: React.FC<{
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/gif"
                     className="product-detail-page__image-input"
-                    aria-label="Upload product photo"
-                    onChange={e => void handleImagePick(e)}
+                    aria-label="Replace main photo"
+                    onChange={e => void handleImagePick(e, 'replace')}
+                  />
+                  <input
+                    ref={addImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="product-detail-page__image-input"
+                    aria-label="Add photo"
+                    onChange={e => void handleImagePick(e, 'add')}
                   />
                   <input
                     ref={captureInputRef}
@@ -1095,8 +1150,8 @@ export const ProductDetailView: React.FC<{
                     accept="image/*"
                     capture="environment"
                     className="product-detail-page__image-input"
-                    aria-label="Capture product photo"
-                    onChange={e => void handleImagePick(e)}
+                    aria-label="Capture and add photo"
+                    onChange={e => void handleImagePick(e, 'add')}
                   />
                 </div>
               )}

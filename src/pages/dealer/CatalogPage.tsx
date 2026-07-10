@@ -40,8 +40,11 @@ import {
   catalogProductHasPositiveStock,
   catalogProductHasZeroStock,
   catalogProductHasNegativeStock,
+  matchesMediaProductFilters,
+  MEDIA_PRODUCT_FILTERS,
   type SpareCatalogFilter,
   type CategorizedProductFilter,
+  type MediaProductFilter,
   type SpareAuditStatusFilter,
   type SpareStockStatusFilter,
   type SpareWarehouseLocationFilter,
@@ -57,6 +60,7 @@ import { listAllItems, fetchDisplayNamesForUids, batchUnlinkYesStoreItemsFromCat
 import { listCochinSiteInventory } from '../../lib/catalogSiteInventory/data';
 import { buildAuditedLocationByProductId } from '../../lib/catalogAuditedLocations';
 import { listCatalogProductNcSummaries } from '../../lib/catalogNc/data';
+import { listCatalogProductIdsWithMediaFiles } from '../../lib/catalogMedia/data';
 import type { CatalogSiteInventoryDoc } from '../../types/catalog-site-inventory';
 import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
@@ -125,6 +129,7 @@ export const CatalogPage: React.FC = () => {
   const confirm = useConfirm();
   const isSuperAdmin = user?.role === 'super_admin';
   const isStaff = user?.role === 'staff';
+  const isMedia = user?.role === 'media';
   const isMobile = useIsMobile();
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
   const showStockQuantity = canSync || canViewCatalogStock(user);
@@ -159,6 +164,9 @@ export const CatalogPage: React.FC = () => {
   const [productNcStatusFilters, setProductNcStatusFilters] = useState<Set<NcStatusFilter>>(() => new Set());
   const [productsFiltersOpen, setProductsFiltersOpen] = useState(false);
   const [openNcQtyByProductId, setOpenNcQtyByProductId] = useState<Map<string, number>>(new Map());
+  const [mediaProductFilters, setMediaProductFilters] = useState<Set<MediaProductFilter>>(() => new Set());
+  const [productIdsWithMedia, setProductIdsWithMedia] = useState<Set<string>>(() => new Set());
+  const [mediaIndexLoading, setMediaIndexLoading] = useState(false);
 
   const applySpareFilters = useCallback(
     (
@@ -232,6 +240,25 @@ export const CatalogPage: React.FC = () => {
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  useEffect(() => {
+    if (!isMedia) return;
+    let cancelled = false;
+    setMediaIndexLoading(true);
+    void listCatalogProductIdsWithMediaFiles()
+      .then(ids => {
+        if (!cancelled) setProductIdsWithMedia(ids);
+      })
+      .catch(() => {
+        if (!cancelled) setProductIdsWithMedia(new Set());
+      })
+      .finally(() => {
+        if (!cancelled) setMediaIndexLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMedia]);
 
   useEffect(() => {
     void loadLinkedSpareIds();
@@ -326,17 +353,40 @@ export const CatalogPage: React.FC = () => {
     [catalog?.items, catalog?.categories],
   );
 
+  const hasMediaProductFilters = isMedia && mediaProductFilters.size > 0;
+
+  const mediaFilteredShopProducts = useMemo(() => {
+    if (!hasMediaProductFilters) return shopProducts;
+    return shopProducts.filter(product => matchesMediaProductFilters(
+      product,
+      mediaProductFilters,
+      productIdsWithMedia,
+    ));
+  }, [hasMediaProductFilters, shopProducts, mediaProductFilters, productIdsWithMedia]);
+
+  const mediaFilteredSpareParts = useMemo(() => {
+    if (!hasMediaProductFilters) return spareParts;
+    return spareParts.filter(product => matchesMediaProductFilters(
+      product,
+      mediaProductFilters,
+      productIdsWithMedia,
+    ));
+  }, [hasMediaProductFilters, spareParts, mediaProductFilters, productIdsWithMedia]);
+
+  const catalogShopProducts = isMedia ? mediaFilteredShopProducts : shopProducts;
+  const catalogSpareParts = isMedia ? mediaFilteredSpareParts : spareParts;
+
   const browseProducts = useMemo(
     () => excludeHiddenCatalogProducts(
       getBrowseCatalogProducts(
-        shopProducts,
-        spareParts,
+        catalogShopProducts,
+        catalogSpareParts,
         catalog?.categories ?? [],
         categoryFromUrl,
       ),
       catalog?.categories ?? [],
     ),
-    [shopProducts, spareParts, catalog?.categories, categoryFromUrl],
+    [catalogShopProducts, catalogSpareParts, catalog?.categories, categoryFromUrl],
   );
 
   const headOfficeAuditedCatalogProductIds = useMemo(
@@ -423,6 +473,14 @@ export const CatalogPage: React.FC = () => {
 
   const shopCategories = useMemo(() => {
     const categories = catalog?.categories ?? [];
+    if (isMedia) {
+      return getShopCatalogCategories(categories, catalogShopProducts, catalogSpareParts, hasMediaProductFilters
+        ? {
+          filteredShopProducts: catalogShopProducts,
+          filteredSpareProducts: catalogSpareParts,
+        }
+        : undefined);
+    }
     if (!isSuperAdmin || !hasActiveProductFilters) {
       return getShopCatalogCategories(categories, shopProducts, spareParts);
     }
@@ -434,6 +492,10 @@ export const CatalogPage: React.FC = () => {
     catalog?.categories,
     shopProducts,
     spareParts,
+    catalogShopProducts,
+    catalogSpareParts,
+    isMedia,
+    hasMediaProductFilters,
     isSuperAdmin,
     hasActiveProductFilters,
     applyProductBrowseFilters,
@@ -569,6 +631,40 @@ export const CatalogPage: React.FC = () => {
       noNc: productFilterCountBase.length - hasNc,
     };
   }, [productFilterCountBase, openNcQtyByProductId]);
+
+  const mediaFilterCountBase = useMemo(
+    () => excludeHiddenCatalogProducts(
+      getBrowseCatalogProducts(
+        shopProducts,
+        spareParts,
+        catalog?.categories ?? [],
+        categoryFromUrl,
+      ),
+      catalog?.categories ?? [],
+    ),
+    [shopProducts, spareParts, catalog?.categories, categoryFromUrl],
+  );
+
+  const mediaProductFilterCounts = useMemo(() => {
+    const withImage = mediaFilterCountBase.filter(product => catalogProductHasImage(product)).length;
+    const withMedia = mediaFilterCountBase.filter(product => productIdsWithMedia.has(product.id)).length;
+    const all = mediaFilterCountBase.length;
+    return {
+      withImage,
+      missingImage: all - withImage,
+      withMedia,
+      missingMedia: all - withMedia,
+    };
+  }, [mediaFilterCountBase, productIdsWithMedia]);
+
+  const toggleMediaProductFilter = useCallback((key: MediaProductFilter) => {
+    setMediaProductFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
@@ -1123,23 +1219,59 @@ export const CatalogPage: React.FC = () => {
       {focus === 'search' && (
         <CatalogUnifiedResults
           query={searchQuery}
-          products={shopProducts}
-          spares={spareParts}
+          products={catalogShopProducts}
+          spares={catalogSpareParts}
           productsBasePath={pathname}
           sparesBasePath={`${pathname}/spare`}
           enableCart={canUseCart(user?.role)}
           showStockQuantity={showStockQuantity}
           unlinkedSpareIds={linkedSpareIds ?? undefined}
           onLinkSpare={canSync ? spare => void openLinkEditor(spare) : undefined}
-          isLoading={loading}
+          isLoading={loading || (isMedia && mediaIndexLoading)}
         />
+      )}
+
+      {isMedia && (focus === 'browse' || focus === 'search') && (
+        <div className="catalog-media-product-filters panel glass">
+          <div className="catalog-media-product-filters__head">
+            <p className="catalog-media-product-filters__label">Filter products</p>
+            {hasMediaProductFilters && (
+              <button
+                type="button"
+                className="catalog-media-product-filters__clear"
+                onClick={() => setMediaProductFilters(new Set())}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="catalog-media-product-filters__chips" role="group" aria-label="Media product filters">
+            {MEDIA_PRODUCT_FILTERS.map(filter => {
+              const active = mediaProductFilters.has(filter.key);
+              const count = mediaProductFilterCounts[filter.key];
+              return (
+                <button
+                  key={filter.key}
+                  type="button"
+                  className={`catalog-inventory-audit__filter-chip${active ? ' is-active' : ''}`}
+                  aria-pressed={active}
+                  disabled={mediaIndexLoading && (filter.key === 'withMedia' || filter.key === 'missingMedia')}
+                  onClick={() => toggleMediaProductFilter(filter.key)}
+                >
+                  {filter.label}
+                  <span className="catalog-inventory-audit__filter-chip-count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {focus === 'browse' && (
         <CatalogBrowse
           products={isSuperAdmin ? filteredBrowseProducts : browseProducts}
           categories={shopCategories}
-          isLoading={loading}
+          isLoading={loading || (isMedia && mediaIndexLoading)}
           showToolbar={false}
           filterMode={canSync ? 'full' : 'minimal'}
           manageCategories={canSync}
@@ -1156,14 +1288,16 @@ export const CatalogPage: React.FC = () => {
           activeCategoryId={categoryId}
           onActiveCategoryChange={setCategoryId}
           emptyTitle={
-            isSuperAdmin && hasActiveProductFilters
+            (isSuperAdmin && hasActiveProductFilters) || hasMediaProductFilters
               ? 'No products match the selected filters'
               : undefined
           }
           emptyHint={
-            isSuperAdmin && hasActiveProductFilters
-              ? 'Try clearing filters or run Sync from Zoho to refresh stock.'
-              : undefined
+            hasMediaProductFilters
+              ? 'Try clearing filters or open another category.'
+              : isSuperAdmin && hasActiveProductFilters
+                ? 'Try clearing filters or run Sync from Zoho to refresh stock.'
+                : undefined
           }
         />
       )}
