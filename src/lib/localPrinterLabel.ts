@@ -1,6 +1,6 @@
 /**
- * TSC TE210 TSPL layout for YesWeigh Genuine Spare bin labels (75 × 45.5 mm @ 203 dpi).
- * Coordinates are in dots: 75mm ≈ 599, 45.5mm ≈ 364.
+ * TSC TE210 TSPL layout for YesWeigh Genuine Spare bin labels.
+ * Default media 75 × 45.5 mm @ 203 dpi, with 2 mm padding on all sides.
  */
 
 export interface BinLabelFields {
@@ -29,6 +29,16 @@ export const TEST_BIN_LABEL_SAMPLE: BinLabelFields = {
   printedOn: new Date(),
 };
 
+/** TE210 print head density. */
+const DPI = 203;
+
+/** Clear margin from physical label edge to outer border / content. */
+const PAD_MM = 2;
+
+function mmToDots(mm: number): number {
+  return Math.round((mm * DPI) / 25.4);
+}
+
 function formatMm(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
@@ -45,40 +55,74 @@ function formatPrintedOn(date: Date): string {
   });
 }
 
-/** Approximate horizontal center for built-in font glyphs (8/12/16/24/32 wide). */
+/** Approximate horizontal center for built-in font glyphs. */
 function centerX(left: number, width: number, text: string, charWidth: number): number {
   const textWidth = text.length * charWidth;
   return Math.max(left, Math.round(left + (width - textWidth) / 2));
 }
 
 /**
- * Build a TSPL job matching the Genuine Spare mockup (boxes, SKU badge, location trio, QR, footer).
- * Icons/logos are omitted — thermal TSPL uses text + bars; layout matches the design structure.
+ * Build a TSPL job matching the Genuine Spare mockup.
+ * 2 mm padding on all sides; footer kept inside the border.
  */
 export function buildGenuineSpareLabelTspl(
   fields: BinLabelFields,
   media: { labelWidthMm: number; labelHeightMm: number; labelGapMm: number },
 ): string {
   const sku = escapeTspl(fields.sku, 16);
-  const itemName = escapeTspl(fields.itemName, 22);
+  const itemName = escapeTspl(fields.itemName, 20);
   const masterSku = escapeTspl(fields.masterSku, 16);
-  const masterProduct = escapeTspl(fields.masterProduct, 22);
+  const masterProduct = escapeTspl(fields.masterProduct, 20);
   const rack = escapeTspl(fields.rack, 4);
   const raw = escapeTspl(fields.raw, 4);
   const bin = escapeTspl(fields.bin, 4);
   const qr = escapeTspl(fields.qrPayload, 80);
-  const printed = escapeTspl(`PRINTED ON ${formatPrintedOn(fields.printedOn)}`, 28);
+  const printed = escapeTspl(`PRINTED ON ${formatPrintedOn(fields.printedOn)}`, 26);
 
-  // Location panel geometry (dots)
-  const locLeft = 318;
-  const locRight = 586;
-  const locTop = 48;
-  const locBottom = 298;
+  const pad = mmToDots(PAD_MM);
+  const pageW = mmToDots(media.labelWidthMm);
+  const pageH = mmToDots(media.labelHeightMm);
+
+  // Outer border inset by 2 mm from physical edge
+  const boxL = pad;
+  const boxT = pad;
+  const boxR = pageW - pad;
+  const boxB = pageH - pad;
+
+  // Inner content inset from the border stroke
+  const inset = 8;
+  const contentL = boxL + inset;
+  const contentT = boxT + inset;
+  const contentR = boxR - inset;
+  const contentB = boxB - inset;
+  const contentW = contentR - contentL;
+
+  // Footer band (date + brand) — keep fully above bottom border
+  const footerH = 34;
+  const footerTop = contentB - footerH;
+  const bodyBottom = footerTop - 6;
+
+  // Split body: left product ~48%, right location ~48%, gap between
+  const splitGap = 10;
+  const leftW = Math.floor(contentW * 0.48);
+  const leftR = contentL + leftW;
+  const locLeft = leftR + splitGap;
+  const locRight = contentR;
+  const locTop = contentT + 26;
+  const locBottom = bodyBottom;
   const colW = Math.floor((locRight - locLeft) / 3);
   const c1 = locLeft;
   const c2 = locLeft + colW;
   const c3 = locLeft + colW * 2;
-  const headerH = 26;
+  const headerH = 24;
+  const valueY = locTop + headerH + Math.floor((locBottom - locTop - headerH - 40) / 2);
+
+  const headerText = 'YESWEIGH GENUINE SPARE';
+  const headerX = centerX(contentL, contentW, headerText, 12);
+
+  // QR cell size 3 ≈ 75–90 dots; keep clear of footer
+  const qrY = contentT + 178;
+  const qrHintX = contentL + 96;
 
   const lines: string[] = [
     `SIZE ${formatMm(media.labelWidthMm)} mm,${formatMm(media.labelHeightMm)} mm`,
@@ -88,64 +132,61 @@ export function buildGenuineSpareLabelTspl(
     'CLS',
     'CODEPAGE 850',
 
-    // Outer border
-    'BOX 8,6,590,358,2',
+    // Outer border (2 mm from edge)
+    `BOX ${boxL},${boxT},${boxR},${boxB},2`,
 
     // Header
-    'TEXT 155,14,"2",0,1,1,"YESWEIGH GENUINE SPARE"',
-    'BAR 20,40,568,2',
+    `TEXT ${headerX},${contentT},"2",0,1,1,"${headerText}"`,
+    `BAR ${contentL},${contentT + 20},${contentW},2`,
 
-    // --- Left: SKU badge (text then reverse → white on black) ---
-    'TEXT 28,52,"2",0,1,1,"SKU"',
-    'REVERSE 18,46,58,28',
-    `TEXT 86,50,"3",0,1,1,"${sku}"`,
-    'BAR 18,78,290,1',
+    // --- Left: SKU badge ---
+    `TEXT ${contentL + 10},${contentT + 32},"2",0,1,1,"SKU"`,
+    `REVERSE ${contentL},${contentT + 26},56,26`,
+    `TEXT ${contentL + 64},${contentT + 30},"3",0,1,1,"${sku}"`,
+    `BAR ${contentL},${contentT + 56},${leftW},1`,
 
     // Item name
-    'TEXT 18,86,"1",0,1,1,"ITEM NAME"',
-    `TEXT 18,102,"2",0,1,1,"${itemName}"`,
-    'BAR 18,128,290,1',
+    `TEXT ${contentL},${contentT + 62},"1",0,1,1,"ITEM NAME"`,
+    `TEXT ${contentL},${contentT + 76},"2",0,1,1,"${itemName}"`,
+    `BAR ${contentL},${contentT + 98},${leftW},1`,
 
     // Master SKU
-    'TEXT 18,136,"1",0,1,1,"MASTER SKU"',
-    `TEXT 18,152,"2",0,1,1,"${masterSku}"`,
-    'BAR 18,178,290,1',
+    `TEXT ${contentL},${contentT + 104},"1",0,1,1,"MASTER SKU"`,
+    `TEXT ${contentL},${contentT + 118},"2",0,1,1,"${masterSku}"`,
+    `BAR ${contentL},${contentT + 140},${leftW},1`,
 
     // Master product
-    'TEXT 18,186,"1",0,1,1,"MASTER PRODUCT"',
-    `TEXT 18,202,"2",0,1,1,"${masterProduct}"`,
+    `TEXT ${contentL},${contentT + 146},"1",0,1,1,"MASTER PRODUCT"`,
+    `TEXT ${contentL},${contentT + 160},"2",0,1,1,"${masterProduct}"`,
 
     // QR + scan hint
-    `QRCODE 18,232,L,3,A,0,"${qr}"`,
-    'TEXT 118,248,"1",0,1,1,"SCAN FOR SKU INFO"',
-    'TEXT 18,312,"1",0,1,1,"Scan QR for product details"',
+    `QRCODE ${contentL},${qrY},L,3,A,0,"${qr}"`,
+    `TEXT ${qrHintX},${qrY + 16},"1",0,1,1,"SCAN FOR SKU INFO"`,
+    `TEXT ${contentL},${bodyBottom - 12},"1",0,1,1,"Scan QR for product details"`,
 
-    // --- Right: RACK / RAW / BIN panel ---
+    // --- Right: RACK / RAW / BIN ---
     `BOX ${locLeft},${locTop},${locRight},${locBottom},2`,
     `BAR ${c2},${locTop},2,${locBottom - locTop}`,
     `BAR ${c3},${locTop},2,${locBottom - locTop}`,
 
-    // Column headers (text + reverse)
-    `TEXT ${centerX(c1, colW, 'RACK', 12)},${locTop + 6},"2",0,1,1,"RACK"`,
+    `TEXT ${centerX(c1, colW, 'RACK', 12)},${locTop + 5},"2",0,1,1,"RACK"`,
     `REVERSE ${c1},${locTop},${colW},${headerH}`,
-    `TEXT ${centerX(c2, colW, 'RAW', 12)},${locTop + 6},"2",0,1,1,"RAW"`,
+    `TEXT ${centerX(c2, colW, 'RAW', 12)},${locTop + 5},"2",0,1,1,"RAW"`,
     `REVERSE ${c2},${locTop},${colW},${headerH}`,
-    `TEXT ${centerX(c3, colW, 'BIN', 12)},${locTop + 6},"2",0,1,1,"BIN"`,
+    `TEXT ${centerX(c3, colW, 'BIN', 12)},${locTop + 5},"2",0,1,1,"BIN"`,
     `REVERSE ${c3},${locTop},${colW},${headerH}`,
 
-    // Divider under headers
     `BAR ${locLeft},${locTop + headerH},${locRight - locLeft},2`,
 
-    // Large location values
-    `TEXT ${centerX(c1, colW, rack, 24)},160,"5",0,1,1,"${rack}"`,
-    `TEXT ${centerX(c2, colW, raw, 24)},160,"5",0,1,1,"${raw}"`,
-    `TEXT ${centerX(c3, colW, bin, 24)},160,"5",0,1,1,"${bin}"`,
+    `TEXT ${centerX(c1, colW, rack, 24)},${valueY},"5",0,1,1,"${rack}"`,
+    `TEXT ${centerX(c2, colW, raw, 24)},${valueY},"5",0,1,1,"${raw}"`,
+    `TEXT ${centerX(c3, colW, bin, 24)},${valueY},"5",0,1,1,"${bin}"`,
 
-    // Footer
-    'BAR 20,328,568,1',
-    `TEXT 18,338,"1",0,1,1,"${printed}"`,
-    'TEXT 400,334,"2",0,1,1,"YESWEIGH"',
-    'TEXT 400,352,"1",0,1,1,"PRECISION IN EVERY WEIGH"',
+    // Footer (inside 2 mm padding / border)
+    `BAR ${contentL},${footerTop},${contentW},1`,
+    `TEXT ${contentL},${footerTop + 6},"1",0,1,1,"${printed}"`,
+    `TEXT ${contentR - 128},${footerTop + 4},"2",0,1,1,"YESWEIGH"`,
+    `TEXT ${contentR - 166},${footerTop + 20},"1",0,1,1,"PRECISION IN EVERY WEIGH"`,
 
     'PRINT 1,1',
     '',
