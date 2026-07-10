@@ -186,7 +186,7 @@ export const LocalPrintersTab: React.FC = () => {
               <div>
                 <h4 className="settings-logistics__title">Label printer</h4>
                 <p className="text-muted text-sm">
-                  Defaults from caliper: 75 × 45.5 mm, gap 3.5 mm, port 9100.
+                  Defaults from caliper: 75 × 45.5 mm, gap 3.5 mm, port 9100. Test print uses the Genuine Spare layout (sample SKU 4pinCW).
                 </p>
               </div>
               <div className="settings-local-printer__actions">
@@ -204,7 +204,7 @@ export const LocalPrintersTab: React.FC = () => {
                   className="btn btn-secondary btn-sm"
                   disabled={busyKey != null || dirty}
                   onClick={() => void handleTestPrint()}
-                  title={native ? 'Send a TSPL test label' : 'Requires Android APK on same Wi‑Fi'}
+                  title={native ? 'Print Genuine Spare sample label' : 'Requires Android APK on same Wi‑Fi'}
                 >
                   <Printer size={15} aria-hidden />
                   {busyKey === 'test' ? 'Printing…' : 'Test print'}
