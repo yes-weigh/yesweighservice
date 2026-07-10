@@ -200,6 +200,7 @@ service cloud.firestore {
         bootstrapOpen()
         || (docId == 'productSettings' && isSuperAdmin())
         || (docId == 'logisticsSettings' && isSuperAdmin())
+        || (docId == 'localPrinterSettings' && isSuperAdmin())
       );
     }
 

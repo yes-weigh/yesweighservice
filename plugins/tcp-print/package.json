@@ -1,0 +1,49 @@
+{
+  "name": "tcp-print",
+  "version": "0.1.0",
+  "description": "Raw TCP send for LAN label printers (port 9100)",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "unpkg": "dist/plugin.js",
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "dist/",
+    "TcpPrint.podspec"
+  ],
+  "author": "YesWeigh",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yesweigh/yesweighservice.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yesweigh/yesweighservice/issues"
+  },
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "tcp",
+    "print"
+  ],
+  "scripts": {
+    "build": "npm run clean && tsc",
+    "clean": "rimraf ./dist",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@capacitor/android": ">=7.0.0",
+    "@capacitor/core": ">=7.0.0",
+    "rimraf": "^6.0.1",
+    "typescript": "~5.8.3"
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=7.0.0"
+  },
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}

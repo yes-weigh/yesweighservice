@@ -39,6 +39,7 @@ import { WarehouseLocationsTab } from './pages/admin/settings/WarehouseLocations
 import { StoreRoomTab } from './pages/admin/settings/StoreRoomTab';
 import { ProductSettingsTab } from './pages/admin/settings/ProductSettingsTab';
 import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTab';
+import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -187,6 +188,7 @@ const App: React.FC = () => (
                 <Route path="store-room" element={<StoreRoomTab />} />
                 <Route path="product" element={<ProductSettingsTab />} />
                 <Route path="logistics" element={<LogisticsSettingsTab />} />
+                <Route path="local-printers" element={<LocalPrintersTab />} />
               </Route>
               <Route path="profile" element={<Navigate to="/super-admin/settings/profile" replace />} />
             </Route>

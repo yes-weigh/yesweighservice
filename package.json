@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:tcp-print && tsc -b && vite build",
+    "build:tcp-print": "npm install --prefix plugins/tcp-print --no-fund --no-audit && npm run build --prefix plugins/tcp-print",
+    "cap:sync": "npm run build && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "prepare": "npm run build:tcp-print",
     "generate:icons": "npx -p sharp node scripts/generate-icons.mjs",
     "preview": "vite preview",
     "seed:admin": "node scripts/seed-admin.mjs",
@@ -21,6 +25,9 @@
     "deploy:ci": "bash scripts/ci-firebase-deploy.sh hosting,firestore,storage"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/core": "^8.4.1",
     "@zxing/browser": "^0.2.1",
     "@zxing/library": "^0.23.0",
     "firebase": "^12.13.0",
@@ -29,9 +36,11 @@
     "pdfjs-dist": "^6.0.227",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "react-router-dom": "^7.15.1"
+    "react-router-dom": "^7.15.1",
+    "tcp-print": "file:plugins/tcp-print"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@emnapi/core": "1.11.0",
     "@emnapi/runtime": "1.11.0",
     "@types/node": "^24.12.3",

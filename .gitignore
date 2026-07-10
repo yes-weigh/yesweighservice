@@ -4,6 +4,8 @@ firestore-debug.log
 ui-debug.log
 node_modules/
 functions/node_modules/
+plugins/tcp-print/node_modules/
+plugins/tcp-print/dist/
 functions/.env
 functions/.env.*
 !functions/.env.example
