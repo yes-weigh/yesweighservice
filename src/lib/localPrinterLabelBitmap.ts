@@ -396,6 +396,9 @@ export function canvasToTsplBitmapBytes(canvas: HTMLCanvasElement): {
     }
   }
 
+  // TSC TE210 BITMAP polarity: 0 = burn (black), 1 = no burn (white).
+  for (let i = 0; i < data.length; i += 1) data[i] ^= 0xff;
+
   return { widthBytes, height, data };
 }
 
