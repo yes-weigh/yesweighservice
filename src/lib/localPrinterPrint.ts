@@ -1,5 +1,10 @@
 import { Capacitor } from '@capacitor/core';
 import { TcpPrint } from 'tcp-print';
+import {
+  DEFAULT_LABEL_GAP_MM,
+  DEFAULT_LABEL_HEIGHT_MM,
+  DEFAULT_LABEL_WIDTH_MM,
+} from '../constants/localPrinterSettings';
 
 /** Encode UTF-8 text as base64 for the native TCP plugin. */
 export function textToBase64(text: string): string {
@@ -9,27 +14,39 @@ export function textToBase64(text: string): string {
   return btoa(binary);
 }
 
+function formatMm(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  return String(rounded);
+}
+
 /**
- * TSPL test label (~50×30 mm). Works on most TSC-compatible LAN label printers.
- * If the printer expects ZPL/EZPL instead, swap the payload in a later iteration.
+ * TSPL test label for TSC TE210 (and compatible).
+ * SIZE/GAP use mm to match physical caliper measurements.
  */
 export function buildTestLabelTspl(options?: {
   title?: string;
   host?: string;
   printedAt?: Date;
+  labelWidthMm?: number;
+  labelHeightMm?: number;
+  labelGapMm?: number;
 }): string {
   const title = options?.title ?? 'YesWeigh Test';
   const host = options?.host ?? '';
   const when = (options?.printedAt ?? new Date()).toLocaleString();
+  const width = options?.labelWidthMm ?? DEFAULT_LABEL_WIDTH_MM;
+  const height = options?.labelHeightMm ?? DEFAULT_LABEL_HEIGHT_MM;
+  const gap = options?.labelGapMm ?? DEFAULT_LABEL_GAP_MM;
+
   const lines = [
-    'SIZE 50 mm, 30 mm',
-    'GAP 2 mm, 0 mm',
+    `SIZE ${formatMm(width)} mm,${formatMm(height)} mm`,
+    `GAP ${formatMm(Math.max(0, gap))} mm,0 mm`,
     'DIRECTION 1',
     'REFERENCE 0,0',
     'CLS',
-    `TEXT 24,24,"3",0,1,1,"${escapeTspl(title)}"`,
-    host ? `TEXT 24,70,"2",0,1,1,"IP ${escapeTspl(host)}"` : null,
-    `TEXT 24,110,"1",0,1,1,"${escapeTspl(when)}"`,
+    `TEXT 24,40,"3",0,1,1,"${escapeTspl(title)}"`,
+    host ? `TEXT 24,100,"2",0,1,1,"IP ${escapeTspl(host)}"` : null,
+    `TEXT 24,150,"1",0,1,1,"${escapeTspl(when)}"`,
     'PRINT 1,1',
     '',
   ];
@@ -68,10 +85,16 @@ export async function sendRawToPrinter(options: {
 export async function sendTestLabel(options: {
   host: string;
   port: number;
+  labelWidthMm: number;
+  labelHeightMm: number;
+  labelGapMm: number;
 }): Promise<{ bytesSent: number }> {
   const payload = buildTestLabelTspl({
     title: 'YesWeigh Test',
     host: options.host,
+    labelWidthMm: options.labelWidthMm,
+    labelHeightMm: options.labelHeightMm,
+    labelGapMm: options.labelGapMm,
   });
   return sendRawToPrinter({
     host: options.host,

@@ -7,7 +7,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // Register from main.tsx so the Android APK can skip the SW (avoids stale cache).
+      injectRegister: false,
       includeAssets: [
         'logo.png',
         'icons/favicon-16.png',

@@ -504,6 +504,16 @@
   margin: 0 0 0.75rem;
 }
 
+.settings-local-printer__dims {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.settings-local-printer__hint {
+  margin: 0.15rem 0 0;
+}
+
 @media (max-width: 640px) {
   .settings-locations__header {
     flex-direction: column;
@@ -521,5 +531,9 @@
 
   .settings-local-printer__actions .btn {
     flex: 1;
+  }
+
+  .settings-local-printer__dims {
+    grid-template-columns: 1fr;
   }
 }

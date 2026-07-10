@@ -6,19 +6,31 @@ import {
   emptyLocalPrinterSettings,
   loadLocalPrinterSettings,
   saveLocalPrinterSettings,
+  validateLabelDimensions,
   validatePrinterHost,
 } from '../../../lib/localPrinterSettings';
 import { isNativePrintAvailable, sendTestLabel } from '../../../lib/localPrinterPrint';
-import { DEFAULT_LABEL_PRINTER_PORT } from '../../../constants/localPrinterSettings';
+import {
+  DEFAULT_LABEL_GAP_MM,
+  DEFAULT_LABEL_HEIGHT_MM,
+  DEFAULT_LABEL_PRINTER_PORT,
+  DEFAULT_LABEL_WIDTH_MM,
+} from '../../../constants/localPrinterSettings';
 
 export const LocalPrintersTab: React.FC = () => {
   const { user } = useAuth();
   const [host, setHost] = useState('');
   const [port, setPort] = useState(String(DEFAULT_LABEL_PRINTER_PORT));
   const [name, setName] = useState('');
+  const [labelWidthMm, setLabelWidthMm] = useState(String(DEFAULT_LABEL_WIDTH_MM));
+  const [labelHeightMm, setLabelHeightMm] = useState(String(DEFAULT_LABEL_HEIGHT_MM));
+  const [labelGapMm, setLabelGapMm] = useState(String(DEFAULT_LABEL_GAP_MM));
   const [savedHost, setSavedHost] = useState('');
   const [savedPort, setSavedPort] = useState(DEFAULT_LABEL_PRINTER_PORT);
   const [savedName, setSavedName] = useState('');
+  const [savedWidth, setSavedWidth] = useState(DEFAULT_LABEL_WIDTH_MM);
+  const [savedHeight, setSavedHeight] = useState(DEFAULT_LABEL_HEIGHT_MM);
+  const [savedGap, setSavedGap] = useState(DEFAULT_LABEL_GAP_MM);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -27,22 +39,28 @@ export const LocalPrintersTab: React.FC = () => {
   const native = isNativePrintAvailable();
   const platform = Capacitor.getPlatform();
 
+  const applySettings = (settings: ReturnType<typeof emptyLocalPrinterSettings>) => {
+    setHost(settings.host);
+    setPort(String(settings.port));
+    setName(settings.name);
+    setLabelWidthMm(String(settings.labelWidthMm));
+    setLabelHeightMm(String(settings.labelHeightMm));
+    setLabelGapMm(String(settings.labelGapMm));
+    setSavedHost(settings.host);
+    setSavedPort(settings.port);
+    setSavedName(settings.name);
+    setSavedWidth(settings.labelWidthMm);
+    setSavedHeight(settings.labelHeightMm);
+    setSavedGap(settings.labelGapMm);
+  };
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const settings = await loadLocalPrinterSettings();
-      setHost(settings.host);
-      setPort(String(settings.port));
-      setName(settings.name);
-      setSavedHost(settings.host);
-      setSavedPort(settings.port);
-      setSavedName(settings.name);
+      applySettings(await loadLocalPrinterSettings());
     } catch (err) {
-      const fallback = emptyLocalPrinterSettings();
-      setHost(fallback.host);
-      setPort(String(fallback.port));
-      setName(fallback.name);
+      applySettings(emptyLocalPrinterSettings());
       setError(err instanceof Error ? err.message : 'Could not load printer settings.');
     } finally {
       setLoading(false);
@@ -54,10 +72,16 @@ export const LocalPrintersTab: React.FC = () => {
   }, [loadAll]);
 
   const portNumber = Number(port);
+  const widthNumber = Number(labelWidthMm);
+  const heightNumber = Number(labelHeightMm);
+  const gapNumber = Number(labelGapMm);
   const dirty =
     host.trim() !== savedHost
     || name.trim() !== savedName
-    || portNumber !== savedPort;
+    || portNumber !== savedPort
+    || widthNumber !== savedWidth
+    || heightNumber !== savedHeight
+    || gapNumber !== savedGap;
 
   const handleSave = async () => {
     setBusyKey('save');
@@ -69,17 +93,26 @@ export const LocalPrintersTab: React.FC = () => {
       if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
         throw new Error('Port must be a whole number between 1 and 65535.');
       }
+      const dimError = validateLabelDimensions({
+        labelWidthMm: widthNumber,
+        labelHeightMm: heightNumber,
+        labelGapMm: gapNumber,
+      });
+      if (dimError) throw new Error(dimError);
+
       const saved = await saveLocalPrinterSettings(
-        { host, port: portNumber, name },
+        {
+          host,
+          port: portNumber,
+          name,
+          labelWidthMm: widthNumber,
+          labelHeightMm: heightNumber,
+          labelGapMm: gapNumber,
+        },
         user?.uid ?? null,
       );
-      setSavedHost(saved.host);
-      setSavedPort(saved.port);
-      setSavedName(saved.name);
-      setHost(saved.host);
-      setPort(String(saved.port));
-      setName(saved.name);
-      setSuccess('Printer settings saved. All APK users will use this IP on next load.');
+      applySettings(saved);
+      setSuccess('Printer settings saved. APK users pick up size/gap/IP on next load.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save printer settings.');
     } finally {
@@ -97,10 +130,22 @@ export const LocalPrintersTab: React.FC = () => {
       if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
         throw new Error('Port must be a whole number between 1 and 65535.');
       }
+      const dimError = validateLabelDimensions({
+        labelWidthMm: widthNumber,
+        labelHeightMm: heightNumber,
+        labelGapMm: gapNumber,
+      });
+      if (dimError) throw new Error(dimError);
       if (dirty) {
-        throw new Error('Save the printer IP/port before running a test print.');
+        throw new Error('Save printer settings before running a test print.');
       }
-      const result = await sendTestLabel({ host: host.trim(), port: portNumber });
+      const result = await sendTestLabel({
+        host: host.trim(),
+        port: portNumber,
+        labelWidthMm: widthNumber,
+        labelHeightMm: heightNumber,
+        labelGapMm: gapNumber,
+      });
       setSuccess(`Test label sent (${result.bytesSent} bytes) to ${host.trim()}:${portNumber}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Test print failed.');
@@ -115,7 +160,7 @@ export const LocalPrintersTab: React.FC = () => {
         <div>
           <h3>Local printers</h3>
           <p className="text-muted text-sm">
-            Store-room LAN label printer. IP is shared via settings; test print requires the YesWeigh Android APK on the same Wi‑Fi.
+            TSC TE210 LAN label printer. Size/gap are physical mm; test print needs the Android APK on the same Wi‑Fi.
           </p>
         </div>
       </header>
@@ -128,7 +173,7 @@ export const LocalPrintersTab: React.FC = () => {
           <Printer size={16} aria-hidden />
           {native
             ? `Android APK ready · ${platform}`
-            : 'Browser / PWA — save IP here; open the APK on Wi‑Fi to test print'}
+            : 'Browser / PWA — save settings here; open the APK on Wi‑Fi to test print'}
         </div>
 
         {loading ? (
@@ -141,7 +186,7 @@ export const LocalPrintersTab: React.FC = () => {
               <div>
                 <h4 className="settings-logistics__title">Label printer</h4>
                 <p className="text-muted text-sm">
-                  Default port is 9100 (raw TCP). Reserve the printer IP on the router if DHCP is on.
+                  Defaults from caliper: 75 × 45.5 mm, gap 3.5 mm, port 9100.
                 </p>
               </div>
               <div className="settings-local-printer__actions">
@@ -203,6 +248,48 @@ export const LocalPrintersTab: React.FC = () => {
                 onChange={e => setPort(e.target.value)}
               />
             </label>
+
+            <div className="settings-local-printer__dims">
+              <label className="settings-locations__field">
+                <span>Width (mm)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={120}
+                  step={0.1}
+                  value={labelWidthMm}
+                  disabled={busyKey === 'save'}
+                  onChange={e => setLabelWidthMm(e.target.value)}
+                />
+              </label>
+              <label className="settings-locations__field">
+                <span>Height (mm)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  step={0.1}
+                  value={labelHeightMm}
+                  disabled={busyKey === 'save'}
+                  onChange={e => setLabelHeightMm(e.target.value)}
+                />
+              </label>
+              <label className="settings-locations__field">
+                <span>Gap (mm)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={25}
+                  step={0.1}
+                  value={labelGapMm}
+                  disabled={busyKey === 'save'}
+                  onChange={e => setLabelGapMm(e.target.value)}
+                />
+              </label>
+            </div>
+            <p className="settings-local-printer__hint text-muted text-sm">
+              Use the physical sticker size (not the TE210 self-test WIDTH if it disagrees). Gap can be 0 if Feed already advances one label.
+            </p>
           </div>
         )}
       </div>
