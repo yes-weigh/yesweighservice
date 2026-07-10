@@ -31,8 +31,16 @@ service cloud.firestore {
       return signedIn() && userExists() && role() == 'warehouse';
     }
 
+    function isMedia() {
+      return signedIn() && userExists() && role() == 'media';
+    }
+
     function isOpsUser() {
       return isSuperAdmin() || isStaff();
+    }
+
+    function canWriteCatalogMedia() {
+      return isSuperAdmin() || isMedia();
     }
 
     function canAccessYesStore() {
@@ -324,6 +332,11 @@ service cloud.firestore {
             && request.resource.data.active == true
             && validAadhar(request.resource.data))
         || (isActiveUser()
+            && staffHasHrManage()
+            && request.resource.data.role == 'media'
+            && request.resource.data.active == true
+            && validAadhar(request.resource.data))
+        || (isActiveUser()
             && isStaff()
             && staffCanManageRole(request.resource.data.role)
             && request.resource.data.active == true
@@ -347,6 +360,10 @@ service cloud.firestore {
         || (staffHasHrManage()
             && resource.data.role == 'warehouse'
             && request.resource.data.role == 'warehouse'
+            && loginIdUnchanged())
+        || (staffHasHrManage()
+            && resource.data.role == 'media'
+            && request.resource.data.role == 'media'
             && loginIdUnchanged())
         || (isStaff()
             && staffCanManageRole(resource.data.role)
@@ -650,6 +667,11 @@ service cloud.firestore {
     match /catalogProductNc/{productId} {
       allow read: if isOpsUser();
       allow write: if isSuperAdmin() || isStaff();
+    }
+
+    match /catalogProductMedia/{productId} {
+      allow read: if isActiveUser();
+      allow write: if isActiveUser() && canWriteCatalogMedia();
     }
 
     function isLogisticsBookingDealerAccess(data) {

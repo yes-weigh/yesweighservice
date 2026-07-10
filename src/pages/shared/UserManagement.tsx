@@ -250,13 +250,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
   const canPermanentlyDelete =
     user?.role === 'super_admin'
-    && (role === 'super_admin' || role === 'dealer' || role === 'staff' || role === 'dealer_staff' || role === 'warehouse');
+    && (role === 'super_admin' || role === 'dealer' || role === 'staff' || role === 'dealer_staff' || role === 'warehouse' || role === 'media');
 
   const dealerName = (dealerId?: string) =>
     dealers.find(d => d.uid === dealerId)?.displayName ?? '—';
 
   const canManageThisRole = user
-    ? (role === 'warehouse' ? canManageWarehouseUsers(user) : canManageRole(user.role, role))
+    ? (role === 'warehouse' || role === 'media' ? canManageWarehouseUsers(user) : canManageRole(user.role, role))
     : false;
 
   if (!user || !canManageThisRole) {
@@ -308,7 +308,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     id="user-login-id"
                     type="text"
                     className="input-field"
-                    placeholder={preferUsernameLogin ? 'User ID (e.g. warehouse1)' : 'Email, phone, or Aadhaar'}
+                    placeholder={
+                      preferUsernameLogin
+                        ? (role === 'media' ? 'User ID (e.g. media1)' : 'User ID (e.g. warehouse1)')
+                        : 'Email, phone, or Aadhaar'
+                    }
                     value={form.loginId}
                     onChange={e => setForm(f => ({ ...f, loginId: e.target.value }))}
                     required

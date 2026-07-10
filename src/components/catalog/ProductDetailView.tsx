@@ -113,11 +113,16 @@ export const ProductDetailView: React.FC<{
   showRelatedLinks?: boolean;
   manageSpareLinks?: boolean;
   canEditProductDetails?: boolean;
+  canEditProductImages?: boolean;
   canSetInactive?: boolean;
   onInactiveSuccess?: () => void;
   productsBasePath?: string;
   sparesBasePath?: string;
   currentNavState?: CatalogNavState | null;
+  visibleTabs?: readonly ProductDetailTabId[];
+  canWriteMedia?: boolean;
+  mediaActorUid?: string;
+  mediaActorName?: string | null;
 }> = ({
   productId,
   backPath,
@@ -134,12 +139,19 @@ export const ProductDetailView: React.FC<{
   showRelatedLinks = false,
   manageSpareLinks = false,
   canEditProductDetails = false,
+  canEditProductImages,
   canSetInactive = false,
   onInactiveSuccess,
   productsBasePath = '/dealer/catalog',
   sparesBasePath = '/dealer/catalog/spare',
   currentNavState = null,
+  visibleTabs,
+  canWriteMedia = false,
+  mediaActorUid = '',
+  mediaActorName = null,
 }) => {
+  const editImages = canEditProductImages ?? canEditProductDetails;
+  const canEnterProductEdit = editImages || canEditProductDetails;
   const navigate = useNavigate();
   const { user } = useAuth();
   const goBack = useCallback(() => {
@@ -681,7 +693,7 @@ export const ProductDetailView: React.FC<{
   const handleImagePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file || !product || !productEditMode || !canEditProductDetails) return;
+    if (!file || !product || !productEditMode || !editImages) return;
 
     setImageUploading(true);
     setImageError(null);
@@ -698,7 +710,7 @@ export const ProductDetailView: React.FC<{
   };
 
   const handleImageDelete = async () => {
-    if (!product || !productEditMode || !canEditProductDetails || !product.imageUrl) return;
+    if (!product || !productEditMode || !editImages || !product.imageUrl) return;
 
     const ok = await confirm({
       title: 'Delete product photo?',
@@ -725,7 +737,7 @@ export const ProductDetailView: React.FC<{
   const imageBusy = imageUploading || imageDeleting || imageDownloading;
 
   const startProductEdit = () => {
-    if (!product || !canEditProductDetails) return;
+    if (!product || !canEnterProductEdit) return;
     setEditName(product.name);
     setEditSku(product.sku ?? '');
     setEditCategoryId(product.categoryId ?? '');
@@ -951,20 +963,22 @@ export const ProductDetailView: React.FC<{
               className={[
                 'product-detail-page__image-stage',
                 galleryUrls.length > 1 ? 'product-detail-page__image-stage--carousel' : '',
-                canEditProductDetails ? 'product-detail-page__image-stage--editable' : '',
+                canEnterProductEdit ? 'product-detail-page__image-stage--editable' : '',
                 productEditMode ? 'product-detail-page__image-stage--editing' : '',
               ].filter(Boolean).join(' ')}
             >
-              <StockBadge status={product.stockStatus} overlay variant="tile" />
-              {canEditProductDetails && (
+              {showStockQuantity && (
+                <StockBadge status={product.stockStatus} overlay variant="tile" />
+              )}
+              {canEnterProductEdit && (
                 <button
                   type="button"
                   className={[
                     'product-detail-page__edit-details-btn',
                     productEditMode ? 'is-active' : '',
                   ].filter(Boolean).join(' ')}
-                  title={productEditMode ? 'Editing item details' : 'Edit item details'}
-                  aria-label={productEditMode ? 'Editing item details' : 'Edit item details'}
+                  title={productEditMode ? 'Done editing' : (canEditProductDetails ? 'Edit item details' : 'Edit product image')}
+                  aria-label={productEditMode ? 'Done editing' : (canEditProductDetails ? 'Edit item details' : 'Edit product image')}
                   aria-pressed={productEditMode}
                   onClick={() => (productEditMode ? cancelProductEdit() : startProductEdit())}
                 >
@@ -1015,7 +1029,7 @@ export const ProductDetailView: React.FC<{
               ) : (
                 <Package size={72} className="product-detail-page__placeholder" aria-hidden />
               )}
-              {productEditMode && canEditProductDetails && (
+              {productEditMode && editImages && (
                 <div className="product-detail-page__image-actions">
                   {product.imageUrl && (
                     <button
@@ -1111,7 +1125,7 @@ export const ProductDetailView: React.FC<{
 
             <div className="product-detail-page__title-row">
               <h1 ref={titleRef} className="product-detail-page__title">
-                {productEditMode ? (
+                {productEditMode && canEditProductDetails ? (
                   <input
                     type="text"
                     className="product-detail-page__title-input"
@@ -1124,7 +1138,7 @@ export const ProductDetailView: React.FC<{
                   formatProductTitle(product.name)
                 )}
               </h1>
-              {!productEditMode && (
+              {!productEditMode && (showStockQuantity || showCartActions) && (
                 <div className="product-detail-page__title-price" aria-label="Dealer price">
                   <div className="product-detail-page__title-price-amount">
                     <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
@@ -1135,8 +1149,8 @@ export const ProductDetailView: React.FC<{
               )}
             </div>
 
-            {(product.sku || productEditMode) && (
-              productEditMode ? (
+            {(product.sku || (productEditMode && canEditProductDetails)) && (
+              productEditMode && canEditProductDetails ? (
                 <label className="product-detail-page__sku-field">
                   <span className="product-detail-page__sku-label">Model</span>
                   <input
@@ -1175,7 +1189,7 @@ export const ProductDetailView: React.FC<{
               </label>
             )}
 
-            {productEditMode && (
+            {productEditMode && canEditProductDetails && (
               <>
                 {detailsError && (
                   <p className="product-detail-page__details-error text-sm">{detailsError}</p>
@@ -1427,7 +1441,10 @@ export const ProductDetailView: React.FC<{
               product={product}
               activeTab={detailTab}
               onActiveTabChange={handleDetailTabChange}
-              visibleTabs={showCartActions ? DEALER_PRODUCT_DETAIL_TABS : undefined}
+              visibleTabs={
+                visibleTabs
+                ?? (showCartActions ? DEALER_PRODUCT_DETAIL_TABS : undefined)
+              }
               showSpareTab={showLinksSection && (isCategorizedProduct || isSpareItem)}
               showAuditTab={showAuditedStock}
               showNcTab={showAuditedStock}
@@ -1452,6 +1469,9 @@ export const ProductDetailView: React.FC<{
               relatedLinkState={relatedLinkState}
               livePhysicalQty={livePhysicalQty}
               canEditProductDetails={canEditProductDetails}
+              canWriteMedia={canWriteMedia}
+              mediaActorUid={mediaActorUid}
+              mediaActorName={mediaActorName}
               onAuditSnapshotChange={snapshot => {
                 setProduct(prev => (prev ? { ...prev, auditSnapshot: snapshot } : prev));
               }}

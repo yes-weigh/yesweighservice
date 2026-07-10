@@ -1,4 +1,4 @@
-export type Role = 'super_admin' | 'staff' | 'dealer' | 'dealer_staff' | 'warehouse';
+export type Role = 'super_admin' | 'staff' | 'media' | 'dealer' | 'dealer_staff' | 'warehouse';
 
 export type { StaffDepartment, StaffPermission, StaffAccessProfile, StaffAccessMode } from './types/staff-access';
 export {
@@ -26,18 +26,19 @@ export {
 
 export type LoginIdType = 'aadhar' | 'phone' | 'email' | 'username';
 
-export const ROLES: Role[] = ['super_admin', 'staff', 'dealer', 'dealer_staff', 'warehouse'];
+export const ROLES: Role[] = ['super_admin', 'staff', 'media', 'dealer', 'dealer_staff', 'warehouse'];
 
 export const ROLE_LABELS: Record<Role, string> = {
   super_admin: 'Super Admin',
   staff: 'Staff',
+  media: 'Media',
   dealer: 'Dealer',
   dealer_staff: 'Dealer Staff',
   warehouse: 'Warehouse',
 };
 
 /** Lower index = higher authority */
-export const ROLE_ORDER: Role[] = ['super_admin', 'staff', 'warehouse', 'dealer', 'dealer_staff'];
+export const ROLE_ORDER: Role[] = ['super_admin', 'staff', 'media', 'warehouse', 'dealer', 'dealer_staff'];
 
 export interface User {
   uid: string;
@@ -148,6 +149,8 @@ export function homePathForRole(role: Role): string {
       return '/super-admin';
     case 'staff':
       return '/staff';
+    case 'media':
+      return '/media';
     case 'dealer':
       return '/dealer';
     case 'dealer_staff':
@@ -161,7 +164,7 @@ export function homePathForRole(role: Role): string {
 export function manageableRoles(actor: Role): Role[] {
   switch (actor) {
     case 'super_admin':
-      return ['super_admin', 'staff', 'dealer', 'dealer_staff', 'warehouse'];
+      return ['super_admin', 'staff', 'media', 'dealer', 'dealer_staff', 'warehouse'];
     case 'staff':
       return ['dealer', 'dealer_staff'];
     case 'dealer':
@@ -177,6 +180,20 @@ export function canManageRole(actor: Role, target: Role): boolean {
 
 export function isOpsRole(role: Role): boolean {
   return role === 'super_admin' || role === 'staff';
+}
+
+export function isMediaRole(role: Role | undefined): boolean {
+  return role === 'media';
+}
+
+/** Can upload/edit/delete Firebase-only product media gallery. */
+export function canWriteCatalogMedia(role: Role | undefined): boolean {
+  return role === 'media' || role === 'super_admin';
+}
+
+/** Can edit the primary Zoho-linked product image. */
+export function canEditCatalogProductImage(role: Role | undefined): boolean {
+  return role === 'super_admin' || role === 'staff' || role === 'media';
 }
 
 export function canUseCart(role: Role | undefined): boolean {

@@ -1,7 +1,13 @@
 import React, { useCallback } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { homePathForRole, canUseCart } from '../types';
+import {
+  homePathForRole,
+  canUseCart,
+  canWriteCatalogMedia,
+  canEditCatalogProductImage,
+  isMediaRole,
+} from '../types';
 import { canViewCatalogStock, canViewWarehouseStock } from '../lib/dealerAccess';
 import { canNavigateBackInApp } from '../lib/navigation';
 import {
@@ -11,6 +17,7 @@ import {
 } from '../lib/catalogRoutes';
 import { resolveCatalogBack, type CatalogNavState } from '../lib/catalogNav';
 import { ProductDetailView } from '../components/catalog/ProductDetailView';
+import { MEDIA_PRODUCT_DETAIL_TABS } from '../components/catalog/ProductDetailTabs';
 
 export const ProductDetailPage: React.FC = () => {
   const { user } = useAuth();
@@ -22,6 +29,7 @@ export const ProductDetailPage: React.FC = () => {
   const navState = location.state as CatalogNavState | null;
   const preview = navState?.preview ?? null;
   const catalogBase = user ? catalogBaseForRole(user.role) : '/dealer/catalog';
+  const mediaOnly = isMediaRole(user?.role);
 
   const { path: backPath, state: backState, label: backLabel } = resolveCatalogBack(
     catalogBase,
@@ -30,15 +38,18 @@ export const ProductDetailPage: React.FC = () => {
     isPublic,
   );
 
-  const showWarehouseStock = user?.role === 'staff' || user?.role === 'super_admin' || canViewWarehouseStock(user);
-  const showStockQuantity = showWarehouseStock || canViewCatalogStock(user);
-  const showCartActions = canUseCart(user?.role);
-  const manageSpareLinks = user?.role === 'staff' || user?.role === 'super_admin';
+  const showWarehouseStock = !mediaOnly
+    && (user?.role === 'staff' || user?.role === 'super_admin' || canViewWarehouseStock(user));
+  const showStockQuantity = !mediaOnly && (showWarehouseStock || canViewCatalogStock(user));
+  const showCartActions = !mediaOnly && canUseCart(user?.role);
+  const manageSpareLinks = !mediaOnly && (user?.role === 'staff' || user?.role === 'super_admin');
   const canEditProductDetails = manageSpareLinks;
+  const canEditProductImages = canEditCatalogProductImage(user?.role);
   const canSetInactive = user?.role === 'super_admin';
-  const showAuditedStock = user?.role === 'staff' || user?.role === 'super_admin';
+  const showAuditedStock = !mediaOnly && (user?.role === 'staff' || user?.role === 'super_admin');
   const showRelatedLinks =
     !isPublic
+    && !mediaOnly
     && (manageSpareLinks || user?.role === 'dealer' || user?.role === 'dealer_staff');
   const ordersPath = user ? `${homePathForRole(user.role)}/orders` : '/dealer/orders';
   const productsBasePath = catalogBase;
@@ -75,12 +86,17 @@ export const ProductDetailPage: React.FC = () => {
         showRelatedLinks={showRelatedLinks}
         manageSpareLinks={manageSpareLinks}
         canEditProductDetails={canEditProductDetails}
+        canEditProductImages={canEditProductImages}
         canSetInactive={canSetInactive}
         onInactiveSuccess={handleInactiveSuccess}
         productsBasePath={productsBasePath}
         sparesBasePath={sparesBasePath}
         ordersPath={ordersPath}
         currentNavState={currentNavState}
+        visibleTabs={mediaOnly ? MEDIA_PRODUCT_DETAIL_TABS : undefined}
+        canWriteMedia={canWriteCatalogMedia(user?.role)}
+        mediaActorUid={user?.uid ?? ''}
+        mediaActorName={user?.displayName}
       />
     </div>
   );

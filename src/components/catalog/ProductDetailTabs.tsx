@@ -5,12 +5,14 @@ import type { CatalogNcDoc } from '../../types/catalog-nc';
 import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { ProductAuditHistory } from './ProductAuditHistory';
 import { ProductNcPanel, type ProductNcExistingLocation } from './ProductNcPanel';
+import { ProductMediaPanel } from './ProductMediaPanel';
 
 export type ProductDetailTabId =
   | 'spare'
   | 'audit'
   | 'sales'
   | 'nc'
+  | 'media'
   | 'purchase'
   | 'support'
   | 'stock'
@@ -21,13 +23,15 @@ const TAB_DEFS: { id: ProductDetailTabId; label: string }[] = [
   { id: 'audit', label: 'Audit' },
   { id: 'sales', label: 'Sales' },
   { id: 'nc', label: 'NC' },
+  { id: 'media', label: 'Media' },
   { id: 'purchase', label: 'Purchase' },
   { id: 'support', label: 'Support' },
   { id: 'stock', label: 'Stock' },
   { id: 'documents', label: 'Documents' },
 ];
 
-export const DEALER_PRODUCT_DETAIL_TABS: ProductDetailTabId[] = ['spare', 'support', 'documents'];
+export const DEALER_PRODUCT_DETAIL_TABS: ProductDetailTabId[] = ['spare', 'media', 'support', 'documents'];
+export const MEDIA_PRODUCT_DETAIL_TABS: ProductDetailTabId[] = ['media'];
 
 function TabPlaceholder({ label }: { label: string }) {
   return (
@@ -72,6 +76,9 @@ export const ProductDetailTabs: React.FC<{
   relatedLinkState: (item: CatalogProduct) => CatalogNavState;
   livePhysicalQty: number | null;
   canEditProductDetails: boolean;
+  canWriteMedia?: boolean;
+  mediaActorUid?: string;
+  mediaActorName?: string | null;
   onAuditSnapshotChange: (snapshot: NonNullable<CatalogProduct['auditSnapshot']>) => void;
   visibleTabs?: readonly ProductDetailTabId[];
 }> = ({
@@ -102,6 +109,9 @@ export const ProductDetailTabs: React.FC<{
   relatedLinkState,
   livePhysicalQty,
   canEditProductDetails,
+  canWriteMedia = false,
+  mediaActorUid = '',
+  mediaActorName = null,
   onAuditSnapshotChange,
   visibleTabs,
 }) => {
@@ -257,6 +267,27 @@ export const ProductDetailTabs: React.FC<{
             ) : (
               <TabPlaceholder label="NC" />
             )}
+          </TabPanelBody>
+        </div>
+        )}
+
+        {visibleTabDefs.some(tab => tab.id === 'media') && (
+        <div
+          id={panelId('media')}
+          role="tabpanel"
+          aria-labelledby="product-detail-tab-media"
+          hidden={activeTab !== 'media'}
+          className="product-detail-tab-panel"
+        >
+          <TabPanelBody>
+            <ProductMediaPanel
+              catalogProductId={product.id}
+              open={activeTab === 'media'}
+              canWrite={canWriteMedia}
+              actorUid={mediaActorUid}
+              actorName={mediaActorName}
+              embedded
+            />
           </TabPanelBody>
         </div>
         )}

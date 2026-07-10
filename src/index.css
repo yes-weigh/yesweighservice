@@ -6039,6 +6039,227 @@ html::-webkit-scrollbar {
   margin-top: 0;
 }
 
+.product-media-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.product-media-panel--embedded {
+  margin: 0;
+}
+
+.product-media-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.product-media-panel__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.product-media-panel__subtitle {
+  margin: 0.2rem 0 0;
+}
+
+.product-media-panel__head-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.product-media-panel__error {
+  margin: 0;
+  color: #b91c1c;
+}
+
+.product-media-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.product-media-panel__section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.product-media-panel__section-head h4 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: #334155;
+}
+
+.product-media-panel__section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.product-media-panel__files,
+.product-media-panel__notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.product-media-panel__file,
+.product-media-panel__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.product-media-panel__thumb-btn,
+.product-media-panel__file-icon {
+  flex-shrink: 0;
+  width: 3.25rem;
+  height: 3.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.product-media-panel__thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.product-media-panel__file-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.product-media-panel__file-name {
+  color: #0f172a;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.product-media-panel__file-name:hover {
+  color: var(--accent-primary);
+}
+
+.product-media-panel__caption {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.product-media-panel__file-delete {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.product-media-panel__note-compose,
+.product-media-panel__note {
+  flex-direction: column;
+}
+
+.product-media-panel__note-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 4.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  color: #0f172a;
+  background: #fff;
+}
+
+.product-media-panel__note-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(245, 130, 32, 0.18);
+}
+
+.product-media-panel__note-text {
+  margin: 0;
+  white-space: pre-wrap;
+  color: #0f172a;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.product-media-panel__note-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.product-media-panel__lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.product-media-panel__lightbox img {
+  max-width: min(96vw, 960px);
+  max-height: 88vh;
+  border-radius: 12px;
+  object-fit: contain;
+  background: #0f172a;
+}
+
+.product-media-panel__lightbox-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.product-media-panel__lightbox-close:hover {
+  background: #fff;
+}
+
 .product-detail-tabs {
   display: flex;
   flex-direction: column;

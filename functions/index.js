@@ -91,6 +91,10 @@ import {
   deleteCatalogNcPhoto as removeCatalogNcPhoto,
   uploadCatalogNcPhoto as storeCatalogNcPhoto,
 } from './lib/catalog-nc-upload.js';
+import {
+  deleteCatalogMediaFile as removeCatalogMediaFile,
+  uploadCatalogMediaFile as storeCatalogMediaFile,
+} from './lib/catalog-media-upload.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -108,8 +112,9 @@ const watiEndpoint = defineSecret('WATI_ENDPOINT');
 const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
 const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
 
-const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
+const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin', 'media']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
+const CATALOG_IMAGE_ROLES = new Set(['staff', 'super_admin', 'media']);
 const SUPER_ADMIN_ROLES = new Set(['super_admin']);
 const DEALER_INVOICE_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 
@@ -391,7 +396,7 @@ export const uploadCatalogCategoryThumbnail = onCall(
   },
 );
 
-/** Upload product/spare image to Zoho + Firebase cache — staff / super admin only. */
+/** Upload product/spare image to Zoho + Firebase cache — staff / super admin / media. */
 export const uploadCatalogProductImage = onCall(
   {
     region: 'asia-south1',
@@ -400,7 +405,7 @@ export const uploadCatalogProductImage = onCall(
     memory: '512MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    await requireActiveUser(request.auth?.uid, CATALOG_IMAGE_ROLES);
 
     const productId = String(request.data?.productId ?? '').trim();
     const contentType = String(request.data?.contentType ?? 'image/jpeg').trim();
@@ -439,7 +444,7 @@ export const uploadCatalogProductImage = onCall(
   },
 );
 
-/** Delete product/spare image from Zoho + Firebase cache — staff / super admin only. */
+/** Delete product/spare image from Zoho + Firebase cache — staff / super admin / media. */
 export const deleteCatalogProductImage = onCall(
   {
     region: 'asia-south1',
@@ -448,7 +453,7 @@ export const deleteCatalogProductImage = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    await requireActiveUser(request.auth?.uid, CATALOG_IMAGE_ROLES);
 
     const productId = String(request.data?.productId ?? '').trim();
     if (!productId) {
@@ -1856,6 +1861,38 @@ export const deleteCatalogNcPhotoFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not delete NC photo.');
+    }
+  },
+);
+
+/** Catalog product media upload (images / PDF / video) — media + super admin. */
+export const uploadCatalogMediaFileFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 180, memory: '512MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await storeCatalogMediaFile(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload media file.');
+    }
+  },
+);
+
+/** Delete a catalog media file from Storage. */
+export const deleteCatalogMediaFileFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await removeCatalogMediaFile(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not delete media file.');
     }
   },
 );

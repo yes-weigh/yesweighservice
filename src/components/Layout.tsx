@@ -271,6 +271,10 @@ const LayoutShell: React.FC = () => {
           { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           ...portalNavItems('/dealer-staff', cartBadgeCount, 'dealer_staff'),
         ];
+      case 'media':
+        return [
+          { path: '/media/catalog', icon: <Package size={20} />, label: 'Catalog' },
+        ];
       default:
         return [];
     }

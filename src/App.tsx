@@ -20,6 +20,7 @@ import { HrRolesPage } from './pages/hr/HrRolesPage';
 import { HrWorkReportPage } from './pages/hr/HrWorkReportPage';
 import { HrHolidayCalendarPage } from './pages/hr/HrHolidayCalendarPage';
 import { HrWarehousePage } from './pages/hr/HrWarehousePage';
+import { HrMediaPage } from './pages/hr/HrMediaPage';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
 import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
 import { AdminDealerStaffList } from './pages/admin/AdminDealerStaffList';
@@ -165,6 +166,7 @@ const App: React.FC = () => (
                 <Route path="super-admins" element={<HrSuperAdminsPage basePath="/super-admin" />} />
                 <Route path="roles" element={<HrRolesPage />} />
                 <Route path="warehouse" element={<HrWarehousePage basePath="/super-admin" />} />
+                <Route path="media" element={<HrMediaPage basePath="/super-admin" />} />
                 <Route path="me" element={<HrMyProfilePage />} />
               </Route>
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
@@ -204,8 +206,17 @@ const App: React.FC = () => (
                 <Route path="report" element={<HrWorkReportPage basePath="/staff" />} />
                 <Route path="holidays" element={<HrHolidayCalendarPage />} />
                 <Route path="warehouse" element={<HrWarehousePage basePath="/staff" />} />
+                <Route path="media" element={<HrMediaPage basePath="/staff" />} />
                 <Route path="me" element={<HrMyProfilePage />} />
               </Route>
+              <Route path="profile" element={<ProfilePage />} />
+            </Route>
+          </Route>
+
+          <Route element={<ProtectedRoute allowedRoles={['media']} />}>
+            <Route path="/media" element={<Layout />}>
+              <Route index element={<Navigate to="/media/catalog" replace />} />
+              {catalogRoutes}
               <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>

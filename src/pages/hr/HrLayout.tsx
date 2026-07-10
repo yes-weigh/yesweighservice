@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { CalendarDays, ClipboardList, KeyRound, Shield, Users, Warehouse } from 'lucide-react';
+import { CalendarDays, ClipboardList, Image as ImageIcon, KeyRound, Shield, Users, Warehouse } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
   canManageHr,
@@ -21,6 +21,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
   const showSuperAdmins = canManageSuperAdminsInHr(user);
   const showRoles = canManageStaffRolesInHr(user);
   const showWarehouse = canManageWarehouseUsers(user);
+  const showMedia = canManageWarehouseUsers(user);
 
   const tabs = useMemo(() => {
     const items = [
@@ -54,6 +55,14 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
         icon: <Warehouse size={16} />,
       });
     }
+    if (showMedia) {
+      items.push({
+        id: 'media',
+        label: 'Media',
+        path: `${basePath}/hr/media`,
+        icon: <ImageIcon size={16} />,
+      });
+    }
     if (showSuperAdmins) {
       items.push({
         id: 'super-admins',
@@ -63,7 +72,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
       });
     }
     return items;
-  }, [basePath, showRoles, showSuperAdmins, showWarehouse]);
+  }, [basePath, showMedia, showRoles, showSuperAdmins, showWarehouse]);
 
   useEffect(() => {
     if (location.pathname === `${basePath}/hr` || location.pathname === `${basePath}/hr/`) {
@@ -89,7 +98,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
       <header className="hr-hub__header panel glass">
         <div>
           <h2>Human Resources</h2>
-          <p className="text-muted text-sm">Staff records, work reports, holidays, warehouse users, roles, and super admins.</p>
+          <p className="text-muted text-sm">Staff records, work reports, holidays, warehouse and media users, roles, and super admins.</p>
         </div>
         {canManageHr(user) && isTabActive(`${basePath}/hr/staff`) && (
           <Link to={`${basePath}/hr/staff/new`} className="btn btn-primary btn-sm">
