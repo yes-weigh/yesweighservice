@@ -186,7 +186,7 @@ export const LocalPrintersTab: React.FC = () => {
               <div>
                 <h4 className="settings-logistics__title">Label printer</h4>
                 <p className="text-muted text-sm">
-                  Defaults from caliper: 75 × 45.5 mm, gap 3.5 mm, port 9100. Test print uses the Genuine Spare layout (sample SKU 4pinCW).
+                  Defaults from caliper: 75 × 45.5 mm, gap 3.5 mm, port 9100. Test print sends a bitmap of the Genuine Spare layout (sample SKU 4pinCW).
                 </p>
               </div>
               <div className="settings-local-printer__actions">
