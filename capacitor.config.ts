@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'in.yesweigh.service',
-  appName: 'YesWeigh Service',
+  appName: 'YesOne Platform',
   webDir: 'dist',
   server: {
     // Thin shell: APK loads the live PWA so hosting deploys update staff without a new APK.

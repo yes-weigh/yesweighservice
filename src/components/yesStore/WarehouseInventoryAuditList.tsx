@@ -25,6 +25,8 @@ import {
   formatItemLocationShort,
   isYesStoreItemLinked,
   readItemQuantity,
+  VALID_RACK_LETTERS,
+  ROW_NUMBERS,
   type YesStoreItemDoc,
 } from '../../types/yes-store';
 import type { CatalogProduct } from '../../types/catalog';
@@ -138,6 +140,8 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
 }) => {
   const [page, setPage] = useState(1);
   const [linkFilter, setLinkFilter] = useState<InventoryAuditLinkFilter>('all');
+  const [rackFilter, setRackFilter] = useState<string | null>(null);
+  const [rowFilter, setRowFilter] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [viewMode, setViewMode] = useState<InventoryAuditViewMode>('grid');
   const isDesktopWeb = useMinWidth(768);
@@ -147,24 +151,59 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
 
   const showBatchSelect = batchLinkEnabled && linkFilter !== 'linked';
 
+  const rackChips = useMemo(() => {
+    const present = new Set(
+      items
+        .map(item => item.rackId?.trim().toLowerCase())
+        .filter((rack): rack is string => Boolean(rack)),
+    );
+    return VALID_RACK_LETTERS.filter(letter => present.has(letter));
+  }, [items]);
+
+  const itemsOnSelectedRack = useMemo(() => {
+    if (!rackFilter) return [];
+    return items.filter(item => item.rackId?.trim().toLowerCase() === rackFilter);
+  }, [items, rackFilter]);
+
+  const rowChips = useMemo(() => {
+    if (!rackFilter) return [];
+    const present = new Set(
+      itemsOnSelectedRack
+        .map(item => Number(item.rowNumber))
+        .filter(n => Number.isFinite(n)),
+    );
+    return ROW_NUMBERS.filter(n => present.has(n));
+  }, [rackFilter, itemsOnSelectedRack]);
+
+  const locationScopedItems = useMemo(() => {
+    if (!rackFilter) return items;
+    let next = itemsOnSelectedRack;
+    if (rowFilter != null) {
+      next = next.filter(item => Number(item.rowNumber) === rowFilter);
+      // Rack + row selected: show bins in ascending order
+      next = [...next].sort((a, b) => Number(a.binNumber) - Number(b.binNumber));
+    }
+    return next;
+  }, [items, rackFilter, rowFilter, itemsOnSelectedRack]);
+
   const listRows = useMemo(() => {
     if (!showLinkStatus) {
-      return items.map(item => ({ kind: 'item', item } as InventoryAuditListRow));
+      return locationScopedItems.map(item => ({ kind: 'item', item } as InventoryAuditListRow));
     }
-    return buildInventoryAuditListRows(items, linkFilter, catalogMap(catalogProducts));
-  }, [items, linkFilter, showLinkStatus, catalogProducts]);
+    return buildInventoryAuditListRows(locationScopedItems, linkFilter, catalogMap(catalogProducts));
+  }, [locationScopedItems, linkFilter, showLinkStatus, catalogProducts]);
 
   const linkFilterCounts = useMemo(() => {
     if (!showLinkStatus) {
-      return { all: items.length, linked: 0, unlinked: items.length };
+      return { all: locationScopedItems.length, linked: 0, unlinked: locationScopedItems.length };
     }
     const catalog = catalogMap(catalogProducts);
     return {
-      unlinked: buildInventoryAuditListRows(items, 'unlinked', catalog).length,
-      linked: buildInventoryAuditListRows(items, 'linked', catalog).length,
-      all: buildInventoryAuditListRows(items, 'all', catalog).length,
+      unlinked: buildInventoryAuditListRows(locationScopedItems, 'unlinked', catalog).length,
+      linked: buildInventoryAuditListRows(locationScopedItems, 'linked', catalog).length,
+      all: buildInventoryAuditListRows(locationScopedItems, 'all', catalog).length,
     };
-  }, [items, showLinkStatus, catalogProducts]);
+  }, [locationScopedItems, showLinkStatus, catalogProducts]);
 
   const itemsById = useMemo(() => new Map(items.map(item => [item.id, item])), [items]);
 
@@ -188,11 +227,24 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
 
   useEffect(() => {
     setPage(1);
-  }, [listRows.length, linkFilter]);
+  }, [listRows.length, linkFilter, rackFilter, rowFilter]);
 
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [linkFilter]);
+  }, [linkFilter, rackFilter, rowFilter]);
+
+  useEffect(() => {
+    if (rackFilter && !rackChips.includes(rackFilter)) {
+      setRackFilter(null);
+      setRowFilter(null);
+    }
+  }, [rackChips, rackFilter]);
+
+  useEffect(() => {
+    if (rowFilter != null && !rowChips.includes(rowFilter as typeof ROW_NUMBERS[number])) {
+      setRowFilter(null);
+    }
+  }, [rowChips, rowFilter]);
 
   useEffect(() => {
     setSelectedIds(prev => {
@@ -230,11 +282,15 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   }
 
   const filterEmptyMessage =
-    linkFilter === 'linked'
-      ? 'No linked audit items yet.'
-      : linkFilter === 'unlinked'
-        ? 'No unlinked audit items.'
-        : emptyMessage;
+    rowFilter != null && rackFilter
+      ? `No audit items on rack ${rackFilter.toUpperCase()} row ${rowFilter}.`
+      : rackFilter
+        ? `No audit items on rack ${rackFilter.toUpperCase()}.`
+        : linkFilter === 'linked'
+          ? 'No linked audit items yet.'
+          : linkFilter === 'unlinked'
+            ? 'No unlinked audit items.'
+            : emptyMessage;
 
   return (
     <div className={`catalog-inventory-audit ${className}`.trim()}>
@@ -258,6 +314,57 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
             </button>
             );
           })}
+        </div>
+      )}
+
+      {rackChips.length > 0 && (
+        <div className="catalog-inventory-audit__location-chips">
+          <div className="catalog-inventory-audit__rack-chips" role="group" aria-label="Filter by rack">
+            {rackChips.map(letter => {
+              const active = rackFilter === letter;
+              return (
+                <button
+                  key={letter}
+                  type="button"
+                  className={`catalog-inventory-audit__rack-chip${active ? ' is-active' : ''}`}
+                  aria-pressed={active}
+                  title={active ? `Clear rack ${letter.toUpperCase()} filter` : `Show rack ${letter.toUpperCase()}`}
+                  onClick={() => {
+                    if (rackFilter === letter) {
+                      setRackFilter(null);
+                      setRowFilter(null);
+                    } else {
+                      setRackFilter(letter);
+                      setRowFilter(null);
+                    }
+                  }}
+                >
+                  {letter.toUpperCase()}
+                </button>
+              );
+            })}
+          </div>
+
+          {rackFilter && rowChips.length > 0 && (
+            <div className="catalog-inventory-audit__row-chips" role="group" aria-label={`Filter by row on rack ${rackFilter.toUpperCase()}`}>
+              <span className="catalog-inventory-audit__chip-label">Row</span>
+              {rowChips.map(row => {
+                const active = rowFilter === row;
+                return (
+                  <button
+                    key={row}
+                    type="button"
+                    className={`catalog-inventory-audit__rack-chip catalog-inventory-audit__row-chip${active ? ' is-active' : ''}`}
+                    aria-pressed={active}
+                    title={active ? `Clear row ${row} filter` : `Show row ${row}`}
+                    onClick={() => setRowFilter(prev => (prev === row ? null : row))}
+                  >
+                    {row}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

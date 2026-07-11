@@ -58,6 +58,71 @@
   margin-bottom: 0.65rem;
 }
 
+.catalog-inventory-audit__rack-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.catalog-inventory-audit__location-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: -0.2rem 0 0.75rem;
+}
+
+.catalog-inventory-audit__row-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.catalog-inventory-audit__chip-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: 0.15rem;
+}
+
+.catalog-inventory-audit__rack-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.catalog-inventory-audit__rack-chip:hover {
+  border-color: rgba(251, 146, 60, 0.45);
+  color: #fff;
+}
+
+.catalog-inventory-audit__rack-chip.is-active {
+  background: rgba(251, 146, 60, 0.22);
+  border-color: rgba(251, 146, 60, 0.7);
+  color: #fdba74;
+}
+
+.catalog-inventory-audit__row-chip.is-active {
+  background: rgba(96, 165, 250, 0.22);
+  border-color: rgba(96, 165, 250, 0.7);
+  color: #93c5fd;
+}
+
 .catalog-inventory-audit__filter-chip {
   display: inline-flex;
   align-items: center;
