@@ -8121,8 +8121,8 @@ html::-webkit-scrollbar {
 }
 
 .bin-label-print-dialog {
-  width: min(100%, 28rem);
-  max-height: min(92vh, 40rem);
+  width: min(100%, 32rem);
+  max-height: min(92vh, 44rem);
   overflow: auto;
   margin: auto;
 }
@@ -8140,6 +8140,52 @@ html::-webkit-scrollbar {
 
 .bin-label-print-dialog__hint {
   margin: 0.75rem 0 0;
+}
+
+.bin-label-print-dialog__back {
+  margin-bottom: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.bin-label-print-dialog__picker {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.bin-label-print-dialog__label-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.bin-label-print-dialog__label-card {
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.bin-label-print-dialog__label-card:hover {
+  border-color: rgba(91, 33, 182, 0.45);
+}
+
+.bin-label-print-dialog__missing {
+  margin: 0 0 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .bin-label-print-dialog__actions {

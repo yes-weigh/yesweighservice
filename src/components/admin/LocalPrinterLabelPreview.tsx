@@ -1,26 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  DEFAULT_LABEL_HEIGHT_MM,
-  DEFAULT_LABEL_WIDTH_MM,
-} from '../../constants/localPrinterSettings';
 import { TEST_BIN_LABEL_SAMPLE, type BinLabelFields } from '../../lib/localPrinterLabel';
 import { renderBinLabelCanvas } from '../../lib/localPrinterLabelBitmap';
+import { parseLayoutMedia } from '../../lib/labelLayouts';
 
 type Props = {
-  labelWidthMm: number;
-  labelHeightMm: number;
+  layoutXml: string;
   fields?: BinLabelFields;
   /** Hide the title/help block (e.g. inside a print dialog). */
   hideHead?: boolean;
 };
 
 /**
- * On-screen Genuine Spare label preview (canvas).
- * Use this to iterate layout without printing; Test print still sends TSPL to the TE210.
+ * On-screen bin label preview (canvas).
+ * Size comes from layout XML widthMm/heightMm.
  */
 export const LocalPrinterLabelPreview: React.FC<Props> = ({
-  labelWidthMm,
-  labelHeightMm,
+  layoutXml,
   fields,
   hideHead = false,
 }) => {
@@ -28,12 +23,9 @@ export const LocalPrinterLabelPreview: React.FC<Props> = ({
   const [error, setError] = useState('');
   const [rendering, setRendering] = useState(true);
 
-  const width = Number.isFinite(labelWidthMm) && labelWidthMm > 0
-    ? labelWidthMm
-    : DEFAULT_LABEL_WIDTH_MM;
-  const height = Number.isFinite(labelHeightMm) && labelHeightMm > 0
-    ? labelHeightMm
-    : DEFAULT_LABEL_HEIGHT_MM;
+  const media = parseLayoutMedia(layoutXml);
+  const width = media.labelWidthMm;
+  const height = media.labelHeightMm;
 
   const labelFields: BinLabelFields = fields ?? {
     ...TEST_BIN_LABEL_SAMPLE,
@@ -47,7 +39,11 @@ export const LocalPrinterLabelPreview: React.FC<Props> = ({
 
     void (async () => {
       try {
+        if (!layoutXml.trim()) {
+          throw new Error('No layout XML to preview.');
+        }
         const rendered = await renderBinLabelCanvas(labelFields, {
+          layoutXml,
           labelWidthMm: width,
           labelHeightMm: height,
         });
@@ -73,8 +69,8 @@ export const LocalPrinterLabelPreview: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-    // Re-render when size or field identity changes
   }, [
+    layoutXml,
     width,
     height,
     labelFields.sku,

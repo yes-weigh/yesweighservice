@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal label for custom sizes — name + SKU + QR + location. -->
+<label
+  id="simple-bin"
+  name="Simple bin"
+  dpi="203"
+  widthMm="75"
+  heightMm="45.5"
+  gapMm="3.5"
+  padMm="2"
+>
+  <border radiusPx="8" strokePx="2" />
+  <stack gapPx="6" padPx="8">
+    <text value="{{itemName}}" bold="true" fit="width" maxFontPx="22" minFontPx="10" />
+    <text value="{{sku}}" bold="true" fit="width" maxFontPx="18" minFontPx="10" />
+    <text
+      value="{{rack}} / {{row}} / {{bin}}"
+      bold="true"
+      fit="width"
+      maxFontPx="16"
+      minFontPx="10"
+    />
+    <qr field="qrPayload" fallbackField="sku" sizePx="120" align="center" />
+  </stack>
+</label>

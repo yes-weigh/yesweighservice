@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  YesWeigh Genuine Spare bin label (75 × 45.5 mm @ 203 dpi default).
+  Bindings: {{sku}} {{itemName}} {{masterSku}} {{rack}} {{row}} {{bin}} {{qrPayload}} {{printedOn}}
+  Units: mm | % of parent | px (dots). Edit this file or override per printer in Settings.
+-->
+<label
+  id="genuine-spare"
+  name="Genuine Spare"
+  dpi="203"
+  widthMm="75"
+  heightMm="45.5"
+  gapMm="3.5"
+  padMm="2"
+>
+  <border radiusPx="10" strokePx="2" />
+
+  <split
+    direction="row"
+    gapPx="6"
+    leftMinRatio="0.62"
+    rightMinRatio="0.34"
+    headerFit="true"
+  >
+    <column id="left">
+      <header heightPx="39" strokePx="2">
+        <brand>
+          <image src="/yesweigh-mark.png" heightPx="29" cropInk="true" />
+          <text
+            value="YESWEIGH GENUINE SPARE"
+            bold="true"
+            fit="width"
+            maxFontPx="31"
+            minFontPx="11"
+            align="left"
+            vAlign="middle"
+          />
+        </brand>
+        <loc-headers
+          labels="RACK,ROW,BIN"
+          bold="true"
+          maxFontPx="21"
+          minFontPx="11"
+          sharedFont="true"
+        />
+      </header>
+
+      <fields dividerStrokePx="1.5">
+        <field
+          label="SKU"
+          value="{{sku}}"
+          weight="1"
+          style="inline-badge"
+          valueMaxFontPx="28"
+          valueMinFontPx="12"
+        />
+        <field
+          label="ITEM NAME"
+          value="{{itemName}}"
+          weight="2"
+          style="stacked"
+          fontPx="30"
+          wrap="true"
+        />
+        <field
+          label="MASTER SKU"
+          value="{{masterSku}}"
+          weight="1"
+          style="inline-badge"
+          valueMaxFontPx="28"
+          valueMinFontPx="12"
+        />
+        <field
+          label="PRINTED ON"
+          value="{{printedOn}}"
+          weight="1"
+          style="inline-badge"
+          valueMaxFontPx="28"
+          valueMinFontPx="12"
+        />
+      </fields>
+    </column>
+
+    <column id="right">
+      <loc-values
+        values="{{rack}},{{row}},{{bin}}"
+        qrPadPx="10"
+        minHeightPx="32"
+        valueMinFontPx="14"
+        sharedFont="true"
+        dividerStrokePx="1.5"
+      />
+      <qr field="qrPayload" fallbackField="sku" padPx="10" equalPad="true" />
+    </column>
+  </split>
+</label>

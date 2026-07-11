@@ -41,6 +41,51 @@ const PAGE_SIZE = 25;
 
 type InventoryAuditViewMode = 'grid' | 'list';
 
+export type InventoryAuditLinkFilter = 'all' | 'linked' | 'unlinked';
+
+const AUDIT_LIST_FILTERS_KEY = 'yesweigh.inventoryAudit.listFilters';
+
+type StoredAuditListFilters = {
+  rackFilter: string | null;
+  rowFilter: number | null;
+  linkFilter: InventoryAuditLinkFilter;
+};
+
+function loadStoredAuditListFilters(): StoredAuditListFilters {
+  const defaults: StoredAuditListFilters = {
+    rackFilter: null,
+    rowFilter: null,
+    linkFilter: 'all',
+  };
+  try {
+    const raw = sessionStorage.getItem(AUDIT_LIST_FILTERS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<StoredAuditListFilters>;
+    const linkFilter =
+      parsed.linkFilter === 'linked' || parsed.linkFilter === 'unlinked' || parsed.linkFilter === 'all'
+        ? parsed.linkFilter
+        : 'all';
+    const rackFilter =
+      typeof parsed.rackFilter === 'string' && parsed.rackFilter.trim()
+        ? parsed.rackFilter.trim().toLowerCase()
+        : null;
+    const rowRaw = parsed.rowFilter;
+    const rowFilter =
+      typeof rowRaw === 'number' && Number.isFinite(rowRaw) ? rowRaw : null;
+    return { rackFilter, rowFilter, linkFilter };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveStoredAuditListFilters(filters: StoredAuditListFilters): void {
+  try {
+    sessionStorage.setItem(AUDIT_LIST_FILTERS_KEY, JSON.stringify(filters));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 function useMinWidth(minWidthPx: number): boolean {
   const query = `(min-width: ${minWidthPx}px)`;
   const [matches, setMatches] = useState(() =>
@@ -57,8 +102,6 @@ function useMinWidth(minWidthPx: number): boolean {
 
   return matches;
 }
-
-export type InventoryAuditLinkFilter = 'all' | 'linked' | 'unlinked';
 
 export interface WarehouseInventoryAuditListProps {
   items: YesStoreItemDoc[];
@@ -144,10 +187,11 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   batchLinkEnabled = false,
   showViewToggle = false,
 }) => {
+  const storedFilters = useMemo(() => loadStoredAuditListFilters(), []);
   const [page, setPage] = useState(1);
-  const [linkFilter, setLinkFilter] = useState<InventoryAuditLinkFilter>('all');
-  const [rackFilter, setRackFilter] = useState<string | null>(null);
-  const [rowFilter, setRowFilter] = useState<number | null>(null);
+  const [linkFilter, setLinkFilter] = useState<InventoryAuditLinkFilter>(storedFilters.linkFilter);
+  const [rackFilter, setRackFilter] = useState<string | null>(storedFilters.rackFilter);
+  const [rowFilter, setRowFilter] = useState<number | null>(storedFilters.rowFilter);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [viewMode, setViewMode] = useState<InventoryAuditViewMode>('grid');
   const [printFields, setPrintFields] = useState<BinLabelFields | null>(null);
@@ -240,6 +284,10 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   );
 
   useEffect(() => {
+    saveStoredAuditListFilters({ rackFilter, rowFilter, linkFilter });
+  }, [rackFilter, rowFilter, linkFilter]);
+
+  useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
@@ -252,17 +300,20 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   }, [linkFilter, rackFilter, rowFilter]);
 
   useEffect(() => {
+    // Wait until items are loaded — empty chips during load must not wipe restored filters.
+    if (loading || items.length === 0) return;
     if (rackFilter && !rackChips.includes(rackFilter)) {
       setRackFilter(null);
       setRowFilter(null);
     }
-  }, [rackChips, rackFilter]);
+  }, [rackChips, rackFilter, loading, items.length]);
 
   useEffect(() => {
+    if (loading || !rackFilter || itemsOnSelectedRack.length === 0) return;
     if (rowFilter != null && !rowChips.includes(rowFilter as typeof ROW_NUMBERS[number])) {
       setRowFilter(null);
     }
-  }, [rowChips, rowFilter]);
+  }, [rowChips, rowFilter, loading, rackFilter, itemsOnSelectedRack.length]);
 
   useEffect(() => {
     setSelectedIds(prev => {

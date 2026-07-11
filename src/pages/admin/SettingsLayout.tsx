@@ -8,7 +8,7 @@ const tabs = [
   { id: 'store-room', label: 'Store room', path: '/super-admin/settings/store-room', icon: <Box size={16} /> },
   { id: 'product', label: 'Product settings', path: '/super-admin/settings/product', icon: <Package size={16} /> },
   { id: 'logistics', label: 'Logistics', path: '/super-admin/settings/logistics', icon: <Truck size={16} /> },
-  { id: 'local-printers', label: 'Local printers', path: '/super-admin/settings/local-printers', icon: <Printer size={16} /> },
+  { id: 'local-printers', label: 'Label printing', path: '/super-admin/settings/local-printers', icon: <Printer size={16} /> },
 ] as const;
 
 export const SettingsLayout: React.FC = () => {
@@ -33,7 +33,7 @@ export const SettingsLayout: React.FC = () => {
         <div>
           <h2>Settings</h2>
           <p className="text-muted text-sm">
-            Account profile, warehouse zones, store room layout, product settings, logistics, and local printers.
+            Account profile, warehouse zones, store room layout, product settings, logistics, and label printing.
           </p>
         </div>
       </header>

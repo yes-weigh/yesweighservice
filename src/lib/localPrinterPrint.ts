@@ -11,9 +11,11 @@ import {
   type BinLabelFields,
 } from './localPrinterLabel';
 import {
-  buildGenuineSpareLabelBitmapJob,
+  buildLabelBitmapJob,
   bytesToBase64,
 } from './localPrinterLabelBitmap';
+import { parseLayoutMedia } from './labelLayouts';
+import type { LabelPrinter } from './labelStudio';
 
 /** Encode bytes/text as base64 for the native TCP plugin. */
 export function textToBase64(text: string): string {
@@ -50,18 +52,19 @@ export async function sendRawToPrinter(options: {
 }
 
 /**
- * Print Genuine Spare label as the same canvas bitmap shown in Local printers preview.
- * WYSIWYG: preview pixels === printer pixels (1-bit TSPL BITMAP).
+ * Print a label using a printer + layout XML (size/gap from XML unless overridden).
  */
 export async function sendBinLabel(options: {
   host: string;
   port: number;
-  labelWidthMm: number;
-  labelHeightMm: number;
-  labelGapMm: number;
+  layoutXml: string;
+  labelWidthMm?: number;
+  labelHeightMm?: number;
+  labelGapMm?: number;
   fields: BinLabelFields;
 }): Promise<{ bytesSent: number }> {
-  const payload = await buildGenuineSpareLabelBitmapJob(options.fields, {
+  const payload = await buildLabelBitmapJob(options.fields, {
+    layoutXml: options.layoutXml,
     labelWidthMm: options.labelWidthMm,
     labelHeightMm: options.labelHeightMm,
     labelGapMm: options.labelGapMm,
@@ -73,13 +76,27 @@ export async function sendBinLabel(options: {
   });
 }
 
-/** Test print — same renderer as the on-screen preview (optional live field overrides). */
+export async function sendLabelViaPrinter(
+  printer: Pick<LabelPrinter, 'host' | 'port'>,
+  layoutXml: string,
+  fields: BinLabelFields,
+): Promise<{ bytesSent: number }> {
+  return sendBinLabel({
+    host: printer.host.trim(),
+    port: printer.port,
+    layoutXml,
+    fields,
+  });
+}
+
+/** Test print — same renderer as the on-screen preview. */
 export async function sendTestLabel(options: {
   host: string;
   port: number;
-  labelWidthMm: number;
-  labelHeightMm: number;
-  labelGapMm: number;
+  layoutXml: string;
+  labelWidthMm?: number;
+  labelHeightMm?: number;
+  labelGapMm?: number;
   fields?: BinLabelFields;
 }): Promise<{ bytesSent: number }> {
   return sendBinLabel({
@@ -96,13 +113,17 @@ export function buildTestLabelTspl(options?: {
   labelWidthMm?: number;
   labelHeightMm?: number;
   labelGapMm?: number;
+  layoutXml?: string;
 }): string {
+  const media = options?.layoutXml
+    ? parseLayoutMedia(options.layoutXml)
+    : {
+        labelWidthMm: options?.labelWidthMm ?? DEFAULT_LABEL_WIDTH_MM,
+        labelHeightMm: options?.labelHeightMm ?? DEFAULT_LABEL_HEIGHT_MM,
+        labelGapMm: options?.labelGapMm ?? DEFAULT_LABEL_GAP_MM,
+      };
   return buildGenuineSpareLabelTspl(
     { ...TEST_BIN_LABEL_SAMPLE, printedOn: new Date() },
-    {
-      labelWidthMm: options?.labelWidthMm ?? DEFAULT_LABEL_WIDTH_MM,
-      labelHeightMm: options?.labelHeightMm ?? DEFAULT_LABEL_HEIGHT_MM,
-      labelGapMm: options?.labelGapMm ?? DEFAULT_LABEL_GAP_MM,
-    },
+    media,
   );
 }

@@ -1,5 +1,8 @@
 export const LOCAL_PRINTER_SETTINGS_DOC_ID = 'localPrinterSettings';
 
+/** Unified Printers × Layouts × Labels settings document. */
+export const LABEL_STUDIO_DOC_ID = 'labelStudio';
+
 export const DEFAULT_LABEL_PRINTER_PORT = 9100;
 
 /** Default from store-room printer config label (DHCP; reserve on router). */
