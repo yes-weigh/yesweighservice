@@ -8,6 +8,7 @@ import {
   attrNum,
   buildLabelBindings,
   parseLayoutMedia,
+  sanitizeLayoutXml,
 } from './bindings';
 import {
   fitFontSize,
@@ -18,7 +19,7 @@ import {
 } from './canvasUtils';
 
 function parseLayoutXml(xml: string): Element {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const doc = new DOMParser().parseFromString(sanitizeLayoutXml(xml), 'application/xml');
   const parseError = doc.querySelector('parsererror');
   if (parseError) {
     throw new Error(`Invalid label layout XML: ${parseError.textContent?.trim() || 'parse error'}`);
@@ -376,37 +377,9 @@ async function renderSimpleStack(
   }
 }
 
-function fillPill(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  text: string,
-  fontPx: number,
-): void {
-  const r = Math.min(h / 2, 6);
-  ctx.fillStyle = '#000';
-  roundRect(ctx, x, y, w, h, r);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${fontPx}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const maxW = w - 6;
-  let size = fontPx;
-  while (size > 6) {
-    ctx.font = `bold ${size}px Arial, Helvetica, sans-serif`;
-    if (ctx.measureText(text).width <= maxW) break;
-    size -= 1;
-  }
-  ctx.fillText(text, x + w / 2, y + h / 2);
-  ctx.fillStyle = '#000';
-}
-
 /**
  * Exact product-pack mockup: header | fields+QR | footer | MADE IN CHINA.
- * Text only — no logos/icons (per design request).
+ * Text only — no logos/icons, no inverted (white-on-black) fills.
  */
 async function renderProductPack(
   ctx: CanvasRenderingContext2D,
@@ -497,10 +470,19 @@ async function renderProductPack(
   ctx.textBaseline = 'middle';
   ctx.fillText(rightTitleText, midX + rightPad, headerT + headerH * 0.32);
 
-  const badgeH = Math.max(14, Math.floor(headerH * 0.32));
-  const badgeY = headerB - badgeH - 5;
-  const badgeFont = attrNum(rightBadge, 'maxFontPx', 8);
-  fillPill(ctx, midX + rightPad, badgeY, rightW, badgeH, badgeText, badgeFont);
+  const badgeFont = fitFontSize(
+    ctx,
+    badgeText,
+    rightW,
+    attrNum(rightBadge, 'maxFontPx', 11),
+    attrNum(rightBadge, 'minFontPx', 8),
+    true,
+  );
+  ctx.fillStyle = '#000';
+  ctx.font = `bold ${badgeFont}px Arial, Helvetica, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(badgeText, midX + rightPad, headerT + headerH * 0.72);
 
   // --- Footer + origin (measure bottom first) ---
   const originText = applyBindings(attr(originEl, 'value', 'MADE IN CHINA'), bindings);
@@ -561,14 +543,14 @@ async function renderProductPack(
       ctx.stroke();
     }
     const cy = (y0 + y1) / 2;
-    const lf = fitFontSize(ctx, row.label, labelColW, labelMax, 6, true);
+    const lf = fitFontSize(ctx, row.label, labelColW, labelMax, 8, true);
     ctx.fillStyle = '#000';
     ctx.font = `bold ${lf}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(row.label, fieldsL + 4, cy);
     ctx.fillText(':', colonX, cy);
-    const vf = fitFontSize(ctx, row.value || ' ', valueW, valueMax, 6, true);
+    const vf = fitFontSize(ctx, row.value || ' ', valueW, valueMax, 8, true);
     ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
     ctx.fillText(row.value, valueX, cy);
   });
@@ -580,8 +562,8 @@ async function renderProductPack(
   const captionFont = attrNum(qrPanel, 'captionFontPx', 8);
   const skuPill = qrPanel?.querySelector('sku-pill');
   const pillText = applyBindings(attr(skuPill, 'value', 'SKU: {{sku}}'), bindings);
-  const pillFont = attrNum(skuPill, 'fontPx', 9);
-  const pillH = 16;
+  const pillFont = attrNum(skuPill, 'fontPx', 12);
+  const skuLineH = pillFont + 6;
   const captionH = captionFont + 4;
 
   const qrBoxL = qrL;
@@ -592,7 +574,7 @@ async function renderProductPack(
   ctx.strokeRect(qrBoxL, qrBoxT, qrBoxW, qrBoxH);
 
   const qrInnerT = qrBoxT + qrPad + captionH;
-  const qrInnerB = qrBoxBSafe(qrBoxT, qrBoxH, qrPad, pillH);
+  const qrInnerB = qrBoxBSafe(qrBoxT, qrBoxH, qrPad, skuLineH);
   const qrAvail = Math.min(qrBoxW - qrPad * 2, qrInnerB - qrInnerT);
   const qrSize = Math.max(24, qrAvail);
   const qrX = qrBoxL + Math.floor((qrBoxW - qrSize) / 2);
@@ -610,23 +592,19 @@ async function renderProductPack(
   const qrPayload = bindings[qrField] || bindings[qrFallback] || '';
   await drawQr(ctx, qrPayload, qrX, qrY, qrSize);
 
-  const pillW = Math.min(qrBoxW - qrPad * 2, Math.max(60, ctx.measureText(pillText).width + 16));
-  fillPill(
-    ctx,
-    qrBoxL + Math.floor((qrBoxW - pillW) / 2),
-    qrBoxT + qrBoxH - qrPad - pillH,
-    pillW,
-    pillH,
-    pillText,
-    pillFont,
-  );
+  const skuFont = fitFontSize(ctx, pillText, qrBoxW - qrPad * 2, pillFont, 8, true);
+  ctx.fillStyle = '#000';
+  ctx.font = `bold ${skuFont}px Arial, Helvetica, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(pillText, qrBoxL + qrBoxW / 2, qrBoxT + qrBoxH - qrPad - skuLineH / 2);
 
-  // --- Footer cells ---
+  // --- Footer cells (plain black text only — no inverted pills) ---
   const cells = footerEl ? [...footerEl.querySelectorAll('cell')] : [];
   const cellN = Math.max(1, cells.length);
   const cellW = Math.floor(W / cellN);
-  const flabel = attrNum(footerEl, 'labelFontPx', 7);
-  const fvalue = attrNum(footerEl, 'valueFontPx', 9);
+  const flabel = attrNum(footerEl, 'labelFontPx', 10);
+  const fvalue = attrNum(footerEl, 'valueFontPx', 12);
 
   cells.forEach((cell, i) => {
     const cx = L + i * cellW;
@@ -639,24 +617,20 @@ async function renderProductPack(
     }
     const label = applyBindings(attr(cell, 'label'), bindings);
     const value = applyBindings(attr(cell, 'value'), bindings);
-    const style = attr(cell, 'style', 'pill');
     ctx.fillStyle = '#000';
     ctx.font = `bold ${flabel}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(label, cx + cellW / 2, footerT + 4);
 
-    const pillY = footerT + flabel + 8;
-    const pillInnerH = Math.min(20, footerB - pillY - 4);
-    const pillInnerW = cellW - 10;
-    if (style === 'pill' && value) {
-      fillPill(ctx, cx + 5, pillY, pillInnerW, pillInnerH, value, fvalue);
-    } else {
-      ctx.font = `bold ${fvalue}px Arial, Helvetica, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(value || '—', cx + cellW / 2, pillY + pillInnerH / 2);
-    }
+    const valueY = footerT + flabel + 8;
+    const valueH = Math.min(24, footerB - valueY - 4);
+    const valueMaxW = cellW - 8;
+    const vf = fitFontSize(ctx, value || '—', valueMaxW, fvalue, 8, true);
+    ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(value || '—', cx + cellW / 2, valueY + valueH / 2);
   });
 
   // --- Origin ---

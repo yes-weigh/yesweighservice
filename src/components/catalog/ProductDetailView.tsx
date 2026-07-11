@@ -17,6 +17,7 @@ import {
   Tag,
   Trash2,
   Upload,
+  Printer,
   X,
 } from 'lucide-react';
 import {
@@ -77,6 +78,11 @@ import {
   buildSpareNavState,
   type CatalogNavState,
 } from '../../lib/catalogNav';
+import {
+  BinLabelPrintDialog,
+  productPackLabelFieldsFromCatalog,
+} from './BinLabelPrintDialog';
+import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { SpareLinkEditor } from './SpareLinkEditor';
 import { StockBadge } from './StockBadge';
@@ -207,6 +213,7 @@ export const ProductDetailView: React.FC<{
   const carouselRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [titleInView, setTitleInView] = useState(true);
+  const [printLabelFields, setPrintLabelFields] = useState<BinLabelFields | null>(null);
 
   const scrolledHeaderTitle = useMemo(() => {
     if (variant !== 'app' || titleInView || !product) return null;
@@ -1193,6 +1200,17 @@ export const ProductDetailView: React.FC<{
                   formatProductTitle(product.name)
                 )}
               </h1>
+              {!productEditMode && (canEditProductDetails || showAuditedStock) && (
+                <button
+                  type="button"
+                  className="product-detail-page__title-print"
+                  title="Print product label"
+                  aria-label="Print Genuine Spare product label"
+                  onClick={() => setPrintLabelFields(productPackLabelFieldsFromCatalog(product))}
+                >
+                  <Printer size={16} aria-hidden />
+                </button>
+              )}
               {!productEditMode && (showStockQuantity || showCartActions) && (
                 <div className="product-detail-page__title-price" aria-label="Dealer price">
                   <div className="product-detail-page__title-price-amount">
@@ -1545,6 +1563,14 @@ export const ProductDetailView: React.FC<{
           saving={editorSaving}
           onClose={() => setEditorOpen(false)}
           onSave={handleSaveLinks}
+        />
+      )}
+
+      {printLabelFields && (
+        <BinLabelPrintDialog
+          fields={printLabelFields}
+          layoutId="genuine-spare-product"
+          onClose={() => setPrintLabelFields(null)}
         />
       )}
     </div>

@@ -1,20 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Printer, X } from 'lucide-react';
+import { Printer, X } from 'lucide-react';
 import { LocalPrinterLabelPreview } from '../admin/LocalPrinterLabelPreview';
 import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import {
   BINDING_FIELD_LABELS,
   extractBindingKeys,
+  getLabelLayoutTemplateXml,
   missingBindings,
-  parseLayoutMedia,
 } from '../../lib/labelLayouts';
 import {
   emptyLabelStudioDoc,
+  getStoreLabelPrinter,
   loadLabelStudioDoc,
-  resolvePrintLabel,
+  type LabelPrinter,
   type LabelStudioDoc,
-  type PrintLabel,
 } from '../../lib/labelStudio';
 import { isNativePrintAvailable, sendBinLabel } from '../../lib/localPrinterPrint';
 import type { CatalogProduct } from '../../types/catalog';
@@ -38,21 +38,60 @@ export function binLabelFieldsFromStoreItem(
   };
 }
 
+/**
+ * MRP = (price + GST_amount) × 2.5
+ * GST_amount = rate × (taxPercentage / 100)
+ */
+export function calculateProductLabelMrp(rate: number, taxPercentage: number): number {
+  const price = Number.isFinite(rate) ? rate : 0;
+  const pct = Number.isFinite(taxPercentage) ? taxPercentage : 0;
+  const gstAmount = price * (pct / 100);
+  return Math.round((price + gstAmount) * 2.5 * 100) / 100;
+}
+
+export function formatProductLabelMrp(rate: number, taxPercentage: number): string {
+  const mrp = calculateProductLabelMrp(rate, taxPercentage);
+  return `₹ ${mrp.toFixed(2)}`;
+}
+
+/** Fields for Genuine Spare Product layout from a catalog product. */
+export function productPackLabelFieldsFromCatalog(
+  product: Pick<CatalogProduct, 'id' | 'name' | 'sku' | 'rate' | 'taxPercentage' | 'unit'>,
+): BinLabelFields {
+  const sku = (product.sku ?? '').trim() || product.id;
+  const unit = (product.unit ?? 'pcs').trim() || 'pcs';
+  return {
+    sku,
+    itemName: product.name.trim(),
+    masterSku: '',
+    masterProduct: '',
+    rack: '',
+    row: '',
+    bin: '',
+    qrPayload: sku,
+    printedOn: new Date(),
+    qty: /pc/i.test(unit) ? '1 PC' : `1 ${unit}`,
+    mrp: formatProductLabelMrp(product.rate, product.taxPercentage),
+    batchNo: '',
+    packedBy: 'YESWEIGH',
+    qcStatus: 'PASSED',
+  };
+}
+
 type Props = {
   fields: BinLabelFields;
+  /** Built-in layout id — fixed by print location (not user-selectable). */
+  layoutId: string;
   onClose: () => void;
 };
 
-type Step = 'pick' | 'review';
-
 /**
- * Pick a Label (printer + layout), fill missing bindings, preview, print.
+ * Preview + print with a fixed layout. User only picks printer when more than one exists.
  */
-export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
+export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose }) => {
   const [studio, setStudio] = useState<LabelStudioDoc>(emptyLabelStudioDoc);
+  const [printerId, setPrinterId] = useState('');
   const [loadingSettings, setLoadingSettings] = useState(true);
-  const [step, setStep] = useState<Step>('pick');
-  const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null);
   const [fieldDraft, setFieldDraft] = useState<BinLabelFields>(() => ({
     ...fields,
     printedOn: new Date(),
@@ -62,6 +101,8 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
   const [success, setSuccess] = useState('');
   const native = isNativePrintAvailable();
 
+  const layoutXml = useMemo(() => getLabelLayoutTemplateXml(layoutId), [layoutId]);
+
   useEffect(() => {
     let active = true;
     setLoadingSettings(true);
@@ -69,13 +110,14 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
       .then(loaded => {
         if (!active) return;
         setStudio(loaded);
-        if (loaded.labels.length === 1) {
-          setSelectedLabelId(loaded.labels[0].id);
-          setStep('review');
-        }
+        setPrinterId(getStoreLabelPrinter(loaded).id);
       })
       .catch(() => {
-        if (active) setStudio(emptyLabelStudioDoc());
+        if (active) {
+          const fallback = emptyLabelStudioDoc();
+          setStudio(fallback);
+          setPrinterId(fallback.storeLabelPrinterId);
+        }
       })
       .finally(() => {
         if (active) setLoadingSettings(false);
@@ -89,64 +131,37 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
     setFieldDraft({ ...fields, printedOn: new Date() });
   }, [fields]);
 
-  const resolved = useMemo(
-    () => (selectedLabelId ? resolvePrintLabel(studio, selectedLabelId) : null),
-    [studio, selectedLabelId],
-  );
+  const printer: LabelPrinter | null = useMemo(() => {
+    return studio.printers.find(p => p.id === printerId) ?? getStoreLabelPrinter(studio);
+  }, [studio, printerId]);
 
-  const requiredKeys = useMemo(
-    () => (resolved ? extractBindingKeys(resolved.layout.xml) : []),
-    [resolved],
-  );
-
+  const requiredKeys = useMemo(() => extractBindingKeys(layoutXml), [layoutXml]);
   const missing = useMemo(
     () => missingBindings(requiredKeys, fieldDraft),
     [requiredKeys, fieldDraft],
   );
-
-  const canPrint = Boolean(resolved) && missing.length === 0;
-
-  const printerSummary = (label: PrintLabel) => {
-    const printer = studio.printers.find(p => p.id === label.printerId);
-    const layout = studio.layouts.find(l => l.id === label.layoutId);
-    const media = layout ? parseLayoutMedia(layout.xml) : null;
-    return [
-      printer?.name ?? 'Unknown printer',
-      layout?.name ?? 'Unknown layout',
-      media ? `${media.labelWidthMm}×${media.labelHeightMm} mm` : null,
-    ].filter(Boolean).join(' · ');
-  };
-
-  const selectLabel = (id: string) => {
-    setSelectedLabelId(id);
-    setError('');
-    setSuccess('');
-    setStep('review');
-  };
+  const canPrint = Boolean(printer) && missing.length === 0;
 
   const handlePrint = async () => {
     setPrinting(true);
     setError('');
     setSuccess('');
     try {
-      if (!resolved) throw new Error('Select a label first.');
+      if (!printer) throw new Error('No printer configured.');
       if (missing.length) {
         throw new Error(`Fill missing fields: ${missing.map(k => BINDING_FIELD_LABELS[k] ?? k).join(', ')}`);
       }
-      if (!resolved.printer.host.trim()) {
-        throw new Error(
-          'Set the printer IP in Admin → Settings → Label printing.',
-        );
+      if (!printer.host.trim()) {
+        throw new Error('Set the printer IP in Admin → Settings → Label printing.');
       }
       const result = await sendBinLabel({
-        host: resolved.printer.host.trim(),
-        port: resolved.printer.port,
-        layoutXml: resolved.layout.xml,
+        host: printer.host.trim(),
+        port: printer.port,
+        layoutXml,
         fields: { ...fieldDraft, printedOn: new Date() },
       });
       setSuccess(
-        `Sent via ${resolved.label.name} → ${resolved.printer.name} `
-        + `(${resolved.printer.host.trim()}:${resolved.printer.port}, ${result.bytesSent} bytes).`,
+        `Sent via ${printer.name} to ${printer.host.trim()}:${printer.port} (${result.bytesSent} bytes).`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Print failed.');
@@ -176,14 +191,11 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
       >
         <div className="dealers-modal__header">
           <div>
-            <h2 id="bin-label-print-title">
-              {step === 'pick' ? 'Choose label' : 'Print bin label'}
-            </h2>
+            <h2 id="bin-label-print-title">Print label</h2>
             <p className="text-muted text-sm">
               {fields.sku}
-              {' · '}
-              Rack {fields.rack} / Row {fields.row} / Bin {fields.bin}
-              {resolved ? ` · ${resolved.label.name}` : ''}
+              {fields.rack ? ` · Rack ${fields.rack} / Row ${fields.row} / Bin ${fields.bin}` : ''}
+              {printer ? ` · ${printer.name}` : ''}
             </p>
           </div>
           <button type="button" className="dealers-modal__close" onClick={onClose} aria-label="Close">
@@ -198,55 +210,30 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
           <div className="bin-label-print-dialog__loading">
             <div className="loader-ring" />
           </div>
-        ) : step === 'pick' ? (
-          <div className="bin-label-print-dialog__picker">
-            {studio.labels.length === 0 ? (
-              <p className="text-muted text-sm">
-                No labels defined. Add one under Admin → Settings → Label printing.
-              </p>
-            ) : (
-              <ul className="bin-label-print-dialog__label-list">
-                {studio.labels.map(label => (
-                  <li key={label.id}>
-                    <button
-                      type="button"
-                      className="bin-label-print-dialog__label-card"
-                      onClick={() => selectLabel(label.id)}
-                    >
-                      <strong>{label.name}</strong>
-                      <span className="text-muted text-sm">{printerSummary(label)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         ) : (
           <>
-            {studio.labels.length > 1 && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm bin-label-print-dialog__back"
-                onClick={() => {
-                  setStep('pick');
-                  setSuccess('');
-                  setError('');
-                }}
-              >
-                <ArrowLeft size={15} aria-hidden />
-                Change label
-              </button>
+            {studio.printers.length > 1 && (
+              <label className="settings-locations__field">
+                <span>Printer</span>
+                <select
+                  value={printer?.id ?? ''}
+                  onChange={e => setPrinterId(e.target.value)}
+                >
+                  {studio.printers.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.host || 'no IP'})
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
 
             {missing.length > 0 && (
               <div className="bin-label-print-dialog__missing">
                 <h3 className="settings-logistics__title">Fill missing fields</h3>
-                <p className="text-muted text-sm">
-                  This layout needs values that are not on the product yet. Enter them for this print only.
-                </p>
                 <div className="settings-local-printer__fields-grid">
                   {missing.map(key => {
-                    if (key === 'printedOn') return null;
+                    if (key === 'printedOn' || key === 'packedOn') return null;
                     const fieldKey = key as keyof BinLabelFields;
                     const value = typeof fieldDraft[fieldKey] === 'string'
                       ? (fieldDraft[fieldKey] as string)
@@ -266,13 +253,11 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
               </div>
             )}
 
-            {resolved && (
-              <LocalPrinterLabelPreview
-                layoutXml={resolved.layout.xml}
-                fields={fieldDraft}
-                hideHead
-              />
-            )}
+            <LocalPrinterLabelPreview
+              layoutXml={layoutXml}
+              fields={fieldDraft}
+              hideHead
+            />
 
             {!native && (
               <p className="text-muted text-sm bin-label-print-dialog__hint">
@@ -286,24 +271,15 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
           <button type="button" className="btn btn-secondary" onClick={onClose} disabled={printing}>
             Close
           </button>
-          {step === 'review' && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => void handlePrint()}
-              disabled={printing || loadingSettings || !canPrint}
-              title={
-                !canPrint
-                  ? 'Fill missing fields first'
-                  : native
-                    ? 'Print this label'
-                    : 'Requires Android APK on same Wi‑Fi'
-              }
-            >
-              <Printer size={16} aria-hidden />
-              {printing ? 'Printing…' : 'Print'}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handlePrint()}
+            disabled={printing || loadingSettings || !canPrint}
+          >
+            <Printer size={16} aria-hidden />
+            {printing ? 'Printing…' : 'Print'}
+          </button>
         </div>
       </div>
     </div>,

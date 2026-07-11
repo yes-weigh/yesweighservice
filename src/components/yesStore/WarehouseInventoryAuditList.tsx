@@ -829,6 +829,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
       {printFields && (
         <BinLabelPrintDialog
           fields={printFields}
+          layoutId="genuine-spare"
           onClose={() => setPrintFields(null)}
         />
       )}

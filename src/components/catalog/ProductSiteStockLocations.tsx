@@ -138,6 +138,7 @@ function HeadOfficeLocationTable({
       {printFields && (
         <BinLabelPrintDialog
           fields={printFields}
+          layoutId="genuine-spare"
           onClose={() => setPrintFields(null)}
         />
       )}

@@ -15,6 +15,8 @@ export {
   formatPrintedOn,
   missingBindings,
   parseLayoutMedia,
+  sanitizeLayoutXml,
   validateLayoutXml,
   type LayoutMedia,
 } from './bindings';
+

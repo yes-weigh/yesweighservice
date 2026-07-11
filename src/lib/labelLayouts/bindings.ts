@@ -165,6 +165,21 @@ export type LayoutMedia = {
   labelGapMm: number;
 };
 
+/** Strip BOM and recover from accidental double-paste (second <?xml mid-document). */
+export function sanitizeLayoutXml(xml: string): string {
+  let s = xml.replace(/^\uFEFF/, '').trim();
+  if (!s) return s;
+
+  const decls = [...s.matchAll(/<\?xml\b[^?]*\?>/gi)];
+  if (decls.length > 1) {
+    // Keep the last document — usually the one the user just pasted.
+    const last = decls[decls.length - 1];
+    s = s.slice(last.index ?? 0).trim();
+  }
+
+  return s;
+}
+
 /** Read widthMm / heightMm / gapMm from layout XML root (with defaults). */
 export function parseLayoutMedia(xml: string, fallbacks?: Partial<LayoutMedia>): LayoutMedia {
   const fallback: LayoutMedia = {
@@ -174,7 +189,7 @@ export function parseLayoutMedia(xml: string, fallbacks?: Partial<LayoutMedia>):
   };
 
   try {
-    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const doc = new DOMParser().parseFromString(sanitizeLayoutXml(xml), 'application/xml');
     if (doc.querySelector('parsererror')) return fallback;
     const root = doc.documentElement;
     if (!root || root.tagName.toLowerCase() !== 'label') return fallback;
@@ -197,27 +212,36 @@ export function ensureLayoutMediaAttrs(
     labelGapMm: DEFAULT_LABEL_GAP_MM,
   },
 ): string {
+  const cleaned = sanitizeLayoutXml(xml);
   try {
-    const doc = new DOMParser().parseFromString(xml, 'application/xml');
-    if (doc.querySelector('parsererror')) return xml;
+    const doc = new DOMParser().parseFromString(cleaned, 'application/xml');
+    if (doc.querySelector('parsererror')) return cleaned;
     const root = doc.documentElement;
-    if (!root || root.tagName.toLowerCase() !== 'label') return xml;
+    if (!root || root.tagName.toLowerCase() !== 'label') return cleaned;
     if (!root.getAttribute('widthMm')) root.setAttribute('widthMm', String(media.labelWidthMm));
     if (!root.getAttribute('heightMm')) root.setAttribute('heightMm', String(media.labelHeightMm));
     if (!root.getAttribute('gapMm')) root.setAttribute('gapMm', String(media.labelGapMm));
     const serializer = new XMLSerializer();
+    // Prefer keeping a single declaration + original comments when possible;
+    // serializer drops the declaration which is fine for DOMParser.
     return serializer.serializeToString(doc);
   } catch {
-    return xml;
+    return cleaned;
   }
 }
 
 export function validateLayoutXml(xml: string): string | null {
-  const trimmed = xml.trim();
+  const trimmed = sanitizeLayoutXml(xml);
   if (!trimmed) return 'Layout XML is empty.';
   const doc = new DOMParser().parseFromString(trimmed, 'application/xml');
   const err = doc.querySelector('parsererror');
-  if (err) return `Invalid XML: ${err.textContent?.trim() || 'parse error'}`;
+  if (err) {
+    const msg = err.textContent?.trim() || 'parse error';
+    if (/XML declaration allowed only at the start/i.test(msg)) {
+      return 'Invalid XML: paste replaced the old document incompletely. Clear the editor, then paste once (or use Load … seed).';
+    }
+    return `Invalid XML: ${msg}`;
+  }
   const root = doc.documentElement;
   if (!root || root.tagName.toLowerCase() !== 'label') {
     return 'Layout XML must have a root <label> element.';

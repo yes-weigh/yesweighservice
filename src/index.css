@@ -7085,6 +7085,32 @@ html::-webkit-scrollbar {
   min-width: 0;
 }
 
+.product-detail-page__title-print {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border-color, #cbd5e1) 80%, transparent);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--surface, #fff) 92%, #e2e8f0);
+  color: #334155;
+  cursor: pointer;
+}
+
+.product-detail-page__title-print:hover {
+  color: var(--accent-primary, #0f766e);
+  border-color: color-mix(in srgb, var(--accent-primary, #0f766e) 45%, #cbd5e1);
+}
+
+.product-detail-page__title-print:focus-visible {
+  outline: 2px solid var(--accent-primary, #0f766e);
+  outline-offset: 2px;
+}
+
 .product-detail-page__title-price {
   display: inline-flex;
   flex-direction: column;
