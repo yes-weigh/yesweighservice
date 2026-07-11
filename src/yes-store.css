@@ -1724,6 +1724,7 @@
   flex-direction: column;
   gap: 0.1rem;
   min-width: 0;
+  flex: 1;
 }
 
 .catalog-product-link-picker__option-body strong,
@@ -1731,6 +1732,32 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.catalog-product-link-picker__option-stock {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  min-width: 3.5rem;
+  text-align: right;
+}
+
+.catalog-product-link-picker__option-stock-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.catalog-product-link-picker__option-stock strong {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #86efac;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 
 .catalog-product-link-preview {

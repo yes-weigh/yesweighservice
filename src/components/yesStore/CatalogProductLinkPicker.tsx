@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Package, Search } from 'lucide-react';
-import { fetchCatalogProductDetail } from '../../lib/catalog';
+import { fetchCatalogProductDetail, formatStockQuantity } from '../../lib/catalog';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import { ProductImageFrame } from '../catalog/ProductImageFrame';
 import { CatalogProductLinkPreview } from './CatalogProductLinkPreview';
@@ -159,6 +159,13 @@ export const CatalogProductLinkPicker: React.FC<CatalogProductLinkPickerProps> =
                     <span className="text-muted text-sm">
                       {[product.sku, product.categoryName].filter(Boolean).join(' · ')}
                     </span>
+                  </span>
+                  <span
+                    className="catalog-product-link-picker__option-stock"
+                    title="Zoho stock"
+                  >
+                    <span className="catalog-product-link-picker__option-stock-label">Zoho</span>
+                    <strong>{formatStockQuantity(product.stock, product.unit)}</strong>
                   </span>
                 </button>
               </li>
