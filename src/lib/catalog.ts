@@ -506,15 +506,16 @@ export function getShopCatalogCategories(
     .filter((c): c is CatalogCategory => c !== null);
   const included = new Set(fromShop.map(c => c.id));
 
-  const countSpareBrowseProducts = (list: CatalogProduct[], categoryId: string) =>
-    list.filter(p => p.categoryId === categoryId || !hasCatalogCategory(p)).length;
+  // Categories tab: Generic Spare Parts card counts only items in that Zoho category
+  // (uncategorized stay on the Spare parts tab, not here).
+  const countGenericCategoryProducts = (list: CatalogProduct[], categoryId: string) =>
+    list.filter(p => p.categoryId === categoryId).length;
 
   const genericSpareCategories = categories
     .filter(c => isGenericSparePartsCategory(c) && !included.has(c.id))
     .map(cat => {
-      // Uncategorized Zoho items live in the spare pool and belong under this tile.
-      const totalProductCount = countSpareBrowseProducts(spareProducts, cat.id);
-      const productCount = countSpareBrowseProducts(filteredSpare, cat.id);
+      const totalProductCount = countGenericCategoryProducts(spareProducts, cat.id);
+      const productCount = countGenericCategoryProducts(filteredSpare, cat.id);
       if (productCount <= 0) return null;
       return {
         ...cat,
@@ -537,10 +538,8 @@ export function getBrowseCatalogProducts(
   if (!activeCategoryId) return shopProducts;
   const activeCategory = categories.find(c => c.id === activeCategoryId);
   if (!activeCategory || !isGenericSparePartsCategory(activeCategory)) return shopProducts;
-  // Generic Spare Parts includes its category members plus uncategorized Zoho items.
-  return spareProducts.filter(
-    p => p.categoryId === activeCategoryId || !hasCatalogCategory(p),
-  );
+  // Categories tab: only items actually in the Generic Spare Parts Zoho category.
+  return spareProducts.filter(p => p.categoryId === activeCategoryId);
 }
 
 function catalogErrorMessage(err: unknown): string {
