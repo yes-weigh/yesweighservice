@@ -19,7 +19,7 @@ export interface BinLabelFields {
 
 export const TEST_BIN_LABEL_SAMPLE: BinLabelFields = {
   sku: '4pinCW',
-  itemName: 'Loadcell Connector',
+  itemName: 'abcdefghijklmnopqrstuvwxyz',
   masterSku: 'APCQ',
   masterProduct: 'Bench scale AD',
   rack: 'A',
@@ -28,6 +28,68 @@ export const TEST_BIN_LABEL_SAMPLE: BinLabelFields = {
   qrPayload: '4pinCW',
   printedOn: new Date(),
 };
+
+const TEST_LABEL_FIELDS_STORAGE_KEY = 'yesweigh.localPrinter.testLabelFields';
+
+export type BinLabelDraft = Omit<BinLabelFields, 'printedOn'>;
+
+export function draftFromBinLabel(fields: BinLabelFields): BinLabelDraft {
+  return {
+    sku: fields.sku,
+    itemName: fields.itemName,
+    masterSku: fields.masterSku,
+    masterProduct: fields.masterProduct,
+    rack: fields.rack,
+    row: fields.row,
+    bin: fields.bin,
+    qrPayload: fields.qrPayload,
+  };
+}
+
+export function loadTestLabelDraft(): BinLabelDraft {
+  const fallback = draftFromBinLabel(TEST_BIN_LABEL_SAMPLE);
+  try {
+    const raw = localStorage.getItem(TEST_LABEL_FIELDS_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<BinLabelDraft>;
+    return {
+      sku: String(parsed.sku ?? fallback.sku),
+      itemName: String(parsed.itemName ?? fallback.itemName),
+      masterSku: String(parsed.masterSku ?? fallback.masterSku),
+      masterProduct: String(parsed.masterProduct ?? fallback.masterProduct),
+      rack: String(parsed.rack ?? fallback.rack),
+      row: String(parsed.row ?? fallback.row),
+      bin: String(parsed.bin ?? fallback.bin),
+      qrPayload: String(parsed.qrPayload ?? parsed.sku ?? fallback.qrPayload),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveTestLabelDraft(draft: BinLabelDraft): void {
+  try {
+    localStorage.setItem(TEST_LABEL_FIELDS_STORAGE_KEY, JSON.stringify(draft));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+export function toBinLabelFields(draft: BinLabelDraft, printedOn = new Date()): BinLabelFields {
+  const sku = draft.sku.trim();
+  return {
+    ...draft,
+    sku,
+    itemName: draft.itemName.trim(),
+    masterSku: draft.masterSku.trim(),
+    masterProduct: draft.masterProduct.trim(),
+    rack: draft.rack.trim(),
+    row: draft.row.trim(),
+    bin: draft.bin.trim(),
+    qrPayload: (draft.qrPayload.trim() || sku),
+    printedOn,
+  };
+}
 
 /** TE210 print head density. */
 const DPI = 203;

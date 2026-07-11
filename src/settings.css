@@ -499,6 +499,84 @@
   align-items: center;
 }
 
+.settings-local-printer__config-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-local-printer__config-toggle-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-local-printer__config-toggle .settings-logistics__title {
+  margin: 0;
+}
+
+.settings-local-printer__config-summary {
+  margin: 0.25rem 0 0;
+}
+
+.settings-local-printer__chevron {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  transition: transform 0.15s ease;
+}
+
+.settings-local-printer__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.settings-local-printer__config-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.settings-local-printer__preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.settings-local-printer__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.settings-local-printer__fields .settings-logistics__title {
+  margin: 0;
+}
+
+.settings-local-printer__fields-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.settings-local-printer__field--wide {
+  grid-column: 1 / -1;
+}
+
 .settings-local-printer__success {
   color: #86efac;
   margin: 0 0 0.75rem;
@@ -574,6 +652,10 @@
   }
 
   .settings-local-printer__dims {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-local-printer__fields-grid {
     grid-template-columns: 1fr;
   }
 }

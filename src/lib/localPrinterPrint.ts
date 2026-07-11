@@ -73,17 +73,18 @@ export async function sendBinLabel(options: {
   });
 }
 
-/** Test print uses the Genuine Spare sample — same renderer as the on-screen preview. */
+/** Test print — same renderer as the on-screen preview (optional live field overrides). */
 export async function sendTestLabel(options: {
   host: string;
   port: number;
   labelWidthMm: number;
   labelHeightMm: number;
   labelGapMm: number;
+  fields?: BinLabelFields;
 }): Promise<{ bytesSent: number }> {
   return sendBinLabel({
     ...options,
-    fields: {
+    fields: options.fields ?? {
       ...TEST_BIN_LABEL_SAMPLE,
       printedOn: new Date(),
     },

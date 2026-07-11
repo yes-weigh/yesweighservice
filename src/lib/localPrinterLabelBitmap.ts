@@ -82,26 +82,9 @@ function roundRect(
   ctx.closePath();
 }
 
-function drawCalendarIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
-  ctx.save();
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 1.3;
-  roundRect(ctx, x, y + s * 0.15, s, s * 0.75, 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x, y + s * 0.38);
-  ctx.lineTo(x + s, y + s * 0.38);
-  ctx.moveTo(x + s * 0.28, y + s * 0.05);
-  ctx.lineTo(x + s * 0.28, y + s * 0.28);
-  ctx.moveTo(x + s * 0.72, y + s * 0.05);
-  ctx.lineTo(x + s * 0.72, y + s * 0.28);
-  ctx.stroke();
-  ctx.restore();
-}
-
 /**
  * Render the Genuine Spare bin label to a canvas at printer DPI (B&W thermal).
- * Layout: black header bar · left product fields · right LOCATION grid + QR · date footer.
+ * Layout: brand header · left product fields (boxed) · right LOCATION grid + QR.
  */
 export async function renderBinLabelCanvas(
   fields: BinLabelFields,
@@ -142,14 +125,38 @@ export async function renderBinLabelCanvas(
     loadImage('/yesweigh-mark.png'),
   ]);
 
-  // Column geometry first (needed for header RACK/ROW/BIN alignment)
+  // Column geometry — widen left so header title can use max font; keep min right for QR
   const inset = 5;
   const contentL = boxL + inset;
   const contentR = boxL + boxW - inset;
   const contentB = boxT + boxH - inset;
   const contentW = contentR - contentL;
   const splitGap = 6;
-  const leftW = Math.floor(contentW * 0.56);
+
+  const headerH = Math.round(30 * 1.3); // 39
+  const headerL = boxL + 2;
+  const headerT = boxT + 2;
+  const headerW = boxW - 4;
+  const logoH = headerH - 10;
+  const logoX = headerL + 8;
+  let logoW = logoH;
+  if (logo && logo.width > 0 && logo.height > 0) {
+    const crop = inkBounds(logo);
+    logoW = (crop.sw / crop.sh) * logoH;
+  }
+
+  const headerTitle = 'YESWEIGH GENUINE SPARE';
+  const maxHeaderFont = headerH - 8;
+  ctx.font = `bold ${maxHeaderFont}px Arial, Helvetica, sans-serif`;
+  const titleW = ctx.measureText(headerTitle).width;
+  const headerTextX = logoX + logoW + 8;
+  // Divider must clear logo + max-size title; keep ~34% for location + QR
+  const minLocW = Math.floor(contentW * 0.34);
+  const titleNeededLeft = Math.ceil(headerTextX + titleW + 6 - contentL);
+  const leftW = Math.min(
+    Math.max(titleNeededLeft, Math.floor(contentW * 0.62)),
+    contentW - minLocW - splitGap,
+  );
   const leftL = contentL;
   const leftR = leftL + leftW;
   const locL = leftR + splitGap;
@@ -159,11 +166,6 @@ export async function renderBinLabelCanvas(
   const dividerX = leftR + splitGap / 2;
 
   // --- Header: brand left · RACK/ROW/BIN titles right ---
-  const headerH = 30;
-  const headerL = boxL + 2;
-  const headerT = boxT + 2;
-  const headerW = boxW - 4;
-
   ctx.strokeStyle = '#000';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -179,13 +181,9 @@ export async function renderBinLabelCanvas(
   ctx.lineTo(dividerX, contentB);
   ctx.stroke();
 
-  const logoH = 20;
-  const logoX = headerL + 8;
   const logoY = headerT + (headerH - logoH) / 2;
-  let logoW = logoH;
   if (logo && logo.width > 0 && logo.height > 0) {
     const crop = inkBounds(logo);
-    logoW = (crop.sw / crop.sh) * logoH;
     ctx.drawImage(logo, crop.sx, crop.sy, crop.sw, crop.sh, logoX, logoY, logoW, logoH);
   } else {
     ctx.strokeStyle = '#000';
@@ -195,19 +193,18 @@ export async function renderBinLabelCanvas(
     ctx.stroke();
   }
 
-  const headerTitle = 'YESWEIGH GENUINE SPARE';
-  const headerTextX = logoX + logoW + 8;
   const headerTextMaxW = dividerX - headerTextX - 6;
-  const headerFont = fitFontSize(ctx, headerTitle, headerTextMaxW, 15, 9, true);
+  const headerFont = fitFontSize(ctx, headerTitle, headerTextMaxW, maxHeaderFont, 11, true);
   ctx.fillStyle = '#000';
   ctx.font = `bold ${headerFont}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(headerTitle, headerTextX, headerT + headerH / 2);
 
-  // RACK / ROW / BIN titles in header, aligned to right columns
+  // RACK / ROW / BIN titles — same large bold font for all (fit to longest label)
   const headers = ['RACK', 'ROW', 'BIN'] as const;
   const values = [fields.rack, fields.row, fields.bin];
+  const headerLabelFont = fitFontSize(ctx, 'RACK', colW - 4, Math.floor(headerH * 0.55), 11, true);
   for (let i = 0; i < 3; i += 1) {
     const cx = locL + i * colW;
     if (i > 0) {
@@ -216,9 +213,8 @@ export async function renderBinLabelCanvas(
       ctx.lineTo(cx, headerT + headerH);
       ctx.stroke();
     }
-    const hFont = fitFontSize(ctx, headers[i], colW - 4, 12, 8, true);
     ctx.fillStyle = '#000';
-    ctx.font = `bold ${hFont}px Arial, Helvetica, sans-serif`;
+    ctx.font = `bold ${headerLabelFont}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(headers[i], cx + colW / 2, headerT + headerH / 2);
@@ -226,26 +222,23 @@ export async function renderBinLabelCanvas(
 
   const bodyH = contentB - contentT;
 
-  // Date strip only under the left column (does not clip QR)
-  const dateH = 16;
-  const leftBodyBottom = contentB - dateH;
-  const leftBodyH = leftBodyBottom - contentT;
-
-  // --- Left: 4 equal rows + date under them ---
-  const leftRows = 4;
-  const rowH = Math.floor(leftBodyH / leftRows);
-  const leftFields: Array<{ label: string; value: string; skuRow?: boolean }> = [
-    { label: 'SKU', value: fields.sku, skuRow: true },
-    { label: 'ITEM NAME', value: fields.itemName },
-    { label: 'MASTER SKU', value: fields.masterSku },
-    { label: 'MASTER PRODUCT', value: fields.masterProduct },
+  // --- Left: boxed rows; ITEM NAME = label on top, value below; no MASTER PRODUCT ---
+  const leftBodyH = contentB - contentT;
+  const leftFields: Array<{ label: string; value: string; weight: number; stacked?: boolean }> = [
+    { label: 'SKU', value: fields.sku, weight: 1 },
+    { label: 'ITEM NAME', value: fields.itemName, weight: 2, stacked: true },
+    { label: 'MASTER SKU', value: fields.masterSku, weight: 1 },
+    { label: 'PRINTED ON', value: formatPrintedOn(fields.printedOn), weight: 1 },
   ];
+  const totalWeight = leftFields.reduce((sum, f) => sum + f.weight, 0);
+  const unitH = leftBodyH / totalWeight;
 
-  for (let i = 0; i < leftRows; i += 1) {
-    const rowTop = contentT + i * rowH;
-    const rowBottom = i === leftRows - 1 ? leftBodyBottom : rowTop + rowH;
+  let rowTop = contentT;
+  for (let i = 0; i < leftFields.length; i += 1) {
+    const rowH = Math.floor(unitH * leftFields[i].weight);
+    const rowBottom = i === leftFields.length - 1 ? contentB : rowTop + rowH;
     const rowMid = (rowTop + rowBottom) / 2;
-    const valueMaxW = leftW - 4;
+    const field = leftFields[i];
 
     if (i > 0) {
       ctx.beginPath();
@@ -254,9 +247,48 @@ export async function renderBinLabelCanvas(
       ctx.stroke();
     }
 
-    if (leftFields[i].skuRow) {
-      const badgeW = 48;
-      const badgeH = Math.min(26, rowH - 8);
+    ctx.font = 'bold 11px Arial, Helvetica, sans-serif';
+    const labelPadX = 10;
+    const measured = ctx.measureText(field.label).width + labelPadX * 2;
+    const badgeW = Math.min(Math.max(Math.ceil(measured), 48), Math.floor(leftW * 0.48));
+
+    if (field.stacked) {
+      // Label on its own line (boxed), value on the line(s) below — full width
+      const badgeH = Math.min(22, Math.floor((rowBottom - rowTop) * 0.32));
+      const badgeY = rowTop + 3;
+      roundRect(ctx, leftL, badgeY, badgeW, badgeH, 4);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      const labelFont = fitFontSize(ctx, field.label, badgeW - 8, 12, 8, true);
+      ctx.fillStyle = '#000';
+      ctx.font = `bold ${labelFont}px Arial, Helvetica, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(field.label, leftL + badgeW / 2, badgeY + badgeH / 2);
+
+      const valueTop = badgeY + badgeH + 2;
+      const valueAreaH = rowBottom - valueTop - 2;
+      const valueMaxW = leftW - 4;
+      // Locked font — wrap to multiple lines instead of shrinking
+      const itemNameFont = 30;
+      const lineGap = itemNameFont + 2;
+      const maxLines = Math.max(1, Math.floor(valueAreaH / lineGap));
+      ctx.font = `bold ${itemNameFont}px Arial, Helvetica, sans-serif`;
+      const lines = wrapMultiline(ctx, field.value, valueMaxW, maxLines);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const blockH = lines.length * lineGap;
+      let y = valueTop + (valueAreaH - blockH) / 2 + lineGap / 2;
+      for (const line of lines) {
+        ctx.fillText(line, leftL, y);
+        y += lineGap;
+      }
+    } else {
+      const badgeH = Math.min(28, Math.floor((rowBottom - rowTop) * 0.55));
       const badgeY = rowMid - badgeH / 2;
       roundRect(ctx, leftL, badgeY, badgeW, badgeH, 4);
       ctx.fillStyle = '#fff';
@@ -264,51 +296,42 @@ export async function renderBinLabelCanvas(
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1.5;
       ctx.stroke();
-      const skuLabelFont = fitFontSize(ctx, 'SKU', badgeW - 8, 14, 9, true);
+
+      const labelFont = fitFontSize(ctx, field.label, badgeW - 8, 13, 8, true);
       ctx.fillStyle = '#000';
-      ctx.font = `bold ${skuLabelFont}px Arial, Helvetica, sans-serif`;
+      ctx.font = `bold ${labelFont}px Arial, Helvetica, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('SKU', leftL + badgeW / 2, rowMid);
+      ctx.fillText(field.label, leftL + badgeW / 2, rowMid);
 
-      const skuValMaxW = leftW - badgeW - 10;
-      const skuFont = fitFontSize(ctx, fields.sku, skuValMaxW, 28, 14, true);
+      const valueMaxW = leftW - badgeW - 10;
+      const valueFont = fitFontSize(ctx, field.value, valueMaxW, 28, 12, true);
       ctx.textAlign = 'left';
-      ctx.font = `bold ${skuFont}px Arial, Helvetica, sans-serif`;
-      ctx.fillText(fields.sku, leftL + badgeW + 8, rowMid);
-    } else {
-      const labelH = Math.floor(rowH * 0.32);
-      const labelFont = fitFontSize(ctx, leftFields[i].label, valueMaxW, 12, 8, false);
-      ctx.fillStyle = '#000';
-      ctx.font = `${labelFont}px Arial, Helvetica, sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(leftFields[i].label, leftL, rowTop + labelH / 2 + 2);
-
-      const valueFont = fitFontSize(ctx, leftFields[i].value, valueMaxW, 22, 12, true);
       ctx.font = `bold ${valueFont}px Arial, Helvetica, sans-serif`;
-      ctx.fillText(leftFields[i].value, leftL, rowTop + labelH + (rowBottom - rowTop - labelH) / 2);
+      ctx.fillText(field.value, leftL + badgeW + 8, rowMid);
     }
+
+    rowTop = rowBottom;
   }
 
-  // Printed date under left column only
-  ctx.beginPath();
-  ctx.moveTo(leftL, leftBodyBottom);
-  ctx.lineTo(leftR, leftBodyBottom);
-  ctx.stroke();
-  const printed = `PRINTED ON ${formatPrintedOn(fields.printedOn)}`;
-  drawCalendarIcon(ctx, leftL, leftBodyBottom + 1, 12);
-  const footerFont = fitFontSize(ctx, printed, leftW - 20, 11, 7, false);
-  ctx.fillStyle = '#000';
-  ctx.font = `${footerFont}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(printed, leftL + 16, leftBodyBottom + dateH / 2);
-
-  // --- Right: location values only (titles are in header) + QR ---
+  // --- Right: location values + QR with equal padding on all sides ---
+  // Size QR to column width (max), then shrink the location block so leftover height
+  // matches — equal pad without reducing QR.
+  const qrPad = 10;
+  const qrSize = Math.max(40, locW - 2 * qrPad);
+  const qrBlockH = qrSize + 2 * qrPad;
+  const locH = Math.max(32, bodyH - qrBlockH);
   const locT = contentT;
-  const locH = Math.floor(bodyH * 0.22);
   const locB = locT + locH;
+
+  // If location took the min floor, remaining QR area may be taller than wide —
+  // keep QR at qrSize and center with equal pad in the leftover square cell.
+  const qrAreaT = locB;
+  const qrAreaH = contentB - qrAreaT;
+  // Prefer the planned pad; if area is taller, extra goes equally top/bottom
+  // (QR itself stays qrSize — not downsized).
+  const padX = Math.floor((locW - qrSize) / 2);
+  const padY = Math.floor((qrAreaH - qrSize) / 2);
 
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = '#000';
@@ -321,11 +344,15 @@ export async function renderBinLabelCanvas(
     ctx.stroke();
   }
 
+  const valueMaxW = colW - 6;
+  const valueMaxH = Math.floor(locH * 0.7);
+  const sharedValueFont = Math.min(
+    ...values.map((v) => fitFontSize(ctx, v, valueMaxW, valueMaxH, 14, true)),
+  );
   for (let i = 0; i < 3; i += 1) {
     const cx = locL + i * colW;
-    const vFont = fitFontSize(ctx, values[i], colW - 6, Math.floor(locH * 0.75), 18, true);
     ctx.fillStyle = '#000';
-    ctx.font = `bold ${vFont}px Arial, Helvetica, sans-serif`;
+    ctx.font = `bold ${sharedValueFont}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(values[i], cx + colW / 2, locT + locH / 2);
@@ -339,14 +366,9 @@ export async function renderBinLabelCanvas(
   ctx.lineTo(locR, locB);
   ctx.stroke();
 
-  // QR fills remaining right area, with small top/bottom padding
-  const qrPad = 12;
-  const qrAreaT = locB + qrPad;
-  const qrAreaH = contentB - qrAreaT - qrPad;
-  const qrSize = Math.max(40, Math.min(locW, qrAreaH));
   const qrImg = await loadImage(qrDataUrl);
-  const qrX = locL + Math.floor((locW - qrSize) / 2);
-  const qrY = qrAreaT + Math.floor((qrAreaH - qrSize) / 2);
+  const qrX = locL + padX;
+  const qrY = qrAreaT + padY;
   if (qrImg) ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
 
   return canvas;
@@ -365,6 +387,77 @@ function fitFontSize(
     if (ctx.measureText(text).width <= maxWidth) return size;
   }
   return min;
+}
+
+/** Wrap text at a fixed font (ctx.font must already be set). Last line ellipsizes if needed. */
+function wrapMultiline(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  const trimmed = text.trim();
+  if (!trimmed || maxLines < 1) return [''];
+
+  const lines: string[] = [];
+  let remaining = trimmed;
+
+  const takeLine = (chunk: string, ellipsis: boolean): string => {
+    if (!ellipsis || ctx.measureText(chunk).width <= maxWidth) return chunk;
+    let line = chunk;
+    while (line.length > 1 && ctx.measureText(`${line}…`).width > maxWidth) {
+      line = line.slice(0, -1);
+    }
+    return `${line}…`;
+  };
+
+  while (remaining && lines.length < maxLines) {
+    const isLast = lines.length === maxLines - 1;
+    if (ctx.measureText(remaining).width <= maxWidth) {
+      lines.push(remaining);
+      break;
+    }
+
+    // Prefer breaking on spaces
+    const spaceParts = remaining.split(/(\s+)/);
+    let built = '';
+    let consumed = 0;
+    for (let i = 0; i < spaceParts.length; i += 1) {
+      const next = built + spaceParts[i];
+      const probe = isLast && i < spaceParts.length - 1 ? `${next.trimEnd()}…` : next;
+      if (ctx.measureText(probe).width <= maxWidth) {
+        built = next;
+        consumed = i + 1;
+      } else {
+        break;
+      }
+    }
+
+    if (consumed > 0 && built.trim()) {
+      const line = built.trimEnd();
+      remaining = spaceParts.slice(consumed).join('').trimStart();
+      lines.push(isLast && remaining ? takeLine(line, true) : line);
+      if (isLast) break;
+      continue;
+    }
+
+    // Character wrap
+    let cut = 1;
+    for (let i = 1; i <= remaining.length; i += 1) {
+      const slice = remaining.slice(0, i);
+      const probe = isLast && i < remaining.length ? `${slice}…` : slice;
+      if (ctx.measureText(probe).width <= maxWidth) cut = i;
+      else break;
+    }
+    if (isLast && cut < remaining.length) {
+      lines.push(takeLine(remaining.slice(0, cut), true));
+      break;
+    }
+    lines.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut);
+  }
+
+  return lines.length ? lines : [''];
 }
 
 /**
