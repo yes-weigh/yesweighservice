@@ -201,6 +201,7 @@ service cloud.firestore {
         || (docId == 'productSettings' && isSuperAdmin())
         || (docId == 'logisticsSettings' && isSuperAdmin())
         || (docId == 'localPrinterSettings' && isSuperAdmin())
+        || (docId == 'labelStudio' && isSuperAdmin())
       );
     }
 
