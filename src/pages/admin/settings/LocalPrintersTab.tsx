@@ -81,10 +81,10 @@ export const LocalPrintersTab: React.FC = () => {
     setLayouts(docData.layouts);
     setLabels(docData.labels);
     setSelectedLayoutId(prev =>
-      docData.layouts.some(l => l.id === prev) ? prev : (docData.layouts[0]?.id ?? ''),
+      docData.layouts.some(l => l.id === prev) ? prev : '',
     );
     setSelectedLabelId(prev =>
-      docData.labels.some(l => l.id === prev) ? prev : (docData.labels[0]?.id ?? ''),
+      docData.labels.some(l => l.id === prev) ? prev : '',
     );
     setSavedSnapshot(JSON.stringify({
       printers: docData.printers,
@@ -122,12 +122,12 @@ export const LocalPrintersTab: React.FC = () => {
   }, [currentPrinters, layouts, labels, savedSnapshot]);
 
   const selectedLayout = useMemo(
-    () => layouts.find(l => l.id === selectedLayoutId) ?? layouts[0] ?? null,
+    () => layouts.find(l => l.id === selectedLayoutId) ?? null,
     [layouts, selectedLayoutId],
   );
 
   const selectedLabel = useMemo(
-    () => labels.find(l => l.id === selectedLabelId) ?? labels[0] ?? null,
+    () => labels.find(l => l.id === selectedLabelId) ?? null,
     [labels, selectedLabelId],
   );
 
@@ -206,7 +206,7 @@ export const LocalPrintersTab: React.FC = () => {
     }
     const remaining = layouts.filter(l => l.id !== id);
     setLayouts(remaining);
-    if (selectedLayoutId === id) setSelectedLayoutId(remaining[0]?.id ?? '');
+    if (selectedLayoutId === id) setSelectedLayoutId('');
   };
 
   const handleAddLabel = () => {
@@ -227,7 +227,7 @@ export const LocalPrintersTab: React.FC = () => {
     }
     const remaining = labels.filter(l => l.id !== id);
     setLabels(remaining);
-    if (selectedLabelId === id) setSelectedLabelId(remaining[0]?.id ?? '');
+    if (selectedLabelId === id) setSelectedLabelId('');
   };
 
   const handleSave = async () => {
@@ -443,290 +443,336 @@ export const LocalPrintersTab: React.FC = () => {
               </>
             )}
 
-            {tab === 'layouts' && selectedLayout && (
-              <div className="label-studio__split">
-                <div className="label-studio__sidebar">
-                  <div className="settings-local-printer__list-toolbar">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busyKey != null}
-                      onClick={handleAddLayout}
-                    >
-                      <Plus size={15} aria-hidden />
-                      Add layout
-                    </button>
-                  </div>
-                  <ul className="label-studio__entity-list">
-                    {layouts.map(layout => {
-                      const media = parseLayoutMedia(layout.xml);
-                      return (
-                        <li key={layout.id}>
-                          <button
-                            type="button"
-                            className={`label-studio__entity${layout.id === selectedLayout.id ? ' is-active' : ''}`}
-                            onClick={() => setSelectedLayoutId(layout.id)}
-                          >
-                            <strong>{layout.name}</strong>
-                            <span className="text-muted text-sm">
-                              {media.labelWidthMm}×{media.labelHeightMm} mm · gap {media.labelGapMm}
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+            {tab === 'layouts' && (
+              <div className="label-studio__layouts">
+                <div className="settings-local-printer__list-toolbar">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={busyKey != null}
+                    onClick={handleAddLayout}
+                  >
+                    <Plus size={15} aria-hidden />
+                    Add layout
+                  </button>
                 </div>
+                <ul className="label-studio__entity-list label-studio__entity-list--cards">
+                  {layouts.map(layout => {
+                    const media = parseLayoutMedia(layout.xml);
+                    const active = layout.id === selectedLayoutId;
+                    return (
+                      <li key={layout.id}>
+                        <button
+                          type="button"
+                          className={`label-studio__entity${active ? ' is-active' : ''}`}
+                          aria-expanded={active}
+                          onClick={() => setSelectedLayoutId(active ? '' : layout.id)}
+                        >
+                          <strong>{layout.name}</strong>
+                          <span className="text-muted text-sm">
+                            {media.labelWidthMm}×{media.labelHeightMm} mm · gap {media.labelGapMm}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
 
-                <div className="label-studio__main settings-logistics__default panel glass">
-                  <label className="settings-locations__field">
-                    <span>Layout name</span>
-                    <input
-                      type="text"
-                      value={selectedLayout.name}
-                      disabled={busyKey === 'save'}
-                      onChange={e => updateLayout(selectedLayout.id, { name: e.target.value })}
-                    />
-                  </label>
-                  <label className="settings-locations__field">
-                    <span>Layout XML</span>
-                    <textarea
-                      className="settings-local-printer__xml"
-                      rows={16}
-                      spellCheck={false}
-                      value={selectedLayout.xml}
-                      disabled={busyKey === 'save'}
-                      onChange={e => updateLayout(selectedLayout.id, { xml: e.target.value })}
-                    />
-                  </label>
-                  {layoutXmlError && (
-                    <p className="settings-locations__error text-sm">{layoutXmlError}</p>
-                  )}
-                  <div className="settings-local-printer__card-actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busyKey === 'save'}
-                      onClick={() => updateLayout(selectedLayout.id, {
-                        xml: getLabelLayoutTemplateXml('genuine-spare'),
-                      })}
-                    >
-                      Load Genuine Spare seed
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busyKey === 'save'}
-                      onClick={() => updateLayout(selectedLayout.id, {
-                        xml: getLabelLayoutTemplateXml('simple-bin'),
-                      })}
-                    >
-                      Load Simple bin seed
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busyKey != null || layouts.length <= 1}
-                      onClick={() => handleDeleteLayout(selectedLayout.id)}
-                    >
-                      <Trash2 size={15} aria-hidden />
-                      Delete layout
-                    </button>
-                  </div>
+                {!selectedLayout && (
+                  <p className="text-muted text-sm label-studio__hint">
+                    Click a layout to edit its XML and preview.
+                  </p>
+                )}
 
-                  {!layoutXmlError && (
-                    <LocalPrinterLabelPreview
-                      layoutXml={selectedLayout.xml}
-                      fields={previewFields}
-                    />
-                  )}
-
-                  <div className="settings-local-printer__fields">
-                    <h4 className="settings-logistics__title">Test values</h4>
-                    <div className="settings-local-printer__fields-grid">
-                      <label className="settings-locations__field">
-                        <span>SKU</span>
-                        <input type="text" value={draft.sku} onChange={e => updateDraft('sku', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field settings-local-printer__field--wide">
-                        <span>Item name</span>
-                        <input type="text" value={draft.itemName} onChange={e => updateDraft('itemName', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field">
-                        <span>Master SKU</span>
-                        <input type="text" value={draft.masterSku} onChange={e => updateDraft('masterSku', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field">
-                        <span>Rack</span>
-                        <input type="text" value={draft.rack} onChange={e => updateDraft('rack', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field">
-                        <span>Row</span>
-                        <input type="text" value={draft.row} onChange={e => updateDraft('row', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field">
-                        <span>Bin</span>
-                        <input type="text" value={draft.bin} onChange={e => updateDraft('bin', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field settings-local-printer__field--wide">
-                        <span>QR payload</span>
-                        <input type="text" value={draft.qrPayload} onChange={e => updateDraft('qrPayload', e.target.value)} />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {tab === 'labels' && selectedLabel && (
-              <div className="label-studio__split">
-                <div className="label-studio__sidebar">
-                  <div className="settings-local-printer__list-toolbar">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busyKey != null}
-                      onClick={handleAddLabel}
-                    >
-                      <Plus size={15} aria-hidden />
-                      Add label
-                    </button>
-                  </div>
-                  <ul className="label-studio__entity-list">
-                    {labels.map(label => {
-                      const printer = currentPrinters.find(p => p.id === label.printerId);
-                      const layout = layouts.find(l => l.id === label.layoutId);
-                      return (
-                        <li key={label.id}>
-                          <button
-                            type="button"
-                            className={`label-studio__entity${label.id === selectedLabel.id ? ' is-active' : ''}`}
-                            onClick={() => setSelectedLabelId(label.id)}
-                          >
-                            <strong>{label.name}</strong>
-                            <span className="text-muted text-sm">
-                              {(printer?.name ?? '—') + ' · ' + (layout?.name ?? '—')}
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-
-                <div className="label-studio__main settings-logistics__default panel glass">
-                  <div className="settings-local-printer__preview-head">
-                    <div>
-                      <h4 className="settings-logistics__title">Label recipe</h4>
-                      <p className="text-muted text-sm">
-                        {selectedLabelPrinter
-                          ? `${selectedLabelPrinter.name} (${selectedLabelPrinter.host || 'no IP'})`
-                          : 'No printer'}
-                        {selectedLabelLayout
-                          ? ` · ${selectedLabelLayout.name}`
-                          : ''}
-                      </p>
-                    </div>
-                    <div className="settings-local-printer__preview-actions">
+                {selectedLayout && (
+                  <div className="label-studio__main settings-logistics__default panel glass">
+                    <label className="settings-locations__field">
+                      <span>Layout name</span>
+                      <input
+                        type="text"
+                        value={selectedLayout.name}
+                        disabled={busyKey === 'save'}
+                        onChange={e => updateLayout(selectedLayout.id, { name: e.target.value })}
+                      />
+                    </label>
+                    <label className="settings-locations__field">
+                      <span>Layout XML</span>
+                      <textarea
+                        className="settings-local-printer__xml"
+                        rows={16}
+                        spellCheck={false}
+                        value={selectedLayout.xml}
+                        disabled={busyKey === 'save'}
+                        onChange={e => updateLayout(selectedLayout.id, { xml: e.target.value })}
+                      />
+                    </label>
+                    {layoutXmlError && (
+                      <p className="settings-locations__error text-sm">{layoutXmlError}</p>
+                    )}
+                    <div className="settings-local-printer__card-actions">
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
-                        disabled={busyKey != null || dirty}
-                        onClick={() => void handleTestPrint()}
-                        title={native ? 'Print the exact preview bitmap' : 'Requires Android APK on same Wi‑Fi'}
+                        disabled={busyKey === 'save'}
+                        onClick={() => updateLayout(selectedLayout.id, {
+                          xml: getLabelLayoutTemplateXml('genuine-spare'),
+                        })}
                       >
-                        <Printer size={15} aria-hidden />
-                        {busyKey === 'test' ? 'Printing…' : 'Test print'}
+                        Load Genuine Spare seed
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={busyKey === 'save'}
+                        onClick={() => updateLayout(selectedLayout.id, {
+                          xml: getLabelLayoutTemplateXml('genuine-spare-product'),
+                        })}
+                      >
+                        Load Product pack seed
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={busyKey === 'save'}
+                        onClick={() => updateLayout(selectedLayout.id, {
+                          xml: getLabelLayoutTemplateXml('simple-bin'),
+                        })}
+                      >
+                        Load Simple bin seed
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={busyKey != null || layouts.length <= 1}
+                        onClick={() => handleDeleteLayout(selectedLayout.id)}
+                      >
+                        <Trash2 size={15} aria-hidden />
+                        Delete layout
                       </button>
                     </div>
-                  </div>
 
-                  <label className="settings-locations__field">
-                    <span>Label name</span>
-                    <input
-                      type="text"
-                      value={selectedLabel.name}
-                      disabled={busyKey === 'save'}
-                      onChange={e => updateLabel(selectedLabel.id, { name: e.target.value })}
-                    />
-                  </label>
-                  <label className="settings-locations__field">
-                    <span>Printer</span>
-                    <select
-                      value={selectedLabel.printerId}
-                      disabled={busyKey === 'save'}
-                      onChange={e => updateLabel(selectedLabel.id, { printerId: e.target.value })}
-                    >
-                      {currentPrinters.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="settings-locations__field">
-                    <span>Layout</span>
-                    <select
-                      value={selectedLabel.layoutId}
-                      disabled={busyKey === 'save'}
-                      onChange={e => updateLabel(selectedLabel.id, { layoutId: e.target.value })}
-                    >
-                      {layouts.map(l => (
-                        <option key={l.id} value={l.id}>{l.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="settings-local-printer__card-actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busyKey != null || labels.length <= 1}
-                      onClick={() => handleDeleteLabel(selectedLabel.id)}
-                    >
-                      <Trash2 size={15} aria-hidden />
-                      Delete label
-                    </button>
-                  </div>
+                    {!layoutXmlError && (
+                      <LocalPrinterLabelPreview
+                        layoutXml={selectedLayout.xml}
+                        fields={previewFields}
+                      />
+                    )}
 
-                  {selectedLabelLayout && (
-                    <LocalPrinterLabelPreview
-                      layoutXml={selectedLabelLayout.xml}
-                      fields={previewFields}
-                    />
-                  )}
-
-                  <div className="settings-local-printer__fields">
-                    <h4 className="settings-logistics__title">Test values</h4>
-                    <div className="settings-local-printer__fields-grid">
-                      <label className="settings-locations__field">
-                        <span>SKU</span>
-                        <input type="text" value={draft.sku} onChange={e => updateDraft('sku', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field settings-local-printer__field--wide">
-                        <span>Item name</span>
-                        <input type="text" value={draft.itemName} onChange={e => updateDraft('itemName', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field">
-                        <span>Master SKU</span>
-                        <input type="text" value={draft.masterSku} onChange={e => updateDraft('masterSku', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field">
-                        <span>Rack</span>
-                        <input type="text" value={draft.rack} onChange={e => updateDraft('rack', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field">
-                        <span>Row</span>
-                        <input type="text" value={draft.row} onChange={e => updateDraft('row', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field">
-                        <span>Bin</span>
-                        <input type="text" value={draft.bin} onChange={e => updateDraft('bin', e.target.value)} />
-                      </label>
-                      <label className="settings-locations__field settings-local-printer__field--wide">
-                        <span>QR payload</span>
-                        <input type="text" value={draft.qrPayload} onChange={e => updateDraft('qrPayload', e.target.value)} />
-                      </label>
+                    <div className="settings-local-printer__fields">
+                      <h4 className="settings-logistics__title">Test values</h4>
+                      <div className="settings-local-printer__fields-grid">
+                        <label className="settings-locations__field">
+                          <span>SKU</span>
+                          <input type="text" value={draft.sku} onChange={e => updateDraft('sku', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field settings-local-printer__field--wide">
+                          <span>Item name</span>
+                          <input type="text" value={draft.itemName} onChange={e => updateDraft('itemName', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Master SKU</span>
+                          <input type="text" value={draft.masterSku} onChange={e => updateDraft('masterSku', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Rack</span>
+                          <input type="text" value={draft.rack} onChange={e => updateDraft('rack', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Row</span>
+                          <input type="text" value={draft.row} onChange={e => updateDraft('row', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Bin</span>
+                          <input type="text" value={draft.bin} onChange={e => updateDraft('bin', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Qty</span>
+                          <input type="text" value={draft.qty ?? ''} onChange={e => updateDraft('qty', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>MRP</span>
+                          <input type="text" value={draft.mrp ?? ''} onChange={e => updateDraft('mrp', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Batch no.</span>
+                          <input type="text" value={draft.batchNo ?? ''} onChange={e => updateDraft('batchNo', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Packed by</span>
+                          <input type="text" value={draft.packedBy ?? ''} onChange={e => updateDraft('packedBy', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>QC status</span>
+                          <input type="text" value={draft.qcStatus ?? ''} onChange={e => updateDraft('qcStatus', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field settings-local-printer__field--wide">
+                          <span>QR payload</span>
+                          <input type="text" value={draft.qrPayload} onChange={e => updateDraft('qrPayload', e.target.value)} />
+                        </label>
+                      </div>
                     </div>
                   </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'labels' && (
+              <div className="label-studio__layouts">
+                <div className="settings-local-printer__list-toolbar">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={busyKey != null}
+                    onClick={handleAddLabel}
+                  >
+                    <Plus size={15} aria-hidden />
+                    Add label
+                  </button>
                 </div>
+                <ul className="label-studio__entity-list label-studio__entity-list--cards">
+                  {labels.map(label => {
+                    const printer = currentPrinters.find(p => p.id === label.printerId);
+                    const layout = layouts.find(l => l.id === label.layoutId);
+                    const active = label.id === selectedLabelId;
+                    return (
+                      <li key={label.id}>
+                        <button
+                          type="button"
+                          className={`label-studio__entity${active ? ' is-active' : ''}`}
+                          aria-expanded={active}
+                          onClick={() => setSelectedLabelId(active ? '' : label.id)}
+                        >
+                          <strong>{label.name}</strong>
+                          <span className="text-muted text-sm">
+                            {(printer?.name ?? '—') + ' · ' + (layout?.name ?? '—')}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {!selectedLabel && (
+                  <p className="text-muted text-sm label-studio__hint">
+                    Click a label to edit printer/layout pairing and preview.
+                  </p>
+                )}
+
+                {selectedLabel && (
+                  <div className="label-studio__main settings-logistics__default panel glass">
+                    <div className="settings-local-printer__preview-head">
+                      <div>
+                        <h4 className="settings-logistics__title">Label recipe</h4>
+                        <p className="text-muted text-sm">
+                          {selectedLabelPrinter
+                            ? `${selectedLabelPrinter.name} (${selectedLabelPrinter.host || 'no IP'})`
+                            : 'No printer'}
+                          {selectedLabelLayout
+                            ? ` · ${selectedLabelLayout.name}`
+                            : ''}
+                        </p>
+                      </div>
+                      <div className="settings-local-printer__preview-actions">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={busyKey != null || dirty}
+                          onClick={() => void handleTestPrint()}
+                          title={native ? 'Print the exact preview bitmap' : 'Requires Android APK on same Wi‑Fi'}
+                        >
+                          <Printer size={15} aria-hidden />
+                          {busyKey === 'test' ? 'Printing…' : 'Test print'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <label className="settings-locations__field">
+                      <span>Label name</span>
+                      <input
+                        type="text"
+                        value={selectedLabel.name}
+                        disabled={busyKey === 'save'}
+                        onChange={e => updateLabel(selectedLabel.id, { name: e.target.value })}
+                      />
+                    </label>
+                    <label className="settings-locations__field">
+                      <span>Printer</span>
+                      <select
+                        value={selectedLabel.printerId}
+                        disabled={busyKey === 'save'}
+                        onChange={e => updateLabel(selectedLabel.id, { printerId: e.target.value })}
+                      >
+                        {currentPrinters.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="settings-locations__field">
+                      <span>Layout</span>
+                      <select
+                        value={selectedLabel.layoutId}
+                        disabled={busyKey === 'save'}
+                        onChange={e => updateLabel(selectedLabel.id, { layoutId: e.target.value })}
+                      >
+                        {layouts.map(l => (
+                          <option key={l.id} value={l.id}>{l.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="settings-local-printer__card-actions">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={busyKey != null || labels.length <= 1}
+                        onClick={() => handleDeleteLabel(selectedLabel.id)}
+                      >
+                        <Trash2 size={15} aria-hidden />
+                        Delete label
+                      </button>
+                    </div>
+
+                    {selectedLabelLayout && (
+                      <LocalPrinterLabelPreview
+                        layoutXml={selectedLabelLayout.xml}
+                        fields={previewFields}
+                      />
+                    )}
+
+                    <div className="settings-local-printer__fields">
+                      <h4 className="settings-logistics__title">Test values</h4>
+                      <div className="settings-local-printer__fields-grid">
+                        <label className="settings-locations__field">
+                          <span>SKU</span>
+                          <input type="text" value={draft.sku} onChange={e => updateDraft('sku', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field settings-local-printer__field--wide">
+                          <span>Item name</span>
+                          <input type="text" value={draft.itemName} onChange={e => updateDraft('itemName', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Master SKU</span>
+                          <input type="text" value={draft.masterSku} onChange={e => updateDraft('masterSku', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Rack</span>
+                          <input type="text" value={draft.rack} onChange={e => updateDraft('rack', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Row</span>
+                          <input type="text" value={draft.row} onChange={e => updateDraft('row', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field">
+                          <span>Bin</span>
+                          <input type="text" value={draft.bin} onChange={e => updateDraft('bin', e.target.value)} />
+                        </label>
+                        <label className="settings-locations__field settings-local-printer__field--wide">
+                          <span>QR payload</span>
+                          <input type="text" value={draft.qrPayload} onChange={e => updateDraft('qrPayload', e.target.value)} />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>

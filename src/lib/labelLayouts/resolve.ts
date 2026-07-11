@@ -1,9 +1,11 @@
 import genuineSpareXml from './templates/genuine-spare.xml?raw';
+import genuineSpareProductXml from './templates/genuine-spare-product.xml?raw';
 import simpleBinXml from './templates/simple-bin.xml?raw';
 import { DEFAULT_LABEL_LAYOUT_ID, isKnownLabelLayoutId } from './registry';
 
 const TEMPLATE_XML: Record<string, string> = {
   'genuine-spare': genuineSpareXml,
+  'genuine-spare-product': genuineSpareProductXml,
   'simple-bin': simpleBinXml,
 };
 

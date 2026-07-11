@@ -15,23 +15,40 @@ export interface BinLabelFields {
   /** Absolute or relative URL / payload encoded in the QR. */
   qrPayload: string;
   printedOn: Date;
+  /** Product-pack layout extras (optional). */
+  qty?: string;
+  mrp?: string;
+  batchNo?: string;
+  packedBy?: string;
+  qcStatus?: string;
 }
 
 export const TEST_BIN_LABEL_SAMPLE: BinLabelFields = {
-  sku: '4pinCW',
-  itemName: 'abcdefghijklmnopqrstuvwxyz',
-  masterSku: 'APCQ',
-  masterProduct: 'Bench scale AD',
+  sku: 'YSLC300001',
+  itemName: 'LOAD CELL',
+  masterSku: 'YSLM300030KG',
+  masterProduct: 'LOAD CELL 30KG',
   rack: 'A',
   row: '5',
   bin: '3',
-  qrPayload: '4pinCW',
-  printedOn: new Date(),
+  qrPayload: 'YSLC300001',
+  printedOn: new Date('2024-05-16'),
+  qty: '1 PC',
+  mrp: '₹ 500.00',
+  batchNo: 'B24051501',
+  packedBy: 'YESWEIGH',
+  qcStatus: 'PASSED',
 };
 
 const TEST_LABEL_FIELDS_STORAGE_KEY = 'yesweigh.localPrinter.testLabelFields';
 
-export type BinLabelDraft = Omit<BinLabelFields, 'printedOn'>;
+export type BinLabelDraft = Omit<BinLabelFields, 'printedOn'> & {
+  qty?: string;
+  mrp?: string;
+  batchNo?: string;
+  packedBy?: string;
+  qcStatus?: string;
+};
 
 export function draftFromBinLabel(fields: BinLabelFields): BinLabelDraft {
   return {
@@ -43,6 +60,11 @@ export function draftFromBinLabel(fields: BinLabelFields): BinLabelDraft {
     row: fields.row,
     bin: fields.bin,
     qrPayload: fields.qrPayload,
+    qty: fields.qty ?? '',
+    mrp: fields.mrp ?? '',
+    batchNo: fields.batchNo ?? '',
+    packedBy: fields.packedBy ?? '',
+    qcStatus: fields.qcStatus ?? '',
   };
 }
 
@@ -61,6 +83,11 @@ export function loadTestLabelDraft(): BinLabelDraft {
       row: String(parsed.row ?? fallback.row),
       bin: String(parsed.bin ?? fallback.bin),
       qrPayload: String(parsed.qrPayload ?? parsed.sku ?? fallback.qrPayload),
+      qty: String(parsed.qty ?? fallback.qty ?? ''),
+      mrp: String(parsed.mrp ?? fallback.mrp ?? ''),
+      batchNo: String(parsed.batchNo ?? fallback.batchNo ?? ''),
+      packedBy: String(parsed.packedBy ?? fallback.packedBy ?? ''),
+      qcStatus: String(parsed.qcStatus ?? fallback.qcStatus ?? ''),
     };
   } catch {
     return fallback;
@@ -78,7 +105,6 @@ export function saveTestLabelDraft(draft: BinLabelDraft): void {
 export function toBinLabelFields(draft: BinLabelDraft, printedOn = new Date()): BinLabelFields {
   const sku = draft.sku.trim();
   return {
-    ...draft,
     sku,
     itemName: draft.itemName.trim(),
     masterSku: draft.masterSku.trim(),
@@ -88,6 +114,11 @@ export function toBinLabelFields(draft: BinLabelDraft, printedOn = new Date()): 
     bin: draft.bin.trim(),
     qrPayload: (draft.qrPayload.trim() || sku),
     printedOn,
+    qty: (draft.qty ?? '').trim(),
+    mrp: (draft.mrp ?? '').trim(),
+    batchNo: (draft.batchNo ?? '').trim(),
+    packedBy: (draft.packedBy ?? '').trim(),
+    qcStatus: (draft.qcStatus ?? '').trim(),
   };
 }
 

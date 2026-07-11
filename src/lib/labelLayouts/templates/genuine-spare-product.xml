@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  YesWeigh Genuine Spare Part product label — exact mockup layout (text only, no icons/logos).
+  Size: 75 × 45.5 mm @ 203 dpi, gap 3.5 mm.
+
+  Bindings:
+    {{itemName}} {{sku}} {{masterProduct}} {{masterSku}}
+    {{qty}} {{mrp}} {{packedOn}} {{batchNo}} {{packedBy}} {{qcStatus}} {{qrPayload}}
+-->
+<label
+  id="genuine-spare-product"
+  name="Genuine Spare Product"
+  dpi="203"
+  widthMm="75"
+  heightMm="45.5"
+  gapMm="3.5"
+  padMm="1.2"
+>
+  <border radiusPx="4" strokePx="2" />
+
+  <product-pack
+    headerHeightPx="58"
+    footerHeightPx="52"
+    originHeightPx="14"
+    bodyGapPx="4"
+    qrRatio="0.34"
+  >
+    <header dividerStrokePx="1.5">
+      <brand-left>
+        <title value="YESWEIGH" bold="true" maxFontPx="22" minFontPx="12" />
+        <tagline value="Precision Weighing Solutions" maxFontPx="9" minFontPx="7" />
+      </brand-left>
+      <brand-right>
+        <title value="GENUINE SPARE PART" bold="true" maxFontPx="14" minFontPx="9" />
+        <badge value="QUALITY • RELIABILITY • TRUST" maxFontPx="8" minFontPx="6" />
+      </brand-right>
+    </header>
+
+    <body dividerStrokePx="1.5">
+      <fields colonAlign="true" labelMaxFontPx="9" valueMaxFontPx="11" rowMinPx="18">
+        <field label="ITEM NAME" value="{{itemName}}" />
+        <field label="SKU" value="{{sku}}" />
+        <field label="MASTER ITEM NAME" value="{{masterProduct}}" />
+        <field label="MASTER SKU" value="{{masterSku}}" />
+        <field label="QTY" value="{{qty}}" />
+        <field label="MRP (INCLUDING GST)" value="{{mrp}}" />
+      </fields>
+
+      <qr-panel padPx="4" caption="SCAN TO VIEW" captionFontPx="8">
+        <qr field="qrPayload" fallbackField="sku" />
+        <sku-pill value="SKU: {{sku}}" fontPx="9" />
+      </qr-panel>
+    </body>
+
+    <footer dividerStrokePx="1.5" labelFontPx="7" valueFontPx="9">
+      <cell label="PACKED ON" value="{{packedOn}}" style="pill" />
+      <cell label="QC DONE" value="{{qcStatus}}" style="text" />
+      <cell label="BATCH NO." value="{{batchNo}}" style="pill" />
+      <cell label="PACKED BY" value="{{packedBy}}" style="pill" />
+    </footer>
+
+    <origin value="MADE IN CHINA" fontPx="8" />
+  </product-pack>
+</label>

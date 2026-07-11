@@ -13,6 +13,11 @@ export const LABEL_LAYOUT_TEMPLATES: LabelLayoutTemplateMeta[] = [
     description: 'Store-room bin label — brand header, fields, rack/row/bin, QR',
   },
   {
+    id: 'genuine-spare-product',
+    name: 'Genuine Spare Product',
+    description: 'Product pack label — header, specs, QR, packed/QC/batch footer (text only)',
+  },
+  {
     id: 'simple-bin',
     name: 'Simple bin',
     description: 'Compact name + SKU + location + QR for smaller labels',

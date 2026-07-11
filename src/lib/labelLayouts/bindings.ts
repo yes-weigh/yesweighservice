@@ -13,7 +13,16 @@ export function formatPrintedOn(date: Date): string {
   });
 }
 
+/** dd-MM-yyyy for product-pack footer (matches mockup). */
+export function formatPackedOn(date: Date): string {
+  const d = date.getDate().toString().padStart(2, '0');
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}-${m}-${y}`;
+}
+
 export function buildLabelBindings(fields: BinLabelFields): Record<string, string> {
+  const printed = fields.printedOn ?? new Date();
   return {
     sku: fields.sku ?? '',
     itemName: fields.itemName ?? '',
@@ -23,7 +32,13 @@ export function buildLabelBindings(fields: BinLabelFields): Record<string, strin
     row: fields.row ?? '',
     bin: fields.bin ?? '',
     qrPayload: fields.qrPayload || fields.sku || '',
-    printedOn: formatPrintedOn(fields.printedOn ?? new Date()),
+    printedOn: formatPrintedOn(printed),
+    packedOn: formatPackedOn(printed),
+    qty: fields.qty ?? '',
+    mrp: fields.mrp ?? '',
+    batchNo: fields.batchNo ?? '',
+    packedBy: fields.packedBy ?? '',
+    qcStatus: fields.qcStatus ?? '',
   };
 }
 
@@ -31,18 +46,21 @@ export function applyBindings(template: string, bindings: Record<string, string>
   return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => bindings[key] ?? '');
 }
 
-export function attr(el: Element, name: string, fallback = ''): string {
+export function attr(el: Element | null | undefined, name: string, fallback = ''): string {
+  if (!el) return fallback;
   return el.getAttribute(name)?.trim() || fallback;
 }
 
-export function attrNum(el: Element, name: string, fallback: number): number {
+export function attrNum(el: Element | null | undefined, name: string, fallback: number): number {
+  if (!el) return fallback;
   const raw = el.getAttribute(name);
   if (raw == null || raw === '') return fallback;
   const n = Number(raw);
   return Number.isFinite(n) ? n : fallback;
 }
 
-export function attrBool(el: Element, name: string, fallback = false): boolean {
+export function attrBool(el: Element | null | undefined, name: string, fallback = false): boolean {
+  if (!el) return fallback;
   const raw = el.getAttribute(name)?.trim().toLowerCase();
   if (raw == null || raw === '') return fallback;
   return raw === 'true' || raw === '1' || raw === 'yes';
@@ -87,6 +105,12 @@ export const BINDING_FIELD_LABELS: Record<string, string> = {
   bin: 'Bin',
   qrPayload: 'QR payload',
   printedOn: 'Printed on',
+  packedOn: 'Packed on',
+  qty: 'Qty',
+  mrp: 'MRP',
+  batchNo: 'Batch no.',
+  packedBy: 'Packed by',
+  qcStatus: 'QC status',
 };
 
 /** Bindings that may be blank on the printed label (no fill-in required). */
@@ -94,6 +118,12 @@ const OPTIONAL_BINDINGS = new Set([
   'masterSku',
   'masterProduct',
   'printedOn',
+  'packedOn',
+  'qty',
+  'mrp',
+  'batchNo',
+  'packedBy',
+  'qcStatus',
 ]);
 
 /**
@@ -115,6 +145,11 @@ export function missingBindings(
     bin: fields.bin ?? '',
     qrPayload: fields.qrPayload ?? '',
     printedOn: fields.printedOn ?? new Date(),
+    qty: fields.qty ?? '',
+    mrp: fields.mrp ?? '',
+    batchNo: fields.batchNo ?? '',
+    packedBy: fields.packedBy ?? '',
+    qcStatus: fields.qcStatus ?? '',
   });
 
   return keys.filter(key => {
