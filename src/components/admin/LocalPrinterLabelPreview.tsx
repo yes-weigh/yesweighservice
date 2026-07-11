@@ -79,7 +79,7 @@ export const LocalPrinterLabelPreview: React.FC<Props> = ({
     labelFields.masterSku,
     labelFields.masterProduct,
     labelFields.rack,
-    labelFields.raw,
+    labelFields.row,
     labelFields.bin,
     labelFields.qrPayload,
     labelFields.printedOn.getTime(),

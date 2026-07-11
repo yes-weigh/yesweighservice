@@ -9,8 +9,8 @@ export interface BinLabelFields {
   masterSku: string;
   masterProduct: string;
   rack: string;
-  /** Store-room row (shown as RAW on the mockup). */
-  raw: string;
+  /** Store-room row. */
+  row: string;
   bin: string;
   /** Absolute or relative URL / payload encoded in the QR. */
   qrPayload: string;
@@ -23,7 +23,7 @@ export const TEST_BIN_LABEL_SAMPLE: BinLabelFields = {
   masterSku: 'APCQ',
   masterProduct: 'Bench scale AD',
   rack: 'A',
-  raw: '5',
+  row: '5',
   bin: '3',
   qrPayload: '4pinCW',
   printedOn: new Date(),
@@ -74,7 +74,7 @@ export function buildGenuineSpareLabelTspl(
   const masterSku = escapeTspl(fields.masterSku, 16);
   const masterProduct = escapeTspl(fields.masterProduct, 20);
   const rack = escapeTspl(fields.rack, 4);
-  const raw = escapeTspl(fields.raw, 4);
+  const row = escapeTspl(fields.row, 4);
   const bin = escapeTspl(fields.bin, 4);
   const qr = escapeTspl(fields.qrPayload, 80);
   const printed = escapeTspl(`PRINTED ON ${formatPrintedOn(fields.printedOn)}`, 26);
@@ -164,14 +164,14 @@ export function buildGenuineSpareLabelTspl(
     `TEXT ${qrHintX},${qrY + 16},"1",0,1,1,"SCAN FOR SKU INFO"`,
     `TEXT ${contentL},${bodyBottom - 12},"1",0,1,1,"Scan QR for product details"`,
 
-    // --- Right: RACK / RAW / BIN ---
+    // --- Right: RACK / ROW / BIN ---
     `BOX ${locLeft},${locTop},${locRight},${locBottom},2`,
     `BAR ${c2},${locTop},2,${locBottom - locTop}`,
     `BAR ${c3},${locTop},2,${locBottom - locTop}`,
 
     `TEXT ${centerX(c1, colW, 'RACK', 12)},${locTop + 5},"2",0,1,1,"RACK"`,
     `REVERSE ${c1},${locTop},${colW},${headerH}`,
-    `TEXT ${centerX(c2, colW, 'RAW', 12)},${locTop + 5},"2",0,1,1,"RAW"`,
+    `TEXT ${centerX(c2, colW, 'ROW', 12)},${locTop + 5},"2",0,1,1,"ROW"`,
     `REVERSE ${c2},${locTop},${colW},${headerH}`,
     `TEXT ${centerX(c3, colW, 'BIN', 12)},${locTop + 5},"2",0,1,1,"BIN"`,
     `REVERSE ${c3},${locTop},${colW},${headerH}`,
@@ -179,7 +179,7 @@ export function buildGenuineSpareLabelTspl(
     `BAR ${locLeft},${locTop + headerH},${locRight - locLeft},2`,
 
     `TEXT ${centerX(c1, colW, rack, 24)},${valueY},"5",0,1,1,"${rack}"`,
-    `TEXT ${centerX(c2, colW, raw, 24)},${valueY},"5",0,1,1,"${raw}"`,
+    `TEXT ${centerX(c2, colW, row, 24)},${valueY},"5",0,1,1,"${row}"`,
     `TEXT ${centerX(c3, colW, bin, 24)},${valueY},"5",0,1,1,"${bin}"`,
 
     // Footer (inside 2 mm padding / border)

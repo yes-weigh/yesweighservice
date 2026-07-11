@@ -29,6 +29,41 @@ function loadImage(src: string): Promise<HTMLImageElement | null> {
   });
 }
 
+/** Tight crop around non-white ink so padded logo assets fill the header. */
+function inkBounds(img: HTMLImageElement): { sx: number; sy: number; sw: number; sh: number } {
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const cctx = c.getContext('2d', { willReadFrequently: true });
+  if (!cctx) return { sx: 0, sy: 0, sw: img.width, sh: img.height };
+  cctx.drawImage(img, 0, 0);
+  const { data } = cctx.getImageData(0, 0, c.width, c.height);
+  let minX = c.width;
+  let minY = c.height;
+  let maxX = 0;
+  let maxY = 0;
+  for (let y = 0; y < c.height; y += 1) {
+    for (let x = 0; x < c.width; x += 1) {
+      const i = (y * c.width + x) * 4;
+      const a = data[i + 3];
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      if (a > 32 && lum < 240) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) return { sx: 0, sy: 0, sw: img.width, sh: img.height };
+  const pad = 2;
+  const sx = Math.max(0, minX - pad);
+  const sy = Math.max(0, minY - pad);
+  const sw = Math.min(c.width - sx, maxX - minX + 1 + pad * 2);
+  const sh = Math.min(c.height - sy, maxY - minY + 1 + pad * 2);
+  return { sx, sy, sw, sh };
+}
+
 function roundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -45,84 +80,6 @@ function roundRect(
   ctx.arcTo(x, y + h, x, y, radius);
   ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
-}
-
-function drawCheckBadge(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  ctx.save();
-  ctx.strokeStyle = '#000';
-  ctx.fillStyle = '#000';
-  ctx.lineWidth = Math.max(1.5, size * 0.08);
-  ctx.beginPath();
-  ctx.arc(x + size / 2, y + size / 2, size / 2 - 1, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.lineWidth = Math.max(2, size * 0.12);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.moveTo(x + size * 0.28, y + size * 0.52);
-  ctx.lineTo(x + size * 0.44, y + size * 0.68);
-  ctx.lineTo(x + size * 0.74, y + size * 0.32);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawRackIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
-  ctx.save();
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(x, y, s, s * 0.85);
-  ctx.beginPath();
-  ctx.moveTo(x, y + s * 0.28);
-  ctx.lineTo(x + s, y + s * 0.28);
-  ctx.moveTo(x, y + s * 0.56);
-  ctx.lineTo(x + s, y + s * 0.56);
-  ctx.moveTo(x + s * 0.5, y);
-  ctx.lineTo(x + s * 0.5, y + s * 0.85);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawBoxIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
-  ctx.save();
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(x + s * 0.08, y + s * 0.28, s * 0.84, s * 0.55);
-  ctx.beginPath();
-  ctx.moveTo(x + s * 0.08, y + s * 0.28);
-  ctx.lineTo(x + s * 0.5, y + s * 0.08);
-  ctx.lineTo(x + s * 0.92, y + s * 0.28);
-  ctx.moveTo(x + s * 0.5, y + s * 0.08);
-  ctx.lineTo(x + s * 0.5, y + s * 0.83);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawBinIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
-  ctx.save();
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(x + s * 0.15, y + s * 0.2);
-  ctx.lineTo(x + s * 0.85, y + s * 0.2);
-  ctx.lineTo(x + s * 0.75, y + s * 0.85);
-  ctx.lineTo(x + s * 0.25, y + s * 0.85);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x + s * 0.2, y + s * 0.42);
-  ctx.lineTo(x + s * 0.8, y + s * 0.42);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawPhoneScanIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
-  ctx.save();
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 1.4;
-  roundRect(ctx, x, y, s * 0.55, s, 3);
-  ctx.stroke();
-  ctx.strokeRect(x + s * 0.62, y + s * 0.2, s * 0.35, s * 0.35);
-  ctx.restore();
 }
 
 function drawCalendarIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
@@ -143,7 +100,8 @@ function drawCalendarIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s
 }
 
 /**
- * Render the Genuine Spare bin label to a canvas at printer DPI.
+ * Render the Genuine Spare bin label to a canvas at printer DPI (B&W thermal).
+ * Layout: black header bar · left product fields · right LOCATION grid + QR · date footer.
  */
 export async function renderBinLabelCanvas(
   fields: BinLabelFields,
@@ -159,7 +117,6 @@ export async function renderBinLabelCanvas(
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Could not create label canvas.');
 
-  // White background
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = '#000';
@@ -169,211 +126,245 @@ export async function renderBinLabelCanvas(
   const boxT = pad;
   const boxW = width - pad * 2;
   const boxH = height - pad * 2;
-  const inset = 8;
-  const contentL = boxL + inset;
-  const contentT = boxT + inset;
-  const contentR = boxL + boxW - inset;
-  const contentB = boxT + boxH - inset;
-  const contentW = contentR - contentL;
 
   // Outer rounded border
   ctx.lineWidth = 2;
   roundRect(ctx, boxL, boxT, boxW, boxH, 10);
   ctx.stroke();
 
-  const [qrDataUrl] = await Promise.all([
+  const [qrDataUrl, logo] = await Promise.all([
     QRCode.toDataURL(fields.qrPayload || fields.sku, {
       errorCorrectionLevel: 'M',
       margin: 0,
-      width: 128,
+      width: 160,
       color: { dark: '#000000', light: '#ffffff' },
     }),
+    loadImage('/yesweigh-mark.png'),
   ]);
 
-  // Header: check badge + title (centered as a group)
-  const headerY = contentT + 2;
-  const badgeSize = 16;
-  ctx.font = 'bold 13px Arial, Helvetica, sans-serif';
-  const title = 'YESWEIGH GENUINE SPARE';
-  const titleW = ctx.measureText(title).width;
-  const headerBlockW = badgeSize + 6 + titleW;
-  const headerStart = contentL + (contentW - headerBlockW) / 2;
-  drawCheckBadge(ctx, headerStart, headerY, badgeSize);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(title, headerStart + badgeSize + 6, headerY + badgeSize / 2);
-  ctx.textBaseline = 'alphabetic';
-
-  const headerLineY = headerY + badgeSize + 6;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(contentL, headerLineY);
-  ctx.lineTo(contentR, headerLineY);
-  ctx.stroke();
-
-  // Columns
-  const footerH = 34;
-  const footerTop = contentB - footerH;
-  const bodyBottom = footerTop - 6;
-  const splitGap = 10;
-  const leftW = Math.floor(contentW * 0.46);
+  // Column geometry first (needed for header RACK/ROW/BIN alignment)
+  const inset = 5;
+  const contentL = boxL + inset;
+  const contentR = boxL + boxW - inset;
+  const contentB = boxT + boxH - inset;
+  const contentW = contentR - contentL;
+  const splitGap = 6;
+  const leftW = Math.floor(contentW * 0.56);
   const leftL = contentL;
   const leftR = leftL + leftW;
   const locL = leftR + splitGap;
   const locR = contentR;
-  const locT = headerLineY + 8;
-  const fullLocH = bodyBottom - locT;
-  // RACK/RAW/BIN panel is half height; QR sits in the freed space below it
-  const locH = Math.floor(fullLocH / 2);
-  const locB = locT + locH;
   const locW = locR - locL;
   const colW = Math.floor(locW / 3);
-  const qrAreaT = locB + 8;
-  const qrAreaB = bodyBottom;
+  const dividerX = leftR + splitGap / 2;
 
-  // --- Left product fields (no QR — QR is under the location panel) ---
-  let y = locT;
+  // --- Header: brand left · RACK/ROW/BIN titles right ---
+  const headerH = 30;
+  const headerL = boxL + 2;
+  const headerT = boxT + 2;
+  const headerW = boxW - 4;
 
-  // SKU badge + value
-  const skuBadgeW = 44;
-  const skuBadgeH = 20;
-  roundRect(ctx, leftL, y, skuBadgeW, skuBadgeH, 4);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 11px Arial, Helvetica, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('SKU', leftL + skuBadgeW / 2, y + skuBadgeH / 2 + 0.5);
-  ctx.fillStyle = '#000';
-  ctx.textAlign = 'left';
-  ctx.font = 'bold 16px Arial, Helvetica, sans-serif';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(fields.sku, leftL + skuBadgeW + 8, y + skuBadgeH / 2);
-  y += skuBadgeH + 6;
-  ctx.beginPath();
-  ctx.moveTo(leftL, y);
-  ctx.lineTo(leftR, y);
-  ctx.stroke();
-  y += 6;
-
-  const drawField = (label: string, value: string) => {
-    ctx.font = '9px Arial, Helvetica, sans-serif';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(label, leftL, y + 9);
-    ctx.font = 'bold 12px Arial, Helvetica, sans-serif';
-    ctx.fillText(value, leftL, y + 24);
-    y += 30;
-    ctx.beginPath();
-    ctx.moveTo(leftL, y);
-    ctx.lineTo(leftR, y);
-    ctx.stroke();
-    y += 6;
-  };
-
-  drawField('ITEM NAME', fields.itemName);
-  drawField('MASTER SKU', fields.masterSku);
-  ctx.font = '9px Arial, Helvetica, sans-serif';
-  ctx.fillText('MASTER PRODUCT', leftL, y + 9);
-  ctx.font = 'bold 12px Arial, Helvetica, sans-serif';
-  ctx.fillText(fields.masterProduct, leftL, y + 24);
-
-  // --- Right location panel (half height) ---
+  ctx.strokeStyle = '#000';
   ctx.lineWidth = 2;
-  roundRect(ctx, locL, locT, locW, locH, 6);
+  ctx.beginPath();
+  ctx.moveTo(headerL, headerT + headerH);
+  ctx.lineTo(headerL + headerW, headerT + headerH);
   ctx.stroke();
 
-  const headers = ['RACK', 'RAW', 'BIN'] as const;
-  const values = [fields.rack, fields.raw, fields.bin];
-  const headerH = 18;
-  const iconS = 18;
+  // Vertical divider through header + body
+  const contentT = headerT + headerH + 4;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(dividerX, headerT);
+  ctx.lineTo(dividerX, contentB);
+  ctx.stroke();
+
+  const logoH = 20;
+  const logoX = headerL + 8;
+  const logoY = headerT + (headerH - logoH) / 2;
+  let logoW = logoH;
+  if (logo && logo.width > 0 && logo.height > 0) {
+    const crop = inkBounds(logo);
+    logoW = (crop.sw / crop.sh) * logoH;
+    ctx.drawImage(logo, crop.sx, crop.sy, crop.sw, crop.sh, logoX, logoY, logoW, logoH);
+  } else {
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(logoX + logoH / 2, logoY + logoH / 2, logoH / 2 - 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  const headerTitle = 'YESWEIGH GENUINE SPARE';
+  const headerTextX = logoX + logoW + 8;
+  const headerTextMaxW = dividerX - headerTextX - 6;
+  const headerFont = fitFontSize(ctx, headerTitle, headerTextMaxW, 15, 9, true);
+  ctx.fillStyle = '#000';
+  ctx.font = `bold ${headerFont}px Arial, Helvetica, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(headerTitle, headerTextX, headerT + headerH / 2);
+
+  // RACK / ROW / BIN titles in header, aligned to right columns
+  const headers = ['RACK', 'ROW', 'BIN'] as const;
+  const values = [fields.rack, fields.row, fields.bin];
   for (let i = 0; i < 3; i += 1) {
     const cx = locL + i * colW;
+    if (i > 0) {
+      ctx.beginPath();
+      ctx.moveTo(cx, headerT);
+      ctx.lineTo(cx, headerT + headerH);
+      ctx.stroke();
+    }
+    const hFont = fitFontSize(ctx, headers[i], colW - 4, 12, 8, true);
     ctx.fillStyle = '#000';
-    ctx.fillRect(cx + (i === 0 ? 1 : 0), locT + 1, colW - (i === 2 ? 1 : 0), headerH);
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 10px Arial, Helvetica, sans-serif';
+    ctx.font = `bold ${hFont}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(headers[i], cx + colW / 2, locT + 1 + headerH / 2);
-    ctx.fillStyle = '#000';
+    ctx.fillText(headers[i], cx + colW / 2, headerT + headerH / 2);
+  }
+
+  const bodyH = contentB - contentT;
+
+  // Date strip only under the left column (does not clip QR)
+  const dateH = 16;
+  const leftBodyBottom = contentB - dateH;
+  const leftBodyH = leftBodyBottom - contentT;
+
+  // --- Left: 4 equal rows + date under them ---
+  const leftRows = 4;
+  const rowH = Math.floor(leftBodyH / leftRows);
+  const leftFields: Array<{ label: string; value: string; skuRow?: boolean }> = [
+    { label: 'SKU', value: fields.sku, skuRow: true },
+    { label: 'ITEM NAME', value: fields.itemName },
+    { label: 'MASTER SKU', value: fields.masterSku },
+    { label: 'MASTER PRODUCT', value: fields.masterProduct },
+  ];
+
+  for (let i = 0; i < leftRows; i += 1) {
+    const rowTop = contentT + i * rowH;
+    const rowBottom = i === leftRows - 1 ? leftBodyBottom : rowTop + rowH;
+    const rowMid = (rowTop + rowBottom) / 2;
+    const valueMaxW = leftW - 4;
 
     if (i > 0) {
       ctx.beginPath();
-      ctx.moveTo(cx, locT);
-      ctx.lineTo(cx, locB);
+      ctx.moveTo(leftL, rowTop);
+      ctx.lineTo(leftR, rowTop);
       ctx.stroke();
     }
 
-    const iconY = locT + headerH + 6;
-    const iconX = cx + (colW - iconS) / 2;
-    if (i === 0) drawRackIcon(ctx, iconX, iconY, iconS);
-    if (i === 1) drawBoxIcon(ctx, iconX, iconY, iconS);
-    if (i === 2) drawBinIcon(ctx, iconX, iconY, iconS);
+    if (leftFields[i].skuRow) {
+      const badgeW = 48;
+      const badgeH = Math.min(26, rowH - 8);
+      const badgeY = rowMid - badgeH / 2;
+      roundRect(ctx, leftL, badgeY, badgeW, badgeH, 4);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      const skuLabelFont = fitFontSize(ctx, 'SKU', badgeW - 8, 14, 9, true);
+      ctx.fillStyle = '#000';
+      ctx.font = `bold ${skuLabelFont}px Arial, Helvetica, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SKU', leftL + badgeW / 2, rowMid);
 
-    ctx.font = 'bold 28px Arial, Helvetica, sans-serif';
+      const skuValMaxW = leftW - badgeW - 10;
+      const skuFont = fitFontSize(ctx, fields.sku, skuValMaxW, 28, 14, true);
+      ctx.textAlign = 'left';
+      ctx.font = `bold ${skuFont}px Arial, Helvetica, sans-serif`;
+      ctx.fillText(fields.sku, leftL + badgeW + 8, rowMid);
+    } else {
+      const labelH = Math.floor(rowH * 0.32);
+      const labelFont = fitFontSize(ctx, leftFields[i].label, valueMaxW, 12, 8, false);
+      ctx.fillStyle = '#000';
+      ctx.font = `${labelFont}px Arial, Helvetica, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(leftFields[i].label, leftL, rowTop + labelH / 2 + 2);
+
+      const valueFont = fitFontSize(ctx, leftFields[i].value, valueMaxW, 22, 12, true);
+      ctx.font = `bold ${valueFont}px Arial, Helvetica, sans-serif`;
+      ctx.fillText(leftFields[i].value, leftL, rowTop + labelH + (rowBottom - rowTop - labelH) / 2);
+    }
+  }
+
+  // Printed date under left column only
+  ctx.beginPath();
+  ctx.moveTo(leftL, leftBodyBottom);
+  ctx.lineTo(leftR, leftBodyBottom);
+  ctx.stroke();
+  const printed = `PRINTED ON ${formatPrintedOn(fields.printedOn)}`;
+  drawCalendarIcon(ctx, leftL, leftBodyBottom + 1, 12);
+  const footerFont = fitFontSize(ctx, printed, leftW - 20, 11, 7, false);
+  ctx.fillStyle = '#000';
+  ctx.font = `${footerFont}px Arial, Helvetica, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(printed, leftL + 16, leftBodyBottom + dateH / 2);
+
+  // --- Right: location values only (titles are in header) + QR ---
+  const locT = contentT;
+  const locH = Math.floor(bodyH * 0.22);
+  const locB = locT + locH;
+
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#000';
+
+  for (let i = 1; i < 3; i += 1) {
+    const cx = locL + i * colW;
+    ctx.beginPath();
+    ctx.moveTo(cx, locT);
+    ctx.lineTo(cx, locB);
+    ctx.stroke();
+  }
+
+  for (let i = 0; i < 3; i += 1) {
+    const cx = locL + i * colW;
+    const vFont = fitFontSize(ctx, values[i], colW - 6, Math.floor(locH * 0.75), 18, true);
+    ctx.fillStyle = '#000';
+    ctx.font = `bold ${vFont}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(values[i], cx + colW / 2, locT + headerH + (locH - headerH) * 0.68);
+    ctx.fillText(values[i], cx + colW / 2, locT + locH / 2);
   }
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
-  ctx.lineWidth = 1.5;
+  // Rule between location values and QR
   ctx.beginPath();
-  ctx.moveTo(locL, locT + headerH + 1);
-  ctx.lineTo(locR, locT + headerH + 1);
+  ctx.moveTo(locL, locB);
+  ctx.lineTo(locR, locB);
   ctx.stroke();
 
-  // QR in the freed space under RACK/RAW/BIN
-  const qrAreaH = qrAreaB - qrAreaT;
-  const qrSize = Math.max(48, Math.min(locW * 0.42, qrAreaH - 4));
+  // QR fills remaining right area, with small top/bottom padding
+  const qrPad = 12;
+  const qrAreaT = locB + qrPad;
+  const qrAreaH = contentB - qrAreaT - qrPad;
+  const qrSize = Math.max(40, Math.min(locW, qrAreaH));
   const qrImg = await loadImage(qrDataUrl);
-  const qrX = locL;
-  const qrY = qrAreaT + Math.max(0, Math.floor((qrAreaH - qrSize) / 2));
+  const qrX = locL + Math.floor((locW - qrSize) / 2);
+  const qrY = qrAreaT + Math.floor((qrAreaH - qrSize) / 2);
   if (qrImg) ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-
-  const hintX = qrX + qrSize + 8;
-  const hintMaxW = locR - hintX;
-  drawPhoneScanIcon(ctx, hintX, qrY + 4, 18);
-  ctx.font = 'bold 9px Arial, Helvetica, sans-serif';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('SCAN FOR SKU INFO', hintX + 24, qrY + 14);
-  ctx.font = '8px Arial, Helvetica, sans-serif';
-  ctx.textBaseline = 'alphabetic';
-  const hintLines = wrapText(ctx, 'Scan this QR code to view product details', hintMaxW);
-  hintLines.forEach((line, idx) => {
-    ctx.fillText(line, hintX, qrY + 34 + idx * 11);
-  });
-
-  // Footer
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(contentL, footerTop);
-  ctx.lineTo(contentR, footerTop);
-  ctx.stroke();
-
-  drawCalendarIcon(ctx, contentL, footerTop + 8, 14);
-  ctx.font = '9px Arial, Helvetica, sans-serif';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(`PRINTED ON ${formatPrintedOn(fields.printedOn)}`, contentL + 18, footerTop + 16);
 
   return canvas;
 }
 
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (ctx.measureText(next).width <= maxWidth) {
-      current = next;
-    } else {
-      if (current) lines.push(current);
-      current = word;
-    }
+function fitFontSize(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  start: number,
+  min: number,
+  bold: boolean,
+): number {
+  for (let size = start; size >= min; size -= 1) {
+    ctx.font = `${bold ? 'bold ' : ''}${size}px Arial, Helvetica, sans-serif`;
+    if (ctx.measureText(text).width <= maxWidth) return size;
   }
-  if (current) lines.push(current);
-  return lines.slice(0, 3);
+  return min;
 }
 
 /**
