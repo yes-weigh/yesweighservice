@@ -17,6 +17,13 @@ import {
   roundRect,
   wrapMultiline,
 } from './canvasUtils';
+import {
+  drawFieldIcon,
+  drawFooterGlyph,
+  drawQcPassedBadge,
+  drawShieldCheck,
+  fillInvertedPill,
+} from './productPackIcons';
 
 function parseLayoutXml(xml: string): Element {
   const doc = new DOMParser().parseFromString(sanitizeLayoutXml(xml), 'application/xml');
@@ -378,8 +385,7 @@ async function renderSimpleStack(
 }
 
 /**
- * Exact product-pack mockup: header | fields+QR | footer | MADE IN CHINA.
- * Text only — no logos/icons, no inverted (white-on-black) fills.
+ * Genuine Spare Product mockup: branded header | icon fields + QR | footer | MADE IN CHINA.
  */
 async function renderProductPack(
   ctx: CanvasRenderingContext2D,
@@ -390,11 +396,11 @@ async function renderProductPack(
   const pack = root.querySelector('product-pack');
   if (!pack) throw new Error('genuine-spare-product layout requires <product-pack>.');
 
-  const headerH = attrNum(pack, 'headerHeightPx', 58);
-  const footerH = attrNum(pack, 'footerHeightPx', 52);
-  const originH = attrNum(pack, 'originHeightPx', 14);
-  const bodyGap = attrNum(pack, 'bodyGapPx', 4);
-  const qrRatio = attrNum(pack, 'qrRatio', 0.34);
+  const headerH = attrNum(pack, 'headerHeightPx', 64);
+  const footerH = attrNum(pack, 'footerHeightPx', 58);
+  const originH = attrNum(pack, 'originHeightPx', 12);
+  const bodyGap = attrNum(pack, 'bodyGapPx', 3);
+  const qrRatio = attrNum(pack, 'qrRatio', 0.32);
 
   const headerEl = pack.querySelector('header');
   const bodyEl = pack.querySelector('body');
@@ -411,13 +417,13 @@ async function renderProductPack(
   // --- Header ---
   const headerT = T;
   const headerB = headerT + headerH;
-  const midX = L + Math.floor(W * 0.42);
+  const midX = L + Math.floor(W * 0.4);
 
   ctx.strokeStyle = '#000';
   ctx.lineWidth = attrNum(headerEl, 'dividerStrokePx', 1.5);
   ctx.beginPath();
-  ctx.moveTo(midX, headerT + 4);
-  ctx.lineTo(midX, headerB - 4);
+  ctx.moveTo(midX, headerT + 3);
+  ctx.lineTo(midX, headerB - 3);
   ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(L, headerB);
@@ -425,64 +431,102 @@ async function renderProductPack(
   ctx.stroke();
 
   const brandLeft = headerEl?.querySelector('brand-left');
+  const imageEl = brandLeft?.querySelector('image');
   const leftTitle = brandLeft?.querySelector('title');
-  const leftTag = brandLeft?.querySelector('tagline');
   const leftTitleText = applyBindings(attr(leftTitle, 'value', 'YESWEIGH'), bindings);
-  const leftTagText = applyBindings(attr(leftTag, 'value', 'Precision Weighing Solutions'), bindings);
-  const leftMax = attrNum(leftTitle, 'maxFontPx', 22);
-  const leftMin = attrNum(leftTitle, 'minFontPx', 12);
-  const leftPad = 6;
-  const leftW = midX - L - leftPad * 2;
-  const titleFont = fitFontSize(ctx, leftTitleText, leftW, leftMax, leftMin, true);
+  const leftPad = 5;
+
+  const logoH = attrNum(imageEl, 'heightPx', Math.min(36, headerH - 10));
+  const cropInk = attrBool(imageEl, 'cropInk', true);
+  const logo = imageEl
+    ? await loadImage(attr(imageEl, 'src', '/yesweigh-mark.png'))
+    : null;
+  let logoW = 0;
+  let logoCrop = { sx: 0, sy: 0, sw: 0, sh: 0 };
+  if (logo && logo.width > 0 && logo.height > 0) {
+    logoCrop = cropInk ? inkBounds(logo) : { sx: 0, sy: 0, sw: logo.width, sh: logo.height };
+    logoW = (logoCrop.sw / logoCrop.sh) * logoH;
+  }
+  const logoX = L + leftPad;
+  const logoY = headerT + (headerH - logoH) / 2;
+  if (logo && logoW > 0) {
+    ctx.drawImage(
+      logo,
+      logoCrop.sx,
+      logoCrop.sy,
+      logoCrop.sw,
+      logoCrop.sh,
+      logoX,
+      logoY,
+      logoW,
+      logoH,
+    );
+  }
+
+  const textX = logoW > 0 ? logoX + logoW + 5 : L + leftPad;
+  const textW = Math.max(24, midX - leftPad - textX);
+
+  // YESWEIGH® fills the left header (no tagline).
+  const titleFont = fitFontSize(
+    ctx,
+    `${leftTitleText}®`,
+    textW,
+    Math.min(attrNum(leftTitle, 'maxFontPx', 28), Math.floor(headerH * 0.55)),
+    attrNum(leftTitle, 'minFontPx', 14),
+    true,
+  );
   ctx.fillStyle = '#000';
-  ctx.font = `bold ${titleFont}px Arial, Helvetica, sans-serif`;
+  ctx.font = `bold ${titleFont}px Arial Black, Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(leftTitleText, L + leftPad, headerT + headerH * 0.38);
-  const tagFont = fitFontSize(
-    ctx,
-    leftTagText,
-    leftW,
-    attrNum(leftTag, 'maxFontPx', 9),
-    attrNum(leftTag, 'minFontPx', 7),
-    false,
-  );
-  ctx.font = `${tagFont}px Arial, Helvetica, sans-serif`;
-  ctx.fillText(leftTagText, L + leftPad, headerT + headerH * 0.72);
+  const titleY = headerT + headerH / 2;
+  ctx.fillText(leftTitleText, textX, titleY);
+  const titleW = ctx.measureText(leftTitleText).width;
+  const regSize = Math.max(8, Math.round(titleFont * 0.38));
+  ctx.font = `bold ${regSize}px Arial, Helvetica, sans-serif`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('®', textX + titleW + 1, titleY - titleFont * 0.15);
 
   const brandRight = headerEl?.querySelector('brand-right');
   const rightTitle = brandRight?.querySelector('title');
-  const rightBadge = brandRight?.querySelector('badge');
   const rightTitleText = applyBindings(attr(rightTitle, 'value', 'GENUINE SPARE PART'), bindings);
-  const badgeText = applyBindings(attr(rightBadge, 'value', 'QUALITY • RELIABILITY • TRUST'), bindings);
-  const rightPad = 6;
-  const rightW = R - midX - rightPad * 2;
-  const rtFont = fitFontSize(
-    ctx,
-    rightTitleText,
-    rightW,
-    attrNum(rightTitle, 'maxFontPx', 14),
-    attrNum(rightTitle, 'minFontPx', 9),
-    true,
-  );
+  const rightPad = 5;
+
+  // Stack "GENUINE" / "SPARE PART" to fill the right header (no quality badge).
+  const parts = rightTitleText.trim().split(/\s+/);
+  const line1 = parts[0] || 'GENUINE';
+  const line2 = parts.slice(1).join(' ') || 'SPARE PART';
+
+  const shieldSize = Math.min(36, Math.floor(headerH * 0.62));
+  const shieldX = midX + rightPad;
+  const shieldY = headerT + (headerH - shieldSize) / 2;
+  drawShieldCheck(ctx, shieldX, shieldY, shieldSize);
+
+  const titleLeft = shieldX + shieldSize * 0.88 + 5;
+  const titleAvail = Math.max(20, R - rightPad - titleLeft);
+  const maxRt = attrNum(rightTitle, 'maxFontPx', 22);
+  const minRt = attrNum(rightTitle, 'minFontPx', 12);
+  const lineGap = 3;
+  const maxLineH = Math.floor((headerH - 10 - lineGap) / 2);
+  let rtFont = Math.min(maxRt, maxLineH);
+  while (rtFont > minRt) {
+    ctx.font = `bold ${rtFont}px Arial, Helvetica, sans-serif`;
+    if (
+      ctx.measureText(line1).width <= titleAvail
+      && ctx.measureText(line2).width <= titleAvail
+    ) {
+      break;
+    }
+    rtFont -= 1;
+  }
+  ctx.fillStyle = '#000';
   ctx.font = `bold ${rtFont}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(rightTitleText, midX + rightPad, headerT + headerH * 0.32);
-
-  const badgeFont = fitFontSize(
-    ctx,
-    badgeText,
-    rightW,
-    attrNum(rightBadge, 'maxFontPx', 11),
-    attrNum(rightBadge, 'minFontPx', 8),
-    true,
-  );
-  ctx.fillStyle = '#000';
-  ctx.font = `bold ${badgeFont}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(badgeText, midX + rightPad, headerT + headerH * 0.72);
+  const blockH = rtFont * 2 + lineGap;
+  const blockTop = headerT + (headerH - blockH) / 2;
+  ctx.fillText(line1, titleLeft, blockTop + rtFont / 2);
+  ctx.fillText(line2, titleLeft, blockTop + rtFont + lineGap + rtFont / 2);
 
   // --- Footer + origin (measure bottom first) ---
   const originText = applyBindings(attr(originEl, 'value', 'MADE IN CHINA'), bindings);
@@ -497,7 +541,6 @@ async function renderProductPack(
   const fieldsR = R - qrW - bodyGap;
   const fieldsL = L;
   const fieldsW = fieldsR - fieldsL;
-  const qrL = fieldsR + bodyGap;
 
   ctx.lineWidth = attrNum(bodyEl, 'dividerStrokePx', 1.5);
   ctx.beginPath();
@@ -514,23 +557,26 @@ async function renderProductPack(
   const rowCount = Math.max(1, fieldNodes.length);
   const bodyH = bodyB - bodyT;
   const rowH = Math.floor(bodyH / rowCount);
-  const labelMax = attrNum(fieldsEl, 'labelMaxFontPx', 9);
-  const valueMax = attrNum(fieldsEl, 'valueMaxFontPx', 11);
+  const labelMax = attrNum(fieldsEl, 'labelMaxFontPx', 14);
+  const valueMax = attrNum(fieldsEl, 'valueMaxFontPx', 18);
+  const iconSize = Math.min(22, Math.max(16, Math.floor(rowH * 0.55)));
 
-  // Measure widest label for colon alignment
   ctx.font = `bold ${labelMax}px Arial, Helvetica, sans-serif`;
   let labelColW = 0;
   const rows = fieldNodes.map(el => ({
     label: applyBindings(attr(el, 'label'), bindings),
     value: applyBindings(attr(el, 'value'), bindings),
+    icon: attr(el, 'icon', 'box'),
   }));
   for (const row of rows) {
     labelColW = Math.max(labelColW, ctx.measureText(row.label).width);
   }
-  labelColW = Math.min(labelColW + 4, Math.floor(fieldsW * 0.55));
-  const colonX = fieldsL + 4 + labelColW + 4;
-  const valueX = colonX + 8;
-  const valueW = fieldsR - valueX - 4;
+  labelColW = Math.min(labelColW + 2, Math.floor(fieldsW * 0.48));
+  const iconGap = 4;
+  const textStart = fieldsL + 3 + iconSize + iconGap;
+  const colonX = textStart + labelColW + 3;
+  const valueX = colonX + 7;
+  const valueW = fieldsR - valueX - 3;
 
   rows.forEach((row, i) => {
     const y0 = bodyT + i * rowH;
@@ -543,48 +589,36 @@ async function renderProductPack(
       ctx.stroke();
     }
     const cy = (y0 + y1) / 2;
-    const lf = fitFontSize(ctx, row.label, labelColW, labelMax, 8, true);
+    drawFieldIcon(ctx, row.icon, fieldsL + 3, cy - iconSize / 2, iconSize);
+
+    const lf = fitFontSize(ctx, row.label, labelColW, labelMax, 10, true);
     ctx.fillStyle = '#000';
     ctx.font = `bold ${lf}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(row.label, fieldsL + 4, cy);
+    ctx.fillText(row.label, textStart, cy);
     ctx.fillText(':', colonX, cy);
-    const vf = fitFontSize(ctx, row.value || ' ', valueW, valueMax, 8, true);
+    const vf = fitFontSize(ctx, row.value || ' ', valueW, valueMax, 11, true);
     ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
     ctx.fillText(row.value, valueX, cy);
   });
 
-  // QR panel
+  // QR panel — code only, centered (no caption / SKU text under it)
   const qrPanel = bodyEl?.querySelector('qr-panel');
   const qrPad = attrNum(qrPanel, 'padPx', 4);
-  const caption = applyBindings(attr(qrPanel, 'caption', 'SCAN TO VIEW'), bindings);
-  const captionFont = attrNum(qrPanel, 'captionFontPx', 8);
-  const skuPill = qrPanel?.querySelector('sku-pill');
-  const pillText = applyBindings(attr(skuPill, 'value', 'SKU: {{sku}}'), bindings);
-  const pillFont = attrNum(skuPill, 'fontPx', 12);
-  const skuLineH = pillFont + 6;
-  const captionH = captionFont + 4;
 
-  const qrBoxL = qrL;
+  const qrBoxL = fieldsR + bodyGap;
   const qrBoxT = bodyT;
-  const qrBoxW = R - qrL;
+  const qrBoxW = R - qrBoxL;
   const qrBoxH = bodyB - bodyT;
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(qrBoxL, qrBoxT, qrBoxW, qrBoxH);
+  roundRect(ctx, qrBoxL, qrBoxT, qrBoxW, qrBoxH, 4);
+  ctx.stroke();
 
-  const qrInnerT = qrBoxT + qrPad + captionH;
-  const qrInnerB = qrBoxBSafe(qrBoxT, qrBoxH, qrPad, skuLineH);
-  const qrAvail = Math.min(qrBoxW - qrPad * 2, qrInnerB - qrInnerT);
-  const qrSize = Math.max(24, qrAvail);
+  const qrAvail = Math.min(qrBoxW - qrPad * 2, qrBoxH - qrPad * 2);
+  const qrSize = Math.max(32, Math.floor(qrAvail));
   const qrX = qrBoxL + Math.floor((qrBoxW - qrSize) / 2);
-  const qrY = qrInnerT + Math.floor((qrInnerB - qrInnerT - qrSize) / 2);
-
-  ctx.fillStyle = '#000';
-  ctx.font = `bold ${captionFont}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText(caption, qrBoxL + qrBoxW / 2, qrBoxT + qrPad);
+  const qrY = qrBoxT + Math.floor((qrBoxH - qrSize) / 2);
 
   const qrEl = qrPanel?.querySelector('qr');
   const qrField = attr(qrEl, 'field', 'qrPayload');
@@ -592,19 +626,13 @@ async function renderProductPack(
   const qrPayload = bindings[qrField] || bindings[qrFallback] || '';
   await drawQr(ctx, qrPayload, qrX, qrY, qrSize);
 
-  const skuFont = fitFontSize(ctx, pillText, qrBoxW - qrPad * 2, pillFont, 8, true);
-  ctx.fillStyle = '#000';
-  ctx.font = `bold ${skuFont}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(pillText, qrBoxL + qrBoxW / 2, qrBoxT + qrBoxH - qrPad - skuLineH / 2);
-
-  // --- Footer cells (plain black text only — no inverted pills) ---
+  // --- Footer cells ---
   const cells = footerEl ? [...footerEl.querySelectorAll('cell')] : [];
   const cellN = Math.max(1, cells.length);
   const cellW = Math.floor(W / cellN);
-  const flabel = attrNum(footerEl, 'labelFontPx', 10);
-  const fvalue = attrNum(footerEl, 'valueFontPx', 12);
+  const flabel = attrNum(footerEl, 'labelFontPx', 8);
+  const fvalue = attrNum(footerEl, 'valueFontPx', 11);
+  const glyphSize = 13;
 
   cells.forEach((cell, i) => {
     const cx = L + i * cellW;
@@ -617,20 +645,38 @@ async function renderProductPack(
     }
     const label = applyBindings(attr(cell, 'label'), bindings);
     const value = applyBindings(attr(cell, 'value'), bindings);
+    const style = attr(cell, 'style', 'pill');
+    const icon = attr(cell, 'icon', '');
+
+    const labelY = footerT + 3;
     ctx.fillStyle = '#000';
     ctx.font = `bold ${flabel}px Arial, Helvetica, sans-serif`;
-    ctx.textAlign = 'center';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(label, cx + cellW / 2, footerT + 4);
 
-    const valueY = footerT + flabel + 8;
-    const valueH = Math.min(24, footerB - valueY - 4);
-    const valueMaxW = cellW - 8;
-    const vf = fitFontSize(ctx, value || '—', valueMaxW, fvalue, 8, true);
-    ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(value || '—', cx + cellW / 2, valueY + valueH / 2);
+    let labelX = cx + 4;
+    if (icon) {
+      drawFooterGlyph(ctx, icon, cx + 3, labelY, glyphSize);
+      labelX = cx + 3 + glyphSize + 3;
+    }
+    const labelMaxW = cx + cellW - 4 - labelX;
+    const lf = fitFontSize(ctx, label, labelMaxW, flabel, 5, true);
+    ctx.font = `bold ${lf}px Arial, Helvetica, sans-serif`;
+    ctx.fillText(label, labelX, labelY + 1);
+
+    const contentTop = footerT + Math.max(flabel, glyphSize) + 6;
+    const contentH = footerB - contentTop - 3;
+
+    if (style === 'qc') {
+      const radius = Math.min(14, Math.floor(contentH * 0.48), Math.floor(cellW * 0.22));
+      drawQcPassedBadge(ctx, cx + cellW / 2, contentTop + contentH / 2, radius);
+    } else {
+      const display = value.trim() || '—';
+      const pillInnerH = Math.min(18, contentH);
+      const pillInnerW = cellW - 8;
+      const pillY = contentTop + Math.max(0, (contentH - pillInnerH) / 2);
+      fillInvertedPill(ctx, cx + 4, pillY, pillInnerW, pillInnerH, display, fvalue);
+    }
   });
 
   // --- Origin ---
@@ -639,10 +685,6 @@ async function renderProductPack(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(originText, L + W / 2, footerB + originH / 2);
-}
-
-function qrBoxBSafe(qrBoxT: number, qrBoxH: number, qrPad: number, pillH: number): number {
-  return qrBoxT + qrBoxH - qrPad - pillH - 4;
 }
 
 /**

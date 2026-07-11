@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  YesWeigh Genuine Spare Part product label — text only, no inverted fills.
+  YesWeigh Genuine Spare Part product label — matches print mockup.
   Size: 75 × 45.5 mm @ 203 dpi, gap 3.5 mm.
 
   Bindings:
-    {{itemName}} {{sku}} {{masterProduct}} {{masterSku}}
-    {{qty}} {{mrp}} {{packedOn}} {{batchNo}} {{packedBy}} {{qcStatus}} {{qrPayload}}
+    {{itemName}} {{sku}} {{qty}} {{mrp}}
+    {{packedOn}} {{batchNo}} {{packedBy}} {{qcStatus}} {{qrPayload}}
 -->
 <label
   id="genuine-spare-product"
@@ -16,49 +16,45 @@
   gapMm="3.5"
   padMm="1.2"
 >
-  <border radiusPx="4" strokePx="2" />
+  <border radiusPx="6" strokePx="2" />
 
   <product-pack
-    headerHeightPx="62"
-    footerHeightPx="56"
-    originHeightPx="16"
+    headerHeightPx="64"
+    footerHeightPx="58"
+    originHeightPx="12"
     bodyGapPx="3"
-    qrRatio="0.34"
+    qrRatio="0.32"
   >
     <header dividerStrokePx="1.5">
       <brand-left>
-        <title value="YESWEIGH" bold="true" maxFontPx="26" minFontPx="16" />
-        <tagline value="Precision Weighing Solutions" maxFontPx="12" minFontPx="9" />
+        <image src="/yesweigh-mark.png" heightPx="34" cropInk="true" />
+        <title value="YESWEIGH" bold="true" maxFontPx="28" minFontPx="14" />
       </brand-left>
       <brand-right>
-        <title value="GENUINE SPARE PART" bold="true" maxFontPx="16" minFontPx="11" />
-        <badge value="QUALITY • RELIABILITY • TRUST" maxFontPx="11" minFontPx="8" />
+        <title value="GENUINE SPARE PART" bold="true" maxFontPx="22" minFontPx="12" />
       </brand-right>
     </header>
 
     <body dividerStrokePx="1.5">
-      <fields colonAlign="true" labelMaxFontPx="12" valueMaxFontPx="14" rowMinPx="18">
-        <field label="ITEM NAME" value="{{itemName}}" />
-        <field label="SKU" value="{{sku}}" />
-        <field label="MASTER ITEM NAME" value="{{masterProduct}}" />
-        <field label="MASTER SKU" value="{{masterSku}}" />
-        <field label="QTY" value="{{qty}}" />
-        <field label="MRP (INCLUDING GST)" value="{{mrp}}" />
+      <fields colonAlign="true" labelMaxFontPx="14" valueMaxFontPx="18">
+        <field icon="box" label="ITEM NAME" value="{{itemName}}" />
+        <field icon="barcode" label="SKU" value="{{sku}}" />
+        <field icon="cubes" label="QTY" value="{{qty}}" />
+        <field icon="rupee" label="MRP (INCLUDING GST)" value="{{mrp}}" />
       </fields>
 
-      <qr-panel padPx="4" caption="SCAN TO VIEW" captionFontPx="11">
+      <qr-panel padPx="4">
         <qr field="qrPayload" fallbackField="sku" />
-        <sku-pill value="SKU: {{sku}}" fontPx="12" />
       </qr-panel>
     </body>
 
-    <footer dividerStrokePx="1.5" labelFontPx="10" valueFontPx="12">
-      <cell label="PACKED ON" value="{{packedOn}}" style="text" />
-      <cell label="QC DONE" value="{{qcStatus}}" style="text" />
-      <cell label="BATCH NO." value="{{batchNo}}" style="text" />
-      <cell label="PACKED BY" value="{{packedBy}}" style="text" />
+    <footer dividerStrokePx="1.5" labelFontPx="8" valueFontPx="11">
+      <cell icon="calendar" label="PACKED ON" value="{{packedOn}}" style="pill" />
+      <cell icon="shield" label="QC DONE" value="{{qcStatus}}" style="qc" />
+      <cell icon="clipboard" label="BATCH NO." value="{{batchNo}}" style="pill" />
+      <cell icon="box" label="PACKED BY" value="{{packedBy}}" style="pill" />
     </footer>
 
-    <origin value="MADE IN CHINA" fontPx="11" />
+    <origin value="MADE IN CHINA" fontPx="9" />
   </product-pack>
 </label>

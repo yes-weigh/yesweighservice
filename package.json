@@ -10,7 +10,7 @@
     "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",
     "prepare": "npm run build:tcp-print",
-    "generate:icons": "npx -p sharp node scripts/generate-icons.mjs",
+    "generate:icons": "npm install --no-save sharp && node scripts/generate-icons.mjs",
     "preview": "vite preview",
     "seed:admin": "node scripts/seed-admin.mjs",
     "complete:admin": "node scripts/complete-super-admin.mjs",
