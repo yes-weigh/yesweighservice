@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Printer, Save, Trash2, X } from 'lucide-react';
 import {
   formatStockQuantity,
   catalogProductWarehouseStock,
@@ -27,6 +27,11 @@ import {
   readItemQuantity,
   type YesStoreItemDoc,
 } from '../../types/yes-store';
+import {
+  BinLabelPrintDialog,
+  binLabelFieldsFromStoreItem,
+} from './BinLabelPrintDialog';
+import type { BinLabelFields } from '../../lib/localPrinterLabel';
 
 function QtyWithAuditStamp({
   qtyLabel,
@@ -71,6 +76,7 @@ function HeadOfficeLocationTable({
   auditTotals: InventoryAuditGroupTotals;
 }) {
   const isBundle = auditTotals.mode === 'bundle';
+  const [printFields, setPrintFields] = useState<BinLabelFields | null>(null);
 
   return (
     <div className="product-site-stock__table-wrap product-site-stock__table-wrap--store">
@@ -82,6 +88,7 @@ function HeadOfficeLocationTable({
             <th>Bin</th>
             {isBundle && <th>Part</th>}
             <th>Qty</th>
+            <th className="product-site-stock__actions-col" aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -111,11 +118,29 @@ function HeadOfficeLocationTable({
                   qtyLabel={formatStockQuantity(readItemQuantity(binItem), product.unit)}
                   auditedAt={auditedAt}
                 />
+                <td className="product-site-stock__actions-cell">
+                  <button
+                    type="button"
+                    className="product-site-stock__print-btn"
+                    onClick={() => setPrintFields(binLabelFieldsFromStoreItem(product, binItem))}
+                    aria-label="Print label"
+                    title="Print label"
+                  >
+                    <Printer size={16} aria-hidden />
+                  </button>
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      {printFields && (
+        <BinLabelPrintDialog
+          fields={printFields}
+          onClose={() => setPrintFields(null)}
+        />
+      )}
     </div>
   );
 }

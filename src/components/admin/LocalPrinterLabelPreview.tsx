@@ -10,6 +10,8 @@ type Props = {
   labelWidthMm: number;
   labelHeightMm: number;
   fields?: BinLabelFields;
+  /** Hide the title/help block (e.g. inside a print dialog). */
+  hideHead?: boolean;
 };
 
 /**
@@ -20,6 +22,7 @@ export const LocalPrinterLabelPreview: React.FC<Props> = ({
   labelWidthMm,
   labelHeightMm,
   fields,
+  hideHead = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [error, setError] = useState('');
@@ -87,12 +90,14 @@ export const LocalPrinterLabelPreview: React.FC<Props> = ({
 
   return (
     <div className="settings-local-printer-preview">
-      <div className="settings-local-printer-preview__head">
-        <h4 className="settings-logistics__title">Label preview</h4>
-        <p className="text-muted text-sm">
-          Exact print preview ({width} × {height} mm @ 203 dpi). What you see here is what Test print sends to the TE210.
-        </p>
-      </div>
+      {!hideHead && (
+        <div className="settings-local-printer-preview__head">
+          <h4 className="settings-logistics__title">Label preview</h4>
+          <p className="text-muted text-sm">
+            Exact print preview ({width} × {height} mm @ 203 dpi). What you see here is what Test print sends to the TE210.
+          </p>
+        </div>
+      )}
 
       {error && <p className="settings-locations__error text-sm">{error}</p>}
 

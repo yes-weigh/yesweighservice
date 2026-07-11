@@ -8074,6 +8074,76 @@ html::-webkit-scrollbar {
   white-space: nowrap;
 }
 
+.product-site-stock__actions-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.product-site-stock__actions-cell {
+  vertical-align: middle;
+  white-space: nowrap;
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  line-height: 1.2 !important;
+  padding: 0.5rem 0.45rem !important;
+}
+
+.product-site-stock__print-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border-radius: 8px;
+  background: #4c1d95 !important;
+  color: #fff !important;
+  border: 1px solid #4c1d95 !important;
+  cursor: pointer;
+}
+
+.product-site-stock__print-btn:hover:not(:disabled) {
+  background: #5b21b6 !important;
+  border-color: #5b21b6 !important;
+  color: #fff !important;
+}
+
+.bin-label-print-dialog {
+  width: min(100%, 28rem);
+  max-height: min(92vh, 40rem);
+  overflow: auto;
+}
+
+.bin-label-print-dialog__success {
+  color: #166534;
+  margin: 0 0 0.75rem;
+}
+
+.bin-label-print-dialog__loading {
+  display: grid;
+  place-items: center;
+  min-height: 8rem;
+}
+
+.bin-label-print-dialog__hint {
+  margin: 0.75rem 0 0;
+}
+
+.bin-label-print-dialog__actions {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.bin-label-print-dialog__actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .product-site-stock__table-wrap--store thead th {
   color: #6d28d9;
   background: #f5f3ff;
