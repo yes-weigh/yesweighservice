@@ -8109,10 +8109,22 @@ html::-webkit-scrollbar {
   color: #fff !important;
 }
 
+.bin-label-print-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow: auto;
+}
+
 .bin-label-print-dialog {
   width: min(100%, 28rem);
   max-height: min(92vh, 40rem);
   overflow: auto;
+  margin: auto;
 }
 
 .bin-label-print-dialog__success {

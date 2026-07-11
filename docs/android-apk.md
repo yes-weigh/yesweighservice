@@ -9,6 +9,7 @@ Everyone else keeps using the PWA at https://service.yesweigh.in.
 - Day-to-day UI and label layout changes ship via GitHub Actions → Firebase Hosting (no new APK).
 - Rebuild the APK only when native print code or Android config changes.
 - Printer IP/port live in Firestore (`appSettings/localPrinterSettings`) — change in **Settings → Local printers**.
+- You can configure multiple LAN printers; mark one as **Store label** for bin-label printing (IP, size, gap).
 
 ## Build on this laptop (same SDK as census)
 

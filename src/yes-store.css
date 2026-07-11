@@ -866,9 +866,35 @@
   flex: 1;
 }
 
+.wh-audit-tile__product-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.wh-audit-tile__print,
 .wh-audit-tile__unlink {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.wh-audit-tile__stock-location-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.wh-audit-tile__stock-location-row .wh-audit-tile__stock-location {
+  flex: 1;
+  min-width: 0;
+}
+
+.wh-audit-tile__print-icon {
+  flex-shrink: 0;
+  margin-top: 1.75rem;
 }
 
 .wh-audit-tile__product-name {
@@ -1438,7 +1464,14 @@
 .catalog-inventory-audit-locations-table__actions {
   text-align: center;
   white-space: nowrap;
-  width: 2.75rem;
+  width: auto;
+}
+
+.catalog-inventory-audit-locations-table__action-btns {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
 }
 
 .catalog-inventory-audit-locations-table__edit {

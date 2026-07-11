@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Printer, X } from 'lucide-react';
 import { LocalPrinterLabelPreview } from '../admin/LocalPrinterLabelPreview';
 import type { BinLabelFields } from '../../lib/localPrinterLabel';
@@ -12,7 +13,7 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 
 export function binLabelFieldsFromStoreItem(
-  product: CatalogProduct,
+  product: Pick<CatalogProduct, 'id' | 'name' | 'sku'>,
   binItem: YesStoreItemDoc,
 ): BinLabelFields {
   const sku = (product.sku ?? '').trim() || product.id;
@@ -69,7 +70,9 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
     setSuccess('');
     try {
       if (!settings.host.trim()) {
-        throw new Error('Set the label printer IP in Admin → Settings → Local printers.');
+        throw new Error(
+          'Set the Store label printer IP in Admin → Settings → Local printers.',
+        );
       }
       const result = await sendBinLabel({
         host: settings.host.trim(),
@@ -79,7 +82,9 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
         labelGapMm: settings.labelGapMm,
         fields: { ...fields, printedOn: new Date() },
       });
-      setSuccess(`Sent to ${settings.host.trim()}:${settings.port} (${result.bytesSent} bytes).`);
+      setSuccess(
+        `Sent via ${settings.name} to ${settings.host.trim()}:${settings.port} (${result.bytesSent} bytes).`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Print failed.');
     } finally {
@@ -87,7 +92,7 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
     }
   };
 
-  return (
+  return createPortal(
     <div className="dealers-modal-backdrop bin-label-print-dialog__backdrop" onClick={onClose}>
       <div
         className="dealers-modal panel glass bin-label-print-dialog"
@@ -103,6 +108,9 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
               {fields.sku}
               {' · '}
               Rack {fields.rack} / Row {fields.row} / Bin {fields.bin}
+              {!loadingSettings && settings.name
+                ? ` · ${settings.name}`
+                : ''}
             </p>
           </div>
           <button type="button" className="dealers-modal__close" onClick={onClose} aria-label="Close">
@@ -148,6 +156,7 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, onClose }) => {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };

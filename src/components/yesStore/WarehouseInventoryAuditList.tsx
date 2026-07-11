@@ -6,12 +6,18 @@ import {
   LayoutGrid,
   Link2,
   List,
+  Printer,
   RefreshCw,
   Unlink,
   User,
 } from 'lucide-react';
 import { AuditTileStockLocation } from './AuditTileStockLocation';
 import { AuditIconPanel, AuditIconRow, AuditAttributionRow } from './AuditIconRow';
+import {
+  BinLabelPrintDialog,
+  binLabelFieldsFromStoreItem,
+} from '../catalog/BinLabelPrintDialog';
+import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import {
   buildInventoryAuditListRows,
   formatQtyDifference,
@@ -144,7 +150,19 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   const [rowFilter, setRowFilter] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [viewMode, setViewMode] = useState<InventoryAuditViewMode>('grid');
+  const [printFields, setPrintFields] = useState<BinLabelFields | null>(null);
   const isDesktopWeb = useMinWidth(768);
+  const catalogById = useMemo(() => catalogMap(catalogProducts), [catalogProducts]);
+
+  const labelProductForGroup = (group: InventoryAuditLinkedGroup) => {
+    const fromCatalog = catalogById?.get(group.catalogProductId);
+    if (fromCatalog) return fromCatalog;
+    return {
+      id: group.catalogProductId,
+      name: group.catalogProductName,
+      sku: group.catalogProductSku,
+    };
+  };
   const layoutMode: InventoryAuditViewMode =
     showViewToggle && isDesktopWeb ? viewMode : 'list';
   const useGridCards = layoutMode === 'grid';
@@ -509,20 +527,40 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                           </p>
                         )}
                       </div>
-                      {onUnlinkGroup && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm wh-audit-tile__unlink"
-                          disabled={unlinkingGroupId === group.catalogProductId}
-                          onClick={event => {
-                            event.stopPropagation();
-                            onUnlinkGroup(group);
-                          }}
-                        >
-                          <Unlink size={14} aria-hidden />
-                          {unlinkingGroupId === group.catalogProductId ? 'Unlinking…' : 'Unlink'}
-                        </button>
-                      )}
+                      <div className="wh-audit-tile__product-head-actions">
+                        {group.items.length === 1 && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm wh-audit-tile__print"
+                            onClick={event => {
+                              event.stopPropagation();
+                              setPrintFields(
+                                binLabelFieldsFromStoreItem(
+                                  labelProductForGroup(group),
+                                  group.items[0],
+                                ),
+                              );
+                            }}
+                          >
+                            <Printer size={14} aria-hidden />
+                            Print Label
+                          </button>
+                        )}
+                        {onUnlinkGroup && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm wh-audit-tile__unlink"
+                            disabled={unlinkingGroupId === group.catalogProductId}
+                            onClick={event => {
+                              event.stopPropagation();
+                              onUnlinkGroup(group);
+                            }}
+                          >
+                            <Unlink size={14} aria-hidden />
+                            {unlinkingGroupId === group.catalogProductId ? 'Unlinking…' : 'Unlink'}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <AuditAttributionRow
@@ -555,14 +593,34 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                     </AuditIconPanel>
 
                     {group.items.map((binItem, index) => (
-                      <AuditTileStockLocation
-                        key={binItem.id}
-                        rackId={binItem.rackId}
-                        rowNumber={binItem.rowNumber}
-                        binNumber={binItem.binNumber}
-                        index={index}
-                        total={group.items.length}
-                      />
+                      <div key={binItem.id} className="wh-audit-tile__stock-location-row">
+                        <AuditTileStockLocation
+                          rackId={binItem.rackId}
+                          rowNumber={binItem.rowNumber}
+                          binNumber={binItem.binNumber}
+                          index={index}
+                          total={group.items.length}
+                        />
+                        {group.items.length > 1 && (
+                          <button
+                            type="button"
+                            className="product-site-stock__print-btn wh-audit-tile__print-icon"
+                            onClick={event => {
+                              event.stopPropagation();
+                              setPrintFields(
+                                binLabelFieldsFromStoreItem(
+                                  labelProductForGroup(group),
+                                  binItem,
+                                ),
+                              );
+                            }}
+                            aria-label="Print label"
+                            title="Print label"
+                          >
+                            <Printer size={16} aria-hidden />
+                          </button>
+                        )}
+                      </div>
                     ))}
                       </>
                     )}
@@ -715,6 +773,13 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
             </nav>
           )}
         </>
+      )}
+
+      {printFields && (
+        <BinLabelPrintDialog
+          fields={printFields}
+          onClose={() => setPrintFields(null)}
+        />
       )}
     </div>
   );

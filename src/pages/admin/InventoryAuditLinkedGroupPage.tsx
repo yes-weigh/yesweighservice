@@ -1,13 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ExternalLink, Unlink } from 'lucide-react';
+import { AlertCircle, ExternalLink, Printer, Unlink } from 'lucide-react';
 import { InventoryAuditProductPreview } from '../../components/yesStore/InventoryAuditProductPreview';
 import { AuditTileStockLocation } from '../../components/yesStore/AuditTileStockLocation';
+import {
+  BinLabelPrintDialog,
+  binLabelFieldsFromStoreItem,
+} from '../../components/catalog/BinLabelPrintDialog';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { fetchCatalog } from '../../lib/catalog';
+import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import { calculateGroupTotals } from '../../lib/yesStore/inventoryAudit';
 import { listItemsByCatalogProduct, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
 import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
@@ -26,6 +31,7 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [unlinkingAll, setUnlinkingAll] = useState(false);
+  const [printFields, setPrintFields] = useState<BinLabelFields | null>(null);
 
   const load = useCallback(async () => {
     if (!catalogProductId) return;
@@ -246,14 +252,36 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="catalog-inventory-audit-locations-table__actions">
-                      <Link
-                        to={`${base}/inventory-audit/${part.itemId}`}
-                        className="btn-icon catalog-inventory-audit-locations-table__edit"
-                        aria-label="Edit link"
-                        title="Edit link"
-                      >
-                        <ExternalLink size={16} aria-hidden />
-                      </Link>
+                      <div className="catalog-inventory-audit-locations-table__action-btns">
+                        <button
+                          type="button"
+                          className="product-site-stock__print-btn"
+                          onClick={() =>
+                            setPrintFields(
+                              binLabelFieldsFromStoreItem(
+                                catalogProduct ?? {
+                                  id: catalogProductId,
+                                  name: productName,
+                                  sku: items[0]?.catalogProductSku ?? null,
+                                },
+                                binItem,
+                              ),
+                            )
+                          }
+                          aria-label="Print label"
+                          title="Print label"
+                        >
+                          <Printer size={16} aria-hidden />
+                        </button>
+                        <Link
+                          to={`${base}/inventory-audit/${part.itemId}`}
+                          className="btn-icon catalog-inventory-audit-locations-table__edit"
+                          aria-label="Edit link"
+                          title="Edit link"
+                        >
+                          <ExternalLink size={16} aria-hidden />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -262,6 +290,13 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
           </table>
         </div>
       </section>
+
+      {printFields && (
+        <BinLabelPrintDialog
+          fields={printFields}
+          onClose={() => setPrintFields(null)}
+        />
+      )}
     </div>
   );
 };

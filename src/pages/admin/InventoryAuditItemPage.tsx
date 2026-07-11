@@ -1,14 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, Link2, Unlink } from 'lucide-react';
+import { AlertCircle, Link2, Printer, Unlink } from 'lucide-react';
 import { CatalogProductLinkPicker } from '../../components/yesStore/CatalogProductLinkPicker';
 import { InventoryAuditQtyEditor } from '../../components/yesStore/InventoryAuditQtyEditor';
 import { YesStorePhotoImg } from '../../components/yesStore/YesStorePhotoImg';
+import {
+  BinLabelPrintDialog,
+  binLabelFieldsFromStoreItem,
+} from '../../components/catalog/BinLabelPrintDialog';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { fetchCatalog, formatStockQuantity } from '../../lib/catalog';
+import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { getItem, linkYesStoreItemToCatalog, listItemsByCatalogProduct, unlinkYesStoreItemFromCatalog } from '../../lib/yesStore/data';
 import { syncCatalogAuditImagesToZoho, reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
@@ -40,6 +45,7 @@ export const InventoryAuditItemPage: React.FC = () => {
   const [linkMode, setLinkMode] = useState<CatalogLinkMode>('unit');
   const [partLabel, setPartLabel] = useState('');
   const [unitsPerProduct, setUnitsPerProduct] = useState(1);
+  const [printFields, setPrintFields] = useState<BinLabelFields | null>(null);
 
   const loadItem = useCallback(async () => {
     if (!itemId) return;
@@ -406,19 +412,48 @@ export const InventoryAuditItemPage: React.FC = () => {
               {linking ? 'Linking…' : linked && canLink ? 'Update link' : 'Link item'}
             </button>
             {linked && (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={linking || unlinking}
-                onClick={() => void handleUnlink()}
-              >
-                <Unlink size={16} aria-hidden />
-                {unlinking ? 'Unlinking…' : 'Unlink item'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={linking || unlinking}
+                  onClick={() =>
+                    setPrintFields(
+                      binLabelFieldsFromStoreItem(
+                        selectedProduct ?? {
+                          id: item.catalogProductId || item.id,
+                          name: item.catalogProductName || 'Linked item',
+                          sku: item.catalogProductSku ?? null,
+                        },
+                        item,
+                      ),
+                    )
+                  }
+                >
+                  <Printer size={16} aria-hidden />
+                  Print Label
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={linking || unlinking}
+                  onClick={() => void handleUnlink()}
+                >
+                  <Unlink size={16} aria-hidden />
+                  {unlinking ? 'Unlinking…' : 'Unlink item'}
+                </button>
+              </>
             )}
           </div>
         </div>
       </section>
+
+      {printFields && (
+        <BinLabelPrintDialog
+          fields={printFields}
+          onClose={() => setPrintFields(null)}
+        />
+      )}
     </div>
   );
 };

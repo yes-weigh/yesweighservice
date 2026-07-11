@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { ChevronDown, Printer, Save } from 'lucide-react';
+import { ChevronDown, Plus, Printer, Save, Star, Trash2 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { LocalPrinterLabelPreview } from '../../../components/admin/LocalPrinterLabelPreview';
 import {
-  emptyLocalPrinterSettings,
-  loadLocalPrinterSettings,
-  saveLocalPrinterSettings,
-  validateLabelDimensions,
-  validatePrinterHost,
+  emptyLocalPrinter,
+  emptyLocalPrintersDoc,
+  getStoreLabelPrinter,
+  loadLocalPrintersDoc,
+  saveLocalPrintersDoc,
+  type LocalPrinter,
+  type LocalPrintersDoc,
 } from '../../../lib/localPrinterSettings';
 import { isNativePrintAvailable, sendTestLabel } from '../../../lib/localPrinterPrint';
 import {
@@ -17,46 +19,64 @@ import {
   toBinLabelFields,
   type BinLabelDraft,
 } from '../../../lib/localPrinterLabel';
-import {
-  DEFAULT_LABEL_GAP_MM,
-  DEFAULT_LABEL_HEIGHT_MM,
-  DEFAULT_LABEL_PRINTER_PORT,
-  DEFAULT_LABEL_WIDTH_MM,
-} from '../../../constants/localPrinterSettings';
+
+type PrinterDraft = LocalPrinter & {
+  portText: string;
+  widthText: string;
+  heightText: string;
+  gapText: string;
+};
+
+function toDraft(printer: LocalPrinter): PrinterDraft {
+  return {
+    ...printer,
+    portText: String(printer.port),
+    widthText: String(printer.labelWidthMm),
+    heightText: String(printer.labelHeightMm),
+    gapText: String(printer.labelGapMm),
+  };
+}
+
+function fromDraft(draft: PrinterDraft): LocalPrinter {
+  return {
+    id: draft.id,
+    name: draft.name,
+    host: draft.host,
+    port: Number(draft.portText),
+    labelWidthMm: Number(draft.widthText),
+    labelHeightMm: Number(draft.heightText),
+    labelGapMm: Number(draft.gapText),
+  };
+}
+
+function printerSummary(draft: PrinterDraft): string {
+  return [
+    draft.name.trim() || 'Label printer',
+    draft.host.trim() || 'no IP',
+    `${draft.widthText || '—'}×${draft.heightText || '—'} mm`,
+  ].join(' · ');
+}
 
 export const LocalPrintersTab: React.FC = () => {
   const { user } = useAuth();
-  const [host, setHost] = useState('');
-  const [port, setPort] = useState(String(DEFAULT_LABEL_PRINTER_PORT));
-  const [name, setName] = useState('');
-  const [labelWidthMm, setLabelWidthMm] = useState(String(DEFAULT_LABEL_WIDTH_MM));
-  const [labelHeightMm, setLabelHeightMm] = useState(String(DEFAULT_LABEL_HEIGHT_MM));
-  const [labelGapMm, setLabelGapMm] = useState(String(DEFAULT_LABEL_GAP_MM));
-  const [savedHost, setSavedHost] = useState('');
-  const [savedPort, setSavedPort] = useState(DEFAULT_LABEL_PRINTER_PORT);
-  const [savedName, setSavedName] = useState('');
-  const [savedWidth, setSavedWidth] = useState(DEFAULT_LABEL_WIDTH_MM);
-  const [savedHeight, setSavedHeight] = useState(DEFAULT_LABEL_HEIGHT_MM);
-  const [savedGap, setSavedGap] = useState(DEFAULT_LABEL_GAP_MM);
+  const [printers, setPrinters] = useState<PrinterDraft[]>([]);
+  const [storeLabelPrinterId, setStoreLabelPrinterId] = useState('');
+  const [savedSnapshot, setSavedSnapshot] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [configOpen, setConfigOpen] = useState(false);
   const [draft, setDraft] = useState<BinLabelDraft>(() => loadTestLabelDraft());
 
   const native = isNativePrintAvailable();
   const platform = Capacitor.getPlatform();
 
-  const previewFields = useMemo(
-    () => toBinLabelFields(draft),
-    [draft],
-  );
+  const previewFields = useMemo(() => toBinLabelFields(draft), [draft]);
 
   const updateDraft = <K extends keyof BinLabelDraft>(key: K, value: BinLabelDraft[K]) => {
     setDraft(prev => {
       const next: BinLabelDraft = { ...prev, [key]: value };
-      // Keep QR in sync with SKU unless the user has a custom QR payload
       if (key === 'sku' && (prev.qrPayload === prev.sku || !prev.qrPayload.trim())) {
         next.qrPayload = value as string;
       }
@@ -65,28 +85,23 @@ export const LocalPrintersTab: React.FC = () => {
     });
   };
 
-  const applySettings = (settings: ReturnType<typeof emptyLocalPrinterSettings>) => {
-    setHost(settings.host);
-    setPort(String(settings.port));
-    setName(settings.name);
-    setLabelWidthMm(String(settings.labelWidthMm));
-    setLabelHeightMm(String(settings.labelHeightMm));
-    setLabelGapMm(String(settings.labelGapMm));
-    setSavedHost(settings.host);
-    setSavedPort(settings.port);
-    setSavedName(settings.name);
-    setSavedWidth(settings.labelWidthMm);
-    setSavedHeight(settings.labelHeightMm);
-    setSavedGap(settings.labelGapMm);
+  const applyDoc = (docData: LocalPrintersDoc) => {
+    const nextDrafts = docData.printers.map(toDraft);
+    setPrinters(nextDrafts);
+    setStoreLabelPrinterId(docData.storeLabelPrinterId);
+    setSavedSnapshot(JSON.stringify({
+      printers: docData.printers,
+      storeLabelPrinterId: docData.storeLabelPrinterId,
+    }));
   };
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      applySettings(await loadLocalPrinterSettings());
+      applyDoc(await loadLocalPrintersDoc());
     } catch (err) {
-      applySettings(emptyLocalPrinterSettings());
+      applyDoc(emptyLocalPrintersDoc());
       setError(err instanceof Error ? err.message : 'Could not load printer settings.');
     } finally {
       setLoading(false);
@@ -97,53 +112,75 @@ export const LocalPrintersTab: React.FC = () => {
     void loadAll();
   }, [loadAll]);
 
-  const portNumber = Number(port);
-  const widthNumber = Number(labelWidthMm);
-  const heightNumber = Number(labelHeightMm);
-  const gapNumber = Number(labelGapMm);
-  const dirty =
-    host.trim() !== savedHost
-    || name.trim() !== savedName
-    || portNumber !== savedPort
-    || widthNumber !== savedWidth
-    || heightNumber !== savedHeight
-    || gapNumber !== savedGap;
+  const currentPrinters = useMemo(() => printers.map(fromDraft), [printers]);
 
-  const configSummary = [
-    name.trim() || 'Label printer',
-    host.trim() || 'no IP',
-    `${widthNumber || '—'}×${heightNumber || '—'} mm`,
-  ].join(' · ');
+  const dirty = useMemo(() => {
+    const snapshot = JSON.stringify({
+      printers: currentPrinters,
+      storeLabelPrinterId,
+    });
+    return snapshot !== savedSnapshot;
+  }, [currentPrinters, storeLabelPrinterId, savedSnapshot]);
+
+  const storeLabelDraft = useMemo(() => {
+    const match = printers.find(p => p.id === storeLabelPrinterId);
+    return match ?? printers[0] ?? null;
+  }, [printers, storeLabelPrinterId]);
+
+  const storeLabelPrinter = useMemo(
+    () => (storeLabelDraft ? fromDraft(storeLabelDraft) : getStoreLabelPrinter(emptyLocalPrintersDoc())),
+    [storeLabelDraft],
+  );
+
+  const updatePrinter = (id: string, patch: Partial<PrinterDraft>) => {
+    setPrinters(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
+  };
+
+  const toggleExpanded = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAddPrinter = () => {
+    const next = toDraft(emptyLocalPrinter({ name: `Label printer ${printers.length + 1}` }));
+    setPrinters(prev => [...prev, next]);
+    setExpandedIds(prev => new Set(prev).add(next.id));
+  };
+
+  const handleDeletePrinter = (id: string) => {
+    if (printers.length <= 1) {
+      setError('Keep at least one local printer.');
+      return;
+    }
+    const remaining = printers.filter(p => p.id !== id);
+    setPrinters(remaining);
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    if (storeLabelPrinterId === id) {
+      setStoreLabelPrinterId(remaining[0]?.id ?? '');
+    }
+  };
 
   const handleSave = async () => {
     setBusyKey('save');
     setError('');
     setSuccess('');
     try {
-      const hostError = validatePrinterHost(host);
-      if (hostError) throw new Error(hostError);
-      if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
-        throw new Error('Port must be a whole number between 1 and 65535.');
-      }
-      const dimError = validateLabelDimensions({
-        labelWidthMm: widthNumber,
-        labelHeightMm: heightNumber,
-        labelGapMm: gapNumber,
-      });
-      if (dimError) throw new Error(dimError);
-
-      const saved = await saveLocalPrinterSettings(
+      const saved = await saveLocalPrintersDoc(
         {
-          host,
-          port: portNumber,
-          name,
-          labelWidthMm: widthNumber,
-          labelHeightMm: heightNumber,
-          labelGapMm: gapNumber,
+          printers: currentPrinters,
+          storeLabelPrinterId,
         },
         user?.uid ?? null,
       );
-      applySettings(saved);
+      applyDoc(saved);
       setSuccess('Printer settings saved. APK users pick up size/gap/IP on next load.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save printer settings.');
@@ -157,30 +194,21 @@ export const LocalPrintersTab: React.FC = () => {
     setError('');
     setSuccess('');
     try {
-      const hostError = validatePrinterHost(host);
-      if (hostError) throw new Error(hostError);
-      if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
-        throw new Error('Port must be a whole number between 1 and 65535.');
-      }
-      const dimError = validateLabelDimensions({
-        labelWidthMm: widthNumber,
-        labelHeightMm: heightNumber,
-        labelGapMm: gapNumber,
-      });
-      if (dimError) throw new Error(dimError);
       if (dirty) {
         throw new Error('Save printer settings before running a test print.');
       }
       const result = await sendTestLabel({
-        host: host.trim(),
-        port: portNumber,
-        labelWidthMm: widthNumber,
-        labelHeightMm: heightNumber,
-        labelGapMm: gapNumber,
+        host: storeLabelPrinter.host.trim(),
+        port: storeLabelPrinter.port,
+        labelWidthMm: storeLabelPrinter.labelWidthMm,
+        labelHeightMm: storeLabelPrinter.labelHeightMm,
+        labelGapMm: storeLabelPrinter.labelGapMm,
         fields: toBinLabelFields(draft),
       });
       saveTestLabelDraft(draft);
-      setSuccess(`Label bitmap sent (${result.bytesSent} bytes) to ${host.trim()}:${portNumber}.`);
+      setSuccess(
+        `Label bitmap sent (${result.bytesSent} bytes) to ${storeLabelPrinter.host.trim()}:${storeLabelPrinter.port} (${storeLabelPrinter.name}).`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Test print failed.');
     } finally {
@@ -194,7 +222,8 @@ export const LocalPrintersTab: React.FC = () => {
         <div>
           <h3>Local printers</h3>
           <p className="text-muted text-sm">
-            TSC TE210 LAN label printer. Preview and print use the same bitmap — fix it on screen, then Test print from the APK.
+            Manage LAN label printers. Mark one as <strong>Store label</strong> for bin labels;
+            preview and test print always use that printer.
           </p>
         </div>
       </header>
@@ -216,145 +245,203 @@ export const LocalPrintersTab: React.FC = () => {
           </div>
         ) : (
           <>
-            <div className="settings-logistics__default panel glass settings-local-printer__config">
+            <div className="settings-local-printer__list-toolbar">
               <button
                 type="button"
-                className="settings-local-printer__config-toggle"
-                aria-expanded={configOpen}
-                onClick={() => setConfigOpen(open => !open)}
+                className="btn btn-secondary btn-sm"
+                disabled={busyKey != null}
+                onClick={handleAddPrinter}
               >
-                <div className="settings-local-printer__config-toggle-text">
-                  <h4 className="settings-logistics__title">Printer settings</h4>
-                  {!configOpen && (
-                    <p className="text-muted text-sm settings-local-printer__config-summary">
-                      {configSummary}
-                      {dirty ? ' · unsaved' : ''}
-                    </p>
-                  )}
-                </div>
-                <ChevronDown
-                  size={18}
-                  aria-hidden
-                  className={`settings-local-printer__chevron${configOpen ? ' is-open' : ''}`}
-                />
+                <Plus size={15} aria-hidden />
+                Add printer
               </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!dirty || busyKey != null}
+                onClick={() => void handleSave()}
+              >
+                <Save size={15} aria-hidden />
+                {busyKey === 'save' ? 'Saving…' : 'Save all'}
+              </button>
+            </div>
 
-              {configOpen && (
-                <div className="settings-local-printer__config-body">
-                  <p className="text-muted text-sm">
-                    Defaults: 75 × 45.5 mm, gap 3.5 mm, port 9100.
-                  </p>
-
-                  <label className="settings-locations__field">
-                    <span>Name</span>
-                    <input
-                      type="text"
-                      value={name}
-                      disabled={busyKey === 'save'}
-                      onChange={e => setName(e.target.value)}
-                      placeholder="Store room label printer"
-                    />
-                  </label>
-
-                  <label className="settings-locations__field">
-                    <span>IP address</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={host}
-                      disabled={busyKey === 'save'}
-                      onChange={e => setHost(e.target.value)}
-                      placeholder="192.168.1.39"
-                    />
-                  </label>
-
-                  <label className="settings-locations__field">
-                    <span>Port</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={65535}
-                      value={port}
-                      disabled={busyKey === 'save'}
-                      onChange={e => setPort(e.target.value)}
-                    />
-                  </label>
-
-                  <div className="settings-local-printer__dims">
-                    <label className="settings-locations__field">
-                      <span>Width (mm)</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={120}
-                        step={0.1}
-                        value={labelWidthMm}
-                        disabled={busyKey === 'save'}
-                        onChange={e => setLabelWidthMm(e.target.value)}
-                      />
-                    </label>
-                    <label className="settings-locations__field">
-                      <span>Height (mm)</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={500}
-                        step={0.1}
-                        value={labelHeightMm}
-                        disabled={busyKey === 'save'}
-                        onChange={e => setLabelHeightMm(e.target.value)}
-                      />
-                    </label>
-                    <label className="settings-locations__field">
-                      <span>Gap (mm)</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={25}
-                        step={0.1}
-                        value={labelGapMm}
-                        disabled={busyKey === 'save'}
-                        onChange={e => setLabelGapMm(e.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <p className="settings-local-printer__hint text-muted text-sm">
-                    Preview updates when width/height change. Gap can be 0 if Feed already advances one label.
-                  </p>
-
-                  <div className="settings-local-printer__actions">
+            <div className="settings-local-printer__list">
+              {printers.map(printer => {
+                const expanded = expandedIds.has(printer.id);
+                const isStoreLabel = printer.id === storeLabelPrinterId;
+                return (
+                  <div
+                    key={printer.id}
+                    className={`settings-logistics__default panel glass settings-local-printer__config${
+                      isStoreLabel ? ' settings-local-printer__config--store' : ''
+                    }`}
+                  >
                     <button
                       type="button"
-                      className="btn btn-primary btn-sm"
-                      disabled={!dirty || busyKey != null}
-                      onClick={() => void handleSave()}
+                      className="settings-local-printer__config-toggle"
+                      aria-expanded={expanded}
+                      onClick={() => toggleExpanded(printer.id)}
                     >
-                      <Save size={15} aria-hidden />
-                      Save
+                      <div className="settings-local-printer__config-toggle-text">
+                        <div className="settings-local-printer__config-title-row">
+                          <h4 className="settings-logistics__title">
+                            {printer.name.trim() || 'Label printer'}
+                          </h4>
+                          {isStoreLabel && (
+                            <span className="settings-local-printer__role-badge">Store label</span>
+                          )}
+                        </div>
+                        {!expanded && (
+                          <p className="text-muted text-sm settings-local-printer__config-summary">
+                            {printerSummary(printer)}
+                          </p>
+                        )}
+                      </div>
+                      <ChevronDown
+                        size={18}
+                        aria-hidden
+                        className={`settings-local-printer__chevron${expanded ? ' is-open' : ''}`}
+                      />
                     </button>
+
+                    {expanded && (
+                      <div className="settings-local-printer__config-body">
+                        <label className="settings-locations__field">
+                          <span>Name</span>
+                          <input
+                            type="text"
+                            value={printer.name}
+                            disabled={busyKey === 'save'}
+                            onChange={e => updatePrinter(printer.id, { name: e.target.value })}
+                            placeholder="Store label printer"
+                          />
+                        </label>
+
+                        <label className="settings-locations__field">
+                          <span>IP address</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={printer.host}
+                            disabled={busyKey === 'save'}
+                            onChange={e => updatePrinter(printer.id, { host: e.target.value })}
+                            placeholder="192.168.1.39"
+                          />
+                        </label>
+
+                        <label className="settings-locations__field">
+                          <span>Port</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={65535}
+                            value={printer.portText}
+                            disabled={busyKey === 'save'}
+                            onChange={e => updatePrinter(printer.id, { portText: e.target.value })}
+                          />
+                        </label>
+
+                        <div className="settings-local-printer__dims">
+                          <label className="settings-locations__field">
+                            <span>Width (mm)</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={120}
+                              step={0.1}
+                              value={printer.widthText}
+                              disabled={busyKey === 'save'}
+                              onChange={e => updatePrinter(printer.id, { widthText: e.target.value })}
+                            />
+                          </label>
+                          <label className="settings-locations__field">
+                            <span>Height (mm)</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={500}
+                              step={0.1}
+                              value={printer.heightText}
+                              disabled={busyKey === 'save'}
+                              onChange={e => updatePrinter(printer.id, { heightText: e.target.value })}
+                            />
+                          </label>
+                          <label className="settings-locations__field">
+                            <span>Gap (mm)</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={25}
+                              step={0.1}
+                              value={printer.gapText}
+                              disabled={busyKey === 'save'}
+                              onChange={e => updatePrinter(printer.id, { gapText: e.target.value })}
+                            />
+                          </label>
+                        </div>
+                        <p className="settings-local-printer__hint text-muted text-sm">
+                          Gap can be 0 if Feed already advances one label.
+                        </p>
+
+                        <div className="settings-local-printer__card-actions">
+                          {!isStoreLabel && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              disabled={busyKey != null}
+                              onClick={() => setStoreLabelPrinterId(printer.id)}
+                            >
+                              <Star size={15} aria-hidden />
+                              Set as store label
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={busyKey != null || printers.length <= 1}
+                            onClick={() => handleDeletePrinter(printer.id)}
+                            title={printers.length <= 1 ? 'Keep at least one printer' : 'Remove printer'}
+                          >
+                            <Trash2 size={15} aria-hidden />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })}
             </div>
 
             <div className="settings-logistics__default panel glass">
-              <div className="settings-local-printer__preview-actions">
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  disabled={busyKey != null || dirty}
-                  onClick={() => void handleTestPrint()}
-                  title={native ? 'Print the exact preview bitmap' : 'Requires Android APK on same Wi‑Fi'}
-                >
-                  <Printer size={15} aria-hidden />
-                  {busyKey === 'test' ? 'Printing…' : 'Test print'}
-                </button>
+              <div className="settings-local-printer__preview-head">
+                <div>
+                  <h4 className="settings-logistics__title">Store label preview</h4>
+                  <p className="text-muted text-sm">
+                    Uses {storeLabelPrinter.name} ({storeLabelPrinter.host || 'no IP'} ·{' '}
+                    {storeLabelPrinter.labelWidthMm}×{storeLabelPrinter.labelHeightMm} mm).
+                  </p>
+                </div>
+                <div className="settings-local-printer__preview-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={busyKey != null || dirty}
+                    onClick={() => void handleTestPrint()}
+                    title={native ? 'Print the exact preview bitmap' : 'Requires Android APK on same Wi‑Fi'}
+                  >
+                    <Printer size={15} aria-hidden />
+                    {busyKey === 'test' ? 'Printing…' : 'Test print'}
+                  </button>
+                </div>
               </div>
+
               <LocalPrinterLabelPreview
-                labelWidthMm={widthNumber}
-                labelHeightMm={heightNumber}
+                labelWidthMm={storeLabelPrinter.labelWidthMm}
+                labelHeightMm={storeLabelPrinter.labelHeightMm}
                 fields={previewFields}
               />
 
