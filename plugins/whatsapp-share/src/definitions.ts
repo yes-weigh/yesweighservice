@@ -12,6 +12,6 @@ export interface WhatsAppShareImageResult {
 }
 
 export interface WhatsAppSharePlugin {
-  /** Open WhatsApp (or WhatsApp Business) with the image attached. */
+  /** Open the system share sheet with the image (WhatsApp, email, etc.). */
   shareImage(options: WhatsAppShareImageOptions): Promise<WhatsAppShareImageResult>;
 }

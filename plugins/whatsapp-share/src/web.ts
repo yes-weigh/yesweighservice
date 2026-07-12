@@ -8,7 +8,7 @@ import type {
 export class WhatsAppShareWeb extends WebPlugin implements WhatsAppSharePlugin {
   async shareImage(_options: WhatsAppShareImageOptions): Promise<WhatsAppShareImageResult> {
     throw this.unimplemented(
-      'Direct WhatsApp image share needs the YesWeigh Android APK.',
+      'Image share needs the YesWeigh Android APK (system share sheet).',
     );
   }
 }

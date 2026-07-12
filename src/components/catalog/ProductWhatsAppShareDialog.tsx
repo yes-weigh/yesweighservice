@@ -651,7 +651,7 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
         .slice(0, 40);
       const fileName = `${safeName}-share.png`;
 
-      // APK: attach the PNG and open WhatsApp directly (no system share sheet).
+      // APK: system share sheet — WhatsApp, email, and any app that accepts images.
       if (Capacitor.isNativePlatform()) {
         const dataBase64 = await blobToBase64(blob);
         await WhatsAppShare.shareImage({
@@ -662,8 +662,18 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
         return;
       }
 
-      // PWA/browser: browsers cannot attach local files to a specific app.
-      // Upload the card, then open WhatsApp directly with the image link.
+      // PWA/browser: prefer Web Share with the image file when the browser supports it.
+      const file = new File([blob], fileName, { type: 'image/png' });
+      const shareData: ShareData = {
+        files: [file],
+        title: product.name.trim() || 'Genuine Spare Part',
+      };
+      if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+        return;
+      }
+
+      // Fallback: upload card and open WhatsApp with the image link.
       const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
       const shareText = [
         product.name.trim() || 'Genuine Spare Part',
@@ -691,7 +701,7 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
       >
         <div className="product-wa-share__header">
           <div>
-            <h2 id="product-wa-share-title">Share on WhatsApp</h2>
+            <h2 id="product-wa-share-title">Share product</h2>
             <p className="text-muted text-sm">Preview card · then share</p>
           </div>
           <button type="button" className="dealers-modal__close" onClick={onClose} aria-label="Close">
@@ -721,9 +731,8 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
             onClick={() => void handleShare()}
             disabled={building || sharing || !previewUrl}
           >
-            <WhatsAppIcon size={18} />
             <Share2 size={16} aria-hidden />
-            {sharing ? 'Sharing…' : 'Share'}
+            {sharing ? 'Sharing…' : 'Share image'}
           </button>
         </div>
       </div>

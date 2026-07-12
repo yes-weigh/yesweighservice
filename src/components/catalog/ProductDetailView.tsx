@@ -18,6 +18,7 @@ import {
   Trash2,
   Upload,
   Printer,
+  Share2,
   X,
 } from 'lucide-react';
 import {
@@ -83,7 +84,7 @@ import {
   productPackLabelFieldsFromCatalog,
 } from './BinLabelPrintDialog';
 import type { BinLabelFields } from '../../lib/localPrinterLabel';
-import { ProductWhatsAppShareDialog, WhatsAppIcon } from './ProductWhatsAppShareDialog';
+import { ProductWhatsAppShareDialog } from './ProductWhatsAppShareDialog';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { SpareLinkEditor } from './SpareLinkEditor';
 import { StockBadge } from './StockBadge';
@@ -1021,11 +1022,11 @@ export const ProductDetailView: React.FC<{
                   <button
                     type="button"
                     className="product-detail-page__edit-details-btn product-detail-page__whatsapp-btn"
-                    title="Share on WhatsApp"
-                    aria-label="Share product on WhatsApp"
+                    title="Share product image"
+                    aria-label="Share product image"
                     onClick={() => setWhatsappShareOpen(true)}
                   >
-                    <WhatsAppIcon size={16} />
+                    <Share2 size={16} />
                   </button>
                 )}
                 {canEnterProductEdit && (
