@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  YesWeigh Genuine Spare Part product label — matches print mockup.
+  YesWeigh Genuine Spare Part product label — matches print reference.
   Size: 75 × 45.5 mm @ 203 dpi, gap 3.5 mm.
 
   Bindings:
     {{itemName}} {{sku}} {{qty}} {{mrp}}
-    {{packedOn}} {{batchNo}} {{packedBy}} {{qcStatus}} {{qrPayload}}
+    {{packedOn}} {{batchNo}} {{packedBy}} {{qrPayload}}
 -->
 <label
   id="genuine-spare-product"
@@ -16,45 +16,51 @@
   gapMm="3.5"
   padMm="1.2"
 >
-  <border radiusPx="6" strokePx="2" />
+  <border radiusPx="8" strokePx="2" />
 
   <product-pack
-    headerHeightPx="64"
-    footerHeightPx="58"
-    originHeightPx="12"
+    headerHeightPx="46"
+    metaHeightPx="68"
+    brandHeightPx="38"
     bodyGapPx="3"
-    qrRatio="0.32"
+    qrRatio="0.33"
+    bannerRatio="0.70"
   >
-    <header dividerStrokePx="1.5">
-      <brand-left>
-        <image src="/yesweigh-mark.png" heightPx="34" cropInk="true" />
-        <title value="YESWEIGH" bold="true" maxFontPx="28" minFontPx="14" />
-      </brand-left>
-      <brand-right>
-        <title value="GENUINE SPARE PART" bold="true" maxFontPx="22" minFontPx="12" />
-      </brand-right>
-    </header>
+    <header
+      title="GENUINE SPARE PART"
+      titleMaxFontPx="22"
+      titleMinFontPx="14"
+      slantPx="24"
+    />
 
-    <body dividerStrokePx="1.5">
-      <fields colonAlign="true" labelMaxFontPx="14" valueMaxFontPx="18">
-        <field icon="box" label="ITEM NAME" value="{{itemName}}" />
+    <body>
+      <fields labelMaxFontPx="17" valueMaxFontPx="22">
+        <field icon="grid" label="ITEM NAME" value="{{itemName}}" />
         <field icon="barcode" label="SKU" value="{{sku}}" />
         <field icon="cubes" label="QTY" value="{{qty}}" />
-        <field icon="rupee" label="MRP (INCLUDING GST)" value="{{mrp}}" />
+        <field icon="rupee" label="MRP" sublabel="INCLUDING GST" value="{{mrp}}" />
       </fields>
 
-      <qr-panel padPx="4">
+      <qr-panel padPx="12">
         <qr field="qrPayload" fallbackField="sku" />
       </qr-panel>
     </body>
 
-    <footer dividerStrokePx="1.5" labelFontPx="8" valueFontPx="11">
-      <cell icon="calendar" label="PACKED ON" value="{{packedOn}}" style="pill" />
-      <cell icon="shield" label="QC DONE" value="{{qcStatus}}" style="qc" />
-      <cell icon="clipboard" label="BATCH NO." value="{{batchNo}}" style="pill" />
-      <cell icon="box" label="PACKED BY" value="{{packedBy}}" style="pill" />
-    </footer>
+    <meta dividerStrokePx="1" labelFontPx="18" valueFontPx="18">
+      <cell icon="calendar" label="PACKED ON" value="{{packedOn}}" />
+      <cell icon="clipboard" label="BATCH NO." value="{{batchNo}}" />
+      <cell icon="grid" label="PACKED BY" value="{{packedBy}}" />
+    </meta>
 
-    <origin value="MADE IN CHINA" fontPx="9" />
+    <brand
+      logoSrc="/yesweigh-mark.png"
+      logoHeightPx="26"
+      name="YESWEIGH"
+      center="GENUINE SPARE PART"
+      origin="MADE IN CHINA"
+      nameMaxFontPx="20"
+      centerMaxFontPx="14"
+      originMaxFontPx="12"
+    />
   </product-pack>
 </label>

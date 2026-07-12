@@ -10,16 +10,23 @@ export function fillInvertedPill(
   h: number,
   text: string,
   fontPx: number,
+  opts?: { bold?: boolean; fullPill?: boolean; padX?: number; radiusPx?: number },
 ): void {
-  const r = Math.min(h / 2, 5);
+  const bold = opts?.bold !== false;
+  const padX = opts?.padX ?? 8;
+  const r = opts?.fullPill
+    ? h / 2
+    : Math.min(opts?.radiusPx ?? 4, h / 2, w / 2);
   ctx.fillStyle = '#000';
   roundRect(ctx, x, y, w, h, r);
   ctx.fill();
   ctx.fillStyle = '#fff';
   let size = fontPx;
+  const weight = bold ? 'bold ' : '';
+  const maxTextW = Math.max(8, w - padX * 2);
   while (size > 5) {
-    ctx.font = `bold ${size}px Arial, Helvetica, sans-serif`;
-    if (ctx.measureText(text).width <= w - 6) break;
+    ctx.font = `${weight}${size}px Arial, Helvetica, sans-serif`;
+    if (ctx.measureText(text).width <= maxTextW) break;
     size -= 1;
   }
   ctx.textAlign = 'center';
@@ -54,6 +61,15 @@ export function drawFieldIcon(
   const cy = y + size / 2;
 
   switch (kind) {
+    case 'grid': {
+      const gap = Math.max(1, size * 0.08);
+      const cell = (iw - gap) / 2;
+      ctx.fillRect(ix, iy, cell, cell);
+      ctx.fillRect(ix + cell + gap, iy, cell, cell);
+      ctx.fillRect(ix, iy + cell + gap, cell, cell);
+      ctx.fillRect(ix + cell + gap, iy + cell + gap, cell, cell);
+      break;
+    }
     case 'box':
     case 'package': {
       ctx.strokeRect(ix, iy + ih * 0.15, iw, ih * 0.7);
@@ -113,16 +129,19 @@ export function drawFieldIcon(
   ctx.strokeStyle = '#000';
 }
 
-/** Header shield with check — next to GENUINE SPARE PART. */
+/** Header shield — black fill (default) or white fill for black banners. */
 export function drawShieldCheck(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   size: number,
+  inverted = false,
 ): void {
   const w = size * 0.78;
   const h = size;
-  ctx.fillStyle = '#000';
+  const fill = inverted ? '#fff' : '#000';
+  const stroke = inverted ? '#000' : '#fff';
+  ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.moveTo(x + w / 2, y);
   ctx.lineTo(x + w, y + h * 0.18);
@@ -133,7 +152,7 @@ export function drawShieldCheck(
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = '#fff';
+  ctx.strokeStyle = stroke;
   ctx.lineWidth = Math.max(1.5, size * 0.1);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -190,6 +209,17 @@ export function drawFooterGlyph(
       ctx.moveTo(x + s * 0.3, y + s * 0.62);
       ctx.lineTo(x + s * 0.7, y + s * 0.62);
       ctx.stroke();
+      break;
+    }
+    case 'grid': {
+      const gap = Math.max(1, s * 0.1);
+      const cell = (s * 0.7 - gap) / 2;
+      const ox = x + s * 0.15;
+      const oy = y + s * 0.15;
+      ctx.strokeRect(ox, oy, cell, cell);
+      ctx.strokeRect(ox + cell + gap, oy, cell, cell);
+      ctx.strokeRect(ox, oy + cell + gap, cell, cell);
+      ctx.strokeRect(ox + cell + gap, oy + cell + gap, cell, cell);
       break;
     }
     case 'box': {

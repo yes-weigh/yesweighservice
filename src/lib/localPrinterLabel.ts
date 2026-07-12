@@ -35,7 +35,7 @@ export const TEST_BIN_LABEL_SAMPLE: BinLabelFields = {
   printedOn: new Date('2024-05-16'),
   qty: '1 PC',
   mrp: '₹ 500.00',
-  batchNo: 'B24051501',
+  batchNo: 'B24Y16V43',
   packedBy: 'YESWEIGH',
   qcStatus: 'PASSED',
 };

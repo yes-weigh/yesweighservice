@@ -83,6 +83,7 @@ import {
   productPackLabelFieldsFromCatalog,
 } from './BinLabelPrintDialog';
 import type { BinLabelFields } from '../../lib/localPrinterLabel';
+import { ProductWhatsAppShareDialog, WhatsAppIcon } from './ProductWhatsAppShareDialog';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { SpareLinkEditor } from './SpareLinkEditor';
 import { StockBadge } from './StockBadge';
@@ -214,6 +215,7 @@ export const ProductDetailView: React.FC<{
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [titleInView, setTitleInView] = useState(true);
   const [printLabelFields, setPrintLabelFields] = useState<BinLabelFields | null>(null);
+  const [whatsappShareOpen, setWhatsappShareOpen] = useState(false);
 
   const scrolledHeaderTitle = useMemo(() => {
     if (variant !== 'app' || titleInView || !product) return null;
@@ -1014,21 +1016,34 @@ export const ProductDetailView: React.FC<{
               {showStockQuantity && (
                 <StockBadge status={product.stockStatus} overlay variant="tile" />
               )}
-              {canEnterProductEdit && (
-                <button
-                  type="button"
-                  className={[
-                    'product-detail-page__edit-details-btn',
-                    productEditMode ? 'is-active' : '',
-                  ].filter(Boolean).join(' ')}
-                  title={productEditMode ? 'Done editing' : (canEditProductDetails ? 'Edit item details' : 'Edit product image')}
-                  aria-label={productEditMode ? 'Done editing' : (canEditProductDetails ? 'Edit item details' : 'Edit product image')}
-                  aria-pressed={productEditMode}
-                  onClick={() => (productEditMode ? cancelProductEdit() : startProductEdit())}
-                >
-                  {productEditMode ? <X size={16} aria-hidden /> : <Pencil size={16} aria-hidden />}
-                </button>
-              )}
+              <div className="product-detail-page__hero-actions">
+                {!productEditMode && (
+                  <button
+                    type="button"
+                    className="product-detail-page__edit-details-btn product-detail-page__whatsapp-btn"
+                    title="Share on WhatsApp"
+                    aria-label="Share product on WhatsApp"
+                    onClick={() => setWhatsappShareOpen(true)}
+                  >
+                    <WhatsAppIcon size={16} />
+                  </button>
+                )}
+                {canEnterProductEdit && (
+                  <button
+                    type="button"
+                    className={[
+                      'product-detail-page__edit-details-btn',
+                      productEditMode ? 'is-active' : '',
+                    ].filter(Boolean).join(' ')}
+                    title={productEditMode ? 'Done editing' : (canEditProductDetails ? 'Edit item details' : 'Edit product image')}
+                    aria-label={productEditMode ? 'Done editing' : (canEditProductDetails ? 'Edit item details' : 'Edit product image')}
+                    aria-pressed={productEditMode}
+                    onClick={() => (productEditMode ? cancelProductEdit() : startProductEdit())}
+                  >
+                    {productEditMode ? <X size={16} aria-hidden /> : <Pencil size={16} aria-hidden />}
+                  </button>
+                )}
+              </div>
               {galleryUrls.length > 1 ? (
                 <>
                   <div
@@ -1206,7 +1221,11 @@ export const ProductDetailView: React.FC<{
                   className="product-detail-page__title-print"
                   title="Print product label"
                   aria-label="Print Genuine Spare product label"
-                  onClick={() => setPrintLabelFields(productPackLabelFieldsFromCatalog(product))}
+                  onClick={() =>
+                    setPrintLabelFields(
+                      productPackLabelFieldsFromCatalog(product, user?.displayName),
+                    )
+                  }
                 >
                   <Printer size={16} aria-hidden />
                 </button>
@@ -1225,7 +1244,7 @@ export const ProductDetailView: React.FC<{
             {(product.sku || (productEditMode && canEditProductDetails)) && (
               productEditMode && canEditProductDetails ? (
                 <label className="product-detail-page__sku-field">
-                  <span className="product-detail-page__sku-label">Model</span>
+                  <span className="product-detail-page__sku-label">SKU</span>
                   <input
                     type="text"
                     className="product-detail-page__sku-input"
@@ -1236,7 +1255,7 @@ export const ProductDetailView: React.FC<{
                   />
                 </label>
               ) : (
-                <p className="product-detail-page__sku">Model: {product.sku}</p>
+                <p className="product-detail-page__sku">SKU: {product.sku}</p>
               )
             )}
 
@@ -1571,6 +1590,16 @@ export const ProductDetailView: React.FC<{
           fields={printLabelFields}
           layoutId="genuine-spare-product"
           onClose={() => setPrintLabelFields(null)}
+        />
+      )}
+
+      {whatsappShareOpen && product && (
+        <ProductWhatsAppShareDialog
+          product={product}
+          imageUrl={currentGalleryUrl}
+          imageIndex={activeGalleryIndex}
+          imageCount={Math.max(1, galleryUrls.length)}
+          onClose={() => setWhatsappShareOpen(false)}
         />
       )}
     </div>

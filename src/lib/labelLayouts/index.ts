@@ -19,4 +19,5 @@ export {
   validateLayoutXml,
   type LayoutMedia,
 } from './bindings';
+export { decodePackedDateBatch, encodePackedDateBatch } from './batchCode';
 

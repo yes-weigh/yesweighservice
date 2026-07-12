@@ -20,7 +20,6 @@ import {
 import {
   drawFieldIcon,
   drawFooterGlyph,
-  drawQcPassedBadge,
   drawShieldCheck,
   fillInvertedPill,
 } from './productPackIcons';
@@ -385,7 +384,8 @@ async function renderSimpleStack(
 }
 
 /**
- * Genuine Spare Product mockup: branded header | icon fields + QR | footer | MADE IN CHINA.
+ * Genuine Spare Product reference layout:
+ * slanted black banner | fields + QR | packing meta | brand footer
  */
 async function renderProductPack(
   ctx: CanvasRenderingContext2D,
@@ -396,187 +396,118 @@ async function renderProductPack(
   const pack = root.querySelector('product-pack');
   if (!pack) throw new Error('genuine-spare-product layout requires <product-pack>.');
 
-  const headerH = attrNum(pack, 'headerHeightPx', 64);
-  const footerH = attrNum(pack, 'footerHeightPx', 58);
-  const originH = attrNum(pack, 'originHeightPx', 12);
-  const bodyGap = attrNum(pack, 'bodyGapPx', 3);
-  const qrRatio = attrNum(pack, 'qrRatio', 0.32);
+  const headerH = attrNum(pack, 'headerHeightPx', 42);
+  const metaH = attrNum(pack, 'metaHeightPx', 52);
+  const brandH = attrNum(pack, 'brandHeightPx', 36);
+  const bodyGap = attrNum(pack, 'bodyGapPx', 4);
+  const qrRatio = attrNum(pack, 'qrRatio', 0.34);
+  const bannerRatio = attrNum(pack, 'bannerRatio', 0.68);
 
   const headerEl = pack.querySelector('header');
   const bodyEl = pack.querySelector('body');
-  const footerEl = pack.querySelector('footer');
-  const originEl = pack.querySelector('origin');
+  const metaEl = pack.querySelector('meta');
+  const brandEl = pack.querySelector('brand');
 
-  const inset = 3;
+  const inset = 4;
   const L = box.l + inset;
   const T = box.t + inset;
   const R = box.l + box.w - inset;
   const B = box.t + box.h - inset;
   const W = R - L;
 
-  // --- Header ---
+  // --- Slanted black header banner ---
   const headerT = T;
   const headerB = headerT + headerH;
-  const midX = L + Math.floor(W * 0.4);
+  const slant = attrNum(headerEl, 'slantPx', 22);
+  const bannerW = Math.floor(W * bannerRatio);
+  const bannerTitle = applyBindings(attr(headerEl, 'title', 'GENUINE SPARE PART'), bindings);
 
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = attrNum(headerEl, 'dividerStrokePx', 1.5);
+  ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.moveTo(midX, headerT + 3);
-  ctx.lineTo(midX, headerB - 3);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(L, headerB);
-  ctx.lineTo(R, headerB);
-  ctx.stroke();
+  ctx.moveTo(L, headerT);
+  ctx.lineTo(L + bannerW, headerT);
+  ctx.lineTo(L + bannerW - slant, headerB);
+  ctx.lineTo(L, headerB);
+  ctx.closePath();
+  ctx.fill();
 
-  const brandLeft = headerEl?.querySelector('brand-left');
-  const imageEl = brandLeft?.querySelector('image');
-  const leftTitle = brandLeft?.querySelector('title');
-  const leftTitleText = applyBindings(attr(leftTitle, 'value', 'YESWEIGH'), bindings);
-  const leftPad = 5;
+  const shieldSize = Math.min(32, Math.floor(headerH * 0.72));
+  const shieldX = L + 8;
+  const shieldY = headerT + (headerH - shieldSize) / 2;
+  drawShieldCheck(ctx, shieldX, shieldY, shieldSize, true);
 
-  const logoH = attrNum(imageEl, 'heightPx', Math.min(36, headerH - 10));
-  const cropInk = attrBool(imageEl, 'cropInk', true);
-  const logo = imageEl
-    ? await loadImage(attr(imageEl, 'src', '/yesweigh-mark.png'))
-    : null;
-  let logoW = 0;
-  let logoCrop = { sx: 0, sy: 0, sw: 0, sh: 0 };
-  if (logo && logo.width > 0 && logo.height > 0) {
-    logoCrop = cropInk ? inkBounds(logo) : { sx: 0, sy: 0, sw: logo.width, sh: logo.height };
-    logoW = (logoCrop.sw / logoCrop.sh) * logoH;
-  }
-  const logoX = L + leftPad;
-  const logoY = headerT + (headerH - logoH) / 2;
-  if (logo && logoW > 0) {
-    ctx.drawImage(
-      logo,
-      logoCrop.sx,
-      logoCrop.sy,
-      logoCrop.sw,
-      logoCrop.sh,
-      logoX,
-      logoY,
-      logoW,
-      logoH,
-    );
-  }
-
-  const textX = logoW > 0 ? logoX + logoW + 5 : L + leftPad;
-  const textW = Math.max(24, midX - leftPad - textX);
-
-  // YESWEIGH® fills the left header (no tagline).
-  const titleFont = fitFontSize(
+  const headerTextX = shieldX + shieldSize * 0.85 + 6;
+  const headerTextMaxW = L + bannerW - slant - 10 - headerTextX;
+  const htFont = fitFontSize(
     ctx,
-    `${leftTitleText}®`,
-    textW,
-    Math.min(attrNum(leftTitle, 'maxFontPx', 28), Math.floor(headerH * 0.55)),
-    attrNum(leftTitle, 'minFontPx', 14),
+    bannerTitle,
+    headerTextMaxW,
+    attrNum(headerEl, 'titleMaxFontPx', 22),
+    attrNum(headerEl, 'titleMinFontPx', 14),
     true,
   );
-  ctx.fillStyle = '#000';
-  ctx.font = `bold ${titleFont}px Arial Black, Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${htFont}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const titleY = headerT + headerH / 2;
-  ctx.fillText(leftTitleText, textX, titleY);
-  const titleW = ctx.measureText(leftTitleText).width;
-  const regSize = Math.max(8, Math.round(titleFont * 0.38));
-  ctx.font = `bold ${regSize}px Arial, Helvetica, sans-serif`;
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('®', textX + titleW + 1, titleY - titleFont * 0.15);
-
-  const brandRight = headerEl?.querySelector('brand-right');
-  const rightTitle = brandRight?.querySelector('title');
-  const rightTitleText = applyBindings(attr(rightTitle, 'value', 'GENUINE SPARE PART'), bindings);
-  const rightPad = 5;
-
-  // Stack "GENUINE" / "SPARE PART" to fill the right header (no quality badge).
-  const parts = rightTitleText.trim().split(/\s+/);
-  const line1 = parts[0] || 'GENUINE';
-  const line2 = parts.slice(1).join(' ') || 'SPARE PART';
-
-  const shieldSize = Math.min(36, Math.floor(headerH * 0.62));
-  const shieldX = midX + rightPad;
-  const shieldY = headerT + (headerH - shieldSize) / 2;
-  drawShieldCheck(ctx, shieldX, shieldY, shieldSize);
-
-  const titleLeft = shieldX + shieldSize * 0.88 + 5;
-  const titleAvail = Math.max(20, R - rightPad - titleLeft);
-  const maxRt = attrNum(rightTitle, 'maxFontPx', 22);
-  const minRt = attrNum(rightTitle, 'minFontPx', 12);
-  const lineGap = 3;
-  const maxLineH = Math.floor((headerH - 10 - lineGap) / 2);
-  let rtFont = Math.min(maxRt, maxLineH);
-  while (rtFont > minRt) {
-    ctx.font = `bold ${rtFont}px Arial, Helvetica, sans-serif`;
-    if (
-      ctx.measureText(line1).width <= titleAvail
-      && ctx.measureText(line2).width <= titleAvail
-    ) {
-      break;
-    }
-    rtFont -= 1;
-  }
+  ctx.fillText(bannerTitle, headerTextX, headerT + headerH / 2);
   ctx.fillStyle = '#000';
-  ctx.font = `bold ${rtFont}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  const blockH = rtFont * 2 + lineGap;
-  const blockTop = headerT + (headerH - blockH) / 2;
-  ctx.fillText(line1, titleLeft, blockTop + rtFont / 2);
-  ctx.fillText(line2, titleLeft, blockTop + rtFont + lineGap + rtFont / 2);
 
-  // --- Footer + origin (measure bottom first) ---
-  const originText = applyBindings(attr(originEl, 'value', 'MADE IN CHINA'), bindings);
-  const originFont = attrNum(originEl, 'fontPx', 8);
-  const footerB = B - originH;
-  const footerT = footerB - footerH;
+  // --- Vertical zones ---
+  const brandT = B - brandH;
+  const metaT = brandT - metaH;
   const bodyT = headerB + bodyGap;
-  const bodyB = footerT - bodyGap;
+  const bodyB = metaT - bodyGap;
+
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(L, brandT);
+  ctx.lineTo(R, brandT);
+  ctx.stroke();
+
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(L, metaT);
+  ctx.lineTo(R, metaT);
+  ctx.stroke();
 
   // --- Body: fields | QR ---
-  const qrW = Math.floor(W * qrRatio);
-  const fieldsR = R - qrW - bodyGap;
+  const qrBoxW = Math.floor(W * qrRatio);
+  const fieldsR = R - qrBoxW - bodyGap;
   const fieldsL = L;
   const fieldsW = fieldsR - fieldsL;
-
-  ctx.lineWidth = attrNum(bodyEl, 'dividerStrokePx', 1.5);
-  ctx.beginPath();
-  ctx.moveTo(fieldsR + bodyGap / 2, bodyT);
-  ctx.lineTo(fieldsR + bodyGap / 2, bodyB);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(L, footerT);
-  ctx.lineTo(R, footerT);
-  ctx.stroke();
 
   const fieldsEl = bodyEl?.querySelector('fields');
   const fieldNodes = fieldsEl ? [...fieldsEl.querySelectorAll('field')] : [];
   const rowCount = Math.max(1, fieldNodes.length);
   const bodyH = bodyB - bodyT;
   const rowH = Math.floor(bodyH / rowCount);
-  const labelMax = attrNum(fieldsEl, 'labelMaxFontPx', 14);
-  const valueMax = attrNum(fieldsEl, 'valueMaxFontPx', 18);
-  const iconSize = Math.min(22, Math.max(16, Math.floor(rowH * 0.55)));
+  const labelMax = attrNum(fieldsEl, 'labelMaxFontPx', 17);
+  const valueMax = attrNum(fieldsEl, 'valueMaxFontPx', 22);
+  const iconSize = Math.min(26, Math.max(18, Math.floor(rowH * 0.58)));
 
   ctx.font = `bold ${labelMax}px Arial, Helvetica, sans-serif`;
   let labelColW = 0;
   const rows = fieldNodes.map(el => ({
     label: applyBindings(attr(el, 'label'), bindings),
+    sublabel: applyBindings(attr(el, 'sublabel'), bindings),
     value: applyBindings(attr(el, 'value'), bindings),
-    icon: attr(el, 'icon', 'box'),
+    icon: attr(el, 'icon', 'grid'),
   }));
   for (const row of rows) {
     labelColW = Math.max(labelColW, ctx.measureText(row.label).width);
+    if (row.sublabel) {
+      ctx.font = `bold ${Math.max(7, Math.round(labelMax * 0.55))}px Arial, Helvetica, sans-serif`;
+      labelColW = Math.max(labelColW, ctx.measureText(row.sublabel).width);
+      ctx.font = `bold ${labelMax}px Arial, Helvetica, sans-serif`;
+    }
   }
-  labelColW = Math.min(labelColW + 2, Math.floor(fieldsW * 0.48));
-  const iconGap = 4;
-  const textStart = fieldsL + 3 + iconSize + iconGap;
+  labelColW = Math.min(labelColW + 2, Math.floor(fieldsW * 0.5));
+  const textStart = fieldsL + 2 + iconSize + 5;
   const colonX = textStart + labelColW + 3;
   const valueX = colonX + 7;
-  const valueW = fieldsR - valueX - 3;
+  const valueW = fieldsR - valueX - 2;
 
   rows.forEach((row, i) => {
     const y0 = bodyT + i * rowH;
@@ -584,107 +515,197 @@ async function renderProductPack(
     if (i > 0) {
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(fieldsL + 2, y0);
+      ctx.moveTo(fieldsL, y0);
       ctx.lineTo(fieldsR - 2, y0);
       ctx.stroke();
     }
     const cy = (y0 + y1) / 2;
-    drawFieldIcon(ctx, row.icon, fieldsL + 3, cy - iconSize / 2, iconSize);
+    drawFieldIcon(ctx, row.icon, fieldsL + 2, cy - iconSize / 2, iconSize);
 
-    const lf = fitFontSize(ctx, row.label, labelColW, labelMax, 10, true);
+    const lf = fitFontSize(ctx, row.label, labelColW, labelMax, 12, true);
     ctx.fillStyle = '#000';
     ctx.font = `bold ${lf}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(row.label, textStart, cy);
-    ctx.fillText(':', colonX, cy);
-    const vf = fitFontSize(ctx, row.value || ' ', valueW, valueMax, 11, true);
+
+    if (row.sublabel) {
+      const subSize = Math.max(8, Math.round(lf * 0.55));
+      const blockH = lf + subSize + 2;
+      const top = cy - blockH / 2;
+      ctx.textBaseline = 'top';
+      ctx.fillText(row.label, textStart, top);
+      ctx.font = `bold ${subSize}px Arial, Helvetica, sans-serif`;
+      ctx.fillText(row.sublabel, textStart, top + lf + 1);
+      ctx.font = `bold ${lf}px Arial, Helvetica, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(':', colonX, cy);
+    } else {
+      ctx.fillText(row.label, textStart, cy);
+      ctx.fillText(':', colonX, cy);
+    }
+
+    const vf = fitFontSize(ctx, row.value || ' ', valueW, valueMax, 14, true);
     ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
     ctx.fillText(row.value, valueX, cy);
   });
 
-  // QR panel — code only, centered (no caption / SKU text under it)
   const qrPanel = bodyEl?.querySelector('qr-panel');
-  const qrPad = attrNum(qrPanel, 'padPx', 4);
-
+  const qrPad = attrNum(qrPanel, 'padPx', 12);
   const qrBoxL = fieldsR + bodyGap;
   const qrBoxT = bodyT;
-  const qrBoxW = R - qrBoxL;
   const qrBoxH = bodyB - bodyT;
   ctx.lineWidth = 1.5;
-  roundRect(ctx, qrBoxL, qrBoxT, qrBoxW, qrBoxH, 4);
+  roundRect(ctx, qrBoxL, qrBoxT, qrBoxW, qrBoxH, 5);
   ctx.stroke();
 
   const qrAvail = Math.min(qrBoxW - qrPad * 2, qrBoxH - qrPad * 2);
-  const qrSize = Math.max(32, Math.floor(qrAvail));
+  const qrSize = Math.max(36, Math.floor(qrAvail));
   const qrX = qrBoxL + Math.floor((qrBoxW - qrSize) / 2);
   const qrY = qrBoxT + Math.floor((qrBoxH - qrSize) / 2);
-
   const qrEl = qrPanel?.querySelector('qr');
-  const qrField = attr(qrEl, 'field', 'qrPayload');
-  const qrFallback = attr(qrEl, 'fallbackField', 'sku');
-  const qrPayload = bindings[qrField] || bindings[qrFallback] || '';
+  const qrPayload =
+    bindings[attr(qrEl, 'field', 'qrPayload')] || bindings[attr(qrEl, 'fallbackField', 'sku')] || '';
   await drawQr(ctx, qrPayload, qrX, qrY, qrSize);
 
-  // --- Footer cells ---
-  const cells = footerEl ? [...footerEl.querySelectorAll('cell')] : [];
+  // --- Packing meta (3 columns) — left-aligned labels + content-width value boxes ---
+  const cells = metaEl ? [...metaEl.querySelectorAll('cell')] : [];
   const cellN = Math.max(1, cells.length);
   const cellW = Math.floor(W / cellN);
-  const flabel = attrNum(footerEl, 'labelFontPx', 8);
-  const fvalue = attrNum(footerEl, 'valueFontPx', 11);
-  const glyphSize = 13;
+  const flabel = attrNum(metaEl, 'labelFontPx', 18);
+  const fvalue = attrNum(metaEl, 'valueFontPx', 18);
+  const glyphSize = 16;
+  const leftPad = 6;
+  const rightGap = 8;
+  const labelRowH = Math.max(flabel, glyphSize);
 
   cells.forEach((cell, i) => {
     const cx = L + i * cellW;
     if (i > 0) {
-      ctx.lineWidth = attrNum(footerEl, 'dividerStrokePx', 1.5);
+      ctx.lineWidth = attrNum(metaEl, 'dividerStrokePx', 1);
       ctx.beginPath();
-      ctx.moveTo(cx, footerT + 2);
-      ctx.lineTo(cx, footerB - 2);
+      ctx.moveTo(cx, metaT + 5);
+      ctx.lineTo(cx, brandT - 5);
       ctx.stroke();
     }
     const label = applyBindings(attr(cell, 'label'), bindings);
-    const value = applyBindings(attr(cell, 'value'), bindings);
-    const style = attr(cell, 'style', 'pill');
+    const value = applyBindings(attr(cell, 'value'), bindings).trim() || '—';
     const icon = attr(cell, 'icon', '');
 
-    const labelY = footerT + 3;
+    const labelTop = metaT + 5;
+    const labelMid = labelTop + labelRowH / 2;
     ctx.fillStyle = '#000';
-    ctx.font = `bold ${flabel}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'middle';
 
-    let labelX = cx + 4;
+    let labelX = cx + leftPad;
     if (icon) {
-      drawFooterGlyph(ctx, icon, cx + 3, labelY, glyphSize);
-      labelX = cx + 3 + glyphSize + 3;
+      drawFooterGlyph(ctx, icon, cx + leftPad, labelMid - glyphSize / 2, glyphSize);
+      labelX = cx + leftPad + glyphSize + 3;
     }
-    const labelMaxW = cx + cellW - 4 - labelX;
-    const lf = fitFontSize(ctx, label, labelMaxW, flabel, 5, true);
+    const labelMaxW = cx + cellW - rightGap - labelX;
+    const lf = fitFontSize(ctx, label, labelMaxW, flabel, 12, true);
     ctx.font = `bold ${lf}px Arial, Helvetica, sans-serif`;
-    ctx.fillText(label, labelX, labelY + 1);
+    ctx.fillText(label, labelX, labelMid);
 
-    const contentTop = footerT + Math.max(flabel, glyphSize) + 6;
-    const contentH = footerB - contentTop - 3;
-
-    if (style === 'qc') {
-      const radius = Math.min(14, Math.floor(contentH * 0.48), Math.floor(cellW * 0.22));
-      drawQcPassedBadge(ctx, cx + cellW / 2, contentTop + contentH / 2, radius);
-    } else {
-      const display = value.trim() || '—';
-      const pillInnerH = Math.min(18, contentH);
-      const pillInnerW = cellW - 8;
-      const pillY = contentTop + Math.max(0, (contentH - pillInnerH) / 2);
-      fillInvertedPill(ctx, cx + 4, pillY, pillInnerW, pillInnerH, display, fvalue);
-    }
+    // Content-sized box, left-aligned (not stretched/centered in the column)
+    const pillH = Math.min(26, Math.max(22, brandT - (labelTop + labelRowH) - 12));
+    const pillY = brandT - pillH - 6;
+    const textPadX = 12;
+    ctx.font = `bold ${fvalue}px Arial, Helvetica, sans-serif`;
+    const textW = ctx.measureText(value).width;
+    const maxPillW = cellW - leftPad - rightGap;
+    const pillW = Math.min(maxPillW, Math.max(Math.ceil(textW + textPadX * 2), 48));
+    fillInvertedPill(ctx, cx + leftPad, pillY, pillW, pillH, value, fvalue, {
+      bold: true,
+      fullPill: false,
+      radiusPx: 4,
+      padX: textPadX,
+    });
   });
 
-  // --- Origin ---
+  // --- Brand footer ---
+  const brandName = applyBindings(attr(brandEl, 'name', 'YESWEIGH'), bindings);
+  const brandCenter = applyBindings(attr(brandEl, 'center', 'GENUINE SPARE PART'), bindings);
+  const brandOrigin = applyBindings(attr(brandEl, 'origin', 'MADE IN CHINA'), bindings);
+  const logoSrc = attr(brandEl, 'logoSrc', '/yesweigh-mark.png');
+  const logoH = attrNum(brandEl, 'logoHeightPx', 22);
+  const logo = await loadImage(logoSrc);
+
+  const col1R = L + Math.floor(W * 0.38);
+  const col2R = L + Math.floor(W * 0.7);
+  const midY = brandT + brandH / 2;
+
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(col1R, brandT + 5);
+  ctx.lineTo(col1R, B - 5);
+  ctx.moveTo(col2R, brandT + 5);
+  ctx.lineTo(col2R, B - 5);
+  ctx.stroke();
+
+  let brandLogoW = 0;
+  if (logo && logo.width > 0 && logo.height > 0) {
+    const crop = inkBounds(logo);
+    brandLogoW = (crop.sw / crop.sh) * logoH;
+    ctx.drawImage(
+      logo,
+      crop.sx,
+      crop.sy,
+      crop.sw,
+      crop.sh,
+      L + 4,
+      midY - logoH / 2,
+      brandLogoW,
+      logoH,
+    );
+  }
+
+  const nameX = L + 4 + (brandLogoW > 0 ? brandLogoW + 5 : 0);
+  const nameMaxW = col1R - 6 - nameX;
+  const nameFont = fitFontSize(
+    ctx,
+    `${brandName}®`,
+    nameMaxW,
+    attrNum(brandEl, 'nameMaxFontPx', 20),
+    12,
+    true,
+  );
   ctx.fillStyle = '#000';
-  ctx.font = `bold ${originFont}px Arial, Helvetica, sans-serif`;
+  ctx.font = `bold ${nameFont}px Arial Black, Arial, Helvetica, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(brandName, nameX, midY);
+  const nw = ctx.measureText(brandName).width;
+  const reg = Math.max(8, Math.round(nameFont * 0.36));
+  ctx.font = `bold ${reg}px Arial, Helvetica, sans-serif`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('®', nameX + nw + 1, midY - nameFont * 0.12);
+
+  const centerMaxW = col2R - col1R - 10;
+  const centerFont = fitFontSize(
+    ctx,
+    brandCenter,
+    centerMaxW,
+    attrNum(brandEl, 'centerMaxFontPx', 14),
+    9,
+    true,
+  );
+  ctx.font = `bold ${centerFont}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(originText, L + W / 2, footerB + originH / 2);
+  ctx.fillText(brandCenter, (col1R + col2R) / 2, midY);
+
+  const originMaxW = R - col2R - 8;
+  const originFont = fitFontSize(
+    ctx,
+    brandOrigin,
+    originMaxW,
+    attrNum(brandEl, 'originMaxFontPx', 12),
+    8,
+    true,
+  );
+  ctx.font = `bold ${originFont}px Arial, Helvetica, sans-serif`;
+  ctx.fillText(brandOrigin, (col2R + R) / 2, midY);
 }
 
 /**

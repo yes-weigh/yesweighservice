@@ -4,7 +4,7 @@ import {
   DEFAULT_LABEL_HEIGHT_MM,
   DEFAULT_LABEL_WIDTH_MM,
 } from '../../constants/localPrinterSettings';
-
+import { encodePackedDateBatch } from './batchCode';
 export function formatPrintedOn(date: Date): string {
   return date.toLocaleDateString('en-GB', {
     day: '2-digit',
@@ -23,6 +23,7 @@ export function formatPackedOn(date: Date): string {
 
 export function buildLabelBindings(fields: BinLabelFields): Record<string, string> {
   const printed = fields.printedOn ?? new Date();
+  const batchNo = (fields.batchNo ?? '').trim() || encodePackedDateBatch(printed);
   return {
     sku: fields.sku ?? '',
     itemName: fields.itemName ?? '',
@@ -36,7 +37,7 @@ export function buildLabelBindings(fields: BinLabelFields): Record<string, strin
     packedOn: formatPackedOn(printed),
     qty: fields.qty ?? '',
     mrp: fields.mrp ?? '',
-    batchNo: fields.batchNo ?? '',
+    batchNo,
     packedBy: fields.packedBy ?? '',
     qcStatus: fields.qcStatus ?? '',
   };

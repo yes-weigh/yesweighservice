@@ -19,6 +19,7 @@ import {
 import { isNativePrintAvailable, sendBinLabel } from '../../lib/localPrinterPrint';
 import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
+import { encodePackedDateBatch } from '../../lib/labelLayouts/batchCode';
 
 export function binLabelFieldsFromStoreItem(
   product: Pick<CatalogProduct, 'id' | 'name' | 'sku'>,
@@ -57,9 +58,12 @@ export function formatProductLabelMrp(rate: number, taxPercentage: number): stri
 /** Fields for Genuine Spare Product layout from a catalog product. */
 export function productPackLabelFieldsFromCatalog(
   product: Pick<CatalogProduct, 'id' | 'name' | 'sku' | 'rate' | 'taxPercentage' | 'unit'>,
+  packedByName?: string | null,
 ): BinLabelFields {
   const sku = (product.sku ?? '').trim() || product.id;
   const unit = (product.unit ?? 'pcs').trim() || 'pcs';
+  const packedOn = new Date();
+  const packedBy = ((packedByName ?? '').trim() || 'YESWEIGH').toUpperCase();
   return {
     sku,
     itemName: product.name.trim(),
@@ -69,11 +73,11 @@ export function productPackLabelFieldsFromCatalog(
     row: '',
     bin: '',
     qrPayload: sku,
-    printedOn: new Date(),
-    qty: /pc/i.test(unit) ? '1 PC' : `1 ${unit}`,
+    printedOn: packedOn,
+    qty: /nos/i.test(unit) || /pc/i.test(unit) ? '1 nos' : `1 ${unit}`,
     mrp: formatProductLabelMrp(product.rate, product.taxPercentage),
-    batchNo: '',
-    packedBy: 'YESWEIGH',
+    batchNo: encodePackedDateBatch(packedOn),
+    packedBy,
     qcStatus: 'PASSED',
   };
 }

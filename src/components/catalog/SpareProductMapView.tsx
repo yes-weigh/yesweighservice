@@ -514,7 +514,7 @@ export const SpareProductMapView: React.FC<{
             <span>Map compatible spares</span>
           </p>
           <h1 className="spare-product-map__title">{formatProductTitle(product.name)}</h1>
-          {product.sku && <p className="spare-product-map__sku">Model: {product.sku}</p>}
+          {product.sku && <p className="spare-product-map__sku">SKU: {product.sku}</p>}
           {product.categoryName && (
             <p className="spare-product-map__category">{product.categoryName}</p>
           )}
