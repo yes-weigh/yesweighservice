@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Capacitor } from '@capacitor/core';
 import { Share2, X } from 'lucide-react';
+import { WhatsAppShare } from 'whatsapp-share';
 import type { CatalogProduct } from '../../types/catalog';
 import shareTagIconUrl from '../../assets/share-tag-icon.png';
+import { openWhatsAppWithText, uploadWhatsAppShareCard } from '../../lib/whatsappShareCard';
 
 const GREEN = '#036e35';
 const RED = '#d8151d';
@@ -54,6 +57,23 @@ function roundRectPath(
 
 function money(n: number): string {
   return `₹ ${n.toFixed(2)}`;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not encode image.'));
+        return;
+      }
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(new Error('Could not encode image.'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function drawSlantBanner(
@@ -630,38 +650,28 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
         .replace(/[^\w\-]+/g, '-')
         .slice(0, 40);
       const fileName = `${safeName}-share.png`;
-      const buffer = await blob.arrayBuffer();
-      const file = new File([buffer], fileName, {
-        type: 'image/png',
-        lastModified: Date.now(),
-      });
 
-      // Image only — including `text` makes WhatsApp drop the file on many devices.
-      // Always try share first; canShare is unreliable in Android WebViews.
-      if (typeof navigator.share === 'function') {
-        try {
-          await navigator.share({
-            files: [file],
-            title: product.name.trim() || 'Genuine Spare Part',
-          });
-          return;
-        } catch (shareErr) {
-          if (shareErr instanceof Error && shareErr.name === 'AbortError') return;
-          // Fall through to download if file share isn't supported
-        }
+      // APK: attach the PNG and open WhatsApp directly (no system share sheet).
+      if (Capacitor.isNativePlatform()) {
+        const dataBase64 = await blobToBase64(blob);
+        await WhatsAppShare.shareImage({
+          dataBase64,
+          fileName,
+          mimeType: 'image/png',
+        });
+        return;
       }
 
-      // Fallback: save the card so it can be attached in WhatsApp manually
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setError('Image saved. Open WhatsApp and attach the downloaded card.');
+      // PWA/browser: browsers cannot attach local files to a specific app.
+      // Upload the card, then open WhatsApp directly with the image link.
+      const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
+      const shareText = [
+        product.name.trim() || 'Genuine Spare Part',
+        product.sku?.trim() ? `SKU: ${product.sku.trim()}` : '',
+        imageUrl,
+        'Interweighing Private Limited · Genuine Spare Parts',
+      ].filter(Boolean).join('\n');
+      openWhatsAppWithText(shareText);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Share failed.');

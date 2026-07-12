@@ -202,5 +202,19 @@ service firebase.storage {
       allow create, update: if isOpsUser() && validSupportMedia();
       allow delete: if isOpsUser();
     }
+
+    /** Temporary product share cards — public read so WhatsApp can fetch the image. */
+    match /whatsappShares/{userId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isActivePortalUser()
+        && request.auth.uid == userId
+        && request.resource.size < 4 * 1024 * 1024
+        && (
+          request.resource.contentType == null
+          || request.resource.contentType == ''
+          || request.resource.contentType.matches('image/.*')
+        );
+      allow delete: if signedIn() && request.auth.uid == userId;
+    }
   }
 }

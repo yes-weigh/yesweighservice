@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "npm run build:tcp-print && tsc -b && vite build",
     "build:tcp-print": "npm install --prefix plugins/tcp-print --no-fund --no-audit && npm run build --prefix plugins/tcp-print",
+    "build:whatsapp-share": "npm install --prefix plugins/whatsapp-share --no-fund --no-audit && npm run build --prefix plugins/whatsapp-share",
+    "build:plugins": "npm run build:tcp-print && npm run build:whatsapp-share",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",
-    "prepare": "npm run build:tcp-print",
+    "prepare": "npm run build:plugins",
     "generate:icons": "npm install --no-save sharp && node scripts/generate-icons.mjs",
     "preview": "vite preview",
     "seed:admin": "node scripts/seed-admin.mjs",
@@ -38,7 +40,8 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1",
-    "tcp-print": "file:plugins/tcp-print"
+    "tcp-print": "file:plugins/tcp-print",
+    "whatsapp-share": "file:plugins/whatsapp-share"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.1",

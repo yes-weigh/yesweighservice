@@ -7,3 +7,6 @@ project(':capacitor-app').projectDir = new File('../node_modules/@capacitor/app/
 
 include ':tcp-print'
 project(':tcp-print').projectDir = new File('../plugins/tcp-print/android')
+
+include ':whatsapp-share'
+project(':whatsapp-share').projectDir = new File('../plugins/whatsapp-share/android')
