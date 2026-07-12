@@ -1,0 +1,36 @@
+-- Merging decision tree log ---
+manifest
+ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:2:1-12:12
+INJECTED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:2:1-12:12
+	package
+		INJECTED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml
+	xmlns:android
+		ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:2:11-69
+queries
+ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:4:5-11:15
+package#com.whatsapp
+ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:5:9-48
+	android:name
+		ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:5:18-45
+package#com.whatsapp.w4b
+ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:6:9-52
+	android:name
+		ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:6:18-49
+intent#action:name:android.intent.action.SEND+data:mimeType:image/*
+ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:7:9-10:18
+action#android.intent.action.SEND
+ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:8:13-65
+	android:name
+		ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:8:21-62
+data
+ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:9:13-48
+	android:mimeType
+		ADDED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:9:19-45
+uses-sdk
+INJECTED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml
+INJECTED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml
