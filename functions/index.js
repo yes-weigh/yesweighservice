@@ -20,6 +20,7 @@ import {
 } from './lib/catalog-sync.js';
 import {
   mutateCatalogProductDetails,
+  mutateCatalogProductOverlays,
   mutateCatalogProductStatus,
   mutateCatalogProductCategory,
   mutateCatalogProductImageUpload,
@@ -557,6 +558,39 @@ export const updateCatalogProductDetails = onCall(
       return { ok: true, ...saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update item details on Zoho.');
+    }
+  },
+);
+
+/** Firestore-only model / approval number — no Zoho (works while Zoho is rate-limited). */
+export const updateCatalogProductOverlays = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+
+    const hasModel = 'modelNumber' in (request.data ?? {});
+    const hasApproval = 'approvalNumber' in (request.data ?? {});
+    if (!hasModel && !hasApproval) {
+      throw new HttpsError('invalid-argument', 'modelNumber or approvalNumber is required.');
+    }
+
+    try {
+      const saved = await mutateCatalogProductOverlays(productId, {
+        ...(hasModel ? { modelNumber: request.data.modelNumber } : {}),
+        ...(hasApproval ? { approvalNumber: request.data.approvalNumber } : {}),
+      });
+      return { ok: true, ...saved };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not update product overlays.');
     }
   },
 );

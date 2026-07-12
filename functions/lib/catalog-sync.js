@@ -639,6 +639,41 @@ export async function patchProductDetails(productId, input) {
   await db.collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
 }
 
+/** Firestore-only overlays (model / approval) — no Zoho call. */
+export async function patchProductOverlays(productId, input) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+
+  const payload = {
+    syncedAt: new Date().toISOString(),
+  };
+
+  if ('modelNumber' in (input ?? {})) {
+    const modelNumber = String(input.modelNumber ?? '').trim();
+    payload.modelNumber = modelNumber || null;
+  }
+
+  if ('approvalNumber' in (input ?? {})) {
+    const approvalNumber = String(input.approvalNumber ?? '').trim();
+    payload.approvalNumber = approvalNumber || null;
+  }
+
+  if (!('modelNumber' in payload) && !('approvalNumber' in payload)) {
+    throw new Error('No Firestore-only fields to update.');
+  }
+
+  const existing = await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).get();
+  if (!existing.exists) {
+    throw new Error('Catalog product not found.');
+  }
+
+  await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
+  return {
+    ...('modelNumber' in payload ? { modelNumber: payload.modelNumber } : {}),
+    ...('approvalNumber' in payload ? { approvalNumber: payload.approvalNumber } : {}),
+  };
+}
+
 function parseOptionalPositiveNumber(value, { allowZero = false, integer = false } = {}) {
   if (value === null || value === undefined || value === '') return null;
   const num = Number(value);

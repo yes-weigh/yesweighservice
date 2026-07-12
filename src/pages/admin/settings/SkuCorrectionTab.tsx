@@ -195,7 +195,8 @@ export const SkuCorrectionTab: React.FC = () => {
       title: 'Apply all SKU repairs?',
       message:
         `This will update ${specialProducts.length} item SKU${specialProducts.length === 1 ? '' : 's'} on Zoho `
-        + 'using the New SKU values, then refresh the Firestore catalog cache. This cannot be undone from here.',
+        + 'using the New SKU values, then refresh the Firestore catalog cache. '
+        + 'Large batches can take several minutes — leave this tab open. This cannot be undone from here.',
       confirmLabel: 'Apply all repairs',
       destructive: true,
     });

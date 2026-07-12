@@ -16,6 +16,7 @@ import {
 } from './zoho.js';
 import {
   patchProductDetails,
+  patchProductOverlays,
   patchProductStatus,
   patchProductCategory,
   uploadProductImage,
@@ -91,6 +92,21 @@ export async function mutateCatalogProductDetails(accessToken, organizationId, p
     ...(modelNumber !== undefined ? { modelNumber } : {}),
     ...(approvalNumber !== undefined ? { approvalNumber } : {}),
   };
+}
+
+/** Firestore-only model / approval updates — never calls Zoho. */
+export async function mutateCatalogProductOverlays(productId, input) {
+  const patch = {};
+  if ('modelNumber' in (input ?? {})) {
+    patch.modelNumber = String(input.modelNumber ?? '').trim() || null;
+  }
+  if ('approvalNumber' in (input ?? {})) {
+    patch.approvalNumber = String(input.approvalNumber ?? '').trim() || null;
+  }
+  if (!('modelNumber' in patch) && !('approvalNumber' in patch)) {
+    throw new Error('No Firestore-only fields to update.');
+  }
+  return patchProductOverlays(productId, patch);
 }
 
 /** Set item active/inactive on Zoho, then mirror to Firestore. */

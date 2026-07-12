@@ -67,22 +67,22 @@ async function loadCatalogProductsForSkuRepair() {
 
 /**
  * Push every proposed SKU repair to Zoho, then mirror Firestore.
- * Continues on individual failures.
+ * Continues on individual failures. Limited concurrency keeps Zoho happy
+ * while finishing large batches inside the function timeout.
  */
 export async function applyAllSkuRepairs(accessToken, organizationId) {
   const products = await loadCatalogProductsForSkuRepair();
   const proposals = proposeCorrectedSkus(products);
   const byId = new Map(products.map(p => [p.id, p]));
 
-  const updated = [];
-  const failed = [];
-
+  const jobs = [];
   for (const [productId, newSku] of proposals) {
     const product = byId.get(productId);
     if (!product) continue;
     const name = String(product.name ?? '').trim();
     if (!name) {
-      failed.push({
+      jobs.push({
+        kind: 'invalid',
         productId,
         oldSku: product.sku,
         newSku,
@@ -91,26 +91,61 @@ export async function applyAllSkuRepairs(accessToken, organizationId) {
       continue;
     }
     if (String(product.sku ?? '') === newSku) continue;
+    jobs.push({
+      kind: 'update',
+      productId,
+      oldSku: product.sku,
+      newSku,
+      name,
+    });
+  }
 
-    try {
-      await mutateCatalogProductDetails(accessToken, organizationId, productId, {
-        name,
-        sku: newSku,
-      });
-      updated.push({
-        productId,
-        oldSku: product.sku,
-        newSku,
-      });
-    } catch (err) {
-      failed.push({
-        productId,
-        oldSku: product.sku,
-        newSku,
-        error: err?.message ?? 'Update failed.',
-      });
+  const updated = [];
+  const failed = [];
+  const concurrency = 1;
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < jobs.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const job = jobs[index];
+      if (job.kind === 'invalid') {
+        failed.push({
+          productId: job.productId,
+          oldSku: job.oldSku,
+          newSku: job.newSku,
+          error: job.error,
+        });
+        continue;
+      }
+
+      try {
+        await mutateCatalogProductDetails(accessToken, organizationId, job.productId, {
+          name: job.name,
+          sku: job.newSku,
+        });
+        updated.push({
+          productId: job.productId,
+          oldSku: job.oldSku,
+          newSku: job.newSku,
+        });
+      } catch (err) {
+        failed.push({
+          productId: job.productId,
+          oldSku: job.oldSku,
+          newSku: job.newSku,
+          error: err?.message ?? 'Update failed.',
+        });
+      }
     }
   }
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, Math.max(jobs.length, 1)) },
+    () => worker(),
+  );
+  await Promise.all(workers);
 
   return {
     total: proposals.size,

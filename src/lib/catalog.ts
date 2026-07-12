@@ -948,11 +948,21 @@ export async function applyCatalogSkuRepairs(): Promise<CatalogSkuRepairResult> 
   const callable = httpsCallable<Record<string, never>, CatalogSkuRepairResult>(
     functions,
     'applyCatalogSkuRepairs',
+    { timeout: 540_000 },
   );
   try {
     const result = await callable({});
     return result.data;
   } catch (err) {
+    if (err && typeof err === 'object') {
+      const code = 'code' in err ? String((err as { code: string }).code) : '';
+      const message = 'message' in err ? String((err as { message: string }).message) : '';
+      if (code === 'functions/deadline-exceeded' || message.includes('deadline-exceeded')) {
+        throw new Error(
+          'SKU repair timed out. Wait a minute, refresh the list, then run Apply again for any remaining invalid SKUs.',
+        );
+      }
+    }
     throw new Error(catalogErrorMessage(err));
   }
 }
@@ -1282,6 +1292,46 @@ export async function updateCatalogProductDetails(
       sku: result.data.sku,
       ...(result.data.rate != null ? { rate: result.data.rate } : {}),
       ...('mrpOverride' in result.data ? { mrpOverride: result.data.mrpOverride ?? null } : {}),
+      ...('modelNumber' in result.data ? { modelNumber: result.data.modelNumber ?? null } : {}),
+      ...('approvalNumber' in result.data
+        ? { approvalNumber: result.data.approvalNumber ?? null }
+        : {}),
+    };
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** Firestore-only model / approval — does not call Zoho. */
+export async function updateCatalogProductOverlays(
+  productId: string,
+  input: {
+    modelNumber?: string | null;
+    approvalNumber?: string | null;
+  },
+): Promise<{
+  modelNumber?: string | null;
+  approvalNumber?: string | null;
+}> {
+  const callable = httpsCallable<
+    {
+      productId: string;
+      modelNumber?: string | null;
+      approvalNumber?: string | null;
+    },
+    {
+      ok: boolean;
+      modelNumber?: string | null;
+      approvalNumber?: string | null;
+    }
+  >(functions, 'updateCatalogProductOverlays');
+  try {
+    const result = await callable({
+      productId,
+      ...('modelNumber' in input ? { modelNumber: input.modelNumber ?? null } : {}),
+      ...('approvalNumber' in input ? { approvalNumber: input.approvalNumber ?? null } : {}),
+    });
+    return {
       ...('modelNumber' in result.data ? { modelNumber: result.data.modelNumber ?? null } : {}),
       ...('approvalNumber' in result.data
         ? { approvalNumber: result.data.approvalNumber ?? null }

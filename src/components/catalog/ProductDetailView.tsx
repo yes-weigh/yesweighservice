@@ -37,6 +37,7 @@ import {
   saveCatalogSpareProductLinks,
   setCatalogProductStatus,
   updateCatalogProductDetails,
+  updateCatalogProductOverlays,
   uploadCatalogProductImage,
   deleteCatalogProductImage,
 } from '../../lib/catalog';
@@ -935,42 +936,125 @@ export const ProductDetailView: React.FC<{
       nextCategoryName = selected.name;
     }
 
+    const roundedRate = Math.round(rate * 100) / 100;
+    const prevMrp = product.mrpOverride != null && Number(product.mrpOverride) > 0
+      ? Math.round(Number(product.mrpOverride) * 100) / 100
+      : null;
+    const zohoFieldsChanged = name !== product.name
+      || sku !== (product.sku ?? '')
+      || roundedRate !== Number(product.rate ?? 0)
+      || mrpOverride !== prevMrp;
+    const overlayFieldsChanged = (
+      modelNumber !== undefined
+      && modelNumber !== (product.modelNumber ?? null)
+    ) || (
+      approvalNumber !== undefined
+      && approvalNumber !== (product.approvalNumber ?? null)
+    );
+
+    if (!zohoFieldsChanged && !overlayFieldsChanged && !categoryChanged) {
+      setProductEditMode(false);
+      return;
+    }
+
     setDetailsSaving(true);
     setDetailsError(null);
     try {
       if (categoryChanged && nextCategoryId && nextCategoryName) {
         await assignProductCategory(product.id, nextCategoryId, nextCategoryName);
       }
-      const saved = await updateCatalogProductDetails(product.id, {
-        name,
-        sku,
-        rate: Math.round(rate * 100) / 100,
-        mrpOverride,
-        ...(modelNumber !== undefined ? { modelNumber } : {}),
-        ...(approvalNumber !== undefined ? { approvalNumber } : {}),
-      });
-      const syncedAt = new Date().toISOString();
-      setProduct(prev => (
-        prev
-          ? {
-              ...prev,
-              name: saved.name,
-              sku: saved.sku,
-              rate: saved.rate ?? rate,
-              mrpOverride: saved.mrpOverride ?? mrpOverride,
-              ...(modelNumber !== undefined
-                ? { modelNumber: saved.modelNumber ?? modelNumber }
-                : {}),
-              ...(approvalNumber !== undefined
-                ? { approvalNumber: saved.approvalNumber ?? approvalNumber }
-                : {}),
-              syncedAt,
-              ...(categoryChanged
-                ? { categoryId: nextCategoryId, categoryName: nextCategoryName }
-                : {}),
-            }
-          : prev
-      ));
+
+      const applyOverlayLocally = (
+        overlays: { modelNumber?: string | null; approvalNumber?: string | null },
+      ) => {
+        setProduct(prev => (
+          prev
+            ? {
+                ...prev,
+                ...(modelNumber !== undefined
+                  ? { modelNumber: overlays.modelNumber ?? modelNumber }
+                  : {}),
+                ...(approvalNumber !== undefined
+                  ? { approvalNumber: overlays.approvalNumber ?? approvalNumber }
+                  : {}),
+                syncedAt: new Date().toISOString(),
+                ...(categoryChanged
+                  ? { categoryId: nextCategoryId, categoryName: nextCategoryName }
+                  : {}),
+              }
+            : prev
+        ));
+      };
+
+      if (zohoFieldsChanged) {
+        try {
+          const saved = await updateCatalogProductDetails(product.id, {
+            name,
+            sku,
+            rate: roundedRate,
+            mrpOverride,
+            ...(modelNumber !== undefined ? { modelNumber } : {}),
+            ...(approvalNumber !== undefined ? { approvalNumber } : {}),
+          });
+          const syncedAt = new Date().toISOString();
+          setProduct(prev => (
+            prev
+              ? {
+                  ...prev,
+                  name: saved.name,
+                  sku: saved.sku,
+                  rate: saved.rate ?? roundedRate,
+                  mrpOverride: saved.mrpOverride ?? mrpOverride,
+                  ...(modelNumber !== undefined
+                    ? { modelNumber: saved.modelNumber ?? modelNumber }
+                    : {}),
+                  ...(approvalNumber !== undefined
+                    ? { approvalNumber: saved.approvalNumber ?? approvalNumber }
+                    : {}),
+                  syncedAt,
+                  ...(categoryChanged
+                    ? { categoryId: nextCategoryId, categoryName: nextCategoryName }
+                    : {}),
+                }
+              : prev
+          ));
+        } catch (zohoErr) {
+          // Zoho rate-limit / outage: still persist Firebase-only fields.
+          if (overlayFieldsChanged) {
+            const overlays = await updateCatalogProductOverlays(product.id, {
+              ...(modelNumber !== undefined ? { modelNumber } : {}),
+              ...(approvalNumber !== undefined ? { approvalNumber } : {}),
+            });
+            applyOverlayLocally(overlays);
+            setDetailsError(
+              `${zohoErr instanceof Error ? zohoErr.message : 'Zoho update failed.'} `
+              + 'Model/approval were saved to the app.',
+            );
+            setModelNumberOptions([]);
+            setApprovalNumberOptions([]);
+            return;
+          }
+          throw zohoErr;
+        }
+      } else if (overlayFieldsChanged) {
+        const overlays = await updateCatalogProductOverlays(product.id, {
+          ...(modelNumber !== undefined ? { modelNumber } : {}),
+          ...(approvalNumber !== undefined ? { approvalNumber } : {}),
+        });
+        applyOverlayLocally(overlays);
+      } else if (categoryChanged) {
+        setProduct(prev => (
+          prev
+            ? {
+                ...prev,
+                categoryId: nextCategoryId,
+                categoryName: nextCategoryName,
+                syncedAt: new Date().toISOString(),
+              }
+            : prev
+        ));
+      }
+
       setProductEditMode(false);
       setEditCategoryId('');
       setCategoryOptions([]);
@@ -1490,7 +1574,7 @@ export const ProductDetailView: React.FC<{
                       {detailsSaving
                         ? <RefreshCw size={15} className="spin-icon" aria-hidden />
                         : <Save size={15} aria-hidden />}
-                      {detailsSaving ? 'Saving…' : 'Save to Zoho'}
+                      {detailsSaving ? 'Saving…' : 'Save'}
                     </button>
                     <button
                       type="button"

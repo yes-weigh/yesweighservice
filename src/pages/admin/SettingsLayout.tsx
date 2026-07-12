@@ -41,12 +41,12 @@ export const SettingsLayout: React.FC = () => {
       return;
     }
     if (
-      !showSkuCorrection
+      !isLocalhostDev()
       && location.pathname.startsWith('/super-admin/settings/sku-correction')
     ) {
       navigate('/super-admin/settings/profile', { replace: true });
     }
-  }, [location.pathname, navigate, showSkuCorrection]);
+  }, [location.pathname, navigate]);
 
   const isTabActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(`${path}/`);
