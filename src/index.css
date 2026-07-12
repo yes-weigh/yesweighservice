@@ -6944,6 +6944,19 @@ html::-webkit-scrollbar {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  background: #128c4e;
+  color: #fff;
+  border-color: transparent;
+}
+
+.product-wa-share__share-btn:hover:not(:disabled) {
+  background: #0f7a43;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.product-wa-share__share-btn:disabled {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .product-detail-page__title-input,
