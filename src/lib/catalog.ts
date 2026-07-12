@@ -692,6 +692,15 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     displayOrder: Number.isFinite(Number(data.displayOrder))
       ? Number(data.displayOrder)
       : 999,
+    ...(Number.isFinite(Number(data.mrpOverride)) && Number(data.mrpOverride) > 0
+      ? { mrpOverride: Math.round(Number(data.mrpOverride) * 100) / 100 }
+      : {}),
+    ...(typeof data.modelNumber === 'string' && data.modelNumber.trim()
+      ? { modelNumber: data.modelNumber.trim() }
+      : {}),
+    ...(typeof data.approvalNumber === 'string' && data.approvalNumber.trim()
+      ? { approvalNumber: data.approvalNumber.trim() }
+      : {}),
   };
 }
 
@@ -1112,22 +1121,65 @@ export async function setCatalogProductStatus(
   }
 }
 
-/** Zoho + Firestore cache — pushes name/sku to Zoho before updating Firestore. */
+/** Zoho + Firestore — pushes name/sku/rate to Zoho; MRP/model/approval stay Firestore-only. */
 export async function updateCatalogProductDetails(
   productId: string,
-  input: { name: string; sku: string },
-): Promise<{ name: string; sku: string }> {
+  input: {
+    name: string;
+    sku: string;
+    rate?: number;
+    mrpOverride?: number | null;
+    modelNumber?: string | null;
+    approvalNumber?: string | null;
+  },
+): Promise<{
+  name: string;
+  sku: string;
+  rate?: number;
+  mrpOverride?: number | null;
+  modelNumber?: string | null;
+  approvalNumber?: string | null;
+}> {
   const callable = httpsCallable<
-    { productId: string; name: string; sku: string },
-    { ok: boolean; name: string; sku: string }
+    {
+      productId: string;
+      name: string;
+      sku: string;
+      rate?: number;
+      mrpOverride?: number | null;
+      modelNumber?: string | null;
+      approvalNumber?: string | null;
+    },
+    {
+      ok: boolean;
+      name: string;
+      sku: string;
+      rate?: number;
+      mrpOverride?: number | null;
+      modelNumber?: string | null;
+      approvalNumber?: string | null;
+    }
   >(functions, 'updateCatalogProductDetails');
   try {
     const result = await callable({
       productId,
       name: input.name.trim(),
       sku: input.sku.trim(),
+      ...(input.rate != null ? { rate: input.rate } : {}),
+      ...('mrpOverride' in input ? { mrpOverride: input.mrpOverride ?? null } : {}),
+      ...('modelNumber' in input ? { modelNumber: input.modelNumber ?? null } : {}),
+      ...('approvalNumber' in input ? { approvalNumber: input.approvalNumber ?? null } : {}),
     });
-    return { name: result.data.name, sku: result.data.sku };
+    return {
+      name: result.data.name,
+      sku: result.data.sku,
+      ...(result.data.rate != null ? { rate: result.data.rate } : {}),
+      ...('mrpOverride' in result.data ? { mrpOverride: result.data.mrpOverride ?? null } : {}),
+      ...('modelNumber' in result.data ? { modelNumber: result.data.modelNumber ?? null } : {}),
+      ...('approvalNumber' in result.data
+        ? { approvalNumber: result.data.approvalNumber ?? null }
+        : {}),
+    };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

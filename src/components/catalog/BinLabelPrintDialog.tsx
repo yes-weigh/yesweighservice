@@ -72,7 +72,15 @@ export function formatProductLabelMrp(
 export async function productPackLabelFieldsFromCatalog(
   product: Pick<
     CatalogProduct,
-    'id' | 'name' | 'sku' | 'rate' | 'taxPercentage' | 'unit' | 'categoryId' | 'categoryName'
+    | 'id'
+    | 'name'
+    | 'sku'
+    | 'rate'
+    | 'taxPercentage'
+    | 'unit'
+    | 'categoryId'
+    | 'categoryName'
+    | 'mrpOverride'
   >,
   packedByName?: string | null,
 ): Promise<BinLabelFields> {
@@ -81,8 +89,14 @@ export async function productPackLabelFieldsFromCatalog(
   const packedOn = new Date();
   const packedBy = ((packedByName ?? '').trim() || 'YESWEIGH').toUpperCase();
   const rules = await loadMrpRules();
-  const groupRule = resolveMrpGroupRule(product, rules);
-  const mrp = calculateProductMrpInclGst(product.rate, product.taxPercentage, groupRule);
+  const override = Number(product.mrpOverride);
+  let mrp: number;
+  if (Number.isFinite(override) && override > 0) {
+    mrp = Math.round(override * 100) / 100;
+  } else {
+    const groupRule = resolveMrpGroupRule(product, rules);
+    mrp = calculateProductMrpInclGst(product.rate, product.taxPercentage, groupRule);
+  }
   return {
     sku,
     itemName: product.name.trim(),

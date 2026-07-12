@@ -7,7 +7,7 @@ import type { CatalogProduct } from '../../types/catalog';
 import shareTagIconUrl from '../../assets/share-tag-icon.png';
 import { openWhatsAppWithText, uploadWhatsAppShareCard } from '../../lib/whatsappShareCard';
 import { loadMrpRules } from '../../lib/catalogProductSettings';
-import { calculateProductMrpBreakdown, resolveMrpGroupRule } from '../../lib/catalogMrp';
+import { calculateProductMrpForCatalogItem } from '../../lib/catalogMrp';
 
 const GREEN = '#036e35';
 const RED = '#d8151d';
@@ -267,7 +267,15 @@ function round2(n: number): number {
 
 type ShareProduct = Pick<
   CatalogProduct,
-  'name' | 'sku' | 'rate' | 'taxPercentage' | 'taxName' | 'unit' | 'categoryId' | 'categoryName'
+  | 'name'
+  | 'sku'
+  | 'rate'
+  | 'taxPercentage'
+  | 'taxName'
+  | 'unit'
+  | 'categoryId'
+  | 'categoryName'
+  | 'mrpOverride'
 >;
 
 /** Prefer catalog tax; parse taxName; else default 18% (matches share reference cards). */
@@ -290,7 +298,6 @@ async function buildShareCardBlob(
   _imageCount: number,
 ): Promise<Blob> {
   const mrpRules = await loadMrpRules();
-  const mrpGroupRule = resolveMrpGroupRule(product, mrpRules);
 
   // Match reference aspect 411×616 exactly
   const W = 900;
@@ -480,10 +487,9 @@ async function buildShareCardBlob(
   const tax = resolveShareTaxPct(product);
   const dealerGst = round2(rate * (tax / 100));
   const dealerInc = round2(rate + dealerGst);
-  const { mrpInclGst: mrpInc, mrpExclGst: mrpExcl, mrpGst } = calculateProductMrpBreakdown(
-    rate,
-    tax,
-    mrpGroupRule,
+  const { mrpInclGst: mrpInc, mrpExclGst: mrpExcl, mrpGst } = calculateProductMrpForCatalogItem(
+    { ...product, taxPercentage: tax },
+    mrpRules,
   );
 
   const gap = sc(11);

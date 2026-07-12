@@ -2,10 +2,12 @@
  * Catalog product write contract
  * ----------------------------
  * Zoho-backed fields (always push to Zoho before updating the Firestore cache):
- *   name, sku, status, categoryId, categoryName, imageUrl
+ *   name, sku, status, categoryId, categoryName, imageUrl, rate,
+ *   mrpOverride → Zoho `label_rate` (MRP) when set
  *
  * Firestore-only overlays (never push to Zoho):
- *   packageInfo, spare-link maps, catalogSiteInventory, yesStore audit links, displayOrder
+ *   packageInfo, modelNumber, approvalNumber (shop/categorized products only),
+ *   spare-link maps, catalogSiteInventory, yesStore audit links, displayOrder
  */
 import {
   updateProductDetails,
@@ -28,19 +30,67 @@ export const ZOHO_BACKED_CATALOG_PRODUCT_FIELDS = [
   'categoryId',
   'categoryName',
   'imageUrl',
+  'rate',
+  'mrpOverride', // mirrored to Zoho label_rate when set
 ];
 
 export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'packageInfo',
+  'modelNumber',
+  'approvalNumber',
 ];
 
-/** Update item name + SKU on Zoho, then mirror to Firestore. */
+/** Update item details on Zoho, then mirror to Firestore (incl. Firestore-only overlays). */
 export async function mutateCatalogProductDetails(accessToken, organizationId, productId, input) {
   const name = String(input?.name ?? '').trim();
   const sku = String(input?.sku ?? '').trim();
-  await updateProductDetails(accessToken, organizationId, productId, { name, sku });
-  await patchProductDetails(productId, { name, sku });
-  return { name, sku };
+  const hasRate = input?.rate != null && input.rate !== '';
+  const rate = hasRate ? Number(input.rate) : undefined;
+  const mrpOverrideRaw = input?.mrpOverride;
+  const hasMrpOverride = 'mrpOverride' in (input ?? {});
+  let mrpOverride = null;
+  if (hasMrpOverride) {
+    if (mrpOverrideRaw === null || mrpOverrideRaw === '' || mrpOverrideRaw === undefined) {
+      mrpOverride = null;
+    } else {
+      mrpOverride = Number(mrpOverrideRaw);
+      if (!Number.isFinite(mrpOverride) || mrpOverride < 0) {
+        throw new Error('MRP override must be a valid number.');
+      }
+      if (mrpOverride === 0) mrpOverride = null;
+      else mrpOverride = Math.round(mrpOverride * 100) / 100;
+    }
+  }
+
+  const modelNumber = 'modelNumber' in (input ?? {})
+    ? String(input.modelNumber ?? '').trim() || null
+    : undefined;
+  const approvalNumber = 'approvalNumber' in (input ?? {})
+    ? String(input.approvalNumber ?? '').trim() || null
+    : undefined;
+
+  await updateProductDetails(accessToken, organizationId, productId, {
+    name,
+    sku,
+    ...(hasRate ? { rate } : {}),
+    ...(mrpOverride != null ? { labelRate: mrpOverride } : {}),
+  });
+
+  const patch = { name, sku };
+  if (hasRate) patch.rate = rate;
+  if (hasMrpOverride) patch.mrpOverride = mrpOverride;
+  if (modelNumber !== undefined) patch.modelNumber = modelNumber;
+  if (approvalNumber !== undefined) patch.approvalNumber = approvalNumber;
+
+  await patchProductDetails(productId, patch);
+  return {
+    name,
+    sku,
+    ...(hasRate ? { rate } : {}),
+    ...(hasMrpOverride ? { mrpOverride } : {}),
+    ...(modelNumber !== undefined ? { modelNumber } : {}),
+    ...(approvalNumber !== undefined ? { approvalNumber } : {}),
+  };
 }
 
 /** Set item active/inactive on Zoho, then mirror to Firestore. */

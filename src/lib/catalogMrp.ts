@@ -153,10 +153,27 @@ export function calculateProductMrpBreakdown(
 }
 
 export function calculateProductMrpForCatalogItem(
-  product: MrpProductRef,
+  product: MrpProductRef & { mrpOverride?: number | null },
   rules: CatalogMrpRules = DEFAULT_MRP_RULES,
   categories: CatalogCategory[] = [],
 ): ProductMrpBreakdown {
+  const override = Number(product.mrpOverride);
+  if (Number.isFinite(override) && override > 0) {
+    const tax = Number.isFinite(product.taxPercentage) && product.taxPercentage > 0
+      ? product.taxPercentage
+      : 0;
+    const mrpInclRounded = Math.round(override);
+    const mrpExclGst = tax > 0 ? round2(mrpInclRounded / (1 + tax / 100)) : mrpInclRounded;
+    const mrpGst = round2(mrpInclRounded - mrpExclGst);
+    return {
+      mrpInclGst: mrpInclRounded,
+      mrpExclGst,
+      mrpGst,
+      taxPercentage: tax,
+      multiplier: 1,
+      formula: 'gstOnly',
+    };
+  }
   const groupRule = resolveMrpGroupRule(product, rules, categories);
   return calculateProductMrpBreakdown(product.rate, product.taxPercentage, groupRule);
 }

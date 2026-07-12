@@ -40,6 +40,10 @@ import {
   uploadCatalogProductImage,
   deleteCatalogProductImage,
 } from '../../lib/catalog';
+import {
+  loadApprovalNumbers,
+  loadModelNumbers,
+} from '../../lib/catalogProductSettings';
 import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
@@ -195,6 +199,13 @@ export const ProductDetailView: React.FC<{
   const [productEditMode, setProductEditMode] = useState(false);
   const [editName, setEditName] = useState('');
   const [editSku, setEditSku] = useState('');
+  const [editRate, setEditRate] = useState('');
+  const [editMrpOverride, setEditMrpOverride] = useState('');
+  const [editModelNumber, setEditModelNumber] = useState('');
+  const [editApprovalNumber, setEditApprovalNumber] = useState('');
+  const [modelNumberOptions, setModelNumberOptions] = useState<string[]>([]);
+  const [approvalNumberOptions, setApprovalNumberOptions] = useState<string[]>([]);
+  const [optionListsLoading, setOptionListsLoading] = useState(false);
   const [editCategoryId, setEditCategoryId] = useState('');
   const [categoryOptions, setCategoryOptions] = useState<CatalogCategory[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
@@ -787,6 +798,14 @@ export const ProductDetailView: React.FC<{
     if (!product || !canEnterProductEdit) return;
     setEditName(product.name);
     setEditSku(product.sku ?? '');
+    setEditRate(String(product.rate ?? ''));
+    setEditMrpOverride(
+      product.mrpOverride != null && Number(product.mrpOverride) > 0
+        ? String(product.mrpOverride)
+        : '',
+    );
+    setEditModelNumber(product.modelNumber ?? '');
+    setEditApprovalNumber(product.approvalNumber ?? '');
     setEditCategoryId(product.categoryId ?? '');
     setDetailsError(null);
     setStatusError(null);
@@ -799,8 +818,14 @@ export const ProductDetailView: React.FC<{
     setStatusError(null);
     setEditName('');
     setEditSku('');
+    setEditRate('');
+    setEditMrpOverride('');
+    setEditModelNumber('');
+    setEditApprovalNumber('');
     setEditCategoryId('');
     setCategoryOptions([]);
+    setModelNumberOptions([]);
+    setApprovalNumberOptions([]);
   };
 
   useEffect(() => {
@@ -808,6 +833,7 @@ export const ProductDetailView: React.FC<{
 
     let active = true;
     setCategoriesLoading(true);
+    setOptionListsLoading(true);
     void fetchCatalog()
       .then(data => {
         if (!active) return;
@@ -827,10 +853,31 @@ export const ProductDetailView: React.FC<{
         if (active) setCategoriesLoading(false);
       });
 
+    if (isCategorizedProduct) {
+      void Promise.all([loadModelNumbers(), loadApprovalNumbers()])
+        .then(([models, approvals]) => {
+          if (!active) return;
+          setModelNumberOptions(models);
+          setApprovalNumberOptions(approvals);
+        })
+        .catch(() => {
+          if (!active) return;
+          setModelNumberOptions([]);
+          setApprovalNumberOptions([]);
+        })
+        .finally(() => {
+          if (active) setOptionListsLoading(false);
+        });
+    } else {
+      setModelNumberOptions([]);
+      setApprovalNumberOptions([]);
+      setOptionListsLoading(false);
+    }
+
     return () => {
       active = false;
     };
-  }, [productEditMode, canEditProductDetails]);
+  }, [productEditMode, canEditProductDetails, isCategorizedProduct]);
 
   const handleSaveProductDetails = async () => {
     if (!product || !canEditProductDetails || detailsSaving) return;
@@ -845,6 +892,31 @@ export const ProductDetailView: React.FC<{
       setDetailsError('Item SKU is required.');
       return;
     }
+
+    const rate = Number(editRate);
+    if (!Number.isFinite(rate) || rate < 0) {
+      setDetailsError('Price must be a valid number.');
+      return;
+    }
+
+    let mrpOverride: number | null = null;
+    const mrpRaw = editMrpOverride.trim();
+    if (mrpRaw) {
+      const mrp = Number(mrpRaw);
+      if (!Number.isFinite(mrp) || mrp < 0) {
+        setDetailsError('MRP must be a valid number (or leave blank).');
+        return;
+      }
+      mrpOverride = mrp === 0 ? null : Math.round(mrp * 100) / 100;
+    }
+
+    // Model / approval are shop products only (Firebase overlays). Spares skip them.
+    const modelNumber = isCategorizedProduct
+      ? (editModelNumber.trim() || null)
+      : undefined;
+    const approvalNumber = isCategorizedProduct
+      ? (editApprovalNumber.trim() || null)
+      : undefined;
 
     const nextCategoryId = editCategoryId.trim();
     const categoryChanged = nextCategoryId !== (product.categoryId ?? '');
@@ -869,7 +941,14 @@ export const ProductDetailView: React.FC<{
       if (categoryChanged && nextCategoryId && nextCategoryName) {
         await assignProductCategory(product.id, nextCategoryId, nextCategoryName);
       }
-      const saved = await updateCatalogProductDetails(product.id, { name, sku });
+      const saved = await updateCatalogProductDetails(product.id, {
+        name,
+        sku,
+        rate: Math.round(rate * 100) / 100,
+        mrpOverride,
+        ...(modelNumber !== undefined ? { modelNumber } : {}),
+        ...(approvalNumber !== undefined ? { approvalNumber } : {}),
+      });
       const syncedAt = new Date().toISOString();
       setProduct(prev => (
         prev
@@ -877,6 +956,14 @@ export const ProductDetailView: React.FC<{
               ...prev,
               name: saved.name,
               sku: saved.sku,
+              rate: saved.rate ?? rate,
+              mrpOverride: saved.mrpOverride ?? mrpOverride,
+              ...(modelNumber !== undefined
+                ? { modelNumber: saved.modelNumber ?? modelNumber }
+                : {}),
+              ...(approvalNumber !== undefined
+                ? { approvalNumber: saved.approvalNumber ?? approvalNumber }
+                : {}),
               syncedAt,
               ...(categoryChanged
                 ? { categoryId: nextCategoryId, categoryName: nextCategoryName }
@@ -887,6 +974,8 @@ export const ProductDetailView: React.FC<{
       setProductEditMode(false);
       setEditCategoryId('');
       setCategoryOptions([]);
+      setModelNumberOptions([]);
+      setApprovalNumberOptions([]);
     } catch (err) {
       setDetailsError(err instanceof Error ? err.message : 'Could not save item details.');
     } finally {
@@ -1240,6 +1329,25 @@ export const ProductDetailView: React.FC<{
                   <span className="product-detail-page__title-price-gst">+GST</span>
                 </div>
               )}
+              {productEditMode && canEditProductDetails && (
+                <label className="product-detail-page__title-price product-detail-page__title-price--edit">
+                  <span className="product-detail-page__sku-label">Price</span>
+                  <div className="product-detail-page__title-price-amount">
+                    <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      className="product-detail-page__rate-input"
+                      value={editRate}
+                      onChange={e => setEditRate(e.target.value)}
+                      disabled={detailsSaving}
+                      aria-label="Dealer price"
+                    />
+                  </div>
+                  <span className="product-detail-page__title-price-gst">+GST</span>
+                </label>
+              )}
             </div>
 
             {(product.sku || (productEditMode && canEditProductDetails)) && (
@@ -1280,6 +1388,87 @@ export const ProductDetailView: React.FC<{
                   ))}
                 </select>
               </label>
+            )}
+
+            {productEditMode && canEditProductDetails && (
+              <div className="product-detail-page__extra-fields">
+                <label className="product-detail-page__sku-field">
+                  <span className="product-detail-page__sku-label">MRP (override)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    className="product-detail-page__sku-input"
+                    value={editMrpOverride}
+                    onChange={e => setEditMrpOverride(e.target.value)}
+                    disabled={detailsSaving}
+                    placeholder="Blank = use settings equation"
+                    aria-label="MRP override"
+                  />
+                </label>
+                {isCategorizedProduct && (
+                  <>
+                    <label className="product-detail-page__sku-field">
+                      <span className="product-detail-page__sku-label">Model number</span>
+                      <select
+                        className="product-detail-page__category-select"
+                        value={editModelNumber}
+                        onChange={e => setEditModelNumber(e.target.value)}
+                        disabled={detailsSaving || optionListsLoading}
+                        aria-label="Model number"
+                      >
+                        <option value="">
+                          {optionListsLoading ? 'Loading…' : 'None'}
+                        </option>
+                        {modelNumberOptions.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                        {editModelNumber
+                          && !modelNumberOptions.includes(editModelNumber) && (
+                          <option value={editModelNumber}>{editModelNumber}</option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="product-detail-page__sku-field">
+                      <span className="product-detail-page__sku-label">Approval number</span>
+                      <select
+                        className="product-detail-page__category-select"
+                        value={editApprovalNumber}
+                        onChange={e => setEditApprovalNumber(e.target.value)}
+                        disabled={detailsSaving || optionListsLoading}
+                        aria-label="Approval number"
+                      >
+                        <option value="">
+                          {optionListsLoading ? 'Loading…' : 'None'}
+                        </option>
+                        {approvalNumberOptions.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                        {editApprovalNumber
+                          && !approvalNumberOptions.includes(editApprovalNumber) && (
+                          <option value={editApprovalNumber}>{editApprovalNumber}</option>
+                        )}
+                      </select>
+                    </label>
+                  </>
+                )}
+              </div>
+            )}
+
+            {!productEditMode && (
+              <div className="product-detail-page__meta-chips">
+                {product.mrpOverride != null && Number(product.mrpOverride) > 0 && (
+                  <p className="product-detail-page__sku">
+                    MRP: ₹ {Number(product.mrpOverride).toFixed(2)}
+                  </p>
+                )}
+                {isCategorizedProduct && product.modelNumber && (
+                  <p className="product-detail-page__sku">Model: {product.modelNumber}</p>
+                )}
+                {isCategorizedProduct && product.approvalNumber && (
+                  <p className="product-detail-page__sku">Approval: {product.approvalNumber}</p>
+                )}
+              </div>
             )}
 
             {productEditMode && canEditProductDetails && (

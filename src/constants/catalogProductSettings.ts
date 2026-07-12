@@ -83,3 +83,7 @@ export const DEFAULT_MRP_RULES: CatalogMrpRules = {
     multiplier: DEFAULT_MRP_GENERIC_AND_UNCATEGORIZED_MULTIPLIER,
   },
 };
+
+/** Empty by default — admins define options in Product settings. */
+export const DEFAULT_MODEL_NUMBERS: string[] = [];
+export const DEFAULT_APPROVAL_NUMBERS: string[] = [];

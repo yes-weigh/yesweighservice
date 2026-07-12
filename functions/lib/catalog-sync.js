@@ -360,6 +360,17 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       doc.packageInfo = packageInfo;
     }
 
+    const mrpOverride = Number(existing?.mrpOverride);
+    if (Number.isFinite(mrpOverride) && mrpOverride > 0) {
+      doc.mrpOverride = Math.round(mrpOverride * 100) / 100;
+    }
+
+    const modelNumber = String(existing?.modelNumber ?? '').trim();
+    if (modelNumber) doc.modelNumber = modelNumber;
+
+    const approvalNumber = String(existing?.approvalNumber ?? '').trim();
+    if (approvalNumber) doc.approvalNumber = approvalNumber;
+
     const previousStock = Number(existing?.stock);
     const zohoSyncEntry = buildZohoSyncAuditAdjustment(
       existing?.auditSnapshot,
@@ -587,12 +598,45 @@ export async function patchProductDetails(productId, input) {
   if (!name) throw new Error('Item name is required.');
   if (!sku) throw new Error('Item SKU is required.');
 
-  const db = getFirestore();
-  await db.collection(PRODUCTS_COLLECTION).doc(id).set({
+  const payload = {
     name,
     sku,
     syncedAt: new Date().toISOString(),
-  }, { merge: true });
+  };
+
+  if (input?.rate != null) {
+    const rate = Number(input.rate);
+    if (!Number.isFinite(rate) || rate < 0) {
+      throw new Error('Rate must be a valid number.');
+    }
+    payload.rate = Math.round(rate * 100) / 100;
+  }
+
+  if ('mrpOverride' in (input ?? {})) {
+    const raw = input.mrpOverride;
+    if (raw === null || raw === '' || raw === undefined) {
+      payload.mrpOverride = null;
+    } else {
+      const mrp = Number(raw);
+      if (!Number.isFinite(mrp) || mrp < 0) {
+        throw new Error('MRP override must be a valid number.');
+      }
+      payload.mrpOverride = mrp === 0 ? null : Math.round(mrp * 100) / 100;
+    }
+  }
+
+  if ('modelNumber' in (input ?? {})) {
+    const modelNumber = String(input.modelNumber ?? '').trim();
+    payload.modelNumber = modelNumber || null;
+  }
+
+  if ('approvalNumber' in (input ?? {})) {
+    const approvalNumber = String(input.approvalNumber ?? '').trim();
+    payload.approvalNumber = approvalNumber || null;
+  }
+
+  const db = getFirestore();
+  await db.collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
 }
 
 function parseOptionalPositiveNumber(value, { allowZero = false, integer = false } = {}) {

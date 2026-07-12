@@ -11,7 +11,9 @@ import {
   loadCatalogProductSettings,
   normalizeMrpFormulaId,
   normalizeMrpMultiplier,
+  saveApprovalNumbers,
   saveMasterCartonQuantities,
+  saveModelNumbers,
   saveMrpRules,
 } from '../../../lib/catalogProductSettings';
 import { calculateProductMrpBreakdown, getMrpFormulaOption } from '../../../lib/catalogMrp';
@@ -190,6 +192,10 @@ export const ProductSettingsTab: React.FC = () => {
     categorized: { ...DEFAULT_MRP_TEST },
     generic: { ...DEFAULT_MRP_TEST },
   });
+  const [modelNumbers, setModelNumbers] = useState<string[]>([]);
+  const [approvalNumbers, setApprovalNumbers] = useState<string[]>([]);
+  const [newModel, setNewModel] = useState('');
+  const [newApproval, setNewApproval] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -204,6 +210,8 @@ export const ProductSettingsTab: React.FC = () => {
       setQuantities(settings.masterCartonQuantities);
       setMrpRules(settings.mrpRules);
       setMrpDraft(toDraft(settings.mrpRules));
+      setModelNumbers(settings.modelNumbers);
+      setApprovalNumbers(settings.approvalNumbers);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load product settings.');
     } finally {
@@ -320,13 +328,123 @@ export const ProductSettingsTab: React.FC = () => {
     }
   };
 
+  const persistStringList = async (
+    kind: 'model' | 'approval',
+    next: string[],
+    busy: string,
+  ) => {
+    setBusyKey(busy);
+    setError('');
+    setSuccess('');
+    try {
+      if (kind === 'model') {
+        setModelNumbers(await saveModelNumbers(next, user?.uid ?? null));
+      } else {
+        setApprovalNumbers(await saveApprovalNumbers(next, user?.uid ?? null));
+      }
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save options.');
+      return false;
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleAddStringOption = async (kind: 'model' | 'approval') => {
+    const raw = kind === 'model' ? newModel : newApproval;
+    const value = raw.trim();
+    if (!value) {
+      setError('Enter a value to add.');
+      return;
+    }
+    const list = kind === 'model' ? modelNumbers : approvalNumbers;
+    if (list.some(item => item.toLowerCase() === value.toLowerCase())) {
+      setError(`${value} is already in the list.`);
+      return;
+    }
+    const ok = await persistStringList(kind, [...list, value], `add-${kind}-${value}`);
+    if (ok) {
+      if (kind === 'model') setNewModel('');
+      else setNewApproval('');
+    }
+  };
+
+  const handleRemoveStringOption = async (kind: 'model' | 'approval', value: string) => {
+    const list = kind === 'model' ? modelNumbers : approvalNumbers;
+    await persistStringList(
+      kind,
+      list.filter(item => item !== value),
+      `remove-${kind}-${value}`,
+    );
+  };
+
+  const renderStringOptionSection = (
+    title: string,
+    kind: 'model' | 'approval',
+    list: string[],
+    draftValue: string,
+    setDraftValue: (v: string) => void,
+  ) => (
+    <div className="settings-product-qty__section">
+      <h4 className="settings-product-qty__title">{title}</h4>
+      {!loading && (
+        <>
+          <div className="settings-product-qty__chips" aria-label={title}>
+            {list.map(value => (
+              <span key={value} className="settings-product-qty__chip">
+                <span>{value}</span>
+                <button
+                  type="button"
+                  className="settings-product-qty__chip-remove"
+                  onClick={() => void handleRemoveStringOption(kind, value)}
+                  disabled={busyKey != null}
+                  aria-label={`Remove ${value}`}
+                >
+                  <Trash2 size={13} aria-hidden />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="settings-locations__add-form settings-product-qty__add-form">
+            <label className="settings-locations__field">
+              <span>Add</span>
+              <input
+                type="text"
+                value={draftValue}
+                placeholder="e.g. option"
+                onChange={e => setDraftValue(e.target.value)}
+                disabled={busyKey != null}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleAddStringOption(kind);
+                  }
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busyKey != null || !draftValue.trim()}
+              onClick={() => void handleAddStringOption(kind)}
+            >
+              <Plus size={15} aria-hidden />
+              Add
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <section className="settings-locations panel glass">
       <header className="settings-locations__header">
         <div>
           <h3>Product settings</h3>
           <p className="text-muted text-sm">
-            Carton qty and MRP for share cards / labels.
+            Carton qty, MRP, model & approval options.
           </p>
         </div>
       </header>
@@ -442,6 +560,21 @@ export const ProductSettingsTab: React.FC = () => {
             </>
           )}
         </div>
+
+        {renderStringOptionSection(
+          'Model numbers',
+          'model',
+          modelNumbers,
+          newModel,
+          setNewModel,
+        )}
+        {renderStringOptionSection(
+          'Approval numbers',
+          'approval',
+          approvalNumbers,
+          newApproval,
+          setNewApproval,
+        )}
 
         {!loading && sortedQuantities.length === 0 && (
           <div className="settings-locations__empty">

@@ -2,7 +2,9 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
   CATALOG_PRODUCT_SETTINGS_DOC_ID,
+  DEFAULT_APPROVAL_NUMBERS,
   DEFAULT_MASTER_CARTON_QUANTITIES,
+  DEFAULT_MODEL_NUMBERS,
   DEFAULT_MRP_RULES,
   MRP_FORMULA_OPTIONS,
   type CatalogMrpFormulaId,
@@ -15,6 +17,8 @@ export type { CatalogMrpFormulaId, CatalogMrpGroupRule, CatalogMrpRules };
 export interface CatalogProductSettings {
   masterCartonQuantities: number[];
   mrpRules: CatalogMrpRules;
+  modelNumbers: string[];
+  approvalNumbers: string[];
   updatedAt: string;
   updatedBy?: string | null;
 }
@@ -27,6 +31,17 @@ function normalizeQuantities(values: unknown): number[] {
     .map(value => Number(value))
     .filter(value => Number.isFinite(value) && Number.isInteger(value) && value > 0);
   return [...new Set(next)].sort((a, b) => a - b);
+}
+
+export function normalizeOptionStrings(
+  values: unknown,
+  fallback: string[] = [],
+): string[] {
+  if (!Array.isArray(values)) return [...fallback];
+  const next = values
+    .map(value => String(value ?? '').trim())
+    .filter(Boolean);
+  return [...new Set(next)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 }
 
 export function normalizeMrpMultiplier(value: unknown, fallback: number): number {
@@ -69,7 +84,6 @@ export function normalizeMrpRules(raw: unknown): CatalogMrpRules {
   }
   const data = raw as Record<string, unknown>;
 
-  // Legacy: { categorizedMultiplier, genericAndUncategorizedMultiplier }
   if (
     'categorizedMultiplier' in data
     || 'genericAndUncategorizedMultiplier' in data
@@ -101,19 +115,23 @@ export function normalizeMrpRules(raw: unknown): CatalogMrpRules {
   };
 }
 
+function emptySettings(): CatalogProductSettings {
+  return {
+    masterCartonQuantities: [...DEFAULT_MASTER_CARTON_QUANTITIES],
+    mrpRules: {
+      categorized: { ...DEFAULT_MRP_RULES.categorized },
+      genericAndUncategorized: { ...DEFAULT_MRP_RULES.genericAndUncategorized },
+    },
+    modelNumbers: [...DEFAULT_MODEL_NUMBERS],
+    approvalNumbers: [...DEFAULT_APPROVAL_NUMBERS],
+    updatedAt: '',
+  };
+}
+
 export async function loadCatalogProductSettings(): Promise<CatalogProductSettings> {
   try {
     const snap = await getDoc(doc(db, 'appSettings', CATALOG_PRODUCT_SETTINGS_DOC_ID));
-    if (!snap.exists()) {
-      return {
-        masterCartonQuantities: [...DEFAULT_MASTER_CARTON_QUANTITIES],
-        mrpRules: {
-          categorized: { ...DEFAULT_MRP_RULES.categorized },
-          genericAndUncategorized: { ...DEFAULT_MRP_RULES.genericAndUncategorized },
-        },
-        updatedAt: '',
-      };
-    }
+    if (!snap.exists()) return emptySettings();
     const data = snap.data();
     const quantities = normalizeQuantities(data.masterCartonQuantities);
     return {
@@ -121,18 +139,13 @@ export async function loadCatalogProductSettings(): Promise<CatalogProductSettin
         ? quantities
         : [...DEFAULT_MASTER_CARTON_QUANTITIES],
       mrpRules: normalizeMrpRules(data.mrpRules),
+      modelNumbers: normalizeOptionStrings(data.modelNumbers, DEFAULT_MODEL_NUMBERS),
+      approvalNumbers: normalizeOptionStrings(data.approvalNumbers, DEFAULT_APPROVAL_NUMBERS),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
     };
   } catch {
-    return {
-      masterCartonQuantities: [...DEFAULT_MASTER_CARTON_QUANTITIES],
-      mrpRules: {
-        categorized: { ...DEFAULT_MRP_RULES.categorized },
-        genericAndUncategorized: { ...DEFAULT_MRP_RULES.genericAndUncategorized },
-      },
-      updatedAt: '',
-    };
+    return emptySettings();
   }
 }
 
@@ -146,6 +159,32 @@ export async function loadMrpRules(): Promise<CatalogMrpRules> {
   return settings.mrpRules;
 }
 
+export async function loadModelNumbers(): Promise<string[]> {
+  const settings = await loadCatalogProductSettings();
+  return settings.modelNumbers;
+}
+
+export async function loadApprovalNumbers(): Promise<string[]> {
+  const settings = await loadCatalogProductSettings();
+  return settings.approvalNumbers;
+}
+
+async function touchSettings(
+  payload: Record<string, unknown>,
+  updatedBy?: string | null,
+): Promise<void> {
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', CATALOG_PRODUCT_SETTINGS_DOC_ID),
+    {
+      ...payload,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+}
+
 export async function saveMasterCartonQuantities(
   quantities: number[],
   updatedBy?: string | null,
@@ -154,18 +193,7 @@ export async function saveMasterCartonQuantities(
   if (!masterCartonQuantities.length) {
     throw new Error('Add at least one master carton quantity.');
   }
-
-  const updatedAt = new Date().toISOString();
-  await setDoc(
-    doc(db, 'appSettings', CATALOG_PRODUCT_SETTINGS_DOC_ID),
-    {
-      masterCartonQuantities,
-      updatedAt,
-      ...(updatedBy ? { updatedBy } : {}),
-    },
-    { merge: true },
-  );
-
+  await touchSettings({ masterCartonQuantities }, updatedBy);
   return masterCartonQuantities;
 }
 
@@ -180,17 +208,24 @@ export async function saveMrpRules(
   ) {
     throw new Error('MRP multipliers must be greater than zero.');
   }
-
-  const updatedAt = new Date().toISOString();
-  await setDoc(
-    doc(db, 'appSettings', CATALOG_PRODUCT_SETTINGS_DOC_ID),
-    {
-      mrpRules,
-      updatedAt,
-      ...(updatedBy ? { updatedBy } : {}),
-    },
-    { merge: true },
-  );
-
+  await touchSettings({ mrpRules }, updatedBy);
   return mrpRules;
+}
+
+export async function saveModelNumbers(
+  values: string[],
+  updatedBy?: string | null,
+): Promise<string[]> {
+  const modelNumbers = normalizeOptionStrings(values);
+  await touchSettings({ modelNumbers }, updatedBy);
+  return modelNumbers;
+}
+
+export async function saveApprovalNumbers(
+  values: string[],
+  updatedBy?: string | null,
+): Promise<string[]> {
+  const approvalNumbers = normalizeOptionStrings(values);
+  await touchSettings({ approvalNumbers }, updatedBy);
+  return approvalNumbers;
 }

@@ -55,6 +55,15 @@ export interface CatalogProduct {
   auditSnapshot?: CatalogProductAuditSnapshot | null;
   /** Display order within category — Firestore only (not synced to Zoho). */
   displayOrder?: number;
+  /**
+   * Optional fixed MRP (incl. GST). When set, overrides Product settings equation
+   * on share cards and product labels. Firestore only.
+   */
+  mrpOverride?: number | null;
+  /** Selected model number (options from Product settings). Firestore only. */
+  modelNumber?: string | null;
+  /** Selected approval number (options from Product settings). Firestore only. */
+  approvalNumber?: string | null;
 }
 
 export interface CatalogCategory {

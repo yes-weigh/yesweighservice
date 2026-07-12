@@ -515,7 +515,7 @@ export const setCatalogProductStatus = onCall(
   },
 );
 
-/** Update Zoho item name and SKU — staff / super admin only. */
+/** Update Zoho item name, SKU, optional rate — staff / super admin only. */
 export const updateCatalogProductDetails = onCall(
   {
     region: 'asia-south1',
@@ -545,7 +545,14 @@ export const updateCatalogProductDetails = onCall(
     const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
 
     try {
-      const saved = await mutateCatalogProductDetails(accessToken, organizationId, productId, { name, sku });
+      const saved = await mutateCatalogProductDetails(accessToken, organizationId, productId, {
+        name,
+        sku,
+        rate: request.data?.rate,
+        mrpOverride: request.data?.mrpOverride,
+        modelNumber: request.data?.modelNumber,
+        approvalNumber: request.data?.approvalNumber,
+      });
       return { ok: true, ...saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update item details on Zoho.');

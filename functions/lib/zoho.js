@@ -567,7 +567,7 @@ export async function setProductStatus(accessToken, orgId, itemId, status) {
   await putZohoItemUpdate(accessToken, orgId, itemId, body);
 }
 
-/** Update item name and SKU on Zoho — India org requires label_rate on PUT. */
+/** Update item name, SKU, and optional rate on Zoho — India org requires label_rate on PUT. */
 export async function updateProductDetails(accessToken, orgId, itemId, input) {
   const name = String(input?.name ?? '').trim();
   const sku = String(input?.sku ?? '').trim();
@@ -578,8 +578,28 @@ export async function updateProductDetails(accessToken, orgId, itemId, input) {
   const body = {
     name,
     sku,
-    label_rate: resolveLabelRate(item),
   };
+
+  let nextRate = null;
+  if (input?.rate != null && input.rate !== '') {
+    nextRate = Number(input.rate);
+    if (!Number.isFinite(nextRate) || nextRate < 0) {
+      throw new Error('Rate must be a valid number.');
+    }
+    nextRate = Math.round(nextRate * 100) / 100;
+    body.rate = nextRate;
+  }
+
+  const overrideMrp = validPositiveRate(input?.labelRate ?? input?.mrpOverride);
+  if (overrideMrp != null) {
+    body.label_rate = overrideMrp;
+  } else {
+    body.label_rate = resolveLabelRate({
+      ...item,
+      ...(nextRate != null ? { rate: nextRate, sales_rate: nextRate } : {}),
+    });
+  }
+
   const categoryId = normaliseCategoryId(item.category_id);
   if (categoryId) body.category_id = categoryId;
   if (item.status) body.status = item.status;
