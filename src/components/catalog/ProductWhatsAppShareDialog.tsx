@@ -619,45 +619,49 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
     };
   }, [product, imageUrl, imageIndex, imageCount]);
 
-  const rate = Number.isFinite(product.rate) ? product.rate : 0;
-  const tax = resolveShareTaxPct(product);
-  const dealerGst = round2(rate * (tax / 100));
-  const dealerInc = round2(rate + dealerGst);
-  const mrpInc = Math.round(dealerInc * 2.5);
-  const shareText = [
-    product.name.trim(),
-    product.sku?.trim() ? `SKU: ${product.sku.trim()}` : '',
-    `Dealer: ${money(rate)} + ${tax}% GST ${money(dealerGst)} = ${money(dealerInc)}`,
-    `MRP (incl. GST): ${money(mrpInc)}`,
-    'Interweighing Private Limited · Genuine Spare Parts',
-  ].filter(Boolean).join('\n');
-
   const handleShare = async () => {
     setSharing(true);
     setError('');
     try {
       const blob = blobRef.current;
       if (!blob) throw new Error('Preview not ready.');
-      const file = new File([blob], `${(product.sku || 'product').trim() || 'product'}-share.png`, {
+
+      const safeName = ((product.sku || product.name || 'product').trim() || 'product')
+        .replace(/[^\w\-]+/g, '-')
+        .slice(0, 40);
+      const fileName = `${safeName}-share.png`;
+      const buffer = await blob.arrayBuffer();
+      const file = new File([buffer], fileName, {
         type: 'image/png',
+        lastModified: Date.now(),
       });
 
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: product.name,
-          text: shareText,
-        });
-        return;
+      // Image only — including `text` makes WhatsApp drop the file on many devices.
+      // Always try share first; canShare is unreliable in Android WebViews.
+      if (typeof navigator.share === 'function') {
+        try {
+          await navigator.share({
+            files: [file],
+            title: product.name.trim() || 'Genuine Spare Part',
+          });
+          return;
+        } catch (shareErr) {
+          if (shareErr instanceof Error && shareErr.name === 'AbortError') return;
+          // Fall through to download if file share isn't supported
+        }
       }
 
+      // Fallback: save the card so it can be attached in WhatsApp manually
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = file.name;
+      a.download = fileName;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       URL.revokeObjectURL(url);
-      window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener,noreferrer');
+      setError('Image saved. Open WhatsApp and attach the downloaded card.');
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Share failed.');
