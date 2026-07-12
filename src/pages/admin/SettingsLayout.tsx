@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Box, Layers, Package, Printer, Truck, UserCircle } from 'lucide-react';
+import { Box, Layers, Package, Printer, Tag, Truck, UserCircle } from 'lucide-react';
+import { isLocalhostDev } from '../../lib/isLocalhost';
 
-const tabs = [
+const baseTabs = [
   { id: 'profile', label: 'Profile', path: '/super-admin/settings/profile', icon: <UserCircle size={16} /> },
   { id: 'warehouse', label: 'Warehouse', path: '/super-admin/settings/warehouse', icon: <Layers size={16} /> },
   { id: 'store-room', label: 'Store room', path: '/super-admin/settings/store-room', icon: <Box size={16} /> },
@@ -11,9 +12,25 @@ const tabs = [
   { id: 'local-printers', label: 'Label printing', path: '/super-admin/settings/local-printers', icon: <Printer size={16} /> },
 ] as const;
 
+const skuCorrectionTab = {
+  id: 'sku-correction',
+  label: 'SKU correction',
+  path: '/super-admin/settings/sku-correction',
+  icon: <Tag size={16} />,
+} as const;
+
 export const SettingsLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const showSkuCorrection = isLocalhostDev();
+
+  const tabs = showSkuCorrection
+    ? [
+        ...baseTabs.slice(0, 4),
+        skuCorrectionTab,
+        ...baseTabs.slice(4),
+      ]
+    : [...baseTabs];
 
   useEffect(() => {
     if (
@@ -21,8 +38,15 @@ export const SettingsLayout: React.FC = () => {
       || location.pathname === '/super-admin/settings/'
     ) {
       navigate('/super-admin/settings/profile', { replace: true });
+      return;
     }
-  }, [location.pathname, navigate]);
+    if (
+      !showSkuCorrection
+      && location.pathname.startsWith('/super-admin/settings/sku-correction')
+    ) {
+      navigate('/super-admin/settings/profile', { replace: true });
+    }
+  }, [location.pathname, navigate, showSkuCorrection]);
 
   const isTabActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(`${path}/`);
@@ -33,7 +57,9 @@ export const SettingsLayout: React.FC = () => {
         <div>
           <h2>Settings</h2>
           <p className="text-muted text-sm">
-            Account profile, warehouse zones, store room layout, product settings, logistics, and label printing.
+            {showSkuCorrection
+              ? 'Account profile, warehouse zones, store room layout, product settings, SKU correction, logistics, and label printing.'
+              : 'Account profile, warehouse zones, store room layout, product settings, logistics, and label printing.'}
           </p>
         </div>
       </header>

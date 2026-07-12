@@ -25,6 +25,7 @@ import {
   mutateCatalogProductImageUpload,
   mutateCatalogProductImageDelete,
 } from './lib/catalog-product-mutations.js';
+import { applyAllSkuRepairs } from './lib/sku-correction.js';
 import {
   recordCatalogProductAudit as persistCatalogProductAudit,
   listCatalogProductAuditLogs,
@@ -556,6 +557,33 @@ export const updateCatalogProductDetails = onCall(
       return { ok: true, ...saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update item details on Zoho.');
+    }
+  },
+);
+
+/**
+ * Apply all Invalid-chars SKU repairs: sanitize to 0-9A-Z, uniquify with 2/3/…,
+ * push each to Zoho, then mirror Firestore. Super admin only.
+ */
+export const applyCatalogSkuRepairs = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const secrets = zohoSecrets();
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+
+    try {
+      return await applyAllSkuRepairs(accessToken, organizationId);
+    } catch (err) {
+      console.error('applyCatalogSkuRepairs failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not apply SKU repairs.');
     }
   },
 );

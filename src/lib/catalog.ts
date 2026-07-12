@@ -850,6 +850,113 @@ export async function fetchCatalog(filters: CatalogFilters = {}): Promise<Catalo
   }
 }
 
+/** All synced Zoho items (active + inactive) for SKU audit / correction tools. */
+export async function fetchAllCatalogProductsForSkuCorrection(): Promise<CatalogProduct[]> {
+  try {
+    const snap = await getDocs(collection(db, 'catalogProducts'));
+    return snap.docs
+      .map(docSnap => mapProduct(docSnap.data() as Record<string, unknown>))
+      .sort((a, b) => {
+        const skuA = (a.sku ?? '').localeCompare(b.sku ?? '', undefined, { sensitivity: 'base' });
+        if (skuA !== 0) return skuA;
+        return a.name.localeCompare(b.name);
+      });
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** SKU has anything other than uppercase A–Z and digits 0–9 (incl. lowercase, spaces, symbols). */
+export function skuHasNonUppercaseAlphanumericChars(sku: string | null | undefined): boolean {
+  const value = String(sku ?? '');
+  if (value === '') return false;
+  return /[^0-9A-Z]/.test(value);
+}
+
+/** Uppercase and strip everything except 0-9 / A-Z. */
+export function sanitizeSkuToUppercaseAlphanumeric(sku: string | null | undefined): string {
+  return String(sku ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+}
+
+/**
+ * Suggested corrected SKUs for invalid items: sanitize to 0-9A-Z, then append 2, 3, …
+ * when the result would collide with an existing catalog SKU or another proposal.
+ * Returns map of productId → proposed SKU.
+ */
+export function proposeCorrectedSkus(allProducts: CatalogProduct[]): Map<string, string> {
+  const reserved = new Set<string>();
+  for (const product of allProducts) {
+    const sku = product.sku ?? '';
+    if (sku) reserved.add(sku);
+  }
+
+  const invalid = allProducts
+    .filter(product => skuHasNonUppercaseAlphanumericChars(product.sku))
+    .sort((a, b) => {
+      const skuCmp = (a.sku ?? '').localeCompare(b.sku ?? '', undefined, { sensitivity: 'base' });
+      if (skuCmp !== 0) return skuCmp;
+      return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+    });
+
+  const proposals = new Map<string, string>();
+  for (const product of invalid) {
+    const base = sanitizeSkuToUppercaseAlphanumeric(product.sku) || 'SKU';
+    let candidate = base;
+    if (reserved.has(candidate)) {
+      let n = 2;
+      while (reserved.has(`${base}${n}`)) n += 1;
+      candidate = `${base}${n}`;
+    }
+    reserved.add(candidate);
+    proposals.set(product.id, candidate);
+  }
+  return proposals;
+}
+
+/** @deprecated Use skuHasNonUppercaseAlphanumericChars */
+export function skuHasSpaceOrHyphen(sku: string | null | undefined): boolean {
+  return skuHasNonUppercaseAlphanumericChars(sku);
+}
+
+/** Groups products that share the same exact SKU string (blank SKUs grouped together). */
+export function groupCatalogProductsByDuplicateSku(
+  products: CatalogProduct[],
+): Map<string, CatalogProduct[]> {
+  const groups = new Map<string, CatalogProduct[]>();
+  for (const product of products) {
+    const key = product.sku ?? '';
+    const list = groups.get(key);
+    if (list) list.push(product);
+    else groups.set(key, [product]);
+  }
+  for (const [key, list] of [...groups.entries()]) {
+    if (list.length < 2) groups.delete(key);
+  }
+  return groups;
+}
+
+export interface CatalogSkuRepairResult {
+  total: number;
+  updatedCount: number;
+  failedCount: number;
+  updated: Array<{ productId: string; oldSku: string | null; newSku: string }>;
+  failed: Array<{ productId: string; oldSku: string | null; newSku: string; error: string }>;
+}
+
+/** Apply all Invalid-chars SKU repairs on Zoho + Firestore (super admin). */
+export async function applyCatalogSkuRepairs(): Promise<CatalogSkuRepairResult> {
+  const callable = httpsCallable<Record<string, never>, CatalogSkuRepairResult>(
+    functions,
+    'applyCatalogSkuRepairs',
+  );
+  try {
+    const result = await callable({});
+    return result.data;
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
 export async function fetchCatalogProductDetail(productId: string): Promise<CatalogProductDetail> {
   const callable = httpsCallable<{ productId: string }, CatalogProductDetail>(
     functions,
