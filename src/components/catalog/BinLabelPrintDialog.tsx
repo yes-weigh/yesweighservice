@@ -20,6 +20,12 @@ import { isNativePrintAvailable, sendBinLabel } from '../../lib/localPrinterPrin
 import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 import { encodePackedDateBatch } from '../../lib/labelLayouts/batchCode';
+import { loadMrpRules } from '../../lib/catalogProductSettings';
+import {
+  calculateProductMrpInclGst,
+  formatProductMrpInclGst,
+  resolveMrpGroupRule,
+} from '../../lib/catalogMrp';
 
 export function binLabelFieldsFromStoreItem(
   product: Pick<CatalogProduct, 'id' | 'name' | 'sku'>,
@@ -40,30 +46,43 @@ export function binLabelFieldsFromStoreItem(
 }
 
 /**
- * MRP = (price + GST_amount) × 2.5
- * GST_amount = rate × (taxPercentage / 100)
+ * MRP from Product settings formula + multiplier.
+ * Legacy signature: (rate, tax, multiplier?) uses gstThenMultiply.
  */
-export function calculateProductLabelMrp(rate: number, taxPercentage: number): number {
-  const price = Number.isFinite(rate) ? rate : 0;
-  const pct = Number.isFinite(taxPercentage) ? taxPercentage : 0;
-  const gstAmount = price * (pct / 100);
-  return Math.round((price + gstAmount) * 2.5 * 100) / 100;
+export function calculateProductLabelMrp(
+  rate: number,
+  taxPercentage: number,
+  multiplier = 2.5,
+): number {
+  return calculateProductMrpInclGst(rate, taxPercentage, {
+    formula: 'gstThenMultiply',
+    multiplier,
+  });
 }
 
-export function formatProductLabelMrp(rate: number, taxPercentage: number): string {
-  const mrp = calculateProductLabelMrp(rate, taxPercentage);
-  return `₹ ${mrp.toFixed(2)}`;
+export function formatProductLabelMrp(
+  rate: number,
+  taxPercentage: number,
+  multiplier = 2.5,
+): string {
+  return formatProductMrpInclGst(calculateProductLabelMrp(rate, taxPercentage, multiplier));
 }
 
 /** Fields for Genuine Spare Product layout from a catalog product. */
-export function productPackLabelFieldsFromCatalog(
-  product: Pick<CatalogProduct, 'id' | 'name' | 'sku' | 'rate' | 'taxPercentage' | 'unit'>,
+export async function productPackLabelFieldsFromCatalog(
+  product: Pick<
+    CatalogProduct,
+    'id' | 'name' | 'sku' | 'rate' | 'taxPercentage' | 'unit' | 'categoryId' | 'categoryName'
+  >,
   packedByName?: string | null,
-): BinLabelFields {
+): Promise<BinLabelFields> {
   const sku = (product.sku ?? '').trim() || product.id;
   const unit = (product.unit ?? 'pcs').trim() || 'pcs';
   const packedOn = new Date();
   const packedBy = ((packedByName ?? '').trim() || 'YESWEIGH').toUpperCase();
+  const rules = await loadMrpRules();
+  const groupRule = resolveMrpGroupRule(product, rules);
+  const mrp = calculateProductMrpInclGst(product.rate, product.taxPercentage, groupRule);
   return {
     sku,
     itemName: product.name.trim(),
@@ -75,7 +94,7 @@ export function productPackLabelFieldsFromCatalog(
     qrPayload: sku,
     printedOn: packedOn,
     qty: /nos/i.test(unit) || /pc/i.test(unit) ? '1 nos' : `1 ${unit}`,
-    mrp: formatProductLabelMrp(product.rate, product.taxPercentage),
+    mrp: formatProductMrpInclGst(mrp),
     batchNo: encodePackedDateBatch(packedOn),
     packedBy,
     qcStatus: 'PASSED',

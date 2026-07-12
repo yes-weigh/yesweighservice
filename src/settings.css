@@ -351,6 +351,121 @@
   margin-bottom: 0;
 }
 
+.settings-product-mrp {
+  padding-top: 0.7rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.settings-product-mrp__formula {
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.45);
+  overflow-x: auto;
+}
+
+.settings-product-mrp__formula code {
+  font-size: 0.75rem;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.settings-product-mrp__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.65rem;
+}
+
+.settings-product-mrp__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-product-mrp__group-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #e2e8f0;
+}
+
+.settings-product-mrp__group .settings-locations__field select {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.75);
+  color: #e2e8f0;
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.settings-product-mrp__group .settings-locations__field span {
+  font-size: 0.75rem;
+}
+
+.settings-product-mrp__group .settings-locations__field input {
+  padding: 0.4rem 0.55rem;
+  font-size: 0.8125rem;
+}
+
+.settings-product-mrp__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-product-mrp__test {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.settings-product-mrp__test-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.settings-product-mrp__test-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(134, 239, 172, 0.22);
+  background: rgba(22, 101, 52, 0.22);
+}
+
+.settings-product-mrp__test-result-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.settings-product-mrp__test-result-main strong {
+  font-size: 0.95rem;
+  color: #bbf7d0;
+}
+
+.settings-product-mrp__test-result-sub {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.settings-locations__success {
+  margin: 0 0 0.75rem;
+  color: #86efac;
+}
+
 .settings-logistics {
   display: flex;
   flex-direction: column;

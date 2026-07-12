@@ -1222,11 +1222,11 @@ export const ProductDetailView: React.FC<{
                   className="product-detail-page__title-print"
                   title="Print product label"
                   aria-label="Print Genuine Spare product label"
-                  onClick={() =>
-                    setPrintLabelFields(
-                      productPackLabelFieldsFromCatalog(product, user?.displayName),
-                    )
-                  }
+                  onClick={() => {
+                    void productPackLabelFieldsFromCatalog(product, user?.displayName).then(
+                      setPrintLabelFields,
+                    );
+                  }}
                 >
                   <Printer size={16} aria-hidden />
                 </button>
