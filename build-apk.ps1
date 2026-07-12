@@ -31,9 +31,9 @@ try {
   Pop-Location
 }
 
-$apk = Join-Path $Root 'android\app\build\outputs\apk\debug\app-debug.apk'
+$apk = Join-Path $Root 'android\app\build\outputs\apk\debug\yesone.apk'
 if (-not (Test-Path $apk)) { throw "APK not found at $apk" }
 
 Write-Host ''
 Write-Host "APK ready: $apk" -ForegroundColor Green
-Write-Host 'Install on phone: copy the file, or: adb install -r android\app\build\outputs\apk\debug\app-debug.apk'
+Write-Host 'Install on phone: copy the file, or: adb install -r android\app\build\outputs\apk\debug\yesone.apk'

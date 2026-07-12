@@ -27,13 +27,13 @@ From repo root:
 APK output:
 
 ```text
-android\app\build\outputs\apk\debug\app-debug.apk
+android\app\build\outputs\apk\debug\yesone.apk
 ```
 
 Install on a phone:
 
 ```powershell
-adb install -r android\app\build\outputs\apk\debug\app-debug.apk
+adb install -r android\app\build\outputs\apk\debug\yesone.apk
 ```
 
 Or copy the APK to the phone and open it (allow install from unknown sources).
