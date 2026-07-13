@@ -7,6 +7,7 @@ import {
   Camera,
   ChevronRight,
   Download,
+  FileText,
   ImagePlus,
   IndianRupee,
   Package,
@@ -42,9 +43,10 @@ import {
   deleteCatalogProductImage,
 } from '../../lib/catalog';
 import {
-  loadApprovalNumbers,
+  loadApprovalNumberOptions,
   loadModelNumbers,
 } from '../../lib/catalogProductSettings';
+import type { CatalogApprovalNumberOption } from '../../constants/catalogProductSettings';
 import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
@@ -205,7 +207,7 @@ export const ProductDetailView: React.FC<{
   const [editModelNumber, setEditModelNumber] = useState('');
   const [editApprovalNumber, setEditApprovalNumber] = useState('');
   const [modelNumberOptions, setModelNumberOptions] = useState<string[]>([]);
-  const [approvalNumberOptions, setApprovalNumberOptions] = useState<string[]>([]);
+  const [approvalNumberOptions, setApprovalNumberOptions] = useState<CatalogApprovalNumberOption[]>([]);
   const [optionListsLoading, setOptionListsLoading] = useState(false);
   const [editCategoryId, setEditCategoryId] = useState('');
   const [categoryOptions, setCategoryOptions] = useState<CatalogCategory[]>([]);
@@ -335,6 +337,24 @@ export const ProductDetailView: React.FC<{
   const isCategorizedProduct = Boolean(
     product && hasCatalogCategory(product) && !isSpareItem,
   );
+
+  useEffect(() => {
+    if (!isCategorizedProduct) {
+      setApprovalNumberOptions([]);
+      return;
+    }
+    let active = true;
+    void loadApprovalNumberOptions()
+      .then(approvals => {
+        if (active) setApprovalNumberOptions(approvals);
+      })
+      .catch(() => {
+        if (active) setApprovalNumberOptions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isCategorizedProduct, productId]);
 
   useEffect(() => {
     if (!showAuditedStock || !productId) {
@@ -855,7 +875,7 @@ export const ProductDetailView: React.FC<{
       });
 
     if (isCategorizedProduct) {
-      void Promise.all([loadModelNumbers(), loadApprovalNumbers()])
+      void Promise.all([loadModelNumbers(), loadApprovalNumberOptions()])
         .then(([models, approvals]) => {
           if (!active) return;
           setModelNumberOptions(models);
@@ -1526,13 +1546,30 @@ export const ProductDetailView: React.FC<{
                           {optionListsLoading ? 'Loading…' : 'None'}
                         </option>
                         {approvalNumberOptions.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
+                          <option key={opt.value} value={opt.value}>{opt.value}</option>
                         ))}
                         {editApprovalNumber
-                          && !approvalNumberOptions.includes(editApprovalNumber) && (
+                          && !approvalNumberOptions.some(opt => opt.value === editApprovalNumber) && (
                           <option value={editApprovalNumber}>{editApprovalNumber}</option>
                         )}
                       </select>
+                      {(() => {
+                        const selected = approvalNumberOptions.find(
+                          opt => opt.value === editApprovalNumber,
+                        );
+                        if (!selected?.pdfUrl) return null;
+                        return (
+                          <a
+                            href={selected.pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="product-detail-page__approval-pdf-link"
+                          >
+                            <FileText size={14} aria-hidden />
+                            {selected.pdfFileName || 'View approval PDF'}
+                          </a>
+                        );
+                      })()}
                     </label>
                   </>
                 )}
@@ -1550,7 +1587,28 @@ export const ProductDetailView: React.FC<{
                   <p className="product-detail-page__sku">Model: {product.modelNumber}</p>
                 )}
                 {isCategorizedProduct && product.approvalNumber && (
-                  <p className="product-detail-page__sku">Approval: {product.approvalNumber}</p>
+                  <p className="product-detail-page__sku">
+                    Approval: {product.approvalNumber}
+                    {(() => {
+                      const selected = approvalNumberOptions.find(
+                        opt => opt.value === product.approvalNumber,
+                      );
+                      if (!selected?.pdfUrl) return null;
+                      return (
+                        <>
+                          {' · '}
+                          <a
+                            href={selected.pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="product-detail-page__approval-pdf-link"
+                          >
+                            PDF
+                          </a>
+                        </>
+                      );
+                    })()}
+                  </p>
                 )}
               </div>
             )}

@@ -137,6 +137,17 @@ service firebase.storage {
       allow write: if false;
     }
 
+    match /productSettings/approvalPdfs/{fileName} {
+      allow read: if signedIn();
+      allow create, update: if isSuperAdmin()
+        && request.resource.size < 15 * 1024 * 1024
+        && (
+          request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
+        );
+      allow delete: if isSuperAdmin();
+    }
+
     match /invoices/{allPaths=**} {
       allow read, write: if false;
     }

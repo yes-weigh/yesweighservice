@@ -310,6 +310,77 @@
   margin: 0;
 }
 
+.settings-product-approval__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.settings-product-approval__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-product-approval__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.settings-product-approval__value {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  word-break: break-word;
+}
+
+.settings-product-approval__pdf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #93c5fd;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.settings-product-approval__pdf-link:hover {
+  text-decoration: underline;
+}
+
+.settings-product-approval__pdf-empty {
+  font-size: 0.75rem;
+}
+
+.settings-product-approval__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.settings-product-approval__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .settings-product-qty__chips {
   display: flex;
   flex-wrap: wrap;

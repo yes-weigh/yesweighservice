@@ -7072,6 +7072,24 @@ html::-webkit-scrollbar {
   box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15);
 }
 
+.product-detail-page__approval-pdf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #2563eb;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.product-detail-page__sku-field .product-detail-page__approval-pdf-link {
+  margin-top: 0.35rem;
+}
+
+.product-detail-page__approval-pdf-link:hover {
+  text-decoration: underline;
+}
+
 .product-detail-page__details-error {
   margin: 0;
   color: #b91c1c;

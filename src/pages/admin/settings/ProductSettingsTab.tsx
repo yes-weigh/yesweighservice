@@ -1,16 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Package, Plus, Save, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FileText, Package, Paperclip, Plus, Save, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
   DEFAULT_MRP_RULES,
   MRP_FORMULA_OPTIONS,
+  type CatalogApprovalNumberOption,
   type CatalogMrpFormulaId,
   type CatalogMrpRules,
 } from '../../../constants/catalogProductSettings';
 import {
+  attachApprovalNumberPdf,
   loadCatalogProductSettings,
   normalizeMrpFormulaId,
   normalizeMrpMultiplier,
+  removeApprovalNumber,
+  removeApprovalNumberPdf,
   saveApprovalNumbers,
   saveMasterCartonQuantities,
   saveModelNumbers,
@@ -193,7 +197,7 @@ export const ProductSettingsTab: React.FC = () => {
     generic: { ...DEFAULT_MRP_TEST },
   });
   const [modelNumbers, setModelNumbers] = useState<string[]>([]);
-  const [approvalNumbers, setApprovalNumbers] = useState<string[]>([]);
+  const [approvalNumbers, setApprovalNumbers] = useState<CatalogApprovalNumberOption[]>([]);
   const [newModel, setNewModel] = useState('');
   const [newApproval, setNewApproval] = useState('');
   const [loading, setLoading] = useState(true);
@@ -201,6 +205,8 @@ export const ProductSettingsTab: React.FC = () => {
   const [success, setSuccess] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [newQty, setNewQty] = useState('');
+  const approvalPdfInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingPdfApproval, setPendingPdfApproval] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -329,7 +335,7 @@ export const ProductSettingsTab: React.FC = () => {
   };
 
   const persistStringList = async (
-    kind: 'model' | 'approval',
+    kind: 'model',
     next: string[],
     busy: string,
   ) => {
@@ -337,11 +343,7 @@ export const ProductSettingsTab: React.FC = () => {
     setError('');
     setSuccess('');
     try {
-      if (kind === 'model') {
-        setModelNumbers(await saveModelNumbers(next, user?.uid ?? null));
-      } else {
-        setApprovalNumbers(await saveApprovalNumbers(next, user?.uid ?? null));
-      }
+      setModelNumbers(await saveModelNumbers(next, user?.uid ?? null));
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save options.');
@@ -351,53 +353,123 @@ export const ProductSettingsTab: React.FC = () => {
     }
   };
 
-  const handleAddStringOption = async (kind: 'model' | 'approval') => {
-    const raw = kind === 'model' ? newModel : newApproval;
-    const value = raw.trim();
+  const handleAddStringOption = async (kind: 'model') => {
+    const value = newModel.trim();
     if (!value) {
       setError('Enter a value to add.');
       return;
     }
-    const list = kind === 'model' ? modelNumbers : approvalNumbers;
-    if (list.some(item => item.toLowerCase() === value.toLowerCase())) {
+    if (modelNumbers.some(item => item.toLowerCase() === value.toLowerCase())) {
       setError(`${value} is already in the list.`);
       return;
     }
-    const ok = await persistStringList(kind, [...list, value], `add-${kind}-${value}`);
-    if (ok) {
-      if (kind === 'model') setNewModel('');
-      else setNewApproval('');
-    }
+    const ok = await persistStringList(kind, [...modelNumbers, value], `add-${kind}-${value}`);
+    if (ok) setNewModel('');
   };
 
-  const handleRemoveStringOption = async (kind: 'model' | 'approval', value: string) => {
-    const list = kind === 'model' ? modelNumbers : approvalNumbers;
+  const handleRemoveStringOption = async (kind: 'model', value: string) => {
     await persistStringList(
       kind,
-      list.filter(item => item !== value),
+      modelNumbers.filter(item => item !== value),
       `remove-${kind}-${value}`,
     );
   };
 
-  const renderStringOptionSection = (
-    title: string,
-    kind: 'model' | 'approval',
-    list: string[],
-    draftValue: string,
-    setDraftValue: (v: string) => void,
-  ) => (
+  const handleAddApproval = async () => {
+    const value = newApproval.trim();
+    if (!value) {
+      setError('Enter an approval number to add.');
+      return;
+    }
+    if (approvalNumbers.some(item => item.value.toLowerCase() === value.toLowerCase())) {
+      setError(`${value} is already in the list.`);
+      return;
+    }
+    setBusyKey(`add-approval-${value}`);
+    setError('');
+    setSuccess('');
+    try {
+      setApprovalNumbers(await saveApprovalNumbers(
+        [...approvalNumbers, { value }],
+        user?.uid ?? null,
+      ));
+      setNewApproval('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save approval number.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleRemoveApproval = async (value: string) => {
+    setBusyKey(`remove-approval-${value}`);
+    setError('');
+    setSuccess('');
+    try {
+      setApprovalNumbers(await removeApprovalNumber(value, user?.uid ?? null));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove approval number.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handlePickApprovalPdf = (value: string) => {
+    setPendingPdfApproval(value);
+    approvalPdfInputRef.current?.click();
+  };
+
+  const handleApprovalPdfSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = '';
+    const approvalValue = pendingPdfApproval;
+    setPendingPdfApproval(null);
+    if (!file || !approvalValue) return;
+
+    setBusyKey(`pdf-approval-${approvalValue}`);
+    setError('');
+    setSuccess('');
+    try {
+      setApprovalNumbers(await attachApprovalNumberPdf(
+        approvalValue,
+        file,
+        user?.uid ?? null,
+      ));
+      setSuccess(`PDF attached to ${approvalValue}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not upload PDF.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleRemoveApprovalPdf = async (value: string) => {
+    setBusyKey(`pdf-remove-${value}`);
+    setError('');
+    setSuccess('');
+    try {
+      setApprovalNumbers(await removeApprovalNumberPdf(value, user?.uid ?? null));
+      setSuccess(`PDF removed from ${value}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove PDF.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const renderModelOptionSection = () => (
     <div className="settings-product-qty__section">
-      <h4 className="settings-product-qty__title">{title}</h4>
+      <h4 className="settings-product-qty__title">Model numbers</h4>
       {!loading && (
         <>
-          <div className="settings-product-qty__chips" aria-label={title}>
-            {list.map(value => (
+          <div className="settings-product-qty__chips" aria-label="Model numbers">
+            {modelNumbers.map(value => (
               <span key={value} className="settings-product-qty__chip">
                 <span>{value}</span>
                 <button
                   type="button"
                   className="settings-product-qty__chip-remove"
-                  onClick={() => void handleRemoveStringOption(kind, value)}
+                  onClick={() => void handleRemoveStringOption('model', value)}
                   disabled={busyKey != null}
                   aria-label={`Remove ${value}`}
                 >
@@ -411,14 +483,14 @@ export const ProductSettingsTab: React.FC = () => {
               <span>Add</span>
               <input
                 type="text"
-                value={draftValue}
+                value={newModel}
                 placeholder="e.g. option"
-                onChange={e => setDraftValue(e.target.value)}
+                onChange={e => setNewModel(e.target.value)}
                 disabled={busyKey != null}
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    void handleAddStringOption(kind);
+                    void handleAddStringOption('model');
                   }
                 }}
               />
@@ -426,8 +498,114 @@ export const ProductSettingsTab: React.FC = () => {
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={busyKey != null || !draftValue.trim()}
-              onClick={() => void handleAddStringOption(kind)}
+              disabled={busyKey != null || !newModel.trim()}
+              onClick={() => void handleAddStringOption('model')}
+            >
+              <Plus size={15} aria-hidden />
+              Add
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const renderApprovalOptionSection = () => (
+    <div className="settings-product-qty__section">
+      <h4 className="settings-product-qty__title">Approval numbers</h4>
+      <p className="settings-product-qty__hint text-muted text-sm">
+        Optional PDF certificate per approval number.
+      </p>
+      <input
+        ref={approvalPdfInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="settings-product-approval__file-input"
+        aria-hidden
+        tabIndex={-1}
+        onChange={e => void handleApprovalPdfSelected(e)}
+      />
+      {!loading && (
+        <>
+          <div className="settings-product-approval__list" aria-label="Approval numbers">
+            {approvalNumbers.map(option => (
+              <div key={option.value} className="settings-product-approval__row">
+                <div className="settings-product-approval__main">
+                  <span className="settings-product-approval__value">{option.value}</span>
+                  {option.pdfUrl ? (
+                    <a
+                      href={option.pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="settings-product-approval__pdf-link"
+                    >
+                      <FileText size={14} aria-hidden />
+                      {option.pdfFileName || 'View PDF'}
+                    </a>
+                  ) : (
+                    <span className="settings-product-approval__pdf-empty text-muted text-sm">
+                      No PDF
+                    </span>
+                  )}
+                </div>
+                <div className="settings-product-approval__actions">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={busyKey != null}
+                    onClick={() => handlePickApprovalPdf(option.value)}
+                    aria-label={`Attach PDF to ${option.value}`}
+                  >
+                    <Paperclip size={14} aria-hidden />
+                    {option.pdfUrl ? 'Replace PDF' : 'Attach PDF'}
+                  </button>
+                  {option.pdfUrl && (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={busyKey != null}
+                      onClick={() => void handleRemoveApprovalPdf(option.value)}
+                      aria-label={`Remove PDF from ${option.value}`}
+                    >
+                      <X size={14} aria-hidden />
+                      Remove PDF
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="settings-product-qty__chip-remove"
+                    onClick={() => void handleRemoveApproval(option.value)}
+                    disabled={busyKey != null}
+                    aria-label={`Remove ${option.value}`}
+                  >
+                    <Trash2 size={13} aria-hidden />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="settings-locations__add-form settings-product-qty__add-form">
+            <label className="settings-locations__field">
+              <span>Add</span>
+              <input
+                type="text"
+                value={newApproval}
+                placeholder="e.g. IND/09/21/134"
+                onChange={e => setNewApproval(e.target.value)}
+                disabled={busyKey != null}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleAddApproval();
+                  }
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busyKey != null || !newApproval.trim()}
+              onClick={() => void handleAddApproval()}
             >
               <Plus size={15} aria-hidden />
               Add
@@ -561,20 +739,8 @@ export const ProductSettingsTab: React.FC = () => {
           )}
         </div>
 
-        {renderStringOptionSection(
-          'Model numbers',
-          'model',
-          modelNumbers,
-          newModel,
-          setNewModel,
-        )}
-        {renderStringOptionSection(
-          'Approval numbers',
-          'approval',
-          approvalNumbers,
-          newApproval,
-          setNewApproval,
-        )}
+        {renderModelOptionSection()}
+        {renderApprovalOptionSection()}
 
         {!loading && sortedQuantities.length === 0 && (
           <div className="settings-locations__empty">
