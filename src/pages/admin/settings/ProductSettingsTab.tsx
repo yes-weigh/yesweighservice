@@ -41,12 +41,11 @@ type MrpTestDraft = {
   taxPercent: string;
 };
 
-type ProductSettingsSubTab = 'packaging' | 'model-numbers' | 'approval-numbers' | 'spare-groups';
+type ProductSettingsSubTab = 'packaging' | 'model-approval' | 'spare-groups';
 
 const PRODUCT_SETTINGS_SUBTABS: { id: ProductSettingsSubTab; label: string }[] = [
   { id: 'packaging', label: 'Carton & MRP' },
-  { id: 'model-numbers', label: 'Model numbers' },
-  { id: 'approval-numbers', label: 'Approval numbers' },
+  { id: 'model-approval', label: 'Model & approval' },
   { id: 'spare-groups', label: 'Spare groups' },
 ];
 
@@ -829,7 +828,7 @@ export const ProductSettingsTab: React.FC = () => {
         <div>
           <h3>Product settings</h3>
           <p className="text-muted text-sm">
-            Carton qty, MRP, model numbers, approval numbers, and spare groups.
+            Carton qty, MRP, model & approval options, and spare groups.
           </p>
         </div>
       </header>
@@ -980,8 +979,12 @@ export const ProductSettingsTab: React.FC = () => {
           </>
         )}
 
-        {subTab === 'model-numbers' && renderModelOptionSection()}
-        {subTab === 'approval-numbers' && renderApprovalOptionSection()}
+        {subTab === 'model-approval' && (
+          <>
+            {renderModelOptionSection()}
+            {renderApprovalOptionSection()}
+          </>
+        )}
         {subTab === 'spare-groups' && renderSpareGroupSection()}
       </div>
     </section>
