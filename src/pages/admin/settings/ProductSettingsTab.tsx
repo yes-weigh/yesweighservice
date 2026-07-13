@@ -334,11 +334,7 @@ export const ProductSettingsTab: React.FC = () => {
     }
   };
 
-  const persistStringList = async (
-    kind: 'model',
-    next: string[],
-    busy: string,
-  ) => {
+  const persistModelNumbers = async (next: string[], busy: string) => {
     setBusyKey(busy);
     setError('');
     setSuccess('');
@@ -353,7 +349,7 @@ export const ProductSettingsTab: React.FC = () => {
     }
   };
 
-  const handleAddStringOption = async (kind: 'model') => {
+  const handleAddModelNumber = async () => {
     const value = newModel.trim();
     if (!value) {
       setError('Enter a value to add.');
@@ -363,15 +359,14 @@ export const ProductSettingsTab: React.FC = () => {
       setError(`${value} is already in the list.`);
       return;
     }
-    const ok = await persistStringList(kind, [...modelNumbers, value], `add-${kind}-${value}`);
+    const ok = await persistModelNumbers([...modelNumbers, value], `add-model-${value}`);
     if (ok) setNewModel('');
   };
 
-  const handleRemoveStringOption = async (kind: 'model', value: string) => {
-    await persistStringList(
-      kind,
+  const handleRemoveModelNumber = async (value: string) => {
+    await persistModelNumbers(
       modelNumbers.filter(item => item !== value),
-      `remove-${kind}-${value}`,
+      `remove-model-${value}`,
     );
   };
 
@@ -469,7 +464,7 @@ export const ProductSettingsTab: React.FC = () => {
                 <button
                   type="button"
                   className="settings-product-qty__chip-remove"
-                  onClick={() => void handleRemoveStringOption('model', value)}
+                  onClick={() => void handleRemoveModelNumber(value)}
                   disabled={busyKey != null}
                   aria-label={`Remove ${value}`}
                 >
@@ -490,7 +485,7 @@ export const ProductSettingsTab: React.FC = () => {
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    void handleAddStringOption('model');
+                    void handleAddModelNumber();
                   }
                 }}
               />
@@ -499,7 +494,7 @@ export const ProductSettingsTab: React.FC = () => {
               type="button"
               className="btn btn-primary btn-sm"
               disabled={busyKey != null || !newModel.trim()}
-              onClick={() => void handleAddStringOption('model')}
+              onClick={() => void handleAddModelNumber()}
             >
               <Plus size={15} aria-hidden />
               Add
