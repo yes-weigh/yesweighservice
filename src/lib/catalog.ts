@@ -939,8 +939,11 @@ export interface CatalogSkuRepairResult {
   total: number;
   updatedCount: number;
   failedCount: number;
+  skippedCount?: number;
+  rateLimited?: boolean;
   updated: Array<{ productId: string; oldSku: string | null; newSku: string }>;
   failed: Array<{ productId: string; oldSku: string | null; newSku: string; error: string }>;
+  skipped?: Array<{ productId: string; oldSku: string | null; newSku: string; error: string }>;
 }
 
 /** Apply all Invalid-chars SKU repairs on Zoho + Firestore (super admin). */

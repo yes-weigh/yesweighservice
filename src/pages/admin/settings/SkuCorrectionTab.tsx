@@ -196,7 +196,8 @@ export const SkuCorrectionTab: React.FC = () => {
       message:
         `This will update ${specialProducts.length} item SKU${specialProducts.length === 1 ? '' : 's'} on Zoho `
         + 'using the New SKU values, then refresh the Firestore catalog cache. '
-        + 'Large batches can take several minutes — leave this tab open. This cannot be undone from here.',
+        + 'Large batches run slowly (~1.5s per SKU) to avoid Zoho rate limits — leave this tab open. '
+        + 'If Zoho blocks mid-run, wait a few minutes and Apply again for the rest. This cannot be undone from here.',
       confirmLabel: 'Apply all repairs',
       destructive: true,
     });
@@ -211,14 +212,26 @@ export const SkuCorrectionTab: React.FC = () => {
       const parts = [
         `Updated ${result.updatedCount} of ${result.total} SKU${result.total === 1 ? '' : 's'} on Zoho.`,
       ];
+      if (result.skippedCount && result.skippedCount > 0) {
+        parts.push(
+          `${result.skippedCount} skipped after Zoho rate limit — wait a few minutes, then Apply again.`,
+        );
+      }
       if (result.failedCount > 0) {
         const sample = result.failed.slice(0, 3)
           .map(row => `${row.oldSku ?? '(blank)'} → ${row.newSku}: ${row.error}`)
           .join(' · ');
         parts.push(`${result.failedCount} failed${sample ? ` (${sample})` : ''}.`);
+      }
+      if (result.rateLimited || (result.failedCount > 0 && (result.skippedCount ?? 0) > 0)) {
         setError(parts.join(' '));
+        setSuccess('');
+      } else if (result.failedCount > 0) {
+        setError(parts.join(' '));
+        setSuccess('');
       } else {
         setSuccess(parts.join(' '));
+        setError('');
       }
       setSubTab('special');
     } catch (err) {

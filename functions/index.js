@@ -238,6 +238,19 @@ export const getCatalogProductDetail = onCall(
       if (data?.auditSnapshot) {
         detail.auditSnapshot = data.auditSnapshot;
       }
+      // Firestore-only overlays (never on Zoho item payload)
+      const mrpOverride = Number(data?.mrpOverride);
+      if (Number.isFinite(mrpOverride) && mrpOverride > 0) {
+        detail.mrpOverride = Math.round(mrpOverride * 100) / 100;
+      }
+      const modelNumber = String(data?.modelNumber ?? '').trim();
+      if (modelNumber) {
+        detail.modelNumber = modelNumber;
+      }
+      const approvalNumber = String(data?.approvalNumber ?? '').trim();
+      if (approvalNumber) {
+        detail.approvalNumber = approvalNumber;
+      }
     }
 
     return detail;

@@ -6,6 +6,9 @@ import { mutateCatalogProductDetails } from './catalog-product-mutations.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
 
+/** Zoho blocks around ~100 requests/min; each repair does GET + PUT. */
+const DELAY_BETWEEN_REPAIRS_MS = 1_500;
+
 export function skuHasNonUppercaseAlphanumericChars(sku) {
   const value = String(sku ?? '');
   if (value === '') return false;
@@ -65,10 +68,22 @@ async function loadCatalogProductsForSkuRepair() {
   });
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isZohoRateLimitError(err) {
+  const message = String(err?.message ?? '');
+  return /exceeded the maximum number of requests/i.test(message)
+    || /blocked for some time/i.test(message)
+    || /rate.?limit/i.test(message)
+    || /too many requests/i.test(message);
+}
+
 /**
  * Push every proposed SKU repair to Zoho, then mirror Firestore.
- * Continues on individual failures. Limited concurrency keeps Zoho happy
- * while finishing large batches inside the function timeout.
+ * One-at-a-time with a delay between calls. Stops early on Zoho rate limit
+ * so remaining items can be resumed later with Apply again.
  */
 export async function applyAllSkuRepairs(accessToken, organizationId) {
   const products = await loadCatalogProductsForSkuRepair();
@@ -102,56 +117,68 @@ export async function applyAllSkuRepairs(accessToken, organizationId) {
 
   const updated = [];
   const failed = [];
-  const concurrency = 1;
-  let nextIndex = 0;
+  const skipped = [];
+  let rateLimited = false;
+  let firstUpdate = true;
 
-  async function worker() {
-    while (nextIndex < jobs.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const job = jobs[index];
-      if (job.kind === 'invalid') {
-        failed.push({
-          productId: job.productId,
-          oldSku: job.oldSku,
-          newSku: job.newSku,
-          error: job.error,
-        });
-        continue;
-      }
+  for (const job of jobs) {
+    if (job.kind === 'invalid') {
+      failed.push({
+        productId: job.productId,
+        oldSku: job.oldSku,
+        newSku: job.newSku,
+        error: job.error,
+      });
+      continue;
+    }
 
-      try {
-        await mutateCatalogProductDetails(accessToken, organizationId, job.productId, {
-          name: job.name,
-          sku: job.newSku,
-        });
-        updated.push({
-          productId: job.productId,
-          oldSku: job.oldSku,
-          newSku: job.newSku,
-        });
-      } catch (err) {
-        failed.push({
-          productId: job.productId,
-          oldSku: job.oldSku,
-          newSku: job.newSku,
-          error: err?.message ?? 'Update failed.',
-        });
+    if (rateLimited) {
+      skipped.push({
+        productId: job.productId,
+        oldSku: job.oldSku,
+        newSku: job.newSku,
+        error: 'Skipped — Zoho rate limit. Run Apply again after a few minutes.',
+      });
+      continue;
+    }
+
+    if (!firstUpdate) {
+      await sleep(DELAY_BETWEEN_REPAIRS_MS);
+    }
+    firstUpdate = false;
+
+    try {
+      await mutateCatalogProductDetails(accessToken, organizationId, job.productId, {
+        name: job.name,
+        sku: job.newSku,
+      });
+      updated.push({
+        productId: job.productId,
+        oldSku: job.oldSku,
+        newSku: job.newSku,
+      });
+    } catch (err) {
+      const error = err?.message ?? 'Update failed.';
+      failed.push({
+        productId: job.productId,
+        oldSku: job.oldSku,
+        newSku: job.newSku,
+        error,
+      });
+      if (isZohoRateLimitError(err)) {
+        rateLimited = true;
       }
     }
   }
-
-  const workers = Array.from(
-    { length: Math.min(concurrency, Math.max(jobs.length, 1)) },
-    () => worker(),
-  );
-  await Promise.all(workers);
 
   return {
     total: proposals.size,
     updatedCount: updated.length,
     failedCount: failed.length,
+    skippedCount: skipped.length,
+    rateLimited,
     updated,
     failed,
+    skipped,
   };
 }
