@@ -1223,6 +1223,7 @@ export const CatalogPage: React.FC = () => {
     isSuperAdmin ? 'catalog-page--admin-tabs' : '',
     isFlatList ? 'catalog-page--flat spares-page--all-spares' : '',
     focus === 'inventory-audit' ? 'catalog-page--inventory-audit' : '',
+    focus === 'spare-grouping' ? 'catalog-page--spare-grouping' : '',
   ].filter(Boolean).join(' ');
 
   return (
