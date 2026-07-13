@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Boxes, ClipboardList, LayoutGrid, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { AlertCircle, Boxes, ClipboardList, LayoutGrid, Layers, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { CatalogSparesFilterSheet } from '../../components/catalog/CatalogSparesFilterSheet';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
+import { SpareGroupingView } from '../../components/catalog/SpareGroupingView';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { WarehouseInventoryAuditList } from '../../components/yesStore/WarehouseInventoryAuditList';
 import { InventoryAuditBatchLinkModal } from '../../components/yesStore/InventoryAuditBatchLinkModal';
@@ -68,9 +69,16 @@ import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 
-type CatalogFocus = 'browse' | 'search' | 'all-spares' | 'unlinked' | 'map' | 'inventory-audit';
+type CatalogFocus =
+  | 'browse'
+  | 'search'
+  | 'all-spares'
+  | 'unlinked'
+  | 'map'
+  | 'inventory-audit'
+  | 'spare-grouping';
 
-type AdminCatalogSection = 'categories' | 'spares' | 'inventory-audit';
+type AdminCatalogSection = 'categories' | 'spares' | 'inventory-audit' | 'spare-grouping';
 
 function parseCatalogFocus(
   section: string | null,
@@ -78,6 +86,7 @@ function parseCatalogFocus(
   canSync: boolean,
 ): CatalogFocus {
   if (section === 'inventory-audit') return 'inventory-audit';
+  if (section === 'spare-grouping') return 'spare-grouping';
   if (section === 'spares') return 'all-spares';
   if (section === 'unlinked' && canSync) return 'unlinked';
   if (section === 'map' && canSync) return 'map';
@@ -91,6 +100,7 @@ function parseAdminSection(
 ): AdminCatalogSection | 'search' {
   if (section === 'spares') return 'spares';
   if (section === 'inventory-audit') return 'inventory-audit';
+  if (section === 'spare-grouping') return 'spare-grouping';
   if (query.trim()) return 'search';
   return 'categories';
 }
@@ -99,6 +109,7 @@ function adminSectionToFocus(section: AdminCatalogSection | 'search'): CatalogFo
   if (section === 'search') return 'search';
   if (section === 'spares') return 'all-spares';
   if (section === 'inventory-audit') return 'inventory-audit';
+  if (section === 'spare-grouping') return 'spare-grouping';
   return 'browse';
 }
 
@@ -109,6 +120,7 @@ const FOCUS_LABELS: Record<CatalogFocus, string> = {
   unlinked: 'Unlinked spares',
   map: 'Map spares to products',
   'inventory-audit': 'Inventory audit',
+  'spare-grouping': 'Spare grouping',
 };
 
 function useIsMobile(breakpoint = 768) {
@@ -132,6 +144,7 @@ export const CatalogPage: React.FC = () => {
   const isMedia = user?.role === 'media';
   const isMobile = useIsMobile();
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
+  const canSpareGroup = isSuperAdmin || isStaff;
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const showAuditedLocations = isSuperAdmin || isStaff;
 
@@ -693,6 +706,7 @@ export const CatalogPage: React.FC = () => {
       params.delete('category');
       if (next === 'categories') params.delete('section');
       else if (next === 'spares') params.set('section', 'spares');
+      else if (next === 'spare-grouping') params.set('section', 'spare-grouping');
       else params.set('section', 'inventory-audit');
       return params;
     }, { replace: true });
@@ -709,6 +723,8 @@ export const CatalogPage: React.FC = () => {
         params.set('section', 'spares');
       } else if (next === 'inventory-audit') {
         params.set('section', 'inventory-audit');
+      } else if (next === 'spare-grouping') {
+        params.set('section', 'spare-grouping');
       } else if (next === 'unlinked') {
         params.set('section', 'unlinked');
       } else if (next === 'map') {
@@ -853,7 +869,7 @@ export const CatalogPage: React.FC = () => {
 
   const showShortcuts = !isSuperAdmin && searchFocused && !searchQuery.trim() && focus === 'browse';
   const showActiveFocus = !isSuperAdmin && focus !== 'browse' && focus !== 'search';
-  const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit';
+  const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit' && focus !== 'spare-grouping';
   const showHeaderSearch = showAdminSearch || !isSuperAdmin;
 
   const activeAdminTab: AdminCatalogSection = adminSection === 'search' || !adminSection
@@ -1006,6 +1022,7 @@ export const CatalogPage: React.FC = () => {
   );
 
   const hasSmartBarContent = isSuperAdmin
+    || canSpareGroup
     || showShortcuts
     || showActiveFocus
     || (canSync && !isSuperAdmin && unlinkedSpares.length > 0 && focus === 'browse' && !showShortcuts);
@@ -1013,7 +1030,7 @@ export const CatalogPage: React.FC = () => {
   const smartBar = hasSmartBarContent ? (
     <div
       ref={smartBarRef}
-      className={`catalog-smart-bar spares-mode-bar${isSuperAdmin ? ' catalog-smart-bar--admin-tabs' : ''}`}
+      className={`catalog-smart-bar spares-mode-bar${isSuperAdmin || canSpareGroup ? ' catalog-smart-bar--admin-tabs' : ''}`}
     >
       {isSuperAdmin && (
         <div className="catalog-section-tabs">
@@ -1047,6 +1064,43 @@ export const CatalogPage: React.FC = () => {
             >
               <ClipboardList size={16} aria-hidden />
               <span className="spares-mode-toggle__label">Inventory audit</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'spare-grouping'}
+              className={`spares-mode-toggle__btn ${activeAdminTab === 'spare-grouping' ? 'spares-mode-toggle__btn--active' : ''}`}
+              onClick={() => setAdminSection('spare-grouping')}
+            >
+              <Layers size={16} aria-hidden />
+              <span className="spares-mode-toggle__label">Spare grouping</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {canSpareGroup && !isSuperAdmin && (
+        <div className="catalog-section-tabs">
+          <div className="spares-mode-toggle spares-mode-toggle--ops" role="tablist" aria-label="Catalog sections">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={focus === 'browse'}
+              className={`spares-mode-toggle__btn ${focus === 'browse' ? 'spares-mode-toggle__btn--active' : ''}`}
+              onClick={() => setFocus('browse')}
+            >
+              <LayoutGrid size={16} aria-hidden />
+              <span className="spares-mode-toggle__label">Categories</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={focus === 'spare-grouping'}
+              className={`spares-mode-toggle__btn ${focus === 'spare-grouping' ? 'spares-mode-toggle__btn--active' : ''}`}
+              onClick={() => setFocus('spare-grouping')}
+            >
+              <Layers size={16} aria-hidden />
+              <span className="spares-mode-toggle__label">Spare grouping</span>
             </button>
           </div>
         </div>
@@ -1090,7 +1144,7 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
-      {showActiveFocus && (
+      {showActiveFocus && focus !== 'spare-grouping' && (
         <div className="catalog-smart-bar__active">
           <span>{FOCUS_LABELS[focus]}</span>
           <button type="button" className="catalog-smart-bar__active-clear" onClick={clearFocus}>
@@ -1416,6 +1470,29 @@ export const CatalogPage: React.FC = () => {
             unlinkingGroupId={unlinkingGroupId}
           />
         </div>
+      )}
+
+      {focus === 'spare-grouping' && canSpareGroup && (
+        <SpareGroupingView
+          spares={spareParts}
+          onAssigned={(productIds, spareGroupId) => {
+            setCatalog(prev => {
+              if (!prev) return prev;
+              const idSet = new Set(productIds);
+              return {
+                ...prev,
+                items: prev.items.map(item =>
+                  idSet.has(item.id)
+                    ? {
+                        ...item,
+                        spareGroupId: spareGroupId || undefined,
+                      }
+                    : item,
+                ),
+              };
+            });
+          }}
+        />
       )}
 
       {batchLinkItems && (

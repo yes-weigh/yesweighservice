@@ -86,6 +86,9 @@ export const LocalPrinterLabelPreview: React.FC<Props> = ({
     labelFields.batchNo,
     labelFields.packedBy,
     labelFields.qcStatus,
+    labelFields.modelNumber,
+    labelFields.approvalNumber,
+    labelFields.serialNumber,
     labelFields.printedOn.getTime(),
   ]);
 

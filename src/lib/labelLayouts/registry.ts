@@ -15,7 +15,12 @@ export const LABEL_LAYOUT_TEMPLATES: LabelLayoutTemplateMeta[] = [
   {
     id: 'genuine-spare-product',
     name: 'Genuine Spare Product',
-    description: 'Product pack label — header, specs, QR, packed/QC/batch footer (text only)',
+    description: 'Spare pack label — header, specs, QR, packed/batch footer',
+  },
+  {
+    id: 'catalog-product',
+    name: 'Catalog Product',
+    description: 'Shop product pack label — specs, QR, model/approval/serial',
   },
   {
     id: 'simple-bin',

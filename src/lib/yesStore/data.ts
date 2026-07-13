@@ -208,7 +208,12 @@ export async function listItemsInBin(
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function listAllItems(max: number | null = 200): Promise<YesStoreItemDoc[]> {
+/**
+ * Load warehouse audit items.
+ * Pass a number to cap (newest first). Pass null / omit for the full collection
+ * (same as Catalog → Inventory audit for admins).
+ */
+export async function listAllItems(max: number | null = null): Promise<YesStoreItemDoc[]> {
   if (max == null) {
     const snap = await getDocs(collection(db, 'yesStoreItems'));
     return snap.docs

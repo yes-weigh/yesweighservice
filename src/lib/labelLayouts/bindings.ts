@@ -40,6 +40,9 @@ export function buildLabelBindings(fields: BinLabelFields): Record<string, strin
     batchNo,
     packedBy: fields.packedBy ?? '',
     qcStatus: fields.qcStatus ?? '',
+    modelNumber: fields.modelNumber ?? '',
+    approvalNumber: fields.approvalNumber ?? '',
+    serialNumber: fields.serialNumber ?? '',
   };
 }
 
@@ -49,7 +52,9 @@ export function applyBindings(template: string, bindings: Record<string, string>
 
 export function attr(el: Element | null | undefined, name: string, fallback = ''): string {
   if (!el) return fallback;
-  return el.getAttribute(name)?.trim() || fallback;
+  // Preserve explicit empty attributes (e.g. center="") instead of falling back.
+  if (!el.hasAttribute(name)) return fallback;
+  return (el.getAttribute(name) ?? '').trim();
 }
 
 export function attrNum(el: Element | null | undefined, name: string, fallback: number): number {
@@ -112,6 +117,9 @@ export const BINDING_FIELD_LABELS: Record<string, string> = {
   batchNo: 'Batch no.',
   packedBy: 'Packed by',
   qcStatus: 'QC status',
+  modelNumber: 'Model number',
+  approvalNumber: 'Model approval no.',
+  serialNumber: 'Serial number',
 };
 
 /** Bindings that may be blank on the printed label (no fill-in required). */
@@ -125,6 +133,8 @@ const OPTIONAL_BINDINGS = new Set([
   'batchNo',
   'packedBy',
   'qcStatus',
+  'modelNumber',
+  'approvalNumber',
 ]);
 
 /**
@@ -151,6 +161,9 @@ export function missingBindings(
     batchNo: fields.batchNo ?? '',
     packedBy: fields.packedBy ?? '',
     qcStatus: fields.qcStatus ?? '',
+    modelNumber: fields.modelNumber ?? '',
+    approvalNumber: fields.approvalNumber ?? '',
+    serialNumber: fields.serialNumber ?? '',
   });
 
   return keys.filter(key => {

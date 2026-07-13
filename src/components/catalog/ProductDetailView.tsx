@@ -45,6 +45,8 @@ import {
 import {
   loadApprovalNumberOptions,
   loadModelNumbers,
+  loadSpareGroups,
+  type CatalogSpareGroupOption,
 } from '../../lib/catalogProductSettings';
 import type { CatalogApprovalNumberOption } from '../../constants/catalogProductSettings';
 import { getCategoryTheme } from '../../lib/category-display';
@@ -206,8 +208,10 @@ export const ProductDetailView: React.FC<{
   const [editMrpOverride, setEditMrpOverride] = useState('');
   const [editModelNumber, setEditModelNumber] = useState('');
   const [editApprovalNumber, setEditApprovalNumber] = useState('');
+  const [editSpareGroupId, setEditSpareGroupId] = useState('');
   const [modelNumberOptions, setModelNumberOptions] = useState<string[]>([]);
   const [approvalNumberOptions, setApprovalNumberOptions] = useState<CatalogApprovalNumberOption[]>([]);
+  const [spareGroupOptions, setSpareGroupOptions] = useState<CatalogSpareGroupOption[]>([]);
   const [optionListsLoading, setOptionListsLoading] = useState(false);
   const [editCategoryId, setEditCategoryId] = useState('');
   const [categoryOptions, setCategoryOptions] = useState<CatalogCategory[]>([]);
@@ -337,6 +341,24 @@ export const ProductDetailView: React.FC<{
   const isCategorizedProduct = Boolean(
     product && hasCatalogCategory(product) && !isSpareItem,
   );
+
+  useEffect(() => {
+    if (!isSpareItem) {
+      setSpareGroupOptions([]);
+      return;
+    }
+    let active = true;
+    void loadSpareGroups()
+      .then(groups => {
+        if (active) setSpareGroupOptions(groups);
+      })
+      .catch(() => {
+        if (active) setSpareGroupOptions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isSpareItem, productId]);
 
   useEffect(() => {
     if (!isCategorizedProduct) {
@@ -827,6 +849,7 @@ export const ProductDetailView: React.FC<{
     );
     setEditModelNumber(product.modelNumber ?? '');
     setEditApprovalNumber(product.approvalNumber ?? '');
+    setEditSpareGroupId(product.spareGroupId ?? '');
     setEditCategoryId(product.categoryId ?? '');
     setDetailsError(null);
     setStatusError(null);
@@ -843,10 +866,12 @@ export const ProductDetailView: React.FC<{
     setEditMrpOverride('');
     setEditModelNumber('');
     setEditApprovalNumber('');
+    setEditSpareGroupId('');
     setEditCategoryId('');
     setCategoryOptions([]);
     setModelNumberOptions([]);
     setApprovalNumberOptions([]);
+    setSpareGroupOptions([]);
   };
 
   useEffect(() => {
@@ -889,16 +914,29 @@ export const ProductDetailView: React.FC<{
         .finally(() => {
           if (active) setOptionListsLoading(false);
         });
+    } else if (isSpareItem) {
+      void loadSpareGroups()
+        .then(groups => {
+          if (!active) return;
+          setSpareGroupOptions(groups);
+        })
+        .catch(() => {
+          if (active) setSpareGroupOptions([]);
+        })
+        .finally(() => {
+          if (active) setOptionListsLoading(false);
+        });
     } else {
       setModelNumberOptions([]);
       setApprovalNumberOptions([]);
+      setSpareGroupOptions([]);
       setOptionListsLoading(false);
     }
 
     return () => {
       active = false;
     };
-  }, [productEditMode, canEditProductDetails, isCategorizedProduct]);
+  }, [productEditMode, canEditProductDetails, isCategorizedProduct, isSpareItem]);
 
   const handleSaveProductDetails = async () => {
     if (!product || !canEditProductDetails || detailsSaving) return;
@@ -931,12 +969,15 @@ export const ProductDetailView: React.FC<{
       mrpOverride = mrp === 0 ? null : Math.round(mrp * 100) / 100;
     }
 
-    // Model / approval are shop products only (Firebase overlays). Spares skip them.
+    // Model / approval are shop products only. Spare group is spares only.
     const modelNumber = isCategorizedProduct
       ? (editModelNumber.trim() || null)
       : undefined;
     const approvalNumber = isCategorizedProduct
       ? (editApprovalNumber.trim() || null)
+      : undefined;
+    const spareGroupId = isSpareItem
+      ? (editSpareGroupId.trim() || null)
       : undefined;
 
     const nextCategoryId = editCategoryId.trim();
@@ -970,6 +1011,9 @@ export const ProductDetailView: React.FC<{
     ) || (
       approvalNumber !== undefined
       && approvalNumber !== (product.approvalNumber ?? null)
+    ) || (
+      spareGroupId !== undefined
+      && spareGroupId !== (product.spareGroupId ?? null)
     );
 
     if (!zohoFieldsChanged && !overlayFieldsChanged && !categoryChanged) {
@@ -985,7 +1029,11 @@ export const ProductDetailView: React.FC<{
       }
 
       const applyOverlayLocally = (
-        overlays: { modelNumber?: string | null; approvalNumber?: string | null },
+        overlays: {
+          modelNumber?: string | null;
+          approvalNumber?: string | null;
+          spareGroupId?: string | null;
+        },
       ) => {
         setProduct(prev => (
           prev
@@ -996,6 +1044,9 @@ export const ProductDetailView: React.FC<{
                   : {}),
                 ...(approvalNumber !== undefined
                   ? { approvalNumber: overlays.approvalNumber ?? approvalNumber }
+                  : {}),
+                ...(spareGroupId !== undefined
+                  ? { spareGroupId: overlays.spareGroupId ?? spareGroupId }
                   : {}),
                 syncedAt: new Date().toISOString(),
                 ...(categoryChanged
@@ -1044,14 +1095,16 @@ export const ProductDetailView: React.FC<{
             const overlays = await updateCatalogProductOverlays(product.id, {
               ...(modelNumber !== undefined ? { modelNumber } : {}),
               ...(approvalNumber !== undefined ? { approvalNumber } : {}),
+              ...(spareGroupId !== undefined ? { spareGroupId } : {}),
             });
             applyOverlayLocally(overlays);
             setDetailsError(
               `${zohoErr instanceof Error ? zohoErr.message : 'Zoho update failed.'} `
-              + 'Model/approval were saved to the app.',
+              + 'App-only fields were saved.',
             );
             setModelNumberOptions([]);
             setApprovalNumberOptions([]);
+            setSpareGroupOptions([]);
             return;
           }
           throw zohoErr;
@@ -1060,6 +1113,7 @@ export const ProductDetailView: React.FC<{
         const overlays = await updateCatalogProductOverlays(product.id, {
           ...(modelNumber !== undefined ? { modelNumber } : {}),
           ...(approvalNumber !== undefined ? { approvalNumber } : {}),
+          ...(spareGroupId !== undefined ? { spareGroupId } : {}),
         });
         applyOverlayLocally(overlays);
       } else if (categoryChanged) {
@@ -1414,7 +1468,11 @@ export const ProductDetailView: React.FC<{
                   type="button"
                   className="product-detail-page__title-print"
                   title="Print product label"
-                  aria-label="Print Genuine Spare product label"
+                  aria-label={
+                    isCategorizedProduct
+                      ? 'Print product label'
+                      : 'Print Genuine Spare product label'
+                  }
                   onClick={() => {
                     void productPackLabelFieldsFromCatalog(product, user?.displayName).then(
                       setPrintLabelFields,
@@ -1573,6 +1631,29 @@ export const ProductDetailView: React.FC<{
                     </label>
                   </>
                 )}
+                {isSpareItem && (
+                  <label className="product-detail-page__sku-field">
+                    <span className="product-detail-page__sku-label">Spare group</span>
+                    <select
+                      className="product-detail-page__category-select"
+                      value={editSpareGroupId}
+                      onChange={e => setEditSpareGroupId(e.target.value)}
+                      disabled={detailsSaving || optionListsLoading}
+                      aria-label="Spare group"
+                    >
+                      <option value="">
+                        {optionListsLoading ? 'Loading…' : 'Unassigned'}
+                      </option>
+                      {spareGroupOptions.map(opt => (
+                        <option key={opt.id} value={opt.id}>{opt.name}</option>
+                      ))}
+                      {editSpareGroupId
+                        && !spareGroupOptions.some(opt => opt.id === editSpareGroupId) && (
+                        <option value={editSpareGroupId}>{editSpareGroupId}</option>
+                      )}
+                    </select>
+                  </label>
+                )}
               </div>
             )}
 
@@ -1608,6 +1689,14 @@ export const ProductDetailView: React.FC<{
                         </>
                       );
                     })()}
+                  </p>
+                )}
+                {isSpareItem && (
+                  <p className="product-detail-page__sku">
+                    Group:{' '}
+                    {spareGroupOptions.find(g => g.id === product.spareGroupId)?.name
+                      || product.spareGroupId
+                      || 'Unassigned'}
                   </p>
                 )}
               </div>
@@ -1920,7 +2009,7 @@ export const ProductDetailView: React.FC<{
       {printLabelFields && (
         <BinLabelPrintDialog
           fields={printLabelFields}
-          layoutId="genuine-spare-product"
+          layoutId={isCategorizedProduct ? 'catalog-product' : 'genuine-spare-product'}
           onClose={() => setPrintLabelFields(null)}
         />
       )}

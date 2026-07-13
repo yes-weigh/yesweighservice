@@ -251,6 +251,10 @@ export const getCatalogProductDetail = onCall(
       if (approvalNumber) {
         detail.approvalNumber = approvalNumber;
       }
+      const spareGroupId = String(data?.spareGroupId ?? '').trim();
+      if (spareGroupId) {
+        detail.spareGroupId = spareGroupId;
+      }
     }
 
     return detail;
@@ -575,7 +579,7 @@ export const updateCatalogProductDetails = onCall(
   },
 );
 
-/** Firestore-only model / approval number — no Zoho (works while Zoho is rate-limited). */
+/** Firestore-only model / approval / spare group — no Zoho (works while Zoho is rate-limited). */
 export const updateCatalogProductOverlays = onCall(
   {
     region: 'asia-south1',
@@ -592,18 +596,86 @@ export const updateCatalogProductOverlays = onCall(
 
     const hasModel = 'modelNumber' in (request.data ?? {});
     const hasApproval = 'approvalNumber' in (request.data ?? {});
-    if (!hasModel && !hasApproval) {
-      throw new HttpsError('invalid-argument', 'modelNumber or approvalNumber is required.');
+    const hasSpareGroup = 'spareGroupId' in (request.data ?? {});
+    if (!hasModel && !hasApproval && !hasSpareGroup) {
+      throw new HttpsError(
+        'invalid-argument',
+        'modelNumber, approvalNumber, or spareGroupId is required.',
+      );
     }
 
     try {
       const saved = await mutateCatalogProductOverlays(productId, {
         ...(hasModel ? { modelNumber: request.data.modelNumber } : {}),
         ...(hasApproval ? { approvalNumber: request.data.approvalNumber } : {}),
+        ...(hasSpareGroup ? { spareGroupId: request.data.spareGroupId } : {}),
       });
       return { ok: true, ...saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update product overlays.');
+    }
+  },
+);
+
+/**
+ * Assign (or clear) spareGroupId on many spare catalog products.
+ * Staff / super_admin. Validates group id against Product settings when non-null.
+ */
+export const assignCatalogSpareGroups = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const productIds = Array.isArray(request.data?.productIds)
+      ? [...new Set(
+        request.data.productIds
+          .map(id => String(id ?? '').trim())
+          .filter(Boolean),
+      )]
+      : [];
+    if (!productIds.length) {
+      throw new HttpsError('invalid-argument', 'productIds is required.');
+    }
+    if (productIds.length > 200) {
+      throw new HttpsError('invalid-argument', 'Assign at most 200 spares at a time.');
+    }
+
+    const rawGroup = request.data?.spareGroupId;
+    const spareGroupId = rawGroup == null || rawGroup === ''
+      ? null
+      : String(rawGroup).trim() || null;
+
+    if (spareGroupId) {
+      const settingsSnap = await getFirestore()
+        .collection('appSettings')
+        .doc('productSettings')
+        .get();
+      const groups = Array.isArray(settingsSnap.data()?.spareGroups)
+        ? settingsSnap.data().spareGroups
+        : [];
+      const known = new Set(
+        groups
+          .map(g => String(g?.id ?? '').trim())
+          .filter(Boolean),
+      );
+      if (!known.has(spareGroupId)) {
+        throw new HttpsError('invalid-argument', 'Unknown spare group.');
+      }
+    }
+
+    try {
+      let updated = 0;
+      for (const productId of productIds) {
+        await mutateCatalogProductOverlays(productId, { spareGroupId });
+        updated += 1;
+      }
+      return { ok: true, updated, spareGroupId };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not assign spare groups.');
     }
   },
 );

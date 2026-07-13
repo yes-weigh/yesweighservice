@@ -232,6 +232,49 @@ export function drawFooterGlyph(
       ctx.stroke();
       break;
     }
+    case 'gear': {
+      const cx = x + s / 2;
+      const cy = y + s / 2;
+      const outer = s * 0.42;
+      const inner = s * 0.26;
+      const hub = s * 0.12;
+      const teeth = 8;
+      ctx.beginPath();
+      for (let i = 0; i < teeth; i += 1) {
+        const a0 = (i / teeth) * Math.PI * 2 - Math.PI / 2;
+        const a1 = ((i + 0.35) / teeth) * Math.PI * 2 - Math.PI / 2;
+        const a2 = ((i + 0.65) / teeth) * Math.PI * 2 - Math.PI / 2;
+        const a3 = ((i + 1) / teeth) * Math.PI * 2 - Math.PI / 2;
+        const ox0 = cx + Math.cos(a0) * outer;
+        const oy0 = cy + Math.sin(a0) * outer;
+        if (i === 0) ctx.moveTo(ox0, oy0);
+        else ctx.lineTo(ox0, oy0);
+        ctx.lineTo(cx + Math.cos(a1) * outer, cy + Math.sin(a1) * outer);
+        ctx.lineTo(cx + Math.cos(a1) * inner, cy + Math.sin(a1) * inner);
+        ctx.lineTo(cx + Math.cos(a2) * inner, cy + Math.sin(a2) * inner);
+        ctx.lineTo(cx + Math.cos(a2) * outer, cy + Math.sin(a2) * outer);
+        ctx.lineTo(cx + Math.cos(a3) * outer, cy + Math.sin(a3) * outer);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, hub, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    }
+    case 'barcode': {
+      const gaps = [1, 2, 1, 3, 1, 2, 1, 2, 1, 3, 1];
+      const unit = (s * 0.8) / 22;
+      let bx = x + s * 0.1;
+      const by = y + s * 0.15;
+      const bh = s * 0.7;
+      for (let i = 0; i < gaps.length; i += 1) {
+        const bw = unit * gaps[i];
+        if (i % 2 === 0) ctx.fillRect(bx, by, Math.max(1, bw), bh);
+        bx += bw;
+      }
+      break;
+    }
     default:
       ctx.strokeRect(x, y, s, s);
   }

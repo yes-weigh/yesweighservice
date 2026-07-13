@@ -87,6 +87,7 @@ export const DEFAULT_MRP_RULES: CatalogMrpRules = {
 /** Empty by default — admins define options in Product settings. */
 export const DEFAULT_MODEL_NUMBERS: string[] = [];
 export const DEFAULT_APPROVAL_NUMBERS: string[] = [];
+export const DEFAULT_SPARE_GROUPS: CatalogSpareGroupOption[] = [];
 
 /** Approval option with optional certificate PDF (stored in Firebase Storage). */
 export interface CatalogApprovalNumberOption {
@@ -94,4 +95,10 @@ export interface CatalogApprovalNumberOption {
   pdfUrl?: string | null;
   pdfStoragePath?: string | null;
   pdfFileName?: string | null;
+}
+
+/** Spare group defined in Product settings (name only; id is stable). */
+export interface CatalogSpareGroupOption {
+  id: string;
+  name: string;
 }

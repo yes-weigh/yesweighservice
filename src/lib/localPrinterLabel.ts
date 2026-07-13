@@ -21,6 +21,10 @@ export interface BinLabelFields {
   batchNo?: string;
   packedBy?: string;
   qcStatus?: string;
+  /** Categorized product pack label (optional). */
+  modelNumber?: string;
+  approvalNumber?: string;
+  serialNumber?: string;
 }
 
 export const TEST_BIN_LABEL_SAMPLE: BinLabelFields = {
@@ -38,6 +42,9 @@ export const TEST_BIN_LABEL_SAMPLE: BinLabelFields = {
   batchNo: 'B24Y16V43',
   packedBy: 'YESWEIGH',
   qcStatus: 'PASSED',
+  modelNumber: 'YS50',
+  approvalNumber: 'IND/09/262',
+  serialNumber: '11245',
 };
 
 const TEST_LABEL_FIELDS_STORAGE_KEY = 'yesweigh.localPrinter.testLabelFields';
@@ -48,6 +55,9 @@ export type BinLabelDraft = Omit<BinLabelFields, 'printedOn'> & {
   batchNo?: string;
   packedBy?: string;
   qcStatus?: string;
+  modelNumber?: string;
+  approvalNumber?: string;
+  serialNumber?: string;
 };
 
 export function draftFromBinLabel(fields: BinLabelFields): BinLabelDraft {
@@ -65,6 +75,9 @@ export function draftFromBinLabel(fields: BinLabelFields): BinLabelDraft {
     batchNo: fields.batchNo ?? '',
     packedBy: fields.packedBy ?? '',
     qcStatus: fields.qcStatus ?? '',
+    modelNumber: fields.modelNumber ?? '',
+    approvalNumber: fields.approvalNumber ?? '',
+    serialNumber: fields.serialNumber ?? '',
   };
 }
 
@@ -88,6 +101,9 @@ export function loadTestLabelDraft(): BinLabelDraft {
       batchNo: String(parsed.batchNo ?? fallback.batchNo ?? ''),
       packedBy: String(parsed.packedBy ?? fallback.packedBy ?? ''),
       qcStatus: String(parsed.qcStatus ?? fallback.qcStatus ?? ''),
+      modelNumber: String(parsed.modelNumber ?? fallback.modelNumber ?? ''),
+      approvalNumber: String(parsed.approvalNumber ?? fallback.approvalNumber ?? ''),
+      serialNumber: String(parsed.serialNumber ?? fallback.serialNumber ?? ''),
     };
   } catch {
     return fallback;
@@ -119,6 +135,9 @@ export function toBinLabelFields(draft: BinLabelDraft, printedOn = new Date()): 
     batchNo: (draft.batchNo ?? '').trim(),
     packedBy: (draft.packedBy ?? '').trim(),
     qcStatus: (draft.qcStatus ?? '').trim(),
+    modelNumber: (draft.modelNumber ?? '').trim(),
+    approvalNumber: (draft.approvalNumber ?? '').trim(),
+    serialNumber: (draft.serialNumber ?? '').trim(),
   };
 }
 

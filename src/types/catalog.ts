@@ -64,6 +64,8 @@ export interface CatalogProduct {
   modelNumber?: string | null;
   /** Selected approval number (options from Product settings). Firestore only. */
   approvalNumber?: string | null;
+  /** Spare group id (options from Product settings). Firestore only — spares only. */
+  spareGroupId?: string | null;
 }
 
 export interface CatalogCategory {

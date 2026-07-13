@@ -68,7 +68,7 @@ export function formatProductLabelMrp(
   return formatProductMrpInclGst(calculateProductLabelMrp(rate, taxPercentage, multiplier));
 }
 
-/** Fields for Genuine Spare Product layout from a catalog product. */
+/** Fields for product/spare pack labels from a catalog product. */
 export async function productPackLabelFieldsFromCatalog(
   product: Pick<
     CatalogProduct,
@@ -81,6 +81,8 @@ export async function productPackLabelFieldsFromCatalog(
     | 'categoryId'
     | 'categoryName'
     | 'mrpOverride'
+    | 'modelNumber'
+    | 'approvalNumber'
   >,
   packedByName?: string | null,
 ): Promise<BinLabelFields> {
@@ -112,6 +114,9 @@ export async function productPackLabelFieldsFromCatalog(
     batchNo: encodePackedDateBatch(packedOn),
     packedBy,
     qcStatus: 'PASSED',
+    modelNumber: (product.modelNumber ?? '').trim(),
+    approvalNumber: (product.approvalNumber ?? '').trim(),
+    serialNumber: '',
   };
 }
 
@@ -177,6 +182,21 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
     () => missingBindings(requiredKeys, fieldDraft),
     [requiredKeys, fieldDraft],
   );
+  /** Stable order — never rebuild from `missing` alone (that reorders as fields fill). */
+  const editableKeys = useMemo(() => {
+    const printTimeKeys = ['serialNumber'] as const;
+    const missingSet = new Set(missing);
+    const keys: string[] = [];
+    for (const key of printTimeKeys) {
+      if (requiredKeys.includes(key)) keys.push(key);
+    }
+    for (const key of requiredKeys) {
+      if (key === 'printedOn' || key === 'packedOn') continue;
+      if (printTimeKeys.includes(key as (typeof printTimeKeys)[number])) continue;
+      if (missingSet.has(key)) keys.push(key);
+    }
+    return keys;
+  }, [missing, requiredKeys]);
   const canPrint = Boolean(printer) && missing.length === 0;
 
   const handlePrint = async () => {
@@ -265,12 +285,13 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
               </label>
             )}
 
-            {missing.length > 0 && (
+            {editableKeys.length > 0 && (
               <div className="bin-label-print-dialog__missing">
-                <h3 className="settings-logistics__title">Fill missing fields</h3>
+                <h3 className="settings-logistics__title">
+                  {missing.length > 0 ? 'Fill missing fields' : 'Label fields'}
+                </h3>
                 <div className="settings-local-printer__fields-grid">
-                  {missing.map(key => {
-                    if (key === 'printedOn' || key === 'packedOn') return null;
+                  {editableKeys.map(key => {
                     const fieldKey = key as keyof BinLabelFields;
                     const value = typeof fieldDraft[fieldKey] === 'string'
                       ? (fieldDraft[fieldKey] as string)
@@ -282,6 +303,7 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
                           type="text"
                           value={value}
                           onChange={e => updateField(fieldKey, e.target.value)}
+                          autoComplete="off"
                         />
                       </label>
                     );

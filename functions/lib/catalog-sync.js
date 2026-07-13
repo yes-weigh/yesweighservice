@@ -639,7 +639,7 @@ export async function patchProductDetails(productId, input) {
   await db.collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
 }
 
-/** Firestore-only overlays (model / approval) — no Zoho call. */
+/** Firestore-only overlays (model / approval / spare group) — no Zoho call. */
 export async function patchProductOverlays(productId, input) {
   const id = String(productId ?? '').trim();
   if (!id) throw new Error('productId is required.');
@@ -658,7 +658,16 @@ export async function patchProductOverlays(productId, input) {
     payload.approvalNumber = approvalNumber || null;
   }
 
-  if (!('modelNumber' in payload) && !('approvalNumber' in payload)) {
+  if ('spareGroupId' in (input ?? {})) {
+    const spareGroupId = String(input.spareGroupId ?? '').trim();
+    payload.spareGroupId = spareGroupId || null;
+  }
+
+  if (
+    !('modelNumber' in payload)
+    && !('approvalNumber' in payload)
+    && !('spareGroupId' in payload)
+  ) {
     throw new Error('No Firestore-only fields to update.');
   }
 
@@ -671,6 +680,7 @@ export async function patchProductOverlays(productId, input) {
   return {
     ...('modelNumber' in payload ? { modelNumber: payload.modelNumber } : {}),
     ...('approvalNumber' in payload ? { approvalNumber: payload.approvalNumber } : {}),
+    ...('spareGroupId' in payload ? { spareGroupId: payload.spareGroupId } : {}),
   };
 }
 

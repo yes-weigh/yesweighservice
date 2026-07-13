@@ -701,6 +701,9 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     ...(typeof data.approvalNumber === 'string' && data.approvalNumber.trim()
       ? { approvalNumber: data.approvalNumber.trim() }
       : {}),
+    ...(typeof data.spareGroupId === 'string' && data.spareGroupId.trim()
+      ? { spareGroupId: data.spareGroupId.trim() }
+      : {}),
   };
 }
 
@@ -1305,27 +1308,31 @@ export async function updateCatalogProductDetails(
   }
 }
 
-/** Firestore-only model / approval — does not call Zoho. */
+/** Firestore-only model / approval / spare group — does not call Zoho. */
 export async function updateCatalogProductOverlays(
   productId: string,
   input: {
     modelNumber?: string | null;
     approvalNumber?: string | null;
+    spareGroupId?: string | null;
   },
 ): Promise<{
   modelNumber?: string | null;
   approvalNumber?: string | null;
+  spareGroupId?: string | null;
 }> {
   const callable = httpsCallable<
     {
       productId: string;
       modelNumber?: string | null;
       approvalNumber?: string | null;
+      spareGroupId?: string | null;
     },
     {
       ok: boolean;
       modelNumber?: string | null;
       approvalNumber?: string | null;
+      spareGroupId?: string | null;
     }
   >(functions, 'updateCatalogProductOverlays');
   try {
@@ -1333,12 +1340,39 @@ export async function updateCatalogProductOverlays(
       productId,
       ...('modelNumber' in input ? { modelNumber: input.modelNumber ?? null } : {}),
       ...('approvalNumber' in input ? { approvalNumber: input.approvalNumber ?? null } : {}),
+      ...('spareGroupId' in input ? { spareGroupId: input.spareGroupId ?? null } : {}),
     });
     return {
       ...('modelNumber' in result.data ? { modelNumber: result.data.modelNumber ?? null } : {}),
       ...('approvalNumber' in result.data
         ? { approvalNumber: result.data.approvalNumber ?? null }
         : {}),
+      ...('spareGroupId' in result.data
+        ? { spareGroupId: result.data.spareGroupId ?? null }
+        : {}),
+    };
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** Assign or clear spareGroupId on many spares (Firestore only). */
+export async function assignCatalogSpareGroups(
+  productIds: string[],
+  spareGroupId: string | null,
+): Promise<{ updated: number; spareGroupId: string | null }> {
+  const callable = httpsCallable<
+    { productIds: string[]; spareGroupId: string | null },
+    { ok: boolean; updated: number; spareGroupId: string | null }
+  >(functions, 'assignCatalogSpareGroups');
+  try {
+    const result = await callable({
+      productIds,
+      spareGroupId,
+    });
+    return {
+      updated: Number(result.data.updated ?? 0),
+      spareGroupId: result.data.spareGroupId ?? null,
     };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));

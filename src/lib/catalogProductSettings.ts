@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, limit, query, where } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db, storage } from '../firebase';
 import {
@@ -7,11 +7,13 @@ import {
   DEFAULT_MASTER_CARTON_QUANTITIES,
   DEFAULT_MODEL_NUMBERS,
   DEFAULT_MRP_RULES,
+  DEFAULT_SPARE_GROUPS,
   MRP_FORMULA_OPTIONS,
   type CatalogApprovalNumberOption,
   type CatalogMrpFormulaId,
   type CatalogMrpGroupRule,
   type CatalogMrpRules,
+  type CatalogSpareGroupOption,
 } from '../constants/catalogProductSettings';
 
 export type {
@@ -19,6 +21,7 @@ export type {
   CatalogMrpFormulaId,
   CatalogMrpGroupRule,
   CatalogMrpRules,
+  CatalogSpareGroupOption,
 };
 
 export interface CatalogProductSettings {
@@ -26,6 +29,7 @@ export interface CatalogProductSettings {
   mrpRules: CatalogMrpRules;
   modelNumbers: string[];
   approvalNumbers: CatalogApprovalNumberOption[];
+  spareGroups: CatalogSpareGroupOption[];
   updatedAt: string;
   updatedBy?: string | null;
 }
@@ -99,6 +103,59 @@ export function normalizeApprovalNumbers(
 
 export function approvalNumberValues(options: CatalogApprovalNumberOption[]): string[] {
   return options.map(option => option.value);
+}
+
+export function slugifySpareGroupId(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 64) || 'group';
+}
+
+/** Accepts `{ id, name }[]` (or legacy string names). */
+export function normalizeSpareGroups(
+  values: unknown,
+  fallback: CatalogSpareGroupOption[] = DEFAULT_SPARE_GROUPS,
+): CatalogSpareGroupOption[] {
+  if (!Array.isArray(values)) return fallback.map(g => ({ ...g }));
+
+  const byId = new Map<string, CatalogSpareGroupOption>();
+  const usedNames = new Set<string>();
+
+  for (const raw of values) {
+    let id = '';
+    let name = '';
+    if (typeof raw === 'string') {
+      name = raw.trim();
+      id = slugifySpareGroupId(name);
+    } else if (raw && typeof raw === 'object') {
+      const data = raw as Record<string, unknown>;
+      name = String(data.name ?? data.label ?? data.value ?? '').trim();
+      id = String(data.id ?? '').trim() || slugifySpareGroupId(name);
+    }
+    if (!name || !id) continue;
+    const nameKey = name.toLowerCase();
+    if (usedNames.has(nameKey)) continue;
+    usedNames.add(nameKey);
+    if (byId.has(id)) {
+      // Keep first id; skip duplicate ids with different names
+      let suffix = 2;
+      let nextId = `${id}-${suffix}`;
+      while (byId.has(nextId)) {
+        suffix += 1;
+        nextId = `${id}-${suffix}`;
+      }
+      id = nextId;
+    }
+    byId.set(id, { id, name });
+  }
+
+  return [...byId.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+  );
 }
 
 export function normalizeMrpMultiplier(value: unknown, fallback: number): number {
@@ -181,6 +238,7 @@ function emptySettings(): CatalogProductSettings {
     },
     modelNumbers: [...DEFAULT_MODEL_NUMBERS],
     approvalNumbers: normalizeApprovalNumbers(DEFAULT_APPROVAL_NUMBERS),
+    spareGroups: normalizeSpareGroups(DEFAULT_SPARE_GROUPS),
     updatedAt: '',
   };
 }
@@ -198,6 +256,7 @@ export async function loadCatalogProductSettings(): Promise<CatalogProductSettin
       mrpRules: normalizeMrpRules(data.mrpRules),
       modelNumbers: normalizeOptionStrings(data.modelNumbers, DEFAULT_MODEL_NUMBERS),
       approvalNumbers: normalizeApprovalNumbers(data.approvalNumbers, DEFAULT_APPROVAL_NUMBERS),
+      spareGroups: normalizeSpareGroups(data.spareGroups, DEFAULT_SPARE_GROUPS),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
     };
@@ -224,6 +283,11 @@ export async function loadModelNumbers(): Promise<string[]> {
 export async function loadApprovalNumberOptions(): Promise<CatalogApprovalNumberOption[]> {
   const settings = await loadCatalogProductSettings();
   return settings.approvalNumbers;
+}
+
+export async function loadSpareGroups(): Promise<CatalogSpareGroupOption[]> {
+  const settings = await loadCatalogProductSettings();
+  return settings.spareGroups;
 }
 
 /** Values only — for product select dropdowns. */
@@ -291,6 +355,29 @@ export async function saveApprovalNumbers(
   const approvalNumbers = normalizeApprovalNumbers(values);
   await touchSettings({ approvalNumbers }, updatedBy);
   return approvalNumbers;
+}
+
+export async function saveSpareGroups(
+  values: CatalogSpareGroupOption[],
+  updatedBy?: string | null,
+): Promise<CatalogSpareGroupOption[]> {
+  const spareGroups = normalizeSpareGroups(values);
+  await touchSettings({ spareGroups }, updatedBy);
+  return spareGroups;
+}
+
+/** True if at least one catalog product is assigned to this spare group. */
+export async function spareGroupHasLinkedSpares(spareGroupId: string): Promise<boolean> {
+  const id = spareGroupId.trim();
+  if (!id) return false;
+  const snap = await getDocs(
+    query(
+      collection(db, 'catalogProducts'),
+      where('spareGroupId', '==', id),
+      limit(1),
+    ),
+  );
+  return !snap.empty;
 }
 
 function sanitizeApprovalPathSegment(value: string): string {

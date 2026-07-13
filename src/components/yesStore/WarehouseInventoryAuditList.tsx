@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Unlink,
   User,
+  X,
 } from 'lucide-react';
 import { AuditTileStockLocation } from './AuditTileStockLocation';
 import { AuditIconPanel, AuditIconRow, AuditAttributionRow } from './AuditIconRow';
@@ -69,9 +70,13 @@ function loadStoredAuditListFilters(): StoredAuditListFilters {
       typeof parsed.rackFilter === 'string' && parsed.rackFilter.trim()
         ? parsed.rackFilter.trim().toLowerCase()
         : null;
-    const rowRaw = parsed.rowFilter;
+    const rowRaw = parsed.rowFilter as unknown;
     const rowFilter =
-      typeof rowRaw === 'number' && Number.isFinite(rowRaw) ? rowRaw : null;
+      typeof rowRaw === 'number' && Number.isFinite(rowRaw)
+        ? rowRaw
+        : typeof rowRaw === 'string' && rowRaw.trim() && Number.isFinite(Number(rowRaw))
+          ? Number(rowRaw)
+          : null;
     return { rackFilter, rowFilter, linkFilter };
   } catch {
     return defaults;
@@ -389,6 +394,18 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
       {rackChips.length > 0 && (
         <div className="catalog-inventory-audit__location-chips">
           <div className="catalog-inventory-audit__rack-chips" role="group" aria-label="Filter by rack">
+            <button
+              type="button"
+              className={`catalog-inventory-audit__rack-chip catalog-inventory-audit__rack-chip--all${!rackFilter ? ' is-active' : ''}`}
+              aria-pressed={!rackFilter}
+              title="Show all racks"
+              onClick={() => {
+                setRackFilter(null);
+                setRowFilter(null);
+              }}
+            >
+              All
+            </button>
             {rackChips.map(letter => {
               const active = rackFilter === letter;
               return (
@@ -399,24 +416,47 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                   aria-pressed={active}
                   title={active ? `Clear rack ${letter.toUpperCase()} filter` : `Show rack ${letter.toUpperCase()}`}
                   onClick={() => {
-                    if (rackFilter === letter) {
+                    if (active) {
                       setRackFilter(null);
                       setRowFilter(null);
-                    } else {
-                      setRackFilter(letter);
-                      setRowFilter(null);
+                      return;
                     }
+                    setRackFilter(letter);
+                    setRowFilter(null);
                   }}
                 >
                   {letter.toUpperCase()}
                 </button>
               );
             })}
+            {(rackFilter || rowFilter != null) && (
+              <button
+                type="button"
+                className="catalog-inventory-audit__clear-location"
+                title="Clear rack and row filters"
+                onClick={() => {
+                  setRackFilter(null);
+                  setRowFilter(null);
+                }}
+              >
+                <X size={14} aria-hidden />
+                Clear
+              </button>
+            )}
           </div>
 
           {rackFilter && rowChips.length > 0 && (
             <div className="catalog-inventory-audit__row-chips" role="group" aria-label={`Filter by row on rack ${rackFilter.toUpperCase()}`}>
               <span className="catalog-inventory-audit__chip-label">Row</span>
+              <button
+                type="button"
+                className={`catalog-inventory-audit__rack-chip catalog-inventory-audit__row-chip${rowFilter == null ? ' is-active' : ''}`}
+                aria-pressed={rowFilter == null}
+                title="Show all rows on this rack"
+                onClick={() => setRowFilter(null)}
+              >
+                All
+              </button>
               {rowChips.map(row => {
                 const active = rowFilter === row;
                 return (
@@ -426,7 +466,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                     className={`catalog-inventory-audit__rack-chip catalog-inventory-audit__row-chip${active ? ' is-active' : ''}`}
                     aria-pressed={active}
                     title={active ? `Clear row ${row} filter` : `Show row ${row}`}
-                    onClick={() => setRowFilter(prev => (prev === row ? null : row))}
+                    onClick={() => setRowFilter(active ? null : row)}
                   >
                     {row}
                   </button>

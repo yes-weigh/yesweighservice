@@ -39,6 +39,7 @@ export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'packageInfo',
   'modelNumber',
   'approvalNumber',
+  'spareGroupId',
 ];
 
 /** Update item details on Zoho, then mirror to Firestore (incl. Firestore-only overlays). */
@@ -94,7 +95,7 @@ export async function mutateCatalogProductDetails(accessToken, organizationId, p
   };
 }
 
-/** Firestore-only model / approval updates — never calls Zoho. */
+/** Firestore-only model / approval / spare group updates — never calls Zoho. */
 export async function mutateCatalogProductOverlays(productId, input) {
   const patch = {};
   if ('modelNumber' in (input ?? {})) {
@@ -103,7 +104,10 @@ export async function mutateCatalogProductOverlays(productId, input) {
   if ('approvalNumber' in (input ?? {})) {
     patch.approvalNumber = String(input.approvalNumber ?? '').trim() || null;
   }
-  if (!('modelNumber' in patch) && !('approvalNumber' in patch)) {
+  if ('spareGroupId' in (input ?? {})) {
+    patch.spareGroupId = String(input.spareGroupId ?? '').trim() || null;
+  }
+  if (!('modelNumber' in patch) && !('approvalNumber' in patch) && !('spareGroupId' in patch)) {
     throw new Error('No Firestore-only fields to update.');
   }
   return patchProductOverlays(productId, patch);

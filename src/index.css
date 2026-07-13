@@ -8392,6 +8392,12 @@ html::-webkit-scrollbar {
   gap: 0.5rem;
 }
 
+.bin-label-print-dialog .settings-locations__field input,
+.bin-label-print-dialog .settings-locations__field select {
+  color: #f8fafc;
+  caret-color: #f8fafc;
+}
+
 .bin-label-print-dialog__actions {
   margin-top: 1rem;
   display: flex;
@@ -24013,4 +24019,204 @@ html::-webkit-scrollbar {
   padding: 0.65rem 0.85rem;
   font-size: 0.8125rem;
   color: var(--text-muted, #94a3b8);
+}
+
+/* Spare grouping (catalog tab) */
+.spare-grouping {
+  padding: 1rem 1.05rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.spare-grouping__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.spare-grouping__title {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.spare-grouping__loading,
+.spare-grouping__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 12rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.spare-grouping__empty h2 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 1.05rem;
+}
+
+.spare-grouping__error {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 0.875rem;
+}
+
+.spare-grouping__success {
+  margin: 0;
+  color: #86efac;
+  font-size: 0.875rem;
+}
+
+.spare-grouping__groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.spare-grouping__group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.spare-grouping__group-chip.is-active {
+  background: rgba(251, 146, 60, 0.2);
+  border-color: rgba(251, 146, 60, 0.65);
+  color: #fdba74;
+}
+
+.spare-grouping__group-count {
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+.spare-grouping__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.spare-grouping__search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.45);
+  padding: 0.45rem 0.65rem;
+  color: var(--text-muted);
+}
+
+.spare-grouping__search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
+  font: inherit;
+  outline: none;
+}
+
+.spare-grouping__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.spare-grouping__filter-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  padding: 0.32rem 0.7rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.spare-grouping__filter-chip.is-active {
+  background: rgba(96, 165, 250, 0.18);
+  border-color: rgba(96, 165, 250, 0.55);
+  color: #93c5fd;
+}
+
+.spare-grouping__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.spare-grouping__empty-list {
+  margin: 0.5rem 0 0;
+}
+
+.spare-grouping__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: min(60vh, 28rem);
+  overflow: auto;
+}
+
+.spare-grouping__row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.35);
+  color: inherit;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.spare-grouping__row.is-selected {
+  border-color: rgba(251, 146, 60, 0.5);
+  background: rgba(251, 146, 60, 0.08);
+}
+
+.spare-grouping__check {
+  color: #94a3b8;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.spare-grouping__row.is-selected .spare-grouping__check {
+  color: #fdba74;
+}
+
+.spare-grouping__row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.spare-grouping__row-name {
+  font-weight: 700;
+}
+
+.spare-grouping__row-meta {
+  font-size: 0.78rem;
 }

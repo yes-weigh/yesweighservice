@@ -394,19 +394,21 @@ async function renderProductPack(
   box: { l: number; t: number; w: number; h: number },
 ): Promise<void> {
   const pack = root.querySelector('product-pack');
-  if (!pack) throw new Error('genuine-spare-product layout requires <product-pack>.');
-
-  const headerH = attrNum(pack, 'headerHeightPx', 42);
-  const metaH = attrNum(pack, 'metaHeightPx', 52);
-  const brandH = attrNum(pack, 'brandHeightPx', 36);
-  const bodyGap = attrNum(pack, 'bodyGapPx', 4);
-  const qrRatio = attrNum(pack, 'qrRatio', 0.34);
-  const bannerRatio = attrNum(pack, 'bannerRatio', 0.68);
+  if (!pack) throw new Error('product pack layout requires <product-pack>.');
 
   const headerEl = pack.querySelector('header');
   const bodyEl = pack.querySelector('body');
   const metaEl = pack.querySelector('meta');
   const brandEl = pack.querySelector('brand');
+
+  const requestedHeaderH = attrNum(pack, 'headerHeightPx', headerEl ? 42 : 0);
+  const hasHeader = Boolean(headerEl) && requestedHeaderH > 0;
+  const headerH = hasHeader ? requestedHeaderH : 0;
+  const metaH = attrNum(pack, 'metaHeightPx', 52);
+  const brandH = attrNum(pack, 'brandHeightPx', 36);
+  const bodyGap = attrNum(pack, 'bodyGapPx', 4);
+  const qrRatio = attrNum(pack, 'qrRatio', 0.34);
+  const bannerRatio = attrNum(pack, 'bannerRatio', 0.68);
 
   const inset = 4;
   const L = box.l + inset;
@@ -415,48 +417,50 @@ async function renderProductPack(
   const B = box.t + box.h - inset;
   const W = R - L;
 
-  // --- Slanted black header banner ---
+  // --- Optional slanted black header banner (spare pack only) ---
   const headerT = T;
   const headerB = headerT + headerH;
-  const slant = attrNum(headerEl, 'slantPx', 22);
-  const bannerW = Math.floor(W * bannerRatio);
-  const bannerTitle = applyBindings(attr(headerEl, 'title', 'GENUINE SPARE PART'), bindings);
+  if (hasHeader) {
+    const slant = attrNum(headerEl, 'slantPx', 22);
+    const bannerW = Math.floor(W * bannerRatio);
+    const bannerTitle = applyBindings(attr(headerEl, 'title', 'GENUINE SPARE PART'), bindings);
 
-  ctx.fillStyle = '#000';
-  ctx.beginPath();
-  ctx.moveTo(L, headerT);
-  ctx.lineTo(L + bannerW, headerT);
-  ctx.lineTo(L + bannerW - slant, headerB);
-  ctx.lineTo(L, headerB);
-  ctx.closePath();
-  ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.moveTo(L, headerT);
+    ctx.lineTo(L + bannerW, headerT);
+    ctx.lineTo(L + bannerW - slant, headerB);
+    ctx.lineTo(L, headerB);
+    ctx.closePath();
+    ctx.fill();
 
-  const shieldSize = Math.min(32, Math.floor(headerH * 0.72));
-  const shieldX = L + 8;
-  const shieldY = headerT + (headerH - shieldSize) / 2;
-  drawShieldCheck(ctx, shieldX, shieldY, shieldSize, true);
+    const shieldSize = Math.min(32, Math.floor(headerH * 0.72));
+    const shieldX = L + 8;
+    const shieldY = headerT + (headerH - shieldSize) / 2;
+    drawShieldCheck(ctx, shieldX, shieldY, shieldSize, true);
 
-  const headerTextX = shieldX + shieldSize * 0.85 + 6;
-  const headerTextMaxW = L + bannerW - slant - 10 - headerTextX;
-  const htFont = fitFontSize(
-    ctx,
-    bannerTitle,
-    headerTextMaxW,
-    attrNum(headerEl, 'titleMaxFontPx', 22),
-    attrNum(headerEl, 'titleMinFontPx', 14),
-    true,
-  );
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${htFont}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(bannerTitle, headerTextX, headerT + headerH / 2);
-  ctx.fillStyle = '#000';
+    const headerTextX = shieldX + shieldSize * 0.85 + 6;
+    const headerTextMaxW = L + bannerW - slant - 10 - headerTextX;
+    const htFont = fitFontSize(
+      ctx,
+      bannerTitle,
+      headerTextMaxW,
+      attrNum(headerEl, 'titleMaxFontPx', 22),
+      attrNum(headerEl, 'titleMinFontPx', 14),
+      true,
+    );
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${htFont}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(bannerTitle, headerTextX, headerT + headerH / 2);
+    ctx.fillStyle = '#000';
+  }
 
   // --- Vertical zones ---
   const brandT = B - brandH;
   const metaT = brandT - metaH;
-  const bodyT = headerB + bodyGap;
+  const bodyT = headerB + (hasHeader ? bodyGap : 0);
   const bodyB = metaT - bodyGap;
 
   ctx.strokeStyle = '#000';
@@ -567,19 +571,47 @@ async function renderProductPack(
     bindings[attr(qrEl, 'field', 'qrPayload')] || bindings[attr(qrEl, 'fallbackField', 'sku')] || '';
   await drawQr(ctx, qrPayload, qrX, qrY, qrSize);
 
-  // --- Packing meta (3 columns) — left-aligned labels + content-width value boxes ---
+  // --- Meta columns sized by title width; titles use full label font (no shrink) ---
   const cells = metaEl ? [...metaEl.querySelectorAll('cell')] : [];
-  const cellN = Math.max(1, cells.length);
-  const cellW = Math.floor(W / cellN);
   const flabel = attrNum(metaEl, 'labelFontPx', 18);
   const fvalue = attrNum(metaEl, 'valueFontPx', 18);
   const glyphSize = 16;
   const leftPad = 6;
-  const rightGap = 8;
+  const rightGap = 6;
   const labelRowH = Math.max(flabel, glyphSize);
+  const labelTop = metaT + 5;
+  const labelMid = labelTop + labelRowH / 2;
 
-  cells.forEach((cell, i) => {
-    const cx = L + i * cellW;
+  const metaCells = cells.map(cell => {
+    const label = applyBindings(attr(cell, 'label'), bindings);
+    const value = applyBindings(attr(cell, 'value'), bindings).trim();
+    const icon = attr(cell, 'icon', '');
+    ctx.font = `bold ${flabel}px Arial, Helvetica, sans-serif`;
+    const labelW = ctx.measureText(label).width;
+    const iconW = icon ? glyphSize + 3 : 0;
+    let needW = leftPad + iconW + labelW + rightGap;
+    if (value) {
+      ctx.font = `bold ${fvalue}px Arial, Helvetica, sans-serif`;
+      const pillNeed = leftPad + Math.ceil(ctx.measureText(value).width + 20) + rightGap;
+      needW = Math.max(needW, pillNeed);
+    }
+    return { label, value, icon, needW };
+  });
+
+  const totalNeed = metaCells.reduce((sum, cell) => sum + cell.needW, 0) || 1;
+  const rawWidths = metaCells.map(cell =>
+    totalNeed <= W
+      ? cell.needW + ((W - totalNeed) * cell.needW) / totalNeed
+      : Math.max(36, (cell.needW / totalNeed) * W),
+  );
+  const widths = rawWidths.map(w => Math.floor(w));
+  let widthSum = widths.reduce((sum, w) => sum + w, 0);
+  if (widths.length) widths[widths.length - 1] += W - widthSum;
+
+  let colX = L;
+  metaCells.forEach((cell, i) => {
+    const cellW = widths[i] ?? Math.floor(W / Math.max(1, metaCells.length));
+    const cx = colX;
     if (i > 0) {
       ctx.lineWidth = attrNum(metaEl, 'dividerStrokePx', 1);
       ctx.beginPath();
@@ -587,61 +619,63 @@ async function renderProductPack(
       ctx.lineTo(cx, brandT - 5);
       ctx.stroke();
     }
-    const label = applyBindings(attr(cell, 'label'), bindings);
-    const value = applyBindings(attr(cell, 'value'), bindings).trim() || '—';
-    const icon = attr(cell, 'icon', '');
 
-    const labelTop = metaT + 5;
-    const labelMid = labelTop + labelRowH / 2;
     ctx.fillStyle = '#000';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
 
     let labelX = cx + leftPad;
-    if (icon) {
-      drawFooterGlyph(ctx, icon, cx + leftPad, labelMid - glyphSize / 2, glyphSize);
+    if (cell.icon) {
+      drawFooterGlyph(ctx, cell.icon, cx + leftPad, labelMid - glyphSize / 2, glyphSize);
       labelX = cx + leftPad + glyphSize + 3;
     }
-    const labelMaxW = cx + cellW - rightGap - labelX;
-    const lf = fitFontSize(ctx, label, labelMaxW, flabel, 12, true);
-    ctx.font = `bold ${lf}px Arial, Helvetica, sans-serif`;
-    ctx.fillText(label, labelX, labelMid);
+    ctx.font = `bold ${flabel}px Arial, Helvetica, sans-serif`;
+    ctx.fillText(cell.label, labelX, labelMid);
 
-    // Content-sized box, left-aligned (not stretched/centered in the column)
-    const pillH = Math.min(26, Math.max(22, brandT - (labelTop + labelRowH) - 12));
-    const pillY = brandT - pillH - 6;
-    const textPadX = 12;
-    ctx.font = `bold ${fvalue}px Arial, Helvetica, sans-serif`;
-    const textW = ctx.measureText(value).width;
-    const maxPillW = cellW - leftPad - rightGap;
-    const pillW = Math.min(maxPillW, Math.max(Math.ceil(textW + textPadX * 2), 48));
-    fillInvertedPill(ctx, cx + leftPad, pillY, pillW, pillH, value, fvalue, {
-      bold: true,
-      fullPill: false,
-      radiusPx: 4,
-      padX: textPadX,
-    });
+    if (cell.value) {
+      const pillH = Math.min(
+        Math.max(26, Math.round(fvalue * 1.3)),
+        Math.max(22, brandT - (labelTop + labelRowH) - 8),
+      );
+      const pillY = Math.min(labelTop + labelRowH + 4, brandT - pillH - 4);
+      const textPadX = 10;
+      ctx.font = `bold ${fvalue}px Arial, Helvetica, sans-serif`;
+      const textW = ctx.measureText(cell.value).width;
+      const maxPillW = cellW - leftPad - rightGap;
+      const pillW = Math.min(maxPillW, Math.max(Math.ceil(textW + textPadX * 2), 52));
+      fillInvertedPill(ctx, cx + leftPad, pillY, pillW, pillH, cell.value, fvalue, {
+        bold: true,
+        fullPill: false,
+        radiusPx: 4,
+        padX: textPadX,
+      });
+    }
+
+    colX += cellW;
   });
 
   // --- Brand footer ---
   const brandName = applyBindings(attr(brandEl, 'name', 'YESWEIGH'), bindings);
-  const brandCenter = applyBindings(attr(brandEl, 'center', 'GENUINE SPARE PART'), bindings);
+  const brandCenter = applyBindings(attr(brandEl, 'center', ''), bindings).trim();
   const brandOrigin = applyBindings(attr(brandEl, 'origin', 'MADE IN CHINA'), bindings);
   const logoSrc = attr(brandEl, 'logoSrc', '/yesweigh-mark.png');
   const logoH = attrNum(brandEl, 'logoHeightPx', 22);
+  const showDividers = attrBool(brandEl, 'dividers', true);
   const logo = await loadImage(logoSrc);
 
-  const col1R = L + Math.floor(W * 0.38);
-  const col2R = L + Math.floor(W * 0.7);
+  const col1R = L + Math.floor(W * (brandCenter && !showDividers ? 0.32 : 0.38));
+  const col2R = L + Math.floor(W * (brandCenter && !showDividers ? 0.78 : 0.7));
   const midY = brandT + brandH / 2;
 
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.moveTo(col1R, brandT + 5);
-  ctx.lineTo(col1R, B - 5);
-  ctx.moveTo(col2R, brandT + 5);
-  ctx.lineTo(col2R, B - 5);
-  ctx.stroke();
+  if (showDividers) {
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(col1R, brandT + 5);
+    ctx.lineTo(col1R, B - 5);
+    ctx.moveTo(col2R, brandT + 5);
+    ctx.lineTo(col2R, B - 5);
+    ctx.stroke();
+  }
 
   let brandLogoW = 0;
   if (logo && logo.width > 0 && logo.height > 0) {
@@ -661,11 +695,11 @@ async function renderProductPack(
   }
 
   const nameX = L + 4 + (brandLogoW > 0 ? brandLogoW + 5 : 0);
-  const nameMaxW = col1R - 6 - nameX;
+  const nameMaxW = (showDividers || brandCenter ? col1R : R - Math.floor(W * 0.32)) - 6 - nameX;
   const nameFont = fitFontSize(
     ctx,
     `${brandName}®`,
-    nameMaxW,
+    Math.max(24, nameMaxW),
     attrNum(brandEl, 'nameMaxFontPx', 20),
     12,
     true,
@@ -681,21 +715,23 @@ async function renderProductPack(
   ctx.textBaseline = 'alphabetic';
   ctx.fillText('®', nameX + nw + 1, midY - nameFont * 0.12);
 
-  const centerMaxW = col2R - col1R - 10;
-  const centerFont = fitFontSize(
-    ctx,
-    brandCenter,
-    centerMaxW,
-    attrNum(brandEl, 'centerMaxFontPx', 14),
-    9,
-    true,
-  );
-  ctx.font = `bold ${centerFont}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(brandCenter, (col1R + col2R) / 2, midY);
+  if (brandCenter) {
+    const centerMaxW = col2R - col1R - 10;
+    const centerFont = fitFontSize(
+      ctx,
+      brandCenter,
+      centerMaxW,
+      attrNum(brandEl, 'centerMaxFontPx', 14),
+      9,
+      true,
+    );
+    ctx.font = `bold ${centerFont}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(brandCenter, (col1R + col2R) / 2, midY);
+  }
 
-  const originMaxW = R - col2R - 8;
+  const originMaxW = showDividers || brandCenter ? R - col2R - 8 : Math.floor(W * 0.32) - 8;
   const originFont = fitFontSize(
     ctx,
     brandOrigin,
@@ -705,7 +741,9 @@ async function renderProductPack(
     true,
   );
   ctx.font = `bold ${originFont}px Arial, Helvetica, sans-serif`;
-  ctx.fillText(brandOrigin, (col2R + R) / 2, midY);
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(brandOrigin, R - 4, midY);
 }
 
 /**
@@ -749,7 +787,7 @@ export async function renderLabelLayoutCanvas(
   const bindings = buildLabelBindings(fields);
   const layoutId = attr(root, 'id', '');
 
-  if (root.querySelector('product-pack') || layoutId === 'genuine-spare-product') {
+  if (root.querySelector('product-pack') || layoutId === 'genuine-spare-product' || layoutId === 'catalog-product') {
     await renderProductPack(ctx, root, bindings, box);
   } else if (root.querySelector('split') || layoutId === 'genuine-spare') {
     await renderGenuineSpareSplit(ctx, root, bindings, box);
@@ -757,7 +795,7 @@ export async function renderLabelLayoutCanvas(
     await renderSimpleStack(ctx, root, bindings, box);
   } else {
     throw new Error(
-      `Unsupported label layout "${layoutId || 'unknown'}". Use genuine-spare, genuine-spare-product, or simple-bin.`,
+      `Unsupported label layout "${layoutId || 'unknown'}". Use genuine-spare, genuine-spare-product, catalog-product, or simple-bin.`,
     );
   }
 

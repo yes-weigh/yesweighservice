@@ -29,7 +29,7 @@ export const WarehouseHomePage: React.FC = () => {
   const loadItems = useCallback(async () => {
     setLoading(true);
     try {
-      setItems(await listAllItems());
+      setItems(await listAllItems(null));
     } finally {
       setLoading(false);
     }

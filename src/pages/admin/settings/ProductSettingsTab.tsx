@@ -19,6 +19,10 @@ import {
   saveMasterCartonQuantities,
   saveModelNumbers,
   saveMrpRules,
+  saveSpareGroups,
+  slugifySpareGroupId,
+  spareGroupHasLinkedSpares,
+  type CatalogSpareGroupOption,
 } from '../../../lib/catalogProductSettings';
 import { calculateProductMrpBreakdown, getMrpFormulaOption } from '../../../lib/catalogMrp';
 
@@ -36,6 +40,15 @@ type MrpTestDraft = {
   rate: string;
   taxPercent: string;
 };
+
+type ProductSettingsSubTab = 'packaging' | 'model-numbers' | 'approval-numbers' | 'spare-groups';
+
+const PRODUCT_SETTINGS_SUBTABS: { id: ProductSettingsSubTab; label: string }[] = [
+  { id: 'packaging', label: 'Carton & MRP' },
+  { id: 'model-numbers', label: 'Model numbers' },
+  { id: 'approval-numbers', label: 'Approval numbers' },
+  { id: 'spare-groups', label: 'Spare groups' },
+];
 
 const DEFAULT_MRP_TEST: MrpTestDraft = { rate: '100', taxPercent: '18' };
 
@@ -198,8 +211,13 @@ export const ProductSettingsTab: React.FC = () => {
   });
   const [modelNumbers, setModelNumbers] = useState<string[]>([]);
   const [approvalNumbers, setApprovalNumbers] = useState<CatalogApprovalNumberOption[]>([]);
+  const [spareGroups, setSpareGroups] = useState<CatalogSpareGroupOption[]>([]);
   const [newModel, setNewModel] = useState('');
   const [newApproval, setNewApproval] = useState('');
+  const [newSpareGroup, setNewSpareGroup] = useState('');
+  const [editingSpareGroupId, setEditingSpareGroupId] = useState<string | null>(null);
+  const [editingSpareGroupName, setEditingSpareGroupName] = useState('');
+  const [subTab, setSubTab] = useState<ProductSettingsSubTab>('packaging');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -218,6 +236,7 @@ export const ProductSettingsTab: React.FC = () => {
       setMrpDraft(toDraft(settings.mrpRules));
       setModelNumbers(settings.modelNumbers);
       setApprovalNumbers(settings.approvalNumbers);
+      setSpareGroups(settings.spareGroups);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load product settings.');
     } finally {
@@ -370,6 +389,84 @@ export const ProductSettingsTab: React.FC = () => {
     );
   };
 
+  const persistSpareGroups = async (next: CatalogSpareGroupOption[], busy: string) => {
+    setBusyKey(busy);
+    setError('');
+    setSuccess('');
+    try {
+      setSpareGroups(await saveSpareGroups(next, user?.uid ?? null));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save spare groups.');
+      return false;
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleAddSpareGroup = async () => {
+    const name = newSpareGroup.trim();
+    if (!name) {
+      setError('Enter a spare group name.');
+      return;
+    }
+    if (spareGroups.some(g => g.name.toLowerCase() === name.toLowerCase())) {
+      setError(`${name} already exists.`);
+      return;
+    }
+    let id = slugifySpareGroupId(name);
+    const usedIds = new Set(spareGroups.map(g => g.id));
+    if (usedIds.has(id)) {
+      let n = 2;
+      while (usedIds.has(`${id}-${n}`)) n += 1;
+      id = `${id}-${n}`;
+    }
+    const ok = await persistSpareGroups([...spareGroups, { id, name }], `add-spare-group-${id}`);
+    if (ok) setNewSpareGroup('');
+  };
+
+  const handleRenameSpareGroup = async (groupId: string) => {
+    const name = editingSpareGroupName.trim();
+    if (!name) {
+      setError('Group name cannot be empty.');
+      return;
+    }
+    if (
+      spareGroups.some(
+        g => g.id !== groupId && g.name.toLowerCase() === name.toLowerCase(),
+      )
+    ) {
+      setError(`${name} already exists.`);
+      return;
+    }
+    const next = spareGroups.map(g => (g.id === groupId ? { ...g, name } : g));
+    const ok = await persistSpareGroups(next, `rename-spare-group-${groupId}`);
+    if (ok) {
+      setEditingSpareGroupId(null);
+      setEditingSpareGroupName('');
+    }
+  };
+
+  const handleRemoveSpareGroup = async (group: CatalogSpareGroupOption) => {
+    setBusyKey(`remove-spare-group-${group.id}`);
+    setError('');
+    setSuccess('');
+    try {
+      if (await spareGroupHasLinkedSpares(group.id)) {
+        setError(`Cannot delete “${group.name}” — spares are still assigned to it.`);
+        return;
+      }
+      await persistSpareGroups(
+        spareGroups.filter(g => g.id !== group.id),
+        `remove-spare-group-${group.id}`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove spare group.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   const handleAddApproval = async () => {
     const value = newApproval.trim();
     if (!value) {
@@ -505,6 +602,121 @@ export const ProductSettingsTab: React.FC = () => {
     </div>
   );
 
+  const renderSpareGroupSection = () => (
+    <div className="settings-product-qty__section">
+      <h4 className="settings-product-qty__title">Spare groups</h4>
+      <p className="settings-product-qty__hint text-muted text-sm">
+        Name-only groups for Generic spare parts and uncategorized items. Delete is blocked while spares are assigned.
+      </p>
+      {!loading && (
+        <>
+          <div className="settings-product-spare-groups" aria-label="Spare groups">
+            {spareGroups.length === 0 && (
+              <p className="text-muted text-sm">No spare groups yet.</p>
+            )}
+            {spareGroups.map(group => (
+              <div key={group.id} className="settings-product-spare-groups__row">
+                {editingSpareGroupId === group.id ? (
+                  <>
+                    <input
+                      type="text"
+                      className="settings-product-spare-groups__rename-input"
+                      value={editingSpareGroupName}
+                      onChange={e => setEditingSpareGroupName(e.target.value)}
+                      disabled={busyKey != null}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void handleRenameSpareGroup(group.id);
+                        }
+                        if (e.key === 'Escape') {
+                          setEditingSpareGroupId(null);
+                          setEditingSpareGroupName('');
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={busyKey != null || !editingSpareGroupName.trim()}
+                      onClick={() => void handleRenameSpareGroup(group.id)}
+                    >
+                      <Save size={13} aria-hidden />
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={busyKey != null}
+                      onClick={() => {
+                        setEditingSpareGroupId(null);
+                        setEditingSpareGroupName('');
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="settings-product-spare-groups__name">{group.name}</span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={busyKey != null}
+                      onClick={() => {
+                        setEditingSpareGroupId(group.id);
+                        setEditingSpareGroupName(group.name);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-product-qty__chip-remove"
+                      onClick={() => void handleRemoveSpareGroup(group)}
+                      disabled={busyKey != null}
+                      aria-label={`Remove ${group.name}`}
+                    >
+                      <Trash2 size={13} aria-hidden />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="settings-locations__add-form settings-product-qty__add-form">
+            <label className="settings-locations__field">
+              <span>Add</span>
+              <input
+                type="text"
+                value={newSpareGroup}
+                placeholder="e.g. Load cell"
+                onChange={e => setNewSpareGroup(e.target.value)}
+                disabled={busyKey != null}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleAddSpareGroup();
+                  }
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busyKey != null || !newSpareGroup.trim()}
+              onClick={() => void handleAddSpareGroup()}
+            >
+              <Plus size={15} aria-hidden />
+              Add
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   const renderApprovalOptionSection = () => (
     <div className="settings-product-qty__section">
       <h4 className="settings-product-qty__title">Approval numbers</h4>
@@ -617,7 +829,7 @@ export const ProductSettingsTab: React.FC = () => {
         <div>
           <h3>Product settings</h3>
           <p className="text-muted text-sm">
-            Carton qty, MRP, model & approval options.
+            Carton qty, MRP, model numbers, approval numbers, and spare groups.
           </p>
         </div>
       </header>
@@ -625,124 +837,152 @@ export const ProductSettingsTab: React.FC = () => {
       {error && <p className="settings-locations__error text-sm">{error}</p>}
       {success && <p className="settings-locations__success text-sm">{success}</p>}
 
-      <div className="settings-product-qty">
-        <div className="settings-product-qty__section">
-          <h4 className="settings-product-qty__title">Master carton qty</h4>
-          <p className="settings-product-qty__hint text-muted text-sm">
-            Options for package info.
-          </p>
+      <div
+        className="settings-sku-correction__subtabs settings-product__subtabs"
+        role="tablist"
+        aria-label="Product settings sections"
+      >
+        {PRODUCT_SETTINGS_SUBTABS.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={subTab === tab.id}
+            className={`settings-sku-correction__subtab ${subTab === tab.id ? 'is-active' : ''}`}
+            onClick={() => {
+              setSubTab(tab.id);
+              setError('');
+              setSuccess('');
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-          {loading ? (
-            <div className="settings-locations__loading">
-              <div className="loader-ring" />
-            </div>
-          ) : (
-            <>
-              <div className="settings-product-qty__chips" aria-label="Master carton quantities">
-                {sortedQuantities.map(qty => (
-                  <span key={qty} className="settings-product-qty__chip">
-                    <span>{qty}</span>
+      <div className="settings-product-qty">
+        {subTab === 'packaging' && (
+          <>
+            <div className="settings-product-qty__section">
+              <h4 className="settings-product-qty__title">Master carton qty</h4>
+              <p className="settings-product-qty__hint text-muted text-sm">
+                Options for package info.
+              </p>
+
+              {loading ? (
+                <div className="settings-locations__loading">
+                  <div className="loader-ring" />
+                </div>
+              ) : (
+                <>
+                  <div className="settings-product-qty__chips" aria-label="Master carton quantities">
+                    {sortedQuantities.map(qty => (
+                      <span key={qty} className="settings-product-qty__chip">
+                        <span>{qty}</span>
+                        <button
+                          type="button"
+                          className="settings-product-qty__chip-remove"
+                          onClick={() => void handleRemove(qty)}
+                          disabled={busyKey != null || sortedQuantities.length <= 1}
+                          aria-label={`Remove ${qty}`}
+                        >
+                          <Trash2 size={13} aria-hidden />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="settings-locations__add-form settings-product-qty__add-form">
+                    <label className="settings-locations__field">
+                      <span>Add quantity</span>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={newQty}
+                        placeholder="e.g. 10"
+                        onChange={e => setNewQty(e.target.value)}
+                        disabled={busyKey != null}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void handleAdd();
+                          }
+                        }}
+                      />
+                    </label>
                     <button
                       type="button"
-                      className="settings-product-qty__chip-remove"
-                      onClick={() => void handleRemove(qty)}
-                      disabled={busyKey != null || sortedQuantities.length <= 1}
-                      aria-label={`Remove ${qty}`}
+                      className="btn btn-primary btn-sm"
+                      disabled={busyKey != null || !newQty.trim()}
+                      onClick={() => void handleAdd()}
                     >
-                      <Trash2 size={13} aria-hidden />
+                      <Plus size={15} aria-hidden />
+                      Add
                     </button>
-                  </span>
-                ))}
-              </div>
-
-              <div className="settings-locations__add-form settings-product-qty__add-form">
-                <label className="settings-locations__field">
-                  <span>Add quantity</span>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={newQty}
-                    placeholder="e.g. 10"
-                    onChange={e => setNewQty(e.target.value)}
-                    disabled={busyKey != null}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        void handleAdd();
-                      }
-                    }}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={busyKey != null || !newQty.trim()}
-                  onClick={() => void handleAdd()}
-                >
-                  <Plus size={15} aria-hidden />
-                  Add
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="settings-product-qty__section settings-product-mrp">
-          <h4 className="settings-product-qty__title">MRP</h4>
-          <p className="settings-product-qty__hint text-muted text-sm">
-            a + 18% = a + a×18/100. Tax from Zoho.
-          </p>
-
-          {loading ? (
-            <div className="settings-locations__loading">
-              <div className="loader-ring" />
+                  </div>
+                </>
+              )}
             </div>
-          ) : (
-            <>
-              <div className="settings-product-mrp__grid">
-                <MrpGroupEditor
-                  title="Shop (categorized)"
-                  draft={mrpDraft.categorized}
-                  test={mrpTest.categorized}
-                  disabled={busyKey != null}
-                  onChange={categorized => setMrpDraft(prev => ({ ...prev, categorized }))}
-                  onTestChange={categorized => setMrpTest(prev => ({ ...prev, categorized }))}
-                />
-                <MrpGroupEditor
-                  title="Generic / uncategorized"
-                  draft={mrpDraft.generic}
-                  test={mrpTest.generic}
-                  disabled={busyKey != null}
-                  onChange={generic => setMrpDraft(prev => ({ ...prev, generic }))}
-                  onTestChange={generic => setMrpTest(prev => ({ ...prev, generic }))}
-                />
+
+            <div className="settings-product-qty__section settings-product-mrp">
+              <h4 className="settings-product-qty__title">MRP</h4>
+              <p className="settings-product-qty__hint text-muted text-sm">
+                a + 18% = a + a×18/100. Tax from Zoho.
+              </p>
+
+              {loading ? (
+                <div className="settings-locations__loading">
+                  <div className="loader-ring" />
+                </div>
+              ) : (
+                <>
+                  <div className="settings-product-mrp__grid">
+                    <MrpGroupEditor
+                      title="Shop (categorized)"
+                      draft={mrpDraft.categorized}
+                      test={mrpTest.categorized}
+                      disabled={busyKey != null}
+                      onChange={categorized => setMrpDraft(prev => ({ ...prev, categorized }))}
+                      onTestChange={categorized => setMrpTest(prev => ({ ...prev, categorized }))}
+                    />
+                    <MrpGroupEditor
+                      title="Generic / uncategorized"
+                      draft={mrpDraft.generic}
+                      test={mrpTest.generic}
+                      disabled={busyKey != null}
+                      onChange={generic => setMrpDraft(prev => ({ ...prev, generic }))}
+                      onTestChange={generic => setMrpTest(prev => ({ ...prev, generic }))}
+                    />
+                  </div>
+
+                  <div className="settings-product-mrp__actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={busyKey != null || !mrpDirty}
+                      onClick={() => void handleSaveMrp()}
+                    >
+                      <Save size={15} aria-hidden />
+                      {busyKey === 'mrp' ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {!loading && sortedQuantities.length === 0 && (
+              <div className="settings-locations__empty">
+                <Package size={28} aria-hidden />
+                <p>No master carton quantities configured yet.</p>
               </div>
-
-              <div className="settings-product-mrp__actions">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={busyKey != null || !mrpDirty}
-                  onClick={() => void handleSaveMrp()}
-                >
-                  <Save size={15} aria-hidden />
-                  {busyKey === 'mrp' ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        {renderModelOptionSection()}
-        {renderApprovalOptionSection()}
-
-        {!loading && sortedQuantities.length === 0 && (
-          <div className="settings-locations__empty">
-            <Package size={28} aria-hidden />
-            <p>No master carton quantities configured yet.</p>
-          </div>
+            )}
+          </>
         )}
+
+        {subTab === 'model-numbers' && renderModelOptionSection()}
+        {subTab === 'approval-numbers' && renderApprovalOptionSection()}
+        {subTab === 'spare-groups' && renderSpareGroupSection()}
       </div>
     </section>
   );
