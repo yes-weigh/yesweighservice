@@ -8,6 +8,7 @@ import {
   type CatalogSpareGroupOption,
 } from '../../lib/catalogProductSettings';
 import type { CatalogProduct } from '../../types/catalog';
+import { ProductBrowseCard } from './ProductBrowseCard';
 
 type MembershipFilter = 'all' | 'unassigned' | 'assigned' | 'in-selected';
 
@@ -295,34 +296,41 @@ export const SpareGroupingView: React.FC<Props> = ({ spares, onAssigned }) => {
       {visibleSpares.length === 0 ? (
         <p className="text-muted spare-grouping__empty-list">No spares match these filters.</p>
       ) : (
-        <ul className="spare-grouping__list">
-          {visibleSpares.map(spare => {
+        <div className="catalog-grid catalog-grid--tiles spare-grouping__grid" role="list">
+          {visibleSpares.map((spare, index) => {
             const checked = selectedIds.has(spare.id);
             const gid = resolveGroupId(spare);
             const groupLabel = gid ? groupNameById.get(gid) ?? gid : 'Unassigned';
             return (
-              <li key={spare.id}>
+              <div
+                key={spare.id}
+                role="listitem"
+                className={`spare-grouping__card-wrap${checked ? ' is-selected' : ''}`}
+              >
                 <button
                   type="button"
-                  className={`spare-grouping__row${checked ? ' is-selected' : ''}`}
+                  className={`spare-grouping__card-check${checked ? ' is-selected' : ''}`}
                   onClick={() => toggleOne(spare.id)}
+                  aria-pressed={checked}
+                  aria-label={`${checked ? 'Deselect' : 'Select'} ${spare.name}`}
                 >
-                  <span className="spare-grouping__check" aria-hidden>
-                    {checked ? <CheckSquare size={18} /> : <Square size={18} />}
-                  </span>
-                  <span className="spare-grouping__row-main">
-                    <span className="spare-grouping__row-name">{spare.name}</span>
-                    <span className="spare-grouping__row-meta text-muted">
-                      {spare.sku || 'No SKU'}
-                      {' · '}
-                      {groupLabel}
-                    </span>
-                  </span>
+                  {checked ? <CheckSquare size={15} aria-hidden /> : <Square size={15} aria-hidden />}
                 </button>
-              </li>
+                <span
+                  className={`spare-grouping__card-group-badge${gid ? '' : ' is-unassigned'}`}
+                >
+                  {groupLabel}
+                </span>
+                <ProductBrowseCard
+                  product={spare}
+                  index={index}
+                  onSelect={() => toggleOne(spare.id)}
+                  showStockQuantity
+                />
+              </div>
             );
           })}
-        </ul>
+        </div>
       )}
     </div>
   );

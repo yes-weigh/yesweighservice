@@ -450,6 +450,7 @@ export const ProductDetailView: React.FC<{
   }, [product, showAuditedStock, auditItems, cochinRecord]);
 
   const canEditCochin = showAuditedStock && (user?.role === 'super_admin' || user?.role === 'staff');
+  const canEditHeadOffice = canEditCochin;
 
   const warehousePhotos = useMemo(
     () => collectWarehouseAuditPhotos(auditItems),
@@ -1821,9 +1822,11 @@ export const ProductDetailView: React.FC<{
                   auditItems={site === 'head_office' ? auditItems : []}
                   cochinRecord={site === 'cochin' ? cochinRecord : null}
                   canEditCochin={canEditCochin}
+                  canEditHeadOffice={canEditHeadOffice}
                   editorUid={user?.uid ?? ''}
                   editorName={user?.displayName}
                   onCochinSaved={setCochinRecord}
+                  onHeadOfficeSaved={setAuditItems}
                 />
               ))}
             </div>

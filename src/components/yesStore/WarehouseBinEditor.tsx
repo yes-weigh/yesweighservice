@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Loader2, Plus, Trash2 } from 'lucide-react';
+import { Camera, Loader2, Plus, Replace, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import {
   readItemQuantity,
   type BinNumber,
@@ -37,6 +38,8 @@ type WarehouseBinEditorProps = {
   onBack: () => void;
   onHome: () => void;
   onSaved?: () => void;
+  /** After a replace from item edit, ensure an empty draft row is ready. */
+  ensureDraftRow?: boolean;
 };
 
 function parseQuantity(value: string): number | null {
@@ -105,8 +108,10 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
   onBack,
   onHome,
   onSaved,
+  ensureDraftRow = false,
 }) => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<ItemRowState[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -123,14 +128,19 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
     setLoadError('');
     try {
       const items = await listItemsInBin(rackId, rowNumber, binNumber);
-      setRows(items.length ? items.map(itemToRow) : [emptyRow()]);
+      if (items.length) {
+        const mapped = items.map(itemToRow);
+        setRows(ensureDraftRow ? [...mapped, emptyRow()] : mapped);
+      } else {
+        setRows([emptyRow()]);
+      }
     } catch (err: unknown) {
       setLoadError(err instanceof Error ? err.message : 'Could not load bin items');
       setRows([emptyRow()]);
     } finally {
       setLoading(false);
     }
-  }, [rackId, rowNumber, binNumber]);
+  }, [rackId, rowNumber, binNumber, ensureDraftRow]);
 
   useEffect(() => {
     void loadBin();
@@ -379,7 +389,61 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
     });
   };
 
-  const handleAddRow = () => {
+  const handleReplace = async (rowKey: string) => {
+    const row = rowsRef.current.find(r => r.key === rowKey);
+    if (!row?.itemId || slotsUploading(row.slots) || row.saving) return;
+
+    const ok = await confirm({
+      title: 'Replace this item?',
+      message:
+        'The current photos and quantity will be deleted. You can then add new photos and quantity in this slot. This does not create a duplicate location.',
+      confirmLabel: 'Replace',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setRows(prev => prev.map(r => (r.key === rowKey ? { ...r, saving: true, error: '' } : r)));
+    try {
+      await deleteItem(row.itemId);
+      const photos = savedPhotos(row.slots);
+      if (photos.length) await deleteYesStorePhotos(photos).catch(() => undefined);
+      onSaved?.();
+    } catch (err: unknown) {
+      setRows(prev =>
+        prev.map(r =>
+          r.key === rowKey
+            ? {
+                ...r,
+                saving: false,
+                error: err instanceof Error ? err.message : 'Could not replace item',
+              }
+            : r,
+        ),
+      );
+      return;
+    }
+
+    row.slots.forEach((slot, index) => {
+      uploadGenRef.current.set(`${rowKey}-${index}`, (uploadGenRef.current.get(`${rowKey}-${index}`) ?? 0) + 1);
+      revokePending(slot);
+    });
+    const next = emptyRow();
+    setRows(prev => prev.map(r => (r.key === rowKey ? next : r)));
+  };
+
+  const handleAddRow = async () => {
+    const existing = rowsRef.current.filter(r => r.itemId || rowHasContent(r));
+    if (existing.length > 0) {
+      const ok = await confirm({
+        title: 'Add another item?',
+        message:
+          'This bin already has stock. Adding creates another location record — it does not replace the existing one. To replace, tap Replace on that item.',
+        confirmLabel: 'Add another',
+        cancelLabel: 'Cancel',
+      });
+      if (!ok) return;
+    }
     setRows(prev => [...prev, emptyRow()]);
   };
 
@@ -423,8 +487,21 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
                 <article className="wh-item-row" key={row.key}>
                   <header className="wh-item-row__head">
                     <span className="wh-item-row__label">Item {index + 1}</span>
-                    {uploading && <span className="wh-item-row__status">Uploading…</span>}
-                    {!uploading && row.saving && <span className="wh-item-row__status">Saving…</span>}
+                    <div className="wh-item-row__head-actions">
+                      {uploading && <span className="wh-item-row__status">Uploading…</span>}
+                      {!uploading && row.saving && <span className="wh-item-row__status">Saving…</span>}
+                      {row.itemId && !uploading && !row.saving && (
+                        <button
+                          type="button"
+                          className="wh-item-row__replace"
+                          onClick={() => void handleReplace(row.key)}
+                          aria-label={`Replace item ${index + 1}`}
+                        >
+                          <Replace size={14} aria-hidden />
+                          Replace
+                        </button>
+                      )}
+                    </div>
                   </header>
 
                   <div className="wh-item-row__body">
@@ -496,7 +573,7 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
             })}
           </div>
 
-          <button type="button" className="wh-add-row" onClick={handleAddRow}>
+          <button type="button" className="wh-add-row" onClick={() => void handleAddRow()}>
             <Plus size={18} aria-hidden />
             Add item
           </button>

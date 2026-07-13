@@ -341,6 +341,93 @@ export async function updateItemDetails(
   return updated;
 }
 
+/** Update rack/row/bin/qty without changing photos (catalog detail edit). */
+export async function updateStoreItemLocationAndQty(
+  itemId: string,
+  input: {
+    rackId: string;
+    rowNumber: RowNumber;
+    binNumber: BinNumber;
+    quantity: number;
+  },
+  countedBy?: { uid: string; displayName?: string | null },
+): Promise<YesStoreItemDoc> {
+  const rackId = input.rackId.toLowerCase();
+  if (!isValidRackId(rackId)) throw new Error('Select a valid rack.');
+  if (!isValidRowNumber(input.rowNumber)) throw new Error('Select a valid row.');
+  if (!isValidBinNumber(input.binNumber)) throw new Error('Select a valid bin.');
+  const quantity = Math.max(1, Math.floor(input.quantity));
+  await ensureBin(rackId, input.rowNumber, input.binNumber);
+  await updateDoc(itemRef(itemId), {
+    rackId,
+    rowId: rowDocId(rackId, input.rowNumber),
+    rowNumber: input.rowNumber,
+    binId: binDocId(rackId, input.rowNumber, input.binNumber),
+    binNumber: input.binNumber,
+    quantity,
+    updatedAt: now(),
+    ...buildCountStamp(countedBy),
+  });
+  const updated = await getItem(itemId);
+  if (!updated) throw new Error('Item not found after saving.');
+  return updated;
+}
+
+/**
+ * Create a store-room stock location linked to a catalog product.
+ * Photos are optional so staff can edit from product detail without the warehouse camera flow.
+ */
+export async function createLinkedStoreItem(input: {
+  rackId: string;
+  rowNumber: RowNumber;
+  binNumber: BinNumber;
+  quantity: number;
+  product: { id: string; name: string; sku: string | null };
+  countedBy?: { uid: string; displayName?: string | null };
+  linkedByUid: string;
+  linkedByName?: string | null;
+  mode?: CatalogLinkMode;
+  partLabel?: string | null;
+  unitsPerProduct?: number;
+}): Promise<YesStoreItemDoc> {
+  const rackId = input.rackId.toLowerCase();
+  if (!isValidRackId(rackId)) throw new Error('Select a valid rack.');
+  if (!isValidRowNumber(input.rowNumber)) throw new Error('Select a valid row.');
+  if (!isValidBinNumber(input.binNumber)) throw new Error('Select a valid bin.');
+  const quantity = Math.max(1, Math.floor(input.quantity));
+  const mode = input.mode === 'part' ? 'part' : 'unit';
+  const unitsPerProduct = Math.max(1, Math.floor(input.unitsPerProduct ?? 1));
+  const partLabel = input.partLabel?.trim() || null;
+  const linkedAt = now();
+  await ensureBin(rackId, input.rowNumber, input.binNumber);
+  const itemId = doc(collection(db, 'yesStoreItems')).id;
+  const createdAt = linkedAt;
+  const docData: YesStoreItemDoc = {
+    id: itemId,
+    quantity,
+    rackId,
+    rowId: rowDocId(rackId, input.rowNumber),
+    rowNumber: input.rowNumber,
+    binId: binDocId(rackId, input.rowNumber, input.binNumber),
+    binNumber: input.binNumber,
+    photos: [],
+    catalogProductId: input.product.id,
+    catalogProductName: input.product.name.trim(),
+    catalogProductSku: input.product.sku?.trim() || null,
+    catalogLinkMode: mode,
+    partLabel: mode === 'part' ? partLabel : null,
+    unitsPerProduct: mode === 'part' ? unitsPerProduct : 1,
+    linkedAt,
+    linkedByUid: input.linkedByUid,
+    linkedByName: input.linkedByName?.trim() || null,
+    createdAt,
+    updatedAt: createdAt,
+    ...buildCountStamp(input.countedBy),
+  };
+  await setDoc(itemRef(itemId), docData);
+  return docData;
+}
+
 export async function updateInventoryAuditCount(
   itemId: string,
   quantity: number,

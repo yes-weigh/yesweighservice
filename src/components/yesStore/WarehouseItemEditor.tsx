@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Loader2, Minus, Plus, Trash2, X } from 'lucide-react';
+import { Camera, Loader2, Minus, Plus, Replace, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import {
   BIN_NUMBERS,
   ROW_NUMBERS,
@@ -29,6 +30,12 @@ type WarehouseItemEditorProps = {
   onBack: () => void;
   onHome: () => void;
   onSaved?: () => void;
+  /** After replace deletes this item, open the bin editor at the same location. */
+  onReplacedInBin?: (location: {
+    rackId: string;
+    rowNumber: RowNumber;
+    binNumber: BinNumber;
+  }) => void;
 };
 
 function parseQuantity(value: string): number | null {
@@ -68,8 +75,10 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
   onBack,
   onHome,
   onSaved,
+  onReplacedInBin,
 }) => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [rackId, setRackId] = useState<string>(item.rackId.toLowerCase());
   const [rowNumber, setRowNumber] = useState<RowNumber>(item.rowNumber);
   const [binNumber, setBinNumber] = useState<BinNumber>(item.binNumber);
@@ -77,6 +86,7 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
   const [slots, setSlots] = useState<SlotTuple>(() => initialSlots(item));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [error, setError] = useState('');
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -107,7 +117,7 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
     parsedQty !== originalQty ||
     photosChanged;
 
-  const busy = saving || deleting;
+  const busy = saving || deleting || replacing;
 
   const uploadSlotPhoto = useCallback(async (slotIndex: 0 | 1, file: File) => {
     const generation = (uploadGenRef.current.get(slotIndex) ?? 0) + 1;
@@ -224,6 +234,38 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not delete item.');
       setDeleting(false);
+    }
+  };
+
+  const handleReplace = async () => {
+    setError('');
+    const ok = await confirm({
+      title: 'Replace this item?',
+      message:
+        'This deletes the current stock record, then opens the bin so you can count the new item at the same location. It will not leave a duplicate.',
+      confirmLabel: 'Replace',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setReplacing(true);
+    try {
+      await deleteItem(item.id);
+      if (originalPhotos.length) await deleteYesStorePhotos(originalPhotos).catch(() => undefined);
+      onSaved?.();
+      if (onReplacedInBin) {
+        onReplacedInBin({
+          rackId: item.rackId.toLowerCase(),
+          rowNumber: item.rowNumber,
+          binNumber: item.binNumber,
+        });
+      } else {
+        onHome();
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not replace item.');
+      setReplacing(false);
     }
   };
 
@@ -392,15 +434,30 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
           </div>
         </section>
 
-        <button
-          type="button"
-          className="wh-item-edit__delete"
-          onClick={() => void handleDelete()}
-          disabled={busy}
-        >
-          {deleting ? <Loader2 size={18} className="spin-icon" aria-hidden /> : <Trash2 size={18} aria-hidden />}
-          Delete item
-        </button>
+        <div className="wh-item-edit__actions">
+          <button
+            type="button"
+            className="wh-item-edit__replace"
+            onClick={() => void handleReplace()}
+            disabled={busy}
+          >
+            {replacing ? (
+              <Loader2 size={18} className="spin-icon" aria-hidden />
+            ) : (
+              <Replace size={18} aria-hidden />
+            )}
+            Replace item
+          </button>
+          <button
+            type="button"
+            className="wh-item-edit__delete"
+            onClick={() => void handleDelete()}
+            disabled={busy}
+          >
+            {deleting ? <Loader2 size={18} className="spin-icon" aria-hidden /> : <Trash2 size={18} aria-hidden />}
+            Delete item
+          </button>
+        </div>
       </div>
 
       <input

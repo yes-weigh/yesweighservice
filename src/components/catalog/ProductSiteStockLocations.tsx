@@ -11,6 +11,12 @@ import {
 } from '../../lib/yesStore/inventoryAudit';
 import { formatAuditDateTime } from '../../lib/yesStore/format';
 import {
+  createLinkedStoreItem,
+  listItemsByCatalogProduct,
+  unlinkYesStoreItemFromCatalog,
+  updateStoreItemLocationAndQty,
+} from '../../lib/yesStore/data';
+import {
   listWarehouseZoneRows,
   listWarehouseZones,
 } from '../../lib/warehouseLocations/data';
@@ -23,8 +29,13 @@ import {
 } from '../../types/catalog-site-inventory';
 import type { WarehouseZoneDoc, WarehouseZoneRowDoc } from '../../types/warehouse-locations';
 import {
+  BIN_NUMBERS,
+  ROW_NUMBERS,
+  VALID_RACK_LETTERS,
   formatItemLocationShort,
   readItemQuantity,
+  type BinNumber,
+  type RowNumber,
   type YesStoreItemDoc,
 } from '../../types/yes-store';
 import {
@@ -143,6 +154,349 @@ function HeadOfficeLocationTable({
         />
       )}
     </div>
+  );
+}
+
+type EditableHeadOfficeRow = {
+  key: string;
+  itemId?: string;
+  rackId: string;
+  rowNumber: string;
+  binNumber: string;
+  quantity: string;
+};
+
+function createHeadOfficeEditableRow(defaults?: Partial<EditableHeadOfficeRow>): EditableHeadOfficeRow {
+  return {
+    key: crypto.randomUUID(),
+    rackId: defaults?.rackId ?? '',
+    rowNumber: defaults?.rowNumber ?? '',
+    binNumber: defaults?.binNumber ?? '',
+    quantity: defaults?.quantity ?? '1',
+    itemId: defaults?.itemId,
+  };
+}
+
+function headOfficeRowsFromItems(items: YesStoreItemDoc[]): EditableHeadOfficeRow[] {
+  if (items.length === 0) return [createHeadOfficeEditableRow()];
+  return items.map(item =>
+    createHeadOfficeEditableRow({
+      itemId: item.id,
+      rackId: item.rackId.toLowerCase(),
+      rowNumber: String(item.rowNumber),
+      binNumber: String(item.binNumber),
+      quantity: String(readItemQuantity(item)),
+    }),
+  );
+}
+
+function HeadOfficeEditRow({
+  row,
+  saving,
+  canRemove,
+  onUpdate,
+  onRemove,
+}: {
+  row: EditableHeadOfficeRow;
+  saving: boolean;
+  canRemove: boolean;
+  onUpdate: (patch: Partial<EditableHeadOfficeRow>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="product-site-stock__edit-row product-site-stock__edit-row--store">
+      <LocationDropdownField
+        label="Rack"
+        value={row.rackId}
+        disabled={saving}
+        onChange={rackId => onUpdate({ rackId })}
+        options={VALID_RACK_LETTERS.map(letter => ({
+          value: letter,
+          label: letter.toUpperCase(),
+        }))}
+      />
+      <LocationDropdownField
+        label="Row"
+        value={row.rowNumber}
+        disabled={saving}
+        onChange={rowNumber => onUpdate({ rowNumber })}
+        options={ROW_NUMBERS.map(n => ({ value: String(n), label: String(n) }))}
+      />
+      <LocationDropdownField
+        label="Bin"
+        value={row.binNumber}
+        disabled={saving}
+        onChange={binNumber => onUpdate({ binNumber })}
+        options={BIN_NUMBERS.map(n => ({ value: String(n), label: String(n) }))}
+      />
+      <label className="product-site-stock__dropdown-field">
+        <span className="product-site-stock__dropdown-label">Qty</span>
+        <input
+          type="number"
+          className="product-site-stock__dropdown product-site-stock__dropdown--qty"
+          min={1}
+          step={1}
+          value={row.quantity}
+          onChange={e => onUpdate({ quantity: e.target.value })}
+          disabled={saving}
+          aria-label="Counted qty"
+        />
+      </label>
+      <button
+        type="button"
+        className="product-site-stock__row-remove product-site-stock__row-remove--inline"
+        onClick={onRemove}
+        disabled={saving || !canRemove}
+        aria-label="Remove row"
+      >
+        <Trash2 size={14} aria-hidden />
+      </button>
+    </div>
+  );
+}
+
+function HeadOfficeLocationSection({
+  product,
+  siteConfig,
+  auditItems,
+  canEdit,
+  editorUid,
+  editorName,
+  onSaved,
+}: {
+  product: CatalogProduct;
+  siteConfig: CatalogInventorySiteConfig;
+  auditItems: YesStoreItemDoc[];
+  canEdit: boolean;
+  editorUid: string;
+  editorName?: string | null;
+  onSaved: (items: YesStoreItemDoc[]) => void;
+}) {
+  const [rows, setRows] = useState<EditableHeadOfficeRow[]>(() => headOfficeRowsFromItems(auditItems));
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const auditTotals = useMemo(() => {
+    if (auditItems.length === 0) return null;
+    const zohoQty = catalogProductWarehouseStock(product, siteConfig.warehouseName);
+    return calculateGroupTotals(auditItems, {
+      ...product,
+      stock: zohoQty,
+    });
+  }, [auditItems, product, siteConfig.warehouseName]);
+
+  useEffect(() => {
+    if (!editing) {
+      setRows(headOfficeRowsFromItems(auditItems));
+    }
+  }, [auditItems, editing]);
+
+  const startEditing = () => {
+    setRows(headOfficeRowsFromItems(auditItems));
+    setError('');
+    setEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setRows(headOfficeRowsFromItems(auditItems));
+    setError('');
+    setEditing(false);
+  };
+
+  const updateRow = (key: string, patch: Partial<EditableHeadOfficeRow>) => {
+    setRows(prev => prev.map(row => (row.key === key ? { ...row, ...patch } : row)));
+  };
+
+  const addRow = () => {
+    setRows(prev => [...prev, createHeadOfficeEditableRow()]);
+  };
+
+  const removeRow = (key: string) => {
+    setRows(prev => {
+      const next = prev.filter(row => row.key !== key);
+      return next.length ? next : [createHeadOfficeEditableRow()];
+    });
+  };
+
+  const handleSave = async () => {
+    if (!editorUid) {
+      setError('Sign in required to save.');
+      return;
+    }
+
+    const incomplete = rows.filter(row => {
+      const filledCount = [row.rackId, row.rowNumber, row.binNumber, row.quantity.trim()].filter(
+        Boolean,
+      ).length;
+      return filledCount > 0 && filledCount < 4;
+    });
+    if (incomplete.length) {
+      setError('Finish rack, row, bin, and quantity for every location, or clear the row.');
+      return;
+    }
+
+    const prepared = rows
+      .filter(row => row.rackId && row.rowNumber && row.binNumber)
+      .map(row => {
+        const qty = Number.parseInt(row.quantity, 10);
+        const rowNumber = Number.parseInt(row.rowNumber, 10);
+        const binNumber = Number.parseInt(row.binNumber, 10);
+        return { row, qty, rowNumber, binNumber };
+      });
+
+    for (const entry of prepared) {
+      if (!Number.isFinite(entry.qty) || entry.qty < 1) {
+        setError('Quantity must be at least 1 for every location.');
+        return;
+      }
+    }
+
+    setSaving(true);
+    setError('');
+    const counter = { uid: editorUid, displayName: editorName };
+    const keptIds = new Set(
+      prepared.map(entry => entry.row.itemId).filter((id): id is string => Boolean(id)),
+    );
+    const removedItems = auditItems.filter(item => !keptIds.has(item.id));
+    const template = auditItems[0];
+    const linkMode = template?.catalogLinkMode === 'part' ? 'part' : 'unit';
+
+    try {
+      for (const removed of removedItems) {
+        // Unlink only — keep the warehouse item and its photos.
+        await unlinkYesStoreItemFromCatalog(removed.id);
+      }
+
+      for (const entry of prepared) {
+        const location = {
+          rackId: entry.row.rackId,
+          rowNumber: entry.rowNumber as RowNumber,
+          binNumber: entry.binNumber as BinNumber,
+          quantity: entry.qty,
+        };
+        if (entry.row.itemId) {
+          await updateStoreItemLocationAndQty(entry.row.itemId, location, counter);
+        } else {
+          await createLinkedStoreItem({
+            ...location,
+            product: {
+              id: product.id,
+              name: product.name,
+              sku: product.sku,
+            },
+            countedBy: counter,
+            linkedByUid: editorUid,
+            linkedByName: editorName,
+            mode: linkMode,
+            partLabel:
+              linkMode === 'part'
+                ? formatItemLocationShort(location.rackId, location.rowNumber, location.binNumber)
+                : null,
+            unitsPerProduct: template?.unitsPerProduct ?? 1,
+          });
+        }
+      }
+
+      const nextItems = await listItemsByCatalogProduct(product.id);
+      onSaved(nextItems);
+      setEditing(false);
+      void recordCatalogProductAudit(product.id, 'warehouse_count').catch(() => undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save store room stock.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section
+      className={[
+        'product-site-stock',
+        editing ? 'product-site-stock--editing' : '',
+      ].filter(Boolean).join(' ')}
+    >
+      <header className="product-site-stock__header">
+        <h3 className="product-site-stock__title">{siteConfig.warehouseName}</h3>
+        <div className="product-site-stock__header-actions">
+          <SiteTypeBadge site={siteConfig.site} />
+          {canEdit && (
+            <button
+              type="button"
+              className={[
+                'product-site-stock__edit-btn',
+                editing ? 'product-site-stock__edit-btn--active' : '',
+              ].filter(Boolean).join(' ')}
+              title={editing ? 'Cancel editing' : 'Edit store room locations'}
+              aria-label={editing ? 'Cancel editing' : 'Edit store room locations'}
+              aria-pressed={editing}
+              onClick={() => (editing ? cancelEditing() : startEditing())}
+            >
+              {editing ? <X size={15} aria-hidden /> : <Pencil size={15} aria-hidden />}
+            </button>
+          )}
+        </div>
+      </header>
+
+      {editing && canEdit ? (
+        <div className="product-site-stock__editor-modern">
+          {rows.map(row => (
+            <HeadOfficeEditRow
+              key={row.key}
+              row={row}
+              saving={saving}
+              canRemove={rows.length > 1 || Boolean(row.itemId)}
+              onUpdate={patch => updateRow(row.key, patch)}
+              onRemove={() => removeRow(row.key)}
+            />
+          ))}
+
+          <button
+            type="button"
+            className="product-site-stock__add-row-btn"
+            disabled={saving}
+            onClick={addRow}
+          >
+            <Plus size={14} aria-hidden />
+            Add location
+          </button>
+
+          {error && <p className="product-site-stock__error text-sm">{error}</p>}
+
+          <div className="product-site-stock__editor-toolbar product-site-stock__editor-toolbar--modern">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={saving}
+              onClick={cancelEditing}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm product-site-stock__save-btn"
+              disabled={saving}
+              onClick={() => void handleSave()}
+            >
+              <Save size={14} aria-hidden />
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      ) : auditTotals && auditTotals.parts.length > 0 ? (
+        <HeadOfficeLocationTable
+          product={product}
+          auditItems={auditItems}
+          auditTotals={auditTotals}
+        />
+      ) : (
+        <p className="product-site-stock__empty text-muted text-sm">
+          {canEdit
+            ? 'No store room bins linked yet. Tap the pen icon to add locations.'
+            : 'No store room bins linked to this item yet.'}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -503,28 +857,23 @@ export const ProductSiteStockLocations: React.FC<{
   auditItems: YesStoreItemDoc[];
   cochinRecord: CatalogSiteInventoryDoc | null;
   canEditCochin: boolean;
+  canEditHeadOffice?: boolean;
   editorUid: string;
   editorName?: string | null;
   onCochinSaved: (record: CatalogSiteInventoryDoc) => void;
+  onHeadOfficeSaved?: (items: YesStoreItemDoc[]) => void;
 }> = ({
   product,
   siteConfig,
   auditItems,
   cochinRecord,
   canEditCochin,
+  canEditHeadOffice = false,
   editorUid,
   editorName,
   onCochinSaved,
+  onHeadOfficeSaved,
 }) => {
-  const headOfficeTotals = useMemo(() => {
-    if (siteConfig.site !== 'head_office' || auditItems.length === 0) return null;
-    const zohoQty = catalogProductWarehouseStock(product, siteConfig.warehouseName);
-    return calculateGroupTotals(auditItems, {
-      ...product,
-      stock: zohoQty,
-    });
-  }, [siteConfig.site, siteConfig.warehouseName, auditItems, product]);
-
   if (siteConfig.site === 'cochin') {
     return (
       <CochinLocationSection
@@ -540,23 +889,14 @@ export const ProductSiteStockLocations: React.FC<{
   }
 
   return (
-    <section className="product-site-stock">
-      <header className="product-site-stock__header">
-        <h3 className="product-site-stock__title">{siteConfig.warehouseName}</h3>
-        <SiteTypeBadge site={siteConfig.site} />
-      </header>
-
-      {headOfficeTotals && headOfficeTotals.parts.length > 0 ? (
-        <HeadOfficeLocationTable
-          product={product}
-          auditItems={auditItems}
-          auditTotals={headOfficeTotals}
-        />
-      ) : (
-        <p className="product-site-stock__empty text-muted text-sm">
-          No store room bins linked to this item yet.
-        </p>
-      )}
-    </section>
+    <HeadOfficeLocationSection
+      product={product}
+      siteConfig={siteConfig}
+      auditItems={auditItems}
+      canEdit={canEditHeadOffice}
+      editorUid={editorUid}
+      editorName={editorName}
+      onSaved={items => onHeadOfficeSaved?.(items)}
+    />
   );
 };

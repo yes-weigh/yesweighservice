@@ -25,6 +25,7 @@ export const WarehouseHomePage: React.FC = () => {
   const [wizard, setWizard] = useState<WizardStep>(null);
   const [draft, setDraft] = useState<DraftLocation>({});
   const [editItem, setEditItem] = useState<YesStoreItemDoc | null>(null);
+  const [ensureDraftRow, setEnsureDraftRow] = useState(false);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -43,6 +44,7 @@ export const WarehouseHomePage: React.FC = () => {
     setWizard(null);
     setDraft({});
     setEditItem(null);
+    setEnsureDraftRow(false);
   };
 
   const goHome = () => {
@@ -108,6 +110,7 @@ export const WarehouseHomePage: React.FC = () => {
         rackId={draft.rackId}
         rowNumber={draft.rowNumber}
         binNumber={draft.binNumber}
+        ensureDraftRow={ensureDraftRow}
         onBack={() => setWizard('bin')}
         onHome={goHome}
         onSaved={() => void loadItems()}
@@ -122,6 +125,17 @@ export const WarehouseHomePage: React.FC = () => {
         onBack={goHome}
         onHome={goHome}
         onSaved={() => void loadItems()}
+        onReplacedInBin={location => {
+          setEditItem(null);
+          setEnsureDraftRow(true);
+          setDraft({
+            rackId: location.rackId,
+            rowNumber: location.rowNumber,
+            binNumber: location.binNumber,
+          });
+          setWizard('editor');
+          void loadItems();
+        }}
       />
     );
   }
