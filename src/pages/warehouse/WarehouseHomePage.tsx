@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { LogOut, Plus } from 'lucide-react';
+import { Copy, LogOut, Plus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import type { BinNumber, RowNumber, YesStoreItemDoc } from '../../types/yes-store';
 import { listAllItems } from '../../lib/yesStore/data';
+import { YESSTORE_OPEN_DUPLICATES_KEY } from '../../lib/yesStore/possibleDuplicates';
 import { WarehouseRackPicker } from '../../components/yesStore/WarehouseRackPicker';
 import { WarehouseRowPicker } from '../../components/yesStore/WarehouseRowPicker';
 import { WarehouseBinPicker } from '../../components/yesStore/WarehouseBinPicker';
 import { WarehouseBinEditor } from '../../components/yesStore/WarehouseBinEditor';
 import { WarehouseItemEditor } from '../../components/yesStore/WarehouseItemEditor';
 import { WarehouseInventoryAuditList } from '../../components/yesStore/WarehouseInventoryAuditList';
+import { WarehousePossibleDuplicates } from '../../components/yesStore/WarehousePossibleDuplicates';
 
-type WizardStep = null | 'rack' | 'row' | 'bin' | 'editor' | 'item-edit';
+type WizardStep = null | 'rack' | 'row' | 'bin' | 'editor' | 'item-edit' | 'duplicates';
 
 type DraftLocation = {
   rackId?: string;
@@ -26,6 +28,7 @@ export const WarehouseHomePage: React.FC = () => {
   const [draft, setDraft] = useState<DraftLocation>({});
   const [editItem, setEditItem] = useState<YesStoreItemDoc | null>(null);
   const [ensureDraftRow, setEnsureDraftRow] = useState(false);
+  const [returnToDuplicates, setReturnToDuplicates] = useState(false);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -40,11 +43,23 @@ export const WarehouseHomePage: React.FC = () => {
     void loadItems();
   }, [loadItems]);
 
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(YESSTORE_OPEN_DUPLICATES_KEY) === '1') {
+        sessionStorage.removeItem(YESSTORE_OPEN_DUPLICATES_KEY);
+        setWizard('duplicates');
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const resetWizard = () => {
     setWizard(null);
     setDraft({});
     setEditItem(null);
     setEnsureDraftRow(false);
+    setReturnToDuplicates(false);
   };
 
   const goHome = () => {
@@ -52,13 +67,23 @@ export const WarehouseHomePage: React.FC = () => {
     resetWizard();
   };
 
+  const goDuplicates = () => {
+    setEditItem(null);
+    setDraft({});
+    setEnsureDraftRow(false);
+    setReturnToDuplicates(false);
+    setWizard('duplicates');
+    void loadItems();
+  };
+
   const startAdd = () => {
     resetWizard();
     setWizard('rack');
   };
 
-  const openFromList = (item: YesStoreItemDoc) => {
+  const openFromList = (item: YesStoreItemDoc, fromDuplicates = false) => {
     setEditItem(item);
+    setReturnToDuplicates(fromDuplicates);
     setWizard('item-edit');
   };
 
@@ -122,12 +147,13 @@ export const WarehouseHomePage: React.FC = () => {
     return (
       <WarehouseItemEditor
         item={editItem}
-        onBack={goHome}
+        onBack={returnToDuplicates ? goDuplicates : goHome}
         onHome={goHome}
         onSaved={() => void loadItems()}
         onReplacedInBin={location => {
           setEditItem(null);
           setEnsureDraftRow(true);
+          setReturnToDuplicates(false);
           setDraft({
             rackId: location.rackId,
             rowNumber: location.rowNumber,
@@ -136,6 +162,17 @@ export const WarehouseHomePage: React.FC = () => {
           setWizard('editor');
           void loadItems();
         }}
+      />
+    );
+  }
+
+  if (wizard === 'duplicates') {
+    return (
+      <WarehousePossibleDuplicates
+        items={items}
+        loading={loading}
+        onBack={resetWizard}
+        onItemClick={item => openFromList(item, true)}
       />
     );
   }
@@ -154,11 +191,20 @@ export const WarehouseHomePage: React.FC = () => {
           <p className="warehouse-app__signed-in text-muted text-sm">Signed in as {user.loginId}</p>
         )}
 
+        <button
+          type="button"
+          className="warehouse-app__duplicates-btn"
+          onClick={goDuplicates}
+        >
+          <Copy size={16} aria-hidden />
+          Possible duplications
+        </button>
+
         <WarehouseInventoryAuditList
           items={items}
           loading={loading}
           onRefresh={() => void loadItems()}
-          onItemClick={openFromList}
+          onItemClick={item => openFromList(item, false)}
           emptyMessage="No audits yet. Tap + to pick a rack, row, and bin."
         />
       </main>

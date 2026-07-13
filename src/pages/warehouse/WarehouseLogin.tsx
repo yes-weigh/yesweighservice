@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, LogIn, Lock, UserRound } from 'lucide-react';
+import { Copy, Eye, EyeOff, LogIn, Lock, UserRound } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
 import { isValidUsername, normalizeUsername } from '../../lib/loginAuth';
+import { YESSTORE_OPEN_DUPLICATES_KEY } from '../../lib/yesStore/possibleDuplicates';
 
 export const WarehouseLogin: React.FC = () => {
   const { login, user, loading } = useAuth();
@@ -40,6 +41,15 @@ export const WarehouseLogin: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const openPossibleDuplications = () => {
+    try {
+      sessionStorage.setItem(YESSTORE_OPEN_DUPLICATES_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+    setError('Sign in first — possible duplications open after login.');
   };
 
   if (loading) {
@@ -108,6 +118,15 @@ export const WarehouseLogin: React.FC = () => {
             {submitting ? <span className="spinner-inline" /> : <><LogIn size={18} /> Sign in</>}
           </button>
         </form>
+
+        <button
+          type="button"
+          className="warehouse-login__duplicates-btn"
+          onClick={openPossibleDuplications}
+        >
+          <Copy size={16} aria-hidden />
+          Possible duplications
+        </button>
 
         <p className="warehouse-login__footer text-muted text-sm">
           Staff or dealer? <Link to="/login">Main portal login</Link>
