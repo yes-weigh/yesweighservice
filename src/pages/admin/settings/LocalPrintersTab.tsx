@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { ChevronDown, Plus, Printer, Save, Star, Trash2 } from 'lucide-react';
+import { Printer, Save } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
-  emptyLabelPrinter,
+  HARDCODED_LABEL_PRINTERS,
+  STORE_LABEL_PRINTER_ID,
   emptyLabelStudioDoc,
   getStoreLabelPrinter,
   loadLabelStudioDoc,
@@ -21,27 +22,10 @@ import {
 } from '../../../lib/localPrinterLabel';
 import { LocalPrinterLabelPreview } from '../../../components/admin/LocalPrinterLabelPreview';
 
-type PrinterDraft = LabelPrinter & { portText: string };
-
-function toPrinterDraft(printer: LabelPrinter): PrinterDraft {
-  return { ...printer, portText: String(printer.port) };
-}
-
-function fromPrinterDraft(draft: PrinterDraft): LabelPrinter {
-  return {
-    id: draft.id,
-    name: draft.name,
-    host: draft.host,
-    port: Number(draft.portText),
-  };
-}
-
 export const LocalPrintersTab: React.FC = () => {
   const { user } = useAuth();
-  const [printers, setPrinters] = useState<PrinterDraft[]>([]);
-  const [storeLabelPrinterId, setStoreLabelPrinterId] = useState('');
+  const [printers, setPrinters] = useState<LabelPrinter[]>([]);
   const [savedSnapshot, setSavedSnapshot] = useState('');
-  const [expandedPrinterIds, setExpandedPrinterIds] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -65,12 +49,8 @@ export const LocalPrintersTab: React.FC = () => {
   };
 
   const applyDoc = (docData: LabelStudioDoc) => {
-    setPrinters(docData.printers.map(toPrinterDraft));
-    setStoreLabelPrinterId(docData.storeLabelPrinterId);
-    setSavedSnapshot(JSON.stringify({
-      printers: docData.printers,
-      storeLabelPrinterId: docData.storeLabelPrinterId,
-    }));
+    setPrinters(docData.printers);
+    setSavedSnapshot(JSON.stringify(docData.printers.map(p => ({ id: p.id, host: p.host }))));
   };
 
   const loadAll = useCallback(async () => {
@@ -90,55 +70,22 @@ export const LocalPrintersTab: React.FC = () => {
     void loadAll();
   }, [loadAll]);
 
-  const currentPrinters = useMemo(() => printers.map(fromPrinterDraft), [printers]);
-
   const dirty = useMemo(() => {
-    const snapshot = JSON.stringify({
-      printers: currentPrinters,
-      storeLabelPrinterId,
-    });
+    const snapshot = JSON.stringify(printers.map(p => ({ id: p.id, host: p.host })));
     return snapshot !== savedSnapshot;
-  }, [currentPrinters, storeLabelPrinterId, savedSnapshot]);
+  }, [printers, savedSnapshot]);
 
-  const storeLabelPrinter = useMemo(() => {
-    const match = currentPrinters.find(p => p.id === storeLabelPrinterId);
-    return match ?? getStoreLabelPrinter(emptyLabelStudioDoc());
-  }, [currentPrinters, storeLabelPrinterId]);
+  const storeLabelPrinter = useMemo(
+    () => getStoreLabelPrinter({
+      printers,
+      storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
+      updatedAt: '',
+    }),
+    [printers],
+  );
 
-  const updatePrinter = (id: string, patch: Partial<PrinterDraft>) => {
-    setPrinters(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
-  };
-
-  const togglePrinterExpanded = (id: string) => {
-    setExpandedPrinterIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleAddPrinter = () => {
-    const next = toPrinterDraft(emptyLabelPrinter({ name: `Label printer ${printers.length + 1}` }));
-    setPrinters(prev => [...prev, next]);
-    setExpandedPrinterIds(prev => new Set(prev).add(next.id));
-  };
-
-  const handleDeletePrinter = (id: string) => {
-    if (printers.length <= 1) {
-      setError('Keep at least one printer.');
-      return;
-    }
-    const remaining = printers.filter(p => p.id !== id);
-    setPrinters(remaining);
-    setExpandedPrinterIds(prev => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    if (storeLabelPrinterId === id) {
-      setStoreLabelPrinterId(remaining[0]?.id ?? '');
-    }
+  const updatePrinterHost = (id: string, host: string) => {
+    setPrinters(prev => prev.map(p => (p.id === id ? { ...p, host } : p)));
   };
 
   const handleSave = async () => {
@@ -148,8 +95,8 @@ export const LocalPrintersTab: React.FC = () => {
     try {
       const saved = await saveLabelStudioDoc(
         {
-          printers: currentPrinters,
-          storeLabelPrinterId,
+          printers,
+          storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
         },
         user?.uid ?? null,
       );
@@ -192,8 +139,8 @@ export const LocalPrintersTab: React.FC = () => {
         <div>
           <h3>Label printing</h3>
           <p className="text-muted text-sm">
-            Manage LAN printers. Bin labels (rack / row / bin) always use the Genuine Spare layout;
-            product labels use Genuine Spare Product. Mark one printer as Store label for defaults.
+            Configure printer IPs. Bin labels use the Genuine Spare layout; product labels use
+            Genuine Spare Product. Port is fixed at {HARDCODED_LABEL_PRINTERS[0]?.port ?? 9100}.
           </p>
         </div>
       </header>
@@ -218,15 +165,6 @@ export const LocalPrintersTab: React.FC = () => {
             <div className="settings-local-printer__list-toolbar">
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={busyKey != null}
-                onClick={handleAddPrinter}
-              >
-                <Plus size={15} aria-hidden />
-                Add printer
-              </button>
-              <button
-                type="button"
                 className="btn btn-primary btn-sm"
                 disabled={!dirty || busyKey != null}
                 onClick={() => void handleSave()}
@@ -237,105 +175,38 @@ export const LocalPrintersTab: React.FC = () => {
             </div>
 
             <div className="settings-local-printer__list">
-              {printers.map(printer => {
-                const expanded = expandedPrinterIds.has(printer.id);
-                const isStoreLabel = printer.id === storeLabelPrinterId;
-                return (
-                  <div
-                    key={printer.id}
-                    className={`settings-logistics__default panel glass settings-local-printer__config${
-                      isStoreLabel ? ' settings-local-printer__config--store' : ''
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      className="settings-local-printer__config-toggle"
-                      aria-expanded={expanded}
-                      onClick={() => togglePrinterExpanded(printer.id)}
-                    >
-                      <div className="settings-local-printer__config-toggle-text">
-                        <div className="settings-local-printer__config-title-row">
-                          <h4 className="settings-logistics__title">
-                            {printer.name.trim() || 'Label printer'}
-                          </h4>
-                          {isStoreLabel && (
-                            <span className="settings-local-printer__role-badge">Store label</span>
-                          )}
-                        </div>
-                        {!expanded && (
-                          <p className="text-muted text-sm settings-local-printer__config-summary">
-                            {[printer.host.trim() || 'no IP', `port ${printer.portText || '—'}`].join(' · ')}
-                          </p>
-                        )}
-                      </div>
-                      <ChevronDown
-                        size={18}
-                        aria-hidden
-                        className={`settings-local-printer__chevron${expanded ? ' is-open' : ''}`}
+              {printers.map(printer => (
+                <div
+                  key={printer.id}
+                  className={`settings-logistics__default panel glass settings-local-printer__config${
+                    printer.id === STORE_LABEL_PRINTER_ID
+                      ? ' settings-local-printer__config--store'
+                      : ''
+                  }`}
+                >
+                  <div className="settings-local-printer__config-body settings-local-printer__config-body--flat">
+                    <div className="settings-local-printer__config-title-row">
+                      <h4 className="settings-logistics__title">{printer.name}</h4>
+                      {printer.id === STORE_LABEL_PRINTER_ID && (
+                        <span className="settings-local-printer__role-badge">Store label</span>
+                      )}
+                    </div>
+                    <label className="settings-locations__field">
+                      <span>IP address</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={printer.host}
+                        disabled={busyKey === 'save'}
+                        onChange={e => updatePrinterHost(printer.id, e.target.value)}
+                        placeholder="192.168.1.39"
                       />
-                    </button>
-                    {expanded && (
-                      <div className="settings-local-printer__config-body">
-                        <label className="settings-locations__field">
-                          <span>Name</span>
-                          <input
-                            type="text"
-                            value={printer.name}
-                            disabled={busyKey === 'save'}
-                            onChange={e => updatePrinter(printer.id, { name: e.target.value })}
-                          />
-                        </label>
-                        <label className="settings-locations__field">
-                          <span>IP address</span>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            autoComplete="off"
-                            spellCheck={false}
-                            value={printer.host}
-                            disabled={busyKey === 'save'}
-                            onChange={e => updatePrinter(printer.id, { host: e.target.value })}
-                            placeholder="192.168.1.39"
-                          />
-                        </label>
-                        <label className="settings-locations__field">
-                          <span>Port</span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={65535}
-                            value={printer.portText}
-                            disabled={busyKey === 'save'}
-                            onChange={e => updatePrinter(printer.id, { portText: e.target.value })}
-                          />
-                        </label>
-                        <div className="settings-local-printer__card-actions">
-                          {!isStoreLabel && (
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              disabled={busyKey != null}
-                              onClick={() => setStoreLabelPrinterId(printer.id)}
-                            >
-                              <Star size={15} aria-hidden />
-                              Set as store label
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={busyKey != null || printers.length <= 1}
-                            onClick={() => handleDeletePrinter(printer.id)}
-                          >
-                            <Trash2 size={15} aria-hidden />
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    </label>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
 
             <div className="settings-logistics__default panel glass">

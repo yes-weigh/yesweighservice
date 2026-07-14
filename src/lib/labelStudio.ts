@@ -17,6 +17,15 @@ export interface LabelPrinter {
   port: number;
 }
 
+/** Fixed printer slots — only `host` (IP) is user-configurable. */
+export const HARDCODED_LABEL_PRINTERS: ReadonlyArray<Omit<LabelPrinter, 'host'>> = [
+  {
+    id: STORE_LABEL_PRINTER_ID,
+    name: 'Store label printer',
+    port: DEFAULT_LABEL_PRINTER_PORT,
+  },
+];
+
 export interface LabelStudioDoc {
   printers: LabelPrinter[];
   /** Default printer for bin / store-room labels. */
@@ -25,147 +34,103 @@ export interface LabelStudioDoc {
   updatedBy?: string | null;
 }
 
-function newId(prefix: string): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `${prefix}-${crypto.randomUUID()}`;
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function normalizeHost(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.trim();
 }
 
-function normalizePort(value: unknown): number {
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) return DEFAULT_LABEL_PRINTER_PORT;
-  return n;
+function hostByPrinterId(rawPrinters: unknown): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!Array.isArray(rawPrinters)) return map;
+  for (const raw of rawPrinters) {
+    if (!raw || typeof raw !== 'object') continue;
+    const data = raw as Record<string, unknown>;
+    const id = typeof data.id === 'string' ? data.id.trim() : '';
+    if (!id) continue;
+    const host = normalizeHost(data.host);
+    if (host) map.set(id, host);
+  }
+  return map;
+}
+
+/** Build the fixed printer list, applying saved IPs where present. */
+export function buildHardcodedPrinters(
+  savedHosts?: Map<string, string> | Record<string, string>,
+): LabelPrinter[] {
+  const hosts = savedHosts instanceof Map
+    ? savedHosts
+    : new Map(Object.entries(savedHosts ?? {}));
+  return HARDCODED_LABEL_PRINTERS.map((slot, index) => ({
+    id: slot.id,
+    name: slot.name,
+    port: slot.port,
+    host: hosts.get(slot.id)
+      ?? (index === 0 && !hosts.size ? DEFAULT_LABEL_PRINTER_HOST : ''),
+  }));
 }
 
 export function emptyLabelPrinter(overrides?: Partial<LabelPrinter>): LabelPrinter {
+  const slot = HARDCODED_LABEL_PRINTERS.find(p => p.id === overrides?.id)
+    ?? HARDCODED_LABEL_PRINTERS[0];
   return {
-    id: overrides?.id ?? newId('printer'),
-    name: overrides?.name ?? 'Label printer',
+    id: overrides?.id ?? slot.id,
+    name: overrides?.name ?? slot.name,
     host: overrides?.host ?? '',
-    port: overrides?.port ?? DEFAULT_LABEL_PRINTER_PORT,
+    port: overrides?.port ?? slot.port,
   };
 }
 
 export function emptyStoreLabelPrinter(): LabelPrinter {
-  return emptyLabelPrinter({
+  return {
     id: STORE_LABEL_PRINTER_ID,
     name: 'Store label printer',
     host: DEFAULT_LABEL_PRINTER_HOST,
-  });
+    port: DEFAULT_LABEL_PRINTER_PORT,
+  };
 }
 
 export function emptyLabelStudioDoc(): LabelStudioDoc {
-  const printer = emptyStoreLabelPrinter();
+  const printers = buildHardcodedPrinters();
   return {
-    printers: [printer],
-    storeLabelPrinterId: printer.id,
+    printers,
+    storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
     updatedAt: '',
   };
 }
 
-function normalizePrinter(raw: unknown, fallback: LabelPrinter): LabelPrinter | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const data = raw as Record<string, unknown>;
-  const id = typeof data.id === 'string' && data.id.trim() ? data.id.trim() : fallback.id;
-  return {
-    id,
-    name: typeof data.name === 'string' && data.name.trim()
-      ? data.name.trim()
-      : fallback.name,
-    host: normalizeHost(data.host) || fallback.host,
-    port: normalizePort(data.port),
-  };
-}
-
 function normalizeStudioPayload(data: Record<string, unknown>): LabelStudioDoc | null {
-  if (!Array.isArray(data.printers) || data.printers.length === 0) return null;
-
-  const defaults = emptyLabelStudioDoc();
-  const printers = data.printers
-    .map((raw, i) => normalizePrinter(raw, defaults.printers[Math.min(i, defaults.printers.length - 1)]
-      ?? emptyStoreLabelPrinter()))
-    .filter((p): p is LabelPrinter => p != null);
-  if (!printers.length) return null;
-
-  let storeLabelPrinterId =
-    typeof data.storeLabelPrinterId === 'string' && data.storeLabelPrinterId.trim()
-      ? data.storeLabelPrinterId.trim()
-      : printers[0].id;
-
-  // Migrate old Labels model: first label's printer becomes store label.
-  if (
-    !printers.some(p => p.id === storeLabelPrinterId)
-    && Array.isArray(data.labels)
-    && data.labels[0]
-    && typeof data.labels[0] === 'object'
-  ) {
-    const firstLabel = data.labels[0] as Record<string, unknown>;
-    if (typeof firstLabel.printerId === 'string' && printers.some(p => p.id === firstLabel.printerId)) {
-      storeLabelPrinterId = firstLabel.printerId;
-    }
+  const hosts = hostByPrinterId(data.printers);
+  // Legacy single-host docs.
+  if (!hosts.size && typeof data.host === 'string') {
+    hosts.set(STORE_LABEL_PRINTER_ID, normalizeHost(data.host) || DEFAULT_LABEL_PRINTER_HOST);
   }
-
-  if (!printers.some(p => p.id === storeLabelPrinterId)) {
-    storeLabelPrinterId = printers[0].id;
+  if (!hosts.size && !Array.isArray(data.printers) && typeof data.host !== 'string') {
+    return null;
   }
-
+  const printers = buildHardcodedPrinters(hosts);
   return {
     printers,
-    storeLabelPrinterId,
+    storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
   };
 }
 
 function migrateFromLegacyPrintersDoc(data: Record<string, unknown>): LabelStudioDoc {
-  const fallbackPrinter = emptyStoreLabelPrinter();
-  let printers: LabelPrinter[] = [];
-
-  if (Array.isArray(data.printers) && data.printers.length > 0) {
-    printers = data.printers
-      .map((raw, index) => normalizePrinter(raw, {
-        ...fallbackPrinter,
-        id: index === 0 ? STORE_LABEL_PRINTER_ID : `printer-${index}`,
-        name: index === 0 ? 'Store label printer' : `Label printer ${index + 1}`,
-      }))
-      .filter((p): p is LabelPrinter => p != null);
-  } else if (typeof data.host === 'string' || typeof data.port !== 'undefined') {
-    printers = [{
-      id: STORE_LABEL_PRINTER_ID,
-      name: typeof data.name === 'string' && data.name.trim()
-        ? data.name.trim()
-        : 'Store label printer',
-      host: normalizeHost(data.host) || DEFAULT_LABEL_PRINTER_HOST,
-      port: normalizePort(data.port),
-    }];
+  const hosts = hostByPrinterId(data.printers);
+  if (!hosts.size && (typeof data.host === 'string' || typeof data.port !== 'undefined')) {
+    hosts.set(STORE_LABEL_PRINTER_ID, normalizeHost(data.host) || DEFAULT_LABEL_PRINTER_HOST);
   }
-
-  if (!printers.length) printers = [fallbackPrinter];
-
-  let storeLabelPrinterId =
-    typeof data.storeLabelPrinterId === 'string' && data.storeLabelPrinterId.trim()
-      ? data.storeLabelPrinterId.trim()
-      : printers[0].id;
-  if (!printers.some(p => p.id === storeLabelPrinterId)) {
-    storeLabelPrinterId = printers[0].id;
-  }
-
   return {
-    printers,
-    storeLabelPrinterId,
+    printers: buildHardcodedPrinters(hosts),
+    storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
   };
 }
 
 export function getStoreLabelPrinter(docData: LabelStudioDoc): LabelPrinter {
-  const byId = docData.printers.find(p => p.id === docData.storeLabelPrinterId);
+  const byId = docData.printers.find(p => p.id === STORE_LABEL_PRINTER_ID);
   if (byId) return byId;
   if (docData.printers[0]) return docData.printers[0];
   return emptyStoreLabelPrinter();
@@ -190,34 +155,29 @@ export function validatePrinterHost(host: string): string | null {
 }
 
 export function validateLabelPrinter(printer: LabelPrinter): string | null {
-  const name = printer.name.trim();
-  if (!name) return 'Each printer needs a name.';
+  const slot = HARDCODED_LABEL_PRINTERS.find(p => p.id === printer.id);
+  if (!slot) return `Unknown printer: ${printer.id}`;
   const hostError = validatePrinterHost(printer.host);
-  if (hostError) return `${name}: ${hostError}`;
-  if (!(Number.isInteger(printer.port) && printer.port >= 1 && printer.port <= 65535)) {
-    return `${name}: Port must be a whole number between 1 and 65535.`;
-  }
+  if (hostError) return `${slot.name}: ${hostError}`;
   return null;
 }
 
 export function validateLabelStudioDoc(input: {
   printers: LabelPrinter[];
-  storeLabelPrinterId: string;
+  storeLabelPrinterId?: string;
 }): string | null {
-  if (!input.printers.length) return 'Add at least one printer.';
-
-  const printerIds = new Set<string>();
-  for (const p of input.printers) {
-    if (printerIds.has(p.id)) return `Duplicate printer id: ${p.id}`;
-    printerIds.add(p.id);
-    const err = validateLabelPrinter(p);
+  const byId = new Map(input.printers.map(p => [p.id, p]));
+  for (const slot of HARDCODED_LABEL_PRINTERS) {
+    const printer = byId.get(slot.id);
+    if (!printer) return `Missing printer: ${slot.name}`;
+    const err = validateLabelPrinter({
+      ...printer,
+      id: slot.id,
+      name: slot.name,
+      port: slot.port,
+    });
     if (err) return err;
   }
-
-  if (!printerIds.has(input.storeLabelPrinterId.trim())) {
-    return 'Pick a store label printer.';
-  }
-
   return null;
 }
 
@@ -244,29 +204,19 @@ export async function loadLabelStudioDoc(): Promise<LabelStudioDoc> {
 export async function saveLabelStudioDoc(
   input: {
     printers: LabelPrinter[];
-    storeLabelPrinterId: string;
+    storeLabelPrinterId?: string;
   },
   updatedBy?: string | null,
 ): Promise<LabelStudioDoc> {
-  const err = validateLabelStudioDoc(input);
+  const hosts = new Map(input.printers.map(p => [p.id, normalizeHost(p.host)]));
+  const printers = buildHardcodedPrinters(hosts);
+  const err = validateLabelStudioDoc({ printers });
   if (err) throw new Error(err);
-
-  const printers = input.printers.map(p => ({
-    id: p.id.trim() || newId('printer'),
-    name: p.name.trim() || 'Label printer',
-    host: p.host.trim(),
-    port: p.port,
-  }));
-
-  let storeLabelPrinterId = input.storeLabelPrinterId.trim();
-  if (!printers.some(p => p.id === storeLabelPrinterId)) {
-    storeLabelPrinterId = printers[0].id;
-  }
 
   const updatedAt = new Date().toISOString();
   const payload: LabelStudioDoc = {
     printers,
-    storeLabelPrinterId,
+    storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
     updatedAt,
     ...(updatedBy ? { updatedBy } : {}),
   };
