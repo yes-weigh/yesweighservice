@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Package, Paperclip, Plus, Save, Trash2, X } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
+import { useConfirm } from '../../../context/ConfirmContext';
 import {
   DEFAULT_MRP_RULES,
   MRP_FORMULA_OPTIONS,
@@ -198,6 +199,7 @@ function MrpGroupEditor({
 
 export const ProductSettingsTab: React.FC = () => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [quantities, setQuantities] = useState<number[]>([]);
   const [mrpRules, setMrpRules] = useState<CatalogMrpRules>({
     categorized: { ...DEFAULT_MRP_RULES.categorized },
@@ -382,6 +384,13 @@ export const ProductSettingsTab: React.FC = () => {
   };
 
   const handleRemoveModelNumber = async (value: string) => {
+    const ok = await confirm({
+      title: 'Remove model number?',
+      message: `Delete “${value}” from the model number list? Products already using it are not changed.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
     await persistModelNumbers(
       modelNumbers.filter(item => item !== value),
       `remove-model-${value}`,
@@ -493,6 +502,17 @@ export const ProductSettingsTab: React.FC = () => {
   };
 
   const handleRemoveApproval = async (value: string) => {
+    const option = approvalNumbers.find(item => item.value === value);
+    const ok = await confirm({
+      title: 'Remove approval number?',
+      message: option?.pdfUrl
+        ? `Delete “${value}” and its attached PDF? Products already using it are not changed.`
+        : `Delete “${value}” from the approval number list? Products already using it are not changed.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
+
     setBusyKey(`remove-approval-${value}`);
     setError('');
     setSuccess('');
