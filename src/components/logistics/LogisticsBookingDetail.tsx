@@ -33,7 +33,9 @@ interface LogisticsBookingDetailProps {
   onDelete?: () => void;
 }
 
-const PROGRESS_STATUSES = LOGISTICS_BOOKING_STATUSES.filter(item => item.id !== 'cancelled');
+const PROGRESS_STATUSES = LOGISTICS_BOOKING_STATUSES.filter(
+  item => item.id !== 'cancelled' && item.id !== 'draft',
+);
 
 export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   booking,

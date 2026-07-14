@@ -53,6 +53,10 @@ export interface PersistLogisticsBookingInput {
   draft: LogisticsBookingDraft;
   dealer: LogisticsDealerSnapshot;
   createdBy: User;
+  /** When confirming or updating an existing draft booking. */
+  existingBookingId?: string | null;
+  /** Wizard step stored on draft saves for resume. */
+  wizardStep?: string | null;
 }
 
 function resolveDealerIdForUser(user: User): string {
@@ -68,6 +72,7 @@ function isEditableStatus(status: LogisticsBookingStatus): boolean {
 /** Map legacy/unknown status values onto the current pipeline statuses. */
 function normalizeBookingStatus(raw: string): LogisticsBookingStatus {
   switch (raw) {
+    case 'draft':
     case 'label_generated':
     case 'in_transit':
     case 'delivered':
@@ -168,6 +173,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     shippingLabelGenerated: Boolean(data.shippingLabelGenerated ?? data.labelGenerated),
     packingSlipGenerated: Boolean(data.packingSlipGenerated),
     status,
+    wizardStep: typeof data.wizardStep === 'string' ? data.wizardStep : null,
     createdAt: String(data.createdAt ?? ''),
     updatedAt: String(data.updatedAt ?? data.createdAt ?? ''),
     createdByUid: String(data.createdByUid ?? ''),
@@ -193,7 +199,11 @@ function matchesClientFilters(booking: LogisticsBooking, filters: LogisticsBooki
   return haystack.includes(q);
 }
 
-async function uploadDraftBoxPhotos(bookingId: string, draft: LogisticsBookingDraft): Promise<{
+async function uploadDraftBoxPhotos(
+  bookingId: string,
+  draft: LogisticsBookingDraft,
+  existingFinalPackagePhotoStoragePath: string | null = null,
+): Promise<{
   boxes: ShipmentBox[];
   finalPackagePhotoStoragePath: string | null;
 }> {
@@ -201,6 +211,7 @@ async function uploadDraftBoxPhotos(bookingId: string, draft: LogisticsBookingDr
   const boxes = await Promise.all(draft.boxes.map(async (box, boxIndex) => {
     const photos = await Promise.all(box.photos.map(async (photo, photoIndex) => {
       if (photo.storagePath) return { storagePath: photo.storagePath, url: photo.url ?? null };
+      if (!photo.url || !photo.url.startsWith('data:')) return null;
       const file = await dataUrlToFile(photo.url, `box-${boxIndex + 1}-${photoIndex + 1}.jpg`);
       const storagePath = await uploadLogisticsPhoto(bookingId, `box-${box.id}-${photo.id}`, file);
       return { storagePath, url: photo.url };
@@ -215,12 +226,12 @@ async function uploadDraftBoxPhotos(bookingId: string, draft: LogisticsBookingDr
       heightCm: height,
       weightKg: isEnvelope ? 0 : (Number.parseFloat(box.weightKg) || 0),
       volumetricWeightKg: isEnvelope ? 0 : computeVolumetricWeight(length, width, height),
-      photos,
+      photos: photos.filter((photo): photo is NonNullable<typeof photo> => Boolean(photo)),
     } satisfies ShipmentBox;
   }));
 
-  let finalPackagePhotoStoragePath: string | null = null;
-  if (draft.finalPackagePhoto) {
+  let finalPackagePhotoStoragePath: string | null = existingFinalPackagePhotoStoragePath;
+  if (draft.finalPackagePhoto?.startsWith('data:')) {
     const file = await dataUrlToFile(draft.finalPackagePhoto, 'final-package.jpg');
     finalPackagePhotoStoragePath = await uploadLogisticsPhoto(bookingId, 'final-package', file);
   }
@@ -228,31 +239,41 @@ async function uploadDraftBoxPhotos(bookingId: string, draft: LogisticsBookingDr
   return { boxes, finalPackagePhotoStoragePath };
 }
 
-export async function persistLogisticsBooking(
-  input: PersistLogisticsBookingInput,
-): Promise<LogisticsBooking> {
-  const { draft, dealer, createdBy } = input;
-  if (!draft.consignmentNo.trim()) throw new Error('Consignment number is required.');
-  if (!draft.zohoCustomerId.trim()) throw new Error('Select a dealer.');
-  if (!draft.boxes.length) throw new Error('Add at least one box.');
-  if (draft.boxes.some(box => box.photos.length === 0)) {
-    throw new Error('Each box needs at least the inside photo.');
-  }
-  if (!draft.finalPackagePhoto) throw new Error('Final package photo is required.');
-
+async function buildBookingPayload(input: PersistLogisticsBookingInput & {
+  bookingId: string;
+  status: LogisticsBookingStatus;
+  createdAt: string;
+  existingFinalPackagePhotoStoragePath?: string | null;
+  existingOrderRef?: string | null;
+}): Promise<Record<string, unknown>> {
+  const {
+    draft,
+    dealer,
+    createdBy,
+    bookingId,
+    status,
+    createdAt,
+    wizardStep,
+    existingFinalPackagePhotoStoragePath = null,
+    existingOrderRef = null,
+  } = input;
   const settings = await loadLogisticsSettings();
   const shipFromAddress = settings.fromAddresses[draft.shipFromSite]?.trim() || '';
   const now = new Date().toISOString();
-  const orderRef = draft.invoiceNumber
+  const orderRef = existingOrderRef
+    || draft.invoiceNumber
     || draft.supportRequestNumber
     || `ORD-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
 
-  const bookingRef = doc(collection(db, COLLECTION));
-  const { boxes, finalPackagePhotoStoragePath } = await uploadDraftBoxPhotos(bookingRef.id, draft);
+  const { boxes, finalPackagePhotoStoragePath } = await uploadDraftBoxPhotos(
+    bookingId,
+    draft,
+    existingFinalPackagePhotoStoragePath,
+  );
   const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
   const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
 
-  const payload = {
+  return {
     orderRef,
     source: draft.source,
     invoiceId: draft.invoiceId,
@@ -273,7 +294,7 @@ export async function persistLogisticsBooking(
     shipFromSite: draft.shipFromSite,
     shipFromAddress,
     shipmentMode: draft.shipmentMode,
-    numberOfBoxes: boxes.length,
+    numberOfBoxes: Math.max(boxes.length, 1),
     actualWeightKg,
     volumetricWeightKg,
     boxes: boxes.map(box => ({
@@ -286,21 +307,160 @@ export async function persistLogisticsBooking(
       photos: box.photos.map(photo => ({ storagePath: photo.storagePath })),
     })),
     finalPackagePhotoStoragePath,
-    labelGenerated: false,
+    labelGenerated: Boolean(draft.labelGenerated),
     courierSlipGenerated: false,
     shippingLabelGenerated: false,
     packingSlipGenerated: false,
-    status: 'booked' as LogisticsBookingStatus,
-    createdAt: now,
+    status,
+    wizardStep: status === 'draft' ? (wizardStep ?? null) : null,
+    createdAt,
     updatedAt: now,
     createdByUid: createdBy.uid,
     createdByName: createdBy.displayName,
   };
+}
+
+export async function persistLogisticsBookingDraft(
+  input: PersistLogisticsBookingInput,
+): Promise<LogisticsBooking> {
+  const { draft, dealer, createdBy, existingBookingId, wizardStep } = input;
+  if (!draft.zohoCustomerId.trim()) throw new Error('Select a dealer before saving a draft.');
+
+  const now = new Date().toISOString();
+  const bookingRef = existingBookingId
+    ? doc(db, COLLECTION, existingBookingId)
+    : doc(collection(db, COLLECTION));
+
+  let createdAt = now;
+  let existingFinalPackagePhotoStoragePath: string | null = null;
+  let existingOrderRef: string | null = null;
+  if (existingBookingId) {
+    const existing = await getDoc(bookingRef);
+    if (!existing.exists()) throw new Error('Draft booking not found.');
+    const existingStatus = normalizeBookingStatus(String(existing.data()?.status ?? 'booked'));
+    if (existingStatus !== 'draft') {
+      throw new Error('Only draft bookings can be updated this way.');
+    }
+    createdAt = String(existing.data()?.createdAt ?? now);
+    existingFinalPackagePhotoStoragePath = typeof existing.data()?.finalPackagePhotoStoragePath === 'string'
+      ? existing.data()?.finalPackagePhotoStoragePath
+      : null;
+    existingOrderRef = typeof existing.data()?.orderRef === 'string'
+      ? existing.data()?.orderRef
+      : null;
+  }
+
+  const payload = await buildBookingPayload({
+    draft,
+    dealer,
+    createdBy,
+    bookingId: bookingRef.id,
+    status: 'draft',
+    createdAt,
+    wizardStep: wizardStep ?? 'box',
+    existingFinalPackagePhotoStoragePath,
+    existingOrderRef,
+  });
 
   await setDoc(bookingRef, payload);
-
   const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
   return hydrateBookingPhotos(booking);
+}
+
+export async function persistLogisticsBooking(
+  input: PersistLogisticsBookingInput,
+): Promise<LogisticsBooking> {
+  const { draft, dealer, createdBy, existingBookingId } = input;
+  if (!draft.consignmentNo.trim()) throw new Error('Consignment number is required.');
+  if (!draft.zohoCustomerId.trim()) throw new Error('Select a dealer.');
+  if (!draft.boxes.length) throw new Error('Add at least one box.');
+  if (draft.boxes.some(box => box.photos.length === 0)) {
+    throw new Error('Each box needs at least the inside photo.');
+  }
+  if (!draft.finalPackagePhoto) throw new Error('Final package photo is required.');
+
+  const now = new Date().toISOString();
+  const bookingRef = existingBookingId
+    ? doc(db, COLLECTION, existingBookingId)
+    : doc(collection(db, COLLECTION));
+
+  let createdAt = now;
+  let existingFinalPackagePhotoStoragePath: string | null = null;
+  let existingOrderRef: string | null = null;
+  if (existingBookingId) {
+    const existing = await getDoc(bookingRef);
+    if (!existing.exists()) throw new Error('Booking not found.');
+    createdAt = String(existing.data()?.createdAt ?? now);
+    existingFinalPackagePhotoStoragePath = typeof existing.data()?.finalPackagePhotoStoragePath === 'string'
+      ? existing.data()?.finalPackagePhotoStoragePath
+      : null;
+    existingOrderRef = typeof existing.data()?.orderRef === 'string'
+      ? existing.data()?.orderRef
+      : null;
+  }
+
+  const payload = await buildBookingPayload({
+    draft,
+    dealer,
+    createdBy,
+    bookingId: bookingRef.id,
+    status: 'booked',
+    createdAt,
+    wizardStep: null,
+    existingFinalPackagePhotoStoragePath,
+    existingOrderRef,
+  });
+
+  await setDoc(bookingRef, payload);
+  const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
+  return hydrateBookingPhotos(booking);
+}
+
+/** Convert a saved booking (usually a draft) into wizard draft + step for resume. */
+export function bookingToWizardState(booking: LogisticsBooking): {
+  draft: LogisticsBookingDraft;
+  step: string;
+  dealerQuery: string;
+} {
+  const step = typeof booking.wizardStep === 'string' && booking.wizardStep
+    ? booking.wizardStep
+    : 'box';
+  return {
+    dealerQuery: booking.dealer.name || booking.dealer.code || '',
+    step,
+    draft: {
+      partnerId: booking.partnerId,
+      source: booking.source,
+      invoiceId: booking.invoiceId,
+      invoiceNumber: booking.invoiceNumber,
+      supportRequestId: booking.supportRequestId,
+      supportRequestNumber: booking.supportRequestNumber,
+      barcodeRaw: booking.consignmentNo,
+      consignmentNo: booking.consignmentNo,
+      branch: booking.branch,
+      serviceType: booking.serviceType,
+      bookingDate: booking.bookingDate,
+      zohoCustomerId: booking.dealer.zohoCustomerId || '',
+      dealerId: booking.dealer.dealerId || '',
+      deliveryAddressKind: booking.deliveryAddressKind,
+      shipFromSite: booking.shipFromSite,
+      shipmentMode: booking.shipmentMode,
+      boxes: booking.boxes.map(box => ({
+        id: box.id,
+        lengthCm: box.lengthCm == null ? '' : String(box.lengthCm),
+        widthCm: box.widthCm == null ? '' : String(box.widthCm),
+        heightCm: box.heightCm == null ? '' : String(box.heightCm),
+        weightKg: box.weightKg ? String(box.weightKg) : '',
+        photos: box.photos.map((photo, index) => ({
+          id: `saved-${box.id}-${index}`,
+          url: photo.url || '',
+          storagePath: photo.storagePath,
+        })),
+      })),
+      finalPackagePhoto: booking.finalPackagePhoto,
+      labelGenerated: booking.labelGenerated,
+    },
+  };
 }
 
 export async function fetchLogisticsBooking(id: string): Promise<LogisticsBooking | null> {

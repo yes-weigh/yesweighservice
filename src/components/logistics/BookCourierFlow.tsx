@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
+  ImagePlus,
   Keyboard,
   Lock,
   Mail,
@@ -14,11 +15,13 @@ import {
   Package,
   Pencil,
   Plus,
+  Printer,
   ScanLine,
   Search,
   Trash2,
   X,
 } from 'lucide-react';
+import { BRAND_NAME, FIRM_NAME } from '../../constants/brand';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { fetchDealerById, fetchDealers } from '../../lib/dealers';
@@ -28,7 +31,6 @@ import {
   bookStepProgressIndex,
   computeVolumetricWeight,
   emptyBookingDraft,
-  emptyShipmentBoxDraft,
   parseCourierBarcode,
   type BookCourierStep,
 } from '../../lib/logisticsBooking';
@@ -37,7 +39,10 @@ import {
   resolveDeliveryAddress,
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
-import { persistLogisticsBooking } from '../../lib/logisticsBookings';
+import {
+  persistLogisticsBooking,
+  persistLogisticsBookingDraft,
+} from '../../lib/logisticsBookings';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import type { User } from '../../types';
 import type { ZohoDealer } from '../../types/dealers';
@@ -59,6 +64,100 @@ function newPhotoId(): string {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function printLabelElement(element: HTMLElement | null, title: string): void {
+  if (!element || typeof window === 'undefined') return;
+  const win = window.open('', '_blank', 'noopener,noreferrer,width=520,height=760');
+  if (!win) return;
+  const styles = `
+    @page { margin: 8mm; size: auto; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; }
+    .sheet {
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto;
+      border: 2px solid #111;
+      padding: 14px 16px;
+    }
+    .sheet--courier { border-width: 3px; }
+    .sheet__brand {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.75rem;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #111;
+    }
+    .sheet__brand strong { font-size: 18px; letter-spacing: 0.04em; }
+    .sheet__brand span { font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .sheet__row { margin: 0 0 8px; font-size: 12px; line-height: 1.35; white-space: pre-line; }
+    .sheet__row strong { display: block; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 2px; }
+    .sheet__track {
+      margin: 12px 0;
+      padding: 10px 8px;
+      border: 1px dashed #111;
+      text-align: center;
+    }
+    .sheet__track code {
+      display: block;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      margin-bottom: 6px;
+    }
+    .sheet__barcode {
+      display: flex;
+      justify-content: center;
+      gap: 2px;
+      height: 42px;
+      margin-top: 4px;
+    }
+    .sheet__barcode i {
+      display: block;
+      width: 2px;
+      background: #111;
+      height: 100%;
+    }
+    .sheet__barcode i:nth-child(3n) { width: 1px; }
+    .sheet__barcode i:nth-child(5n) { width: 3px; }
+    .sheet__meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #111;
+      font-size: 11px;
+    }
+    .sheet__meta strong { display: block; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; }
+  `;
+  win.document.open();
+  win.document.write(
+    `<!DOCTYPE html><html><head><title>${title}</title><style>${styles}</style></head>`
+    + `<body>${element.outerHTML}</body></html>`,
+  );
+  win.document.close();
+  win.focus();
+  win.onload = () => {
+    win.print();
+  };
+  // Some browsers fire print more reliably after a short delay.
+  window.setTimeout(() => {
+    try { win.print(); } catch { /* ignore */ }
+  }, 250);
+}
+
+function barcodeBars(seed: string): number[] {
+  const chars = seed || 'YESWEIGH';
+  const bars: number[] = [];
+  for (let i = 0; i < 42; i += 1) {
+    const code = chars.charCodeAt(i % chars.length) + i;
+    bars.push(1 + (code % 3));
+  }
+  return bars;
+}
+
 function boxVolumetric(box: ShipmentBoxDraft): number {
   return computeVolumetricWeight(
     box.lengthCm ? Number.parseFloat(box.lengthCm) : null,
@@ -72,8 +171,11 @@ interface BookCourierFlowProps {
   user: User;
   initialDraft?: Partial<LogisticsBookingDraft>;
   initialDealerQuery?: string;
+  initialStep?: BookCourierStep;
+  existingBookingId?: string | null;
   onClose: () => void;
   onComplete: (booking: LogisticsBooking) => void;
+  onDraftSaved?: (booking: LogisticsBooking) => void;
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -87,11 +189,14 @@ function fileToDataUrl(file: File): Promise<string> {
 
 function StepProgress({ step }: { step: BookCourierStep }) {
   const activeIndex = bookStepProgressIndex(step);
+  const total = BOOK_COURIER_STEPS.length;
+  const allDone = step === 'complete' || activeIndex >= total;
+
   return (
     <ol className="book-courier__progress" aria-label="Booking progress">
       {BOOK_COURIER_STEPS.map((item, index) => {
-        const done = index < activeIndex;
-        const current = index === activeIndex;
+        const done = allDone || index < activeIndex;
+        const current = !allDone && index === activeIndex;
         return (
           <li
             key={item.id}
@@ -100,6 +205,7 @@ function StepProgress({ step }: { step: BookCourierStep }) {
               done ? 'is-done' : '',
               current ? 'is-current' : '',
             ].filter(Boolean).join(' ')}
+            aria-current={current ? 'step' : undefined}
           >
             <span className="book-courier__progress-dot" aria-hidden>
               {done ? <Check size={15} strokeWidth={3} /> : index + 1}
@@ -117,21 +223,27 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   user,
   initialDraft,
   initialDealerQuery,
+  initialStep = 'scan',
+  existingBookingId = null,
   onClose,
   onComplete,
+  onDraftSaved,
 }) => {
-  const [step, setStep] = useState<BookCourierStep>('scan');
+  const [step, setStep] = useState<BookCourierStep>(initialStep);
   const [draft, setDraft] = useState<LogisticsBookingDraft>(() => ({
     ...emptyBookingDraft(partnerId),
     ...initialDraft,
     partnerId,
+    boxes: initialDraft?.boxes?.length ? initialDraft.boxes : emptyBookingDraft(partnerId).boxes,
   }));
+  const [draftBookingId, setDraftBookingId] = useState<string | null>(existingBookingId);
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [dealerQuery, setDealerQuery] = useState(initialDealerQuery ?? '');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
   const [dealersLoading, setDealersLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [editingCourier, setEditingCourier] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [shipFromOpen, setShipFromOpen] = useState(false);
@@ -140,7 +252,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     head_office: '',
   });
   const shipFromRef = useRef<HTMLDivElement>(null);
-  const finalPhotoInputRef = useRef<HTMLInputElement>(null);
+  const shippingLabelRef = useRef<HTMLDivElement>(null);
+  const courierLabelRef = useRef<HTMLDivElement>(null);
+  const finalPhotoAttachInputRef = useRef<HTMLInputElement>(null);
+  const finalPhotoCaptureInputRef = useRef<HTMLInputElement>(null);
 
   const selectedDealer = useMemo<LogisticsDealerSnapshot | null>(() => {
     const dealer = dealers.find(item => item.id === draft.zohoCustomerId);
@@ -332,6 +447,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         draft,
         dealer: selectedDealer,
         createdBy: user,
+        existingBookingId: draftBookingId,
       });
       setBooking(created);
       setStep('complete');
@@ -340,7 +456,30 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [draft, selectedDealer, user]);
+  }, [draft, selectedDealer, user, draftBookingId]);
+
+  const handleSaveDraft = useCallback(async () => {
+    if (!selectedDealer) {
+      window.alert('Select a dealer before saving a draft.');
+      return;
+    }
+    setSavingDraft(true);
+    try {
+      const saved = await persistLogisticsBookingDraft({
+        draft,
+        dealer: selectedDealer,
+        createdBy: user,
+        existingBookingId: draftBookingId,
+        wizardStep: step,
+      });
+      setDraftBookingId(saved.id);
+      onDraftSaved?.(saved);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not save draft.');
+    } finally {
+      setSavingDraft(false);
+    }
+  }, [draft, selectedDealer, user, draftBookingId, step, onDraftSaved]);
 
   const handleFinish = useCallback(() => {
     if (booking) onComplete(booking);
@@ -354,6 +493,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     return hasInsidePhoto && (Number.parseFloat(box.weightKg) || 0) > 0;
   });
   const canProceedBox = boxesValid;
+  const canSaveDraft = Boolean(selectedDealer)
+    && (step === 'box' || step === 'review' || step === 'label' || step === 'final_photo');
   const totalActualWeight = draft.boxes.reduce(
     (total, box) => total + (Number.parseFloat(box.weightKg) || 0),
     0,
@@ -365,17 +506,19 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       case 'address': setStep('scan'); break;
       case 'box': setStep('address'); break;
       case 'review': setStep('box'); break;
-      case 'final_photo': setStep('review'); break;
+      case 'label': setStep('review'); break;
+      case 'final_photo': setStep('label'); break;
       case 'complete': break;
       default: onClose();
     }
   };
 
   const stepNumberLabel = (() => {
+    if (step === 'complete') return 'Completed';
     const idx = bookStepProgressIndex(step);
-    if (idx < BOOK_COURIER_STEPS.length) return `Step ${idx + 1} of ${BOOK_COURIER_STEPS.length}`;
-    if (step === 'final_photo') return 'Final package photo';
-    return 'Completed';
+    const current = BOOK_COURIER_STEPS[idx];
+    const stage = current?.label ?? 'Step';
+    return `${stage} · Step ${idx + 1} of ${BOOK_COURIER_STEPS.length}`;
   })();
 
   return createPortal(
@@ -410,7 +553,24 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           <span className="delivery-method-dialog__header-spacer" aria-hidden />
         </header>
 
-        {step !== 'complete' && <StepProgress step={step} />}
+        <StepProgress step={step} />
+
+        {canSaveDraft && (
+          <div className="book-courier__draft-bar">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={savingDraft || saving}
+              onClick={() => void handleSaveDraft()}
+            >
+              {savingDraft
+                ? 'Saving draft…'
+                : draftBookingId
+                  ? 'Update draft'
+                  : 'Save as draft'}
+            </button>
+          </div>
+        )}
 
         <div className="book-courier__body">
           {/* SCREEN 1 — SCAN */}
@@ -820,14 +980,161 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 type="button"
                 className="btn btn-primary book-courier__next"
                 disabled={!boxesValid}
-                onClick={() => setStep('final_photo')}
+                onClick={() => setStep('label')}
               >
                 Next
               </button>
             </section>
           )}
 
-          {/* SCREEN 5 — FINAL PACKAGE PHOTO */}
+          {/* SCREEN 5 — LABELS */}
+          {step === 'label' && selectedDealer && (
+            <section className="book-courier__section">
+              <h3 className="book-courier__section-title">
+                Print <span className="accent">Labels</span>
+              </h3>
+              <p className="book-courier__hint text-muted text-sm">
+                Preview and print the shipping label and courier label, then paste them on the package.
+              </p>
+
+              <div className="book-courier__label-grid">
+                <article className="book-courier__label-card">
+                  <header className="book-courier__label-card-head">
+                    <h4>Shipping label</h4>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => printLabelElement(shippingLabelRef.current, 'Shipping label')}
+                    >
+                      <Printer size={14} aria-hidden />
+                      Print
+                    </button>
+                  </header>
+                  <div className="book-courier__label-preview">
+                    <div
+                      ref={shippingLabelRef}
+                      className="sheet"
+                    >
+                      <div className="sheet__brand">
+                        <strong>{BRAND_NAME}</strong>
+                        <span>Shipping label</span>
+                      </div>
+                      <p className="sheet__row">
+                        <strong>From</strong>
+                        {STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite]}
+                        {'\n'}
+                        {(fromAddresses[draft.shipFromSite] || FIRM_NAME).trim()}
+                      </p>
+                      <p className="sheet__row">
+                        <strong>To</strong>
+                        {selectedDealer.name}
+                        {'\n'}
+                        {selectedDealer.contactPerson} · {selectedDealer.mobile}
+                        {'\n'}
+                        {resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)}
+                      </p>
+                      <div className="sheet__track">
+                        <code>{draft.consignmentNo || '—'}</code>
+                        <div className="sheet__barcode" aria-hidden>
+                          {barcodeBars(draft.consignmentNo).map((w, i) => (
+                            <i key={i} style={{ width: `${w}px` }} />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="sheet__meta">
+                        <div>
+                          <strong>Shipment</strong>
+                          {isEnvelope ? 'Envelope' : `${draft.boxes.length} box(es)`}
+                        </div>
+                        <div>
+                          <strong>Weight</strong>
+                          {totalActualWeight.toFixed(2)} kg
+                        </div>
+                        <div>
+                          <strong>Date</strong>
+                          {draft.bookingDate}
+                        </div>
+                        <div>
+                          <strong>Partner</strong>
+                          {logisticsPartnerLabel(partnerId)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+
+                <article className="book-courier__label-card">
+                  <header className="book-courier__label-card-head">
+                    <h4>Courier label</h4>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => printLabelElement(courierLabelRef.current, 'Courier label')}
+                    >
+                      <Printer size={14} aria-hidden />
+                      Print
+                    </button>
+                  </header>
+                  <div className="book-courier__label-preview">
+                    <div
+                      ref={courierLabelRef}
+                      className="sheet sheet--courier"
+                    >
+                      <div className="sheet__brand">
+                        <strong>{logisticsPartnerLabel(partnerId)}</strong>
+                        <span>Courier label</span>
+                      </div>
+                      <div className="sheet__track">
+                        <code>{draft.consignmentNo || '—'}</code>
+                        <div className="sheet__barcode" aria-hidden>
+                          {barcodeBars(`${partnerId}-${draft.consignmentNo}`).map((w, i) => (
+                            <i key={i} style={{ width: `${w}px` }} />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="sheet__row">
+                        <strong>Deliver to</strong>
+                        {selectedDealer.name}
+                        {'\n'}
+                        {resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)}
+                      </p>
+                      <div className="sheet__meta">
+                        <div>
+                          <strong>Service</strong>
+                          {draft.serviceType || '—'}
+                        </div>
+                        <div>
+                          <strong>Branch</strong>
+                          {draft.branch || '—'}
+                        </div>
+                        <div>
+                          <strong>Pieces</strong>
+                          {isEnvelope ? '1' : String(draft.boxes.length)}
+                        </div>
+                        <div>
+                          <strong>Weight</strong>
+                          {totalActualWeight.toFixed(2)} kg
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary book-courier__next"
+                onClick={() => {
+                  updateDraft('labelGenerated', true);
+                  setStep('final_photo');
+                }}
+              >
+                Next
+              </button>
+            </section>
+          )}
+
+          {/* SCREEN 6 — FINAL PACKAGE PHOTO */}
           {step === 'final_photo' && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
@@ -840,26 +1147,52 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               {draft.finalPackagePhoto ? (
                 <div className="book-courier__final-photo">
                   <img src={draft.finalPackagePhoto} alt="Final package" onClick={() => setPreviewPhoto(draft.finalPackagePhoto)} />
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => finalPhotoInputRef.current?.click()}
-                  >
-                    <Camera size={14} aria-hidden /> Retake
-                  </button>
+                  <div className="book-courier__final-photo-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => finalPhotoAttachInputRef.current?.click()}
+                    >
+                      <ImagePlus size={14} aria-hidden /> Replace
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => finalPhotoCaptureInputRef.current?.click()}
+                    >
+                      <Camera size={14} aria-hidden /> Retake
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  className="book-courier__scan-visual book-courier__scan-visual--button"
-                  onClick={() => finalPhotoInputRef.current?.click()}
-                >
-                  <Camera size={40} strokeWidth={1.25} aria-hidden />
-                  <span>Tap to capture package photo</span>
-                </button>
+                <div className="book-courier__final-photo-actions">
+                  <button
+                    type="button"
+                    className="book-courier__scan-visual book-courier__scan-visual--button"
+                    onClick={() => finalPhotoAttachInputRef.current?.click()}
+                  >
+                    <ImagePlus size={36} strokeWidth={1.25} aria-hidden />
+                    <span>Attach package photo</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="book-courier__scan-visual book-courier__scan-visual--button"
+                    onClick={() => finalPhotoCaptureInputRef.current?.click()}
+                  >
+                    <Camera size={36} strokeWidth={1.25} aria-hidden />
+                    <span>Capture package photo</span>
+                  </button>
+                </div>
               )}
               <input
-                ref={finalPhotoInputRef}
+                ref={finalPhotoAttachInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={event => void handleFinalPhotoChange(event.target.files?.[0])}
+              />
+              <input
+                ref={finalPhotoCaptureInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
@@ -940,7 +1273,8 @@ const BoxCard: React.FC<BoxCardProps> = ({
   onPreview,
   onRemoveBox,
 }) => {
-  const photoInputRef = useRef<HTMLInputElement>(null);
+  const photoAttachInputRef = useRef<HTMLInputElement>(null);
+  const photoCaptureInputRef = useRef<HTMLInputElement>(null);
   const volumetric = boxVolumetric(box);
 
   return (
@@ -1039,15 +1373,34 @@ const BoxCard: React.FC<BoxCardProps> = ({
         <button
           type="button"
           className="book-courier__photo-add"
-          onClick={() => photoInputRef.current?.click()}
+          onClick={() => photoAttachInputRef.current?.click()}
+        >
+          <ImagePlus size={20} aria-hidden />
+          <span>{box.photos.length === 0 ? 'Attach inside' : 'Attach'}</span>
+          {box.photos.length > 0 && <em className="book-courier__photo-add-opt">Optional</em>}
+        </button>
+        <button
+          type="button"
+          className="book-courier__photo-add"
+          onClick={() => photoCaptureInputRef.current?.click()}
         >
           <Camera size={20} aria-hidden />
-          <span>{box.photos.length === 0 ? 'Add inside photo' : 'Add photo'}</span>
+          <span>{box.photos.length === 0 ? 'Capture inside' : 'Capture'}</span>
           {box.photos.length > 0 && <em className="book-courier__photo-add-opt">Optional</em>}
         </button>
       </div>
       <input
-        ref={photoInputRef}
+        ref={photoAttachInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={event => {
+          onAddPhoto(event.target.files?.[0]);
+          event.target.value = '';
+        }}
+      />
+      <input
+        ref={photoCaptureInputRef}
         type="file"
         accept="image/*"
         capture="environment"

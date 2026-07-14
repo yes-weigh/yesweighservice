@@ -19,16 +19,20 @@ import {
   canCreateLogisticsBooking,
   cancelLogisticsBooking,
   deleteLogisticsBookingPermanently,
+  fetchLogisticsBooking,
+  bookingToWizardState,
   subscribeLogisticsBookings,
   updateLogisticsBookingStatus,
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
 import { isInternalOpsUser } from '../../lib/staffAccess';
-import type { LogisticsBooking, LogisticsBookingStatus } from '../../types/logistics-dispatch';
+import type { LogisticsBooking, LogisticsBookingDraft, LogisticsBookingStatus } from '../../types/logistics-dispatch';
 import {
   LOGISTICS_ENTRY_STATE_KEY,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
+import type { BookCourierStep } from '../../lib/logisticsBooking';
+import { emptyShipmentBoxDraft } from '../../lib/logisticsBooking';
 
 type FlowStep = 'closed' | 'partner' | 'book';
 
@@ -51,6 +55,10 @@ export const LogisticsPage: React.FC = () => {
   const [flowStep, setFlowStep] = useState<FlowStep>('closed');
   const [selectedPartnerId, setSelectedPartnerId] = useState<LogisticsPartnerId | null>(null);
   const [pendingEntry, setPendingEntry] = useState<LogisticsEntryState | null>(null);
+  const [resumeBookingId, setResumeBookingId] = useState<string | null>(null);
+  const [resumeDraft, setResumeDraft] = useState<Partial<LogisticsBookingDraft> | null>(null);
+  const [resumeStep, setResumeStep] = useState<BookCourierStep | undefined>(undefined);
+  const [resumeDealerQuery, setResumeDealerQuery] = useState<string | undefined>(undefined);
   const [bookings, setBookings] = useState<LogisticsBooking[]>([]);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,7 +120,39 @@ export const LogisticsPage: React.FC = () => {
     setFlowStep('closed');
     setSelectedPartnerId(null);
     setPendingEntry(null);
+    setResumeBookingId(null);
+    setResumeDraft(null);
+    setResumeStep(undefined);
+    setResumeDealerQuery(undefined);
   }, []);
+
+  const openResumeDraft = useCallback(async (booking: LogisticsBooking) => {
+    if (!canCreate) return;
+    setError('');
+    try {
+      const hydrated = await fetchLogisticsBooking(booking.id) ?? booking;
+      const wizard = bookingToWizardState(hydrated);
+      const draft: Partial<LogisticsBookingDraft> = {
+        ...wizard.draft,
+        boxes: wizard.draft.boxes.length ? wizard.draft.boxes : [emptyShipmentBoxDraft()],
+      };
+      const step = (
+        ['scan', 'address', 'box', 'review', 'label', 'final_photo'] as BookCourierStep[]
+      ).includes(wizard.step as BookCourierStep)
+        ? wizard.step as BookCourierStep
+        : 'box';
+      setResumeBookingId(hydrated.id);
+      setResumeDraft(draft);
+      setResumeStep(step);
+      setResumeDealerQuery(wizard.dealerQuery);
+      setSelectedPartnerId(hydrated.partnerId);
+      setPendingEntry(null);
+      setActiveBookingId(null);
+      setFlowStep('book');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not open draft.');
+    }
+  }, [canCreate]);
 
   const handlePartnerSelect = useCallback((methodId: string) => {
     if (!isLogisticsPartnerId(methodId)) return;
@@ -372,7 +412,13 @@ export const LogisticsPage: React.FC = () => {
                   <button
                     type="button"
                     className="logistics-page__entry logistics-page__entry--button"
-                    onClick={() => setActiveBookingId(booking.id)}
+                    onClick={() => {
+                      if (booking.status === 'draft') {
+                        void openResumeDraft(booking);
+                        return;
+                      }
+                      setActiveBookingId(booking.id);
+                    }}
                   >
                     <span className="logistics-page__entry-logo-wrap" aria-hidden>
                       {partner ? (
@@ -425,10 +471,15 @@ export const LogisticsPage: React.FC = () => {
         <BookCourierFlow
           partnerId={selectedPartnerId}
           user={user}
-          initialDraft={pendingEntry?.draftPatch}
-          initialDealerQuery={pendingEntry?.dealerQuery}
+          initialDraft={resumeDraft ?? pendingEntry?.draftPatch}
+          initialDealerQuery={resumeDealerQuery ?? pendingEntry?.dealerQuery}
+          initialStep={resumeStep}
+          existingBookingId={resumeBookingId}
           onClose={closeFlow}
           onComplete={handleBookingComplete}
+          onDraftSaved={() => {
+            closeFlow();
+          }}
         />
       )}
     </div>

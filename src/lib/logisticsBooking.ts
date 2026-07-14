@@ -24,6 +24,7 @@ export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
   id: LogisticsBookingStatus;
   label: string;
 }> = [
+  { id: 'draft', label: 'Draft' },
   { id: 'booked', label: 'Booked' },
   { id: 'label_generated', label: 'Label Generated' },
   { id: 'in_transit', label: 'In Transit' },
@@ -71,6 +72,9 @@ export function statusForDocument(
   if (current === 'cancelled' || current === 'delivered' || current === 'in_transit') {
     return current;
   }
+  if (current === 'draft') {
+    return document === 'shipping_label' ? 'label_generated' : 'booked';
+  }
   const target: LogisticsBookingStatus = document === 'shipping_label' ? 'label_generated' : 'booked';
   return bookingStatusIndex(current) >= bookingStatusIndex(target) ? current : target;
 }
@@ -95,17 +99,20 @@ export type BookCourierStep =
   | 'final_photo'
   | 'complete';
 
+/** Visible wizard stages (excludes terminal `complete`). */
 export const BOOK_COURIER_STEPS: ReadonlyArray<{ id: BookCourierStep; label: string }> = [
-  { id: 'scan', label: 'Scan Code' },
+  { id: 'scan', label: 'Scan' },
   { id: 'address', label: 'Address' },
-  { id: 'box', label: 'Box Details' },
+  { id: 'box', label: 'Box' },
   { id: 'review', label: 'Review' },
+  { id: 'label', label: 'Label' },
+  { id: 'final_photo', label: 'Photo' },
 ];
 
 export function bookStepProgressIndex(step: BookCourierStep): number {
+  if (step === 'complete') return BOOK_COURIER_STEPS.length;
   const idx = BOOK_COURIER_STEPS.findIndex(item => item.id === step);
-  if (idx >= 0) return idx;
-  return BOOK_COURIER_STEPS.length;
+  return idx >= 0 ? idx : 0;
 }
 
 const PARTNER_BRANCH: Record<LogisticsPartnerId, string> = {
@@ -183,10 +190,12 @@ export function parseCourierBarcode(
 }
 
 export function bookingStatusIndex(status: LogisticsBookingStatus): number {
-  const visible = LOGISTICS_BOOKING_STATUSES.filter(item => item.id !== 'cancelled');
+  const visible = LOGISTICS_BOOKING_STATUSES.filter(
+    item => item.id !== 'cancelled' && item.id !== 'draft',
+  );
   const idx = visible.findIndex(item => item.id === status);
   if (idx >= 0) return idx;
-  if (status === 'cancelled') return -1;
+  if (status === 'cancelled' || status === 'draft') return -1;
   return 0;
 }
 

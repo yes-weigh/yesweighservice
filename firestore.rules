@@ -690,11 +690,11 @@ service cloud.firestore {
       return isOpsUser()
         && data.partnerId is string
         && data.consignmentNo is string
-        && data.consignmentNo.size() > 0
+        && (data.status == 'draft' || data.consignmentNo.size() > 0)
         && data.zohoCustomerId is string
         && data.dealerId is string
         && data.dealerSnapshot is map
-        && data.status == 'booked'
+        && (data.status == 'booked' || data.status == 'draft')
         && data.createdByUid == request.auth.uid
         && data.createdAt is string
         && data.updatedAt is string;
