@@ -70,6 +70,14 @@ import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGro
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
+import {
+  buildSpareNavState,
+  clearSpareReturnFocus,
+  peekSpareReturnFocus,
+  type CatalogNavState,
+  type SpareCatalogViewMode,
+  type SpareListFiltersSnapshot,
+} from '../../lib/catalogNav';
 
 type CatalogFocus =
   | 'browse'
@@ -136,7 +144,8 @@ function useIsMobile(breakpoint = 768) {
 }
 
 export const CatalogPage: React.FC = () => {
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
@@ -173,8 +182,10 @@ export const CatalogPage: React.FC = () => {
   const [spareLocationFilters, setSpareLocationFilters] = useState<Set<SpareWarehouseLocationFilter>>(() => new Set());
   const [spareAuditStatusFilters, setSpareAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
   const [sparesFiltersOpen, setSparesFiltersOpen] = useState(false);
-  const [spareViewMode, setSpareViewMode] = useState<'items' | 'rack'>('items');
+  const [spareViewMode, setSpareViewMode] = useState<SpareCatalogViewMode>('items');
   const [spareQrScannerOpen, setSpareQrScannerOpen] = useState(false);
+  const [highlightProductId, setHighlightProductId] = useState<string | null>(null);
+  const [highlightRackId, setHighlightRackId] = useState<string | null>(null);
   const [productCatalogFilters, setProductCatalogFilters] = useState<Set<CategorizedProductFilter>>(() => new Set());
   const [productStockStatusFilters, setProductStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
   const [productAuditStatusFilters, setProductAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
@@ -895,13 +906,89 @@ export const CatalogPage: React.FC = () => {
     || spareLocationFilters.size > 0
     || spareAuditStatusFilters.size > 0;
 
+  const spareReturnAppliedRef = useRef(false);
+
   useEffect(() => {
     if (focus !== 'all-spares') {
       setSparesFiltersOpen(false);
       setSpareViewMode('items');
       setSpareQrScannerOpen(false);
+      setHighlightProductId(null);
+      setHighlightRackId(null);
+      spareReturnAppliedRef.current = false;
     }
   }, [focus]);
+
+  const spareListFiltersSnapshot = useCallback((): SpareListFiltersSnapshot => ({
+    catalog: [...spareCatalogFilters],
+    stockStatus: [...spareStockStatusFilters],
+    location: [...spareLocationFilters],
+    auditStatus: [...spareAuditStatusFilters],
+  }), [
+    spareCatalogFilters,
+    spareStockStatusFilters,
+    spareLocationFilters,
+    spareAuditStatusFilters,
+  ]);
+
+  const restoreSpareListFilters = useCallback((snapshot?: SpareListFiltersSnapshot | null) => {
+    if (!snapshot) return;
+    setSpareCatalogFilters(new Set(snapshot.catalog as SpareCatalogFilter[]));
+    setSpareStockStatusFilters(new Set(snapshot.stockStatus as SpareStockStatusFilter[]));
+    setSpareLocationFilters(new Set(snapshot.location as SpareWarehouseLocationFilter[]));
+    setSpareAuditStatusFilters(new Set(snapshot.auditStatus as SpareAuditStatusFilter[]));
+  }, []);
+
+  // Restore spare list/rack context + highlight after returning from detail.
+  useEffect(() => {
+    if (focus !== 'all-spares') return;
+    if (spareReturnAppliedRef.current) return;
+
+    const navState = (location.state as CatalogNavState | null) ?? null;
+    const stored = peekSpareReturnFocus();
+    const hasReturn = Boolean(
+      navState?.focusProductId
+      || navState?.spareViewMode
+      || navState?.focusRackId
+      || navState?.spareFilters
+      || navState?.searchQuery
+      || stored?.productId
+      || stored?.spareFilters
+      || stored?.searchQuery,
+    );
+    if (!hasReturn) return;
+
+    spareReturnAppliedRef.current = true;
+    const productId = navState?.focusProductId ?? stored?.productId ?? null;
+    const viewMode: SpareCatalogViewMode = navState?.spareViewMode
+      ?? stored?.viewMode
+      ?? (navState?.origin === 'spares-rack' || stored?.origin === 'spares-rack' ? 'rack' : 'items');
+    const rackId = navState?.focusRackId ?? stored?.rackId ?? null;
+    const filters = navState?.spareFilters ?? stored?.spareFilters ?? null;
+    const query = navState?.searchQuery ?? stored?.searchQuery;
+
+    setSpareViewMode(viewMode);
+    restoreSpareListFilters(filters);
+    if (query != null && query !== '') {
+      setSearchQuery(query);
+    }
+    if (rackId) setHighlightRackId(rackId);
+    if (productId) {
+      setHighlightProductId(productId);
+      window.setTimeout(() => setHighlightProductId(null), 5000);
+    }
+    clearSpareReturnFocus();
+
+    if (
+      navState?.focusProductId
+      || navState?.spareViewMode
+      || navState?.focusRackId
+      || navState?.spareFilters
+      || navState?.searchQuery
+    ) {
+      navigate({ pathname, search: searchParams.toString() }, { replace: true, state: null });
+    }
+  }, [focus, location.key, location.state, navigate, pathname, searchParams, restoreSpareListFilters]);
 
   useEffect(() => {
     if (focus !== 'browse') setProductsFiltersOpen(false);
@@ -937,9 +1024,41 @@ export const CatalogPage: React.FC = () => {
     const match = resolveSpareFromScan(value);
     if (!match) return false;
     setSpareQrScannerOpen(false);
-    navigate(`${pathname}/spare/${match.id}`);
+    navigate(`${pathname}/spare/${match.id}`, {
+      state: buildSpareNavState(match, {
+        origin: 'spares-qr',
+        spareViewMode: 'items',
+        searchQuery: searchQuery.trim() || undefined,
+        spareFilters: spareListFiltersSnapshot(),
+      }),
+    });
     return true;
-  }, [resolveSpareFromScan, navigate, pathname]);
+  }, [resolveSpareFromScan, navigate, pathname, searchQuery, spareListFiltersSnapshot]);
+
+  const openSpareFromRack = useCallback((productId: string, rackId: string) => {
+    const product = spareParts.find(p => p.id === productId)
+      ?? ({ id: productId } as CatalogProduct);
+    navigate(`${pathname}/spare/${productId}`, {
+      state: buildSpareNavState(product, {
+        origin: 'spares-rack',
+        spareViewMode: 'rack',
+        focusRackId: rackId,
+        searchQuery: searchQuery.trim() || undefined,
+        spareFilters: spareListFiltersSnapshot(),
+      }),
+    });
+  }, [navigate, pathname, spareParts, searchQuery, spareListFiltersSnapshot]);
+
+  const openSpareFromFilteredList = useCallback((product: CatalogProduct) => {
+    navigate(`${pathname}/spare/${product.id}`, {
+      state: buildSpareNavState(product, {
+        origin: 'spares',
+        spareViewMode: 'items',
+        searchQuery: searchQuery.trim() || undefined,
+        spareFilters: spareListFiltersSnapshot(),
+      }),
+    });
+  }, [navigate, pathname, searchQuery, spareListFiltersSnapshot]);
 
   const sparesFilterButton = useMemo(
     () => (
@@ -1075,7 +1194,7 @@ export const CatalogPage: React.FC = () => {
         <Search size={15} aria-hidden />
         <input
           type="search"
-          placeholder={isMobile ? 'Search products, spare parts…' : 'Search products, spare parts, SKU…'}
+          placeholder="Search products"
           value={searchQuery}
           onChange={e => handleSearchChange(e.target.value)}
           onFocus={() => setSearchFocused(true)}
@@ -1100,7 +1219,7 @@ export const CatalogPage: React.FC = () => {
         )}
       </div>
     ),
-    [searchQuery, handleSearchChange, focus, isSuperAdmin, setAdminSection, setFocus, isMobile],
+    [searchQuery, handleSearchChange, focus, isSuperAdmin, setAdminSection, setFocus],
   );
 
   usePageHeaderSlot(headerSearch, showHeaderSearch);
@@ -1510,7 +1629,9 @@ export const CatalogPage: React.FC = () => {
               spareProductIds={spareProductIds}
               catalogByProductId={spareCatalogByProductId}
               loading={auditLoading}
-              onSkuClick={productId => navigate(`${pathname}/spare/${productId}`)}
+              highlightedProductId={highlightProductId}
+              initialRackId={highlightRackId}
+              onSkuClick={openSpareFromRack}
             />
           ) : (
             <CatalogBrowse
@@ -1528,6 +1649,8 @@ export const CatalogPage: React.FC = () => {
               enableCart={canUseCart(user?.role)}
               showStockQuantity={showStockQuantity}
               returnView="spares"
+              highlightedProductId={highlightProductId}
+              onProductSelect={openSpareFromFilteredList}
               auditedLocationByProductId={auditedLocationByProductId}
               manageItemLabel={isSuperAdmin && canSync && spareCatalogFilters.has('unmapped') ? 'Link to products' : undefined}
               onManageItem={

@@ -91,6 +91,8 @@ import type { YesStoreItemDoc } from '../../types/yes-store';
 import {
   buildProductNavState,
   buildSpareNavState,
+  isSparePartsListOrigin,
+  normalizeCatalogOrigin,
   type CatalogNavState,
 } from '../../lib/catalogNav';
 import {
@@ -178,13 +180,20 @@ export const ProductDetailView: React.FC<{
   const navigate = useNavigate();
   const { user } = useAuth();
   const goBack = useCallback(() => {
+    const origin = normalizeCatalogOrigin(currentNavState);
+    // Spare list/rack/QR: restore explicit context instead of blind history back.
+    if (isSparePartsListOrigin(origin) || origin === 'unlinked') {
+      if (backState) navigate(backPath, { state: backState });
+      else navigate(backPath);
+      return;
+    }
     if (canNavigateBackInApp()) {
       navigate(-1);
       return;
     }
     if (backState) navigate(backPath, { state: backState });
     else navigate(backPath);
-  }, [backPath, backState, navigate]);
+  }, [backPath, backState, navigate, currentNavState]);
   const { addItem, getQuantity } = useCart();
   const { flyToCart } = useCartFly();
   const confirm = useConfirm();

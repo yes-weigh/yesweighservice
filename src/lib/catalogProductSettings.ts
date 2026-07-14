@@ -431,12 +431,13 @@ export async function attachApprovalNumberPdf(
   const stamp = Date.now();
   const storagePath = `productSettings/approvalPdfs/${sanitizeApprovalPathSegment(value)}-${stamp}.pdf`;
   const storageRef = ref(storage, storagePath);
-  await uploadBytes(storageRef, file, {
+  // Avoid customMetadata — values like "IND/09/19/602" can break GCS metadata headers
+  // and surface as storage/unauthorized even when rules would allow the write.
+  const pdfBlob = file.type === 'application/pdf'
+    ? file
+    : new Blob([await file.arrayBuffer()], { type: 'application/pdf' });
+  await uploadBytes(storageRef, pdfBlob, {
     contentType: 'application/pdf',
-    customMetadata: {
-      approvalNumber: value,
-      originalName: file.name.slice(0, 180),
-    },
   });
   const pdfUrl = await getDownloadURL(storageRef);
 

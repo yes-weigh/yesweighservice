@@ -4,10 +4,21 @@ export type CatalogNavOrigin =
   | 'browse'
   | 'search'
   | 'spares'
+  | 'spares-rack'
+  | 'spares-qr'
   | 'unlinked'
   | 'map'
   | 'product'
   | 'spare';
+
+export type SpareCatalogViewMode = 'items' | 'rack';
+
+export interface SpareListFiltersSnapshot {
+  catalog: string[];
+  stockStatus: string[];
+  location: string[];
+  auditStatus: string[];
+}
 
 export interface CatalogNavState {
   preview?: CatalogProduct;
@@ -24,6 +35,59 @@ export interface CatalogNavState {
   searchQuery?: string;
   backTo?: string;
   backToState?: CatalogNavState | null;
+  /** Restore spare-parts list vs rack view after detail back. */
+  spareViewMode?: SpareCatalogViewMode;
+  /** Product/SKU to emphasize after returning to spare list or rack. */
+  focusProductId?: string;
+  /** Rack letter to restore when returning from rack-view SKU tap. */
+  focusRackId?: string | null;
+  /** Spare list filters to restore after detail back. */
+  spareFilters?: SpareListFiltersSnapshot;
+}
+
+export interface SpareReturnFocus {
+  productId: string;
+  origin: CatalogNavOrigin;
+  viewMode: SpareCatalogViewMode;
+  rackId?: string | null;
+  searchQuery?: string;
+  spareFilters?: SpareListFiltersSnapshot;
+  savedAt: number;
+}
+
+const SPARE_RETURN_FOCUS_KEY = 'yesweigh.catalog.spareReturnFocus';
+
+export function rememberSpareReturnFocus(focus: Omit<SpareReturnFocus, 'savedAt'>): void {
+  try {
+    const payload: SpareReturnFocus = { ...focus, savedAt: Date.now() };
+    sessionStorage.setItem(SPARE_RETURN_FOCUS_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+export function peekSpareReturnFocus(maxAgeMs = 30 * 60 * 1000): SpareReturnFocus | null {
+  try {
+    const raw = sessionStorage.getItem(SPARE_RETURN_FOCUS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SpareReturnFocus;
+    if (!parsed?.productId || !parsed.origin) return null;
+    if (Date.now() - Number(parsed.savedAt || 0) > maxAgeMs) {
+      sessionStorage.removeItem(SPARE_RETURN_FOCUS_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSpareReturnFocus(): void {
+  try {
+    sessionStorage.removeItem(SPARE_RETURN_FOCUS_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function normalizeCatalogOrigin(
@@ -68,11 +132,15 @@ export function buildSpareNavState(
     parentProduct?: CatalogProduct;
     returnCategoryId?: string;
     searchQuery?: string;
+    spareViewMode?: SpareCatalogViewMode;
+    focusRackId?: string | null;
+    spareFilters?: SpareListFiltersSnapshot;
   },
 ): CatalogNavState {
   const state: CatalogNavState = {
     preview: spare,
     origin: ctx.origin,
+    focusProductId: spare.id,
   };
   if (ctx.parentProduct) {
     state.parentProductId = ctx.parentProduct.id;
@@ -80,9 +148,28 @@ export function buildSpareNavState(
     state.returnCategoryId = ctx.returnCategoryId ?? ctx.parentProduct.categoryId ?? '';
   }
   if (ctx.searchQuery?.trim()) state.searchQuery = ctx.searchQuery.trim();
+  if (ctx.spareViewMode) state.spareViewMode = ctx.spareViewMode;
+  if (ctx.focusRackId) state.focusRackId = ctx.focusRackId;
+  if (ctx.spareFilters) state.spareFilters = ctx.spareFilters;
   if (ctx.origin === 'unlinked') state.returnView = 'unlinked';
-  if (ctx.origin === 'spares') state.returnView = 'spares';
+  if (ctx.origin === 'spares' || ctx.origin === 'spares-rack' || ctx.origin === 'spares-qr') {
+    state.returnView = 'spares';
+    state.spareViewMode = ctx.spareViewMode
+      ?? (ctx.origin === 'spares-rack' ? 'rack' : 'items');
+  }
   if (ctx.origin === 'map') state.returnView = 'map';
+
+  if (ctx.origin === 'spares' || ctx.origin === 'spares-rack' || ctx.origin === 'spares-qr') {
+    rememberSpareReturnFocus({
+      productId: spare.id,
+      origin: ctx.origin,
+      viewMode: state.spareViewMode ?? 'items',
+      rackId: ctx.focusRackId ?? null,
+      searchQuery: state.searchQuery,
+      spareFilters: ctx.spareFilters,
+    });
+  }
+
   return state;
 }
 
@@ -96,6 +183,22 @@ function catalogListPath(
 function catalogSearchPath(catalogBase: string, query?: string): string {
   const q = query?.trim();
   return q ? `${catalogBase}?q=${encodeURIComponent(q)}` : catalogBase;
+}
+
+function sparePartsBackState(navState: CatalogNavState | null | undefined): CatalogNavState {
+  const focus = peekSpareReturnFocus();
+  const origin = normalizeCatalogOrigin(navState) ?? focus?.origin ?? 'spares';
+  return {
+    origin: origin === 'spares-rack' || origin === 'spares-qr' ? origin : 'spares',
+    returnView: 'spares',
+    spareViewMode: navState?.spareViewMode
+      ?? focus?.viewMode
+      ?? (origin === 'spares-rack' ? 'rack' : 'items'),
+    focusProductId: navState?.focusProductId ?? focus?.productId,
+    focusRackId: navState?.focusRackId ?? focus?.rackId ?? null,
+    searchQuery: navState?.searchQuery ?? focus?.searchQuery,
+    spareFilters: navState?.spareFilters ?? focus?.spareFilters,
+  };
 }
 
 export function resolveCatalogBack(
@@ -152,11 +255,12 @@ export function resolveCatalogBack(
       };
     }
 
-    if (origin === 'spares') {
+    if (origin === 'spares' || origin === 'spares-rack' || origin === 'spares-qr') {
+      const restored = sparePartsBackState(navState);
       return {
         path: catalogListPath(catalogBase, 'spares'),
-        state: null,
-        label: 'Back to spare parts',
+        state: restored,
+        label: origin === 'spares-rack' ? 'Back to rack view' : 'Back to spare parts',
       };
     }
 
@@ -176,6 +280,15 @@ export function resolveCatalogBack(
           returnCategoryId: navState.returnCategoryId ?? '',
         },
         label: 'Back to product',
+      };
+    }
+
+    const focus = peekSpareReturnFocus();
+    if (focus) {
+      return {
+        path: catalogListPath(catalogBase, 'spares'),
+        state: sparePartsBackState(navState),
+        label: focus.viewMode === 'rack' ? 'Back to rack view' : 'Back to spare parts',
       };
     }
 
@@ -233,4 +346,11 @@ export function catalogOriginFromReturnView(returnView?: string): CatalogNavOrig
   if (returnView === 'spares') return 'spares';
   if (returnView === 'map') return 'map';
   return 'browse';
+}
+
+/** Origins that should restore spare-parts list/rack context on back. */
+export function isSparePartsListOrigin(origin?: CatalogNavOrigin | null): boolean {
+  return origin === 'spares'
+    || origin === 'spares-rack'
+    || origin === 'spares-qr';
 }

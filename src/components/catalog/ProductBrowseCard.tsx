@@ -25,6 +25,8 @@ export interface ProductBrowseCardProps {
   openNcCount?: number;
   /** Audited location label (Zone·Row or Rack·Row·Bin) — staff/super_admin. */
   auditedLocationLabel?: string | null;
+  /** Emphasize after returning from product detail. */
+  highlighted?: boolean;
   editable?: boolean;
   dragProps?: {
     draggable: boolean;
@@ -56,6 +58,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   warehouseLinked = false,
   openNcCount,
   auditedLocationLabel = null,
+  highlighted = false,
   editable = false,
   dragProps,
 }) => {
@@ -110,7 +113,9 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         inCart ? 'catalog-product-card--in-cart' : '',
         editable ? 'catalog-product-card--editable' : '',
         dragOver ? 'catalog-product-card--drag-over' : '',
+        highlighted ? 'is-focus' : '',
       ].filter(Boolean).join(' ')}
+      data-product-id={product.id}
       onDragOver={editable ? e => {
         e.preventDefault();
         setDragOver(true);

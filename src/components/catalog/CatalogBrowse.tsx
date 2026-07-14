@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -83,6 +83,8 @@ export interface CatalogBrowseProps {
   openNcQtyByProductId?: Map<string, number>;
   /** Staff/super_admin — audited location label per product id. */
   auditedLocationByProductId?: Map<string, string>;
+  /** Emphasize this product after returning from detail. */
+  highlightedProductId?: string | null;
   /** Override default navigation when a product tile is opened. */
   onProductSelect?: (product: CatalogProduct) => void;
 }
@@ -230,6 +232,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   warehouseLinkedProductIds,
   openNcQtyByProductId,
   auditedLocationByProductId,
+  highlightedProductId = null,
   onProductSelect,
 }) => {
   const navigate = useNavigate();
@@ -245,6 +248,16 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   const [stockFilter, setStockFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
+  useEffect(() => {
+    if (!highlightedProductId) return;
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(
+        `.catalog-product-card[data-product-id="${CSS.escape(highlightedProductId)}"]`,
+      );
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [highlightedProductId, products]);
   const openProduct = (product: CatalogProduct) => {
     if (onProductSelect) {
       onProductSelect(product);
@@ -260,6 +273,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
         state = buildSpareNavState(product, {
           origin: catalogOriginFromReturnView(returnView),
           searchQuery: catalogSearchQuery,
+          spareViewMode: 'items',
         });
       } else if (isMapPath) {
         state = buildProductNavState(product, {
@@ -521,6 +535,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
                   openNcCount={openNcQtyByProductId?.get(product.id)}
                   auditedLocationLabel={auditedLocationByProductId?.get(product.id)}
+                  highlighted={highlightedProductId === product.id}
                 />
               ))}
             </div>
