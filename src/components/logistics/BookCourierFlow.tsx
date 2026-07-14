@@ -31,6 +31,7 @@ import {
   bookStepProgressIndex,
   computeVolumetricWeight,
   emptyBookingDraft,
+  emptyShipmentBoxDraft,
   parseCourierBarcode,
   type BookCourierStep,
 } from '../../lib/logisticsBooking';
