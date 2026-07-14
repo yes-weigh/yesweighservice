@@ -4,8 +4,11 @@ import { Printer, Save } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
   HARDCODED_LABEL_PRINTERS,
+  LOGISTICS_LABEL_PRINTER_ID,
   STORE_LABEL_PRINTER_ID,
   emptyLabelStudioDoc,
+  formatLabelMediaSize,
+  getHardcodedPrinterSlot,
   getStoreLabelPrinter,
   loadLabelStudioDoc,
   saveLabelStudioDoc,
@@ -36,6 +39,7 @@ export const LocalPrintersTab: React.FC = () => {
   const platform = Capacitor.getPlatform();
   const previewFields = useMemo(() => toBinLabelFields(draft), [draft]);
   const binLayoutXml = getLabelLayoutTemplateXml(DEFAULT_LABEL_LAYOUT_ID);
+  const storeSlot = getHardcodedPrinterSlot(STORE_LABEL_PRINTER_ID);
 
   const updateDraft = <K extends keyof BinLabelDraft>(key: K, value: BinLabelDraft[K]) => {
     setDraft(prev => {
@@ -79,6 +83,7 @@ export const LocalPrintersTab: React.FC = () => {
     () => getStoreLabelPrinter({
       printers,
       storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
+      logisticsLabelPrinterId: LOGISTICS_LABEL_PRINTER_ID,
       updatedAt: '',
     }),
     [printers],
@@ -94,10 +99,7 @@ export const LocalPrintersTab: React.FC = () => {
     setSuccess('');
     try {
       const saved = await saveLabelStudioDoc(
-        {
-          printers,
-          storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
-        },
+        { printers },
         user?.uid ?? null,
       );
       applyDoc(saved);
@@ -139,8 +141,8 @@ export const LocalPrintersTab: React.FC = () => {
         <div>
           <h3>Label printing</h3>
           <p className="text-muted text-sm">
-            Configure printer IPs. Bin labels use the Genuine Spare layout; product labels use
-            Genuine Spare Product. Port is fixed at {HARDCODED_LABEL_PRINTERS[0]?.port ?? 9100}.
+            Printers and label sizes are fixed by usage. Only set each printer IP.
+            Port is {HARDCODED_LABEL_PRINTERS[0]?.port ?? 9100} for all.
           </p>
         </div>
       </header>
@@ -175,38 +177,45 @@ export const LocalPrintersTab: React.FC = () => {
             </div>
 
             <div className="settings-local-printer__list">
-              {printers.map(printer => (
-                <div
-                  key={printer.id}
-                  className={`settings-logistics__default panel glass settings-local-printer__config${
-                    printer.id === STORE_LABEL_PRINTER_ID
-                      ? ' settings-local-printer__config--store'
-                      : ''
-                  }`}
-                >
-                  <div className="settings-local-printer__config-body settings-local-printer__config-body--flat">
-                    <div className="settings-local-printer__config-title-row">
-                      <h4 className="settings-logistics__title">{printer.name}</h4>
-                      {printer.id === STORE_LABEL_PRINTER_ID && (
-                        <span className="settings-local-printer__role-badge">Store label</span>
-                      )}
+              {HARDCODED_LABEL_PRINTERS.map(slot => {
+                const printer = printers.find(p => p.id === slot.id)
+                  ?? { id: slot.id, name: slot.name, host: '', port: slot.port };
+                return (
+                  <div
+                    key={slot.id}
+                    className={`settings-logistics__default panel glass settings-local-printer__config${
+                      slot.id === STORE_LABEL_PRINTER_ID
+                        ? ' settings-local-printer__config--store'
+                        : ' settings-local-printer__config--logistics'
+                    }`}
+                  >
+                    <div className="settings-local-printer__config-body settings-local-printer__config-body--flat">
+                      <div className="settings-local-printer__config-title-row">
+                        <h4 className="settings-logistics__title">{slot.name}</h4>
+                        <span className="settings-local-printer__role-badge">{slot.roleBadge}</span>
+                      </div>
+                      <p className="text-muted text-sm settings-local-printer__usage">
+                        {slot.usageDescription}
+                        {' · '}
+                        {formatLabelMediaSize(slot.media)}
+                      </p>
+                      <label className="settings-locations__field">
+                        <span>IP address</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={printer.host}
+                          disabled={busyKey === 'save'}
+                          onChange={e => updatePrinterHost(slot.id, e.target.value)}
+                          placeholder="192.168.1.39"
+                        />
+                      </label>
                     </div>
-                    <label className="settings-locations__field">
-                      <span>IP address</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={printer.host}
-                        disabled={busyKey === 'save'}
-                        onChange={e => updatePrinterHost(printer.id, e.target.value)}
-                        placeholder="192.168.1.39"
-                      />
-                    </label>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="settings-logistics__default panel glass">
@@ -216,6 +225,7 @@ export const LocalPrintersTab: React.FC = () => {
                   <p className="text-muted text-sm">
                     Genuine Spare layout · {storeLabelPrinter.name}
                     {' '}({storeLabelPrinter.host || 'no IP'})
+                    {storeSlot ? ` · ${formatLabelMediaSize(storeSlot.media)}` : ''}
                   </p>
                 </div>
                 <div className="settings-local-printer__preview-actions">

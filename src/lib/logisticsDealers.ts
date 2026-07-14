@@ -40,6 +40,21 @@ export function zohoDealerDisplayName(dealer: ZohoDealer): string {
 }
 
 export function zohoDealerToSnapshot(dealer: ZohoDealer): LogisticsDealerSnapshot {
+  const shippingAddress = formatZohoAddressMultiline(
+    dealer.zohoShippingAddress ?? dealer.shippingAddress,
+    dealer.zohoShippingAddressRaw,
+  );
+  const billingAddress = formatZohoAddressMultiline(
+    dealer.zohoBillingAddress ?? dealer.billingAddress,
+    dealer.zohoBillingAddressRaw,
+  );
+  const destinationCity = (
+    dealer.zohoShippingAddressRaw?.city
+    || dealer.zohoBillingAddressRaw?.city
+    || dealer.district
+    || ''
+  ).trim();
+
   return {
     zohoCustomerId: dealer.id,
     dealerId: dealer.portalUserId?.trim() || dealer.id,
@@ -47,14 +62,9 @@ export function zohoDealerToSnapshot(dealer: ZohoDealer): LogisticsDealerSnapsho
     code: dealer.id,
     contactPerson: zohoDealerContactPerson(dealer),
     mobile: zohoDealerMobile(dealer),
-    shippingAddress: formatZohoAddressMultiline(
-      dealer.zohoShippingAddress ?? dealer.shippingAddress,
-      dealer.zohoShippingAddressRaw,
-    ),
-    billingAddress: formatZohoAddressMultiline(
-      dealer.zohoBillingAddress ?? dealer.billingAddress,
-      dealer.zohoBillingAddressRaw,
-    ),
+    shippingAddress,
+    billingAddress,
+    ...(destinationCity ? { destinationCity } : {}),
   };
 }
 

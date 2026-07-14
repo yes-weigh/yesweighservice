@@ -5,9 +5,29 @@ import {
   DEFAULT_LABEL_PRINTER_PORT,
   LABEL_STUDIO_DOC_ID,
   LOCAL_PRINTER_SETTINGS_DOC_ID,
+  LOGISTICS_LABEL_GAP_MM,
+  LOGISTICS_LABEL_HEIGHT_MM,
+  LOGISTICS_LABEL_WIDTH_MM,
+  STORE_LABEL_GAP_MM,
+  STORE_LABEL_HEIGHT_MM,
+  STORE_LABEL_WIDTH_MM,
 } from '../constants/localPrinterSettings';
 
 export const STORE_LABEL_PRINTER_ID = 'store-label';
+export const LOGISTICS_LABEL_PRINTER_ID = 'logistics-label';
+
+/** Hardcoded print jobs — printer + stock size are fixed per usage. */
+export type LabelPrintUsage =
+  | 'catalog_bin'
+  | 'catalog_item'
+  | 'logistics_shipping'
+  | 'logistics_courier';
+
+export interface LabelMediaSize {
+  labelWidthMm: number;
+  labelHeightMm: number;
+  labelGapMm: number;
+}
 
 /** Slim LAN printer — layout is chosen by print context, not stored here. */
 export interface LabelPrinter {
@@ -17,12 +37,42 @@ export interface LabelPrinter {
   port: number;
 }
 
+export interface HardcodedLabelPrinterSlot extends Omit<LabelPrinter, 'host'> {
+  /** Short badge in settings (e.g. "Store label"). */
+  roleBadge: string;
+  /** What this printer is for — shown under the name. */
+  usageDescription: string;
+  media: LabelMediaSize;
+  usages: readonly LabelPrintUsage[];
+}
+
 /** Fixed printer slots — only `host` (IP) is user-configurable. */
-export const HARDCODED_LABEL_PRINTERS: ReadonlyArray<Omit<LabelPrinter, 'host'>> = [
+export const HARDCODED_LABEL_PRINTERS: ReadonlyArray<HardcodedLabelPrinterSlot> = [
   {
     id: STORE_LABEL_PRINTER_ID,
     name: 'Store label printer',
     port: DEFAULT_LABEL_PRINTER_PORT,
+    roleBadge: 'Store label',
+    usageDescription: 'Catalog bin labels and item / product pack labels',
+    media: {
+      labelWidthMm: STORE_LABEL_WIDTH_MM,
+      labelHeightMm: STORE_LABEL_HEIGHT_MM,
+      labelGapMm: STORE_LABEL_GAP_MM,
+    },
+    usages: ['catalog_bin', 'catalog_item'],
+  },
+  {
+    id: LOGISTICS_LABEL_PRINTER_ID,
+    name: 'Logistics label printer',
+    port: DEFAULT_LABEL_PRINTER_PORT,
+    roleBadge: 'Logistics',
+    usageDescription: 'Shipping labels and courier labels',
+    media: {
+      labelWidthMm: LOGISTICS_LABEL_WIDTH_MM,
+      labelHeightMm: LOGISTICS_LABEL_HEIGHT_MM,
+      labelGapMm: LOGISTICS_LABEL_GAP_MM,
+    },
+    usages: ['logistics_shipping', 'logistics_courier'],
   },
 ];
 
@@ -30,6 +80,8 @@ export interface LabelStudioDoc {
   printers: LabelPrinter[];
   /** Default printer for bin / store-room labels. */
   storeLabelPrinterId: string;
+  /** Default printer for shipping / courier labels. */
+  logisticsLabelPrinterId: string;
   updatedAt: string;
   updatedBy?: string | null;
 }
@@ -51,6 +103,29 @@ function hostByPrinterId(rawPrinters: unknown): Map<string, string> {
     if (host) map.set(id, host);
   }
   return map;
+}
+
+export function getHardcodedPrinterSlot(printerId: string): HardcodedLabelPrinterSlot | undefined {
+  return HARDCODED_LABEL_PRINTERS.find(p => p.id === printerId);
+}
+
+export function getPrinterSlotForUsage(usage: LabelPrintUsage): HardcodedLabelPrinterSlot {
+  const slot = HARDCODED_LABEL_PRINTERS.find(p => p.usages.includes(usage));
+  if (!slot) {
+    throw new Error(`No printer configured for usage: ${usage}`);
+  }
+  return slot;
+}
+
+export function getLabelMediaForUsage(usage: LabelPrintUsage): LabelMediaSize {
+  return getPrinterSlotForUsage(usage).media;
+}
+
+export function formatLabelMediaSize(media: LabelMediaSize): string {
+  const h = Number.isInteger(media.labelHeightMm)
+    ? String(media.labelHeightMm)
+    : media.labelHeightMm.toFixed(1);
+  return `${media.labelWidthMm} × ${h} mm`;
 }
 
 /** Build the fixed printer list, applying saved IPs where present. */
@@ -89,11 +164,21 @@ export function emptyStoreLabelPrinter(): LabelPrinter {
   };
 }
 
+export function emptyLogisticsLabelPrinter(): LabelPrinter {
+  return {
+    id: LOGISTICS_LABEL_PRINTER_ID,
+    name: 'Logistics label printer',
+    host: '',
+    port: DEFAULT_LABEL_PRINTER_PORT,
+  };
+}
+
 export function emptyLabelStudioDoc(): LabelStudioDoc {
   const printers = buildHardcodedPrinters();
   return {
     printers,
     storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
+    logisticsLabelPrinterId: LOGISTICS_LABEL_PRINTER_ID,
     updatedAt: '',
   };
 }
@@ -111,6 +196,7 @@ function normalizeStudioPayload(data: Record<string, unknown>): LabelStudioDoc |
   return {
     printers,
     storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
+    logisticsLabelPrinterId: LOGISTICS_LABEL_PRINTER_ID,
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
   };
@@ -124,6 +210,7 @@ function migrateFromLegacyPrintersDoc(data: Record<string, unknown>): LabelStudi
   return {
     printers: buildHardcodedPrinters(hosts),
     storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
+    logisticsLabelPrinterId: LOGISTICS_LABEL_PRINTER_ID,
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
   };
@@ -134,6 +221,22 @@ export function getStoreLabelPrinter(docData: LabelStudioDoc): LabelPrinter {
   if (byId) return byId;
   if (docData.printers[0]) return docData.printers[0];
   return emptyStoreLabelPrinter();
+}
+
+export function getLogisticsLabelPrinter(docData: LabelStudioDoc): LabelPrinter {
+  const byId = docData.printers.find(p => p.id === LOGISTICS_LABEL_PRINTER_ID);
+  if (byId) return byId;
+  return emptyLogisticsLabelPrinter();
+}
+
+/** Resolve the hardcoded printer for a usage from saved settings. */
+export function getPrinterForUsage(
+  docData: LabelStudioDoc,
+  usage: LabelPrintUsage,
+): LabelPrinter {
+  const slot = getPrinterSlotForUsage(usage);
+  return docData.printers.find(p => p.id === slot.id)
+    ?? emptyLabelPrinter({ id: slot.id, name: slot.name, port: slot.port });
 }
 
 export function getPrinterById(docData: LabelStudioDoc, printerId: string): LabelPrinter | null {
@@ -157,7 +260,10 @@ export function validatePrinterHost(host: string): string | null {
 export function validateLabelPrinter(printer: LabelPrinter): string | null {
   const slot = HARDCODED_LABEL_PRINTERS.find(p => p.id === printer.id);
   if (!slot) return `Unknown printer: ${printer.id}`;
-  const hostError = validatePrinterHost(printer.host);
+  const host = printer.host.trim();
+  // Empty IP is allowed in settings (configure later); print paths require a host.
+  if (!host) return null;
+  const hostError = validatePrinterHost(host);
   if (hostError) return `${slot.name}: ${hostError}`;
   return null;
 }
@@ -217,6 +323,7 @@ export async function saveLabelStudioDoc(
   const payload: LabelStudioDoc = {
     printers,
     storeLabelPrinterId: STORE_LABEL_PRINTER_ID,
+    logisticsLabelPrinterId: LOGISTICS_LABEL_PRINTER_ID,
     updatedAt,
     ...(updatedBy ? { updatedBy } : {}),
   };

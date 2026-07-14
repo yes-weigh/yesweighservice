@@ -21,7 +21,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { BRAND_NAME, FIRM_NAME } from '../../constants/brand';
+import { FIRM_NAME } from '../../constants/brand';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { fetchDealerById, fetchDealers } from '../../lib/dealers';
@@ -44,6 +44,10 @@ import {
   persistLogisticsBookingDraft,
 } from '../../lib/logisticsBookings';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
+import {
+  buildShippingLabelViewModel,
+  formatShippingBookingTime,
+} from '../../lib/shippingLabel';
 import type { User } from '../../types';
 import type { ZohoDealer } from '../../types/dealers';
 import type {
@@ -57,6 +61,7 @@ import type {
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { STAFF_LOGISTICS_SITES, STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
 import { BarcodeScanner } from './BarcodeScanner';
+import { ShippingLabelSheet } from './ShippingLabelSheet';
 
 type BoxNumberField = 'lengthCm' | 'widthCm' | 'heightCm' | 'weightKg';
 
@@ -64,88 +69,200 @@ function newPhotoId(): string {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function printLabelElement(element: HTMLElement | null, title: string): void {
-  if (!element || typeof window === 'undefined') return;
-  const win = window.open('', '_blank', 'noopener,noreferrer,width=520,height=760');
+const SHIPPING_LABEL_PRINT_STYLES = `
+  @page { margin: 0; size: 100mm 150mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; }
+  .sheet {
+    width: 100mm;
+    height: 150mm;
+    margin: 0;
+    border: 2px solid #111;
+    padding: 4.5mm 4mm;
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+  }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
+  .sheet--courier { border-width: 3px; }
+  .sheet__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+    border-bottom: 2px solid #111;
+  }
+  .sheet__logo { height: 22px; width: auto; object-fit: contain; }
+  .sheet__product-line {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .sheet__parties {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .sheet__party-label {
+    display: block;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .sheet__party-name {
+    display: block;
+    font-size: 11px;
+    font-weight: 800;
+    margin-bottom: 2px;
+  }
+  .sheet__party-address {
+    margin: 0;
+    font-size: 9px;
+    line-height: 1.3;
+    white-space: pre-line;
+  }
+  .sheet__box-meta,
+  .sheet__weights {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 6px;
+    padding: 5px 0;
+    border-top: 1px solid #111;
+    border-bottom: 1px solid #111;
+  }
+  .sheet__weights { border-top: none; }
+  .sheet__box-meta span,
+  .sheet__weights span,
+  .sheet__dest span,
+  .sheet__booking span {
+    display: block;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 1px;
+  }
+  .sheet__box-meta strong,
+  .sheet__weights strong,
+  .sheet__dest strong,
+  .sheet__booking strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .sheet__carrier {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    gap: 8px;
+    align-items: center;
+    margin: 8px 0;
+    min-height: 48px;
+  }
+  .sheet__carrier-logo img {
+    max-width: 100%;
+    max-height: 36px;
+    object-fit: contain;
+  }
+  .sheet__carrier-logo strong { font-size: 12px; font-weight: 800; }
+  .sheet__barcode-block { text-align: center; }
+  .sheet__barcode-block code {
+    display: block;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+  .sheet__barcode {
+    display: flex;
+    justify-content: center;
+    gap: 1px;
+    height: 34px;
+  }
+  .sheet__barcode i {
+    display: block;
+    width: 2px;
+    background: #111;
+    height: 100%;
+  }
+  .sheet__barcode i:nth-child(3n) { width: 1px; }
+  .sheet__barcode i:nth-child(5n) { width: 3px; }
+  .sheet__footer {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 2px solid #111;
+  }
+  .sheet__booking { display: grid; gap: 4px; }
+  .sheet__brand {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #111;
+  }
+  .sheet__brand strong { font-size: 18px; letter-spacing: 0.04em; }
+  .sheet__brand span { font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .sheet__row { margin: 0 0 8px; font-size: 12px; line-height: 1.35; white-space: pre-line; }
+  .sheet__row strong { display: block; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 2px; }
+  .sheet__track {
+    margin: 12px 0;
+    padding: 10px 8px;
+    border: 1px dashed #111;
+    text-align: center;
+  }
+  .sheet__track code {
+    display: block;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    margin-bottom: 6px;
+  }
+  .sheet__meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #111;
+    font-size: 11px;
+  }
+  .sheet__meta strong { display: block; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; }
+`;
+
+function printLabelElements(elements: Array<HTMLElement | null>, title: string): void {
+  const sheets = elements.filter((el): el is HTMLElement => Boolean(el));
+  if (!sheets.length || typeof window === 'undefined') return;
+  const win = window.open('', '_blank', 'noopener,noreferrer,width=420,height=620');
   if (!win) return;
-  const styles = `
-    @page { margin: 8mm; size: auto; }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; }
-    .sheet {
-      width: 100%;
-      max-width: 420px;
-      margin: 0 auto;
-      border: 2px solid #111;
-      padding: 14px 16px;
-    }
-    .sheet--courier { border-width: 3px; }
-    .sheet__brand {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 0.75rem;
-      margin-bottom: 10px;
-      padding-bottom: 8px;
-      border-bottom: 2px solid #111;
-    }
-    .sheet__brand strong { font-size: 18px; letter-spacing: 0.04em; }
-    .sheet__brand span { font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    .sheet__row { margin: 0 0 8px; font-size: 12px; line-height: 1.35; white-space: pre-line; }
-    .sheet__row strong { display: block; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 2px; }
-    .sheet__track {
-      margin: 12px 0;
-      padding: 10px 8px;
-      border: 1px dashed #111;
-      text-align: center;
-    }
-    .sheet__track code {
-      display: block;
-      font-size: 20px;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      margin-bottom: 6px;
-    }
-    .sheet__barcode {
-      display: flex;
-      justify-content: center;
-      gap: 2px;
-      height: 42px;
-      margin-top: 4px;
-    }
-    .sheet__barcode i {
-      display: block;
-      width: 2px;
-      background: #111;
-      height: 100%;
-    }
-    .sheet__barcode i:nth-child(3n) { width: 1px; }
-    .sheet__barcode i:nth-child(5n) { width: 3px; }
-    .sheet__meta {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid #111;
-      font-size: 11px;
-    }
-    .sheet__meta strong { display: block; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; }
-  `;
   win.document.open();
   win.document.write(
-    `<!DOCTYPE html><html><head><title>${title}</title><style>${styles}</style></head>`
-    + `<body>${element.outerHTML}</body></html>`,
+    `<!DOCTYPE html><html><head><title>${title}</title><style>${SHIPPING_LABEL_PRINT_STYLES}</style></head>`
+    + `<body>${sheets.map(el => el.outerHTML).join('')}</body></html>`,
   );
   win.document.close();
   win.focus();
   win.onload = () => {
     win.print();
   };
-  // Some browsers fire print more reliably after a short delay.
   window.setTimeout(() => {
     try { win.print(); } catch { /* ignore */ }
   }, 250);
+}
+
+function printLabelElement(element: HTMLElement | null, title: string): void {
+  printLabelElements([element], title);
 }
 
 function barcodeBars(seed: string): number[] {
@@ -252,7 +369,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     head_office: '',
   });
   const shipFromRef = useRef<HTMLDivElement>(null);
-  const shippingLabelRef = useRef<HTMLDivElement>(null);
+  const shippingLabelRefs = useRef<Array<HTMLDivElement | null>>([]);
   const courierLabelRef = useRef<HTMLDivElement>(null);
   const finalPhotoAttachInputRef = useRef<HTMLInputElement>(null);
   const finalPhotoCaptureInputRef = useRef<HTMLInputElement>(null);
@@ -499,6 +616,48 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     (total, box) => total + (Number.parseFloat(box.weightKg) || 0),
     0,
   );
+  const totalChargeableWeight = draft.boxes.reduce((sum, box) => {
+    const actual = Number.parseFloat(box.weightKg) || 0;
+    return sum + Math.max(actual, boxVolumetric(box));
+  }, 0);
+  const shippingLabelCount = isEnvelope ? 1 : Math.max(1, draft.boxes.length);
+  const shippingLabels = useMemo(() => {
+    if (!selectedDealer) return [];
+    const deliveryAddress = resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind);
+    const fromName = STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite];
+    const fromAddress = (fromAddresses[draft.shipFromSite] || FIRM_NAME).trim();
+    const bookingTime = formatShippingBookingTime();
+    return Array.from({ length: shippingLabelCount }, (_, index) => buildShippingLabelViewModel({
+      fromName,
+      fromAddress,
+      dealer: selectedDealer,
+      deliveryAddress,
+      numberOfBoxes: shippingLabelCount,
+      boxIndex: index + 1,
+      grossWeightKg: totalActualWeight,
+      chargeableWeightKg: totalChargeableWeight,
+      partnerId,
+      consignmentNo: draft.consignmentNo,
+      bookingBranch: draft.branch,
+      bookingDate: draft.bookingDate,
+      bookingTime,
+      bookedBy: 'YESWEIGH',
+      shipmentMode: draft.shipmentMode,
+    }));
+  }, [
+    selectedDealer,
+    draft.deliveryAddressKind,
+    draft.shipFromSite,
+    draft.consignmentNo,
+    draft.branch,
+    draft.bookingDate,
+    draft.shipmentMode,
+    fromAddresses,
+    shippingLabelCount,
+    totalActualWeight,
+    totalChargeableWeight,
+    partnerId,
+  ]);
 
   const goBack = () => {
     switch (step) {
@@ -994,72 +1153,35 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 Print <span className="accent">Labels</span>
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                Preview and print the shipping label and courier label, then paste them on the package.
+                One shipping label per box (100 × 150 mm). Print all, then paste each on its box with the courier label.
               </p>
 
               <div className="book-courier__label-grid">
                 <article className="book-courier__label-card">
                   <header className="book-courier__label-card-head">
-                    <h4>Shipping label</h4>
+                    <h4>
+                      Shipping label
+                      {shippingLabelCount > 1 ? ` · ${shippingLabelCount} pcs` : ''}
+                    </h4>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      onClick={() => printLabelElement(shippingLabelRef.current, 'Shipping label')}
+                      onClick={() => printLabelElements(shippingLabelRefs.current, 'Shipping label')}
                     >
                       <Printer size={14} aria-hidden />
-                      Print
+                      {shippingLabelCount > 1 ? 'Print all' : 'Print'}
                     </button>
                   </header>
-                  <div className="book-courier__label-preview">
-                    <div
-                      ref={shippingLabelRef}
-                      className="sheet"
-                    >
-                      <div className="sheet__brand">
-                        <strong>{BRAND_NAME}</strong>
-                        <span>Shipping label</span>
-                      </div>
-                      <p className="sheet__row">
-                        <strong>From</strong>
-                        {STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite]}
-                        {'\n'}
-                        {(fromAddresses[draft.shipFromSite] || FIRM_NAME).trim()}
-                      </p>
-                      <p className="sheet__row">
-                        <strong>To</strong>
-                        {selectedDealer.name}
-                        {'\n'}
-                        {selectedDealer.contactPerson} · {selectedDealer.mobile}
-                        {'\n'}
-                        {resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)}
-                      </p>
-                      <div className="sheet__track">
-                        <code>{draft.consignmentNo || '—'}</code>
-                        <div className="sheet__barcode" aria-hidden>
-                          {barcodeBars(draft.consignmentNo).map((w, i) => (
-                            <i key={i} style={{ width: `${w}px` }} />
-                          ))}
-                        </div>
-                      </div>
-                      <div className="sheet__meta">
-                        <div>
-                          <strong>Shipment</strong>
-                          {isEnvelope ? 'Envelope' : `${draft.boxes.length} box(es)`}
-                        </div>
-                        <div>
-                          <strong>Weight</strong>
-                          {totalActualWeight.toFixed(2)} kg
-                        </div>
-                        <div>
-                          <strong>Date</strong>
-                          {draft.bookingDate}
-                        </div>
-                        <div>
-                          <strong>Partner</strong>
-                          {logisticsPartnerLabel(partnerId)}
-                        </div>
-                      </div>
-                    </div>
+                  <div className="book-courier__label-preview book-courier__label-preview--stack">
+                    {shippingLabels.map((label, index) => (
+                      <ShippingLabelSheet
+                        key={`ship-${label.boxIndex}`}
+                        label={label}
+                        ref={el => {
+                          shippingLabelRefs.current[index] = el;
+                        }}
+                      />
+                    ))}
                   </div>
                 </article>
 

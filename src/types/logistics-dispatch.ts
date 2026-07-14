@@ -30,6 +30,8 @@ export interface LogisticsDealerSnapshot {
   mobile: string;
   shippingAddress: string;
   billingAddress: string;
+  /** Preferred destination city for shipping labels. */
+  destinationCity?: string;
 }
 
 /** @deprecated use LogisticsDealerSnapshot */

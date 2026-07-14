@@ -272,23 +272,41 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
   );
   const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
   const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
+  const createdByName = (
+    createdBy.displayName?.trim()
+    || createdBy.loginId?.trim()
+    || createdBy.email?.trim()
+    || 'YESWEIGH'
+  );
 
   return {
     orderRef,
     source: draft.source,
-    invoiceId: draft.invoiceId,
-    invoiceNumber: draft.invoiceNumber,
-    supportRequestId: draft.supportRequestId,
-    supportRequestNumber: draft.supportRequestNumber,
+    invoiceId: draft.invoiceId ?? null,
+    invoiceNumber: draft.invoiceNumber ?? null,
+    supportRequestId: draft.supportRequestId ?? null,
+    supportRequestNumber: draft.supportRequestNumber ?? null,
     partnerId: draft.partnerId,
     consignmentNo: draft.consignmentNo.trim(),
     trackingNo: draft.consignmentNo.trim(),
     branch: draft.branch.trim(),
     serviceType: draft.serviceType.trim(),
-    bookingDate: draft.bookingDate,
+    bookingDate: draft.bookingDate || new Date().toISOString().slice(0, 10),
     zohoCustomerId: draft.zohoCustomerId,
     dealerId: draft.dealerId,
-    dealerSnapshot: dealer,
+    dealerSnapshot: {
+      zohoCustomerId: dealer.zohoCustomerId,
+      dealerId: dealer.dealerId,
+      name: dealer.name,
+      code: dealer.code,
+      contactPerson: dealer.contactPerson,
+      mobile: dealer.mobile,
+      shippingAddress: dealer.shippingAddress,
+      billingAddress: dealer.billingAddress,
+      ...(dealer.destinationCity?.trim()
+        ? { destinationCity: dealer.destinationCity.trim() }
+        : {}),
+    },
     deliveryAddressKind: draft.deliveryAddressKind,
     deliveryAddress: resolveDeliveryAddress(dealer, draft.deliveryAddressKind),
     shipFromSite: draft.shipFromSite,
@@ -306,7 +324,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
       volumetricWeightKg: box.volumetricWeightKg,
       photos: box.photos.map(photo => ({ storagePath: photo.storagePath })),
     })),
-    finalPackagePhotoStoragePath,
+    finalPackagePhotoStoragePath: finalPackagePhotoStoragePath ?? null,
     labelGenerated: Boolean(draft.labelGenerated),
     courierSlipGenerated: false,
     shippingLabelGenerated: false,
@@ -316,8 +334,45 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     createdAt,
     updatedAt: now,
     createdByUid: createdBy.uid,
-    createdByName: createdBy.displayName,
+    createdByName,
   };
+}
+
+function formatLogisticsPersistError(err: unknown, fallback: string): Error {
+  const message = err instanceof Error ? err.message : String(err ?? '');
+  const code = typeof err === 'object' && err && 'code' in err
+    ? String((err as { code?: string }).code ?? '')
+    : '';
+  if (code.includes('permission-denied') || /permission/i.test(message)) {
+    return new Error(
+      'Could not save logistics booking (permission denied). Deploy the latest Firestore rules that allow status “draft”.',
+    );
+  }
+  if (/unsupported field value|undefined/i.test(message)) {
+    return new Error('Could not save logistics booking because some fields were empty. Try again.');
+  }
+  return err instanceof Error ? err : new Error(fallback);
+}
+
+/** Build box records for a draft without uploading new data-URL photos. */
+function boxesWithoutNewUploads(draft: LogisticsBookingDraft): ShipmentBox[] {
+  const isEnvelope = draft.shipmentMode === 'envelope';
+  return draft.boxes.map(box => {
+    const length = !isEnvelope && box.lengthCm ? Number.parseFloat(box.lengthCm) : null;
+    const width = !isEnvelope && box.widthCm ? Number.parseFloat(box.widthCm) : null;
+    const height = !isEnvelope && box.heightCm ? Number.parseFloat(box.heightCm) : null;
+    return {
+      id: box.id,
+      lengthCm: length,
+      widthCm: width,
+      heightCm: height,
+      weightKg: isEnvelope ? 0 : (Number.parseFloat(box.weightKg) || 0),
+      volumetricWeightKg: isEnvelope ? 0 : computeVolumetricWeight(length, width, height),
+      photos: box.photos
+        .filter(photo => Boolean(photo.storagePath))
+        .map(photo => ({ storagePath: photo.storagePath as string, url: photo.url ?? null })),
+    };
+  });
 }
 
 export async function persistLogisticsBookingDraft(
@@ -350,21 +405,105 @@ export async function persistLogisticsBookingDraft(
       : null;
   }
 
-  const payload = await buildBookingPayload({
-    draft,
-    dealer,
-    createdBy,
-    bookingId: bookingRef.id,
-    status: 'draft',
-    createdAt,
-    wizardStep: wizardStep ?? 'box',
-    existingFinalPackagePhotoStoragePath,
-    existingOrderRef,
-  });
+  try {
+    let photoResult: {
+      boxes: ShipmentBox[];
+      finalPackagePhotoStoragePath: string | null;
+    };
+    try {
+      photoResult = await uploadDraftBoxPhotos(
+        bookingRef.id,
+        draft,
+        existingFinalPackagePhotoStoragePath,
+      );
+    } catch {
+      // Drafts should still save if photo upload fails (e.g. offline / storage rules).
+      photoResult = {
+        boxes: boxesWithoutNewUploads(draft),
+        finalPackagePhotoStoragePath: existingFinalPackagePhotoStoragePath,
+      };
+    }
 
-  await setDoc(bookingRef, payload);
-  const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
-  return hydrateBookingPhotos(booking);
+    const settings = await loadLogisticsSettings();
+    const shipFromAddress = settings.fromAddresses[draft.shipFromSite]?.trim() || '';
+    const orderRef = existingOrderRef
+      || draft.invoiceNumber
+      || draft.supportRequestNumber
+      || `ORD-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+    const { boxes, finalPackagePhotoStoragePath } = photoResult;
+    const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
+    const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
+    const createdByName = (
+      createdBy.displayName?.trim()
+      || createdBy.loginId?.trim()
+      || createdBy.email?.trim()
+      || 'YESWEIGH'
+    );
+
+    const payload: Record<string, unknown> = {
+      orderRef,
+      source: draft.source,
+      invoiceId: draft.invoiceId ?? null,
+      invoiceNumber: draft.invoiceNumber ?? null,
+      supportRequestId: draft.supportRequestId ?? null,
+      supportRequestNumber: draft.supportRequestNumber ?? null,
+      partnerId: draft.partnerId,
+      consignmentNo: draft.consignmentNo.trim(),
+      trackingNo: draft.consignmentNo.trim(),
+      branch: draft.branch.trim(),
+      serviceType: draft.serviceType.trim(),
+      bookingDate: draft.bookingDate || now.slice(0, 10),
+      zohoCustomerId: draft.zohoCustomerId,
+      dealerId: draft.dealerId,
+      dealerSnapshot: {
+        zohoCustomerId: dealer.zohoCustomerId,
+        dealerId: dealer.dealerId,
+        name: dealer.name,
+        code: dealer.code,
+        contactPerson: dealer.contactPerson,
+        mobile: dealer.mobile,
+        shippingAddress: dealer.shippingAddress,
+        billingAddress: dealer.billingAddress,
+        ...(dealer.destinationCity?.trim()
+          ? { destinationCity: dealer.destinationCity.trim() }
+          : {}),
+      },
+      deliveryAddressKind: draft.deliveryAddressKind,
+      deliveryAddress: resolveDeliveryAddress(dealer, draft.deliveryAddressKind),
+      shipFromSite: draft.shipFromSite,
+      shipFromAddress,
+      shipmentMode: draft.shipmentMode,
+      numberOfBoxes: Math.max(boxes.length, 1),
+      actualWeightKg,
+      volumetricWeightKg,
+      boxes: boxes.map(box => ({
+        id: box.id,
+        lengthCm: box.lengthCm,
+        widthCm: box.widthCm,
+        heightCm: box.heightCm,
+        weightKg: box.weightKg,
+        volumetricWeightKg: box.volumetricWeightKg,
+        photos: box.photos.map(photo => ({ storagePath: photo.storagePath })),
+      })),
+      finalPackagePhotoStoragePath: finalPackagePhotoStoragePath ?? null,
+      labelGenerated: Boolean(draft.labelGenerated),
+      courierSlipGenerated: false,
+      shippingLabelGenerated: false,
+      packingSlipGenerated: false,
+      status: 'draft',
+      wizardStep: wizardStep ?? 'box',
+      createdAt,
+      updatedAt: now,
+      createdByUid: createdBy.uid,
+      createdByName,
+    };
+
+    await setDoc(bookingRef, payload);
+    const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
+    return hydrateBookingPhotos(booking);
+  } catch (err) {
+    throw formatLogisticsPersistError(err, 'Could not save draft.');
+  }
 }
 
 export async function persistLogisticsBooking(
@@ -399,21 +538,25 @@ export async function persistLogisticsBooking(
       : null;
   }
 
-  const payload = await buildBookingPayload({
-    draft,
-    dealer,
-    createdBy,
-    bookingId: bookingRef.id,
-    status: 'booked',
-    createdAt,
-    wizardStep: null,
-    existingFinalPackagePhotoStoragePath,
-    existingOrderRef,
-  });
+  try {
+    const payload = await buildBookingPayload({
+      draft,
+      dealer,
+      createdBy,
+      bookingId: bookingRef.id,
+      status: 'booked',
+      createdAt,
+      wizardStep: null,
+      existingFinalPackagePhotoStoragePath,
+      existingOrderRef,
+    });
 
-  await setDoc(bookingRef, payload);
-  const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
-  return hydrateBookingPhotos(booking);
+    await setDoc(bookingRef, payload);
+    const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
+    return hydrateBookingPhotos(booking);
+  } catch (err) {
+    throw formatLogisticsPersistError(err, 'Could not save shipment.');
+  }
 }
 
 /** Convert a saved booking (usually a draft) into wizard draft + step for resume. */

@@ -128,11 +128,11 @@ type Props = {
 };
 
 /**
- * Preview + print with a fixed layout. User only picks printer when more than one exists.
+ * Preview + print with a fixed layout.
+ * Always uses the hardcoded store label printer (catalog bin / item labels).
  */
 export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose }) => {
   const [studio, setStudio] = useState<LabelStudioDoc>(emptyLabelStudioDoc);
-  const [printerId, setPrinterId] = useState('');
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [fieldDraft, setFieldDraft] = useState<BinLabelFields>(() => ({
     ...fields,
@@ -152,14 +152,9 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
       .then(loaded => {
         if (!active) return;
         setStudio(loaded);
-        setPrinterId(getStoreLabelPrinter(loaded).id);
       })
       .catch(() => {
-        if (active) {
-          const fallback = emptyLabelStudioDoc();
-          setStudio(fallback);
-          setPrinterId(fallback.storeLabelPrinterId);
-        }
+        if (active) setStudio(emptyLabelStudioDoc());
       })
       .finally(() => {
         if (active) setLoadingSettings(false);
@@ -173,9 +168,7 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
     setFieldDraft({ ...fields, printedOn: new Date() });
   }, [fields]);
 
-  const printer: LabelPrinter | null = useMemo(() => {
-    return studio.printers.find(p => p.id === printerId) ?? getStoreLabelPrinter(studio);
-  }, [studio, printerId]);
+  const printer: LabelPrinter = useMemo(() => getStoreLabelPrinter(studio), [studio]);
 
   const requiredKeys = useMemo(() => extractBindingKeys(layoutXml), [layoutXml]);
   const missing = useMemo(
@@ -197,19 +190,18 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
     }
     return keys;
   }, [missing, requiredKeys]);
-  const canPrint = Boolean(printer) && missing.length === 0;
+  const canPrint = missing.length === 0 && Boolean(printer.host.trim());
 
   const handlePrint = async () => {
     setPrinting(true);
     setError('');
     setSuccess('');
     try {
-      if (!printer) throw new Error('No printer configured.');
       if (missing.length) {
         throw new Error(`Fill missing fields: ${missing.map(k => BINDING_FIELD_LABELS[k] ?? k).join(', ')}`);
       }
       if (!printer.host.trim()) {
-        throw new Error('Set the printer IP in Admin → Settings → Label printing.');
+        throw new Error('Set the store label printer IP in Admin → Settings → Label printing.');
       }
       const result = await sendBinLabel({
         host: printer.host.trim(),
@@ -252,7 +244,7 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
             <p className="text-muted text-sm">
               {fields.sku}
               {fields.rack ? ` · Rack ${fields.rack} / Row ${fields.row} / Bin ${fields.bin}` : ''}
-              {printer ? ` · ${printer.name}` : ''}
+              {` · ${printer.name}`}
             </p>
           </div>
           <button type="button" className="dealers-modal__close" onClick={onClose} aria-label="Close">
@@ -269,22 +261,6 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
           </div>
         ) : (
           <>
-            {studio.printers.length > 1 && (
-              <label className="settings-locations__field">
-                <span>Printer</span>
-                <select
-                  value={printer?.id ?? ''}
-                  onChange={e => setPrinterId(e.target.value)}
-                >
-                  {studio.printers.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.host || 'no IP'})
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
             {editableKeys.length > 0 && (
               <div className="bin-label-print-dialog__missing">
                 <h3 className="settings-logistics__title">
