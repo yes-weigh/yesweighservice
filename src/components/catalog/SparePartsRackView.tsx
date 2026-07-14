@@ -87,7 +87,7 @@ function buildRowTilesForRack(
   }
 
   return [...byRow.entries()]
-    .sort((a, b) => a[0] - b[0])
+    .sort((a, b) => b[0] - a[0])
     .map(([rowNumber, binMap]) => ({
       rowNumber,
       bins: BIN_NUMBERS.map(binNumber => ({
