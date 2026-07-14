@@ -37,6 +37,25 @@ interface SparePartsRackViewProps {
   onSkuClick: (productId: string, rackId: string) => void;
 }
 
+function binsThroughHighestOccupied(bins: BinSlot[]): BinSlot[] {
+  let highest = 0;
+  for (const bin of bins) {
+    if (bin.skus.length > 0 && bin.binNumber > highest) highest = bin.binNumber;
+  }
+  if (highest <= 0) return [];
+  return bins.filter(bin => bin.binNumber <= highest);
+}
+
+function highestOccupiedBin(rows: RowTile[]): number {
+  let highest = 0;
+  for (const row of rows) {
+    for (const bin of row.bins) {
+      if (bin.skus.length > 0 && bin.binNumber > highest) highest = bin.binNumber;
+    }
+  }
+  return highest;
+}
+
 function normalizeRackId(rackId: string): string {
   return rackId.trim().toLowerCase();
 }
@@ -309,39 +328,42 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
               </p>
             ) : (
               <div className="spare-parts-rack-view__mobile" role="list">
-                {page.rows.map(row => (
-                  <article
-                    key={`${page.letter}-${row.rowNumber}`}
-                    className="spare-parts-rack-view__mobile-row"
-                    role="listitem"
-                  >
-                    <header className="spare-parts-rack-view__mobile-row-head">
-                      Row {row.rowNumber}
-                    </header>
-                    <div className="spare-parts-rack-view__mobile-bins">
-                      {row.bins.map(bin => (
-                        <div
-                          key={bin.binNumber}
-                          className={[
-                            'spare-parts-rack-view__mobile-bin',
-                            bin.skus.length === 0 ? 'is-empty' : '',
-                          ].filter(Boolean).join(' ')}
-                        >
-                          <div className="spare-parts-rack-view__mobile-bin-label">
-                            Bin {bin.binNumber}
+                {page.rows.map(row => {
+                  const visibleBins = binsThroughHighestOccupied(row.bins);
+                  return (
+                    <article
+                      key={`${page.letter}-${row.rowNumber}`}
+                      className="spare-parts-rack-view__mobile-row"
+                      role="listitem"
+                    >
+                      <header className="spare-parts-rack-view__mobile-row-head">
+                        Row {row.rowNumber}
+                      </header>
+                      <div className="spare-parts-rack-view__mobile-bins">
+                        {visibleBins.map(bin => (
+                          <div
+                            key={bin.binNumber}
+                            className={[
+                              'spare-parts-rack-view__mobile-bin',
+                              bin.skus.length === 0 ? 'is-empty' : '',
+                            ].filter(Boolean).join(' ')}
+                          >
+                            <div className="spare-parts-rack-view__mobile-bin-label">
+                              Bin {bin.binNumber}
+                            </div>
+                            <div className="spare-parts-rack-view__mobile-skus">
+                              <SkuButtons
+                                skus={bin.skus}
+                                highlightedProductId={highlightedProductId}
+                                onSkuClick={productId => onSkuClick(productId, page.letter)}
+                              />
+                            </div>
                           </div>
-                          <div className="spare-parts-rack-view__mobile-skus">
-                            <SkuButtons
-                              skus={bin.skus}
-                              highlightedProductId={highlightedProductId}
-                              onSkuClick={productId => onSkuClick(productId, page.letter)}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </article>
-                ))}
+                        ))}
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -355,60 +377,70 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
             <p className="text-muted spare-parts-rack-view__empty">
               No audited SKUs on rack {activePage.letter.toUpperCase()}.
             </p>
-          ) : (
-            <div
-              className="spare-parts-rack-view__grid"
-              role="table"
-              aria-label={`Rack ${activePage.letter.toUpperCase()} rows and bins`}
-            >
-              <div className="spare-parts-rack-view__grid-head" role="row">
-                <div className="spare-parts-rack-view__cell spare-parts-rack-view__cell--row-head" role="columnheader">
-                  Row
-                </div>
-                {BIN_NUMBERS.map(bin => (
-                  <div
-                    key={bin}
-                    className="spare-parts-rack-view__cell spare-parts-rack-view__cell--bin-head"
-                    role="columnheader"
-                  >
-                    Bin {bin}
+          ) : (() => {
+            const maxBin = highestOccupiedBin(activePage.rows);
+            const visibleBinNumbers = BIN_NUMBERS.filter(n => n <= maxBin);
+            const gridStyle = {
+              gridTemplateColumns: `2.5rem repeat(${visibleBinNumbers.length}, minmax(0, 1fr))`,
+            } as const;
+            return (
+              <div
+                className="spare-parts-rack-view__grid"
+                role="table"
+                aria-label={`Rack ${activePage.letter.toUpperCase()} rows and bins`}
+              >
+                <div className="spare-parts-rack-view__grid-head" role="row" style={gridStyle}>
+                  <div className="spare-parts-rack-view__cell spare-parts-rack-view__cell--row-head" role="columnheader">
+                    Row
                   </div>
-                ))}
-              </div>
-              {activePage.rows.map(row => (
-                <div
-                  key={`${activePage.letter}-${row.rowNumber}`}
-                  className="spare-parts-rack-view__grid-row"
-                  role="row"
-                >
-                  <div
-                    className="spare-parts-rack-view__cell spare-parts-rack-view__cell--row"
-                    role="rowheader"
-                  >
-                    {row.rowNumber}
-                  </div>
-                  {row.bins.map(bin => (
+                  {visibleBinNumbers.map(bin => (
                     <div
-                      key={bin.binNumber}
-                      className={[
-                        'spare-parts-rack-view__cell',
-                        'spare-parts-rack-view__cell--bin',
-                        bin.skus.length === 0 ? 'is-empty' : '',
-                      ].filter(Boolean).join(' ')}
-                      role="cell"
-                      aria-label={`Row ${row.rowNumber} bin ${bin.binNumber}`}
+                      key={bin}
+                      className="spare-parts-rack-view__cell spare-parts-rack-view__cell--bin-head"
+                      role="columnheader"
                     >
-                      <SkuButtons
-                        skus={bin.skus}
-                        highlightedProductId={highlightedProductId}
-                        onSkuClick={productId => onSkuClick(productId, activePage.letter)}
-                      />
+                      Bin {bin}
                     </div>
                   ))}
                 </div>
-              ))}
-            </div>
-          )}
+                {activePage.rows.map(row => (
+                  <div
+                    key={`${activePage.letter}-${row.rowNumber}`}
+                    className="spare-parts-rack-view__grid-row"
+                    role="row"
+                    style={gridStyle}
+                  >
+                    <div
+                      className="spare-parts-rack-view__cell spare-parts-rack-view__cell--row"
+                      role="rowheader"
+                    >
+                      {row.rowNumber}
+                    </div>
+                    {row.bins
+                      .filter(bin => bin.binNumber <= maxBin)
+                      .map(bin => (
+                        <div
+                          key={bin.binNumber}
+                          className={[
+                            'spare-parts-rack-view__cell',
+                            'spare-parts-rack-view__cell--bin',
+                            bin.skus.length === 0 ? 'is-empty' : '',
+                          ].filter(Boolean).join(' ')}
+                          role="cell"
+                          aria-label={`Row ${row.rowNumber} bin ${bin.binNumber}`}
+                        >
+                          <SkuButtons
+                            skus={bin.skus}
+                            highlightedProductId={highlightedProductId}
+                            onSkuClick={productId => onSkuClick(productId, activePage.letter)}
+                          />
+                        </div>
+                      ))}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

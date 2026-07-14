@@ -137,21 +137,10 @@ service firebase.storage {
       allow write: if false;
     }
 
+    // Written only via Admin SDK (uploadApprovalNumberPdfFn / removeApprovalNumberPdfFn).
     match /productSettings/approvalPdfs/{fileName} {
       allow read: if signedIn();
-      allow create, update: if isSuperAdmin()
-        && request.resource != null
-        && request.resource.size < 15 * 1024 * 1024
-        && fileName.matches('.*\\.pdf')
-        && (
-          request.resource.contentType == null
-          || request.resource.contentType == ''
-          || request.resource.contentType == 'application/pdf'
-          || request.resource.contentType == 'application/x-pdf'
-          || request.resource.contentType == 'application/octet-stream'
-          || request.resource.contentType.matches('application/.*pdf.*')
-        );
-      allow delete: if isSuperAdmin();
+      allow write: if false;
     }
 
     match /invoices/{allPaths=**} {

@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc, collection, getDocs, limit, query, where } from 'firebase/firestore';
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { db, storage } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db } from '../firebase';
 import {
   CATALOG_PRODUCT_SETTINGS_DOC_ID,
   DEFAULT_APPROVAL_NUMBERS,
@@ -15,6 +15,8 @@ import {
   type CatalogMrpRules,
   type CatalogSpareGroupOption,
 } from '../constants/catalogProductSettings';
+
+const functions = getFunctions(app, 'asia-south1');
 
 export type {
   CatalogApprovalNumberOption,
@@ -380,15 +382,6 @@ export async function spareGroupHasLinkedSpares(spareGroupId: string): Promise<b
   return !snap.empty;
 }
 
-function sanitizeApprovalPathSegment(value: string): string {
-  return value
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '')
-    .slice(0, 80) || 'approval';
-}
-
 function assertApprovalPdfFile(file: File): void {
   const type = (file.type || '').toLowerCase();
   const name = file.name.toLowerCase();
@@ -406,82 +399,90 @@ function assertApprovalPdfFile(file: File): void {
   }
 }
 
-/** Upload optional PDF for an approval number and persist settings. */
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not read PDF file.'));
+        return;
+      }
+      const base64 = result.split(',')[1];
+      if (!base64) {
+        reject(new Error('Could not read PDF file.'));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Could not read PDF file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function callableError(err: unknown, fallback: string): Error {
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const fbErr = err as { code?: string; message: string };
+    if (fbErr.code?.startsWith('functions/') && fbErr.message) {
+      return new Error(fbErr.message);
+    }
+  }
+  return new Error(fallback);
+}
+
+/** Upload optional PDF for an approval number and persist settings (Admin SDK via callable). */
 export async function attachApprovalNumberPdf(
   approvalValue: string,
   file: File,
-  updatedBy?: string | null,
+  _updatedBy?: string | null,
 ): Promise<CatalogApprovalNumberOption[]> {
   const value = approvalValue.trim();
   if (!value) throw new Error('Approval number is required.');
   assertApprovalPdfFile(file);
 
-  const settings = await loadCatalogProductSettings();
-  const existing = settings.approvalNumbers.find(
-    option => option.value.toLowerCase() === value.toLowerCase(),
-  );
-  if (!existing) {
-    throw new Error(`Approval number "${value}" was not found.`);
+  try {
+    const callable = httpsCallable<
+      {
+        approvalValue: string;
+        fileBase64: string;
+        fileName: string;
+        contentType: string;
+      },
+      { approvalNumbers: CatalogApprovalNumberOption[] }
+    >(functions, 'uploadApprovalNumberPdfFn');
+
+    const result = await callable({
+      approvalValue: value,
+      fileBase64: await fileToBase64(file),
+      fileName: file.name || 'approval.pdf',
+      contentType: file.type || 'application/pdf',
+    });
+
+    return normalizeApprovalNumbers(result.data.approvalNumbers);
+  } catch (err) {
+    throw callableError(err, 'Could not upload PDF.');
   }
-
-  if (existing.pdfStoragePath) {
-    await deleteObject(ref(storage, existing.pdfStoragePath)).catch(() => undefined);
-  }
-
-  const stamp = Date.now();
-  const storagePath = `productSettings/approvalPdfs/${sanitizeApprovalPathSegment(value)}-${stamp}.pdf`;
-  const storageRef = ref(storage, storagePath);
-  // Avoid customMetadata — values like "IND/09/19/602" can break GCS metadata headers
-  // and surface as storage/unauthorized even when rules would allow the write.
-  const pdfBlob = file.type === 'application/pdf'
-    ? file
-    : new Blob([await file.arrayBuffer()], { type: 'application/pdf' });
-  await uploadBytes(storageRef, pdfBlob, {
-    contentType: 'application/pdf',
-  });
-  const pdfUrl = await getDownloadURL(storageRef);
-
-  const next = settings.approvalNumbers.map(option => (
-    option.value.toLowerCase() === value.toLowerCase()
-      ? {
-          value: option.value,
-          pdfUrl,
-          pdfStoragePath: storagePath,
-          pdfFileName: file.name,
-        }
-      : option
-  ));
-
-  return saveApprovalNumbers(next, updatedBy);
 }
 
 /** Remove PDF from an approval number (keeps the number). */
 export async function removeApprovalNumberPdf(
   approvalValue: string,
-  updatedBy?: string | null,
+  _updatedBy?: string | null,
 ): Promise<CatalogApprovalNumberOption[]> {
   const value = approvalValue.trim();
   if (!value) throw new Error('Approval number is required.');
 
-  const settings = await loadCatalogProductSettings();
-  const existing = settings.approvalNumbers.find(
-    option => option.value.toLowerCase() === value.toLowerCase(),
-  );
-  if (!existing) {
-    throw new Error(`Approval number "${value}" was not found.`);
+  try {
+    const callable = httpsCallable<
+      { approvalValue: string },
+      { approvalNumbers: CatalogApprovalNumberOption[] }
+    >(functions, 'removeApprovalNumberPdfFn');
+
+    const result = await callable({ approvalValue: value });
+    return normalizeApprovalNumbers(result.data.approvalNumbers);
+  } catch (err) {
+    throw callableError(err, 'Could not remove PDF.');
   }
-
-  if (existing.pdfStoragePath) {
-    await deleteObject(ref(storage, existing.pdfStoragePath)).catch(() => undefined);
-  }
-
-  const next = settings.approvalNumbers.map(option => (
-    option.value.toLowerCase() === value.toLowerCase()
-      ? { value: option.value }
-      : option
-  ));
-
-  return saveApprovalNumbers(next, updatedBy);
 }
 
 /** Remove approval number and delete its PDF if present. */
@@ -495,7 +496,15 @@ export async function removeApprovalNumber(
     option => option.value.toLowerCase() === value.toLowerCase(),
   );
   if (existing?.pdfStoragePath) {
-    await deleteObject(ref(storage, existing.pdfStoragePath)).catch(() => undefined);
+    try {
+      const callable = httpsCallable<{ storagePath: string }, { deleted: boolean }>(
+        functions,
+        'deleteApprovalPdfObjectFn',
+      );
+      await callable({ storagePath: existing.pdfStoragePath });
+    } catch {
+      // Settings row removal still proceeds if Storage cleanup fails.
+    }
   }
   const next = settings.approvalNumbers.filter(
     option => option.value.toLowerCase() !== value.toLowerCase(),

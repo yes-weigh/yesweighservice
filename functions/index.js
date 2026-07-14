@@ -90,6 +90,11 @@ import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
 import {
+  uploadApprovalNumberPdf as storeApprovalNumberPdf,
+  removeApprovalNumberPdf as clearApprovalNumberPdf,
+  deleteApprovalPdfObject,
+} from './lib/approval-pdf-upload.js';
+import {
   deleteCatalogNcPhoto as removeCatalogNcPhoto,
   uploadCatalogNcPhoto as storeCatalogNcPhoto,
 } from './lib/catalog-nc-upload.js';
@@ -2008,6 +2013,54 @@ export const uploadCatalogNcPhotoFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not upload NC photo.');
+    }
+  },
+);
+
+/** Approval certificate PDF upload — Admin SDK (avoids client Storage rule 403s). */
+export const uploadApprovalNumberPdfFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await storeApprovalNumberPdf(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload approval PDF.');
+    }
+  },
+);
+
+/** Remove PDF from an approval number (keeps the number). */
+export const removeApprovalNumberPdfFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await clearApprovalNumberPdf(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not remove approval PDF.');
+    }
+  },
+);
+
+/** Delete an approval PDF object when removing the approval number row. */
+export const deleteApprovalPdfObjectFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await deleteApprovalPdfObject(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not delete approval PDF.');
     }
   },
 );
