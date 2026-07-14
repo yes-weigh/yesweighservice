@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
-import { Pencil, Trash2, UserX } from 'lucide-react';
+import { Pencil, ShieldCheck, Trash2, UserX } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { HrStaffProfileView } from '../../components/hr/HrStaffProfileView';
 import { getHrFileUrl } from '../../lib/hrStaff';
 import { fetchStaffRoles, findStaffRole } from '../../lib/staffRoles';
-import { canManageHr } from '../../lib/staffAccess';
-import { deactivateUser, deleteUserPermanently } from '../../lib/userAdmin';
+import { canManageHr, canManageSuperAdminsInHr } from '../../lib/staffAccess';
+import { deactivateUser, deleteUserPermanently, promoteStaffToSuperAdmin } from '../../lib/userAdmin';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
 import type { HrDocumentType } from '../../types/staff-hr';
@@ -29,6 +29,7 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
   const [docUrls, setDocUrls] = useState<Partial<Record<HrDocumentType, string>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [promoting, setPromoting] = useState(false);
 
   const load = useCallback(async () => {
     if (!uid) return;
@@ -105,6 +106,26 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
     }
   };
 
+  const handlePromoteToSuperAdmin = async () => {
+    if (!record || !user || !canManageSuperAdminsInHr(user) || record.uid === user.uid) return;
+    const ok = await confirm({
+      title: 'Promote to Super Admin',
+      message: `Promote ${record.displayName} to Super Admin? They will leave the staff directory and gain full super admin access. Login and HR profile stay the same.`,
+      confirmLabel: 'Promote',
+    });
+    if (!ok) return;
+    setPromoting(true);
+    setError('');
+    try {
+      await promoteStaffToSuperAdmin(db, record.uid);
+      navigate(`${basePath}/hr/super-admins`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not promote to Super Admin.');
+    } finally {
+      setPromoting(false);
+    }
+  };
+
   if (loading) {
     return <p className="text-muted text-sm">Loading staff profile…</p>;
   }
@@ -132,6 +153,17 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
             <Pencil size={15} />
             Edit
           </Link>
+          {canManageSuperAdminsInHr(user) && record.uid !== user?.uid && record.active !== false && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={promoting}
+              onClick={() => void handlePromoteToSuperAdmin()}
+            >
+              <ShieldCheck size={15} />
+              {promoting ? 'Promoting…' : 'Promote to Super Admin'}
+            </button>
+          )}
           {record.uid !== user?.uid && record.active !== false && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => void handleDeactivate()}>
               <UserX size={15} />

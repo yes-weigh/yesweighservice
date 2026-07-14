@@ -25,7 +25,6 @@ import { fetchDealerById, fetchDealers } from '../../lib/dealers';
 import {
   BOOK_COURIER_STEPS,
   SHIPMENT_MODES,
-  VOLUMETRIC_WEIGHT_DIVISOR,
   bookStepProgressIndex,
   computeVolumetricWeight,
   emptyBookingDraft,
@@ -943,8 +942,6 @@ const BoxCard: React.FC<BoxCardProps> = ({
 }) => {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const volumetric = boxVolumetric(box);
-  const actual = Number.parseFloat(box.weightKg) || 0;
-  const chargeable = Math.max(actual, volumetric);
 
   return (
     <section className="book-courier__box">
@@ -959,36 +956,6 @@ const BoxCard: React.FC<BoxCardProps> = ({
 
       {!isEnvelope && (
         <>
-          <p className="book-courier__box-label">Weight</p>
-          <div className="book-courier__weight-cards">
-            <label className="book-courier__weight-card">
-              <span className="book-courier__weight-card-title"><Lock size={13} aria-hidden /> Actual Weight</span>
-              <span className="book-courier__weight-card-value">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={box.weightKg}
-                  onChange={event => onField('weightKg', event.target.value)}
-                  placeholder="0.00"
-                  aria-label="Actual weight in kg"
-                />
-                <em>kg</em>
-              </span>
-            </label>
-            <div className="book-courier__weight-card">
-              <span className="book-courier__weight-card-title"><Package size={13} aria-hidden /> Volumetric Weight</span>
-              <span className="book-courier__weight-card-value">
-                <strong>{volumetric.toFixed(2)}</strong>
-                <em>kg</em>
-              </span>
-            </div>
-          </div>
-          <div className="book-courier__chargeable">
-            <span>Chargeable Weight</span>
-            <strong>{chargeable.toFixed(2)} kg</strong>
-          </div>
-
           <p className="book-courier__box-label">Dimensions (cm)</p>
           <div className="book-courier__dim-cards">
             {([
@@ -1013,9 +980,30 @@ const BoxCard: React.FC<BoxCardProps> = ({
             ))}
           </div>
 
-          <div className="book-courier__vol-formula">
-            <span><Package size={14} aria-hidden /> Volumetric Weight = (L × W × H) / {VOLUMETRIC_WEIGHT_DIVISOR}</span>
-            <strong>{volumetric.toFixed(2)} kg</strong>
+          <p className="book-courier__box-label book-courier__box-label--tight">Weight</p>
+          <div className="book-courier__weight-cards">
+            <label className="book-courier__weight-card">
+              <span className="book-courier__weight-card-title"><Lock size={13} aria-hidden /> Actual Weight</span>
+              <span className="book-courier__weight-card-value">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={box.weightKg}
+                  onChange={event => onField('weightKg', event.target.value)}
+                  placeholder="0.00"
+                  aria-label="Actual weight in kg"
+                />
+                <em>kg</em>
+              </span>
+            </label>
+            <div className="book-courier__weight-card">
+              <span className="book-courier__weight-card-title"><Package size={13} aria-hidden /> Volumetric Weight</span>
+              <span className="book-courier__weight-card-value">
+                <strong>{volumetric.toFixed(2)}</strong>
+                <em>kg</em>
+              </span>
+            </div>
           </div>
         </>
       )}

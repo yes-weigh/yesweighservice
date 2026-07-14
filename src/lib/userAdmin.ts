@@ -5,6 +5,8 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  getDoc,
+  deleteField,
   type Firestore,
 } from 'firebase/firestore';
 import { secondaryAuth, app } from '../firebase';
@@ -17,6 +19,7 @@ import { authErrorMessage } from './authErrors';
 import { reserveLoginIndex } from './loginIndex';
 import { contactFieldsForLogin } from './profileLogin';
 import type { FirestoreUserDoc, Role } from '../types';
+import { normalizeRole } from '../types';
 import type { StaffDepartment, StaffPermission } from '../types/staff-access';
 import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
 
@@ -204,6 +207,35 @@ export async function updateUserProfile(
       updatedAt: new Date().toISOString(),
     }),
   );
+}
+
+/** Promote an existing staff account to super_admin. Keeps login/HR profile; clears staff access fields. */
+export async function promoteStaffToSuperAdmin(
+  db: Firestore,
+  uid: string,
+): Promise<void> {
+  const ref = doc(db, 'users', uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('User not found.');
+  const data = snap.data() as FirestoreUserDoc;
+  const role = normalizeRole(String(data.role ?? ''));
+  if (role !== 'staff') {
+    throw new Error('Only staff accounts can be promoted to Super Admin.');
+  }
+  if (data.active === false) {
+    throw new Error('Reactivate this staff member before promoting to Super Admin.');
+  }
+  await updateDoc(ref, {
+    role: 'super_admin',
+    staffDepartment: deleteField(),
+    staffRoleId: deleteField(),
+    staffAccessMode: deleteField(),
+    staffPermissions: deleteField(),
+    staffKamId: deleteField(),
+    staffTeamId: deleteField(),
+    staffLogisticsSite: deleteField(),
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function deactivateUser(db: Firestore, uid: string): Promise<void> {
