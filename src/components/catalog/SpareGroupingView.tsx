@@ -20,6 +20,7 @@ import {
 } from '../../lib/catalogProductSettings';
 import type { CatalogProduct } from '../../types/catalog';
 import { ProductBrowseCard } from './ProductBrowseCard';
+import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
 
 type ListView = 'needs-group' | 'this-group' | 'all';
 type DraftMap = Record<string, string | null>;
@@ -509,6 +510,10 @@ export const SpareGroupingView: React.FC<Props> = ({ spares, onAssigned }) => {
             value={search}
             placeholder="Search name or SKU"
             onChange={e => setSearch(e.target.value)}
+          />
+          <SkuScanButton
+            onScan={raw => fillSearchFromScan(raw, setSearch)}
+            hint="Point at the spare label QR code."
           />
         </label>
       </div>

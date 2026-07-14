@@ -3,6 +3,7 @@ import { Loader2, Package, Search } from 'lucide-react';
 import { fetchCatalogProductDetail, formatStockQuantity } from '../../lib/catalog';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import { ProductImageFrame } from '../catalog/ProductImageFrame';
+import { matchCatalogByScan, SkuScanButton } from '../catalog/SkuScanButton';
 import { CatalogProductLinkPreview } from './CatalogProductLinkPreview';
 
 function useDebounce(value: string, delay: number): string {
@@ -126,6 +127,17 @@ export const CatalogProductLinkPicker: React.FC<CatalogProductLinkPickerProps> =
               if (value && e.target.value !== [value.sku, value.name].filter(Boolean).join(' · ')) {
                 onChange(null);
               }
+            }}
+          />
+          <SkuScanButton
+            disabled={disabled || loading}
+            missMessage="SKU not found in catalog"
+            hint="Point at the product or spare label QR code."
+            onScan={raw => {
+              const match = matchCatalogByScan(raw, products);
+              if (!match) return false;
+              pickProduct(match);
+              return true;
             }}
           />
           {loading && (

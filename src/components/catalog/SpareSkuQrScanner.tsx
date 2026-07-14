@@ -5,10 +5,15 @@ import type { IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { CameraOff, Loader2, X } from 'lucide-react';
 
-interface SpareSkuQrScannerProps {
-  /** Return true when the scan should close the scanner (match found). */
+export interface SpareSkuQrScannerProps {
+  /** Return true when the scan should close the scanner (accepted). */
   onDetected: (value: string) => boolean;
   onClose: () => void;
+  title?: string;
+  hint?: string;
+  /** Shown when onDetected returns false. */
+  missMessage?: string;
+  ariaLabel?: string;
 }
 
 type ScannerState = 'starting' | 'scanning' | 'error' | 'unsupported';
@@ -45,12 +50,16 @@ const SPARE_QR_FORMATS = [
 ];
 
 /**
- * Full-screen camera scanner for spare-part label SKU QR codes.
+ * Full-screen camera scanner for product / spare label SKU QR (and common barcodes).
  * Stays open on a miss so the user can try again.
  */
 export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
   onDetected,
   onClose,
+  title = 'Scan QR',
+  hint = 'Point at the label QR code.',
+  missMessage = 'SKU not found',
+  ariaLabel = 'Scan SKU QR',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
@@ -60,11 +69,11 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
 
   const [state, setState] = useState<ScannerState>('starting');
   const [errorMessage, setErrorMessage] = useState('');
-  const [missMessage, setMissMessage] = useState('');
+  const [miss, setMiss] = useState('');
   const [session, setSession] = useState(0);
 
   const clearMissSoon = useCallback(() => {
-    window.setTimeout(() => setMissMessage(''), 2200);
+    window.setTimeout(() => setMiss(''), 2200);
   }, []);
 
   useEffect(() => {
@@ -112,9 +121,8 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
               controls.stop();
               return;
             }
-            setMissMessage('SKU not found in spare parts');
+            setMiss(missMessage);
             clearMissSoon();
-            // Allow another attempt after a short cooldown.
             window.setTimeout(() => {
               if (!cancelled) lockRef.current = false;
             }, 1200);
@@ -145,13 +153,13 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
       controlsRef.current?.stop();
       controlsRef.current = null;
     };
-  }, [session, clearMissSoon]);
+  }, [session, clearMissSoon, missMessage]);
 
   const modal = (
-    <div className="spare-sku-qr-scanner" role="dialog" aria-modal="true" aria-label="Scan spare SKU QR">
+    <div className="spare-sku-qr-scanner" role="dialog" aria-modal="true" aria-label={ariaLabel}>
       <div className="spare-sku-qr-scanner__panel">
         <div className="spare-sku-qr-scanner__head">
-          <h2 className="spare-sku-qr-scanner__title">Scan QR</h2>
+          <h2 className="spare-sku-qr-scanner__title">{title}</h2>
           <button
             type="button"
             className="spare-sku-qr-scanner__close"
@@ -194,13 +202,11 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
             )}
           </div>
           {state === 'scanning' && (
-            <p className="barcode-scanner__hint text-muted text-sm">
-              Point at the spare label QR code.
-            </p>
+            <p className="barcode-scanner__hint text-muted text-sm">{hint}</p>
           )}
-          {missMessage && (
+          {miss && (
             <p className="spare-sku-qr-scanner__miss" role="status" aria-live="polite">
-              {missMessage}
+              {miss}
             </p>
           )}
         </div>

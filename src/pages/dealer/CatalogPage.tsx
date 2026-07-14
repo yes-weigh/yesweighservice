@@ -71,6 +71,7 @@ import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 import {
+  buildProductNavState,
   buildSpareNavState,
   clearSpareReturnFocus,
   peekSpareReturnFocus,
@@ -1010,30 +1011,58 @@ export const CatalogPage: React.FC = () => {
     return map;
   }, [spareParts]);
 
-  const resolveSpareFromScan = useCallback((raw: string) => {
+  const resolveCatalogFromScan = useCallback((raw: string) => {
     const normalized = raw.trim().toLowerCase();
     if (!normalized) return null;
-    return spareParts.find(product => {
+    const matchIn = (list: CatalogProduct[]) => list.find(product => {
       const sku = product.sku?.trim().toLowerCase();
       if (sku && sku === normalized) return true;
       return product.id.trim().toLowerCase() === normalized;
     }) ?? null;
-  }, [spareParts]);
+    if (focus === 'all-spares' || focus === 'unlinked') {
+      const spare = matchIn(spareParts);
+      return spare ? { product: spare, kind: 'spare' as const } : null;
+    }
+    const spare = matchIn(spareParts);
+    if (spare) return { product: spare, kind: 'spare' as const };
+    const product = matchIn(shopProducts);
+    if (product) return { product, kind: 'product' as const };
+    return null;
+  }, [focus, spareParts, shopProducts]);
 
-  const handleSpareQrDetected = useCallback((value: string) => {
-    const match = resolveSpareFromScan(value);
-    if (!match) return false;
+  const handleCatalogQrDetected = useCallback((value: string) => {
+    const match = resolveCatalogFromScan(value);
+    if (!match) {
+      const text = value.trim();
+      if (!text) return false;
+      setSpareQrScannerOpen(false);
+      handleSearchChange(text);
+      return true;
+    }
     setSpareQrScannerOpen(false);
-    navigate(`${pathname}/spare/${match.id}`, {
-      state: buildSpareNavState(match, {
-        origin: 'spares-qr',
-        spareViewMode: 'items',
-        searchQuery: searchQuery.trim() || undefined,
-        spareFilters: spareListFiltersSnapshot(),
-      }),
-    });
+    if (match.kind === 'spare') {
+      navigate(`${pathname}/spare/${match.product.id}`, {
+        state: buildSpareNavState(match.product, {
+          origin: 'spares-qr',
+          spareViewMode: 'items',
+          searchQuery: searchQuery.trim() || undefined,
+          spareFilters: spareListFiltersSnapshot(),
+        }),
+      });
+    } else {
+      navigate(`${pathname}/${match.product.id}`, {
+        state: buildProductNavState(match.product, { origin: 'browse' }),
+      });
+    }
     return true;
-  }, [resolveSpareFromScan, navigate, pathname, searchQuery, spareListFiltersSnapshot]);
+  }, [
+    resolveCatalogFromScan,
+    navigate,
+    pathname,
+    searchQuery,
+    spareListFiltersSnapshot,
+    handleSearchChange,
+  ]);
 
   const openSpareFromRack = useCallback((productId: string, rackId: string) => {
     const product = spareParts.find(p => p.id === productId)
@@ -1124,14 +1153,14 @@ export const CatalogPage: React.FC = () => {
       <button
         type="button"
         className={[
-          'catalog-header-filter-btn',
-          spareQrScannerOpen ? 'catalog-header-filter-btn--open' : '',
+          'sku-scan-btn',
+          spareQrScannerOpen ? 'is-open' : '',
         ].filter(Boolean).join(' ')}
         onClick={() => setSpareQrScannerOpen(true)}
-        aria-label="Scan spare SKU QR code"
+        aria-label="Scan SKU QR code"
         title="Scan QR"
       >
-        <QrCode size={20} strokeWidth={2.25} />
+        <QrCode size={18} strokeWidth={2.25} />
       </button>
     ),
     [spareQrScannerOpen],
@@ -1160,7 +1189,6 @@ export const CatalogPage: React.FC = () => {
     if (focus === 'all-spares') {
       return (
         <div className="catalog-header-actions">
-          {scanQrButton}
           {rackViewButton}
           {showSparesFilters ? sparesFilterButton : null}
           {!isMobile && syncButton}
@@ -1181,7 +1209,6 @@ export const CatalogPage: React.FC = () => {
     showSparesFilters,
     showProductFilters,
     isMobile,
-    scanQrButton,
     rackViewButton,
     sparesFilterButton,
     productsFilterButton,
@@ -1217,9 +1244,10 @@ export const CatalogPage: React.FC = () => {
             <X size={16} />
           </button>
         )}
+        {scanQrButton}
       </div>
     ),
-    [searchQuery, handleSearchChange, focus, isSuperAdmin, setAdminSection, setFocus],
+    [searchQuery, handleSearchChange, focus, isSuperAdmin, setAdminSection, setFocus, scanQrButton],
   );
 
   usePageHeaderSlot(headerSearch, showHeaderSearch);
@@ -1677,7 +1705,11 @@ export const CatalogPage: React.FC = () => {
 
       {spareQrScannerOpen && (
         <SpareSkuQrScanner
-          onDetected={handleSpareQrDetected}
+          title="Scan QR"
+          hint="Point at the product or spare label QR code."
+          missMessage="SKU not found"
+          ariaLabel="Scan SKU QR"
+          onDetected={handleCatalogQrDetected}
           onClose={() => setSpareQrScannerOpen(false)}
         />
       )}

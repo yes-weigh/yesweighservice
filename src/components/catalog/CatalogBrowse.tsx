@@ -20,6 +20,7 @@ import { CategoryFolderGrid } from './CategoryFolderGrid';
 import { ProductBrowseCard } from './ProductBrowseCard';
 import { ProductFolderGrid } from './ProductFolderGrid';
 import { ProductImageFrame } from './ProductImageFrame';
+import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
 import { StockBadge, StockQuantity } from './StockBadge';
 
 export interface CatalogBrowseProps {
@@ -152,6 +153,11 @@ function CatalogFilters({
           placeholder={searchPlaceholder}
           value={search}
           onChange={e => setSearch(e.target.value)}
+        />
+        <SkuScanButton
+          onScan={raw => fillSearchFromScan(raw, setSearch)}
+          hint="Point at the product or spare label QR code."
+          missMessage="Could not read a SKU"
         />
       </div>
 

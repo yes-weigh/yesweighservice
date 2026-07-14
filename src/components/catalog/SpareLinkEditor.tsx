@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link2, Search, X } from 'lucide-react';
 import type { CatalogProduct } from '../../types/catalog';
+import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
 
 function formatProductTitle(name: string): string {
   return name
@@ -78,6 +79,12 @@ export const SpareLinkEditor: React.FC<{
             placeholder={mode === 'product' ? 'Search spares…' : 'Search products…'}
             value={search}
             onChange={e => setSearch(e.target.value)}
+          />
+          <SkuScanButton
+            onScan={raw => fillSearchFromScan(raw, setSearch)}
+            hint={mode === 'product'
+              ? 'Point at the spare label QR code.'
+              : 'Point at the product label QR code.'}
           />
         </div>
 

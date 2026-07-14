@@ -11,6 +11,7 @@ import {
   skuHasNonUppercaseAlphanumericChars,
 } from '../../../lib/catalog';
 import type { CatalogProduct } from '../../../types/catalog';
+import { fillSearchFromScan, SkuScanButton } from '../../../components/catalog/SkuScanButton';
 
 type SkuSubTab = 'all' | 'special' | 'duplicates';
 
@@ -331,6 +332,10 @@ export const SkuCorrectionTab: React.FC = () => {
           onChange={e => setSearch(e.target.value)}
           placeholder="Search SKU, name, or category…"
           aria-label="Search SKUs"
+        />
+        <SkuScanButton
+          onScan={raw => fillSearchFromScan(raw, setSearch)}
+          hint="Point at the product or spare label QR code."
         />
       </label>
 

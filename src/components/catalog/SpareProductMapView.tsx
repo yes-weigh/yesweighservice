@@ -23,6 +23,7 @@ import {
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import { buildSpareNavState } from '../../lib/catalogNav';
 import { CategoryThumbnail } from './CategoryThumbnail';
+import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
 import { StockBadge } from './StockBadge';
 
 function formatProductTitle(name: string): string {
@@ -590,6 +591,10 @@ export const SpareProductMapView: React.FC<{
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                 />
+                <SkuScanButton
+                  onScan={raw => fillSearchFromScan(raw, setSearch)}
+                  hint="Point at the spare label QR code."
+                />
               </div>
               <button
                 type="button"
@@ -637,6 +642,11 @@ export const SpareProductMapView: React.FC<{
                   value={copySearch}
                   disabled={copyLoading}
                   onChange={e => setCopySearch(e.target.value)}
+                />
+                <SkuScanButton
+                  disabled={copyLoading}
+                  onScan={raw => fillSearchFromScan(raw, setCopySearch)}
+                  hint="Point at the product label QR code."
                 />
               </div>
               <button

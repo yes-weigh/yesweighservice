@@ -3062,6 +3062,45 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.875rem;
 }
 
+.sku-scan-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.sku-scan-btn:hover:not(:disabled) {
+  color: var(--accent-primary, #f58220);
+  background: rgba(245, 130, 32, 0.12);
+}
+
+.sku-scan-btn.is-open,
+.sku-scan-btn:focus-visible {
+  color: var(--accent-primary, #f58220);
+  background: rgba(245, 130, 32, 0.18);
+  outline: none;
+}
+
+.sku-scan-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.top-bar--compact-search .sku-scan-btn {
+  width: 1.7rem;
+  height: 1.7rem;
+}
+
 .catalog-select {
   border-radius: 12px;
   border: 1px solid var(--border-glass);
