@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Boxes, ClipboardList, LayoutGrid, Layers, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { AlertCircle, Boxes, ClipboardList, LayoutGrid, Layers, QrCode, RefreshCw, Rows3, Search, SlidersHorizontal, X } from 'lucide-react';
 import { CatalogSparesFilterSheet } from '../../components/catalog/CatalogSparesFilterSheet';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
 import { SpareGroupingView } from '../../components/catalog/SpareGroupingView';
+import { SparePartsRackView } from '../../components/catalog/SparePartsRackView';
+import { SpareSkuQrScanner } from '../../components/catalog/SpareSkuQrScanner';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { WarehouseInventoryAuditList } from '../../components/yesStore/WarehouseInventoryAuditList';
 import { InventoryAuditBatchLinkModal } from '../../components/yesStore/InventoryAuditBatchLinkModal';
@@ -171,6 +173,8 @@ export const CatalogPage: React.FC = () => {
   const [spareLocationFilters, setSpareLocationFilters] = useState<Set<SpareWarehouseLocationFilter>>(() => new Set());
   const [spareAuditStatusFilters, setSpareAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
   const [sparesFiltersOpen, setSparesFiltersOpen] = useState(false);
+  const [spareViewMode, setSpareViewMode] = useState<'items' | 'rack'>('items');
+  const [spareQrScannerOpen, setSpareQrScannerOpen] = useState(false);
   const [productCatalogFilters, setProductCatalogFilters] = useState<Set<CategorizedProductFilter>>(() => new Set());
   const [productStockStatusFilters, setProductStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
   const [productAuditStatusFilters, setProductAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
@@ -892,12 +896,50 @@ export const CatalogPage: React.FC = () => {
     || spareAuditStatusFilters.size > 0;
 
   useEffect(() => {
-    if (focus !== 'all-spares') setSparesFiltersOpen(false);
+    if (focus !== 'all-spares') {
+      setSparesFiltersOpen(false);
+      setSpareViewMode('items');
+      setSpareQrScannerOpen(false);
+    }
   }, [focus]);
 
   useEffect(() => {
     if (focus !== 'browse') setProductsFiltersOpen(false);
   }, [focus]);
+
+  const spareProductIds = useMemo(
+    () => new Set(spareParts.map(product => product.id)),
+    [spareParts],
+  );
+
+  const spareCatalogByProductId = useMemo(() => {
+    const map = new Map<string, { sku: string; name?: string | null }>();
+    for (const product of spareParts) {
+      map.set(product.id, {
+        sku: product.sku?.trim() || product.id,
+        name: product.name,
+      });
+    }
+    return map;
+  }, [spareParts]);
+
+  const resolveSpareFromScan = useCallback((raw: string) => {
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) return null;
+    return spareParts.find(product => {
+      const sku = product.sku?.trim().toLowerCase();
+      if (sku && sku === normalized) return true;
+      return product.id.trim().toLowerCase() === normalized;
+    }) ?? null;
+  }, [spareParts]);
+
+  const handleSpareQrDetected = useCallback((value: string) => {
+    const match = resolveSpareFromScan(value);
+    if (!match) return false;
+    setSpareQrScannerOpen(false);
+    navigate(`${pathname}/spare/${match.id}`);
+    return true;
+  }, [resolveSpareFromScan, navigate, pathname]);
 
   const sparesFilterButton = useMemo(
     () => (
@@ -958,12 +1000,55 @@ export const CatalogPage: React.FC = () => {
     [canSync, syncing, loading, handleSync],
   );
 
+  const scanQrButton = useMemo(
+    () => (
+      <button
+        type="button"
+        className={[
+          'catalog-header-filter-btn',
+          spareQrScannerOpen ? 'catalog-header-filter-btn--open' : '',
+        ].filter(Boolean).join(' ')}
+        onClick={() => setSpareQrScannerOpen(true)}
+        aria-label="Scan spare SKU QR code"
+        title="Scan QR"
+      >
+        <QrCode size={20} strokeWidth={2.25} />
+      </button>
+    ),
+    [spareQrScannerOpen],
+  );
+
+  const rackViewButton = useMemo(
+    () => (
+      <button
+        type="button"
+        className={[
+          'catalog-header-filter-btn',
+          spareViewMode === 'rack' ? 'catalog-header-filter-btn--pressed' : '',
+        ].filter(Boolean).join(' ')}
+        onClick={() => setSpareViewMode(mode => (mode === 'rack' ? 'items' : 'rack'))}
+        aria-label={spareViewMode === 'rack' ? 'Show spare items grid' : 'Show rack view'}
+        aria-pressed={spareViewMode === 'rack'}
+        title={spareViewMode === 'rack' ? 'Item view' : 'Rack view'}
+      >
+        <Rows3 size={20} strokeWidth={2.25} />
+      </button>
+    ),
+    [spareViewMode],
+  );
+
   const topBarAction = useMemo(() => {
-    const filterButton = showSparesFilters
-      ? sparesFilterButton
-      : showProductFilters
-        ? productsFilterButton
-        : null;
+    if (focus === 'all-spares') {
+      return (
+        <div className="catalog-header-actions">
+          {scanQrButton}
+          {rackViewButton}
+          {showSparesFilters ? sparesFilterButton : null}
+          {!isMobile && syncButton}
+        </div>
+      );
+    }
+    const filterButton = showProductFilters ? productsFilterButton : null;
     if (!filterButton) return syncButton;
     if (isMobile) return filterButton;
     return (
@@ -973,9 +1058,12 @@ export const CatalogPage: React.FC = () => {
       </div>
     );
   }, [
+    focus,
     showSparesFilters,
     showProductFilters,
     isMobile,
+    scanQrButton,
+    rackViewButton,
     sparesFilterButton,
     productsFilterButton,
     syncButton,
@@ -1018,7 +1106,10 @@ export const CatalogPage: React.FC = () => {
   usePageHeaderSlot(headerSearch, showHeaderSearch);
   useTopBarAction(
     topBarAction,
-    showSparesFilters || showProductFilters || Boolean(canSync && showHeaderSearch && !isMobile),
+    focus === 'all-spares'
+      || showSparesFilters
+      || showProductFilters
+      || Boolean(canSync && showHeaderSearch && !isMobile),
   );
 
   const hasSmartBarContent = isSuperAdmin
@@ -1413,42 +1504,59 @@ export const CatalogPage: React.FC = () => {
 
       {focus === 'all-spares' && (
         <div className="catalog-spares-page panel glass">
-          <CatalogBrowse
-            products={filteredSpareParts}
-            categories={[]}
-            isLoading={loading || (isSuperAdmin && linksLoading)}
-            showToolbar={false}
-            showCategoryGrid={false}
-            flatBrowse
-            filterMode="minimal"
-            hideFilterBar
-            searchQuery={flatListSearch}
-            onSearchChange={handleSearchChange}
-            productsBasePath={`${pathname}/spare`}
-            enableCart={canUseCart(user?.role)}
-            showStockQuantity={showStockQuantity}
-            returnView="spares"
-            auditedLocationByProductId={auditedLocationByProductId}
-            manageItemLabel={isSuperAdmin && canSync && spareCatalogFilters.has('unmapped') ? 'Link to products' : undefined}
-            onManageItem={
-              isSuperAdmin && canSync && spareCatalogFilters.has('unmapped')
-                ? spare => void openLinkEditor(spare)
-                : undefined
-            }
-            emptyTitle={
-              isSuperAdmin && hasActiveSpareFilters
-                ? flatListSearch.trim()
-                  ? 'No spare parts match your search and filters'
-                  : 'No spare parts match the selected filters'
-                : undefined
-            }
-            emptyHint={
-              isSuperAdmin && hasActiveSpareFilters
-                ? 'Try clearing filters or run Sync from Zoho to refresh stock by location.'
-                : undefined
-            }
-          />
+          {spareViewMode === 'rack' ? (
+            <SparePartsRackView
+              items={auditItems}
+              spareProductIds={spareProductIds}
+              catalogByProductId={spareCatalogByProductId}
+              loading={auditLoading}
+              onSkuClick={productId => navigate(`${pathname}/spare/${productId}`)}
+            />
+          ) : (
+            <CatalogBrowse
+              products={filteredSpareParts}
+              categories={[]}
+              isLoading={loading || (isSuperAdmin && linksLoading)}
+              showToolbar={false}
+              showCategoryGrid={false}
+              flatBrowse
+              filterMode="minimal"
+              hideFilterBar
+              searchQuery={flatListSearch}
+              onSearchChange={handleSearchChange}
+              productsBasePath={`${pathname}/spare`}
+              enableCart={canUseCart(user?.role)}
+              showStockQuantity={showStockQuantity}
+              returnView="spares"
+              auditedLocationByProductId={auditedLocationByProductId}
+              manageItemLabel={isSuperAdmin && canSync && spareCatalogFilters.has('unmapped') ? 'Link to products' : undefined}
+              onManageItem={
+                isSuperAdmin && canSync && spareCatalogFilters.has('unmapped')
+                  ? spare => void openLinkEditor(spare)
+                  : undefined
+              }
+              emptyTitle={
+                isSuperAdmin && hasActiveSpareFilters
+                  ? flatListSearch.trim()
+                    ? 'No spare parts match your search and filters'
+                    : 'No spare parts match the selected filters'
+                  : undefined
+              }
+              emptyHint={
+                isSuperAdmin && hasActiveSpareFilters
+                  ? 'Try clearing filters or run Sync from Zoho to refresh stock by location.'
+                  : undefined
+              }
+            />
+          )}
         </div>
+      )}
+
+      {spareQrScannerOpen && (
+        <SpareSkuQrScanner
+          onDetected={handleSpareQrDetected}
+          onClose={() => setSpareQrScannerOpen(false)}
+        />
       )}
 
       {focus === 'inventory-audit' && (

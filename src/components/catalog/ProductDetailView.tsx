@@ -45,9 +45,14 @@ import {
 import {
   loadApprovalNumberOptions,
   loadModelNumbers,
+  loadMrpRules,
   loadSpareGroups,
   type CatalogSpareGroupOption,
 } from '../../lib/catalogProductSettings';
+import {
+  calculateProductMrpInclGst,
+  resolveMrpGroupRule,
+} from '../../lib/catalogMrp';
 import type { CatalogApprovalNumberOption } from '../../constants/catalogProductSettings';
 import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
@@ -206,6 +211,7 @@ export const ProductDetailView: React.FC<{
   const [editSku, setEditSku] = useState('');
   const [editRate, setEditRate] = useState('');
   const [editMrpOverride, setEditMrpOverride] = useState('');
+  const [applyingMrpEquation, setApplyingMrpEquation] = useState(false);
   const [editModelNumber, setEditModelNumber] = useState('');
   const [editApprovalNumber, setEditApprovalNumber] = useState('');
   const [editSpareGroupId, setEditSpareGroupId] = useState('');
@@ -865,6 +871,7 @@ export const ProductDetailView: React.FC<{
     setEditSku('');
     setEditRate('');
     setEditMrpOverride('');
+    setApplyingMrpEquation(false);
     setEditModelNumber('');
     setEditApprovalNumber('');
     setEditSpareGroupId('');
@@ -873,6 +880,38 @@ export const ProductDetailView: React.FC<{
     setModelNumberOptions([]);
     setApprovalNumberOptions([]);
     setSpareGroupOptions([]);
+  };
+
+  const applyMrpEquation = async () => {
+    if (!product || detailsSaving || applyingMrpEquation) return;
+    const rate = Number(editRate);
+    if (!Number.isFinite(rate) || rate < 0) {
+      setDetailsError('Enter a valid price before applying the MRP equation.');
+      return;
+    }
+    setApplyingMrpEquation(true);
+    setDetailsError(null);
+    try {
+      const rules = await loadMrpRules();
+      const selected = categoryOptions.find(cat => cat.id === editCategoryId);
+      const categories = categoryOptions.length > 0
+        ? categoryOptions
+        : spareClassificationCategories;
+      const groupRule = resolveMrpGroupRule(
+        {
+          categoryId: editCategoryId || product.categoryId,
+          categoryName: selected?.name ?? product.categoryName,
+        },
+        rules,
+        categories,
+      );
+      const mrp = calculateProductMrpInclGst(rate, product.taxPercentage, groupRule);
+      setEditMrpOverride(String(mrp));
+    } catch (err) {
+      setDetailsError(err instanceof Error ? err.message : 'Could not apply MRP equation.');
+    } finally {
+      setApplyingMrpEquation(false);
+    }
   };
 
   useEffect(() => {
@@ -1515,17 +1554,46 @@ export const ProductDetailView: React.FC<{
 
             {(product.sku || (productEditMode && canEditProductDetails)) && (
               productEditMode && canEditProductDetails ? (
-                <label className="product-detail-page__sku-field">
-                  <span className="product-detail-page__sku-label">SKU</span>
-                  <input
-                    type="text"
-                    className="product-detail-page__sku-input"
-                    value={editSku}
-                    onChange={e => setEditSku(e.target.value)}
-                    disabled={detailsSaving}
-                    aria-label="Item SKU"
-                  />
-                </label>
+                <div className="product-detail-page__sku-mrp-row">
+                  <label className="product-detail-page__sku-field">
+                    <span className="product-detail-page__sku-label">SKU</span>
+                    <input
+                      type="text"
+                      className="product-detail-page__sku-input"
+                      value={editSku}
+                      onChange={e => setEditSku(e.target.value)}
+                      disabled={detailsSaving}
+                      aria-label="Item SKU"
+                    />
+                  </label>
+                  <div className="product-detail-page__title-price product-detail-page__title-price--edit">
+                    <div className="product-detail-page__mrp-heading">
+                      <span className="product-detail-page__sku-label">MRP</span>
+                      <button
+                        type="button"
+                        className="product-detail-page__mrp-equation-link"
+                        disabled={detailsSaving || applyingMrpEquation}
+                        onClick={() => void applyMrpEquation()}
+                        title="Fill MRP from Product settings equation for this product or spare"
+                      >
+                        {applyingMrpEquation ? 'Applying…' : 'Apply equation'}
+                      </button>
+                    </div>
+                    <label className="product-detail-page__title-price-amount">
+                      <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        className="product-detail-page__rate-input"
+                        value={editMrpOverride}
+                        onChange={e => setEditMrpOverride(e.target.value)}
+                        disabled={detailsSaving || applyingMrpEquation}
+                        aria-label="MRP"
+                      />
+                    </label>
+                  </div>
+                </div>
               ) : (
                 <p className="product-detail-page__sku">SKU: {product.sku}</p>
               )
@@ -1553,22 +1621,8 @@ export const ProductDetailView: React.FC<{
               </label>
             )}
 
-            {productEditMode && canEditProductDetails && (
+            {productEditMode && canEditProductDetails && (isCategorizedProduct || isSpareItem) && (
               <div className="product-detail-page__extra-fields">
-                <label className="product-detail-page__sku-field">
-                  <span className="product-detail-page__sku-label">MRP (override)</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    className="product-detail-page__sku-input"
-                    value={editMrpOverride}
-                    onChange={e => setEditMrpOverride(e.target.value)}
-                    disabled={detailsSaving}
-                    placeholder="Blank = use settings equation"
-                    aria-label="MRP override"
-                  />
-                </label>
                 {isCategorizedProduct && (
                   <>
                     <label className="product-detail-page__sku-field">

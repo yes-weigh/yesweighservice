@@ -1,0 +1,212 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import type { IScannerControls } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { CameraOff, Loader2, X } from 'lucide-react';
+
+interface SpareSkuQrScannerProps {
+  /** Return true when the scan should close the scanner (match found). */
+  onDetected: (value: string) => boolean;
+  onClose: () => void;
+}
+
+type ScannerState = 'starting' | 'scanning' | 'error' | 'unsupported';
+
+function playScanBeep() {
+  try {
+    const AudioCtx = window.AudioContext
+      ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(1046, ctx.currentTime);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.18);
+    osc.onended = () => void ctx.close();
+  } catch {
+    // best-effort
+  }
+}
+
+const SPARE_QR_FORMATS = [
+  BarcodeFormat.QR_CODE,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+];
+
+/**
+ * Full-screen camera scanner for spare-part label SKU QR codes.
+ * Stays open on a miss so the user can try again.
+ */
+export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
+  onDetected,
+  onClose,
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
+  const lockRef = useRef(false);
+  const onDetectedRef = useRef(onDetected);
+  onDetectedRef.current = onDetected;
+
+  const [state, setState] = useState<ScannerState>('starting');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [missMessage, setMissMessage] = useState('');
+  const [session, setSession] = useState(0);
+
+  const clearMissSoon = useCallback(() => {
+    window.setTimeout(() => setMissMessage(''), 2200);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    lockRef.current = false;
+    const hints = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, SPARE_QR_FORMATS);
+    hints.set(DecodeHintType.TRY_HARDER, true);
+    const reader = new BrowserMultiFormatReader(hints, {
+      delayBetweenScanAttempts: 90,
+      delayBetweenScanSuccess: 90,
+    });
+
+    const secure = window.isSecureContext || location.hostname === 'localhost';
+    if (!navigator.mediaDevices?.getUserMedia || !secure) {
+      setState('unsupported');
+      setErrorMessage(
+        secure
+          ? 'Camera is not available on this device.'
+          : 'Camera scanning needs a secure (HTTPS) connection.',
+      );
+      return;
+    }
+
+    setState('starting');
+
+    const start = async () => {
+      try {
+        const controls = await reader.decodeFromConstraints(
+          {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          },
+          videoRef.current!,
+          (result) => {
+            if (!result || lockRef.current || cancelled) return;
+            lockRef.current = true;
+            playScanBeep();
+            const text = result.getText().trim();
+            const matched = onDetectedRef.current(text);
+            if (matched) {
+              controls.stop();
+              return;
+            }
+            setMissMessage('SKU not found in spare parts');
+            clearMissSoon();
+            // Allow another attempt after a short cooldown.
+            window.setTimeout(() => {
+              if (!cancelled) lockRef.current = false;
+            }, 1200);
+          },
+        );
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
+        controlsRef.current = controls;
+        setState('scanning');
+      } catch (error) {
+        if (cancelled) return;
+        const name = (error as { name?: string })?.name;
+        setState('error');
+        setErrorMessage(
+          name === 'NotAllowedError'
+            ? 'Camera permission was denied. Allow access and try again.'
+            : 'Could not start the camera.',
+        );
+      }
+    };
+
+    void start();
+
+    return () => {
+      cancelled = true;
+      controlsRef.current?.stop();
+      controlsRef.current = null;
+    };
+  }, [session, clearMissSoon]);
+
+  const modal = (
+    <div className="spare-sku-qr-scanner" role="dialog" aria-modal="true" aria-label="Scan spare SKU QR">
+      <div className="spare-sku-qr-scanner__panel">
+        <div className="spare-sku-qr-scanner__head">
+          <h2 className="spare-sku-qr-scanner__title">Scan QR</h2>
+          <button
+            type="button"
+            className="spare-sku-qr-scanner__close"
+            onClick={onClose}
+            aria-label="Close scanner"
+          >
+            <X size={18} aria-hidden />
+          </button>
+        </div>
+        <div className="barcode-scanner">
+          <div className="barcode-scanner__viewport">
+            {(state === 'starting' || state === 'scanning') && (
+              <>
+                <video ref={videoRef} className="barcode-scanner__video" muted playsInline />
+                <div className="barcode-scanner__frame" aria-hidden>
+                  <span className="barcode-scanner__laser" />
+                </div>
+                {state === 'starting' && (
+                  <div className="barcode-scanner__overlay">
+                    <Loader2 size={28} className="barcode-scanner__spin" aria-hidden />
+                    <span>Starting camera…</span>
+                  </div>
+                )}
+              </>
+            )}
+            {(state === 'error' || state === 'unsupported') && (
+              <div className="barcode-scanner__overlay barcode-scanner__overlay--error">
+                <CameraOff size={30} aria-hidden />
+                <span>{errorMessage}</span>
+                {state === 'error' && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setSession(s => s + 1)}
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {state === 'scanning' && (
+            <p className="barcode-scanner__hint text-muted text-sm">
+              Point at the spare label QR code.
+            </p>
+          )}
+          {missMessage && (
+            <p className="spare-sku-qr-scanner__miss" role="status" aria-live="polite">
+              {missMessage}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(modal, document.body);
+};
