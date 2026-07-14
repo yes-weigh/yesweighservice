@@ -170,6 +170,15 @@ export const LogisticsPage: React.FC = () => {
     closeFlow();
   }, [closeFlow]);
 
+  const handleDraftUpdated = useCallback((booking: LogisticsBooking) => {
+    setBookings(prev => {
+      const rest = prev.filter(item => item.id !== booking.id);
+      return [booking, ...rest];
+    });
+    setResumeBookingId(booking.id);
+    setError('');
+  }, []);
+
   const handleBookingComplete = useCallback((booking: LogisticsBooking) => {
     setBookings(prev => {
       const rest = prev.filter(item => item.id !== booking.id);
@@ -487,6 +496,7 @@ export const LogisticsPage: React.FC = () => {
           onClose={closeFlow}
           onComplete={handleBookingComplete}
           onDraftSaved={handleDraftSaved}
+          onDraftUpdated={handleDraftUpdated}
         />
       )}
     </div>

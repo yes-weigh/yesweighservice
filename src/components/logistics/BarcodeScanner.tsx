@@ -43,16 +43,8 @@ function stopVideoTracks(video: HTMLVideoElement | null) {
   if (video) video.srcObject = null;
 }
 
-// 1D linear barcodes only — QR / matrix codes are intentionally excluded.
-const COURIER_BARCODE_FORMATS = [
-  BarcodeFormat.CODE_128,
-  BarcodeFormat.CODE_39,
-  BarcodeFormat.ITF,
-  BarcodeFormat.CODABAR,
-  BarcodeFormat.EAN_13,
-  BarcodeFormat.EAN_8,
-  BarcodeFormat.UPC_A,
-];
+// Code 128 only — courier consignment barcodes; fewer formats = faster decode.
+const COURIER_BARCODE_FORMATS = [BarcodeFormat.CODE_128];
 
 export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);

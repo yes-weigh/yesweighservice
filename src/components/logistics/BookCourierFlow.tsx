@@ -293,7 +293,21 @@ interface BookCourierFlowProps {
   existingBookingId?: string | null;
   onClose: () => void;
   onComplete: (booking: LogisticsBooking) => void;
+  /** Called when a draft is persisted and the flow should return to the list. */
   onDraftSaved?: (booking: LogisticsBooking) => void;
+  /** Called when a draft is auto-updated while the wizard stays open. */
+  onDraftUpdated?: (booking: LogisticsBooking) => void;
+}
+
+const AUTO_DRAFT_STEPS: ReadonlyArray<BookCourierStep> = [
+  'box',
+  'review',
+  'label',
+  'final_photo',
+];
+
+function isAutoDraftStep(step: BookCourierStep): boolean {
+  return AUTO_DRAFT_STEPS.includes(step);
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -346,6 +360,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   onClose,
   onComplete,
   onDraftSaved,
+  onDraftUpdated,
 }) => {
   const [step, setStep] = useState<BookCourierStep>(initialStep);
   const [draft, setDraft] = useState<LogisticsBookingDraft>(() => ({
@@ -355,6 +370,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     boxes: initialDraft?.boxes?.length ? initialDraft.boxes : emptyBookingDraft(partnerId).boxes,
   }));
   const [draftBookingId, setDraftBookingId] = useState<string | null>(existingBookingId);
+  const draftBookingIdRef = useRef<string | null>(existingBookingId);
+  draftBookingIdRef.current = draftBookingId;
+  const draftSaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [dealerQuery, setDealerQuery] = useState(initialDealerQuery ?? '');
@@ -576,28 +594,76 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     }
   }, [draft, selectedDealer, user, draftBookingId]);
 
-  const handleSaveDraft = useCallback(async () => {
+  const persistDraft = useCallback(async (
+    wizardStep: BookCourierStep,
+    options?: { close?: boolean; draftOverride?: LogisticsBookingDraft },
+  ): Promise<LogisticsBooking | null> => {
+    const draftToSave = options?.draftOverride ?? draft;
     if (!selectedDealer) {
-      window.alert('Select a dealer before saving a draft.');
+      if (options?.close) onClose();
+      return null;
+    }
+
+    const run = async (): Promise<LogisticsBooking | null> => {
+      setSavingDraft(true);
+      try {
+        const saved = await persistLogisticsBookingDraft({
+          draft: draftToSave,
+          dealer: selectedDealer,
+          createdBy: user,
+          existingBookingId: draftBookingIdRef.current,
+          wizardStep,
+        });
+        draftBookingIdRef.current = saved.id;
+        setDraftBookingId(saved.id);
+        if (options?.close) {
+          onDraftSaved?.(saved);
+        } else {
+          onDraftUpdated?.(saved);
+        }
+        return saved;
+      } catch (err) {
+        if (options?.close) {
+          const leave = window.confirm(
+            `${err instanceof Error ? err.message : 'Could not save draft.'}\n\nLeave without saving?`,
+          );
+          if (leave) onClose();
+        } else {
+          window.alert(err instanceof Error ? err.message : 'Could not save draft.');
+        }
+        return null;
+      } finally {
+        setSavingDraft(false);
+      }
+    };
+
+    const queued = draftSaveChainRef.current.then(run, run);
+    draftSaveChainRef.current = queued.then(() => undefined, () => undefined);
+    return queued;
+  }, [draft, selectedDealer, user, onClose, onDraftSaved, onDraftUpdated]);
+
+  const requestClose = useCallback(() => {
+    if (step === 'complete' || saving) {
+      onClose();
       return;
     }
-    setSavingDraft(true);
-    try {
-      const saved = await persistLogisticsBookingDraft({
-        draft,
-        dealer: selectedDealer,
-        createdBy: user,
-        existingBookingId: draftBookingId,
-        wizardStep: step,
-      });
-      setDraftBookingId(saved.id);
-      onDraftSaved?.(saved);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not save draft.');
-    } finally {
-      setSavingDraft(false);
+    if (isAutoDraftStep(step) && selectedDealer) {
+      void persistDraft(step, { close: true });
+      return;
     }
-  }, [draft, selectedDealer, user, draftBookingId, step, onDraftSaved]);
+    onClose();
+  }, [step, saving, selectedDealer, persistDraft, onClose]);
+
+  const advanceTo = useCallback((
+    next: BookCourierStep,
+    draftOverride?: LogisticsBookingDraft,
+  ) => {
+    if (draftOverride) setDraft(draftOverride);
+    setStep(next);
+    if (selectedDealer && isAutoDraftStep(next)) {
+      void persistDraft(next, draftOverride ? { draftOverride } : undefined);
+    }
+  }, [selectedDealer, persistDraft]);
 
   const handleFinish = useCallback(() => {
     if (booking) onComplete(booking);
@@ -611,8 +677,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     return hasInsidePhoto && (Number.parseFloat(box.weightKg) || 0) > 0;
   });
   const canProceedBox = boxesValid;
-  const canSaveDraft = Boolean(selectedDealer)
-    && (step === 'box' || step === 'review' || step === 'label' || step === 'final_photo');
+  const showDraftStatus = Boolean(selectedDealer) && isAutoDraftStep(step);
   const totalActualWeight = draft.boxes.reduce(
     (total, box) => total + (Number.parseFloat(box.weightKg) || 0),
     0,
@@ -682,7 +747,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   })();
 
   return createPortal(
-    <div className="delivery-method-backdrop" role="presentation" onClick={onClose}>
+    <div className="delivery-method-backdrop" role="presentation" onClick={() => void requestClose()}>
       <div
         className="delivery-method-dialog delivery-method-dialog--form book-courier"
         role="dialog"
@@ -710,25 +775,32 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               {logisticsPartnerLabel(partnerId)} · {stepNumberLabel}
             </p>
           </div>
-          <span className="delivery-method-dialog__header-spacer" aria-hidden />
+          {step !== 'complete' ? (
+            <button
+              type="button"
+              className="delivery-method-dialog__close"
+              onClick={() => void requestClose()}
+              aria-label="Close and return to list"
+              disabled={savingDraft || saving}
+            >
+              <X size={20} aria-hidden />
+            </button>
+          ) : (
+            <span className="delivery-method-dialog__header-spacer" aria-hidden />
+          )}
         </header>
 
         <StepProgress step={step} />
 
-        {canSaveDraft && (
+        {showDraftStatus && (
           <div className="book-courier__draft-bar">
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={savingDraft || saving}
-              onClick={() => void handleSaveDraft()}
-            >
+            <span className="book-courier__draft-status text-muted text-sm">
               {savingDraft
                 ? 'Saving draft…'
                 : draftBookingId
-                  ? 'Update draft'
-                  : 'Save as draft'}
-            </button>
+                  ? 'Draft saved · closes update the list'
+                  : 'Draft saves automatically from this step'}
+            </span>
           </div>
         )}
 
@@ -896,7 +968,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                             <button
                               type="button"
                               className="btn btn-primary book-courier__address-next"
-                              onClick={() => setStep('box')}
+                              onClick={() => advanceTo('box')}
                             >
                               Next
                             </button>
@@ -1023,7 +1095,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 type="button"
                 className="btn btn-primary book-courier__next"
                 disabled={!canProceedBox}
-                onClick={() => setStep('review')}
+                onClick={() => advanceTo('review')}
               >
                 Confirm &amp; Next
               </button>
@@ -1140,7 +1212,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 type="button"
                 className="btn btn-primary book-courier__next"
                 disabled={!boxesValid}
-                onClick={() => setStep('label')}
+                onClick={() => advanceTo('label')}
               >
                 Next
               </button>
@@ -1248,8 +1320,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 type="button"
                 className="btn btn-primary book-courier__next"
                 onClick={() => {
-                  updateDraft('labelGenerated', true);
-                  setStep('final_photo');
+                  advanceTo('final_photo', { ...draft, labelGenerated: true });
                 }}
               >
                 Next
@@ -1399,6 +1470,8 @@ const BoxCard: React.FC<BoxCardProps> = ({
   const photoAttachInputRef = useRef<HTMLInputElement>(null);
   const photoCaptureInputRef = useRef<HTMLInputElement>(null);
   const volumetric = boxVolumetric(box);
+  const actualWeight = Number.parseFloat(box.weightKg) || 0;
+  const chargeableWeight = Math.max(actualWeight, volumetric);
 
   return (
     <section className="book-courier__box">
@@ -1413,7 +1486,10 @@ const BoxCard: React.FC<BoxCardProps> = ({
 
       {!isEnvelope && (
         <>
-          <p className="book-courier__box-label">Dimensions (cm)</p>
+          <p className="book-courier__box-label">
+            Dimensions (cm)
+            <span className="book-courier__box-opt"> · optional</span>
+          </p>
           <div className="book-courier__dim-cards">
             {([
               ['Length (L)', 'lengthCm'],
@@ -1428,8 +1504,8 @@ const BoxCard: React.FC<BoxCardProps> = ({
                     min="0"
                     value={box[key]}
                     onChange={event => onField(key, event.target.value)}
-                    placeholder="0"
-                    aria-label={label}
+                    placeholder="—"
+                    aria-label={`${label} (optional)`}
                   />
                   <em>cm</em>
                 </span>
@@ -1455,9 +1531,9 @@ const BoxCard: React.FC<BoxCardProps> = ({
               </span>
             </label>
             <div className="book-courier__weight-card">
-              <span className="book-courier__weight-card-title"><Package size={13} aria-hidden /> Volumetric Weight</span>
+              <span className="book-courier__weight-card-title"><Package size={13} aria-hidden /> Chargeable Weight</span>
               <span className="book-courier__weight-card-value">
-                <strong>{volumetric.toFixed(2)}</strong>
+                <strong>{chargeableWeight.toFixed(2)}</strong>
                 <em>kg</em>
               </span>
             </div>
