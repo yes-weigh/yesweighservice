@@ -174,11 +174,6 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
       controlsRef.current?.stop();
       controlsRef.current = null;
       stopVideoTracks(videoRef.current);
-      try {
-        reader.reset();
-      } catch {
-        // older zxing builds may not expose reset
-      }
     };
   }, [session]);
 

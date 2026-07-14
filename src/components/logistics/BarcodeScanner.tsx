@@ -141,11 +141,6 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
       controlsRef.current?.stop();
       controlsRef.current = null;
       stopVideoTracks(videoRef.current);
-      try {
-        reader.reset();
-      } catch {
-        // ignore
-      }
     };
   }, [session]);
 
