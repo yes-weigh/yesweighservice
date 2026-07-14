@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { FileText } from 'lucide-react';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import type { CatalogNcDoc } from '../../types/catalog-nc';
@@ -17,6 +18,12 @@ export type ProductDetailTabId =
   | 'support'
   | 'stock'
   | 'documents';
+
+export type ProductApprovalDocument = {
+  approvalNumber: string;
+  pdfUrl: string;
+  pdfFileName?: string | null;
+};
 
 const TAB_DEFS: { id: ProductDetailTabId; label: string }[] = [
   { id: 'spare', label: 'Spare' },
@@ -44,6 +51,40 @@ function TabPlaceholder({ label }: { label: string }) {
 
 function TabPanelBody({ children }: { children: React.ReactNode }) {
   return <div className="product-detail-tab-panel__body">{children}</div>;
+}
+
+function ProductDocumentsPanel({
+  approvalDocument,
+}: {
+  approvalDocument?: ProductApprovalDocument | null;
+}) {
+  if (!approvalDocument) {
+    return (
+      <div className="product-detail-documents">
+        <p className="product-detail-documents__empty text-muted text-sm">
+          No documents for this item yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="product-detail-documents">
+      <article className="product-detail-documents__card">
+        <p className="product-detail-documents__eyebrow">Approval certificate</p>
+        <p className="product-detail-documents__number">{approvalDocument.approvalNumber}</p>
+        <a
+          href={approvalDocument.pdfUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="product-detail-documents__link"
+        >
+          <FileText size={16} aria-hidden />
+          <span>{approvalDocument.pdfFileName || 'View approval PDF'}</span>
+        </a>
+      </article>
+    </div>
+  );
 }
 
 export const ProductDetailTabs: React.FC<{
@@ -81,6 +122,8 @@ export const ProductDetailTabs: React.FC<{
   mediaActorName?: string | null;
   onAuditSnapshotChange: (snapshot: NonNullable<CatalogProduct['auditSnapshot']>) => void;
   visibleTabs?: readonly ProductDetailTabId[];
+  /** Categorized products only — approval PDF for Documents tab. */
+  approvalDocument?: ProductApprovalDocument | null;
 }> = ({
   product,
   activeTab: controlledTab,
@@ -114,6 +157,7 @@ export const ProductDetailTabs: React.FC<{
   mediaActorName = null,
   onAuditSnapshotChange,
   visibleTabs,
+  approvalDocument = null,
 }) => {
   const [internalTab, setInternalTab] = useState<ProductDetailTabId>('spare');
   const activeTab = controlledTab ?? internalTab;
@@ -292,7 +336,21 @@ export const ProductDetailTabs: React.FC<{
         </div>
         )}
 
-        {(['sales', 'purchase', 'support', 'documents'] as const)
+        {visibleTabDefs.some(tab => tab.id === 'documents') && (
+        <div
+          id={panelId('documents')}
+          role="tabpanel"
+          aria-labelledby="product-detail-tab-documents"
+          hidden={activeTab !== 'documents'}
+          className="product-detail-tab-panel"
+        >
+          <TabPanelBody>
+            <ProductDocumentsPanel approvalDocument={approvalDocument} />
+          </TabPanelBody>
+        </div>
+        )}
+
+        {(['sales', 'purchase', 'support'] as const)
           .filter(tabId => visibleTabDefs.some(tab => tab.id === tabId))
           .map(tabId => (
           <div

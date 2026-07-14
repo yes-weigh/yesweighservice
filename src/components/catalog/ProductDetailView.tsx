@@ -7,7 +7,6 @@ import {
   Camera,
   ChevronRight,
   Download,
-  FileText,
   ImagePlus,
   IndianRupee,
   Package,
@@ -356,6 +355,19 @@ export const ProductDetailView: React.FC<{
   const isCategorizedProduct = Boolean(
     product && hasCatalogCategory(product) && !isSpareItem,
   );
+
+  const approvalDocument = useMemo(() => {
+    if (!isCategorizedProduct || !product?.approvalNumber) return null;
+    const selected = approvalNumberOptions.find(
+      opt => opt.value === product.approvalNumber,
+    );
+    if (!selected?.pdfUrl) return null;
+    return {
+      approvalNumber: product.approvalNumber,
+      pdfUrl: selected.pdfUrl,
+      pdfFileName: selected.pdfFileName ?? null,
+    };
+  }, [isCategorizedProduct, product?.approvalNumber, approvalNumberOptions]);
 
   useEffect(() => {
     if (!isSpareItem) {
@@ -1493,11 +1505,11 @@ export const ProductDetailView: React.FC<{
             {!product.categoryName && isSpareItem && (
               <p className="product-detail-page__breadcrumb">
                 <Tag size={13} aria-hidden />
-                <span>Spare part</span>
+                <span>Uncategorized spare</span>
               </p>
             )}
 
-            <div className="product-detail-page__title-row">
+            <div className={`product-detail-page__title-row${productEditMode && canEditProductDetails ? ' product-detail-page__title-row--edit' : ''}`}>
               <h1 ref={titleRef} className="product-detail-page__title">
                 {productEditMode && canEditProductDetails ? (
                   <input
@@ -1540,40 +1552,27 @@ export const ProductDetailView: React.FC<{
                   <span className="product-detail-page__title-price-gst">+GST</span>
                 </div>
               )}
-              {productEditMode && canEditProductDetails && (
-                <label className="product-detail-page__title-price product-detail-page__title-price--edit">
-                  <span className="product-detail-page__sku-label">Price</span>
-                  <div className="product-detail-page__title-price-amount">
-                    <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      className="product-detail-page__rate-input"
-                      value={editRate}
-                      onChange={e => setEditRate(e.target.value)}
-                      disabled={detailsSaving}
-                      aria-label="Dealer price"
-                    />
-                  </div>
-                  <span className="product-detail-page__title-price-gst">+GST</span>
-                </label>
-              )}
             </div>
 
-            {(product.sku || (productEditMode && canEditProductDetails)) && (
-              productEditMode && canEditProductDetails ? (
-                <div className="product-detail-page__sku-mrp-row">
-                  <label className="product-detail-page__sku-field">
-                    <span className="product-detail-page__sku-label">SKU</span>
-                    <input
-                      type="text"
-                      className="product-detail-page__sku-input"
-                      value={editSku}
-                      onChange={e => setEditSku(e.target.value)}
-                      disabled={detailsSaving}
-                      aria-label="Item SKU"
-                    />
+            {productEditMode && canEditProductDetails ? (
+              <div className="product-detail-page__edit-grid">
+                <div className="product-detail-page__edit-row">
+                  <label className="product-detail-page__title-price product-detail-page__title-price--edit">
+                    <span className="product-detail-page__sku-label">Price</span>
+                    <div className="product-detail-page__title-price-amount">
+                      <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        className="product-detail-page__rate-input"
+                        value={editRate}
+                        onChange={e => setEditRate(e.target.value)}
+                        disabled={detailsSaving}
+                        aria-label="Dealer price"
+                      />
+                    </div>
+                    <span className="product-detail-page__title-price-gst">+GST</span>
                   </label>
                   <div className="product-detail-page__title-price product-detail-page__title-price--edit">
                     <div className="product-detail-page__mrp-heading">
@@ -1603,122 +1602,118 @@ export const ProductDetailView: React.FC<{
                     </label>
                   </div>
                 </div>
-              ) : (
-                <p className="product-detail-page__sku">SKU: {product.sku}</p>
-              )
-            )}
 
-            {productEditMode && canEditProductDetails && (
-              <label className="product-detail-page__sku-field product-detail-page__category-field">
-                <span className="product-detail-page__sku-label">Category</span>
-                <select
-                  className="product-detail-page__category-select"
-                  value={editCategoryId}
-                  onChange={e => setEditCategoryId(e.target.value)}
-                  disabled={detailsSaving || categoriesLoading}
-                  aria-label="Item category"
-                >
-                  <option value="">
-                    {categoriesLoading ? 'Loading categories…' : 'Select category'}
-                  </option>
-                  {categoryOptions.map(cat => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {productEditMode && canEditProductDetails && (isCategorizedProduct || isSpareItem) && (
-              <div className="product-detail-page__extra-fields">
-                {isCategorizedProduct && (
-                  <>
-                    <label className="product-detail-page__sku-field">
-                      <span className="product-detail-page__sku-label">Model number</span>
-                      <select
-                        className="product-detail-page__category-select"
-                        value={editModelNumber}
-                        onChange={e => setEditModelNumber(e.target.value)}
-                        disabled={detailsSaving || optionListsLoading}
-                        aria-label="Model number"
-                      >
-                        <option value="">
-                          {optionListsLoading ? 'Loading…' : 'None'}
-                        </option>
-                        {modelNumberOptions.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                        {editModelNumber
-                          && !modelNumberOptions.includes(editModelNumber) && (
-                          <option value={editModelNumber}>{editModelNumber}</option>
-                        )}
-                      </select>
-                    </label>
-                    <label className="product-detail-page__sku-field">
-                      <span className="product-detail-page__sku-label">Approval number</span>
-                      <select
-                        className="product-detail-page__category-select"
-                        value={editApprovalNumber}
-                        onChange={e => setEditApprovalNumber(e.target.value)}
-                        disabled={detailsSaving || optionListsLoading}
-                        aria-label="Approval number"
-                      >
-                        <option value="">
-                          {optionListsLoading ? 'Loading…' : 'None'}
-                        </option>
-                        {approvalNumberOptions.map(opt => (
-                          <option key={opt.value} value={opt.value}>{opt.value}</option>
-                        ))}
-                        {editApprovalNumber
-                          && !approvalNumberOptions.some(opt => opt.value === editApprovalNumber) && (
-                          <option value={editApprovalNumber}>{editApprovalNumber}</option>
-                        )}
-                      </select>
-                      {(() => {
-                        const selected = approvalNumberOptions.find(
-                          opt => opt.value === editApprovalNumber,
-                        );
-                        if (!selected?.pdfUrl) return null;
-                        return (
-                          <a
-                            href={selected.pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="product-detail-page__approval-pdf-link"
-                          >
-                            <FileText size={14} aria-hidden />
-                            {selected.pdfFileName || 'View approval PDF'}
-                          </a>
-                        );
-                      })()}
-                    </label>
-                  </>
-                )}
-                {isSpareItem && (
+                <div className="product-detail-page__edit-row">
                   <label className="product-detail-page__sku-field">
-                    <span className="product-detail-page__sku-label">Spare group</span>
+                    <span className="product-detail-page__sku-label">SKU</span>
+                    <input
+                      type="text"
+                      className="product-detail-page__sku-input"
+                      value={editSku}
+                      onChange={e => setEditSku(e.target.value)}
+                      disabled={detailsSaving}
+                      aria-label="Item SKU"
+                    />
+                  </label>
+                  <label className="product-detail-page__sku-field">
+                    <span className="product-detail-page__sku-label">Category</span>
                     <select
                       className="product-detail-page__category-select"
-                      value={editSpareGroupId}
-                      onChange={e => setEditSpareGroupId(e.target.value)}
-                      disabled={detailsSaving || optionListsLoading}
-                      aria-label="Spare group"
+                      value={editCategoryId}
+                      onChange={e => setEditCategoryId(e.target.value)}
+                      disabled={detailsSaving || categoriesLoading}
+                      aria-label="Item category"
                     >
                       <option value="">
-                        {optionListsLoading ? 'Loading…' : 'Unassigned'}
+                        {categoriesLoading ? 'Loading categories…' : 'Select category'}
                       </option>
-                      {spareGroupOptions.map(opt => (
-                        <option key={opt.id} value={opt.id}>{opt.name}</option>
+                      {categoryOptions.map(cat => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
                       ))}
-                      {editSpareGroupId
-                        && !spareGroupOptions.some(opt => opt.id === editSpareGroupId) && (
-                        <option value={editSpareGroupId}>{editSpareGroupId}</option>
-                      )}
                     </select>
                   </label>
+                </div>
+
+                {(isCategorizedProduct || isSpareItem) && (
+                  <div className="product-detail-page__edit-row">
+                    {isCategorizedProduct && (
+                      <>
+                        <label className="product-detail-page__sku-field">
+                          <span className="product-detail-page__sku-label">Model number</span>
+                          <select
+                            className="product-detail-page__category-select"
+                            value={editModelNumber}
+                            onChange={e => setEditModelNumber(e.target.value)}
+                            disabled={detailsSaving || optionListsLoading}
+                            aria-label="Model number"
+                          >
+                            <option value="">
+                              {optionListsLoading ? 'Loading…' : 'None'}
+                            </option>
+                            {modelNumberOptions.map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                            {editModelNumber
+                              && !modelNumberOptions.includes(editModelNumber) && (
+                              <option value={editModelNumber}>{editModelNumber}</option>
+                            )}
+                          </select>
+                        </label>
+                        <label className="product-detail-page__sku-field">
+                          <span className="product-detail-page__sku-label">Approval number</span>
+                          <select
+                            className="product-detail-page__category-select"
+                            value={editApprovalNumber}
+                            onChange={e => setEditApprovalNumber(e.target.value)}
+                            disabled={detailsSaving || optionListsLoading}
+                            aria-label="Approval number"
+                          >
+                            <option value="">
+                              {optionListsLoading ? 'Loading…' : 'None'}
+                            </option>
+                            {approvalNumberOptions.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.value}</option>
+                            ))}
+                            {editApprovalNumber
+                              && !approvalNumberOptions.some(opt => opt.value === editApprovalNumber) && (
+                              <option value={editApprovalNumber}>{editApprovalNumber}</option>
+                            )}
+                          </select>
+                        </label>
+                      </>
+                    )}
+                    {isSpareItem && (
+                      <label className="product-detail-page__sku-field product-detail-page__edit-row-span">
+                        <span className="product-detail-page__sku-label">Spare group</span>
+                        <select
+                          className="product-detail-page__category-select"
+                          value={editSpareGroupId}
+                          onChange={e => setEditSpareGroupId(e.target.value)}
+                          disabled={detailsSaving || optionListsLoading}
+                          aria-label="Spare group"
+                        >
+                          <option value="">
+                            {optionListsLoading ? 'Loading…' : 'Unassigned'}
+                          </option>
+                          {spareGroupOptions.map(opt => (
+                            <option key={opt.id} value={opt.id}>{opt.name}</option>
+                          ))}
+                          {editSpareGroupId
+                            && !spareGroupOptions.some(opt => opt.id === editSpareGroupId) && (
+                            <option value={editSpareGroupId}>{editSpareGroupId}</option>
+                          )}
+                        </select>
+                      </label>
+                    )}
+                  </div>
                 )}
               </div>
+            ) : (
+              (product.sku) && (
+                <p className="product-detail-page__sku">SKU: {product.sku}</p>
+              )
             )}
 
             {!productEditMode && (
@@ -1734,25 +1729,6 @@ export const ProductDetailView: React.FC<{
                 {isCategorizedProduct && product.approvalNumber && (
                   <p className="product-detail-page__sku">
                     Approval: {product.approvalNumber}
-                    {(() => {
-                      const selected = approvalNumberOptions.find(
-                        opt => opt.value === product.approvalNumber,
-                      );
-                      if (!selected?.pdfUrl) return null;
-                      return (
-                        <>
-                          {' · '}
-                          <a
-                            href={selected.pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="product-detail-page__approval-pdf-link"
-                          >
-                            PDF
-                          </a>
-                        </>
-                      );
-                    })()}
                   </p>
                 )}
                 {isSpareItem && (
@@ -2054,6 +2030,7 @@ export const ProductDetailView: React.FC<{
               onAuditSnapshotChange={snapshot => {
                 setProduct(prev => (prev ? { ...prev, auditSnapshot: snapshot } : prev));
               }}
+              approvalDocument={approvalDocument}
             />
             </div>
           )}
