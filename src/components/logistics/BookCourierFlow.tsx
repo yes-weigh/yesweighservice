@@ -5,6 +5,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   Keyboard,
   Lock,
@@ -134,6 +135,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [saving, setSaving] = useState(false);
   const [editingCourier, setEditingCourier] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [shipFromOpen, setShipFromOpen] = useState(false);
+  const [fromAddresses, setFromAddresses] = useState<Record<StaffLogisticsSite, string>>({
+    cochin: '',
+    head_office: '',
+  });
+  const shipFromRef = useRef<HTMLDivElement>(null);
   const finalPhotoInputRef = useRef<HTMLInputElement>(null);
 
   const selectedDealer = useMemo<LogisticsDealerSnapshot | null>(() => {
@@ -200,8 +207,24 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     void loadLogisticsSettings().then(settings => {
       const site = user.staffLogisticsSite ?? settings.defaultStaffLogisticsSite;
       setDraft(prev => ({ ...prev, shipFromSite: site }));
+      setFromAddresses(settings.fromAddresses);
     });
   }, [user.staffLogisticsSite]);
+
+  useEffect(() => {
+    if (!shipFromOpen) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!shipFromRef.current?.contains(event.target as Node)) {
+        setShipFromOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [shipFromOpen]);
+
+  useEffect(() => {
+    if (step !== 'box') setShipFromOpen(false);
+  }, [step]);
 
   const updateDraft = useCallback(<K extends keyof LogisticsBookingDraft>(
     key: K,
@@ -479,6 +502,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       )}
                       {!dealersLoading && filteredDealers.map(dealer => {
                         const snapshot = zohoDealerToSnapshot(dealer);
+                        const addressRaw = (snapshot.shippingAddress?.trim()
+                          || snapshot.billingAddress?.trim()
+                          || '');
+                        const address = addressRaw && addressRaw !== '—' ? addressRaw : '';
                         return (
                           <button
                             key={dealer.id}
@@ -491,6 +518,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                             <strong>{snapshot.name}</strong>
                             <span className="book-courier__dealer-code">{snapshot.code}</span>
                             <span className="text-muted">{snapshot.contactPerson} · {snapshot.mobile}</span>
+                            {address ? (
+                              <span className="book-courier__suggest-address">{address}</span>
+                            ) : (
+                              <span className="book-courier__suggest-address book-courier__suggest-address--empty">
+                                No address on file
+                              </span>
+                            )}
                           </button>
                         );
                       })}
@@ -584,17 +618,64 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 ))}
               </div>
 
-              <label className="courier-dialog__field">
-                <span>Ship from site</span>
-                <select
-                  value={draft.shipFromSite}
-                  onChange={event => updateDraft('shipFromSite', event.target.value as StaffLogisticsSite)}
+              <div className="book-courier__field" ref={shipFromRef}>
+                <span id="book-courier-ship-from-label">Ship from site</span>
+                <button
+                  type="button"
+                  className={`book-courier__site-trigger${shipFromOpen ? ' is-open' : ''}`}
+                  aria-haspopup="listbox"
+                  aria-expanded={shipFromOpen}
+                  aria-labelledby="book-courier-ship-from-label"
+                  onClick={() => setShipFromOpen(open => !open)}
                 >
-                  {STAFF_LOGISTICS_SITES.map(site => (
-                    <option key={site} value={site}>{STAFF_LOGISTICS_SITE_LABELS[site]}</option>
-                  ))}
-                </select>
-              </label>
+                  <span className="book-courier__site-trigger-copy">
+                    <strong>{STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite]}</strong>
+                    {(fromAddresses[draft.shipFromSite] ?? '').trim() ? (
+                      <span className="book-courier__site-trigger-address">
+                        {fromAddresses[draft.shipFromSite].trim()}
+                      </span>
+                    ) : null}
+                  </span>
+                  <ChevronDown size={16} strokeWidth={2.25} aria-hidden />
+                </button>
+                {shipFromOpen && (
+                  <div
+                    className="book-courier__site-menu"
+                    role="listbox"
+                    aria-label="Ship from site"
+                  >
+                    {STAFF_LOGISTICS_SITES.map(site => {
+                      const selected = draft.shipFromSite === site;
+                      const address = (fromAddresses[site] ?? '').trim();
+                      return (
+                        <button
+                          key={site}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          className={`book-courier__site-option${selected ? ' is-selected' : ''}`}
+                          onClick={() => {
+                            updateDraft('shipFromSite', site);
+                            setShipFromOpen(false);
+                          }}
+                        >
+                          <span className="book-courier__site-option-head">
+                            <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
+                            {selected ? <Check size={14} strokeWidth={2.5} aria-hidden /> : null}
+                          </span>
+                          {address ? (
+                            <span className="book-courier__site-option-address">{address}</span>
+                          ) : (
+                            <span className="book-courier__site-option-address book-courier__site-option-address--empty">
+                              No from-address configured
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
               <div className="book-courier__boxes">
                 {draft.boxes.map((box, index) => (

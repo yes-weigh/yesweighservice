@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Save, Truck } from 'lucide-react';
+import { Check, ChevronDown, MapPin, Save, Truck } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
   listHrStaffUsers,
@@ -35,6 +35,8 @@ export const LogisticsSettingsTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [defaultSiteOpen, setDefaultSiteOpen] = useState(false);
+  const defaultSiteRef = useRef<HTMLDivElement>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -59,6 +61,17 @@ export const LogisticsSettingsTab: React.FC = () => {
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (!defaultSiteOpen) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!defaultSiteRef.current?.contains(event.target as Node)) {
+        setDefaultSiteOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [defaultSiteOpen]);
 
   const defaultDirty = draftDefaultSite !== defaultSite;
   const fromAddressesDirty = STAFF_LOGISTICS_SITES.some(
@@ -151,18 +164,65 @@ export const LogisticsSettingsTab: React.FC = () => {
               Save default
             </button>
           </div>
-          <label className="settings-locations__field settings-logistics__default-field">
-            <span>Location</span>
-            <select
-              value={draftDefaultSite}
-              onChange={e => setDraftDefaultSite(e.target.value as StaffLogisticsSite)}
+          <div className="settings-logistics__site-field" ref={defaultSiteRef}>
+            <span id="settings-logistics-default-label">Location</span>
+            <button
+              type="button"
+              className={`settings-logistics__site-trigger${defaultSiteOpen ? ' is-open' : ''}`}
+              aria-haspopup="listbox"
+              aria-expanded={defaultSiteOpen}
+              aria-labelledby="settings-logistics-default-label"
               disabled={busyKey === 'default'}
+              onClick={() => setDefaultSiteOpen(open => !open)}
             >
-              {STAFF_LOGISTICS_SITES.map(site => (
-                <option key={site} value={site}>{STAFF_LOGISTICS_SITE_LABELS[site]}</option>
-              ))}
-            </select>
-          </label>
+              <span className="settings-logistics__site-trigger-copy">
+                <strong>{STAFF_LOGISTICS_SITE_LABELS[draftDefaultSite]}</strong>
+                {(draftFromAddresses[draftDefaultSite] ?? '').trim() ? (
+                  <span className="settings-logistics__site-trigger-address">
+                    {draftFromAddresses[draftDefaultSite].trim()}
+                  </span>
+                ) : null}
+              </span>
+              <ChevronDown size={16} strokeWidth={2.25} aria-hidden />
+            </button>
+            {defaultSiteOpen && (
+              <div
+                className="settings-logistics__site-menu"
+                role="listbox"
+                aria-label="Default logistics location"
+              >
+                {STAFF_LOGISTICS_SITES.map(site => {
+                  const selected = draftDefaultSite === site;
+                  const address = (draftFromAddresses[site] ?? '').trim();
+                  return (
+                    <button
+                      key={site}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      className={`settings-logistics__site-option${selected ? ' is-selected' : ''}`}
+                      onClick={() => {
+                        setDraftDefaultSite(site);
+                        setDefaultSiteOpen(false);
+                      }}
+                    >
+                      <span className="settings-logistics__site-option-head">
+                        <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
+                        {selected ? <Check size={14} strokeWidth={2.5} aria-hidden /> : null}
+                      </span>
+                      {address ? (
+                        <span className="settings-logistics__site-option-address">{address}</span>
+                      ) : (
+                        <span className="settings-logistics__site-option-address settings-logistics__site-option-address--empty">
+                          No from-address configured
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="settings-logistics__default panel glass">
@@ -183,21 +243,26 @@ export const LogisticsSettingsTab: React.FC = () => {
               Save addresses
             </button>
           </div>
-          {STAFF_LOGISTICS_SITES.map(site => (
-            <label key={site} className="settings-locations__field settings-logistics__from-field">
-              <span>{STAFF_LOGISTICS_SITE_LABELS[site]}</span>
-              <textarea
-                rows={4}
-                value={draftFromAddresses[site]}
-                disabled={busyKey === 'from-addresses'}
-                onChange={event => setDraftFromAddresses(prev => ({
-                  ...prev,
-                  [site]: event.target.value,
-                }))}
-                placeholder="Company name, address lines, city, state, pincode, phone"
-              />
-            </label>
-          ))}
+          <div className="settings-logistics__from-grid">
+            {STAFF_LOGISTICS_SITES.map(site => (
+              <label key={site} className="settings-logistics__from-card">
+                <span className="settings-logistics__from-card-head">
+                  <MapPin size={15} aria-hidden />
+                  <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
+                </span>
+                <textarea
+                  rows={4}
+                  value={draftFromAddresses[site]}
+                  disabled={busyKey === 'from-addresses'}
+                  onChange={event => setDraftFromAddresses(prev => ({
+                    ...prev,
+                    [site]: event.target.value,
+                  }))}
+                  placeholder="Company name, address lines, city, state, pincode, phone"
+                />
+              </label>
+            ))}
+          </div>
         </div>
 
         <div className="settings-logistics__summary">
