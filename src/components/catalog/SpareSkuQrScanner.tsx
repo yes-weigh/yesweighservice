@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import type { IScannerControls } from '@zxing/browser';
@@ -41,7 +41,16 @@ function playScanBeep() {
   }
 }
 
-const SPARE_QR_FORMATS = [
+function stopVideoTracks(video: HTMLVideoElement | null) {
+  const stream = video?.srcObject;
+  if (stream instanceof MediaStream) {
+    for (const track of stream.getTracks()) track.stop();
+  }
+  if (video) video.srcObject = null;
+}
+
+/** QR plus common 1D formats used on labels / packaging. */
+const SKU_SCAN_FORMATS = [
   BarcodeFormat.QR_CODE,
   BarcodeFormat.CODE_128,
   BarcodeFormat.CODE_39,
@@ -50,42 +59,37 @@ const SPARE_QR_FORMATS = [
 ];
 
 /**
- * Full-screen camera scanner for product / spare label SKU QR (and common barcodes).
+ * Camera scanner for product / spare label SKU QR codes and common barcodes.
  * Stays open on a miss so the user can try again.
  */
 export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
   onDetected,
   onClose,
   title = 'Scan QR',
-  hint = 'Point at the label QR code.',
-  missMessage = 'SKU not found',
+  hint = 'Point at the label QR or barcode.',
+  missMessage = 'Not found',
   ariaLabel = 'Scan SKU QR',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const lockRef = useRef(false);
   const onDetectedRef = useRef(onDetected);
+  const missMessageRef = useRef(missMessage);
   onDetectedRef.current = onDetected;
+  missMessageRef.current = missMessage;
 
   const [state, setState] = useState<ScannerState>('starting');
   const [errorMessage, setErrorMessage] = useState('');
   const [miss, setMiss] = useState('');
   const [session, setSession] = useState(0);
-
-  const clearMissSoon = useCallback(() => {
-    window.setTimeout(() => setMiss(''), 2200);
-  }, []);
+  const missClearTimerRef = useRef<number | null>(null);
+  const unlockTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     lockRef.current = false;
-    const hints = new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, SPARE_QR_FORMATS);
-    hints.set(DecodeHintType.TRY_HARDER, true);
-    const reader = new BrowserMultiFormatReader(hints, {
-      delayBetweenScanAttempts: 90,
-      delayBetweenScanSuccess: 90,
-    });
+    setMiss('');
+    setState('starting');
 
     const secure = window.isSecureContext || location.hostname === 'localhost';
     if (!navigator.mediaDevices?.getUserMedia || !secure) {
@@ -98,9 +102,21 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
       return;
     }
 
-    setState('starting');
+    const hints = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, SKU_SCAN_FORMATS);
+    hints.set(DecodeHintType.TRY_HARDER, true);
+    const reader = new BrowserMultiFormatReader(hints, {
+      delayBetweenScanAttempts: 150,
+      delayBetweenScanSuccess: 400,
+    });
 
     const start = async () => {
+      // Let React Strict Mode finish its remount before opening the camera.
+      await new Promise<void>(resolve => {
+        window.setTimeout(resolve, 80);
+      });
+      if (cancelled || !videoRef.current) return;
+
       try {
         const controls = await reader.decodeFromConstraints(
           {
@@ -110,7 +126,7 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
               height: { ideal: 720 },
             },
           },
-          videoRef.current!,
+          videoRef.current,
           (result) => {
             if (!result || lockRef.current || cancelled) return;
             lockRef.current = true;
@@ -119,17 +135,25 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
             const matched = onDetectedRef.current(text);
             if (matched) {
               controls.stop();
+              stopVideoTracks(videoRef.current);
               return;
             }
-            setMiss(missMessage);
-            clearMissSoon();
-            window.setTimeout(() => {
+            const shown = text.length > 48 ? `${text.slice(0, 45)}…` : text;
+            setMiss(shown
+              ? `${missMessageRef.current}: ${shown}`
+              : missMessageRef.current);
+            if (missClearTimerRef.current) window.clearTimeout(missClearTimerRef.current);
+            missClearTimerRef.current = window.setTimeout(() => setMiss(''), 3200);
+            if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
+            unlockTimerRef.current = window.setTimeout(() => {
               if (!cancelled) lockRef.current = false;
             }, 1200);
           },
         );
+
         if (cancelled) {
           controls.stop();
+          stopVideoTracks(videoRef.current);
           return;
         }
         controlsRef.current = controls;
@@ -137,6 +161,8 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
       } catch (error) {
         if (cancelled) return;
         const name = (error as { name?: string })?.name;
+        // AbortError from interrupted play during Strict Mode remount — ignore if we cancelled.
+        if (name === 'AbortError') return;
         setState('error');
         setErrorMessage(
           name === 'NotAllowedError'
@@ -150,14 +176,32 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
 
     return () => {
       cancelled = true;
+      if (missClearTimerRef.current) window.clearTimeout(missClearTimerRef.current);
+      if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
       controlsRef.current?.stop();
       controlsRef.current = null;
+      stopVideoTracks(videoRef.current);
+      try {
+        reader.reset();
+      } catch {
+        // older zxing builds may not expose reset
+      }
     };
-  }, [session, clearMissSoon, missMessage]);
+  }, [session]);
 
   const modal = (
-    <div className="spare-sku-qr-scanner" role="dialog" aria-modal="true" aria-label={ariaLabel}>
-      <div className="spare-sku-qr-scanner__panel">
+    <div
+      className="spare-sku-qr-scanner"
+      role="dialog"
+      aria-modal="true"
+      aria-label={ariaLabel}
+      onClick={onClose}
+    >
+      <div
+        className="spare-sku-qr-scanner__panel"
+        role="document"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="spare-sku-qr-scanner__head">
           <h2 className="spare-sku-qr-scanner__title">{title}</h2>
           <button
@@ -173,7 +217,13 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
           <div className="barcode-scanner__viewport">
             {(state === 'starting' || state === 'scanning') && (
               <>
-                <video ref={videoRef} className="barcode-scanner__video" muted playsInline />
+                <video
+                  ref={videoRef}
+                  className="barcode-scanner__video"
+                  muted
+                  playsInline
+                  autoPlay
+                />
                 <div className="barcode-scanner__frame" aria-hidden>
                   <span className="barcode-scanner__laser" />
                 </div>

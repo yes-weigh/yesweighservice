@@ -6,6 +6,7 @@ import { WhatsAppShare } from 'whatsapp-share';
 import type { CatalogProduct } from '../../types/catalog';
 import shareTagIconUrl from '../../assets/share-tag-icon.png';
 import { openWhatsAppWithText, uploadWhatsAppShareCard } from '../../lib/whatsappShareCard';
+import { isCatalogSparePartProduct } from '../../lib/catalog';
 import { loadMrpRules } from '../../lib/catalogProductSettings';
 import { calculateProductMrpForCatalogItem } from '../../lib/catalogMrp';
 
@@ -329,15 +330,25 @@ async function buildShareCardBlob(
   let y = 0;
 
   // --- Header banner (ref: h=48, ~80% width) ---
+  // Spares (generic + uncategorized): "GENUINE SPARE PARTS"
+  // Categorized products: product name on top, SKU on the title ribbon below
+  const isSpareShare = isCatalogSparePartProduct(product);
+  const productName = product.name.trim() || 'PRODUCT';
+  const productSku = (product.sku ?? '').trim() || '—';
   const headerH = sc(48);
   const headerIconPad = sc(5);
   const headerIcon = headerH - headerIconPad * 2;
-  const headerFont = sc(20);
+  let headerFont = sc(20);
   const headerPadL = sc(10);
   const headerGap = sc(8);
-  const headerText = 'GENUINE SPARE PARTS';
+  const headerText = (isSpareShare ? 'GENUINE SPARE PARTS' : productName).toUpperCase();
   const headerSlant = sc(25);
   ctx.font = `bold ${headerFont}px Arial, Helvetica, sans-serif`;
+  const headerMaxTextW = sc(327) - headerPadL - headerIcon - headerGap - sc(28) - headerSlant;
+  while (headerFont > sc(12) && ctx.measureText(headerText).width > headerMaxTextW) {
+    headerFont -= 1;
+    ctx.font = `bold ${headerFont}px Arial, Helvetica, sans-serif`;
+  }
   const headerBannerW = Math.min(
     W - sc(4),
     Math.max(
@@ -392,7 +403,7 @@ async function buildShareCardBlob(
   const titleH = sc(39);
   const titleIconPad = sc(4);
   const titleIcon = titleH - titleIconPad * 2;
-  const title = (product.name.trim() || 'PRODUCT').toUpperCase();
+  const title = (isSpareShare ? productName : `SKU: ${productSku}`).toUpperCase();
   const titleSlant = sc(22);
   const tagImg = await loadImage(shareTagIconUrl);
   let titleFont = sc(17);

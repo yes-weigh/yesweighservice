@@ -994,7 +994,7 @@ html::-webkit-scrollbar {
 .spare-rack-cell__body {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.35rem;
   min-width: 0;
   padding-right: 1rem;
@@ -1019,11 +1019,11 @@ html::-webkit-scrollbar {
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.01em;
-  line-height: 1.2;
+  line-height: 1.25;
   color: #f8fafc;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .spare-rack-cell--wide .spare-rack-cell__sku {
@@ -1114,16 +1114,17 @@ html::-webkit-scrollbar {
   inset: 0;
   z-index: 1200;
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: center;
   padding: 1rem;
+  padding-top: max(1rem, env(safe-area-inset-top, 0px));
   background: rgba(2, 6, 23, 0.72);
   box-sizing: border-box;
 }
 
 .spare-sku-qr-scanner__panel {
   width: min(100%, 28rem);
-  margin-bottom: env(safe-area-inset-bottom, 0);
+  margin-top: 0;
   border-radius: 16px;
   background: #0f172a;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1174,6 +1175,7 @@ html::-webkit-scrollbar {
   color: #fecaca;
   font-size: 0.8125rem;
   font-weight: 600;
+  word-break: break-word;
 }
 
 @media (min-width: 640px) {

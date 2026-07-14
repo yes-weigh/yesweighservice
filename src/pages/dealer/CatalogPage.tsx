@@ -1032,13 +1032,7 @@ export const CatalogPage: React.FC = () => {
 
   const handleCatalogQrDetected = useCallback((value: string) => {
     const match = resolveCatalogFromScan(value);
-    if (!match) {
-      const text = value.trim();
-      if (!text) return false;
-      setSpareQrScannerOpen(false);
-      handleSearchChange(text);
-      return true;
-    }
+    if (!match) return false;
     setSpareQrScannerOpen(false);
     if (match.kind === 'spare') {
       navigate(`${pathname}/spare/${match.product.id}`, {
@@ -1061,7 +1055,6 @@ export const CatalogPage: React.FC = () => {
     pathname,
     searchQuery,
     spareListFiltersSnapshot,
-    handleSearchChange,
   ]);
 
   const openSpareFromRack = useCallback((productId: string, rackId: string) => {
@@ -1707,7 +1700,7 @@ export const CatalogPage: React.FC = () => {
         <SpareSkuQrScanner
           title="Scan QR"
           hint="Point at the product or spare label QR code."
-          missMessage="SKU not found"
+          missMessage="Not found"
           ariaLabel="Scan SKU QR"
           onDetected={handleCatalogQrDetected}
           onClose={() => setSpareQrScannerOpen(false)}
