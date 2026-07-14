@@ -35,6 +35,14 @@ function playScanBeep() {
   }
 }
 
+function stopVideoTracks(video: HTMLVideoElement | null) {
+  const stream = video?.srcObject;
+  if (stream instanceof MediaStream) {
+    for (const track of stream.getTracks()) track.stop();
+  }
+  if (video) video.srcObject = null;
+}
+
 // 1D linear barcodes only — QR / matrix codes are intentionally excluded.
 const COURIER_BARCODE_FORMATS = [
   BarcodeFormat.CODE_128,
@@ -50,18 +58,23 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const detectedRef = useRef(false);
+  const onDetectedRef = useRef(onDetected);
+  onDetectedRef.current = onDetected;
   const [state, setState] = useState<ScannerState>('starting');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [session, setSession] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    detectedRef.current = false;
+    setState('starting');
+
     const hints = new Map();
     hints.set(DecodeHintType.POSSIBLE_FORMATS, COURIER_BARCODE_FORMATS);
-    hints.set(DecodeHintType.TRY_HARDER, true);
-    // Default is one attempt every 500ms; scan far more frequently for a snappy feel.
+    // Skip TRY_HARDER — too heavy for live preview on phones.
     const reader = new BrowserMultiFormatReader(hints, {
-      delayBetweenScanAttempts: 90,
-      delayBetweenScanSuccess: 90,
+      delayBetweenScanAttempts: 200,
+      delayBetweenScanSuccess: 400,
     });
 
     const secure = window.isSecureContext || location.hostname === 'localhost';
@@ -76,28 +89,34 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
     }
 
     const start = async () => {
+      await new Promise<void>(resolve => {
+        window.setTimeout(resolve, 60);
+      });
+      if (cancelled || !videoRef.current) return;
+
       try {
         const controls = await reader.decodeFromConstraints(
           {
             video: {
               facingMode: { ideal: 'environment' },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 24, max: 30 },
             },
           },
-          videoRef.current!,
-          (result, err) => {
-            if (result && !detectedRef.current) {
-              detectedRef.current = true;
-              playScanBeep();
-              controls.stop();
-              onDetected(result.getText());
-            }
-            void err;
+          videoRef.current,
+          (result) => {
+            if (!result || detectedRef.current || cancelled) return;
+            detectedRef.current = true;
+            playScanBeep();
+            controls.stop();
+            stopVideoTracks(videoRef.current);
+            onDetectedRef.current(result.getText());
           },
         );
         if (cancelled) {
           controls.stop();
+          stopVideoTracks(videoRef.current);
           return;
         }
         controlsRef.current = controls;
@@ -105,6 +124,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
       } catch (error) {
         if (cancelled) return;
         const name = (error as { name?: string })?.name;
+        if (name === 'AbortError') return;
         setState('error');
         setErrorMessage(
           name === 'NotAllowedError'
@@ -119,15 +139,28 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
     return () => {
       cancelled = true;
       controlsRef.current?.stop();
+      controlsRef.current = null;
+      stopVideoTracks(videoRef.current);
+      try {
+        reader.reset();
+      } catch {
+        // ignore
+      }
     };
-  }, [onDetected]);
+  }, [session]);
 
   return (
     <div className="barcode-scanner">
       <div className="barcode-scanner__viewport">
         {(state === 'starting' || state === 'scanning') && (
           <>
-            <video ref={videoRef} className="barcode-scanner__video" muted playsInline />
+            <video
+              ref={videoRef}
+              className="barcode-scanner__video"
+              muted
+              playsInline
+              autoPlay
+            />
             <div className="barcode-scanner__frame" aria-hidden>
               <span className="barcode-scanner__laser" />
             </div>
@@ -143,6 +176,15 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
           <div className="barcode-scanner__overlay barcode-scanner__overlay--error">
             <CameraOff size={30} aria-hidden />
             <span>{errorMessage}</span>
+            {state === 'error' && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSession(s => s + 1)}
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
         <button
@@ -156,7 +198,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
       </div>
       {state === 'scanning' && (
         <p className="barcode-scanner__hint text-muted text-sm">
-          Point the camera at the courier barcode or QR code.
+          Point the camera at the courier barcode.
         </p>
       )}
     </div>

@@ -49,24 +49,18 @@ function stopVideoTracks(video: HTMLVideoElement | null) {
   if (video) video.srcObject = null;
 }
 
-/** QR plus common 1D formats used on labels / packaging. */
-const SKU_SCAN_FORMATS = [
-  BarcodeFormat.QR_CODE,
-  BarcodeFormat.CODE_128,
-  BarcodeFormat.CODE_39,
-  BarcodeFormat.EAN_13,
-  BarcodeFormat.EAN_8,
-];
+/** Catalog / spare labels use QR only — keeps decode light so preview stays smooth. */
+const SKU_QR_FORMATS = [BarcodeFormat.QR_CODE];
 
 /**
- * Camera scanner for product / spare label SKU QR codes and common barcodes.
+ * Camera scanner for product / spare label SKU QR codes.
  * Stays open on a miss so the user can try again.
  */
 export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
   onDetected,
   onClose,
   title = 'Scan QR',
-  hint = 'Point at the label QR or barcode.',
+  hint = 'Point at the label QR code.',
   missMessage = 'Not found',
   ariaLabel = 'Scan SKU QR',
 }) => {
@@ -103,17 +97,16 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
     }
 
     const hints = new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, SKU_SCAN_FORMATS);
-    hints.set(DecodeHintType.TRY_HARDER, true);
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, SKU_QR_FORMATS);
+    // TRY_HARDER is expensive and makes the preview stutter on phones.
     const reader = new BrowserMultiFormatReader(hints, {
-      delayBetweenScanAttempts: 150,
-      delayBetweenScanSuccess: 400,
+      delayBetweenScanAttempts: 220,
+      delayBetweenScanSuccess: 500,
     });
 
     const start = async () => {
-      // Let React Strict Mode finish its remount before opening the camera.
       await new Promise<void>(resolve => {
-        window.setTimeout(resolve, 80);
+        window.setTimeout(resolve, 60);
       });
       if (cancelled || !videoRef.current) return;
 
@@ -122,8 +115,9 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
           {
             video: {
               facingMode: { ideal: 'environment' },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 24, max: 30 },
             },
           },
           videoRef.current,
@@ -147,7 +141,7 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
             if (unlockTimerRef.current) window.clearTimeout(unlockTimerRef.current);
             unlockTimerRef.current = window.setTimeout(() => {
               if (!cancelled) lockRef.current = false;
-            }, 1200);
+            }, 900);
           },
         );
 
@@ -161,7 +155,6 @@ export const SpareSkuQrScanner: React.FC<SpareSkuQrScannerProps> = ({
       } catch (error) {
         if (cancelled) return;
         const name = (error as { name?: string })?.name;
-        // AbortError from interrupted play during Strict Mode remount — ignore if we cancelled.
         if (name === 'AbortError') return;
         setState('error');
         setErrorMessage(
