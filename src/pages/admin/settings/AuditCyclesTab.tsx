@@ -22,7 +22,6 @@ import {
   summarizeAuditCycleRows,
 } from '../../../lib/auditCycles/cycleRows';
 import { fetchCatalog, formatCurrency } from '../../../lib/catalog';
-import { reconcileStaleAuditSnapshots } from '../../../lib/catalogProductAudit/reconcile';
 import {
   auditCycleSiteLabel,
   type AuditCycleDoc,
@@ -109,7 +108,6 @@ export const AuditCyclesTab: React.FC = () => {
   const [openImmediately, setOpenImmediately] = useState(true);
   const [expandedCycleId, setExpandedCycleId] = useState<string | null>(null);
   const [visibleColumns, setVisibleColumns] = useState(defaultVisibleColumns);
-  const [reconcileResult, setReconcileResult] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -214,47 +212,6 @@ export const AuditCyclesTab: React.FC = () => {
     }
   };
 
-  const handleReconcileStaleAudits = async (dryRun: boolean) => {
-    if (!openBySite.get('head_office')) {
-      setError('Open a Head Office audit cycle before reconciling.');
-      return;
-    }
-    const ok = await confirm({
-      title: dryRun ? 'Preview audit reconcile?' : 'Update all stale audited counts?',
-      message: dryRun
-        ? 'Scan every product and report where live locations differ from frozen Audited stock. No writes.'
-        : 'Set Audited stock = current live locations for every product that drifted mid-cycle. Diff will use the new audited totals vs Zoho.',
-      confirmLabel: dryRun ? 'Preview' : 'Update all',
-      destructive: !dryRun,
-    });
-    if (!ok) return;
-
-    setBusyKey(dryRun ? 'reconcile-dry' : 'reconcile');
-    setError('');
-    setReconcileResult(null);
-    try {
-      const summary = await reconcileStaleAuditSnapshots({ dryRun });
-      const sampleLine = summary.samples.length
-        ? ` Examples: ${summary.samples
-          .slice(0, 3)
-          .map(s => `${s.sku || s.productId} (${s.frozen ?? '—'}→${s.live})`)
-          .join(', ')}.`
-        : '';
-      setReconcileResult(
-        `${dryRun ? 'Preview' : 'Done'}: ${summary.updated} need/updated, `
-        + `${summary.skippedInSync} already in sync, `
-        + `${summary.candidates} scanned`
-        + (summary.errors.length ? `, ${summary.errors.length} errors` : '')
-        + `.${sampleLine}`,
-      );
-      if (!dryRun) await loadAll();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not reconcile audits.');
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
   const toggleExpanded = (cycleId: string) => {
     setExpandedCycleId(prev => (prev === cycleId ? null : cycleId));
   };
@@ -316,37 +273,6 @@ export const AuditCyclesTab: React.FC = () => {
           );
         })}
       </div>
-
-      <div className="audit-cycles-reconcile">
-        <div className="audit-cycles-reconcile__copy">
-          <strong>Fix stale audited counts</strong>
-          <p className="text-muted text-sm">
-            One-time bulk update when live locations drifted from frozen Audited stock
-            (e.g. bins linked mid-cycle). Requires an open Head Office cycle.
-          </p>
-        </div>
-        <div className="audit-cycles-reconcile__actions">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={busyKey != null || !openBySite.get('head_office')}
-            onClick={() => void handleReconcileStaleAudits(true)}
-          >
-            {busyKey === 'reconcile-dry' ? 'Scanning…' : 'Preview'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={busyKey != null || !openBySite.get('head_office')}
-            onClick={() => void handleReconcileStaleAudits(false)}
-          >
-            {busyKey === 'reconcile' ? 'Updating…' : 'Update all stale'}
-          </button>
-        </div>
-      </div>
-      {reconcileResult && (
-        <p className="audit-cycles-reconcile__result text-sm">{reconcileResult}</p>
-      )}
 
       {error && <p className="settings-locations__error text-sm">{error}</p>}
 
