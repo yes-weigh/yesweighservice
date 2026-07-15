@@ -27,6 +27,7 @@ import {
   getCategoriesForProducts,
   getCatalogSparePartsPool,
   getUnlinkedSpares,
+  isHiddenCatalogCategory,
   isSparesExcludedCategory,
   matchesSpareCatalogFilters,
   matchesCategorizedProductFilters,
@@ -530,6 +531,19 @@ export const CatalogPage: React.FC = () => {
     applyProductBrowseFilters,
   ]);
 
+  const browseCategoryChips = useMemo(
+    () => shopCategories
+      .filter(c => c.id && c.productCount > 0 && !isHiddenCatalogCategory(c))
+      .sort((a, b) => {
+        const orderDiff = a.displayOrder - b.displayOrder;
+        if (orderDiff !== 0) return orderDiff;
+        return a.name.localeCompare(b.name);
+      }),
+    [shopCategories],
+  );
+
+  const showBrowseCategoryChips = focus === 'browse' && browseCategoryChips.length > 0;
+
   const filteredSpareParts = useMemo(() => {
     let items = spareParts;
     if (isSuperAdmin && linkedSpareIds) {
@@ -715,6 +729,28 @@ export const CatalogPage: React.FC = () => {
     }, { replace: true });
   }, [setSearchParams]);
 
+  const swipeCategoryIds = useMemo(
+    () => browseCategoryChips.map(category => category.id),
+    [browseCategoryChips],
+  );
+
+  const selectBrowseCategory = useCallback((id: string) => {
+    setCategoryId(id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [setCategoryId]);
+
+  const shiftBrowseCategory = useCallback((direction: -1 | 1) => {
+    if (!categoryId || swipeCategoryIds.length === 0) return;
+    const foundIndex = swipeCategoryIds.indexOf(categoryId);
+    if (foundIndex < 0) return;
+    const nextIndex = foundIndex + direction;
+    if (nextIndex < 0 || nextIndex >= swipeCategoryIds.length) return;
+    selectBrowseCategory(swipeCategoryIds[nextIndex] ?? '');
+  }, [swipeCategoryIds, categoryId, selectBrowseCategory]);
+
+  const shiftBrowseCategoryRef = useRef(shiftBrowseCategory);
+  shiftBrowseCategoryRef.current = shiftBrowseCategory;
+
   const setAdminSection = useCallback((next: AdminCatalogSection) => {
     setSearchParams(prev => {
       const params = new URLSearchParams(prev);
@@ -882,6 +918,9 @@ export const CatalogPage: React.FC = () => {
   };
 
   const smartBarRef = useRef<HTMLDivElement>(null);
+  const categoryChipsRef = useRef<HTMLDivElement>(null);
+  const browseSwipeRef = useRef<HTMLDivElement>(null);
+  const [categoryChipSpacerPx, setCategoryChipSpacerPx] = useState(0);
 
   const showShortcuts = !isSuperAdmin && searchFocused && !searchQuery.trim() && focus === 'browse';
   const showActiveFocus = !isSuperAdmin && focus !== 'browse' && focus !== 'search';
@@ -1256,12 +1295,13 @@ export const CatalogPage: React.FC = () => {
     || canSpareGroup
     || showShortcuts
     || showActiveFocus
+    || showBrowseCategoryChips
     || (canSync && !isSuperAdmin && unlinkedSpares.length > 0 && focus === 'browse' && !showShortcuts);
 
   const smartBar = hasSmartBarContent ? (
     <div
       ref={smartBarRef}
-      className={`catalog-smart-bar spares-mode-bar${isSuperAdmin || canSpareGroup ? ' catalog-smart-bar--admin-tabs' : ''}`}
+      className={`catalog-smart-bar spares-mode-bar${isSuperAdmin || canSpareGroup ? ' catalog-smart-bar--admin-tabs' : ''}${showBrowseCategoryChips ? ' catalog-smart-bar--category-chips' : ''}`}
     >
       {isSuperAdmin && (
         <div className="catalog-section-tabs">
@@ -1334,6 +1374,53 @@ export const CatalogPage: React.FC = () => {
               <span className="spares-mode-toggle__label">Spare grouping</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {showBrowseCategoryChips && (
+        <div
+          ref={categoryChipsRef}
+          className="catalog-category-chips"
+          role="tablist"
+          aria-label="Browse categories"
+        >
+          <span
+            className="catalog-category-chips__spacer"
+            style={{ flexBasis: categoryChipSpacerPx, width: categoryChipSpacerPx }}
+            aria-hidden
+          />
+          <button
+            type="button"
+            role="tab"
+            data-category=""
+            aria-selected={!categoryId}
+            className={`catalog-category-chips__chip${!categoryId ? ' is-active' : ''}`}
+            onClick={() => selectBrowseCategory('')}
+          >
+            All
+          </button>
+          {browseCategoryChips.map(category => {
+            const active = categoryId === category.id;
+            return (
+              <button
+                key={category.id}
+                type="button"
+                role="tab"
+                data-category={category.id}
+                aria-selected={active}
+                className={`catalog-category-chips__chip${active ? ' is-active' : ''}`}
+                onClick={() => selectBrowseCategory(category.id)}
+              >
+                <span className="catalog-category-chips__name">{category.name}</span>
+                <span className="catalog-category-chips__count">{category.productCount}</span>
+              </button>
+            );
+          })}
+          <span
+            className="catalog-category-chips__spacer"
+            style={{ flexBasis: categoryChipSpacerPx, width: categoryChipSpacerPx }}
+            aria-hidden
+          />
         </div>
       )}
 
@@ -1412,7 +1499,113 @@ export const CatalogPage: React.FC = () => {
     const observer = new ResizeObserver(setBarHeight);
     observer.observe(bar);
     return () => observer.disconnect();
-  }, [canSync, focus, searchFocused, searchQuery, unlinkedSpares.length, isSuperAdmin, hasSmartBarContent]);
+  }, [
+    canSync,
+    focus,
+    searchFocused,
+    searchQuery,
+    unlinkedSpares.length,
+    isSuperAdmin,
+    hasSmartBarContent,
+    showBrowseCategoryChips,
+    browseCategoryChips.length,
+  ]);
+
+  const centerActiveCategoryChip = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const root = categoryChipsRef.current;
+    if (!root) return;
+    const selector = categoryId
+      ? `[data-category="${CSS.escape(categoryId)}"]`
+      : '[data-category=""]';
+    const chip = root.querySelector<HTMLElement>(selector);
+    if (!chip) return;
+    const left = chip.offsetLeft - (root.clientWidth / 2) + (chip.offsetWidth / 2);
+    root.scrollTo({ left: Math.max(0, left), behavior });
+  }, [categoryId]);
+
+  useEffect(() => {
+    if (!showBrowseCategoryChips) {
+      setCategoryChipSpacerPx(0);
+      return;
+    }
+    const root = categoryChipsRef.current;
+    if (!root) return;
+    const updateSpacer = () => {
+      setCategoryChipSpacerPx(Math.max(0, Math.round(root.clientWidth / 2)));
+    };
+    updateSpacer();
+    const observer = new ResizeObserver(updateSpacer);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [showBrowseCategoryChips, browseCategoryChips.length]);
+
+  useEffect(() => {
+    if (!showBrowseCategoryChips) return;
+    const frame = window.requestAnimationFrame(() => {
+      centerActiveCategoryChip(categoryChipSpacerPx > 0 ? 'smooth' : 'auto');
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [showBrowseCategoryChips, categoryId, categoryChipSpacerPx, centerActiveCategoryChip]);
+
+  /**
+   * Native horizontal scroll-snap pager: [prev][current][next] (mobile only).
+   * Swiping the product list settles on a side page → switch category, then snap back to center.
+   */
+  useEffect(() => {
+    const pager = browseSwipeRef.current;
+    if (!pager || !isMobile || !showBrowseCategoryChips || !categoryId) return;
+
+    const pageWidth = () => pager.clientWidth || 1;
+    const snapToCurrent = () => {
+      pager.scrollTo({ left: pageWidth(), behavior: 'auto' });
+    };
+
+    let scrollTimer: number | null = null;
+    let ignoring = true;
+
+    snapToCurrent();
+    const syncFrame = window.requestAnimationFrame(() => {
+      snapToCurrent();
+      ignoring = false;
+    });
+    const readyTimer = window.setTimeout(() => {
+      ignoring = false;
+    }, 120);
+
+    const settle = () => {
+      if (ignoring) return;
+      const width = pageWidth();
+      const index = Math.round(pager.scrollLeft / width);
+      if (index === 1) return;
+
+      ignoring = true;
+      if (index <= 0) shiftBrowseCategoryRef.current(-1);
+      else shiftBrowseCategoryRef.current(1);
+
+      // Reset to the middle page (also covers edge no-ops).
+      snapToCurrent();
+      window.setTimeout(() => {
+        snapToCurrent();
+        ignoring = false;
+      }, 80);
+    };
+
+    const onScroll = () => {
+      if (ignoring) return;
+      if (scrollTimer) window.clearTimeout(scrollTimer);
+      scrollTimer = window.setTimeout(settle, 90);
+    };
+
+    pager.addEventListener('scroll', onScroll, { passive: true });
+    pager.addEventListener('scrollend', settle);
+    return () => {
+      window.cancelAnimationFrame(syncFrame);
+      window.clearTimeout(readyTimer);
+      pager.removeEventListener('scroll', onScroll);
+      pager.removeEventListener('scrollend', settle);
+      if (scrollTimer) window.clearTimeout(scrollTimer);
+    };
+  }, [isMobile, showBrowseCategoryChips, categoryId]);
 
   const flatListSearch = isFlatList ? searchQuery : '';
 
@@ -1553,40 +1746,61 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
-      {focus === 'browse' && (
-        <CatalogBrowse
-          products={isSuperAdmin ? filteredBrowseProducts : browseProducts}
-          categories={shopCategories}
-          isLoading={loading || (isMedia && mediaIndexLoading)}
-          showToolbar={false}
-          filterMode={canSync ? 'full' : 'minimal'}
-          manageCategories={canSync}
-          onCategoriesReorder={canSync ? cats => void handleCategoriesReorder(cats) : undefined}
-          onCategoryProductsReorder={canSync ? (catId, products) => void handleCategoryProductsReorder(catId, products) : undefined}
-          onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
-          productsBasePath={pathname}
-          enableCart={canUseCart(user?.role)}
-          showStockQuantity={showStockQuantity}
-          hideFilterBar
-          spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
-          openNcQtyByProductId={isSuperAdmin ? openNcQtyByProductId : undefined}
-          auditedLocationByProductId={auditedLocationByProductId}
-          activeCategoryId={categoryId}
-          onActiveCategoryChange={setCategoryId}
-          emptyTitle={
-            (isSuperAdmin && hasActiveProductFilters) || hasMediaProductFilters
-              ? 'No products match the selected filters'
-              : undefined
-          }
-          emptyHint={
-            hasMediaProductFilters
-              ? 'Try clearing filters or open another category.'
-              : isSuperAdmin && hasActiveProductFilters
-                ? 'Try clearing filters or run Sync from Zoho to refresh stock.'
+      {focus === 'browse' && (() => {
+        const browsePanel = (
+          <CatalogBrowse
+            products={isSuperAdmin ? filteredBrowseProducts : browseProducts}
+            categories={shopCategories}
+            isLoading={loading || (isMedia && mediaIndexLoading)}
+            showToolbar={false}
+            filterMode={canSync ? 'full' : 'minimal'}
+            manageCategories={canSync}
+            onCategoriesReorder={canSync ? cats => void handleCategoriesReorder(cats) : undefined}
+            onCategoryProductsReorder={canSync ? (catId, products) => void handleCategoryProductsReorder(catId, products) : undefined}
+            onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
+            productsBasePath={pathname}
+            enableCart={canUseCart(user?.role)}
+            showStockQuantity={showStockQuantity}
+            hideFilterBar
+            spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
+            openNcQtyByProductId={isSuperAdmin ? openNcQtyByProductId : undefined}
+            auditedLocationByProductId={auditedLocationByProductId}
+            activeCategoryId={categoryId}
+            onActiveCategoryChange={setCategoryId}
+            emptyTitle={
+              (isSuperAdmin && hasActiveProductFilters) || hasMediaProductFilters
+                ? 'No products match the selected filters'
                 : undefined
-          }
-        />
-      )}
+            }
+            emptyHint={
+              hasMediaProductFilters
+                ? 'Try clearing filters or open another category.'
+                : isSuperAdmin && hasActiveProductFilters
+                  ? 'Try clearing filters or run Sync from Zoho to refresh stock.'
+                  : undefined
+            }
+          />
+        );
+
+        // Swipe pager is mobile-only so desktop HTML5 drag-reorder keeps working.
+        if (!(isMobile && showBrowseCategoryChips && categoryId)) {
+          return browsePanel;
+        }
+
+        return (
+          <div
+            ref={browseSwipeRef}
+            className="catalog-category-pager"
+            aria-label="Swipe left or right to change category"
+          >
+            <div className="catalog-category-pager__page" aria-hidden="true" />
+            <div className="catalog-category-pager__page catalog-category-pager__page--current">
+              {browsePanel}
+            </div>
+            <div className="catalog-category-pager__page" aria-hidden="true" />
+          </div>
+        );
+      })()}
 
       {isMapBrowse && !isSuperAdmin && (
         <CatalogBrowse

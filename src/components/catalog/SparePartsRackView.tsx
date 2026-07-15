@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, ChevronRight, Plus, Rows3 } from 'lucide-react';
+import { Box, ChevronRight, Rows3 } from 'lucide-react';
 import type { YesStoreItemDoc } from '../../types/yes-store';
-import { BIN_NUMBERS, VALID_RACK_LETTERS } from '../../types/yes-store';
+import { BIN_NUMBERS, ROW_NUMBERS, VALID_RACK_LETTERS, readItemQuantity } from '../../types/yes-store';
 
 export interface SpareRackSkuChip {
   productId: string;
   sku: string;
   name?: string | null;
+  quantity: number;
 }
 
 interface BinSlot {
@@ -19,9 +20,13 @@ interface RowTile {
   bins: BinSlot[];
 }
 
+type DisplayRow =
+  | { kind: 'occupied'; rowNumber: number; bins: BinSlot[] }
+  | { kind: 'empty'; rowNumber: number };
+
 interface RackPage {
   letter: string;
-  rows: RowTile[];
+  rows: DisplayRow[];
 }
 
 interface SparePartsRackViewProps {
@@ -49,6 +54,30 @@ function binsThroughHighestOccupied(bins: BinSlot[]): BinSlot[] {
   }
   if (highest <= 0) return [];
   return bins.filter(bin => bin.binNumber <= highest);
+}
+
+/** Fill missing row numbers between the lowest and highest occupied (descending). */
+function rowsWithMissingGaps(rows: RowTile[]): DisplayRow[] {
+  if (rows.length === 0) return [];
+
+  let highest = 0;
+  let lowest = Number.POSITIVE_INFINITY;
+  for (const row of rows) {
+    if (row.rowNumber > highest) highest = row.rowNumber;
+    if (row.rowNumber < lowest) lowest = row.rowNumber;
+  }
+
+  const byNumber = new Map(rows.map(row => [row.rowNumber, row]));
+  const display: DisplayRow[] = [];
+  for (let n = highest; n >= lowest; n--) {
+    const occupied = byNumber.get(n);
+    if (occupied) {
+      display.push({ kind: 'occupied', rowNumber: occupied.rowNumber, bins: occupied.bins });
+    } else {
+      display.push({ kind: 'empty', rowNumber: n });
+    }
+  }
+  return display;
 }
 
 type RowCell =
@@ -81,13 +110,14 @@ function normalizeRackId(rackId: string): string {
 function buildRowTilesForRack(
   onRack: YesStoreItemDoc[],
   catalogByProductId?: Map<string, { sku: string; name?: string | null }>,
-): RowTile[] {
+): DisplayRow[] {
   const byRow = new Map<number, Map<number, Map<string, SpareRackSkuChip>>>();
 
   for (const item of onRack) {
     const row = Number(item.rowNumber);
     const bin = Number(item.binNumber);
     if (!Number.isFinite(row) || !Number.isFinite(bin)) continue;
+    if (!ROW_NUMBERS.includes(row as (typeof ROW_NUMBERS)[number])) continue;
     if (!BIN_NUMBERS.includes(bin as (typeof BIN_NUMBERS)[number])) continue;
     const productId = item.catalogProductId!.trim();
     const live = catalogByProductId?.get(productId);
@@ -95,16 +125,20 @@ function buildRowTilesForRack(
       || item.catalogProductSku?.trim()
       || productId);
     const name = live?.name ?? item.catalogProductName;
+    const quantity = readItemQuantity(item);
     if (!byRow.has(row)) byRow.set(row, new Map());
     const binMap = byRow.get(row)!;
     if (!binMap.has(bin)) binMap.set(bin, new Map());
     const skuMap = binMap.get(bin)!;
-    if (!skuMap.has(productId)) {
-      skuMap.set(productId, { productId, sku, name });
+    const existing = skuMap.get(productId);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      skuMap.set(productId, { productId, sku, name, quantity });
     }
   }
 
-  return [...byRow.entries()]
+  const occupied = [...byRow.entries()]
     .sort((a, b) => b[0] - a[0])
     .map(([rowNumber, binMap]) => ({
       rowNumber,
@@ -114,6 +148,8 @@ function buildRowTilesForRack(
           .sort((a, b) => a.sku.localeCompare(b.sku)),
       })),
     }));
+
+  return rowsWithMissingGaps(occupied);
 }
 
 function SkuCell({
@@ -132,6 +168,8 @@ function SkuCell({
   onSkuClick: (productId: string, rackId: string) => void;
 }) {
   const focused = Boolean(highlightedProductId && chip.productId === highlightedProductId);
+  const qtyLabel = `×${chip.quantity}`;
+  const titleBase = chip.name ? `${chip.sku} · ${chip.name}` : `Bin ${binNumber}: ${chip.sku}`;
   return (
     <button
       type="button"
@@ -142,12 +180,15 @@ function SkuCell({
         wide ? 'spare-rack-cell--wide' : '',
         focused ? 'is-focus' : '',
       ].filter(Boolean).join(' ')}
-      title={chip.name ? `${chip.sku} · ${chip.name}` : `Bin ${binNumber}: ${chip.sku}`}
+      title={`${titleBase} · Qty ${chip.quantity}`}
       onClick={() => onSkuClick(chip.productId, rackLetter)}
     >
       <div className="spare-rack-cell__meta">
         <span className="spare-rack-cell__label">BIN {binNumber}</span>
         <span className="spare-rack-cell__dot" aria-hidden />
+        <span className="spare-rack-cell__qty" aria-label={`Quantity ${chip.quantity}`}>
+          {qtyLabel}
+        </span>
       </div>
       <div className="spare-rack-cell__body">
         <Box className="spare-rack-cell__icon spare-rack-cell__icon--live" size={16} strokeWidth={1.75} aria-hidden />
@@ -167,11 +208,30 @@ function EmptyBinCell({ binNumber }: { binNumber: number }) {
       <div className="spare-rack-cell__body">
         <Box className="spare-rack-cell__icon" size={16} strokeWidth={1.75} aria-hidden />
         <span className="spare-rack-cell__sku spare-rack-cell__sku--empty">Empty</span>
-        <span className="spare-rack-cell__add" aria-hidden>
-          <Plus size={12} strokeWidth={2.25} />
-        </span>
       </div>
     </div>
+  );
+}
+
+function EmptyRowCard({ rowNumber }: { rowNumber: number }) {
+  return (
+    <article
+      className="spare-rack-row spare-rack-row--empty"
+      role="listitem"
+      aria-label={`Row ${rowNumber}, empty`}
+    >
+      <header className="spare-rack-row__head">
+        <div className="spare-rack-row__title">
+          <Rows3 className="spare-rack-row__icon" size={16} strokeWidth={2.25} aria-hidden />
+          <span>ROW {rowNumber}</span>
+        </div>
+        <span className="spare-rack-row__meta">EMPTY</span>
+      </header>
+      <div className="spare-rack-row__empty-body">
+        <Box className="spare-rack-row__empty-icon" size={16} strokeWidth={1.75} aria-hidden />
+        <span className="spare-rack-row__empty-label">No bins on this row</span>
+      </div>
+    </article>
   );
 }
 
@@ -192,12 +252,24 @@ function RackRows({
     );
   }
 
+  let occupiedIndex = 0;
+
   return (
     <div className="spare-rack-rows" role="list">
-      {page.rows.map((row, rowIndex) => {
+      {page.rows.map(row => {
+        if (row.kind === 'empty') {
+          return (
+            <EmptyRowCard
+              key={`${page.letter}-empty-${row.rowNumber}`}
+              rowNumber={row.rowNumber}
+            />
+          );
+        }
+
         const visibleBins = binsThroughHighestOccupied(row.bins);
         const cells = cellsForRow(visibleBins);
-        const accent = ROW_ACCENTS[rowIndex % ROW_ACCENTS.length];
+        const accent = ROW_ACCENTS[occupiedIndex % ROW_ACCENTS.length];
+        occupiedIndex += 1;
         return (
           <article
             key={`${page.letter}-${row.rowNumber}`}
