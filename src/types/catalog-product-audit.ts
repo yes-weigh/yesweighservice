@@ -46,6 +46,10 @@ export interface CatalogProductAuditSnapshot {
   lastPhysicalAuditedAt?: string | null;
   lastPhysicalAuditedByUid?: string | null;
   lastPhysicalAuditedByName?: string | null;
-  /** Cycle id of the last physical count. */
+  /** Cycle id of the last physical count (any site). */
   lastAuditCycleId?: string | null;
+  /** Last Head Office physical count cycle. */
+  lastHeadOfficeAuditCycleId?: string | null;
+  /** Last Cochin physical count cycle. */
+  lastCochinAuditCycleId?: string | null;
 }

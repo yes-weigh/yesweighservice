@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Lock, Play, Plus } from 'lucide-react';
+import { CalendarRange, Lock, Play, Plus, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useConfirm } from '../../../context/ConfirmContext';
 import {
@@ -8,6 +8,10 @@ import {
   listAuditCycles,
   openAuditCycle,
 } from '../../../lib/auditCycles/data';
+import {
+  migrateAuditsIntoCycles,
+  type MigrateAuditsIntoCyclesSummary,
+} from '../../../lib/auditCycles/migrate';
 import {
   auditCycleSiteLabel,
   type AuditCycleDoc,
@@ -44,6 +48,7 @@ export const AuditCyclesTab: React.FC = () => {
   const [newSite, setNewSite] = useState<AuditCycleSite>('head_office');
   const [newName, setNewName] = useState('');
   const [openImmediately, setOpenImmediately] = useState(true);
+  const [migrateSummary, setMigrateSummary] = useState<MigrateAuditsIntoCyclesSummary | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -135,6 +140,29 @@ export const AuditCyclesTab: React.FC = () => {
     }
   };
 
+  const handleMigrateExisting = async () => {
+    const ok = await confirm({
+      title: 'Migrate existing audits into cycles?',
+      message:
+        'This opens Initial cycles for Head Office and Cochin if needed, then stamps products that already have physical counts so they count as done for those cycles. Safe to run more than once.',
+      confirmLabel: 'Migrate now',
+    });
+    if (!ok) return;
+
+    setBusyKey('migrate');
+    setError('');
+    setMigrateSummary(null);
+    try {
+      const summary = await migrateAuditsIntoCycles({ dryRun: false, force: false });
+      setMigrateSummary(summary);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Migration failed. Deploy Cloud Functions first if this callable is missing.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   return (
     <section className="settings-locations panel glass">
       <header className="settings-locations__header">
@@ -168,6 +196,32 @@ export const AuditCyclesTab: React.FC = () => {
           );
         })}
       </div>
+
+      <div className="audit-cycles-migrate">
+        <div>
+          <strong>Migrate existing counts</strong>
+          <p className="text-muted text-sm">
+            Put your current audits under open Initial cycles so already-counted SKUs are not marked Needs count.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={busyKey != null}
+          onClick={() => void handleMigrateExisting()}
+        >
+          <RefreshCw size={14} aria-hidden className={busyKey === 'migrate' ? 'spin-icon' : undefined} />
+          {busyKey === 'migrate' ? 'Migrating…' : 'Migrate existing audits'}
+        </button>
+      </div>
+
+      {migrateSummary && (
+        <p className="audit-cycles-migrate__result text-sm">
+          Scanned {migrateSummary.productsScanned}. Stamped HO {migrateSummary.stampedHeadOffice}, Cochin{' '}
+          {migrateSummary.stampedCochin}. Already stamped {migrateSummary.skippedAlreadyStamped}.
+          {migrateSummary.errors.length > 0 ? ` Errors: ${migrateSummary.errors.length}.` : ''}
+        </p>
+      )}
 
       {error && <p className="settings-locations__error text-sm">{error}</p>}
 

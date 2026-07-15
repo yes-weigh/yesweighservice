@@ -382,9 +382,18 @@ export function catalogProductAuditVariance(
 export function catalogProductNeedsCountThisCycle(
   product: Pick<CatalogProduct, 'auditSnapshot'>,
   openCycleId: string | null | undefined,
+  site?: 'head_office' | 'cochin',
 ): boolean {
   if (!openCycleId) return false;
-  return (product.auditSnapshot?.lastAuditCycleId ?? null) !== openCycleId;
+  const snap = product.auditSnapshot;
+  if (!snap) return true;
+  if (site === 'head_office') {
+    return (snap.lastHeadOfficeAuditCycleId ?? snap.lastAuditCycleId ?? null) !== openCycleId;
+  }
+  if (site === 'cochin') {
+    return (snap.lastCochinAuditCycleId ?? snap.lastAuditCycleId ?? null) !== openCycleId;
+  }
+  return (snap.lastAuditCycleId ?? null) !== openCycleId;
 }
 
 export function matchesSpareAuditStatusFilters(
@@ -394,6 +403,7 @@ export function matchesSpareAuditStatusFilters(
   headOfficeAuditedIds: ReadonlySet<string>,
   cochinAuditedIds: ReadonlySet<string>,
   openCycleId?: string | null,
+  site?: 'head_office' | 'cochin',
 ): boolean {
   if (filters.size === 0) return true;
   const isAudited = catalogProductIsAudited(
@@ -406,7 +416,7 @@ export function matchesSpareAuditStatusFilters(
   return (
     (filters.has('audited') && isAudited)
     || (filters.has('notAudited') && !isAudited)
-    || (filters.has('needsCountThisCycle') && catalogProductNeedsCountThisCycle(product, openCycleId))
+    || (filters.has('needsCountThisCycle') && catalogProductNeedsCountThisCycle(product, openCycleId, site))
     || (filters.has('zeroVariance') && variance === 'zero')
     || (filters.has('overage') && variance === 'overage')
     || (filters.has('shortage') && variance === 'shortage')

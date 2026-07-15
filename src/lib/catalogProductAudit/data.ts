@@ -55,6 +55,8 @@ export function mapAuditSnapshot(data: unknown): CatalogProductAuditSnapshot | n
     lastPhysicalAuditedByUid: (row.lastPhysicalAuditedByUid as string | null) ?? null,
     lastPhysicalAuditedByName: (row.lastPhysicalAuditedByName as string | null) ?? null,
     lastAuditCycleId: (row.lastAuditCycleId as string | null) ?? null,
+    lastHeadOfficeAuditCycleId: (row.lastHeadOfficeAuditCycleId as string | null) ?? null,
+    lastCochinAuditCycleId: (row.lastCochinAuditCycleId as string | null) ?? null,
   };
 }
 

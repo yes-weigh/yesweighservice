@@ -161,6 +161,25 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
   };
 
   const prior = existingSnapshot && typeof existingSnapshot === 'object' ? existingSnapshot : {};
+  const nextHeadOfficeCycleId = isPhysical
+    ? (
+      trigger === 'warehouse_count'
+        ? (auditCycleId ?? prior.lastHeadOfficeAuditCycleId ?? null)
+        : (trigger === 'manual' || trigger === 'legacy_backfill') && Number(headOfficeQty) > 0
+          ? (auditCycleId ?? prior.lastHeadOfficeAuditCycleId ?? null)
+          : (prior.lastHeadOfficeAuditCycleId ?? null)
+    )
+    : (prior.lastHeadOfficeAuditCycleId ?? null);
+  const nextCochinCycleId = isPhysical
+    ? (
+      trigger === 'cochin_inventory'
+        ? (auditCycleId ?? prior.lastCochinAuditCycleId ?? null)
+        : (trigger === 'manual' || trigger === 'legacy_backfill') && Number(cochinQty) > 0
+          ? (auditCycleId ?? prior.lastCochinAuditCycleId ?? null)
+          : (prior.lastCochinAuditCycleId ?? null)
+    )
+    : (prior.lastCochinAuditCycleId ?? null);
+
   const snapshot = {
     lastAuditLogId: logRef.id,
     lastAuditedAt: isPhysical ? auditedAt : (prior.lastAuditedAt ?? auditedAt),
@@ -191,6 +210,8 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
     lastAuditCycleId: isPhysical
       ? (auditCycleId ?? prior.lastAuditCycleId ?? null)
       : (prior.lastAuditCycleId ?? null),
+    lastHeadOfficeAuditCycleId: nextHeadOfficeCycleId,
+    lastCochinAuditCycleId: nextCochinCycleId,
   };
 
   await logRef.set(log);

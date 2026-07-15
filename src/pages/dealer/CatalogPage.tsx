@@ -519,6 +519,7 @@ export const CatalogPage: React.FC = () => {
       headOfficeAuditedCatalogProductIds,
       cochinAuditedCatalogProductIds,
       openCochinCycle?.id ?? null,
+      'cochin',
     ));
     next = next.filter(product => matchesNcStatusFilters(
       product,
@@ -602,6 +603,7 @@ export const CatalogPage: React.FC = () => {
         headOfficeAuditedCatalogProductIds,
         cochinAuditedCatalogProductIds,
         openHeadOfficeCycle?.id ?? null,
+        'head_office',
       ));
       items = items.filter(product => matchesSpareStockStatusFilters(product, spareStockStatusFilters));
       items = items.filter(product => matchesSpareLocationFilters(product, spareLocationFilters));
@@ -643,7 +645,7 @@ export const CatalogPage: React.FC = () => {
     audited: spareParts.filter(product => isProductAudited(product)).length,
     notAudited: spareParts.filter(product => !isProductAudited(product)).length,
     needsCountThisCycle: spareParts.filter(product =>
-      catalogProductNeedsCountThisCycle(product, openHeadOfficeCycle?.id ?? null),
+      catalogProductNeedsCountThisCycle(product, openHeadOfficeCycle?.id ?? null, 'head_office'),
     ).length,
     zeroVariance: spareParts.filter(product => catalogProductAuditVariance(product) === 'zero').length,
     overage: spareParts.filter(product => catalogProductAuditVariance(product) === 'overage').length,
@@ -711,7 +713,7 @@ export const CatalogPage: React.FC = () => {
     audited: productFilterCountBase.filter(product => isProductAudited(product)).length,
     notAudited: productFilterCountBase.filter(product => !isProductAudited(product)).length,
     needsCountThisCycle: productFilterCountBase.filter(product =>
-      catalogProductNeedsCountThisCycle(product, openCochinCycle?.id ?? null),
+      catalogProductNeedsCountThisCycle(product, openCochinCycle?.id ?? null, 'cochin'),
     ).length,
     zeroVariance: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'zero').length,
     overage: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'overage').length,
@@ -722,7 +724,7 @@ export const CatalogPage: React.FC = () => {
     if (!openCochinCycle || !isSuperAdmin) return null;
     const total = shopProducts.length;
     const counted = shopProducts.filter(
-      product => !catalogProductNeedsCountThisCycle(product, openCochinCycle.id),
+      product => !catalogProductNeedsCountThisCycle(product, openCochinCycle.id, 'cochin'),
     ).length;
     return { cycle: openCochinCycle, counted, total, remaining: Math.max(0, total - counted) };
   }, [openCochinCycle, isSuperAdmin, shopProducts]);

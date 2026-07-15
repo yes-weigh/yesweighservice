@@ -570,7 +570,13 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                 const catalogProduct = catalogById?.get(group.catalogProductId);
                 const countedThisCycle = Boolean(
                   openCycleId
-                  && catalogProduct?.auditSnapshot?.lastAuditCycleId === openCycleId,
+                  && (
+                    catalogProduct?.auditSnapshot?.lastHeadOfficeAuditCycleId === openCycleId
+                    || (
+                      !catalogProduct?.auditSnapshot?.lastHeadOfficeAuditCycleId
+                      && catalogProduct?.auditSnapshot?.lastAuditCycleId === openCycleId
+                    )
+                  ),
                 );
 
                 return (

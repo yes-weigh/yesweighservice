@@ -32,6 +32,7 @@ import {
   listCatalogProductAuditLogs,
   backfillLegacyCatalogProductAudits,
 } from './lib/catalog-product-audit.js';
+import { migrateExistingAuditsIntoCycles } from './lib/audit-cycles-migrate.js';
 import {
   getLinkedSparesForProduct,
   getLinkedProductsForSpare,
@@ -838,6 +839,28 @@ export const backfillCatalogProductAuditsFn = onCall(
     } catch (err) {
       console.error('backfillCatalogProductAudits failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Audit backfill failed.');
+    }
+  },
+);
+
+/** Create open Initial cycles + stamp existing audits into them (idempotent). */
+export const migrateAuditsIntoCyclesFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const dryRun = Boolean(request.data?.dryRun);
+    const force = Boolean(request.data?.force);
+
+    try {
+      return await migrateExistingAuditsIntoCycles({ dryRun, force });
+    } catch (err) {
+      console.error('migrateAuditsIntoCycles failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Audit cycle migration failed.');
     }
   },
 );

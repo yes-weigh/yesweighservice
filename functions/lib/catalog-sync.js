@@ -414,6 +414,8 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
         lastPhysicalAuditedByUid: prior.lastPhysicalAuditedByUid ?? prior.lastAuditedByUid ?? null,
         lastPhysicalAuditedByName: prior.lastPhysicalAuditedByName ?? prior.lastAuditedByName ?? null,
         lastAuditCycleId: prior.lastAuditCycleId ?? null,
+        lastHeadOfficeAuditCycleId: prior.lastHeadOfficeAuditCycleId ?? null,
+        lastCochinAuditCycleId: prior.lastCochinAuditCycleId ?? null,
         // Do not overwrite lastAuditedAt with Zoho sync time.
         lastAuditedAt: prior.lastAuditedAt ?? prior.lastPhysicalAuditedAt ?? zohoSyncEntry.auditedAt,
         lastAuditedByUid: prior.lastAuditedByUid ?? prior.lastPhysicalAuditedByUid ?? null,
