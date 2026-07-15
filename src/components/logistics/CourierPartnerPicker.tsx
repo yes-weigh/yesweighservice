@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Clock, ShieldCheck, Star, Truck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, ShieldCheck, Truck } from 'lucide-react';
 import { DELIVERY_METHODS, type DeliveryMethod } from '../../constants/deliveryMethods';
 
 interface CourierPartnerPickerProps {
@@ -70,7 +70,6 @@ export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
               aria-selected={false}
               className={[
                 'delivery-method-card',
-                method.recommended && !comingSoon ? 'delivery-method-card--recommended' : '',
                 comingSoon ? 'delivery-method-card--coming-soon' : '',
               ].filter(Boolean).join(' ')}
               aria-label={comingSoon ? `${method.label} (coming soon)` : method.label}
@@ -88,15 +87,10 @@ export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
               <span className="delivery-method-card__text">
                 <span className="delivery-method-card__label">{method.label}</span>
                 <span className="delivery-method-card__tagline">{method.tagline}</span>
-                {comingSoon ? (
+                {comingSoon && (
                   <span className="delivery-method-card__badge delivery-method-card__badge--soon">
                     <Clock size={11} aria-hidden />
                     Coming soon
-                  </span>
-                ) : method.recommended && (
-                  <span className="delivery-method-card__badge">
-                    <Star size={11} aria-hidden />
-                    Recommended
                   </span>
                 )}
               </span>

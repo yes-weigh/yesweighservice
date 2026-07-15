@@ -15,6 +15,8 @@ import { authEmailForLoginId, parseLoginId } from '../lib/loginAuth';
 import { contactFieldsForLogin, resolveProfileLogin } from '../lib/profileLogin';
 import { authErrorMessage } from '../lib/authErrors';
 import { clearInvoiceCacheForUser } from '../lib/invoice-cache';
+import { clearDealerCache, prefetchDealersCache } from '../lib/dealer-cache';
+import { isInternalOpsUser } from '../lib/staffAccess';
 import { FIRM_NAME } from '../constants/brand';
 import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
 
@@ -123,6 +125,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return unsub;
   }, []);
 
+  useEffect(() => {
+    if (!user || !isInternalOpsUser(user)) return;
+    prefetchDealersCache();
+  }, [user?.uid, user?.role]);
+
   const login = async (loginIdInput: string, password: string) => {
     setError(null);
     setLoading(true);
@@ -194,6 +201,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     const uid = auth.currentUser?.uid;
     if (uid) clearInvoiceCacheForUser(uid);
+    clearDealerCache();
     await signOut(auth);
     setUser(null);
   };

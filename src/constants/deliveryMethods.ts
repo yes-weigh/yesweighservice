@@ -14,11 +14,10 @@ export interface DeliveryMethod {
   label: string;
   image: string;
   tagline: string;
-  recommended?: boolean;
 }
 
 export const DELIVERY_METHODS: DeliveryMethod[] = [
-  { id: 'st_courier', label: 'ST COURIER', image: '/logistics/st-courier.png', tagline: 'Kerala & Tamil Nadu', recommended: true },
+  { id: 'st_courier', label: 'ST COURIER', image: '/logistics/st-courier.png', tagline: 'Kerala & Tamil Nadu' },
   { id: 'trackon', label: 'TRACKON', image: '/logistics/trackon.png', tagline: 'Tamil Nadu' },
   { id: 'delhivery', label: 'DELHIVERY', image: '/logistics/delhivery.png', tagline: 'All India' },
   { id: 'bluedart', label: 'BLUE DART', image: '/logistics/bluedart.png', tagline: 'All India' },

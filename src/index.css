@@ -14437,11 +14437,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   outline: none;
 }
 
-.delivery-method-card--recommended {
-  border-color: #f97316;
-  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.4);
-}
-
 .delivery-method-card__logo-wrap {
   display: inline-flex;
   align-items: center;

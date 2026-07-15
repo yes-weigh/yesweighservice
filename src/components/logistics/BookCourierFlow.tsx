@@ -24,7 +24,12 @@ import {
 import { FIRM_NAME } from '../../constants/brand';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
-import { fetchDealerById, fetchDealers } from '../../lib/dealers';
+import { fetchDealerById } from '../../lib/dealers';
+import {
+  ensureDealersCached,
+  peekCachedDealers,
+  subscribeDealerCache,
+} from '../../lib/dealer-cache';
 import {
   BOOK_COURIER_STEPS,
   SHIPMENT_MODES,
@@ -398,10 +403,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     return dealer ? zohoDealerToSnapshot(dealer) : null;
   }, [dealers, draft.zohoCustomerId]);
 
-  const filteredDealers = useMemo(
-    () => dealers.filter(dealer => dealerMatchesLogisticsQuery(dealer, dealerQuery)),
-    [dealers, dealerQuery],
-  );
+  const filteredDealers = useMemo(() => {
+    const q = dealerQuery.trim();
+    if (!q) return [];
+    return dealers
+      .filter(dealer => dealerMatchesLogisticsQuery(dealer, q))
+      .slice(0, 30);
+  }, [dealers, dealerQuery]);
 
   const addressTiles = useMemo(() => {
     if (!selectedDealer) return [] as Array<{ kind: DeliveryAddressKind; address: string }>;
@@ -430,28 +438,40 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   useEffect(() => {
     if (step !== 'address') return;
-    const q = dealerQuery.trim();
-    // Don't list every dealer on open — only search once the user types something.
-    if (!q) {
-      setDealersLoading(false);
-      // Keep only an already-selected dealer (e.g. from a prefilled invoice/support).
-      setDealers(prev => prev.filter(dealer => dealer.id === draft.zohoCustomerId));
-      return;
-    }
     let cancelled = false;
-    setDealersLoading(true);
-    void fetchDealers({ q, limit: 30, page: 1 })
-      .then(response => {
-        if (!cancelled) setDealers(response.data);
+    const cached = peekCachedDealers();
+    if (cached?.length) {
+      setDealers(cached);
+      setDealersLoading(false);
+    } else {
+      setDealersLoading(true);
+    }
+
+    const unsubscribe = subscribeDealerCache((list, complete) => {
+      if (cancelled) return;
+      setDealers(list);
+      if (complete || list.length > 0) setDealersLoading(false);
+    });
+
+    void ensureDealersCached()
+      .then(list => {
+        if (!cancelled) {
+          setDealers(list);
+          setDealersLoading(false);
+        }
       })
       .catch(() => {
-        if (!cancelled) setDealers([]);
-      })
-      .finally(() => {
-        if (!cancelled) setDealersLoading(false);
+        if (!cancelled && !peekCachedDealers()?.length) {
+          setDealers([]);
+          setDealersLoading(false);
+        }
       });
-    return () => { cancelled = true; };
-  }, [step, dealerQuery, draft.zohoCustomerId]);
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [step]);
 
   useEffect(() => {
     void loadLogisticsSettings().then(settings => {
@@ -888,10 +908,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   </label>
                   {dealerQuery.trim() && (
                     <div className="book-courier__suggest" role="listbox" aria-label="Dealer suggestions">
-                      {dealersLoading && (
-                        <p className="book-courier__suggest-empty text-muted text-sm">Searching…</p>
+                      {dealersLoading && dealers.length === 0 && (
+                        <p className="book-courier__suggest-empty text-muted text-sm">Loading dealers…</p>
                       )}
-                      {!dealersLoading && filteredDealers.map(dealer => {
+                      {filteredDealers.map(dealer => {
                         const snapshot = zohoDealerToSnapshot(dealer);
                         const addressRaw = (snapshot.shippingAddress?.trim()
                           || snapshot.billingAddress?.trim()
