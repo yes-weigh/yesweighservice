@@ -19,6 +19,11 @@ import { getOpenAuditCycle } from '../../lib/auditCycles/data';
 import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
 import { getItem, linkYesStoreItemToCatalog, listItemsByCatalogProduct, unlinkYesStoreItemFromCatalog } from '../../lib/yesStore/data';
 import { syncCatalogAuditImagesToZoho, reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
+import {
+  inventoryAuditListPath,
+  peekAuditReturnFocus,
+  rememberAuditReturnFocus,
+} from '../../lib/yesStore/auditReturnFocus';
 import type { CatalogProduct } from '../../types/catalog';
 import {
   formatItemLocationShort,
@@ -133,6 +138,25 @@ export const InventoryAuditItemPage: React.FC = () => {
   const canLink = selectedProduct && item && linkChanged;
   const partModeInvalid = linkMode === 'part' && !partLabel.trim();
 
+  const goToAuditList = useCallback((options?: {
+    itemId?: string;
+    catalogProductId?: string;
+    afterLink?: boolean;
+  }) => {
+    const existing = peekAuditReturnFocus();
+    rememberAuditReturnFocus({
+      itemId: options?.itemId ?? existing?.itemId ?? itemId ?? undefined,
+      catalogProductId: options?.catalogProductId ?? existing?.catalogProductId,
+      page: existing?.page,
+      scrollY: existing?.scrollY,
+      rackFilter: existing?.rackFilter,
+      rowFilter: existing?.rowFilter,
+      linkFilter: existing?.linkFilter,
+      afterLink: options?.afterLink ?? existing?.afterLink,
+    });
+    navigate(inventoryAuditListPath(base), { replace: Boolean(options?.afterLink) });
+  }, [navigate, base, itemId]);
+
   const handleLink = async () => {
     if (!item || !selectedProduct || !user || partModeInvalid) return;
     setLinking(true);
@@ -144,17 +168,15 @@ export const InventoryAuditItemPage: React.FC = () => {
         unitsPerProduct: linkMode === 'part' ? unitsPerProduct : 1,
         linkedByName: user.displayName,
       });
-      try {
-        await syncCatalogAuditImagesToZoho(selectedProduct.id);
-      } catch (syncErr) {
-        setError(
-          syncErr instanceof Error
-            ? `Linked, but Zoho photo sync failed: ${syncErr.message}`
-            : 'Linked, but Zoho photo sync failed.',
-        );
-        return;
-      }
-      navigate(`${base}/inventory-audit/linked/${selectedProduct.id}`, { replace: true });
+      // Photo sync can take minutes — don't block the UI.
+      void syncCatalogAuditImagesToZoho(selectedProduct.id).catch(err => {
+        console.warn('Zoho audit photo sync failed after link:', err);
+      });
+      goToAuditList({
+        itemId: item.id,
+        catalogProductId: selectedProduct.id,
+        afterLink: true,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not link item.');
     } finally {
@@ -186,22 +208,16 @@ export const InventoryAuditItemPage: React.FC = () => {
         } catch {
           // Unlink succeeded; audit refresh is best-effort.
         }
-        try {
-          await reconcileCatalogAuditImagesOnZoho(catalogProductId);
-        } catch (syncErr) {
-          setError(
-            syncErr instanceof Error
-              ? `Unlinked, but Zoho photo cleanup failed: ${syncErr.message}`
-              : 'Unlinked, but Zoho photo cleanup failed.',
-          );
-          return;
-        }
+        // Reconcile Zoho photos in the background — don't block navigation.
+        void reconcileCatalogAuditImagesOnZoho(catalogProductId).catch(err => {
+          console.warn('Zoho audit photo reconcile failed after unlink:', err);
+        });
       }
       if (siblingItems.length > 0 && catalogProductId) {
         navigate(`${base}/inventory-audit/linked/${catalogProductId}`, { replace: true });
         return;
       }
-      navigate(`${base}?section=inventory-audit`, { replace: true });
+      goToAuditList({ itemId: item.id });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not unlink item.');
     } finally {
@@ -210,12 +226,8 @@ export const InventoryAuditItemPage: React.FC = () => {
   };
 
   const handleBack = useCallback(() => {
-    if (item?.catalogProductId) {
-      navigate(`${base}/inventory-audit/linked/${item.catalogProductId}`, { replace: false });
-      return;
-    }
-    navigate(`${base}?section=inventory-audit`, { replace: false });
-  }, [navigate, base, item?.catalogProductId]);
+    goToAuditList({ itemId: item?.id ?? itemId });
+  }, [goToAuditList, item?.id, itemId]);
 
   useCatalogPageHeader({
     title: item ? formatItemLocationShort(item.rackId, item.rowNumber, item.binNumber) : 'Audit item',
@@ -252,9 +264,13 @@ export const InventoryAuditItemPage: React.FC = () => {
           <AlertCircle size={18} />
           <span>{error || 'Audit item not found.'}</span>
         </div>
-        <Link to={`${base}?section=inventory-audit`} className="btn btn-secondary btn-sm">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => goToAuditList({ itemId })}
+        >
           Back to inventory audit
-        </Link>
+        </button>
       </div>
     );
   }

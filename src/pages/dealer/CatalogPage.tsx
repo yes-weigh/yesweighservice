@@ -74,6 +74,7 @@ import { listCatalogProductNcSummaries } from '../../lib/catalogNc/data';
 import { listCatalogProductIdsWithMediaFiles } from '../../lib/catalogMedia/data';
 import type { CatalogSiteInventoryDoc } from '../../types/catalog-site-inventory';
 import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
+import { rememberAuditReturnFocus } from '../../lib/yesStore/auditReturnFocus';
 import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
@@ -186,6 +187,7 @@ export const CatalogPage: React.FC = () => {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditAuditorNames, setAuditAuditorNames] = useState<Map<string, string>>(new Map());
   const [batchLinkItems, setBatchLinkItems] = useState<YesStoreItemDoc[] | null>(null);
+  const [auditHighlightId, setAuditHighlightId] = useState<string | null>(null);
   const [unlinkingGroupId, setUnlinkingGroupId] = useState<string | null>(null);
   const [spareCatalogFilters, setSpareCatalogFilters] = useState<Set<SpareCatalogFilter>>(() => new Set());
   const [spareStockStatusFilters, setSpareStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
@@ -386,17 +388,9 @@ export const CatalogPage: React.FC = () => {
         } catch {
           // Unlink succeeded; audit refresh is best-effort.
         }
-        try {
-          await reconcileCatalogAuditImagesOnZoho(catalogProductId);
-        } catch (syncErr) {
-          setError(
-            syncErr instanceof Error
-              ? `Unlinked, but Zoho photo cleanup failed: ${syncErr.message}`
-              : 'Unlinked, but Zoho photo cleanup failed.',
-          );
-          await loadAuditItems();
-          return;
-        }
+        void reconcileCatalogAuditImagesOnZoho(catalogProductId).catch(err => {
+          console.warn('Zoho audit photo reconcile failed after unlink group:', err);
+        });
         await loadAuditItems();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not unlink warehouse item.');
@@ -1972,6 +1966,7 @@ export const CatalogPage: React.FC = () => {
             batchLinkEnabled
             showViewToggle
             openCycleId={openHeadOfficeCycle?.id ?? null}
+            highlightedItemId={auditHighlightId}
             onBatchLink={setBatchLinkItems}
             onItemClick={item => navigate(`${pathname}/inventory-audit/${item.id}`)}
             onGroupClick={group =>
@@ -2013,9 +2008,18 @@ export const CatalogPage: React.FC = () => {
           catalogLoading={loading}
           onClose={() => setBatchLinkItems(null)}
           onLinked={catalogProductId => {
+            const firstId = batchLinkItems?.[0]?.id ?? null;
             setBatchLinkItems(null);
             void loadAuditItems();
-            navigate(`${pathname}/inventory-audit/linked/${catalogProductId}`);
+            const highlightId = firstId || catalogProductId;
+            setAuditHighlightId(highlightId);
+            window.setTimeout(() => setAuditHighlightId(null), 4500);
+            rememberAuditReturnFocus({
+              itemId: firstId ?? undefined,
+              catalogProductId,
+              afterLink: true,
+              scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
+            });
           }}
         />
       )}

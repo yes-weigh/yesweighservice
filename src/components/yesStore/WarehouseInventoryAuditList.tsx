@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -28,6 +28,12 @@ import {
   type InventoryAuditLinkedGroup,
   type InventoryAuditListRow,
 } from '../../lib/yesStore/inventoryAudit';
+import {
+  clearAuditReturnFocus,
+  peekAuditReturnFocus,
+  rememberAuditReturnFocus,
+  type AuditReturnFocus,
+} from '../../lib/yesStore/auditReturnFocus';
 import {
   formatItemLocationShort,
   isYesStoreItemLinked,
@@ -118,6 +124,8 @@ export interface WarehouseInventoryAuditListProps {
   onGroupClick?: (group: InventoryAuditLinkedGroup) => void;
   onUnlinkGroup?: (group: InventoryAuditLinkedGroup) => void;
   unlinkingGroupId?: string | null;
+  /** External highlight (e.g. after batch link on the same page). */
+  highlightedItemId?: string | null;
   onBatchLink?: (items: YesStoreItemDoc[]) => void;
   emptyMessage?: string;
   className?: string;
@@ -197,6 +205,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   onGroupClick,
   onUnlinkGroup,
   unlinkingGroupId = null,
+  highlightedItemId = null,
   onBatchLink,
   emptyMessage = 'No audits yet. Warehouse staff add items from the YesStore app.',
   className = '',
@@ -206,13 +215,36 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   openCycleId = null,
 }) => {
   const storedFilters = useMemo(() => loadStoredAuditListFilters(), []);
-  const [page, setPage] = useState(1);
-  const [linkFilter, setLinkFilter] = useState<InventoryAuditLinkFilter>(storedFilters.linkFilter);
-  const [rackFilter, setRackFilter] = useState<string | null>(storedFilters.rackFilter);
-  const [rowFilter, setRowFilter] = useState<number | null>(storedFilters.rowFilter);
+  const pendingReturnFocusRef = useRef<AuditReturnFocus | null>(peekAuditReturnFocus());
+  const skipNextPageResetRef = useRef(Boolean(pendingReturnFocusRef.current?.page));
+  const returnFocusAppliedRef = useRef(false);
+  const [page, setPage] = useState(() => {
+    const focus = pendingReturnFocusRef.current;
+    const restored = Number(focus?.page);
+    return Number.isFinite(restored) && restored >= 1 ? Math.floor(restored) : 1;
+  });
+  const [linkFilter, setLinkFilter] = useState<InventoryAuditLinkFilter>(() => {
+    const focus = pendingReturnFocusRef.current;
+    if (focus?.afterLink) return 'all';
+    if (focus?.linkFilter === 'linked' || focus?.linkFilter === 'unlinked' || focus?.linkFilter === 'all') {
+      return focus.linkFilter;
+    }
+    return storedFilters.linkFilter;
+  });
+  const [rackFilter, setRackFilter] = useState<string | null>(
+    pendingReturnFocusRef.current?.rackFilter !== undefined
+      ? pendingReturnFocusRef.current.rackFilter
+      : storedFilters.rackFilter,
+  );
+  const [rowFilter, setRowFilter] = useState<number | null>(
+    pendingReturnFocusRef.current?.rowFilter !== undefined
+      ? pendingReturnFocusRef.current.rowFilter
+      : storedFilters.rowFilter,
+  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [viewMode, setViewMode] = useState<InventoryAuditViewMode>('grid');
   const [printFields, setPrintFields] = useState<BinLabelFields | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const isDesktopWeb = useMinWidth(768);
   const catalogById = useMemo(() => catalogMap(catalogProducts), [catalogProducts]);
 
@@ -310,12 +342,104 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   }, [page, totalPages]);
 
   useEffect(() => {
+    if (skipNextPageResetRef.current) {
+      skipNextPageResetRef.current = false;
+      return;
+    }
     setPage(1);
   }, [listRows.length, linkFilter, rackFilter, rowFilter]);
 
   useEffect(() => {
     setSelectedIds(new Set());
   }, [linkFilter, rackFilter, rowFilter]);
+
+  useEffect(() => {
+    if (returnFocusAppliedRef.current || loading) return;
+    const focus = pendingReturnFocusRef.current;
+    if (!focus) return;
+
+    returnFocusAppliedRef.current = true;
+    pendingReturnFocusRef.current = null;
+    clearAuditReturnFocus();
+
+    const id = focus.afterLink
+      ? (focus.catalogProductId?.trim() || focus.itemId?.trim() || '')
+      : (focus.itemId?.trim() || focus.catalogProductId?.trim() || '');
+
+    let nextPage = Number(focus.page);
+    if (focus.itemId || focus.catalogProductId) {
+      const matchItemId = focus.itemId?.trim() || '';
+      const matchProductId = focus.catalogProductId?.trim() || '';
+      const index = listRows.findIndex(row => {
+        if (row.kind === 'item') {
+          return row.item.id === matchItemId || row.item.id === matchProductId;
+        }
+        return (
+          row.group.catalogProductId === matchProductId
+          || row.group.catalogProductId === matchItemId
+          || row.group.items.some(item => item.id === matchItemId)
+        );
+      });
+      if (index >= 0) {
+        nextPage = Math.floor(index / PAGE_SIZE) + 1;
+      }
+    }
+    if (Number.isFinite(nextPage) && nextPage >= 1) {
+      setPage(Math.min(Math.floor(nextPage), totalPages));
+    }
+
+    if (id) {
+      setHighlightedId(id);
+      window.setTimeout(() => setHighlightedId(null), 4500);
+    }
+
+    const scrollY = Number(focus.scrollY);
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        if (id) {
+          const el = document.querySelector(
+            `[data-audit-id="${CSS.escape(id)}"]`,
+          ) as HTMLElement | null;
+          if (el) {
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return;
+          }
+        }
+        if (Number.isFinite(scrollY) && scrollY >= 0) {
+          window.scrollTo({ top: scrollY, behavior: 'smooth' });
+        }
+      }, 80);
+    });
+  }, [loading, listRows, totalPages]);
+
+  useEffect(() => {
+    const id = highlightedItemId?.trim();
+    if (!id) return;
+    setHighlightedId(id);
+    const timer = window.setTimeout(() => setHighlightedId(null), 4500);
+    window.requestAnimationFrame(() => {
+      const el = document.querySelector(
+        `[data-audit-id="${CSS.escape(id)}"]`,
+      ) as HTMLElement | null;
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    return () => window.clearTimeout(timer);
+  }, [highlightedItemId]);
+
+  const captureReturnFocus = (
+    target: { itemId?: string; catalogProductId?: string },
+    options?: { afterLink?: boolean },
+  ) => {
+    rememberAuditReturnFocus({
+      ...target,
+      page,
+      scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
+      rackFilter,
+      rowFilter,
+      linkFilter,
+      afterLink: options?.afterLink,
+    });
+  };
 
   useEffect(() => {
     // Wait until items are loaded — empty chips during load must not wipe restored filters.
@@ -582,10 +706,19 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                 return (
                   <article
                     key={group.catalogProductId}
+                    data-audit-id={group.catalogProductId}
                     className={`wh-audit-tile wh-audit-tile--item wh-audit-tile--group${
                       useGridCards ? ' wh-audit-tile--grid-card' : ''
-                    }${clickable ? ' wh-audit-tile--clickable' : ''}`}
-                    onClick={clickable ? () => onGroupClick?.(group) : undefined}
+                    }${clickable ? ' wh-audit-tile--clickable' : ''}${
+                      highlightedId === group.catalogProductId
+                      || group.items.some(bin => bin.id === highlightedId)
+                        ? ' is-focus'
+                        : ''
+                    }`}
+                    onClick={clickable ? () => {
+                      captureReturnFocus({ catalogProductId: group.catalogProductId });
+                      onGroupClick?.(group);
+                    } : undefined}
                   >
                     {useGridCards ? (
                       <>
@@ -762,12 +895,16 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
               return (
                 <article
                   key={item.id}
+                  data-audit-id={item.id}
                   className={`wh-audit-tile wh-audit-tile--item${
                     useGridCards ? ' wh-audit-tile--grid-card' : ' wh-audit-tile--dense'
                   }${clickable ? ' wh-audit-tile--clickable' : ''}${
                     selectedIds.has(item.id) ? ' wh-audit-tile--selected' : ''
-                  }`}
-                  onClick={clickable ? () => onItemClick?.(item) : undefined}
+                  }${highlightedId === item.id ? ' is-focus' : ''}`}
+                  onClick={clickable ? () => {
+                    captureReturnFocus({ itemId: item.id });
+                    onItemClick?.(item);
+                  } : undefined}
                 >
                   {useGridCards ? (
                     <>

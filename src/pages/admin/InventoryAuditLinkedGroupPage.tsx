@@ -18,6 +18,11 @@ import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import { calculateGroupTotals } from '../../lib/yesStore/inventoryAudit';
 import { listItemsByCatalogProduct, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
 import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
+import {
+  inventoryAuditListPath,
+  peekAuditReturnFocus,
+  rememberAuditReturnFocus,
+} from '../../lib/yesStore/auditReturnFocus';
 import type { CatalogProduct } from '../../types/catalog';
 import { formatItemLocationShort, readItemQuantity, type YesStoreItemDoc } from '../../types/yes-store';
 
@@ -74,8 +79,18 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
     'Linked item';
 
   const handleBack = useCallback(() => {
-    navigate(`${base}?section=inventory-audit`, { replace: false });
-  }, [navigate, base]);
+    const existing = peekAuditReturnFocus();
+    rememberAuditReturnFocus({
+      catalogProductId: catalogProductId ?? existing?.catalogProductId,
+      itemId: existing?.itemId,
+      page: existing?.page,
+      scrollY: existing?.scrollY,
+      rackFilter: existing?.rackFilter,
+      rowFilter: existing?.rowFilter,
+      linkFilter: existing?.linkFilter,
+    });
+    navigate(inventoryAuditListPath(base), { replace: false });
+  }, [navigate, base, catalogProductId]);
 
   const handleUnlinkAll = useCallback(async () => {
     const locationCount = items.length;
@@ -104,18 +119,16 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
         } catch {
           // Unlink succeeded; audit refresh is best-effort.
         }
-        try {
-          await reconcileCatalogAuditImagesOnZoho(productId);
-        } catch (syncErr) {
-          setError(
-            syncErr instanceof Error
-              ? `Unlinked, but Zoho photo cleanup failed: ${syncErr.message}`
-              : 'Unlinked, but Zoho photo cleanup failed.',
-          );
-          return;
-        }
+        // Photo cleanup is slow — don't block leaving the page.
+        void reconcileCatalogAuditImagesOnZoho(productId).catch(err => {
+          console.warn('Zoho audit photo reconcile failed after unlink all:', err);
+        });
       }
-      navigate(`${base}?section=inventory-audit`, { replace: true });
+      rememberAuditReturnFocus({
+        catalogProductId: productId || undefined,
+        afterLink: false,
+      });
+      navigate(inventoryAuditListPath(base), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not unlink stock locations.');
     } finally {

@@ -14,7 +14,6 @@ import { LogisticsBookingDetail } from '../../components/logistics/LogisticsBook
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { isLogisticsPartnerId, logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
-import { DELIVERY_METHODS } from '../../constants/deliveryMethods';
 import { ENABLED_LOGISTICS_PARTNER_IDS, LOGISTICS_BOOKING_STATUSES } from '../../lib/logisticsBooking';
 import {
   canCreateLogisticsBooking,
@@ -230,10 +229,6 @@ export const LogisticsPage: React.FC = () => {
   const showListControls = isOps && !flowOpen && !activeBooking;
   const hasActiveFilters = Boolean(filters.status) || Boolean(filters.partnerId);
   const hasSearchQuery = Boolean(filters.query?.trim());
-  const enabledPartners = useMemo(
-    () => DELIVERY_METHODS.filter(method => ENABLED_LOGISTICS_PARTNER_IDS.includes(method.id as LogisticsPartnerId)),
-    [],
-  );
 
   useEffect(() => {
     if (!showListControls) setFiltersOpen(false);
@@ -490,7 +485,7 @@ export const LogisticsPage: React.FC = () => {
 
       {flowStep === 'partner' && (
         <CourierPartnerPicker
-          partners={enabledPartners}
+          availableIds={ENABLED_LOGISTICS_PARTNER_IDS}
           titleLead="LOGISTIC"
           titleAccent="PARTNER"
           subtitle="Select a logistics partner to book courier"

@@ -31,29 +31,23 @@ export const InventoryAuditBatchLinkModal: React.FC<InventoryAuditBatchLinkModal
     if (!selectedProduct || !user || !items.length) return;
     setLinking(true);
     setError('');
-    try {
-      await batchLinkYesStoreItemsToCatalog(
-        items.map(item => item.id),
-        selectedProduct,
-        user.uid,
-        { linkedByName: user.displayName, mode: 'unit' },
-      );
       try {
-        await syncCatalogAuditImagesToZoho(selectedProduct.id);
-      } catch (syncErr) {
-        setError(
-          syncErr instanceof Error
-            ? `Linked, but Zoho photo sync failed: ${syncErr.message}`
-            : 'Linked, but Zoho photo sync failed.',
+        await batchLinkYesStoreItemsToCatalog(
+          items.map(item => item.id),
+          selectedProduct,
+          user.uid,
+          { linkedByName: user.displayName, mode: 'unit' },
         );
-        return;
+        // Photo sync is slow — finish linking immediately and sync in background.
+        void syncCatalogAuditImagesToZoho(selectedProduct.id).catch(err => {
+          console.warn('Zoho audit photo sync failed after batch link:', err);
+        });
+        onLinked(selectedProduct.id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not link selected items.');
+      } finally {
+        setLinking(false);
       }
-      onLinked(selectedProduct.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not link selected items.');
-    } finally {
-      setLinking(false);
-    }
   };
 
   return (
