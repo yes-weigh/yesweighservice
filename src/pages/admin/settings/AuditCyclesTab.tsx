@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Lock, Play, Plus, RefreshCw } from 'lucide-react';
+import { CalendarRange, ChevronDown, Lock, Play, Plus, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useConfirm } from '../../../context/ConfirmContext';
 import {
@@ -9,14 +9,20 @@ import {
   openAuditCycle,
 } from '../../../lib/auditCycles/data';
 import {
+  buildAuditCycleProductRows,
+  summarizeAuditCycleRows,
+} from '../../../lib/auditCycles/cycleRows';
+import {
   migrateAuditsIntoCycles,
   type MigrateAuditsIntoCyclesSummary,
 } from '../../../lib/auditCycles/migrate';
+import { fetchCatalog, formatCurrency } from '../../../lib/catalog';
 import {
   auditCycleSiteLabel,
   type AuditCycleDoc,
   type AuditCycleSite,
 } from '../../../types/audit-cycle';
+import type { CatalogProduct } from '../../../types/catalog';
 
 function formatWhen(iso: string | null): string {
   if (!iso) return '—';
@@ -31,6 +37,33 @@ function formatWhen(iso: string | null): string {
   });
 }
 
+function formatAuditDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function formatAuditTime(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatSignedQty(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  if (value > 0) return `+${value.toLocaleString('en-IN')}`;
+  return value.toLocaleString('en-IN');
+}
+
 function statusLabel(status: AuditCycleDoc['status']): string {
   if (status === 'open') return 'Open';
   if (status === 'closed') return 'Closed';
@@ -41,6 +74,7 @@ export const AuditCyclesTab: React.FC = () => {
   const { user } = useAuth();
   const confirm = useConfirm();
   const [cycles, setCycles] = useState<AuditCycleDoc[]>([]);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -48,13 +82,19 @@ export const AuditCyclesTab: React.FC = () => {
   const [newSite, setNewSite] = useState<AuditCycleSite>('head_office');
   const [newName, setNewName] = useState('');
   const [openImmediately, setOpenImmediately] = useState(true);
-  const [migrateSummary, setMigrateSummary] = useState<MigrateAuditsIntoCyclesSummary | null>(null);
+  const [expandedCycleId, setExpandedCycleId] = useState<string | null>(null);
+  const [stampSummary, setStampSummary] = useState<MigrateAuditsIntoCyclesSummary | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setCycles(await listAuditCycles());
+      const [nextCycles, catalog] = await Promise.all([
+        listAuditCycles(),
+        fetchCatalog(),
+      ]);
+      setCycles(nextCycles);
+      setProducts(catalog.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load audit cycles.');
     } finally {
@@ -73,6 +113,14 @@ export const AuditCyclesTab: React.FC = () => {
     }
     return map;
   }, [cycles]);
+
+  const rowsByCycleId = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof buildAuditCycleProductRows>>();
+    for (const cycle of cycles) {
+      map.set(cycle.id, buildAuditCycleProductRows(products, cycle));
+    }
+    return map;
+  }, [cycles, products]);
 
   const handleCreate = async () => {
     const name = newName.trim();
@@ -140,24 +188,32 @@ export const AuditCyclesTab: React.FC = () => {
     }
   };
 
-  const handleMigrateExisting = async () => {
+  const toggleExpanded = (cycleId: string) => {
+    setExpandedCycleId(prev => (prev === cycleId ? null : cycleId));
+  };
+
+  const handleStampLocationAudits = async () => {
     const ok = await confirm({
-      title: 'Migrate existing audits into cycles?',
+      title: 'Stamp location audits into open cycles?',
       message:
-        'This opens Initial cycles for Head Office and Cochin if needed, then stamps products that already have physical counts so they count as done for those cycles. Safe to run more than once.',
-      confirmLabel: 'Migrate now',
+        'Creates missing audit snapshots from store-room bins / warehouse locations, then stamps them into the open HO and Cochin cycles. Use this if cycle SKU counts are lower than Catalog “Audited”.',
+      confirmLabel: 'Stamp now',
     });
     if (!ok) return;
 
-    setBusyKey('migrate');
+    setBusyKey('stamp');
     setError('');
-    setMigrateSummary(null);
+    setStampSummary(null);
     try {
       const summary = await migrateAuditsIntoCycles({ dryRun: false, force: false });
-      setMigrateSummary(summary);
+      setStampSummary(summary);
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Migration failed. Deploy Cloud Functions first if this callable is missing.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Stamp failed. Deploy Cloud Functions if migrateAuditsIntoCyclesFn is missing.',
+      );
     } finally {
       setBusyKey(null);
     }
@@ -199,27 +255,28 @@ export const AuditCyclesTab: React.FC = () => {
 
       <div className="audit-cycles-migrate">
         <div>
-          <strong>Migrate existing counts</strong>
+          <strong>Stamp location audits into cycles</strong>
           <p className="text-muted text-sm">
-            Put your current audits under open Initial cycles so already-counted SKUs are not marked Needs count.
+            Catalog “Audited” counts bins/locations. Cycle cards only count stamped snapshots — run this if HO/Cochin cycle SKUs look low.
           </p>
         </div>
         <button
           type="button"
           className="btn btn-secondary btn-sm"
           disabled={busyKey != null}
-          onClick={() => void handleMigrateExisting()}
+          onClick={() => void handleStampLocationAudits()}
         >
-          <RefreshCw size={14} aria-hidden className={busyKey === 'migrate' ? 'spin-icon' : undefined} />
-          {busyKey === 'migrate' ? 'Migrating…' : 'Migrate existing audits'}
+          <RefreshCw size={14} aria-hidden className={busyKey === 'stamp' ? 'spin-icon' : undefined} />
+          {busyKey === 'stamp' ? 'Stamping…' : 'Stamp into open cycles'}
         </button>
       </div>
 
-      {migrateSummary && (
+      {stampSummary && (
         <p className="audit-cycles-migrate__result text-sm">
-          Scanned {migrateSummary.productsScanned}. Stamped HO {migrateSummary.stampedHeadOffice}, Cochin{' '}
-          {migrateSummary.stampedCochin}. Already stamped {migrateSummary.skippedAlreadyStamped}.
-          {migrateSummary.errors.length > 0 ? ` Errors: ${migrateSummary.errors.length}.` : ''}
+          Backfill created {stampSummary.backfill?.created ?? 0} snapshots.
+          Stamped HO {stampSummary.stampedHeadOffice}, Cochin {stampSummary.stampedCochin}.
+          Already stamped {stampSummary.skippedAlreadyStamped}.
+          {stampSummary.errors.length > 0 ? ` Errors: ${stampSummary.errors.length}.` : ''}
         </p>
       )}
 
@@ -286,55 +343,157 @@ export const AuditCyclesTab: React.FC = () => {
         </div>
       ) : (
         <div className="audit-cycles-list">
-          {cycles.map(cycle => (
-            <article key={cycle.id} className={`audit-cycle-card is-${cycle.status}`}>
-              <header className="audit-cycle-card__head">
-                <div>
-                  <strong className="audit-cycle-card__title">{cycle.name}</strong>
-                  <span className="audit-cycle-card__meta text-muted">
-                    {auditCycleSiteLabel(cycle.site)} · {statusLabel(cycle.status)}
-                  </span>
+          {cycles.map(cycle => {
+            const rows = rowsByCycleId.get(cycle.id) ?? [];
+            const totals = summarizeAuditCycleRows(rows);
+            const expanded = expandedCycleId === cycle.id;
+
+            return (
+              <article
+                key={cycle.id}
+                className={`audit-cycle-card is-${cycle.status}${expanded ? ' is-expanded' : ''}`}
+              >
+                <header className="audit-cycle-card__head">
+                  <button
+                    type="button"
+                    className="audit-cycle-card__toggle"
+                    aria-expanded={expanded}
+                    onClick={() => toggleExpanded(cycle.id)}
+                  >
+                    <ChevronDown
+                      size={18}
+                      aria-hidden
+                      className={`audit-cycle-card__chevron${expanded ? ' is-open' : ''}`}
+                    />
+                    <span className="audit-cycle-card__title-wrap">
+                      <strong className="audit-cycle-card__title">{cycle.name}</strong>
+                      <span className="audit-cycle-card__meta text-muted">
+                        {auditCycleSiteLabel(cycle.site)} · {statusLabel(cycle.status)}
+                      </span>
+                    </span>
+                  </button>
+                  <div className="audit-cycle-card__actions">
+                    {cycle.status === 'open' ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={busyKey != null}
+                        onClick={e => {
+                          e.stopPropagation();
+                          void handleClose(cycle);
+                        }}
+                      >
+                        <Lock size={14} aria-hidden />
+                        Close
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={busyKey != null}
+                        onClick={e => {
+                          e.stopPropagation();
+                          void handleOpen(cycle);
+                        }}
+                      >
+                        <Play size={14} aria-hidden />
+                        {cycle.status === 'closed' ? 'Reopen' : 'Open'}
+                      </button>
+                    )}
+                  </div>
+                </header>
+
+                  <div className="audit-cycle-card__stats">
+                  <div>
+                    <span className="audit-cycle-card__stat-label">SKUs in cycle</span>
+                    <strong>{totals.skuCount.toLocaleString('en-IN')}</strong>
+                  </div>
+                  <div>
+                    <span className="audit-cycle-card__stat-label">Audited qty</span>
+                    <strong>{totals.auditedQty.toLocaleString('en-IN')}</strong>
+                  </div>
+                  <div>
+                    <span className="audit-cycle-card__stat-label">Audit Diff</span>
+                    <strong className={totals.auditDiff === 0 ? '' : totals.auditDiff > 0 ? 'is-over' : 'is-under'}>
+                      {formatSignedQty(totals.auditDiff)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="audit-cycle-card__stat-label">Diff × price</span>
+                    <strong>{formatCurrency(totals.diffValue)}</strong>
+                  </div>
                 </div>
-                <div className="audit-cycle-card__actions">
-                  {cycle.status === 'open' ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busyKey != null}
-                      onClick={() => void handleClose(cycle)}
-                    >
-                      <Lock size={14} aria-hidden />
-                      Close
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      disabled={busyKey != null}
-                      onClick={() => void handleOpen(cycle)}
-                    >
-                      <Play size={14} aria-hidden />
-                      {cycle.status === 'closed' ? 'Reopen' : 'Open'}
-                    </button>
-                  )}
-                </div>
-              </header>
-              <dl className="audit-cycle-card__dates">
-                <div>
-                  <dt>Created</dt>
-                  <dd>{formatWhen(cycle.createdAt)}</dd>
-                </div>
-                <div>
-                  <dt>Opened</dt>
-                  <dd>{formatWhen(cycle.openedAt)}</dd>
-                </div>
-                <div>
-                  <dt>Closed</dt>
-                  <dd>{formatWhen(cycle.closedAt)}</dd>
-                </div>
-              </dl>
-            </article>
-          ))}
+
+                <dl className="audit-cycle-card__dates">
+                  <div>
+                    <dt>Created</dt>
+                    <dd>{formatWhen(cycle.createdAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>Opened</dt>
+                    <dd>{formatWhen(cycle.openedAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>Closed</dt>
+                    <dd>{formatWhen(cycle.closedAt)}</dd>
+                  </div>
+                </dl>
+
+                {expanded && (
+                  <div className="audit-cycle-card__table-wrap">
+                    {rows.length === 0 ? (
+                      <p className="text-muted text-sm audit-cycle-card__empty-table">
+                        No SKUs stamped or counted in this cycle yet.
+                      </p>
+                    ) : (
+                      <table className="audit-cycle-card__table">
+                        <thead>
+                          <tr>
+                            <th>SKU</th>
+                            <th>Item name</th>
+                            <th>Zoho count</th>
+                            <th>Audited count</th>
+                            <th>Audited date</th>
+                            <th>Audited time</th>
+                            <th>Audit Diff</th>
+                            <th>Diff × price</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(row => (
+                            <tr key={row.productId}>
+                              <td>{row.sku}</td>
+                              <td>{row.name}</td>
+                              <td>{row.zohoAtAudit.toLocaleString('en-IN')}</td>
+                              <td>{row.auditedQty.toLocaleString('en-IN')}</td>
+                              <td>{formatAuditDate(row.auditedAt)}</td>
+                              <td>{formatAuditTime(row.auditedAt)}</td>
+                              <td className={row.auditDiff === 0 ? '' : row.auditDiff > 0 ? 'is-over' : 'is-under'}>
+                                {formatSignedQty(row.auditDiff)}
+                              </td>
+                              <td>{formatCurrency(row.diffValue)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td colSpan={2}>Total ({totals.skuCount} SKUs)</td>
+                            <td>{totals.zohoAtAudit.toLocaleString('en-IN')}</td>
+                            <td>{totals.auditedQty.toLocaleString('en-IN')}</td>
+                            <td colSpan={2} />
+                            <td className={totals.auditDiff === 0 ? '' : totals.auditDiff > 0 ? 'is-over' : 'is-under'}>
+                              {formatSignedQty(totals.auditDiff)}
+                            </td>
+                            <td>{formatCurrency(totals.diffValue)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
     </section>

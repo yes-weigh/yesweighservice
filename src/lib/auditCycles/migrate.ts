@@ -8,6 +8,11 @@ export interface MigrateAuditsIntoCyclesSummary {
   force: boolean;
   headOfficeCycle: { id: string | null; created: boolean; name: string } | null;
   cochinCycle: { id: string | null; created: boolean; name: string } | null;
+  backfill?: {
+    created?: number;
+    skippedHasSnapshot?: number;
+    candidates?: number;
+  } | null;
   productsScanned: number;
   stampedHeadOffice: number;
   stampedCochin: number;

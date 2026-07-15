@@ -1,4 +1,5 @@
 import { getFirestore } from 'firebase-admin/firestore';
+import { backfillLegacyCatalogProductAudits } from './catalog-product-audit.js';
 
 const PRODUCTS = 'catalogProducts';
 const AUDIT_CYCLES = 'auditCycles';
@@ -68,8 +69,8 @@ async function collectCochinProductIds(db) {
 }
 
 /**
- * Create open Initial cycles (if missing) and stamp existing audit snapshots
- * so already-counted SKUs do not appear as "Needs count" for those cycles.
+ * Create open Initial cycles (if missing), backfill missing audit snapshots from
+ * Yes Store bins / site inventory, then stamp those snapshots into the open cycles.
  *
  * Idempotent by default: only fills missing site cycle ids unless `force`.
  */
@@ -83,6 +84,7 @@ export async function migrateExistingAuditsIntoCycles(options = {}) {
     force,
     headOfficeCycle: null,
     cochinCycle: null,
+    backfill: null,
     productsScanned: 0,
     stampedHeadOffice: 0,
     stampedCochin: 0,
@@ -92,6 +94,12 @@ export async function migrateExistingAuditsIntoCycles(options = {}) {
     errors: [],
     samples: [],
   };
+
+  // Location-audited SKUs often have bins but no auditSnapshot yet — create those first.
+  summary.backfill = await backfillLegacyCatalogProductAudits({
+    dryRun,
+    onlyMissing: true,
+  });
 
   const hoCycle = await ensureOpenInitialCycle(db, 'head_office', 'HO Initial', dryRun);
   const cochinCycle = await ensureOpenInitialCycle(db, 'cochin', 'Cochin Initial', dryRun);

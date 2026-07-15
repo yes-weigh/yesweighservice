@@ -281,8 +281,13 @@ async function collectAuditCandidateProductIds() {
 
   const siteSnap = await db.collection(CATALOG_SITE_INVENTORY).get();
   for (const doc of siteSnap.docs) {
-    if (!doc.id.endsWith('_cochin')) continue;
-    ids.add(doc.id.slice(0, -'_cochin'.length));
+    if (doc.id.endsWith('_cochin')) {
+      ids.add(doc.id.slice(0, -'_cochin'.length));
+      continue;
+    }
+    if (doc.id.endsWith('_head_office')) {
+      ids.add(doc.id.slice(0, -'_head_office'.length));
+    }
   }
 
   return [...ids];
@@ -312,10 +317,16 @@ export async function backfillLegacyCatalogProductAudits(options = {}) {
   }
 
   const cochinByProduct = new Map();
+  const headOfficeSiteByProduct = new Map();
   const siteSnap = await db.collection(CATALOG_SITE_INVENTORY).get();
   for (const doc of siteSnap.docs) {
-    if (!doc.id.endsWith('_cochin')) continue;
-    cochinByProduct.set(doc.id.slice(0, -'_cochin'.length), doc.data() ?? {});
+    if (doc.id.endsWith('_cochin')) {
+      cochinByProduct.set(doc.id.slice(0, -'_cochin'.length), doc.data() ?? {});
+      continue;
+    }
+    if (doc.id.endsWith('_head_office')) {
+      headOfficeSiteByProduct.set(doc.id.slice(0, -'_head_office'.length), doc.data() ?? {});
+    }
   }
 
   const summary = {
@@ -346,17 +357,24 @@ export async function backfillLegacyCatalogProductAudits(options = {}) {
 
       const items = itemsByProduct.get(productId) ?? [];
       const cochinData = cochinByProduct.get(productId) ?? null;
-      if (!items.length && !cochinData) {
+      const headOfficeSite = headOfficeSiteByProduct.get(productId) ?? null;
+      if (!items.length && !cochinData && !headOfficeSite) {
         summary.skippedNoData += 1;
         continue;
       }
 
-      const headOffice = computeHeadOfficeTotals(items);
+      const headOffice = items.length
+        ? computeHeadOfficeTotals(items)
+        : {
+          mode: 'unit',
+          countedQty: readCochinQuantity(headOfficeSite),
+          rawCountedQty: readCochinQuantity(headOfficeSite),
+        };
       const cochinQty = readCochinQuantity(cochinData);
       const physicalQty = headOffice.countedQty + cochinQty;
       const zohoQtyAtAudit = Number(productData.stock ?? 0);
       const baselineDifference = physicalQty - zohoQtyAtAudit;
-      const auditor = resolveLegacyAuditor(items, cochinData);
+      const auditor = resolveLegacyAuditor(items, cochinData || headOfficeSite);
 
       const entry = {
         auditedAt: auditor.auditedAt,

@@ -26329,6 +26329,117 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.25rem;
 }
 
+.audit-cycle-card__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.audit-cycle-card__chevron {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+  transition: transform 0.15s ease;
+}
+
+.audit-cycle-card__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.audit-cycle-card__title-wrap {
+  min-width: 0;
+}
+
+.audit-cycle-card__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.audit-cycle-card__stat-label {
+  display: block;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  margin-bottom: 0.15rem;
+}
+
+.audit-cycle-card__stats strong.is-over {
+  color: #4ade80;
+}
+
+.audit-cycle-card__stats strong.is-under {
+  color: #f87171;
+}
+
+.audit-cycle-card__table-wrap {
+  margin-top: 0.85rem;
+  overflow-x: auto;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  padding-top: 0.75rem;
+}
+
+.audit-cycle-card__empty-table {
+  margin: 0;
+}
+
+.audit-cycle-card__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.audit-cycle-card__table th,
+.audit-cycle-card__table td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.audit-cycle-card__table th:nth-child(2),
+.audit-cycle-card__table td:nth-child(2) {
+  white-space: normal;
+  min-width: 10rem;
+}
+
+.audit-cycle-card__table th {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.audit-cycle-card__table tfoot td {
+  font-weight: 700;
+  border-bottom: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.audit-cycle-card__table .is-over {
+  color: #4ade80;
+}
+
+.audit-cycle-card__table .is-under {
+  color: #f87171;
+}
+
+@media (max-width: 720px) {
+  .audit-cycle-card__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .audit-cycles-migrate {
   display: flex;
   align-items: center;
