@@ -139,6 +139,11 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
   const volumetricWeightKg = boxes.length
     ? boxes.reduce((total, box) => total + box.volumetricWeightKg, 0)
     : Number(data.volumetricWeightKg) || 0;
+  const chargeableWeightKg = typeof data.chargeableWeightKg === 'number'
+    ? data.chargeableWeightKg
+    : boxes.length
+      ? boxes.reduce((total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0), 0)
+      : Math.max(actualWeightKg, volumetricWeightKg);
 
   return {
     id,
@@ -164,6 +169,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     numberOfBoxes,
     actualWeightKg,
     volumetricWeightKg,
+    chargeableWeightKg,
     finalPackagePhoto: null,
     finalPackagePhotoStoragePath: typeof data.finalPackagePhotoStoragePath === 'string'
       ? data.finalPackagePhotoStoragePath
@@ -272,6 +278,10 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
   );
   const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
   const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
+  const chargeableWeightKg = boxes.reduce(
+    (total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0),
+    0,
+  );
   const createdByName = (
     createdBy.displayName?.trim()
     || createdBy.loginId?.trim()
@@ -315,6 +325,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     numberOfBoxes: Math.max(boxes.length, 1),
     actualWeightKg,
     volumetricWeightKg,
+    chargeableWeightKg,
     boxes: boxes.map(box => ({
       id: box.id,
       lengthCm: box.lengthCm,
@@ -326,8 +337,8 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     })),
     finalPackagePhotoStoragePath: finalPackagePhotoStoragePath ?? null,
     labelGenerated: Boolean(draft.labelGenerated),
-    courierSlipGenerated: false,
-    shippingLabelGenerated: false,
+    courierSlipGenerated: Boolean(draft.labelGenerated),
+    shippingLabelGenerated: Boolean(draft.labelGenerated),
     packingSlipGenerated: false,
     status,
     wizardStep: status === 'draft' ? (wizardStep ?? null) : null,
@@ -389,6 +400,8 @@ export async function persistLogisticsBookingDraft(
   let createdAt = now;
   let existingFinalPackagePhotoStoragePath: string | null = null;
   let existingOrderRef: string | null = null;
+  let existingCreatedByUid: string | null = null;
+  let existingCreatedByName: string | null = null;
   if (existingBookingId) {
     const existing = await getDoc(bookingRef);
     if (!existing.exists()) throw new Error('Draft booking not found.');
@@ -403,6 +416,12 @@ export async function persistLogisticsBookingDraft(
     existingOrderRef = typeof existing.data()?.orderRef === 'string'
       ? existing.data()?.orderRef
       : null;
+    existingCreatedByUid = typeof existing.data()?.createdByUid === 'string'
+      ? existing.data()?.createdByUid
+      : null;
+    existingCreatedByName = typeof existing.data()?.createdByName === 'string'
+      ? existing.data()?.createdByName
+      : null;
   }
 
   try {
@@ -410,14 +429,18 @@ export async function persistLogisticsBookingDraft(
       boxes: ShipmentBox[];
       finalPackagePhotoStoragePath: string | null;
     };
+    let photoUploadWarning = '';
     try {
       photoResult = await uploadDraftBoxPhotos(
         bookingRef.id,
         draft,
         existingFinalPackagePhotoStoragePath,
       );
-    } catch {
+    } catch (photoErr) {
       // Drafts should still save if photo upload fails (e.g. offline / storage rules).
+      photoUploadWarning = photoErr instanceof Error
+        ? photoErr.message
+        : 'Some photos could not be uploaded.';
       photoResult = {
         boxes: boxesWithoutNewUploads(draft),
         finalPackagePhotoStoragePath: existingFinalPackagePhotoStoragePath,
@@ -433,12 +456,16 @@ export async function persistLogisticsBookingDraft(
     const { boxes, finalPackagePhotoStoragePath } = photoResult;
     const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
     const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
-    const createdByName = (
-      createdBy.displayName?.trim()
+    const chargeableWeightKg = boxes.reduce(
+      (total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0),
+      0,
+    );
+    const createdByName = existingCreatedByName
+      || createdBy.displayName?.trim()
       || createdBy.loginId?.trim()
       || createdBy.email?.trim()
-      || 'YESWEIGH'
-    );
+      || 'YESWEIGH';
+    const labelsPrinted = Boolean(draft.labelGenerated);
 
     const payload: Record<string, unknown> = {
       orderRef,
@@ -476,6 +503,7 @@ export async function persistLogisticsBookingDraft(
       numberOfBoxes: Math.max(boxes.length, 1),
       actualWeightKg,
       volumetricWeightKg,
+      chargeableWeightKg,
       boxes: boxes.map(box => ({
         id: box.id,
         lengthCm: box.lengthCm,
@@ -486,19 +514,24 @@ export async function persistLogisticsBookingDraft(
         photos: box.photos.map(photo => ({ storagePath: photo.storagePath })),
       })),
       finalPackagePhotoStoragePath: finalPackagePhotoStoragePath ?? null,
-      labelGenerated: Boolean(draft.labelGenerated),
-      courierSlipGenerated: false,
-      shippingLabelGenerated: false,
+      labelGenerated: labelsPrinted,
+      courierSlipGenerated: labelsPrinted,
+      shippingLabelGenerated: labelsPrinted,
       packingSlipGenerated: false,
       status: 'draft',
       wizardStep: wizardStep ?? 'box',
       createdAt,
       updatedAt: now,
-      createdByUid: createdBy.uid,
+      createdByUid: existingCreatedByUid || createdBy.uid,
       createdByName,
     };
 
     await setDoc(bookingRef, payload);
+    if (photoUploadWarning && typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        window.alert(`Draft saved, but photos need attention:\n${photoUploadWarning}`);
+      }, 0);
+    }
     const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
     return hydrateBookingPhotos(booking);
   } catch (err) {
@@ -539,12 +572,13 @@ export async function persistLogisticsBooking(
   }
 
   try {
+    const labelsPrinted = Boolean(draft.labelGenerated);
     const payload = await buildBookingPayload({
       draft,
       dealer,
       createdBy,
       bookingId: bookingRef.id,
-      status: 'booked',
+      status: labelsPrinted ? 'label_generated' : 'booked',
       createdAt,
       wizardStep: null,
       existingFinalPackagePhotoStoragePath,

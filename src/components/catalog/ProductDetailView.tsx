@@ -528,22 +528,53 @@ export const ProductDetailView: React.FC<{
     };
   }, [warehousePhotos]);
 
-  const galleryUrls = useMemo(() => {
-    const productUrls = (product?.imageUrls?.length
+  const catalogImageUrls = useMemo(() => {
+    const fromUrls = (product?.imageUrls?.length
       ? product.imageUrls
-      : (product?.imageUrl?.trim() ? [product.imageUrl.trim()] : [])
-    ).filter(Boolean);
-    const urls = [...productUrls];
-    for (const url of warehousePhotoUrls) {
-      if (url && !urls.includes(url)) urls.push(url);
+      : []
+    ).filter((url): url is string => Boolean(url?.trim()));
+    if (fromUrls.length) {
+      // Keep gallery docs even if imageUrls is stale/short.
+      const docs = product?.imageDocs ?? [];
+      if (!docs.length) return fromUrls;
+      const merged = [...fromUrls];
+      const pathKey = (url: string) => url.split('?')[0] ?? url;
+      const seen = new Set(merged.map(pathKey));
+      for (const doc of docs) {
+        const url = doc.url?.trim();
+        if (!url) continue;
+        const key = pathKey(url);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(url);
+      }
+      return merged;
+    }
+    const primary = product?.imageUrl?.trim();
+    if (primary) {
+      const gallery = (product?.imageDocs ?? [])
+        .map(doc => doc.url?.trim())
+        .filter((url): url is string => Boolean(url) && url !== primary);
+      return [primary, ...gallery];
+    }
+    return (product?.imageDocs ?? [])
+      .map(doc => doc.url?.trim())
+      .filter((url): url is string => Boolean(url));
+  }, [product?.imageUrl, product?.imageUrls, product?.imageDocs]);
+
+  const galleryUrls = useMemo(() => {
+    const urls = [...catalogImageUrls];
+    // Warehouse audit photos are view-only context — keep them out of image edit
+    // so every catalog slide can be replaced/deleted without confusion.
+    if (!(productEditMode && editImages)) {
+      for (const url of warehousePhotoUrls) {
+        if (url && !urls.includes(url)) urls.push(url);
+      }
     }
     return urls;
-  }, [product?.imageUrl, product?.imageUrls, warehousePhotoUrls]);
+  }, [catalogImageUrls, warehousePhotoUrls, productEditMode, editImages]);
 
-  const productImageCount = useMemo(() => {
-    if (product?.imageUrls?.length) return product.imageUrls.length;
-    return product?.imageUrl?.trim() ? 1 : 0;
-  }, [product?.imageUrl, product?.imageUrls]);
+  const productImageCount = catalogImageUrls.length;
 
   // Reset carousel only when switching products — not after every upload/add.
   useEffect(() => {

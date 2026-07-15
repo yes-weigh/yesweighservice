@@ -199,20 +199,18 @@ export function bookingStatusIndex(status: LogisticsBookingStatus): number {
   return 0;
 }
 
-export function courierSlipFileName(booking: LogisticsBooking): string {
-  return `courier-slip-${booking.orderRef}.pdf`;
-}
-
 export function shippingLabelFileName(booking: LogisticsBooking): string {
-  return `shipping-label-${booking.consignmentNo}.pdf`;
+  return `shipping-label-${booking.consignmentNo}.html`;
 }
 
-/** @deprecated packing slip is no longer generated */
-export function packingSlipFileName(booking: LogisticsBooking): string {
-  return `packing-slip-${booking.orderRef}.pdf`;
+export function courierSlipFileName(booking: LogisticsBooking): string {
+  return `courier-slip-${booking.orderRef}.html`;
 }
 
 export function chargeableWeight(booking: LogisticsBooking): number {
+  if (typeof booking.chargeableWeightKg === 'number' && Number.isFinite(booking.chargeableWeightKg)) {
+    return booking.chargeableWeightKg;
+  }
   if (booking.boxes.length) {
     return booking.boxes.reduce((total, box) => total + boxChargeableWeight(box), 0);
   }

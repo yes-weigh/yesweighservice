@@ -123,6 +123,8 @@ export interface LogisticsBooking {
   actualWeightKg: number;
   /** Sum of box volumetric weights. */
   volumetricWeightKg: number;
+  /** Sum of per-box chargeable weights (max actual/volumetric). */
+  chargeableWeightKg?: number;
   finalPackagePhoto: string | null;
   finalPackagePhotoStoragePath: string | null;
   /** @deprecated legacy alias of shippingLabelGenerated */
@@ -140,59 +142,5 @@ export interface LogisticsBooking {
   createdByName: string;
 }
 
-/** @deprecated Use LogisticsPartnerId from logisticsPartners */
+/** @deprecated Prefer LogisticsPartnerId from logisticsPartners */
 export type CourierPartnerId = LogisticsPartnerId | 'ecosafe' | 'aps' | 'transport_lorry';
-
-export type CourierDispatchPhase =
-  | 'courier_assigned'
-  | 'label_generated'
-  | 'handover_pending'
-  | 'pickup_completed'
-  | 'in_transit'
-  | 'delivered';
-
-export type CourierBoxStatus = 'ready' | 'label_printed' | 'picked_up';
-
-export type CourierDispatchStatus = 'active' | 'dispatched';
-
-export interface CourierDispatchBox {
-  id: string;
-  boxNumber: number;
-  totalBoxes: number;
-  productCount: number;
-  weightKg: number;
-  trackingNumber: string;
-  status: CourierBoxStatus;
-  labelGenerated: boolean;
-  photoFileName: string | null;
-}
-
-export interface CourierDispatch {
-  id: string;
-  orderRef: string;
-  courierPartnerId: CourierPartnerId;
-  trackingNumber: string;
-  freightCharge: number | null;
-  expectedDeliveryDate: string;
-  numberOfBoxes: number;
-  totalWeightKg: number;
-  lrReceiptFileName: string | null;
-  remarks: string;
-  pickupReceiptFileName: string | null;
-  podFileName: string | null;
-  boxes: CourierDispatchBox[];
-  status: CourierDispatchStatus;
-  createdAt: string;
-  dispatchedAt: string | null;
-}
-
-export interface CourierPartnerFormDraft {
-  courierPartnerId: CourierPartnerId | null;
-  trackingNumber: string;
-  freightCharge: string;
-  expectedDeliveryDate: string;
-  numberOfBoxes: string;
-  totalWeightKg: string;
-  lrReceiptFileName: string | null;
-  remarks: string;
-}

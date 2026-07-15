@@ -291,6 +291,11 @@ export function shippingLabelHtml(booking: LogisticsBooking): string {
   const chargeable = chargeableWeight(booking);
 
   return Array.from({ length: count }, (_, index) => {
+    const box = booking.boxes[index];
+    const boxActual = box?.weightKg ?? booking.actualWeightKg;
+    const boxChargeable = box
+      ? boxChargeableWeight(box)
+      : chargeable;
     const label = buildShippingLabelViewModel({
       fromName: STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'YESWEIGH',
       fromAddress: booking.shipFromAddress || '—',
@@ -298,14 +303,14 @@ export function shippingLabelHtml(booking: LogisticsBooking): string {
       deliveryAddress: booking.deliveryAddress,
       numberOfBoxes: count,
       boxIndex: index + 1,
-      grossWeightKg: booking.actualWeightKg,
-      chargeableWeightKg: chargeable,
+      grossWeightKg: booking.shipmentMode === 'envelope' ? booking.actualWeightKg : boxActual,
+      chargeableWeightKg: booking.shipmentMode === 'envelope' ? chargeable : boxChargeable,
       partnerId: booking.partnerId,
       consignmentNo: booking.consignmentNo,
       bookingBranch: booking.branch,
       bookingDate: booking.bookingDate,
       bookingTime,
-      bookedBy: 'YESWEIGH',
+      bookedBy: booking.createdByName?.trim() || 'YESWEIGH',
       shipmentMode: booking.shipmentMode,
     });
     return shippingLabelSheetHtml(label);

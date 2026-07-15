@@ -14,6 +14,7 @@ import { LogisticsBookingDetail } from '../../components/logistics/LogisticsBook
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { isLogisticsPartnerId, logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
+import { DELIVERY_METHODS } from '../../constants/deliveryMethods';
 import { ENABLED_LOGISTICS_PARTNER_IDS, LOGISTICS_BOOKING_STATUSES } from '../../lib/logisticsBooking';
 import {
   canCreateLogisticsBooking,
@@ -228,6 +229,11 @@ export const LogisticsPage: React.FC = () => {
 
   const showListControls = isOps && !flowOpen && !activeBooking;
   const hasActiveFilters = Boolean(filters.status) || Boolean(filters.partnerId);
+  const hasSearchQuery = Boolean(filters.query?.trim());
+  const enabledPartners = useMemo(
+    () => DELIVERY_METHODS.filter(method => ENABLED_LOGISTICS_PARTNER_IDS.includes(method.id as LogisticsPartnerId)),
+    [],
+  );
 
   useEffect(() => {
     if (!showListControls) setFiltersOpen(false);
@@ -406,17 +412,27 @@ export const LogisticsPage: React.FC = () => {
       ) : bookings.length === 0 ? (
         <div className="logistics-page__empty panel glass">
           <Truck size={40} aria-hidden />
-          <h3>Logistics</h3>
+          <h3>{hasActiveFilters || hasSearchQuery ? 'No matching shipments' : 'Logistics'}</h3>
           <p className="text-muted text-sm">
-            {canCreate
-              ? 'Book courier shipments, generate slips, and track delivery from booking to doorstep.'
-              : 'Your courier shipments will appear here once booked by YesOne logistics.'}
+            {hasActiveFilters || hasSearchQuery
+              ? 'Try clearing filters or search to see more logistics bookings.'
+              : canCreate
+                ? 'Book courier shipments, generate slips, and track delivery from booking to doorstep.'
+                : 'Your courier shipments will appear here once booked by YesOne logistics.'}
           </p>
-          {canCreate && (
+          {(hasActiveFilters || hasSearchQuery) ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setFilters({ status: '', partnerId: '', query: '' })}
+            >
+              Clear filters
+            </button>
+          ) : canCreate ? (
             <button type="button" className="btn btn-primary btn-sm" onClick={openFlow}>
               Add Logistics
             </button>
-          )}
+          ) : null}
         </div>
       ) : (
         <section className="logistics-page__list panel glass" aria-label="Logistics bookings">
@@ -474,8 +490,7 @@ export const LogisticsPage: React.FC = () => {
 
       {flowStep === 'partner' && (
         <CourierPartnerPicker
-          partners={LOGISTICS_PARTNERS}
-          availableIds={ENABLED_LOGISTICS_PARTNER_IDS}
+          partners={enabledPartners}
           titleLead="LOGISTIC"
           titleAccent="PARTNER"
           subtitle="Select a logistics partner to book courier"

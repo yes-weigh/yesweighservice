@@ -57,6 +57,10 @@ import {
   buildShippingLabelViewModel,
   formatShippingBookingTime,
 } from '../../lib/shippingLabel';
+import {
+  tryPrintCourierLabelThermal,
+  tryPrintShippingLabelsThermal,
+} from '../../lib/logisticsLabelPrint';
 import type { User } from '../../types';
 import type { ZohoDealer } from '../../types/dealers';
 import type {
@@ -713,23 +717,30 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const fromName = STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite];
     const fromAddress = (fromAddresses[draft.shipFromSite] || FIRM_NAME).trim();
     const bookingTime = formatShippingBookingTime();
-    return Array.from({ length: shippingLabelCount }, (_, index) => buildShippingLabelViewModel({
-      fromName,
-      fromAddress,
-      dealer: selectedDealer,
-      deliveryAddress,
-      numberOfBoxes: shippingLabelCount,
-      boxIndex: index + 1,
-      grossWeightKg: totalActualWeight,
-      chargeableWeightKg: totalChargeableWeight,
-      partnerId,
-      consignmentNo: draft.consignmentNo,
-      bookingBranch: draft.branch,
-      bookingDate: draft.bookingDate,
-      bookingTime,
-      bookedBy: 'YESWEIGH',
-      shipmentMode: draft.shipmentMode,
-    }));
+    return Array.from({ length: shippingLabelCount }, (_, index) => {
+      const box = draft.boxes[index];
+      const boxActual = box ? (Number.parseFloat(box.weightKg) || 0) : totalActualWeight;
+      const boxChargeable = box
+        ? Math.max(boxActual, boxVolumetric(box))
+        : totalChargeableWeight;
+      return buildShippingLabelViewModel({
+        fromName,
+        fromAddress,
+        dealer: selectedDealer,
+        deliveryAddress,
+        numberOfBoxes: shippingLabelCount,
+        boxIndex: index + 1,
+        grossWeightKg: isEnvelope ? totalActualWeight : boxActual,
+        chargeableWeightKg: isEnvelope ? totalChargeableWeight : boxChargeable,
+        partnerId,
+        consignmentNo: draft.consignmentNo,
+        bookingBranch: draft.branch,
+        bookingDate: draft.bookingDate,
+        bookingTime,
+        bookedBy: user.displayName?.trim() || user.loginId?.trim() || 'YESWEIGH',
+        shipmentMode: draft.shipmentMode,
+      });
+    });
   }, [
     selectedDealer,
     draft.deliveryAddressKind,
@@ -738,11 +749,71 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     draft.branch,
     draft.bookingDate,
     draft.shipmentMode,
+    draft.boxes,
     fromAddresses,
     shippingLabelCount,
     totalActualWeight,
     totalChargeableWeight,
     partnerId,
+    isEnvelope,
+    user.displayName,
+    user.loginId,
+  ]);
+
+  const handlePrintShippingLabels = useCallback(async () => {
+    try {
+      const thermal = await tryPrintShippingLabelsThermal(shippingLabels);
+      if (thermal.usedThermal) {
+        updateDraft('labelGenerated', true);
+        return;
+      }
+    } catch (err) {
+      const fallback = window.confirm(
+        `${err instanceof Error ? err.message : 'Thermal print failed.'}\n\nPrint with the system dialog instead?`,
+      );
+      if (!fallback) return;
+    }
+    printLabelElements(shippingLabelRefs.current, 'Shipping label');
+    updateDraft('labelGenerated', true);
+  }, [shippingLabels, updateDraft]);
+
+  const handlePrintCourierLabel = useCallback(async () => {
+    if (!selectedDealer) return;
+    const deliveryAddress = resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind);
+    try {
+      const thermal = await tryPrintCourierLabelThermal({
+        partnerLabel: logisticsPartnerLabel(partnerId),
+        consignmentNo: draft.consignmentNo.trim() || '—',
+        deliverToName: selectedDealer.name,
+        deliverToAddress: deliveryAddress,
+        serviceType: draft.serviceType,
+        branch: draft.branch,
+        pieces: isEnvelope ? '1' : String(draft.boxes.length),
+        weightKg: totalActualWeight,
+      });
+      if (thermal.usedThermal) {
+        updateDraft('labelGenerated', true);
+        return;
+      }
+    } catch (err) {
+      const fallback = window.confirm(
+        `${err instanceof Error ? err.message : 'Thermal print failed.'}\n\nPrint with the system dialog instead?`,
+      );
+      if (!fallback) return;
+    }
+    printLabelElement(courierLabelRef.current, 'Courier label');
+    updateDraft('labelGenerated', true);
+  }, [
+    selectedDealer,
+    draft.deliveryAddressKind,
+    draft.consignmentNo,
+    draft.serviceType,
+    draft.branch,
+    draft.boxes.length,
+    partnerId,
+    isEnvelope,
+    totalActualWeight,
+    updateDraft,
   ]);
 
   const goBack = () => {
@@ -1219,10 +1290,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <div className="book-courier__gallery">
                   {draft.boxes.flatMap((box, boxIndex) => box.photos.map(photo => (
                     <div key={photo.id} className="book-courier__thumb">
-                      <button type="button" onClick={() => setPreviewPhoto(photo.url)} aria-label={`Preview box ${boxIndex + 1} photo`}>
-                        <img src={photo.url} alt={`Box ${boxIndex + 1}`} />
+                      <button type="button" onClick={() => setPreviewPhoto(photo.url)} aria-label={`Preview ${isEnvelope ? 'envelope' : `box ${boxIndex + 1}`} photo`}>
+                        <img src={photo.url} alt={isEnvelope ? 'Envelope' : `Box ${boxIndex + 1}`} />
                       </button>
-                      <span>Box {boxIndex + 1}</span>
+                      <span>{isEnvelope ? 'Envelope' : `Box ${boxIndex + 1}`}</span>
                     </div>
                   )))}
                 </div>
@@ -1246,7 +1317,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 Print <span className="accent">Labels</span>
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                One shipping label per box (100 × 150 mm). Print all, then paste each on its box with the courier label.
+                One shipping label per box (100 × 150 mm). On the Android APK, Print sends to the logistics label printer; otherwise the system print dialog opens.
               </p>
 
               <div className="book-courier__label-grid">
@@ -1259,7 +1330,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      onClick={() => printLabelElements(shippingLabelRefs.current, 'Shipping label')}
+                      onClick={() => void handlePrintShippingLabels()}
                     >
                       <Printer size={14} aria-hidden />
                       {shippingLabelCount > 1 ? 'Print all' : 'Print'}
@@ -1284,7 +1355,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      onClick={() => printLabelElement(courierLabelRef.current, 'Courier label')}
+                      onClick={() => void handlePrintCourierLabel()}
                     >
                       <Printer size={14} aria-hidden />
                       Print

@@ -18,6 +18,7 @@ import {
 } from '../../lib/logisticsBooking';
 import { canDeleteLogisticsBooking, generateLogisticsDocument } from '../../lib/logisticsBookings';
 import { openCourierSlipWindow, openShippingLabelWindow } from '../../lib/logisticsDocuments';
+import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import type {
   LogisticsBooking,
   LogisticsBookingStatus,
@@ -50,12 +51,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const currentIndex = booking.status === 'cancelled' ? -1 : bookingStatusIndex(booking.status);
-  // Booked → Label Generated is document-driven (generate the shipping label);
-  // ops can only manually advance once the label exists.
-  const nextStatus = booking.status === 'cancelled' || booking.status === 'booked'
+  // Booked → Label Generated is document-driven unless labels were already printed in the wizard.
+  const nextStatus = booking.status === 'cancelled'
     ? null
-    : PROGRESS_STATUSES[currentIndex + 1]?.id;
+    : booking.status === 'booked' && !booking.shippingLabelGenerated
+      ? null
+      : PROGRESS_STATUSES[currentIndex + 1]?.id;
   const basePath = user ? homePathForRole(user.role) : '/dealer';
+  const trackUrl = logisticsTrackingUrl(booking.partnerId, booking.trackingNo || booking.consignmentNo);
 
   const handleGenerateDocument = async (document: LogisticsDocumentType) => {
     if (document === 'courier_slip') {
@@ -87,6 +90,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           <h3>{logisticsPartnerLabel(booking.partnerId)}</h3>
           <p className="text-muted text-sm">
             {booking.orderRef} · {booking.trackingNo}
+            {trackUrl && (
+              <>
+                {' · '}
+                <a href={trackUrl} target="_blank" rel="noreferrer" className="logistics-booking__track-link">
+                  Track shipment
+                </a>
+              </>
+            )}
           </p>
         </div>
         <span className={`logistics-booking__status logistics-booking__status--${booking.status}`}>
