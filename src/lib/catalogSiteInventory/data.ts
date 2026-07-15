@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../../firebase';
 import type {
   CatalogInventorySite,
@@ -42,6 +42,14 @@ export async function listCochinSiteInventory(): Promise<CatalogSiteInventoryDoc
   return snap.docs.map(d => d.data() as CatalogSiteInventoryDoc);
 }
 
+/** Head Office zero-stock / no-location audit records (spares without bins). */
+export async function listHeadOfficeSiteInventory(): Promise<CatalogSiteInventoryDoc[]> {
+  const snap = await getDocs(
+    query(collection(db, 'catalogSiteInventory'), where('site', '==', 'head_office')),
+  );
+  return snap.docs.map(d => d.data() as CatalogSiteInventoryDoc);
+}
+
 export async function saveCatalogSiteInventory(input: {
   catalogProductId: string;
   site: CatalogInventorySite;
@@ -69,4 +77,27 @@ export async function saveCatalogSiteInventory(input: {
   };
   await setDoc(siteInventoryRef(input.catalogProductId, input.site), docData);
   return docData;
+}
+
+/** Mark site audited with qty 0 and no locations. */
+export async function markCatalogSiteNoStock(input: {
+  catalogProductId: string;
+  site: CatalogInventorySite;
+  updatedByUid: string;
+  updatedByName?: string | null;
+}): Promise<CatalogSiteInventoryDoc> {
+  return saveCatalogSiteInventory({
+    catalogProductId: input.catalogProductId,
+    site: input.site,
+    locations: [],
+    updatedByUid: input.updatedByUid,
+    updatedByName: input.updatedByName,
+  });
+}
+
+export async function deleteCatalogSiteInventory(
+  catalogProductId: string,
+  site: CatalogInventorySite,
+): Promise<void> {
+  await deleteDoc(siteInventoryRef(catalogProductId, site));
 }

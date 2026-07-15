@@ -22,9 +22,11 @@ export interface CatalogProductAuditLog {
   rawPhysicalQty: number | null;
   /** Zoho stock at this entry. */
   zohoQtyAtAudit: number;
-  /** physicalQty - zohoQtyAtAudit — locked Diff until the next physical audit. */
+  /** physicalQty - zohoQtyAtAudit at this entry. */
   baselineDifference: number;
   trigger: CatalogProductAuditTrigger;
+  /** Open audit cycle when this physical count was recorded. */
+  auditCycleId?: string | null;
 }
 
 export interface CatalogProductAuditSnapshot {
@@ -32,12 +34,18 @@ export interface CatalogProductAuditSnapshot {
   lastAuditedAt: string;
   lastAuditedByUid: string | null;
   lastAuditedByName: string | null;
-  /** Locked variance from last physical audit. */
+  /** Diff at last physical audit (historical). Live Diff = physicalQtyAtAudit − current Zoho. */
   baselineDifference: number;
-  /** Last counted / Zoho-adjusted audited qty. */
+  /** Frozen physical count from last physical audit — does not move with Zoho sync. */
   physicalQtyAtAudit: number;
   zohoQtyAtAudit: number;
   mode: 'unit' | 'bundle';
   headOfficeQtyAtAudit: number;
   cochinQtyAtAudit: number;
+  /** Last physical count (excludes zoho_sync). */
+  lastPhysicalAuditedAt?: string | null;
+  lastPhysicalAuditedByUid?: string | null;
+  lastPhysicalAuditedByName?: string | null;
+  /** Cycle id of the last physical count. */
+  lastAuditCycleId?: string | null;
 }

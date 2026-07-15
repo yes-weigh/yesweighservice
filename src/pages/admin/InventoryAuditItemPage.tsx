@@ -15,6 +15,8 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { fetchCatalog, formatStockQuantity } from '../../lib/catalog';
 import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
+import { getOpenAuditCycle } from '../../lib/auditCycles/data';
+import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
 import { getItem, linkYesStoreItemToCatalog, listItemsByCatalogProduct, unlinkYesStoreItemFromCatalog } from '../../lib/yesStore/data';
 import { syncCatalogAuditImagesToZoho, reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import type { CatalogProduct } from '../../types/catalog';
@@ -176,6 +178,14 @@ export const InventoryAuditItemPage: React.FC = () => {
     try {
       await unlinkYesStoreItemFromCatalog(item.id);
       if (catalogProductId) {
+        try {
+          const openCycle = await getOpenAuditCycle('head_office');
+          if (openCycle) {
+            await recordCatalogProductAudit(catalogProductId, 'warehouse_count', openCycle.id);
+          }
+        } catch {
+          // Unlink succeeded; audit refresh is best-effort.
+        }
         try {
           await reconcileCatalogAuditImagesOnZoho(catalogProductId);
         } catch (syncErr) {

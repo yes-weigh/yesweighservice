@@ -9348,6 +9348,43 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #1e3a8a;
 }
 
+.product-site-stock__empty-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.product-site-stock__no-stock-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 0.65rem;
+}
+
+.product-site-stock__no-stock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 2.4rem;
+  border: 1px dashed rgba(100, 116, 139, 0.45);
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 700;
+}
+
+.product-site-stock__no-stock-btn:hover:not(:disabled) {
+  border-color: #f58220;
+  background: rgba(245, 130, 32, 0.08);
+  color: #9a3412;
+}
+
+.product-site-stock--no-stock .product-site-stock__empty {
+  color: #64748b;
+  font-weight: 600;
+}
+
 .product-site-stock__empty {
   margin: 0;
 }
@@ -26137,3 +26174,157 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   right: 0.45rem;
 }
 
+
+/* Audit cycles */
+.audit-cycles-open-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.audit-cycles-open-summary__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 10rem;
+}
+
+.audit-cycles-open-summary__item .is-open {
+  color: #15803d;
+  font-size: 0.875rem;
+}
+
+.audit-cycles-open-summary__item .is-locked {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.audit-cycles-open-now {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-direction: row !important;
+}
+
+.audit-cycles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.audit-cycle-card {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.audit-cycle-card.is-open {
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.audit-cycle-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.audit-cycle-card__title {
+  display: block;
+}
+
+.audit-cycle-card__meta {
+  display: block;
+  font-size: 0.8125rem;
+  margin-top: 0.15rem;
+}
+
+.audit-cycle-card__actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.audit-cycle-card__dates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+}
+
+.audit-cycle-card__dates dt {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.audit-cycle-card__dates dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.catalog-audit-cycle-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.catalog-audit-cycle-progress--inline {
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.product-detail-page__audit-cycle-banner,
+.product-detail-page__audit-cycle-lock,
+.product-site-stock__cycle-banner,
+.product-site-stock__cycle-lock {
+  margin: 0 0 0.65rem;
+}
+
+.product-detail-page__audit-cycle-line,
+.product-site-stock__cycle-banner {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.product-detail-page__audit-cycle-warn {
+  margin: 0.35rem 0 0;
+  color: #b45309;
+}
+
+.wh-audit-cycle-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.wh-audit-cycle-badge--counted {
+  background: rgba(34, 197, 94, 0.18);
+  color: #166534;
+}
+
+.wh-audit-cycle-badge--needs {
+  background: rgba(245, 158, 11, 0.2);
+  color: #92400e;
+}
+
+.wh-audit-tile__grid-badge,
+.wh-audit-tile__status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}

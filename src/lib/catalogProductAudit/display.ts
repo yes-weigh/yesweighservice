@@ -3,25 +3,30 @@ import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-au
 export interface AdjustedAuditDisplay {
   hasAuditSnapshot: boolean;
   /**
-   * Audited qty after Zoho movement:
-   * lastCountedPhysical + (currentZoho − zohoAtLastAudit) = currentZoho + locked Diff.
+   * Frozen physical count from the last physical audit cycle.
+   * Does not move when Zoho stock changes between cycles.
    */
   displayAuditedQty: number | null;
-  /** Locked Diff from last physical audit (unchanged by Zoho sync). */
+  /**
+   * Live Diff vs current Zoho: frozenPhysical − currentZoho.
+   * Moves as Zoho sells/buys between cycles.
+   */
   displayDifference: number | null;
   physicalQtyAtAudit: number | null;
   zohoQtyAtAudit: number | null;
+  /** Last physical count time (not Zoho sync). */
   lastAuditedAt: string | null;
   lastAuditedByName: string | null;
+  /** Diff recorded at last physical audit (historical). */
   baselineDifference: number | null;
   /** Live physical count from bins/sites. */
   livePhysicalQty: number | null;
+  lastAuditCycleId: string | null;
 }
 
 /**
- * Summary Audited tracks Zoho using the locked audit Diff.
- * Live location totals remain available for location-card adjustments.
- * Original physical audit rows stay in history; Zoho sync also appends history entries.
+ * Summary Audited stays at the last physical count.
+ * Diff vs Zoho updates as book stock moves between audit cycles.
  */
 export function resolveAdjustedAuditDisplay(input: {
   currentZohoQty: number | null;
@@ -46,21 +51,25 @@ export function resolveAdjustedAuditDisplay(input: {
       lastAuditedByName: null,
       baselineDifference: null,
       livePhysicalQty,
+      lastAuditCycleId: null,
     };
   }
 
-  const displayDifference = snapshot.baselineDifference;
-  const displayAuditedQty = currentZohoQty + displayDifference;
+  const displayAuditedQty = Number(snapshot.physicalQtyAtAudit ?? 0);
+  const displayDifference = displayAuditedQty - currentZohoQty;
+  const lastPhysicalAt = snapshot.lastPhysicalAuditedAt ?? snapshot.lastAuditedAt;
+  const lastPhysicalBy = snapshot.lastPhysicalAuditedByName ?? snapshot.lastAuditedByName;
 
   return {
     hasAuditSnapshot: true,
     displayAuditedQty,
     displayDifference,
-    physicalQtyAtAudit: snapshot.physicalQtyAtAudit,
+    physicalQtyAtAudit: displayAuditedQty,
     zohoQtyAtAudit: snapshot.zohoQtyAtAudit,
-    lastAuditedAt: snapshot.lastAuditedAt,
-    lastAuditedByName: snapshot.lastAuditedByName,
+    lastAuditedAt: lastPhysicalAt,
+    lastAuditedByName: lastPhysicalBy,
     baselineDifference: snapshot.baselineDifference,
     livePhysicalQty,
+    lastAuditCycleId: snapshot.lastAuditCycleId ?? null,
   };
 }

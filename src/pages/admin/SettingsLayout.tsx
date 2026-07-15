@@ -1,12 +1,13 @@
 import React, { useEffect } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Box, Layers, Package, Printer, Tag, Truck, UserCircle } from 'lucide-react';
+import { Box, CalendarRange, Layers, Package, Printer, Tag, Truck, UserCircle } from 'lucide-react';
 import { isLocalhostDev } from '../../lib/isLocalhost';
 
 const baseTabs = [
   { id: 'profile', label: 'Profile', path: '/super-admin/settings/profile', icon: <UserCircle size={16} /> },
   { id: 'warehouse', label: 'Warehouse', path: '/super-admin/settings/warehouse', icon: <Layers size={16} /> },
   { id: 'store-room', label: 'Store room', path: '/super-admin/settings/store-room', icon: <Box size={16} /> },
+  { id: 'audit-cycles', label: 'Audit cycles', path: '/super-admin/settings/audit-cycles', icon: <CalendarRange size={16} /> },
   { id: 'product', label: 'Product settings', path: '/super-admin/settings/product', icon: <Package size={16} /> },
   { id: 'logistics', label: 'Logistics', path: '/super-admin/settings/logistics', icon: <Truck size={16} /> },
   { id: 'local-printers', label: 'Label printing', path: '/super-admin/settings/local-printers', icon: <Printer size={16} /> },
@@ -26,9 +27,9 @@ export const SettingsLayout: React.FC = () => {
 
   const tabs = showSkuCorrection
     ? [
-        ...baseTabs.slice(0, 4),
+        ...baseTabs.slice(0, 5),
         skuCorrectionTab,
-        ...baseTabs.slice(4),
+        ...baseTabs.slice(5),
       ]
     : [...baseTabs];
 
@@ -58,8 +59,8 @@ export const SettingsLayout: React.FC = () => {
           <h2>Settings</h2>
           <p className="text-muted text-sm">
             {showSkuCorrection
-              ? 'Account profile, warehouse zones, store room layout, product settings, SKU correction, logistics, and label printing.'
-              : 'Account profile, warehouse zones, store room layout, product settings, logistics, and label printing.'}
+              ? 'Account profile, warehouse zones, store room layout, audit cycles, product settings, SKU correction, logistics, and label printing.'
+              : 'Account profile, warehouse zones, store room layout, audit cycles, product settings, logistics, and label printing.'}
           </p>
         </div>
       </header>

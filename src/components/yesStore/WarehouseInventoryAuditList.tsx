@@ -124,6 +124,8 @@ export interface WarehouseInventoryAuditListProps {
   showLinkStatus?: boolean;
   batchLinkEnabled?: boolean;
   showViewToggle?: boolean;
+  /** Open Head Office cycle id — shows counted / needs-count badges on linked groups. */
+  openCycleId?: string | null;
 }
 
 function catalogMap(products: CatalogProduct[] | undefined): Map<string, CatalogProduct> | undefined {
@@ -175,6 +177,16 @@ function AuditStatusBadge({ linked }: { linked: boolean }) {
   );
 }
 
+function CycleCountBadge({ counted }: { counted: boolean }) {
+  return (
+    <span
+      className={`wh-audit-cycle-badge ${counted ? 'wh-audit-cycle-badge--counted' : 'wh-audit-cycle-badge--needs'}`}
+    >
+      {counted ? 'Counted' : 'Needs count'}
+    </span>
+  );
+}
+
 export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListProps> = ({
   items,
   catalogProducts,
@@ -191,6 +203,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   showLinkStatus = false,
   batchLinkEnabled = false,
   showViewToggle = false,
+  openCycleId = null,
 }) => {
   const storedFilters = useMemo(() => loadStoredAuditListFilters(), []);
   const [page, setPage] = useState(1);
@@ -554,6 +567,11 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                   group.linkedByUid,
                   auditorNamesByUid,
                 );
+                const catalogProduct = catalogById?.get(group.catalogProductId);
+                const countedThisCycle = Boolean(
+                  openCycleId
+                  && catalogProduct?.auditSnapshot?.lastAuditCycleId === openCycleId,
+                );
 
                 return (
                   <article
@@ -569,6 +587,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                           <AuditTileGridPhoto photos={firstPhotos} />
                           <div className="wh-audit-tile__grid-badge">
                             <AuditStatusBadge linked />
+                            {openCycleId && <CycleCountBadge counted={countedThisCycle} />}
                           </div>
                         </div>
                         <h3 className="wh-audit-tile__grid-title">{group.catalogProductName}</h3>
@@ -606,6 +625,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                       </div>
                       <div className="wh-audit-tile__status">
                         <AuditStatusBadge linked />
+                        {openCycleId && <CycleCountBadge counted={countedThisCycle} />}
                       </div>
                     </div>
 

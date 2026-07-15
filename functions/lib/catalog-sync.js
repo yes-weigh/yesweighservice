@@ -381,22 +381,43 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     if (zohoSyncEntry) {
       const productRef = db.collection(PRODUCTS_COLLECTION).doc(product.id);
       const logRef = productRef.collection('auditLogs').doc();
+      const prior = existing?.auditSnapshot && typeof existing.auditSnapshot === 'object'
+        ? existing.auditSnapshot
+        : {};
       const log = {
         id: logRef.id,
         catalogProductId: product.id,
-        ...zohoSyncEntry,
-      };
-      const snapshot = {
-        lastAuditLogId: logRef.id,
-        lastAuditedAt: zohoSyncEntry.auditedAt,
-        lastAuditedByUid: null,
-        lastAuditedByName: zohoSyncEntry.auditedByName,
+        auditedAt: zohoSyncEntry.auditedAt,
+        auditedByUid: null,
+        auditedByName: zohoSyncEntry.auditedByName,
+        mode: zohoSyncEntry.mode,
+        headOfficeQty: zohoSyncEntry.headOfficeQty,
+        cochinQty: zohoSyncEntry.cochinQty,
+        physicalQty: zohoSyncEntry.physicalQty,
+        rawPhysicalQty: null,
+        zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
         baselineDifference: zohoSyncEntry.baselineDifference,
-        physicalQtyAtAudit: zohoSyncEntry.physicalQty,
+        trigger: 'zoho_sync',
+        auditCycleId: null,
+      };
+      // Keep frozen physical + lastPhysical*; only refresh Zoho/Diff on snapshot.
+      const snapshot = {
+        ...prior,
+        lastAuditLogId: logRef.id,
+        baselineDifference: zohoSyncEntry.baselineDifference,
+        physicalQtyAtAudit: Number(prior.physicalQtyAtAudit ?? zohoSyncEntry.physicalQty),
         zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
         mode: zohoSyncEntry.mode,
-        headOfficeQtyAtAudit: zohoSyncEntry.headOfficeQty,
-        cochinQtyAtAudit: zohoSyncEntry.cochinQty,
+        headOfficeQtyAtAudit: Number(prior.headOfficeQtyAtAudit ?? zohoSyncEntry.headOfficeQty),
+        cochinQtyAtAudit: Number(prior.cochinQtyAtAudit ?? zohoSyncEntry.cochinQty),
+        lastPhysicalAuditedAt: prior.lastPhysicalAuditedAt ?? prior.lastAuditedAt ?? null,
+        lastPhysicalAuditedByUid: prior.lastPhysicalAuditedByUid ?? prior.lastAuditedByUid ?? null,
+        lastPhysicalAuditedByName: prior.lastPhysicalAuditedByName ?? prior.lastAuditedByName ?? null,
+        lastAuditCycleId: prior.lastAuditCycleId ?? null,
+        // Do not overwrite lastAuditedAt with Zoho sync time.
+        lastAuditedAt: prior.lastAuditedAt ?? prior.lastPhysicalAuditedAt ?? zohoSyncEntry.auditedAt,
+        lastAuditedByUid: prior.lastAuditedByUid ?? prior.lastPhysicalAuditedByUid ?? null,
+        lastAuditedByName: prior.lastAuditedByName ?? prior.lastPhysicalAuditedByName ?? null,
       };
       if (batchCount >= batchSize) {
         await commitBatch();

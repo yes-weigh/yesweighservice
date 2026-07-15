@@ -41,6 +41,7 @@ import { ProductSettingsTab } from './pages/admin/settings/ProductSettingsTab';
 import { SkuCorrectionTab } from './pages/admin/settings/SkuCorrectionTab';
 import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTab';
 import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
+import { AuditCyclesTab } from './pages/admin/settings/AuditCyclesTab';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -187,6 +188,7 @@ const App: React.FC = () => (
                 <Route path="profile" element={<SettingsProfileTab />} />
                 <Route path="warehouse" element={<WarehouseLocationsTab />} />
                 <Route path="store-room" element={<StoreRoomTab />} />
+                <Route path="audit-cycles" element={<AuditCyclesTab />} />
                 <Route path="product" element={<ProductSettingsTab />} />
                 <Route path="sku-correction" element={<SkuCorrectionTab />} />
                 <Route path="logistics" element={<LogisticsSettingsTab />} />

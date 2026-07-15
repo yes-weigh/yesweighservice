@@ -118,6 +118,8 @@ function resolveLegacyAuditor(items, cochinData) {
   };
 }
 
+const PHYSICAL_TRIGGERS = new Set(['warehouse_count', 'cochin_inventory', 'manual', 'legacy_backfill']);
+
 async function writeCatalogProductAuditEntry(productRef, entry) {
   const {
     auditedAt,
@@ -132,12 +134,15 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
     baselineDifference,
     trigger,
     logId,
+    auditCycleId,
+    existingSnapshot,
   } = entry;
 
   const logRef = logId
     ? productRef.collection('auditLogs').doc(logId)
     : productRef.collection('auditLogs').doc();
 
+  const isPhysical = PHYSICAL_TRIGGERS.has(trigger);
   const log = {
     id: logRef.id,
     catalogProductId: productRef.id,
@@ -152,19 +157,40 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
     zohoQtyAtAudit,
     baselineDifference,
     trigger,
+    auditCycleId: auditCycleId ?? null,
   };
 
+  const prior = existingSnapshot && typeof existingSnapshot === 'object' ? existingSnapshot : {};
   const snapshot = {
     lastAuditLogId: logRef.id,
-    lastAuditedAt: auditedAt,
-    lastAuditedByUid: auditedByUid ?? null,
-    lastAuditedByName: auditedByName ?? null,
+    lastAuditedAt: isPhysical ? auditedAt : (prior.lastAuditedAt ?? auditedAt),
+    lastAuditedByUid: isPhysical ? (auditedByUid ?? null) : (prior.lastAuditedByUid ?? null),
+    lastAuditedByName: isPhysical ? (auditedByName ?? null) : (prior.lastAuditedByName ?? null),
     baselineDifference,
-    physicalQtyAtAudit: physicalQty,
+    // Freeze physical on zoho_sync; only physical triggers rewrite counted qty.
+    physicalQtyAtAudit: isPhysical
+      ? physicalQty
+      : Number(prior.physicalQtyAtAudit ?? physicalQty),
     zohoQtyAtAudit,
     mode,
-    headOfficeQtyAtAudit: headOfficeQty,
-    cochinQtyAtAudit: cochinQty,
+    headOfficeQtyAtAudit: isPhysical
+      ? headOfficeQty
+      : Number(prior.headOfficeQtyAtAudit ?? headOfficeQty),
+    cochinQtyAtAudit: isPhysical
+      ? cochinQty
+      : Number(prior.cochinQtyAtAudit ?? cochinQty),
+    lastPhysicalAuditedAt: isPhysical
+      ? auditedAt
+      : (prior.lastPhysicalAuditedAt ?? prior.lastAuditedAt ?? null),
+    lastPhysicalAuditedByUid: isPhysical
+      ? (auditedByUid ?? null)
+      : (prior.lastPhysicalAuditedByUid ?? prior.lastAuditedByUid ?? null),
+    lastPhysicalAuditedByName: isPhysical
+      ? (auditedByName ?? null)
+      : (prior.lastPhysicalAuditedByName ?? prior.lastAuditedByName ?? null),
+    lastAuditCycleId: isPhysical
+      ? (auditCycleId ?? prior.lastAuditCycleId ?? null)
+      : (prior.lastAuditCycleId ?? null),
   };
 
   await logRef.set(log);
@@ -174,19 +200,19 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
 }
 
 /**
- * When Zoho stock changes on sync, keep locked Diff and move Audited with Zoho.
- * Returns null when there is no prior audit or stock is unchanged.
+ * When Zoho stock changes on sync, keep frozen physical count.
+ * Diff in the log = frozenPhysical − nextZoho. Snapshot lastPhysical* unchanged.
  */
 export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, nextZohoQty, auditedAt) {
-  if (!existingSnapshot || existingSnapshot.baselineDifference == null) return null;
+  if (!existingSnapshot || existingSnapshot.physicalQtyAtAudit == null) return null;
 
   const prevZoho = Number(previousZohoQty);
   const nextZoho = Number(nextZohoQty);
   if (!Number.isFinite(prevZoho) || !Number.isFinite(nextZoho)) return null;
   if (prevZoho === nextZoho) return null;
 
-  const baselineDifference = Number(existingSnapshot.baselineDifference);
-  const physicalQty = nextZoho + baselineDifference;
+  const physicalQty = Number(existingSnapshot.physicalQtyAtAudit);
+  const baselineDifference = physicalQty - nextZoho;
   const mode = existingSnapshot.mode === 'bundle' ? 'bundle' : 'unit';
   const headOfficeQty = Number(existingSnapshot.headOfficeQtyAtAudit ?? 0);
   const cochinQty = Number(existingSnapshot.cochinQtyAtAudit ?? 0);
@@ -204,6 +230,7 @@ export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, 
     zohoQtyAtAudit: nextZoho,
     baselineDifference,
     trigger: 'zoho_sync',
+    existingSnapshot,
   };
 }
 
@@ -215,7 +242,10 @@ export async function writeZohoSyncAuditEntry(productRef, existingSnapshot, prev
     auditedAt,
   );
   if (!entry) return null;
-  return writeCatalogProductAuditEntry(productRef, entry);
+  return writeCatalogProductAuditEntry(productRef, {
+    ...entry,
+    existingSnapshot,
+  });
 }
 
 async function collectAuditCandidateProductIds() {
@@ -388,23 +418,60 @@ export async function recordCatalogProductAudit(
   const db = getFirestore();
   const productRef = db.collection(PRODUCTS_COLLECTION).doc(id);
 
+  let resolvedCycleId = options.auditCycleId
+    ? String(options.auditCycleId).trim() || null
+    : null;
+
+  // Physical site counts require an open cycle for that site (manual may omit).
+  if (trigger === 'warehouse_count' || trigger === 'cochin_inventory') {
+    const site = trigger === 'warehouse_count' ? 'head_office' : 'cochin';
+    const openSnap = await db.collection('auditCycles')
+      .where('status', '==', 'open')
+      .limit(10)
+      .get();
+    const openDoc = openSnap.docs.find(d => d.data()?.site === site);
+    if (!openDoc) {
+      const err = new Error(
+        `No open audit cycle for ${site === 'head_office' ? 'Head Office' : 'Cochin'}. Counting is locked.`,
+      );
+      err.code = 'failed-precondition';
+      throw err;
+    }
+    const openCycleId = openDoc.id;
+    if (resolvedCycleId && resolvedCycleId !== openCycleId) {
+      const err = new Error('auditCycleId does not match the open cycle for this site.');
+      err.code = 'failed-precondition';
+      throw err;
+    }
+    resolvedCycleId = openCycleId;
+  }
+
+  const productSnap = await productRef.get();
+  const existingSnapshot = productSnap.exists
+    ? (productSnap.data()?.auditSnapshot ?? null)
+    : null;
+
   const latestSnap = await productRef.collection('auditLogs')
     .orderBy('auditedAt', 'desc')
     .limit(1)
     .get();
   const latest = mapLatestLog(latestSnap.docs[0]);
+  const latestCycleId = latestSnap.docs[0]
+    ? (latestSnap.docs[0].data()?.auditCycleId ?? null)
+    : null;
   if (
     latest
     && latest.physicalQty === physicalQty
     && latest.zohoQtyAtAudit === zohoQtyAtAudit
     && latest.headOfficeQty === headOffice.countedQty
     && latest.cochinQty === cochinQty
+    && (latestCycleId ?? null) === (resolvedCycleId ?? null)
   ) {
     const existing = latestSnap.docs[0].data() ?? {};
     return {
       skipped: true,
       log: { id: latestSnap.docs[0].id, catalogProductId: id, ...existing },
-      snapshot: (await productRef.get()).data()?.auditSnapshot ?? null,
+      snapshot: existingSnapshot,
     };
   }
 
@@ -422,6 +489,8 @@ export async function recordCatalogProductAudit(
     baselineDifference,
     trigger,
     logId: logRef.id,
+    auditCycleId: resolvedCycleId,
+    existingSnapshot,
   });
 
   return { skipped: false, log: result.log, snapshot: result.snapshot };

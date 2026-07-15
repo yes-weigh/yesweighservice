@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Printer, Save, Trash2, X } from 'lucide-react';
+import { CircleOff, Pencil, Plus, Printer, Save, Trash2, X } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmContext';
 import {
   formatStockQuantity,
   catalogProductWarehouseStock,
@@ -20,11 +21,18 @@ import {
   listWarehouseZoneRows,
   listWarehouseZones,
 } from '../../lib/warehouseLocations/data';
-import { saveCatalogSiteInventory } from '../../lib/catalogSiteInventory/data';
+import {
+  deleteCatalogSiteInventory,
+  markCatalogSiteNoStock,
+  saveCatalogSiteInventory,
+} from '../../lib/catalogSiteInventory/data';
+import { getOpenAuditCycle } from '../../lib/auditCycles/data';
 import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
+import type { AuditCycleDoc } from '../../types/audit-cycle';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import {
   getCatalogSiteInventoryLocations,
+  isNoStockSiteInventoryAudit,
   type CatalogSiteInventoryDoc,
 } from '../../types/catalog-site-inventory';
 import type { WarehouseZoneDoc, WarehouseZoneRowDoc } from '../../types/warehouse-locations';
@@ -255,27 +263,56 @@ function HeadOfficeEditRow({
   );
 }
 
+function MarkNoStockButton({
+  disabled,
+  onClick,
+}: {
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="btn btn-secondary btn-sm product-site-stock__no-stock-btn"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <CircleOff size={14} aria-hidden />
+      Mark as no stock
+    </button>
+  );
+}
+
 function HeadOfficeLocationSection({
   product,
   siteConfig,
   auditItems,
+  zeroStockRecord,
   canEdit,
   editorUid,
   editorName,
   onSaved,
+  onZeroStockSaved,
 }: {
   product: CatalogProduct;
   siteConfig: CatalogInventorySiteConfig;
   auditItems: YesStoreItemDoc[];
+  zeroStockRecord: CatalogSiteInventoryDoc | null;
   canEdit: boolean;
   editorUid: string;
   editorName?: string | null;
   onSaved: (items: YesStoreItemDoc[]) => void;
+  onZeroStockSaved: (record: CatalogSiteInventoryDoc | null) => void;
 }) {
+  const confirm = useConfirm();
   const [rows, setRows] = useState<EditableHeadOfficeRow[]>(() => headOfficeRowsFromItems(auditItems));
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [openCycle, setOpenCycle] = useState<AuditCycleDoc | null | undefined>(undefined);
+
+  const countingLocked = openCycle == null;
+  const canCount = canEdit && Boolean(openCycle);
 
   const auditTotals = useMemo(() => {
     if (auditItems.length === 0) return null;
@@ -286,6 +323,23 @@ function HeadOfficeLocationSection({
     });
   }, [auditItems, product, siteConfig.warehouseName]);
 
+  const isNoStockAudit = isNoStockSiteInventoryAudit(zeroStockRecord)
+    && auditItems.length === 0;
+
+  useEffect(() => {
+    let active = true;
+    void getOpenAuditCycle('head_office')
+      .then(cycle => {
+        if (active) setOpenCycle(cycle);
+      })
+      .catch(() => {
+        if (active) setOpenCycle(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (!editing) {
       setRows(headOfficeRowsFromItems(auditItems));
@@ -293,6 +347,10 @@ function HeadOfficeLocationSection({
   }, [auditItems, editing]);
 
   const startEditing = () => {
+    if (countingLocked) {
+      setError('No open audit cycle — counting locked for Head Office.');
+      return;
+    }
     setRows(headOfficeRowsFromItems(auditItems));
     setError('');
     setEditing(true);
@@ -322,6 +380,10 @@ function HeadOfficeLocationSection({
   const handleSave = async () => {
     if (!editorUid) {
       setError('Sign in required to save.');
+      return;
+    }
+    if (!openCycle?.id) {
+      setError('No open audit cycle — counting locked for Head Office.');
       return;
     }
 
@@ -398,12 +460,59 @@ function HeadOfficeLocationSection({
         }
       }
 
+      if (prepared.length > 0 && zeroStockRecord) {
+        await deleteCatalogSiteInventory(product.id, 'head_office');
+        onZeroStockSaved(null);
+      }
+
       const nextItems = await listItemsByCatalogProduct(product.id);
+      await recordCatalogProductAudit(product.id, 'warehouse_count', openCycle.id);
       onSaved(nextItems);
       setEditing(false);
-      void recordCatalogProductAudit(product.id, 'warehouse_count').catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save store room stock.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMarkNoStock = async () => {
+    if (!editorUid) {
+      setError('Sign in required to save.');
+      return;
+    }
+    if (!openCycle?.id) {
+      setError('No open audit cycle — counting locked for Head Office.');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Mark as no stock?',
+      message: auditItems.length > 0
+        ? 'This will unlink all store room bins, set counted quantity to 0, and record no location.'
+        : 'This marks the spare as audited with quantity 0 and no rack/row/bin location.',
+      confirmLabel: 'Mark as no stock',
+      destructive: auditItems.length > 0,
+    });
+    if (!ok) return;
+
+    setSaving(true);
+    setError('');
+    try {
+      for (const item of auditItems) {
+        await unlinkYesStoreItemFromCatalog(item.id);
+      }
+      const saved = await markCatalogSiteNoStock({
+        catalogProductId: product.id,
+        site: 'head_office',
+        updatedByUid: editorUid,
+        updatedByName: editorName,
+      });
+      await recordCatalogProductAudit(product.id, 'warehouse_count', openCycle.id);
+      onSaved([]);
+      onZeroStockSaved(saved);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not mark as no stock.');
     } finally {
       setSaving(false);
     }
@@ -414,13 +523,14 @@ function HeadOfficeLocationSection({
       className={[
         'product-site-stock',
         editing ? 'product-site-stock--editing' : '',
+        isNoStockAudit ? 'product-site-stock--no-stock' : '',
       ].filter(Boolean).join(' ')}
     >
       <header className="product-site-stock__header">
         <h3 className="product-site-stock__title">{siteConfig.warehouseName}</h3>
         <div className="product-site-stock__header-actions">
           <SiteTypeBadge site={siteConfig.site} />
-          {canEdit && (
+          {canCount && (
             <button
               type="button"
               className={[
@@ -438,7 +548,18 @@ function HeadOfficeLocationSection({
         </div>
       </header>
 
-      {editing && canEdit ? (
+      {canEdit && openCycle === null && (
+        <p className="product-site-stock__cycle-lock text-muted text-sm">
+          No open audit cycle — counting locked.
+        </p>
+      )}
+      {openCycle && (
+        <p className="product-site-stock__cycle-banner text-sm">
+          Cycle: {openCycle.name} (open)
+        </p>
+      )}
+
+      {editing && canCount ? (
         <div className="product-site-stock__editor-modern">
           {rows.map(row => (
             <HeadOfficeEditRow
@@ -489,13 +610,31 @@ function HeadOfficeLocationSection({
           auditItems={auditItems}
           auditTotals={auditTotals}
         />
-      ) : (
+      ) : isNoStockAudit ? (
         <p className="product-site-stock__empty text-muted text-sm">
-          {canEdit
-            ? 'No store room bins linked yet. Tap the pen icon to add locations.'
-            : 'No store room bins linked to this item yet.'}
+          Audited as no stock. No rack, row, or bin recorded.
         </p>
+      ) : (
+        <div className="product-site-stock__empty-block">
+          <p className="product-site-stock__empty text-muted text-sm">
+            {canCount
+              ? 'No store room bins linked yet. Use the pen to add rack/row/bin locations.'
+              : openCycle === null
+                ? 'No store room bins linked yet. Open an audit cycle to count.'
+                : 'No store room bins linked to this item yet.'}
+          </p>
+          {canCount && (
+            <MarkNoStockButton disabled={saving} onClick={() => void handleMarkNoStock()} />
+          )}
+        </div>
       )}
+
+      {canCount && !editing && auditTotals && auditTotals.parts.length > 0 && (
+        <div className="product-site-stock__no-stock-actions">
+          <MarkNoStockButton disabled={saving} onClick={() => void handleMarkNoStock()} />
+        </div>
+      )}
+      {error && !editing && <p className="product-site-stock__error text-sm">{error}</p>}
     </section>
   );
 }
@@ -648,12 +787,17 @@ function CochinLocationSection({
   editorName?: string | null;
   onSaved: (record: CatalogSiteInventoryDoc) => void;
 }) {
+  const confirm = useConfirm();
   const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
   const [rows, setRows] = useState<EditableCochinRow[]>(() => [createEditableRow()]);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [openCycle, setOpenCycle] = useState<AuditCycleDoc | null | undefined>(undefined);
+
+  const countingLocked = openCycle == null;
+  const canCount = canEdit && Boolean(openCycle);
 
   useEffect(() => {
     let active = true;
@@ -674,6 +818,20 @@ function CochinLocationSection({
   }, []);
 
   useEffect(() => {
+    let active = true;
+    void getOpenAuditCycle('cochin')
+      .then(cycle => {
+        if (active) setOpenCycle(cycle);
+      })
+      .catch(() => {
+        if (active) setOpenCycle(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!editing) {
       setRows(rowsFromRecord(record, zones[0]?.id ?? ''));
     }
@@ -683,8 +841,13 @@ function CochinLocationSection({
     () => getCatalogSiteInventoryLocations(record),
     [record],
   );
+  const isNoStockAudit = isNoStockSiteInventoryAudit(record);
 
   const startEditing = () => {
+    if (countingLocked) {
+      setError('No open audit cycle — counting locked for Cochin.');
+      return;
+    }
     setRows(rowsFromRecord(record, zones[0]?.id ?? ''));
     setError('');
     setEditing(true);
@@ -709,6 +872,10 @@ function CochinLocationSection({
   };
 
   const handleSave = async () => {
+    if (!openCycle?.id) {
+      setError('No open audit cycle — counting locked for Cochin.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -725,11 +892,49 @@ function CochinLocationSection({
         updatedByUid: editorUid,
         updatedByName: editorName,
       });
+      await recordCatalogProductAudit(product.id, 'cochin_inventory', openCycle.id);
       onSaved(saved);
       setEditing(false);
-      void recordCatalogProductAudit(product.id, 'cochin_inventory').catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save Cochin stock.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMarkNoStock = async () => {
+    if (!editorUid) {
+      setError('Sign in required to save.');
+      return;
+    }
+    if (!openCycle?.id) {
+      setError('No open audit cycle — counting locked for Cochin.');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Mark as no stock?',
+      message: readOnlyLocations.length > 0
+        ? 'This clears all warehouse locations and sets counted quantity to 0.'
+        : 'This marks the product as audited with quantity 0 and no zone/row location.',
+      confirmLabel: 'Mark as no stock',
+      destructive: readOnlyLocations.length > 0,
+    });
+    if (!ok) return;
+
+    setSaving(true);
+    setError('');
+    try {
+      const saved = await markCatalogSiteNoStock({
+        catalogProductId: product.id,
+        site: 'cochin',
+        updatedByUid: editorUid,
+        updatedByName: editorName,
+      });
+      await recordCatalogProductAudit(product.id, 'cochin_inventory', openCycle.id);
+      onSaved(saved);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not mark as no stock.');
     } finally {
       setSaving(false);
     }
@@ -740,13 +945,14 @@ function CochinLocationSection({
       className={[
         'product-site-stock',
         editing ? 'product-site-stock--editing' : '',
+        isNoStockAudit ? 'product-site-stock--no-stock' : '',
       ].filter(Boolean).join(' ')}
     >
       <header className="product-site-stock__header">
         <h3 className="product-site-stock__title">{siteConfig.warehouseName}</h3>
         <div className="product-site-stock__header-actions">
           <SiteTypeBadge site={siteConfig.site} />
-          {canEdit && (
+          {canCount && (
             <button
               type="button"
               className={[
@@ -764,7 +970,18 @@ function CochinLocationSection({
         </div>
       </header>
 
-      {editing && canEdit ? (
+      {canEdit && openCycle === null && (
+        <p className="product-site-stock__cycle-lock text-muted text-sm">
+          No open audit cycle — counting locked.
+        </p>
+      )}
+      {openCycle && (
+        <p className="product-site-stock__cycle-banner text-sm">
+          Cycle: {openCycle.name} (open)
+        </p>
+      )}
+
+      {editing && canCount ? (
         <div className="product-site-stock__editor-modern">
           {rows.map(row => (
             <CochinEditRow
@@ -840,13 +1057,31 @@ function CochinLocationSection({
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : isNoStockAudit ? (
         <p className="product-site-stock__empty text-muted text-sm">
-          {canEdit
-            ? 'No warehouse count recorded yet. Tap the pen icon to add locations.'
-            : 'No warehouse count recorded yet.'}
+          Audited as no stock. No zone or row recorded.
         </p>
+      ) : (
+        <div className="product-site-stock__empty-block">
+          <p className="product-site-stock__empty text-muted text-sm">
+            {canCount
+              ? 'No warehouse count recorded yet. Use the pen to add zone/row locations.'
+              : openCycle === null
+                ? 'No warehouse count recorded yet. Open an audit cycle to count.'
+                : 'No warehouse count recorded yet.'}
+          </p>
+          {canCount && (
+            <MarkNoStockButton disabled={saving} onClick={() => void handleMarkNoStock()} />
+          )}
+        </div>
       )}
+
+      {canCount && !editing && readOnlyLocations.length > 0 && (
+        <div className="product-site-stock__no-stock-actions">
+          <MarkNoStockButton disabled={saving} onClick={() => void handleMarkNoStock()} />
+        </div>
+      )}
+      {error && !editing && <p className="product-site-stock__error text-sm">{error}</p>}
     </section>
   );
 }
@@ -856,23 +1091,27 @@ export const ProductSiteStockLocations: React.FC<{
   siteConfig: CatalogInventorySiteConfig;
   auditItems: YesStoreItemDoc[];
   cochinRecord: CatalogSiteInventoryDoc | null;
+  headOfficeRecord?: CatalogSiteInventoryDoc | null;
   canEditCochin: boolean;
   canEditHeadOffice?: boolean;
   editorUid: string;
   editorName?: string | null;
   onCochinSaved: (record: CatalogSiteInventoryDoc) => void;
   onHeadOfficeSaved?: (items: YesStoreItemDoc[]) => void;
+  onHeadOfficeZeroStockSaved?: (record: CatalogSiteInventoryDoc | null) => void;
 }> = ({
   product,
   siteConfig,
   auditItems,
   cochinRecord,
+  headOfficeRecord = null,
   canEditCochin,
   canEditHeadOffice = false,
   editorUid,
   editorName,
   onCochinSaved,
   onHeadOfficeSaved,
+  onHeadOfficeZeroStockSaved,
 }) => {
   if (siteConfig.site === 'cochin') {
     return (
@@ -893,10 +1132,12 @@ export const ProductSiteStockLocations: React.FC<{
       product={product}
       siteConfig={siteConfig}
       auditItems={auditItems}
+      zeroStockRecord={headOfficeRecord}
       canEdit={canEditHeadOffice}
       editorUid={editorUid}
       editorName={editorName}
       onSaved={items => onHeadOfficeSaved?.(items)}
+      onZeroStockSaved={record => onHeadOfficeZeroStockSaved?.(record)}
     />
   );
 };

@@ -12,6 +12,7 @@ import type {
   CatalogProductAuditSnapshot,
   CatalogProductAuditTrigger,
 } from '../../types/catalog-product-audit';
+import { getOpenAuditCycle } from '../auditCycles/data';
 import { getItem } from '../yesStore/data';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -31,6 +32,7 @@ function mapAuditLog(id: string, data: Record<string, unknown>): CatalogProductA
     zohoQtyAtAudit: Number(data.zohoQtyAtAudit ?? 0),
     baselineDifference: Number(data.baselineDifference ?? 0),
     trigger: (data.trigger as CatalogProductAuditTrigger) ?? 'manual',
+    auditCycleId: (data.auditCycleId as string | null) ?? null,
   };
 }
 
@@ -49,6 +51,10 @@ export function mapAuditSnapshot(data: unknown): CatalogProductAuditSnapshot | n
     mode: row.mode === 'bundle' ? 'bundle' : 'unit',
     headOfficeQtyAtAudit: Number(row.headOfficeQtyAtAudit ?? 0),
     cochinQtyAtAudit: Number(row.cochinQtyAtAudit ?? 0),
+    lastPhysicalAuditedAt: (row.lastPhysicalAuditedAt as string | null) ?? null,
+    lastPhysicalAuditedByUid: (row.lastPhysicalAuditedByUid as string | null) ?? null,
+    lastPhysicalAuditedByName: (row.lastPhysicalAuditedByName as string | null) ?? null,
+    lastAuditCycleId: (row.lastAuditCycleId as string | null) ?? null,
   };
 }
 
@@ -69,13 +75,22 @@ export async function fetchCatalogProductAuditLogs(
 export async function recordCatalogProductAudit(
   catalogProductId: string,
   trigger: CatalogProductAuditTrigger = 'manual',
+  auditCycleId?: string | null,
 ): Promise<{ log: CatalogProductAuditLog; skipped: boolean }> {
   const callable = httpsCallable<
-    { catalogProductId: string; trigger: CatalogProductAuditTrigger },
+    {
+      catalogProductId: string;
+      trigger: CatalogProductAuditTrigger;
+      auditCycleId?: string | null;
+    },
     { log: CatalogProductAuditLog; skipped: boolean }
   >(functions, 'recordCatalogProductAudit', { timeout: 60_000 });
 
-  const result = await callable({ catalogProductId, trigger });
+  const result = await callable({
+    catalogProductId,
+    trigger,
+    auditCycleId: auditCycleId ?? null,
+  });
   return result.data;
 }
 
@@ -86,5 +101,10 @@ export async function recordCatalogProductAuditForYesStoreItem(
   const item = await getItem(itemId);
   const catalogProductId = item?.catalogProductId?.trim();
   if (!catalogProductId) return null;
-  return recordCatalogProductAudit(catalogProductId, 'warehouse_count');
+  const openCycle = await getOpenAuditCycle('head_office');
+  return recordCatalogProductAudit(
+    catalogProductId,
+    'warehouse_count',
+    openCycle?.id ?? null,
+  );
 }

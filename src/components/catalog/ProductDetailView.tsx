@@ -77,8 +77,11 @@ import { ProductPackageInfo } from './ProductPackageInfo';
 import type { ProductNcExistingLocation } from './ProductNcPanel';
 import { ProductOpenNcTile } from './ProductOpenNcTile';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
+import { listOpenAuditCycles } from '../../lib/auditCycles/data';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import { getCatalogProductNc } from '../../lib/catalogNc/data';
+import type { AuditCycleDoc } from '../../types/audit-cycle';
+import { auditCycleSiteLabel } from '../../types/audit-cycle';
 import {
   catalogSiteInventoryTotalQuantity,
   getCatalogSiteInventoryLocations,
@@ -234,8 +237,10 @@ export const ProductDetailView: React.FC<{
   const [detailsSaving, setDetailsSaving] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
+  const [openAuditCycles, setOpenAuditCycles] = useState<AuditCycleDoc[] | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [cochinRecord, setCochinRecord] = useState<CatalogSiteInventoryDoc | null>(null);
+  const [headOfficeRecord, setHeadOfficeRecord] = useState<CatalogSiteInventoryDoc | null>(null);
   const [ncDoc, setNcDoc] = useState<CatalogNcDoc | null>(null);
   const [detailTab, setDetailTab] = useState<ProductDetailTabId | undefined>(undefined);
   const [ncFocusLineId, setNcFocusLineId] = useState<string | null>(null);
@@ -432,16 +437,24 @@ export const ProductDetailView: React.FC<{
   useEffect(() => {
     if (!showAuditedStock || !productId) {
       setCochinRecord(null);
+      setHeadOfficeRecord(null);
       return;
     }
 
     let active = true;
-    void getCatalogSiteInventory(productId, 'cochin')
-      .then(record => {
-        if (active) setCochinRecord(record);
+    void Promise.all([
+      getCatalogSiteInventory(productId, 'cochin'),
+      getCatalogSiteInventory(productId, 'head_office'),
+    ])
+      .then(([cochin, headOffice]) => {
+        if (!active) return;
+        setCochinRecord(cochin);
+        setHeadOfficeRecord(headOffice);
       })
       .catch(() => {
-        if (active) setCochinRecord(null);
+        if (!active) return;
+        setCochinRecord(null);
+        setHeadOfficeRecord(null);
       });
 
     return () => {
@@ -467,14 +480,34 @@ export const ProductDetailView: React.FC<{
     };
   }, [showAuditedStock, productId]);
 
+  useEffect(() => {
+    if (!showAuditedStock) {
+      setOpenAuditCycles(null);
+      return;
+    }
+    let active = true;
+    void listOpenAuditCycles()
+      .then(cycles => {
+        if (active) setOpenAuditCycles(cycles);
+      })
+      .catch(() => {
+        if (active) setOpenAuditCycles([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [showAuditedStock]);
+
   const activeInventorySites = useMemo(() => {
     if (!product || !showAuditedStock) return [];
     return resolveActiveInventorySites({
       product,
       auditItems,
       cochinRecord,
+      headOfficeRecord,
+      preferredSite: isSpareItem ? 'head_office' : 'cochin',
     });
-  }, [product, showAuditedStock, auditItems, cochinRecord]);
+  }, [product, showAuditedStock, auditItems, cochinRecord, headOfficeRecord, isSpareItem]);
 
   const canEditCochin = showAuditedStock && (user?.role === 'super_admin' || user?.role === 'staff');
   const canEditHeadOffice = canEditCochin;
@@ -520,9 +553,14 @@ export const ProductDetailView: React.FC<{
     if (!showAuditedStock || !product) return null;
     let total = 0;
     let hasAny = false;
-    if (activeInventorySites.includes('head_office') && auditTotals) {
-      total += auditTotals.countedQty;
-      hasAny = true;
+    if (activeInventorySites.includes('head_office')) {
+      if (auditTotals) {
+        total += auditTotals.countedQty;
+        hasAny = true;
+      } else if (headOfficeRecord) {
+        total += catalogSiteInventoryTotalQuantity(headOfficeRecord);
+        hasAny = true;
+      }
     }
     if (activeInventorySites.includes('cochin') && cochinRecord) {
       total += catalogSiteInventoryTotalQuantity(cochinRecord);
@@ -530,7 +568,14 @@ export const ProductDetailView: React.FC<{
     }
     if (hasAny) return total;
     return auditTotals?.countedQty ?? null;
-  }, [showAuditedStock, product, activeInventorySites, auditTotals, cochinRecord]);
+  }, [
+    showAuditedStock,
+    product,
+    activeInventorySites,
+    auditTotals,
+    cochinRecord,
+    headOfficeRecord,
+  ]);
 
   const adjustedAudit = useMemo(
     () => resolveAdjustedAuditDisplay({
@@ -543,6 +588,17 @@ export const ProductDetailView: React.FC<{
 
   const summaryAuditedQty = showAuditedStock ? adjustedAudit.displayAuditedQty : null;
   const summaryDifference = showAuditedStock ? adjustedAudit.displayDifference : null;
+
+  const detailOpenCycles = useMemo(
+    () => (openAuditCycles ?? []).filter(cycle => activeInventorySites.includes(cycle.site)),
+    [openAuditCycles, activeInventorySites],
+  );
+
+  const zohoMovedDuringOpenCycle = useMemo(() => {
+    if (!product?.auditSnapshot || detailOpenCycles.length === 0) return false;
+    const zohoAtAudit = Number(product.auditSnapshot.zohoQtyAtAudit);
+    return Number.isFinite(zohoAtAudit) && product.stock !== zohoAtAudit;
+  }, [product?.auditSnapshot, product?.stock, detailOpenCycles.length]);
 
   const auditedStockLabel = useMemo(() => {
     if (summaryAuditedQty == null) return null;
@@ -1853,6 +1909,34 @@ export const ProductDetailView: React.FC<{
 
           {showAuditedStock && activeInventorySites.length > 0 && product && (
             <div className="product-detail-page__stock-locations product-detail-page__stock-locations--summary">
+              {openAuditCycles != null && detailOpenCycles.length > 0 && (
+                <div className="product-detail-page__audit-cycle-banner">
+                  {detailOpenCycles.map(cycle => (
+                    <p key={cycle.id} className="product-detail-page__audit-cycle-line">
+                      Cycle: {auditCycleSiteLabel(cycle.site)} — {cycle.name} (open)
+                      {summaryAuditedQty != null && (
+                        <> · Audited {summaryAuditedQty}</>
+                      )}
+                      {summaryDifference != null && (
+                        <> · Diff {formatQtyDifference(summaryDifference)}</>
+                      )}
+                      {livePhysicalQty != null && (
+                        <> · Live locations {livePhysicalQty}</>
+                      )}
+                    </p>
+                  ))}
+                  {zohoMovedDuringOpenCycle && (
+                    <p className="product-detail-page__audit-cycle-warn text-sm">
+                      Zoho stock changed since the last physical count. Diff uses frozen audited qty vs current Zoho.
+                    </p>
+                  )}
+                </div>
+              )}
+              {openAuditCycles != null && detailOpenCycles.length === 0 && (
+                <p className="product-detail-page__audit-cycle-lock text-muted text-sm">
+                  No open audit cycle for {activeInventorySites.map(site => auditCycleSiteLabel(site)).join(' / ')} — counting locked.
+                </p>
+              )}
               {activeInventorySites.map(site => (
                 <ProductSiteStockLocations
                   key={site}
@@ -1860,12 +1944,29 @@ export const ProductDetailView: React.FC<{
                   siteConfig={CATALOG_INVENTORY_SITE_CONFIG[site]}
                   auditItems={site === 'head_office' ? auditItems : []}
                   cochinRecord={site === 'cochin' ? cochinRecord : null}
+                  headOfficeRecord={site === 'head_office' ? headOfficeRecord : null}
                   canEditCochin={canEditCochin}
                   canEditHeadOffice={canEditHeadOffice}
                   editorUid={user?.uid ?? ''}
                   editorName={user?.displayName}
-                  onCochinSaved={setCochinRecord}
-                  onHeadOfficeSaved={setAuditItems}
+                  onCochinSaved={record => {
+                    setCochinRecord(record);
+                    void fetchCatalogProductDetail(product.id).then(detail => {
+                      if (detail) setProduct(detail);
+                    }).catch(() => undefined);
+                  }}
+                  onHeadOfficeSaved={items => {
+                    setAuditItems(items);
+                    void fetchCatalogProductDetail(product.id).then(detail => {
+                      if (detail) setProduct(detail);
+                    }).catch(() => undefined);
+                  }}
+                  onHeadOfficeZeroStockSaved={record => {
+                    setHeadOfficeRecord(record);
+                    void fetchCatalogProductDetail(product.id).then(detail => {
+                      if (detail) setProduct(detail);
+                    }).catch(() => undefined);
+                  }}
                 />
               ))}
             </div>

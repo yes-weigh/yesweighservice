@@ -4,6 +4,7 @@ import {
 } from '../types/yes-store';
 import {
   getCatalogSiteInventoryLocations,
+  isNoStockSiteInventoryAudit,
   type CatalogSiteInventoryDoc,
 } from '../types/catalog-site-inventory';
 
@@ -11,6 +12,7 @@ import {
 export function buildAuditedLocationByProductId(
   auditItems: YesStoreItemDoc[],
   cochinInventory: CatalogSiteInventoryDoc[],
+  headOfficeInventory: CatalogSiteInventoryDoc[] = [],
 ): Map<string, string> {
   const map = new Map<string, string>();
 
@@ -19,7 +21,10 @@ export function buildAuditedLocationByProductId(
     const productId = record.catalogProductId?.trim();
     if (!productId || map.has(productId)) continue;
     const locations = getCatalogSiteInventoryLocations(record);
-    if (locations.length === 0) continue;
+    if (locations.length === 0) {
+      if (isNoStockSiteInventoryAudit(record)) map.set(productId, 'No stock');
+      continue;
+    }
     const primary = [...locations].sort((a, b) => b.quantity - a.quantity)[0];
     if (!primary) continue;
     map.set(
@@ -40,6 +45,15 @@ export function buildAuditedLocationByProductId(
       productId,
       formatItemLocationShort(item.rackId, item.rowNumber, item.binNumber),
     );
+  }
+
+  // Spares audited as zero stock with no bin.
+  for (const record of headOfficeInventory) {
+    const productId = record.catalogProductId?.trim();
+    if (!productId || map.has(productId)) continue;
+    if (isNoStockSiteInventoryAudit(record)) {
+      map.set(productId, 'No stock');
+    }
   }
 
   return map;

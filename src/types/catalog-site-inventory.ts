@@ -50,3 +50,10 @@ export function catalogSiteInventoryTotalQuantity(
   }
   return doc?.quantity ?? 0;
 }
+
+/** Site-inventory doc present with no location rows = audited as no stock. */
+export function isNoStockSiteInventoryAudit(
+  doc: CatalogSiteInventoryDoc | null | undefined,
+): boolean {
+  return Boolean(doc) && getCatalogSiteInventoryLocations(doc).length === 0;
+}

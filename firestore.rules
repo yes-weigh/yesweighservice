@@ -666,6 +666,11 @@ service cloud.firestore {
       allow write: if isSuperAdmin() || isStaff();
     }
 
+    match /auditCycles/{cycleId} {
+      allow read: if isOpsUser() || isWarehouse();
+      allow write: if isSuperAdmin();
+    }
+
     match /catalogProductNc/{productId} {
       allow read: if isOpsUser();
       allow write: if isSuperAdmin() || isStaff();

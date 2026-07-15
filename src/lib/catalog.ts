@@ -160,6 +160,7 @@ export type SpareWarehouseLocationFilter = typeof SPARE_WAREHOUSE_LOCATION_FILTE
 export const SPARE_AUDIT_STATUS_FILTERS = [
   { key: 'audited', label: 'Audited' },
   { key: 'notAudited', label: 'Not audited' },
+  { key: 'needsCountThisCycle', label: 'Needs count' },
   { key: 'zeroVariance', label: 'Matched' },
   { key: 'overage', label: 'More' },
   { key: 'shortage', label: 'Shortage' },
@@ -301,13 +302,25 @@ export function matchesSpareStockStatusFilters(
   );
 }
 
-/** Head Office store-room audits — Yes Store bins linked to a catalog product. */
+/**
+ * Head Office store-room audits — Yes Store bins linked to a catalog product,
+ * plus head_office site-inventory docs (including zero-stock / no-location audits).
+ */
 export function buildHeadOfficeAuditedCatalogProductIds(
   auditItems: ReadonlyArray<{ catalogProductId?: string | null }>,
+  headOfficeSiteInventory: ReadonlyArray<{
+    catalogProductId?: string | null;
+    site?: string | null;
+  }> = [],
 ): Set<string> {
   const ids = new Set<string>();
   for (const item of auditItems) {
     const id = item.catalogProductId?.trim();
+    if (id) ids.add(id);
+  }
+  for (const record of headOfficeSiteInventory) {
+    if (record.site && record.site !== 'head_office') continue;
+    const id = record.catalogProductId?.trim();
     if (id) ids.add(id);
   }
   return ids;
@@ -350,7 +363,7 @@ export function catalogProductIsAudited(
   return cochinAuditedIds.has(product.id);
 }
 
-/** Audit vs book stock variance from the locked last-audit Diff. */
+/** Audit vs book stock variance: frozen physical vs current Zoho. */
 export function catalogProductAuditVariance(
   product: Pick<CatalogProduct, 'stock' | 'auditSnapshot'>,
 ): 'zero' | 'overage' | 'shortage' | null {
@@ -365,12 +378,22 @@ export function catalogProductAuditVariance(
   return 'shortage';
 }
 
+/** True when there is an open cycle and this SKU has no physical count in it yet. */
+export function catalogProductNeedsCountThisCycle(
+  product: Pick<CatalogProduct, 'auditSnapshot'>,
+  openCycleId: string | null | undefined,
+): boolean {
+  if (!openCycleId) return false;
+  return (product.auditSnapshot?.lastAuditCycleId ?? null) !== openCycleId;
+}
+
 export function matchesSpareAuditStatusFilters(
   product: Pick<CatalogProduct, 'id' | 'categoryId' | 'categoryName' | 'stock' | 'auditSnapshot'>,
   filters: ReadonlySet<SpareAuditStatusFilter>,
   categories: CatalogCategory[],
   headOfficeAuditedIds: ReadonlySet<string>,
   cochinAuditedIds: ReadonlySet<string>,
+  openCycleId?: string | null,
 ): boolean {
   if (filters.size === 0) return true;
   const isAudited = catalogProductIsAudited(
@@ -383,6 +406,7 @@ export function matchesSpareAuditStatusFilters(
   return (
     (filters.has('audited') && isAudited)
     || (filters.has('notAudited') && !isAudited)
+    || (filters.has('needsCountThisCycle') && catalogProductNeedsCountThisCycle(product, openCycleId))
     || (filters.has('zeroVariance') && variance === 'zero')
     || (filters.has('overage') && variance === 'overage')
     || (filters.has('shortage') && variance === 'shortage')

@@ -39,6 +39,7 @@ import {
   buildHeadOfficeAuditedCatalogProductIds,
   catalogProductIsAudited,
   catalogProductAuditVariance,
+  catalogProductNeedsCountThisCycle,
   catalogProductHasImage,
   catalogProductHasWarehouseStock,
   catalogProductHasPositiveStock,
@@ -60,8 +61,14 @@ import {
   syncCatalog,
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
+import { getOpenAuditCycle, listOpenAuditCycles } from '../../lib/auditCycles/data';
+import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
 import { listAllItems, fetchDisplayNamesForUids, batchUnlinkYesStoreItemsFromCatalog } from '../../lib/yesStore/data';
-import { listCochinSiteInventory } from '../../lib/catalogSiteInventory/data';
+import type { AuditCycleDoc } from '../../types/audit-cycle';
+import {
+  listCochinSiteInventory,
+  listHeadOfficeSiteInventory,
+} from '../../lib/catalogSiteInventory/data';
 import { buildAuditedLocationByProductId } from '../../lib/catalogAuditedLocations';
 import { listCatalogProductNcSummaries } from '../../lib/catalogNc/data';
 import { listCatalogProductIdsWithMediaFiles } from '../../lib/catalogMedia/data';
@@ -175,6 +182,7 @@ export const CatalogPage: React.FC = () => {
   const [linkEditorSaving, setLinkEditorSaving] = useState(false);
   const [auditItems, setAuditItems] = useState<YesStoreItemDoc[]>([]);
   const [cochinInventory, setCochinInventory] = useState<CatalogSiteInventoryDoc[]>([]);
+  const [headOfficeInventory, setHeadOfficeInventory] = useState<CatalogSiteInventoryDoc[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditAuditorNames, setAuditAuditorNames] = useState<Map<string, string>>(new Map());
   const [batchLinkItems, setBatchLinkItems] = useState<YesStoreItemDoc[] | null>(null);
@@ -197,6 +205,7 @@ export const CatalogPage: React.FC = () => {
   const [mediaProductFilters, setMediaProductFilters] = useState<Set<MediaProductFilter>>(() => new Set());
   const [productIdsWithMedia, setProductIdsWithMedia] = useState<Set<string>>(() => new Set());
   const [mediaIndexLoading, setMediaIndexLoading] = useState(false);
+  const [openAuditCycles, setOpenAuditCycles] = useState<AuditCycleDoc[]>([]);
 
   const applySpareFilters = useCallback(
     (
@@ -294,16 +303,42 @@ export const CatalogPage: React.FC = () => {
     void loadLinkedSpareIds();
   }, [loadLinkedSpareIds]);
 
+  useEffect(() => {
+    if (!isSuperAdmin && !isStaff) return;
+    let cancelled = false;
+    void listOpenAuditCycles()
+      .then(cycles => {
+        if (!cancelled) setOpenAuditCycles(cycles);
+      })
+      .catch(() => {
+        if (!cancelled) setOpenAuditCycles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin, isStaff]);
+
+  const openHeadOfficeCycle = useMemo(
+    () => openAuditCycles.find(cycle => cycle.site === 'head_office') ?? null,
+    [openAuditCycles],
+  );
+  const openCochinCycle = useMemo(
+    () => openAuditCycles.find(cycle => cycle.site === 'cochin') ?? null,
+    [openAuditCycles],
+  );
+
   const loadAuditItems = useCallback(async () => {
     setAuditLoading(true);
     try {
-      const [items, cochinRecords, ncSummaries] = await Promise.all([
+      const [items, cochinRecords, headOfficeRecords, ncSummaries] = await Promise.all([
         listAllItems(null),
         listCochinSiteInventory(),
+        listHeadOfficeSiteInventory(),
         listCatalogProductNcSummaries(),
       ]);
       setAuditItems(items);
       setCochinInventory(cochinRecords);
+      setHeadOfficeInventory(headOfficeRecords);
       setOpenNcQtyByProductId(ncSummaries);
       const uids = [
         ...new Set(
@@ -343,6 +378,14 @@ export const CatalogPage: React.FC = () => {
       const catalogProductId = group.catalogProductId.trim();
       try {
         await batchUnlinkYesStoreItemsFromCatalog(group.items.map(item => item.id));
+        try {
+          const openCycle = await getOpenAuditCycle('head_office');
+          if (openCycle) {
+            await recordCatalogProductAudit(catalogProductId, 'warehouse_count', openCycle.id);
+          }
+        } catch {
+          // Unlink succeeded; audit refresh is best-effort.
+        }
         try {
           await reconcileCatalogAuditImagesOnZoho(catalogProductId);
         } catch (syncErr) {
@@ -420,8 +463,8 @@ export const CatalogPage: React.FC = () => {
   );
 
   const headOfficeAuditedCatalogProductIds = useMemo(
-    () => buildHeadOfficeAuditedCatalogProductIds(auditItems),
-    [auditItems],
+    () => buildHeadOfficeAuditedCatalogProductIds(auditItems, headOfficeInventory),
+    [auditItems, headOfficeInventory],
   );
 
   const cochinAuditedCatalogProductIds = useMemo(
@@ -431,9 +474,9 @@ export const CatalogPage: React.FC = () => {
 
   const auditedLocationByProductId = useMemo(
     () => (showAuditedLocations
-      ? buildAuditedLocationByProductId(auditItems, cochinInventory)
+      ? buildAuditedLocationByProductId(auditItems, cochinInventory, headOfficeInventory)
       : undefined),
-    [showAuditedLocations, auditItems, cochinInventory],
+    [showAuditedLocations, auditItems, cochinInventory, headOfficeInventory],
   );
 
   const catalogCategories = catalog?.categories ?? [];
@@ -475,6 +518,7 @@ export const CatalogPage: React.FC = () => {
       catalogCategories,
       headOfficeAuditedCatalogProductIds,
       cochinAuditedCatalogProductIds,
+      openCochinCycle?.id ?? null,
     ));
     next = next.filter(product => matchesNcStatusFilters(
       product,
@@ -494,6 +538,7 @@ export const CatalogPage: React.FC = () => {
     headOfficeAuditedCatalogProductIds,
     cochinAuditedCatalogProductIds,
     openNcQtyByProductId,
+    openCochinCycle?.id,
   ]);
 
   const filteredBrowseProducts = useMemo(
@@ -556,6 +601,7 @@ export const CatalogPage: React.FC = () => {
         catalogCategories,
         headOfficeAuditedCatalogProductIds,
         cochinAuditedCatalogProductIds,
+        openHeadOfficeCycle?.id ?? null,
       ));
       items = items.filter(product => matchesSpareStockStatusFilters(product, spareStockStatusFilters));
       items = items.filter(product => matchesSpareLocationFilters(product, spareLocationFilters));
@@ -572,6 +618,7 @@ export const CatalogPage: React.FC = () => {
     catalogCategories,
     headOfficeAuditedCatalogProductIds,
     cochinAuditedCatalogProductIds,
+    openHeadOfficeCycle?.id,
   ]);
 
   const spareCatalogFilterCounts = useMemo(() => {
@@ -595,10 +642,13 @@ export const CatalogPage: React.FC = () => {
   const spareAuditStatusFilterCounts = useMemo(() => ({
     audited: spareParts.filter(product => isProductAudited(product)).length,
     notAudited: spareParts.filter(product => !isProductAudited(product)).length,
+    needsCountThisCycle: spareParts.filter(product =>
+      catalogProductNeedsCountThisCycle(product, openHeadOfficeCycle?.id ?? null),
+    ).length,
     zeroVariance: spareParts.filter(product => catalogProductAuditVariance(product) === 'zero').length,
     overage: spareParts.filter(product => catalogProductAuditVariance(product) === 'overage').length,
     shortage: spareParts.filter(product => catalogProductAuditVariance(product) === 'shortage').length,
-  }), [spareParts, isProductAudited]);
+  }), [spareParts, isProductAudited, openHeadOfficeCycle?.id]);
 
   const spareLocationFilterCounts = useMemo(() => ({
     cochin: spareParts.filter(product => catalogProductHasWarehouseStock(product, 'Cochin')).length,
@@ -660,10 +710,22 @@ export const CatalogPage: React.FC = () => {
   const productAuditStatusFilterCounts = useMemo(() => ({
     audited: productFilterCountBase.filter(product => isProductAudited(product)).length,
     notAudited: productFilterCountBase.filter(product => !isProductAudited(product)).length,
+    needsCountThisCycle: productFilterCountBase.filter(product =>
+      catalogProductNeedsCountThisCycle(product, openCochinCycle?.id ?? null),
+    ).length,
     zeroVariance: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'zero').length,
     overage: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'overage').length,
     shortage: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'shortage').length,
-  }), [productFilterCountBase, isProductAudited]);
+  }), [productFilterCountBase, isProductAudited, openCochinCycle?.id]);
+
+  const cochinCycleProgress = useMemo(() => {
+    if (!openCochinCycle || !isSuperAdmin) return null;
+    const total = shopProducts.length;
+    const counted = shopProducts.filter(
+      product => !catalogProductNeedsCountThisCycle(product, openCochinCycle.id),
+    ).length;
+    return { cycle: openCochinCycle, counted, total, remaining: Math.max(0, total - counted) };
+  }, [openCochinCycle, isSuperAdmin, shopProducts]);
 
   const productNcStatusFilterCounts = useMemo(() => {
     const hasNc = productFilterCountBase.filter(
@@ -1746,6 +1808,32 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
+      {focus === 'browse' && cochinCycleProgress && (
+        <div className="catalog-audit-cycle-progress panel glass">
+          <div>
+            <strong>Cochin cycle: {cochinCycleProgress.cycle.name}</strong>
+            <p className="text-muted text-sm">
+              {cochinCycleProgress.counted} of {cochinCycleProgress.total} products counted
+              {cochinCycleProgress.remaining > 0
+                ? ` · ${cochinCycleProgress.remaining} need count`
+                : ' · complete'}
+            </p>
+          </div>
+          {cochinCycleProgress.remaining > 0 && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setProductAuditStatusFilters(new Set(['needsCountThisCycle']));
+                setProductsFiltersOpen(true);
+              }}
+            >
+              Show needs count
+            </button>
+          )}
+        </div>
+      )}
+
       {focus === 'browse' && (() => {
         const browsePanel = (
           <CatalogBrowse
@@ -1923,6 +2011,12 @@ export const CatalogPage: React.FC = () => {
 
       {focus === 'inventory-audit' && (
         <div className="catalog-inventory-audit-page panel glass">
+          {openHeadOfficeCycle && (
+            <div className="catalog-audit-cycle-progress catalog-audit-cycle-progress--inline">
+              <strong>HO cycle: {openHeadOfficeCycle.name}</strong>
+              <span className="text-muted text-sm">Open — badges show counted vs needs count</span>
+            </div>
+          )}
           <WarehouseInventoryAuditList
             items={auditItems}
             catalogProducts={catalog?.items}
@@ -1932,6 +2026,7 @@ export const CatalogPage: React.FC = () => {
             showLinkStatus
             batchLinkEnabled
             showViewToggle
+            openCycleId={openHeadOfficeCycle?.id ?? null}
             onBatchLink={setBatchLinkItems}
             onItemClick={item => navigate(`${pathname}/inventory-audit/${item.id}`)}
             onGroupClick={group =>

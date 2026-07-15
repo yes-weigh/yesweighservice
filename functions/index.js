@@ -763,6 +763,7 @@ export const recordCatalogProductAudit = onCall(
 
     const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
     const trigger = String(request.data?.trigger ?? 'manual').trim();
+    const auditCycleId = String(request.data?.auditCycleId ?? '').trim() || null;
 
     if (!catalogProductId) {
       throw new HttpsError('invalid-argument', 'catalogProductId is required.');
@@ -781,10 +782,13 @@ export const recordCatalogProductAudit = onCall(
         zohoSecrets(),
         zohoOrganizationId.value(),
         catalogProductId,
-        { trigger, editor: { uid: uid ?? null, displayName } },
+        { trigger, auditCycleId, editor: { uid: uid ?? null, displayName } },
       );
       return result;
     } catch (err) {
+      if (err?.code === 'failed-precondition') {
+        throw new HttpsError('failed-precondition', err.message);
+      }
       throw new HttpsError('internal', err?.message ?? 'Could not record product audit.');
     }
   },

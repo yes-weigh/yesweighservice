@@ -30,12 +30,15 @@ export function resolveActiveInventorySites(input: {
   product: Pick<CatalogProduct, 'warehouses'>;
   auditItems: YesStoreItemDoc[];
   cochinRecord: CatalogSiteInventoryDoc | null;
+  headOfficeRecord?: CatalogSiteInventoryDoc | null;
+  /** When set, always expose the primary audit site even if Zoho stock is 0. */
+  preferredSite?: CatalogInventorySite | null;
 }): CatalogInventorySite[] {
   const sites: CatalogInventorySite[] = [];
   const hasCochinStock = catalogProductWarehouseStock(input.product, CATALOG_WAREHOUSE_COCHIN) !== 0;
   const hasHeadOfficeStock = catalogProductWarehouseStock(input.product, CATALOG_WAREHOUSE_HEAD_OFFICE) !== 0;
 
-  if (hasHeadOfficeStock || input.auditItems.length > 0) {
+  if (hasHeadOfficeStock || input.auditItems.length > 0 || input.headOfficeRecord) {
     sites.push('head_office');
   }
   if (hasCochinStock || input.cochinRecord) {
@@ -43,6 +46,10 @@ export function resolveActiveInventorySites(input: {
   }
 
   if (sites.length === 0) {
+    if (input.preferredSite) {
+      sites.push(input.preferredSite);
+      return sites;
+    }
     const warehouses = input.product.warehouses ?? [];
     if (warehouses.length === 0) {
       if (input.auditItems.length > 0) sites.push('head_office');
@@ -54,6 +61,10 @@ export function resolveActiveInventorySites(input: {
       if (name.includes('cochin')) sites.push('cochin');
       else if (name.includes('head') || name.includes('office')) sites.push('head_office');
     }
+  }
+
+  if (sites.length === 0 && input.preferredSite) {
+    sites.push(input.preferredSite);
   }
 
   return sites;
