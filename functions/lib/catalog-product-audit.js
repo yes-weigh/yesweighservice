@@ -426,6 +426,198 @@ export async function backfillLegacyCatalogProductAudits(options = {}) {
   return summary;
 }
 
+/**
+ * Reconcile frozen Audited stock with current live bin/site totals for all
+ * catalog products that drifted (e.g. bins linked mid-cycle without refresh).
+ * Uses cached Zoho stock (no Zoho API). Requires an open Head Office cycle.
+ */
+export async function reconcileStaleAuditSnapshots(options = {}) {
+  const dryRun = Boolean(options.dryRun);
+  const editor = options.editor ?? {};
+  const db = getFirestore();
+
+  const openSnap = await db.collection('auditCycles')
+    .where('status', '==', 'open')
+    .limit(10)
+    .get();
+  const openHo = openSnap.docs.find(d => d.data()?.site === 'head_office');
+  if (!openHo) {
+    const err = new Error('No open Head Office audit cycle. Open a cycle first.');
+    err.code = 'failed-precondition';
+    throw err;
+  }
+  const openCycleId = openHo.id;
+  const openCochin = openSnap.docs.find(d => d.data()?.site === 'cochin');
+  const openCochinCycleId = openCochin?.id ?? null;
+
+  const itemsByProduct = new Map();
+  const itemsSnap = await db.collection(YES_STORE_ITEMS).get();
+  for (const doc of itemsSnap.docs) {
+    const data = doc.data() ?? {};
+    const id = String(data.catalogProductId ?? '').trim();
+    if (!id) continue;
+    const list = itemsByProduct.get(id) ?? [];
+    list.push({ id: doc.id, ...data });
+    itemsByProduct.set(id, list);
+  }
+
+  const cochinByProduct = new Map();
+  const headOfficeSiteByProduct = new Map();
+  const siteSnap = await db.collection(CATALOG_SITE_INVENTORY).get();
+  for (const doc of siteSnap.docs) {
+    if (doc.id.endsWith('_cochin')) {
+      cochinByProduct.set(doc.id.slice(0, -'_cochin'.length), doc.data() ?? {});
+      continue;
+    }
+    if (doc.id.endsWith('_head_office')) {
+      headOfficeSiteByProduct.set(doc.id.slice(0, -'_head_office'.length), doc.data() ?? {});
+    }
+  }
+
+  const productIds = new Set([
+    ...itemsByProduct.keys(),
+    ...cochinByProduct.keys(),
+    ...headOfficeSiteByProduct.keys(),
+  ]);
+
+  // Also include products that already have an audit snapshot (may have zero live bins).
+  const productsSnap = await db.collection(PRODUCTS_COLLECTION).get();
+  const productDataById = new Map();
+  for (const doc of productsSnap.docs) {
+    const data = doc.data() ?? {};
+    productDataById.set(doc.id, data);
+    if (data.auditSnapshot) productIds.add(doc.id);
+  }
+
+  const summary = {
+    dryRun,
+    openCycleId,
+    candidates: productIds.size,
+    updated: 0,
+    skippedInSync: 0,
+    skippedNoProduct: 0,
+    skippedNoLiveData: 0,
+    errors: [],
+    samples: [],
+  };
+
+  const now = new Date().toISOString();
+
+  for (const productId of productIds) {
+    try {
+      const productData = productDataById.get(productId);
+      if (!productData) {
+        summary.skippedNoProduct += 1;
+        continue;
+      }
+
+      const items = itemsByProduct.get(productId) ?? [];
+      const cochinData = cochinByProduct.get(productId) ?? null;
+      const headOfficeSite = headOfficeSiteByProduct.get(productId) ?? null;
+
+      const headOffice = items.length
+        ? computeHeadOfficeTotals(items)
+        : {
+          mode: 'unit',
+          countedQty: readCochinQuantity(headOfficeSite),
+          rawCountedQty: readCochinQuantity(headOfficeSite),
+        };
+      const cochinQty = readCochinQuantity(cochinData);
+      const physicalQty = headOffice.countedQty + cochinQty;
+
+      if (!items.length && !cochinData && !headOfficeSite && physicalQty === 0) {
+        const snapQty = Number(productData.auditSnapshot?.physicalQtyAtAudit);
+        if (!productData.auditSnapshot || !Number.isFinite(snapQty)) {
+          summary.skippedNoLiveData += 1;
+          continue;
+        }
+      }
+
+      const frozen = productData.auditSnapshot != null
+        ? Number(productData.auditSnapshot.physicalQtyAtAudit ?? 0)
+        : null;
+      const frozenHo = productData.auditSnapshot != null
+        ? Number(productData.auditSnapshot.headOfficeQtyAtAudit ?? 0)
+        : null;
+      const frozenCochin = productData.auditSnapshot != null
+        ? Number(productData.auditSnapshot.cochinQtyAtAudit ?? 0)
+        : null;
+
+      const inSync = frozen != null
+        && frozen === physicalQty
+        && frozenHo === headOffice.countedQty
+        && frozenCochin === cochinQty;
+
+      if (inSync) {
+        summary.skippedInSync += 1;
+        continue;
+      }
+
+      const zohoQtyAtAudit = Number(productData.stock ?? 0);
+      const baselineDifference = physicalQty - zohoQtyAtAudit;
+      // Prefer HO cycle when HO qty changed; else Cochin cycle if only Cochin drifted.
+      const hoChanged = frozenHo !== headOffice.countedQty;
+      const auditCycleId = hoChanged || !openCochinCycleId
+        ? openCycleId
+        : openCochinCycleId;
+      const trigger = hoChanged || !openCochinCycleId
+        ? 'warehouse_count'
+        : 'cochin_inventory';
+
+      if (dryRun) {
+        summary.updated += 1;
+        if (summary.samples.length < 15) {
+          summary.samples.push({
+            productId,
+            sku: productData.sku ?? null,
+            name: productData.name ?? null,
+            frozen,
+            live: physicalQty,
+            delta: physicalQty - (frozen ?? 0),
+          });
+        }
+        continue;
+      }
+
+      const productRef = db.collection(PRODUCTS_COLLECTION).doc(productId);
+      await writeCatalogProductAuditEntry(productRef, {
+        auditedAt: now,
+        auditedByUid: editor.uid ?? null,
+        auditedByName: editor.displayName ?? 'Bulk reconcile',
+        mode: headOffice.mode,
+        headOfficeQty: headOffice.countedQty,
+        cochinQty,
+        physicalQty,
+        rawPhysicalQty: headOffice.mode === 'bundle' ? headOffice.rawCountedQty : null,
+        zohoQtyAtAudit,
+        baselineDifference,
+        trigger,
+        auditCycleId,
+        existingSnapshot: productData.auditSnapshot ?? null,
+      });
+
+      summary.updated += 1;
+      if (summary.samples.length < 15) {
+        summary.samples.push({
+          productId,
+          sku: productData.sku ?? null,
+          name: productData.name ?? null,
+          frozen,
+          live: physicalQty,
+          delta: physicalQty - (frozen ?? 0),
+        });
+      }
+    } catch (err) {
+      summary.errors.push({
+        productId,
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+
+  return summary;
+}
+
 export async function recordCatalogProductAudit(
   secrets,
   configuredOrgId,

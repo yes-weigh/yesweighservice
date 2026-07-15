@@ -32,6 +32,7 @@ import {
   recordCatalogProductAudit as persistCatalogProductAudit,
   listCatalogProductAuditLogs,
   backfillLegacyCatalogProductAudits,
+  reconcileStaleAuditSnapshots,
 } from './lib/catalog-product-audit.js';
 import { migrateExistingAuditsIntoCycles } from './lib/audit-cycles-migrate.js';
 import {
@@ -886,6 +887,47 @@ export const migrateAuditsIntoCyclesFn = onCall(
     } catch (err) {
       console.error('migrateAuditsIntoCycles failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Audit cycle migration failed.');
+    }
+  },
+);
+
+/**
+ * One-shot: set frozen Audited = live locations for every product that drifted
+ * mid-cycle (bins linked/changed without refresh). Super admin only.
+ */
+export const reconcileStaleAuditSnapshotsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const dryRun = Boolean(request.data?.dryRun);
+    let displayName = 'Bulk reconcile';
+    try {
+      const userSnap = await getFirestore().doc(`users/${request.auth.uid}`).get();
+      const name = String(userSnap.data()?.displayName ?? '').trim();
+      if (name) displayName = name;
+    } catch {
+      // keep default
+    }
+
+    try {
+      return await reconcileStaleAuditSnapshots({
+        dryRun,
+        editor: {
+          uid: request.auth?.uid ?? null,
+          displayName,
+        },
+      });
+    } catch (err) {
+      console.error('reconcileStaleAuditSnapshots failed:', err);
+      if (err?.code === 'failed-precondition') {
+        throw new HttpsError('failed-precondition', err.message);
+      }
+      throw new HttpsError('internal', err?.message ?? 'Audit reconcile failed.');
     }
   },
 );

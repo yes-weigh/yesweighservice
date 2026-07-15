@@ -27064,6 +27064,44 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.5rem;
 }
 
+.audit-cycles-reconcile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin: 0.85rem 0 0.35rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.audit-cycles-reconcile__copy {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.audit-cycles-reconcile__copy strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.audit-cycles-reconcile__copy p {
+  margin: 0;
+}
+
+.audit-cycles-reconcile__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.audit-cycles-reconcile__result {
+  margin: 0 0 0.75rem;
+  color: var(--text-secondary, #64748b);
+}
+
 .wh-audit-cycle-badge {
   display: inline-flex;
   align-items: center;
