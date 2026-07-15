@@ -17,6 +17,7 @@ import {
   saveCategoryOrder,
   saveCategoryProductOrder,
   uploadCategoryThumbnail,
+  importProductImagesFromZoho,
 } from './lib/catalog-sync.js';
 import {
   mutateCatalogProductDetails,
@@ -213,8 +214,8 @@ export const getCatalogProductDetail = onCall(
   {
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 60,
-    memory: '256MiB',
+    timeoutSeconds: 120,
+    memory: '512MiB',
   },
   async request => {
     const productId = String(request.data?.productId ?? '').trim();
@@ -228,11 +229,25 @@ export const getCatalogProductDetail = onCall(
 
     const detail = await fetchProductDetail(accessToken, organizationId, productId);
 
+    // Import any Zoho gallery/rear images missing from the app catalog cache.
+    try {
+      await importProductImagesFromZoho(productId, accessToken, organizationId);
+    } catch (err) {
+      console.warn('importProductImagesFromZoho failed:', err?.message ?? err);
+    }
+
     const cached = await getFirestore().collection('catalogProducts').doc(productId).get();
     if (cached.exists) {
       const data = cached.data();
-      if (!detail.imageUrl) {
-        detail.imageUrl = data?.imageUrl ?? null;
+      // Prefer cached catalog images (primary + gallery).
+      if (data?.imageUrl) {
+        detail.imageUrl = data.imageUrl;
+      }
+      if (Array.isArray(data?.imageUrls) && data.imageUrls.length) {
+        detail.imageUrls = data.imageUrls.filter(url => String(url ?? '').trim());
+      }
+      if (Array.isArray(data?.imageDocs) && data.imageDocs.length) {
+        detail.imageDocs = data.imageDocs;
       }
       if (data?.syncedAt) {
         detail.syncedAt = data.syncedAt;

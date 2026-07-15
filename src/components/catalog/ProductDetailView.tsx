@@ -61,11 +61,9 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import {
   calculateGroupTotals,
-  collectWarehouseAuditPhotos,
   formatQtyDifference,
   type InventoryAuditGroupTotals,
 } from '../../lib/yesStore/inventoryAudit';
-import { resolveYesStorePhotoUrls } from '../../lib/yesStore/photos';
 import type { CatalogProduct, CatalogProductDetail, CatalogCategory } from '../../types/catalog';
 import { useAuth } from '../../context/AuthContext';
 import { getCatalogSiteInventory } from '../../lib/catalogSiteInventory/data';
@@ -245,7 +243,6 @@ export const ProductDetailView: React.FC<{
   const [ncDoc, setNcDoc] = useState<CatalogNcDoc | null>(null);
   const [detailTab, setDetailTab] = useState<ProductDetailTabId | undefined>(undefined);
   const [ncFocusLineId, setNcFocusLineId] = useState<string | null>(null);
-  const [warehousePhotoUrls, setWarehousePhotoUrls] = useState<string[]>([]);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const addImageInputRef = useRef<HTMLInputElement>(null);
@@ -513,21 +510,6 @@ export const ProductDetailView: React.FC<{
   const canEditCochin = showAuditedStock && (user?.role === 'super_admin' || user?.role === 'staff');
   const canEditHeadOffice = canEditCochin;
 
-  const warehousePhotos = useMemo(
-    () => collectWarehouseAuditPhotos(auditItems),
-    [auditItems],
-  );
-
-  useEffect(() => {
-    let active = true;
-    void resolveYesStorePhotoUrls(warehousePhotos).then(urls => {
-      if (active) setWarehousePhotoUrls(urls);
-    });
-    return () => {
-      active = false;
-    };
-  }, [warehousePhotos]);
-
   const catalogImageUrls = useMemo(() => {
     const fromUrls = (product?.imageUrls?.length
       ? product.imageUrls
@@ -562,18 +544,8 @@ export const ProductDetailView: React.FC<{
       .filter((url): url is string => Boolean(url));
   }, [product?.imageUrl, product?.imageUrls, product?.imageDocs]);
 
-  const galleryUrls = useMemo(() => {
-    const urls = [...catalogImageUrls];
-    // Warehouse audit photos are view-only context — keep them out of image edit
-    // so every catalog slide can be replaced/deleted without confusion.
-    if (!(productEditMode && editImages)) {
-      for (const url of warehousePhotoUrls) {
-        if (url && !urls.includes(url)) urls.push(url);
-      }
-    }
-    return urls;
-  }, [catalogImageUrls, warehousePhotoUrls, productEditMode, editImages]);
-
+  // Catalog carousel is catalog-only — warehouse bin photos sync to Zoho/catalog on link.
+  const galleryUrls = catalogImageUrls;
   const productImageCount = catalogImageUrls.length;
 
   // Reset carousel only when switching products — not after every upload/add.
@@ -996,8 +968,8 @@ export const ProductDetailView: React.FC<{
     const ok = await confirm({
       title: isPrimary ? 'Delete main photo?' : 'Delete gallery photo?',
       message: isPrimary
-        ? 'This removes the main catalog photo from Zoho and the app. Other gallery photos stay. Warehouse audit photos are not affected.'
-        : 'This removes this gallery photo from Zoho and the app. Warehouse audit photos are not affected.',
+        ? 'This removes the main catalog photo from Zoho and the app. Other gallery photos stay.'
+        : 'This removes this gallery photo from Zoho and the app.',
       confirmLabel: 'Delete photo',
       destructive: true,
     });
@@ -1556,9 +1528,7 @@ export const ProductDetailView: React.FC<{
               {productEditMode && editImages && (
                 <div className="product-detail-page__image-actions-wrap">
                   <p className="product-detail-page__image-actions-hint">
-                    {activeGalleryIndex < productImageCount
-                      ? `Photo ${activeGalleryIndex + 1}/${productImageCount} · Upload/Camera = replace · Add = new`
-                      : 'Warehouse photo · Add inserts a catalog photo'}
+                    {`Photo ${activeGalleryIndex + 1}/${Math.max(1, galleryUrls.length)} · Upload/Camera = replace · Add = new`}
                   </p>
                   <div className="product-detail-page__image-actions">
                     {galleryUrls.length > 0 && (
@@ -1579,14 +1549,14 @@ export const ProductDetailView: React.FC<{
                       type="button"
                       className="product-detail-page__image-action"
                       title={
-                        productImageCount === 0 || activeGalleryIndex >= productImageCount
+                        productImageCount === 0
                           ? 'Upload main photo'
                           : activeGalleryIndex === 0
                             ? 'Replace main photo'
                             : 'Replace this photo'
                       }
                       aria-label={
-                        productImageCount === 0 || activeGalleryIndex >= productImageCount
+                        productImageCount === 0
                           ? 'Upload main photo'
                           : activeGalleryIndex === 0
                             ? 'Replace main photo'
@@ -1613,12 +1583,12 @@ export const ProductDetailView: React.FC<{
                       type="button"
                       className="product-detail-page__image-action"
                       title={
-                        productImageCount === 0 || activeGalleryIndex >= productImageCount
+                        productImageCount === 0
                           ? 'Capture main photo'
                           : 'Capture to replace this photo'
                       }
                       aria-label={
-                        productImageCount === 0 || activeGalleryIndex >= productImageCount
+                        productImageCount === 0
                           ? 'Capture main photo'
                           : 'Capture to replace this photo'
                       }

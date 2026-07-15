@@ -1015,9 +1015,22 @@ export async function fetchCatalogProductDetail(productId: string): Promise<Cata
   try {
     const result = await callable({ productId });
     const detail = result.data;
+    const syncedAt = detail.syncedAt;
+    const imageUrl = withCatalogImageCacheBust(detail.imageUrl, syncedAt);
+    const imageDocs = detail.imageDocs?.map(doc => ({
+      ...doc,
+      url: withCatalogImageCacheBust(doc.url, syncedAt) ?? doc.url,
+    }));
+    const imageUrls = detail.imageUrls?.length
+      ? detail.imageUrls
+        .map(url => withCatalogImageCacheBust(url, syncedAt))
+        .filter((url): url is string => Boolean(url))
+      : undefined;
     return {
       ...detail,
-      imageUrl: withCatalogImageCacheBust(detail.imageUrl, detail.syncedAt),
+      imageUrl,
+      ...(imageUrls?.length ? { imageUrls } : {}),
+      ...(imageDocs?.length ? { imageDocs } : {}),
     };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));

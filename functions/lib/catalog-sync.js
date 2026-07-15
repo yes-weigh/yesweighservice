@@ -6,6 +6,8 @@ import {
   getAccessToken,
   resolveOrganizationId,
   downloadProductImage,
+  downloadProductDocumentImage,
+  downloadProductBackImage,
   uploadProductImageToZoho,
   uploadProductGalleryImagesToZoho,
   deleteProductGalleryImagesFromZoho,
@@ -949,6 +951,131 @@ function listZohoImageDocumentIds(item) {
   return docs
     .map(doc => String(doc?.document_id ?? doc?.image_id ?? '').trim())
     .filter(Boolean);
+}
+
+const ZOHO_BACK_DOCUMENT_ID = 'zoho_back';
+
+async function saveGalleryBuffer(productId, documentId, buffer, contentType) {
+  const type = String(contentType ?? 'image/jpeg').toLowerCase();
+  const ext = type.includes('png')
+    ? 'png'
+    : type.includes('webp')
+      ? 'webp'
+      : type.includes('gif')
+        ? 'gif'
+        : 'jpg';
+  const storagePath = `catalog/products/${productId}/gallery/${documentId}.${ext}`;
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+  await file.save(buffer, {
+    metadata: { contentType: type, cacheControl: 'public, max-age=31536000' },
+  });
+  await file.makePublic();
+  const now = new Date().toISOString();
+  const url = versionedPublicStorageUrl(bucket.name, storagePath, now);
+  return { documentId, url, storagePath };
+}
+
+/**
+ * Pull Zoho primary + gallery (+ rear) images into Firestore catalog image fields.
+ * Catalog sync historically only cached the primary image.
+ */
+export async function importProductImagesFromZoho(productId, accessToken, organizationId) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+
+  const productRef = getFirestore().collection(PRODUCTS_COLLECTION).doc(id);
+  const existingSnap = await productRef.get();
+  const existingData = existingSnap.exists ? existingSnap.data() : {};
+  let imageUrl = String(existingData?.imageUrl ?? '').trim() || null;
+  let imageDocs = normalizeImageDocs(existingData?.imageDocs);
+  const knownIds = new Set(imageDocs.map(doc => doc.documentId));
+  let importedCount = 0;
+  let primaryUpdated = false;
+
+  const rawItem = await fetchZohoItemRaw(accessToken, organizationId, id);
+  const primaryDocumentId = String(
+    rawItem?.image_document_id ?? rawItem?.image_id ?? '',
+  ).trim();
+
+  if (!imageUrl && (rawItem?.image_url || primaryDocumentId || rawItem?.image_name)) {
+    const primary = await downloadProductImage(accessToken, organizationId, id);
+    if (primary && primary !== 'RATE_LIMITED') {
+      const storagePath = `catalog/products/${id}.${primary.ext}`;
+      const bucket = getStorage().bucket();
+      const file = bucket.file(storagePath);
+      await file.save(primary.buffer, {
+        metadata: { contentType: primary.contentType, cacheControl: 'public, max-age=31536000' },
+      });
+      await file.makePublic();
+      imageUrl = versionedPublicStorageUrl(bucket.name, storagePath, new Date().toISOString());
+      primaryUpdated = true;
+      importedCount += 1;
+    }
+  }
+
+  const galleryIds = listZohoImageDocumentIds(rawItem)
+    .filter(docId => docId && docId !== primaryDocumentId)
+    .filter(docId => !knownIds.has(docId));
+
+  for (const documentId of galleryIds) {
+    const downloaded = await downloadProductDocumentImage(
+      accessToken,
+      organizationId,
+      id,
+      documentId,
+    );
+    if (!downloaded || downloaded === 'RATE_LIMITED') {
+      if (downloaded === 'RATE_LIMITED') break;
+      continue;
+    }
+    const doc = await saveGalleryBuffer(
+      id,
+      documentId,
+      downloaded.buffer,
+      downloaded.contentType,
+    );
+    imageDocs.push(doc);
+    knownIds.add(documentId);
+    importedCount += 1;
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+
+  if (!knownIds.has(ZOHO_BACK_DOCUMENT_ID)) {
+    const back = await downloadProductBackImage(accessToken, organizationId, id);
+    if (back && back !== 'RATE_LIMITED') {
+      const doc = await saveGalleryBuffer(
+        id,
+        ZOHO_BACK_DOCUMENT_ID,
+        back.buffer,
+        back.contentType,
+      );
+      imageDocs.push(doc);
+      knownIds.add(ZOHO_BACK_DOCUMENT_ID);
+      importedCount += 1;
+    }
+  }
+
+  const imageUrls = imageUrl
+    ? [imageUrl, ...imageDocs.map(doc => doc.url)]
+    : imageDocs.map(doc => doc.url);
+
+  if (importedCount > 0 || !Array.isArray(existingData?.imageUrls) || !existingData.imageUrls.length) {
+    await productRef.set({
+      ...(imageUrl ? { imageUrl } : {}),
+      imageUrls,
+      imageDocs,
+      syncedAt: new Date().toISOString(),
+    }, { merge: true });
+  }
+
+  return {
+    imageUrl,
+    imageUrls,
+    imageDocs,
+    importedCount,
+    primaryUpdated,
+  };
 }
 
 /** Append a gallery image on Zoho + Storage (does not replace primary). */

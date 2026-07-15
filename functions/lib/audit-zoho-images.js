@@ -121,10 +121,42 @@ async function clearCatalogAuditCachedImage(productId, productData) {
   if (!imageUrl.includes(`/catalog/products/${productId}.`)) return false;
 
   const db = getFirestore();
-  await db.collection(PRODUCTS_COLLECTION).doc(productId).set({
+  const productRef = db.collection(PRODUCTS_COLLECTION).doc(productId);
+  const existing = await productRef.get();
+  const existingDocs = normalizeImageDocs(existing.exists ? existing.data()?.imageDocs : []);
+  const imageUrls = existingDocs.map(doc => doc.url);
+  await productRef.set({
     imageUrl: FieldValue.delete(),
+    imageUrls,
+    imageDocs: existingDocs,
   }, { merge: true });
   return true;
+}
+
+async function pruneCatalogImageDocs(productId, documentIds) {
+  const ids = new Set(documentIds.map(id => String(id).trim()).filter(Boolean));
+  if (!ids.size) return 0;
+
+  const productRef = getFirestore().collection(PRODUCTS_COLLECTION).doc(productId);
+  const snap = await productRef.get();
+  if (!snap.exists) return 0;
+  const data = snap.data() ?? {};
+  const existingDocs = normalizeImageDocs(data.imageDocs);
+  const nextDocs = existingDocs.filter(doc => !ids.has(doc.documentId));
+  if (nextDocs.length === existingDocs.length) return 0;
+
+  const primaryUrl = String(data.imageUrl ?? '').trim() || null;
+  const imageUrls = primaryUrl
+    ? [primaryUrl, ...nextDocs.map(doc => doc.url)]
+    : nextDocs.map(doc => doc.url);
+
+  await productRef.set({
+    imageDocs: nextDocs,
+    imageUrls,
+    syncedAt: new Date().toISOString(),
+  }, { merge: true });
+
+  return existingDocs.length - nextDocs.length;
 }
 
 async function refreshPrimaryFromRemainingAuditPhoto(
@@ -230,12 +262,83 @@ async function cacheCatalogProductImage(productId, buffer, contentType) {
 
   const now = new Date().toISOString();
   const imageUrl = versionedPublicStorageUrl(bucket.name, storagePath, now);
-  await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set({
+  const productRef = getFirestore().collection(PRODUCTS_COLLECTION).doc(id);
+  const existing = await productRef.get();
+  const existingDocs = normalizeImageDocs(existing.exists ? existing.data()?.imageDocs : []);
+  const imageUrls = [imageUrl, ...existingDocs.map(doc => doc.url)];
+  await productRef.set({
     imageUrl,
+    imageUrls,
+    imageDocs: existingDocs,
     syncedAt: now,
   }, { merge: true });
 
   return imageUrl;
+}
+
+function normalizeImageDocs(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(row => {
+      const documentId = String(row?.documentId ?? '').trim();
+      const url = String(row?.url ?? '').trim();
+      const storagePath = String(row?.storagePath ?? '').trim();
+      if (!documentId || !url || !storagePath) return null;
+      return { documentId, url, storagePath };
+    })
+    .filter(Boolean);
+}
+
+/** Persist Zoho gallery docs into catalog imageDocs so the app carousel can show them. */
+async function cacheAuditGalleryImages(productId, downloads, docMap, options = {}) {
+  const id = String(productId ?? '').trim();
+  if (!id || !downloads.length) return [];
+
+  const skipPrimaryKey = options.skipPrimaryKey ? String(options.skipPrimaryKey) : '';
+  const productRef = getFirestore().collection(PRODUCTS_COLLECTION).doc(id);
+  const existing = await productRef.get();
+  const existingData = existing.exists ? existing.data() : {};
+  const imageDocs = normalizeImageDocs(existingData?.imageDocs);
+  const knownIds = new Set(imageDocs.map(doc => doc.documentId));
+  const bucket = getStorage().bucket();
+  const now = new Date().toISOString();
+  const added = [];
+
+  for (const download of downloads) {
+    const key = String(download?.key ?? '').trim();
+    if (!key || (skipPrimaryKey && key === skipPrimaryKey)) continue;
+    const documentId = String(docMap[key] ?? '').trim();
+    if (!documentId || knownIds.has(documentId)) continue;
+
+    const type = String(download.contentType ?? 'image/jpeg').toLowerCase();
+    const ext = extFromContentType(type);
+    const storagePath = `catalog/products/${id}/gallery/${documentId}.${ext}`;
+    const file = bucket.file(storagePath);
+    await file.save(download.buffer, {
+      metadata: { contentType: type, cacheControl: 'public, max-age=31536000' },
+    });
+    await file.makePublic();
+    const url = versionedPublicStorageUrl(bucket.name, storagePath, now);
+    const doc = { documentId, url, storagePath };
+    imageDocs.push(doc);
+    knownIds.add(documentId);
+    added.push(doc);
+  }
+
+  if (!added.length) return [];
+
+  const primaryUrl = String(existingData?.imageUrl ?? '').trim() || null;
+  const imageUrls = primaryUrl
+    ? [primaryUrl, ...imageDocs.map(doc => doc.url)]
+    : imageDocs.map(doc => doc.url);
+
+  await productRef.set({
+    imageDocs,
+    imageUrls,
+    syncedAt: now,
+  }, { merge: true });
+
+  return added;
 }
 
 /** Upload one or more images to Zoho Inventory (primary + gallery). */
@@ -322,12 +425,43 @@ export async function syncLinkedAuditPhotosToZoho(catalogProductId, secrets, con
 
   const pendingPhotos = allPhotos.filter(photo => !syncedKeys.has(photoKey(photo)));
   if (!pendingPhotos.length) {
+    // Zoho already has the photos — still ensure catalog imageDocs has gallery copies.
+    const existingDocMap = productData?.zohoAuditPhotoDocuments && typeof productData.zohoAuditPhotoDocuments === 'object'
+      ? productData.zohoAuditPhotoDocuments
+      : {};
+    const existingImageDocs = normalizeImageDocs(productData?.imageDocs);
+    const knownDocIds = new Set(existingImageDocs.map(doc => doc.documentId));
+    const missingKeys = [...syncedKeys].filter(key => {
+      const docId = String(existingDocMap[key] ?? '').trim();
+      return docId && !knownDocIds.has(docId);
+    });
+
+    let cachedGalleryCount = 0;
+    if (missingKeys.length) {
+      const downloads = [];
+      for (const photo of allPhotos) {
+        const key = photoKey(photo);
+        if (!missingKeys.includes(key)) continue;
+        const downloaded = await downloadYesStorePhoto(photo.storagePath);
+        if (downloaded) downloads.push({ ...downloaded, key });
+      }
+      if (downloads.length) {
+        const primaryFromAudit = productData?.zohoAuditPrimaryFromAudit === true;
+        const skipPrimaryKey = primaryFromAudit ? ([...syncedKeys][0] ?? '') : '';
+        const added = await cacheAuditGalleryImages(productId, downloads, existingDocMap, {
+          skipPrimaryKey,
+        });
+        cachedGalleryCount = added.length;
+      }
+    }
+
     return {
       uploadedCount: 0,
       linkedItemCount: items.length,
       photoCount: allPhotos.length,
       skipped: true,
       reason: 'already_synced',
+      cachedGalleryCount,
     };
   }
 
@@ -374,6 +508,7 @@ export async function syncLinkedAuditPhotosToZoho(catalogProductId, secrets, con
 
   const accessTokenForDocs = accessToken;
   const orgIdForDocs = organizationId;
+  let cachedGalleryCount = 0;
   try {
     const rawItem = await fetchZohoItemRaw(accessTokenForDocs, orgIdForDocs, productId);
     const docMap = buildPhotoDocumentMap(rawItem, newKeys);
@@ -384,6 +519,14 @@ export async function syncLinkedAuditPhotosToZoho(catalogProductId, secrets, con
       await productRef.set({
         zohoAuditPhotoDocuments: { ...existingDocs, ...docMap },
       }, { merge: true });
+
+      // Also store gallery images on the catalog product so the app does not
+      // need to mix warehouse bin photos into the carousel.
+      const skipPrimaryKey = needsPrimary && result.primaryUpdated ? newKeys[0] : '';
+      const added = await cacheAuditGalleryImages(productId, downloads, docMap, {
+        skipPrimaryKey,
+      });
+      cachedGalleryCount = added.length;
     }
   } catch {
     // Non-fatal: reconcile can fall back to filename-based cleanup later.
@@ -394,6 +537,7 @@ export async function syncLinkedAuditPhotosToZoho(catalogProductId, secrets, con
     linkedItemCount: items.length,
     photoCount: allPhotos.length,
     primaryUpdated: result.primaryUpdated ?? false,
+    cachedGalleryCount,
     syncedKeys: newKeys,
   };
 }
@@ -453,6 +597,7 @@ export async function reconcileLinkedAuditPhotosOnZoho(catalogProductId, secrets
       productId,
       mappedDocIds,
     );
+    await pruneCatalogImageDocs(productId, mappedDocIds).catch(() => 0);
     for (const key of orphanedKeys) delete docMap[key];
   } else if (orphanedKeys.length) {
     const rawItem = await fetchZohoItemRaw(accessToken, organizationId, productId);
@@ -466,6 +611,7 @@ export async function reconcileLinkedAuditPhotosOnZoho(catalogProductId, secrets
         productId,
         auditDocIds,
       );
+      await pruneCatalogImageDocs(productId, auditDocIds).catch(() => 0);
     }
     for (const key of Object.keys(docMap)) delete docMap[key];
   }
@@ -537,6 +683,7 @@ export async function reconcileLinkedAuditPhotosOnZoho(catalogProductId, secrets
         const rawItem = await fetchZohoItemRaw(accessToken, organizationId, productId);
         const refreshedMap = buildPhotoDocumentMap(rawItem, downloads.map(img => img.key));
         Object.assign(docMap, refreshedMap);
+        await cacheAuditGalleryImages(productId, downloads, refreshedMap).catch(() => []);
       } catch {
         // Keep partial doc map if Zoho listing fails.
       }

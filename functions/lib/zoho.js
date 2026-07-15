@@ -343,6 +343,98 @@ export async function downloadProductImage(accessToken, orgId, itemId, retryCoun
   };
 }
 
+/** Download a specific Zoho gallery/document image for an item. */
+export async function downloadProductDocumentImage(
+  accessToken,
+  orgId,
+  itemId,
+  documentId,
+  retryCount = 0,
+) {
+  const id = String(documentId ?? '').trim();
+  const productId = String(itemId ?? '').trim();
+  if (!id || !productId) return null;
+
+  const candidates = [
+    `${ZOHO_API_BASE}/items/${productId}/documents/${id}?organization_id=${orgId}`,
+    `${ZOHO_API_BASE}/items/documents/${id}?organization_id=${orgId}`,
+    `${ZOHO_API_BASE}/documents/${id}?organization_id=${orgId}`,
+    `${ZOHO_API_BASE}/documents/${id}?organization_id=${orgId}&inline=true`,
+    `${ZOHO_API_BASE}/items/${productId}/image?organization_id=${orgId}&document_id=${id}`,
+  ];
+
+  for (const url of candidates) {
+    const response = await fetch(url, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+    });
+
+    if (response.status === 404) continue;
+
+    if (response.status === 429) {
+      if (retryCount < 2) {
+        const delay = 2 ** (retryCount + 1) * 1000 + Math.random() * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return downloadProductDocumentImage(accessToken, orgId, productId, id, retryCount + 1);
+      }
+      return 'RATE_LIMITED';
+    }
+
+    if (!response.ok) continue;
+
+    const contentType = response.headers.get('content-type') || '';
+    // Skip JSON error payloads disguised as 200.
+    if (contentType.includes('application/json')) continue;
+
+    const arrayBuf = await response.arrayBuffer();
+    if (!arrayBuf.byteLength) continue;
+
+    const type = contentType.split(';')[0].trim() || 'image/jpeg';
+    const ext = type.split('/')[1]?.trim() || 'jpg';
+    return {
+      buffer: Buffer.from(arrayBuf),
+      contentType: type,
+      ext: ext.replace('jpeg', 'jpg'),
+    };
+  }
+
+  return null;
+}
+
+/** Download the Zoho "rear / back" image when present. */
+export async function downloadProductBackImage(accessToken, orgId, itemId, retryCount = 0) {
+  const url = `${ZOHO_API_BASE}/items/${itemId}/backimage?organization_id=${orgId}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+  });
+
+  if (response.status === 404) return null;
+
+  if (response.status === 429) {
+    if (retryCount < 2) {
+      const delay = 2 ** (retryCount + 1) * 1000 + Math.random() * 1000;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return downloadProductBackImage(accessToken, orgId, itemId, retryCount + 1);
+    }
+    return 'RATE_LIMITED';
+  }
+
+  if (!response.ok) return null;
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) return null;
+
+  const arrayBuf = await response.arrayBuffer();
+  if (!arrayBuf.byteLength) return null;
+
+  const type = contentType.split(';')[0].trim() || 'image/jpeg';
+  const ext = type.split('/')[1]?.trim() || 'jpg';
+  return {
+    buffer: Buffer.from(arrayBuf),
+    contentType: type,
+    ext: ext.replace('jpeg', 'jpg'),
+  };
+}
+
 /** Upload or replace the primary item image in Zoho Inventory. */
 export async function uploadProductImageToZoho(accessToken, orgId, itemId, buffer, contentType) {
   const url = `${ZOHO_API_BASE}/items/${itemId}/image?organization_id=${orgId}`;
