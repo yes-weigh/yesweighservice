@@ -85,14 +85,12 @@ export const CatalogProductLinkPicker: React.FC<CatalogProductLinkPickerProps> =
 
   const matches = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
-    if (!q) return products.slice(0, 12);
-    return products
-      .filter(
-        p =>
-          p.name.toLowerCase().includes(q)
-          || (p.sku ?? '').toLowerCase().includes(q),
-      )
-      .slice(0, 12);
+    if (!q) return products;
+    return products.filter(
+      p =>
+        p.name.toLowerCase().includes(q)
+        || (p.sku ?? '').toLowerCase().includes(q),
+    );
   }, [products, debouncedQuery]);
 
   const pickProduct = (product: CatalogProduct) => {
