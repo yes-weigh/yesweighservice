@@ -6311,14 +6311,41 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
   .catalog-page--smart {
     --catalog-section-bar-height: 2.15rem;
+    /* Reserve space for the fixed smart bar so content (cycle banner, chips overlap) is not covered. */
+    padding-top: calc(var(--catalog-section-bar-height) + 0.35rem);
   }
 
   .catalog-page--smart.catalog-page--admin-tabs {
-    --catalog-section-bar-height: 2.85rem;
+    /* Tabs + optional category chips — ResizeObserver refines this. */
+    --catalog-section-bar-height: 5.25rem;
   }
 
   .catalog-page--smart.catalog-page--flat {
     --catalog-section-bar-height: 2.65rem;
+  }
+
+  .catalog-page--smart .catalog-browse,
+  .catalog-page--smart:not(.catalog-page--flat) .catalog-browse {
+    /* Page already offsets the fixed bar. */
+    padding-top: 0.15rem;
+  }
+
+  .catalog-page--smart.catalog-page--flat .catalog-browse {
+    padding-top: 0.15rem;
+  }
+
+  .catalog-page--smart .catalog-audit-cycle-progress {
+    margin: 0.25rem max(0.625rem, env(safe-area-inset-left, 0px)) 0.65rem;
+    margin-right: max(0.625rem, env(safe-area-inset-right, 0px));
+    padding: 0.7rem 0.75rem;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .catalog-page--smart .catalog-audit-cycle-progress .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .catalog-smart-bar {
@@ -6344,11 +6371,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   .catalog-unified-results {
     padding: 0.35rem max(0.625rem, env(safe-area-inset-left, 0px)) 1rem;
     padding-right: max(0.625rem, env(safe-area-inset-right, 0px));
-  }
-
-  .catalog-page--smart .catalog-browse,
-  .catalog-page--smart:not(.catalog-page--flat) .catalog-browse {
-    padding-top: var(--catalog-section-bar-height);
   }
 
   .catalog-page--smart .catalog-filters--sticky {
@@ -6462,28 +6484,54 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
   .catalog-page .catalog-smart-bar.catalog-smart-bar--category-chips {
     gap: 0.28rem;
-    padding-bottom: 0.35rem;
+    padding-bottom: 0.4rem;
     overflow: visible;
   }
 
   .catalog-page .catalog-smart-bar .catalog-category-chips {
     gap: 0.36rem;
-    padding: 0.12rem 0 0.14rem;
+    padding: 0.1rem 0 0.12rem;
     margin: 0;
   }
 
   .catalog-page .catalog-smart-bar .catalog-category-chips__chip {
     padding: 0.3rem 0.62rem;
     font-size: 0.7rem;
-    max-width: min(72vw, 16rem);
+    max-width: min(70vw, 14rem);
   }
 
   .catalog-page .catalog-smart-bar .catalog-section-tabs {
     gap: 0;
+    min-width: 0;
   }
 
+  /* Keep section labels readable — scroll instead of ellipsis crush. */
   .catalog-page .catalog-smart-bar .spares-mode-toggle--ops {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
     padding: 0.12rem;
+  }
+
+  .catalog-page .catalog-smart-bar .spares-mode-toggle--ops::-webkit-scrollbar {
+    display: none;
+  }
+
+  .catalog-page .catalog-smart-bar .spares-mode-toggle--ops .spares-mode-toggle__btn {
+    flex: 0 0 auto;
+    min-width: max-content;
+    padding: 0.36rem 0.55rem;
+    font-size: 0.72rem;
+    gap: 0.3rem;
+  }
+
+  .catalog-page .catalog-smart-bar .spares-mode-toggle--ops .spares-mode-toggle__label {
+    overflow: visible;
+    text-overflow: unset;
   }
 
   .spares-mode-bar__controls {
@@ -6496,11 +6544,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
   .catalog-page--smart.catalog-page--admin-tabs.catalog-page--inventory-audit,
   .catalog-page--smart.catalog-page--admin-tabs.catalog-page--spare-grouping {
-    --catalog-section-bar-height: 2.15rem;
+    --catalog-section-bar-height: 2.35rem;
   }
 
   .catalog-page--inventory-audit,
   .catalog-page--spare-grouping {
+    /* Already padded via .catalog-page--smart; keep a small extra gap. */
     padding-top: calc(var(--catalog-section-bar-height) + 0.45rem);
   }
 
@@ -6520,8 +6569,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     gap: 0.28rem;
   }
 
-  .spares-mode-toggle--shop .spares-mode-toggle__btn,
-  .spares-mode-toggle--ops .spares-mode-toggle__btn {
+  .spares-mode-toggle--shop .spares-mode-toggle__btn {
     flex: 1;
     justify-content: center;
     padding: 0.42rem 0.5rem;
@@ -6530,13 +6578,50 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 
   .spares-mode-toggle--ops .spares-mode-toggle__btn {
-    font-size: 0.7rem;
+    justify-content: center;
     padding: 0.36rem 0.45rem;
+    font-size: 0.7rem;
   }
 
   .spares-mode-toggle__label {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* Catalog admin tabs: prefer scrolling full labels over ellipsis crush. */
+  .catalog-page .catalog-smart-bar .spares-mode-toggle--ops .spares-mode-toggle__btn {
+    flex: 0 0 auto;
+    min-width: max-content;
+  }
+
+  .catalog-page .catalog-smart-bar .spares-mode-toggle--ops .spares-mode-toggle__label {
+    overflow: visible;
+    text-overflow: unset;
+  }
+
+  .catalog-category-card {
+    min-height: 118px;
+    padding: 0.7rem 0 0.7rem 0.7rem;
+  }
+
+  .catalog-category-card__body {
+    padding-right: 40%;
+    gap: 0.28rem;
+  }
+
+  .catalog-category-card__title {
+    font-size: 0.75rem;
+    line-height: 1.2;
+    -webkit-line-clamp: 3;
+  }
+
+  .catalog-category-card__desc {
+    -webkit-line-clamp: 1;
+  }
+
+  .catalog-category-card__count {
+    font-size: 0.55rem;
+    padding: 0.2rem 0.45rem;
   }
 
   .spares-page .catalog-filters--sticky,
@@ -26892,6 +26977,26 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.75rem;
   margin-bottom: 0.75rem;
   padding: 0.85rem 1rem;
+}
+
+.catalog-audit-cycle-progress > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.catalog-audit-cycle-progress strong {
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.3;
+}
+
+.catalog-audit-cycle-progress p {
+  margin: 0.2rem 0 0;
+  line-height: 1.35;
+}
+
+.catalog-audit-cycle-progress__action {
+  flex-shrink: 0;
 }
 
 .catalog-audit-cycle-progress--inline {

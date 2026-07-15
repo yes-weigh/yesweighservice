@@ -720,15 +720,6 @@ export const CatalogPage: React.FC = () => {
     shortage: productFilterCountBase.filter(product => catalogProductAuditVariance(product) === 'shortage').length,
   }), [productFilterCountBase, isProductAudited, openCochinCycle?.id]);
 
-  const cochinCycleProgress = useMemo(() => {
-    if (!openCochinCycle || !isSuperAdmin) return null;
-    const total = shopProducts.length;
-    const counted = shopProducts.filter(
-      product => !catalogProductNeedsCountThisCycle(product, openCochinCycle.id, 'cochin'),
-    ).length;
-    return { cycle: openCochinCycle, counted, total, remaining: Math.max(0, total - counted) };
-  }, [openCochinCycle, isSuperAdmin, shopProducts]);
-
   const productNcStatusFilterCounts = useMemo(() => {
     const hasNc = productFilterCountBase.filter(
       product => (openNcQtyByProductId.get(product.id) ?? 0) > 0,
@@ -1784,32 +1775,6 @@ export const CatalogPage: React.FC = () => {
               );
             })}
           </div>
-        </div>
-      )}
-
-      {focus === 'browse' && cochinCycleProgress && (
-        <div className="catalog-audit-cycle-progress panel glass">
-          <div>
-            <strong>Cochin cycle: {cochinCycleProgress.cycle.name}</strong>
-            <p className="text-muted text-sm">
-              {cochinCycleProgress.counted} of {cochinCycleProgress.total} products counted
-              {cochinCycleProgress.remaining > 0
-                ? ` · ${cochinCycleProgress.remaining} need count`
-                : ' · complete'}
-            </p>
-          </div>
-          {cochinCycleProgress.remaining > 0 && (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => {
-                setProductAuditStatusFilters(new Set(['needsCountThisCycle']));
-                setProductsFiltersOpen(true);
-              }}
-            >
-              Show needs count
-            </button>
-          )}
         </div>
       )}
 
