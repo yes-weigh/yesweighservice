@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarRange, ChevronDown, Lock, Play, Plus, RefreshCw } from 'lucide-react';
+import {
+  Building2,
+  CalendarRange,
+  ChevronDown,
+  Lock,
+  MapPin,
+  Play,
+  Plus,
+  Warehouse,
+} from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useConfirm } from '../../../context/ConfirmContext';
 import {
@@ -12,10 +21,6 @@ import {
   buildAuditCycleProductRows,
   summarizeAuditCycleRows,
 } from '../../../lib/auditCycles/cycleRows';
-import {
-  migrateAuditsIntoCycles,
-  type MigrateAuditsIntoCyclesSummary,
-} from '../../../lib/auditCycles/migrate';
 import { fetchCatalog, formatCurrency } from '../../../lib/catalog';
 import {
   auditCycleSiteLabel,
@@ -70,6 +75,25 @@ function statusLabel(status: AuditCycleDoc['status']): string {
   return 'Scheduled';
 }
 
+const AUDIT_CYCLE_COLUMNS = [
+  { key: 'sku', label: 'SKU', defaultVisible: false },
+  { key: 'name', label: 'Item name', defaultVisible: true },
+  { key: 'zoho', label: 'Zoho count', defaultVisible: true },
+  { key: 'audited', label: 'Audited count', defaultVisible: true },
+  { key: 'date', label: 'Audited date', defaultVisible: false },
+  { key: 'time', label: 'Audited time', defaultVisible: false },
+  { key: 'diff', label: 'Audit Diff', defaultVisible: true },
+  { key: 'diffValue', label: 'Diff × price', defaultVisible: true },
+] as const;
+
+type AuditCycleColumnKey = typeof AUDIT_CYCLE_COLUMNS[number]['key'];
+
+function defaultVisibleColumns(): Record<AuditCycleColumnKey, boolean> {
+  return Object.fromEntries(
+    AUDIT_CYCLE_COLUMNS.map(col => [col.key, col.defaultVisible]),
+  ) as Record<AuditCycleColumnKey, boolean>;
+}
+
 export const AuditCyclesTab: React.FC = () => {
   const { user } = useAuth();
   const confirm = useConfirm();
@@ -83,7 +107,7 @@ export const AuditCyclesTab: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [openImmediately, setOpenImmediately] = useState(true);
   const [expandedCycleId, setExpandedCycleId] = useState<string | null>(null);
-  const [stampSummary, setStampSummary] = useState<MigrateAuditsIntoCyclesSummary | null>(null);
+  const [visibleColumns, setVisibleColumns] = useState(defaultVisibleColumns);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -192,45 +216,28 @@ export const AuditCyclesTab: React.FC = () => {
     setExpandedCycleId(prev => (prev === cycleId ? null : cycleId));
   };
 
-  const handleStampLocationAudits = async () => {
-    const ok = await confirm({
-      title: 'Stamp location audits into open cycles?',
-      message:
-        'Creates missing audit snapshots from store-room bins / warehouse locations, then stamps them into the open HO and Cochin cycles. Use this if cycle SKU counts are lower than Catalog “Audited”.',
-      confirmLabel: 'Stamp now',
-    });
-    if (!ok) return;
-
-    setBusyKey('stamp');
-    setError('');
-    setStampSummary(null);
-    try {
-      const summary = await migrateAuditsIntoCycles({ dryRun: false, force: false });
-      setStampSummary(summary);
-      await loadAll();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Stamp failed. Deploy Cloud Functions if migrateAuditsIntoCyclesFn is missing.',
-      );
-    } finally {
-      setBusyKey(null);
-    }
+  const toggleColumn = (key: AuditCycleColumnKey) => {
+    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const visibleColumnList = useMemo(
+    () => AUDIT_CYCLE_COLUMNS.filter(col => visibleColumns[col.key]),
+    [visibleColumns],
+  );
+
   return (
-    <section className="settings-locations panel glass">
-      <header className="settings-locations__header">
-        <div>
+    <section className="audit-cycles-hub panel glass">
+      <header className="audit-cycles-hub__header">
+        <div className="audit-cycles-hub__intro">
+          <p className="audit-cycles-hub__eyebrow">Inventory control</p>
           <h3>Audit cycles</h3>
-          <p className="text-muted text-sm">
-            Schedule and open Head Office or Cochin count cycles. Physical counts freeze between cycles while Zoho Diff moves.
+          <p className="audit-cycles-hub__lede">
+            Open a site cycle to count. Physical stays frozen; Diff tracks Zoho until you close and start the next round.
           </p>
         </div>
         <button
           type="button"
-          className="btn btn-primary btn-sm"
+          className="btn btn-primary btn-sm audit-cycles-hub__new"
           disabled={busyKey != null}
           onClick={() => setShowCreate(open => !open)}
         >
@@ -239,258 +246,347 @@ export const AuditCyclesTab: React.FC = () => {
         </button>
       </header>
 
-      <div className="audit-cycles-open-summary">
-        {(['head_office', 'cochin'] as const).map(site => {
+      <div className="audit-cycles-site-strip" aria-label="Open cycle by site">
+        {([
+          { site: 'head_office' as const, icon: Building2 },
+          { site: 'cochin' as const, icon: Warehouse },
+        ]).map(({ site, icon: Icon }) => {
           const open = openBySite.get(site);
           return (
-            <div key={site} className="audit-cycles-open-summary__item">
-              <strong>{auditCycleSiteLabel(site)}</strong>
-              <span className={open ? 'is-open' : 'is-locked'}>
-                {open ? `Open: ${open.name}` : 'No open cycle'}
+            <div
+              key={site}
+              className={`audit-cycles-site-strip__tile${open ? ' is-open' : ' is-locked'}`}
+            >
+              <span className="audit-cycles-site-strip__icon" aria-hidden>
+                <Icon size={16} />
+              </span>
+              <div className="audit-cycles-site-strip__copy">
+                <span className="audit-cycles-site-strip__site">{auditCycleSiteLabel(site)}</span>
+                <span className="audit-cycles-site-strip__status">
+                  {open ? open.name : 'No open cycle'}
+                </span>
+              </div>
+              <span className="audit-cycles-site-strip__badge">
+                {open ? 'Open' : 'Locked'}
               </span>
             </div>
           );
         })}
       </div>
 
-      <div className="audit-cycles-migrate">
-        <div>
-          <strong>Stamp location audits into cycles</strong>
-          <p className="text-muted text-sm">
-            Catalog “Audited” counts bins/locations. Cycle cards only count stamped snapshots — run this if HO/Cochin cycle SKUs look low.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          disabled={busyKey != null}
-          onClick={() => void handleStampLocationAudits()}
-        >
-          <RefreshCw size={14} aria-hidden className={busyKey === 'stamp' ? 'spin-icon' : undefined} />
-          {busyKey === 'stamp' ? 'Stamping…' : 'Stamp into open cycles'}
-        </button>
-      </div>
-
-      {stampSummary && (
-        <p className="audit-cycles-migrate__result text-sm">
-          Backfill created {stampSummary.backfill?.created ?? 0} snapshots.
-          Stamped HO {stampSummary.stampedHeadOffice}, Cochin {stampSummary.stampedCochin}.
-          Already stamped {stampSummary.skippedAlreadyStamped}.
-          {stampSummary.errors.length > 0 ? ` Errors: ${stampSummary.errors.length}.` : ''}
-        </p>
-      )}
-
       {error && <p className="settings-locations__error text-sm">{error}</p>}
 
       {showCreate && (
-        <div className="settings-locations__add-form">
-          <label className="settings-locations__field">
-            <span>Site</span>
-            <select
-              value={newSite}
-              onChange={e => setNewSite(e.target.value as AuditCycleSite)}
-              disabled={busyKey === 'create'}
+        <div className="audit-cycles-create">
+          <div className="audit-cycles-create__head">
+            <strong>New audit cycle</strong>
+            <span className="text-muted text-sm">One open cycle per site</span>
+          </div>
+          <div className="audit-cycles-create__fields">
+            <label className="audit-cycles-create__field">
+              <span>Site</span>
+              <select
+                value={newSite}
+                onChange={e => setNewSite(e.target.value as AuditCycleSite)}
+                disabled={busyKey === 'create'}
+              >
+                <option value="head_office">Head Office</option>
+                <option value="cochin">Cochin</option>
+              </select>
+            </label>
+            <label className="audit-cycles-create__field audit-cycles-create__field--grow">
+              <span>Name</span>
+              <input
+                type="text"
+                value={newName}
+                placeholder={newSite === 'head_office' ? 'e.g. HO April cycle' : 'e.g. Cochin April cycle'}
+                onChange={e => setNewName(e.target.value)}
+                disabled={busyKey === 'create'}
+              />
+            </label>
+            <label className="audit-cycles-create__check">
+              <input
+                type="checkbox"
+                checked={openImmediately}
+                onChange={e => setOpenImmediately(e.target.checked)}
+                disabled={busyKey === 'create'}
+              />
+              <span>Open immediately</span>
+            </label>
+          </div>
+          <div className="audit-cycles-create__actions">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={!newName.trim() || busyKey === 'create'}
+              onClick={() => void handleCreate()}
             >
-              <option value="head_office">Head Office</option>
-              <option value="cochin">Cochin</option>
-            </select>
-          </label>
-          <label className="settings-locations__field settings-locations__field--grow">
-            <span>Name</span>
-            <input
-              type="text"
-              value={newName}
-              placeholder={newSite === 'head_office' ? 'e.g. HO April cycle' : 'e.g. Cochin April cycle'}
-              onChange={e => setNewName(e.target.value)}
-              disabled={busyKey === 'create'}
-            />
-          </label>
-          <label className="settings-locations__field audit-cycles-open-now">
-            <input
-              type="checkbox"
-              checked={openImmediately}
-              onChange={e => setOpenImmediately(e.target.checked)}
-              disabled={busyKey === 'create'}
-            />
-            <span>Open immediately</span>
-          </label>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={!newName.trim() || busyKey === 'create'}
-            onClick={() => void handleCreate()}
-          >
-            Create
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowCreate(false)}
-          >
-            Cancel
-          </button>
+              Create
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowCreate(false)}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
       {loading ? (
-        <div className="settings-locations__loading">
+        <div className="audit-cycles-hub__loading">
           <div className="loader-ring" />
         </div>
       ) : cycles.length === 0 ? (
-        <div className="settings-locations__empty">
-          <CalendarRange size={28} aria-hidden />
-          <p>No audit cycles yet. Create one to unlock counting for a site.</p>
+        <div className="audit-cycles-hub__empty">
+          <CalendarRange size={32} aria-hidden />
+          <strong>No cycles yet</strong>
+          <p>Create an open cycle for Head Office or Cochin to unlock counting.</p>
         </div>
       ) : (
         <div className="audit-cycles-list">
-          {cycles.map(cycle => {
+          {cycles.map((cycle, index) => {
             const rows = rowsByCycleId.get(cycle.id) ?? [];
             const totals = summarizeAuditCycleRows(rows);
             const expanded = expandedCycleId === cycle.id;
+            const SiteIcon = cycle.site === 'head_office' ? Building2 : Warehouse;
 
             return (
               <article
                 key={cycle.id}
-                className={`audit-cycle-card is-${cycle.status}${expanded ? ' is-expanded' : ''}`}
+                className={[
+                  'audit-cycle-card',
+                  `is-${cycle.status}`,
+                  `is-site-${cycle.site === 'head_office' ? 'ho' : 'cochin'}`,
+                  expanded ? 'is-expanded' : '',
+                ].filter(Boolean).join(' ')}
+                style={{ animationDelay: `${Math.min(index, 6) * 45}ms` }}
               >
-                <header className="audit-cycle-card__head">
-                  <button
-                    type="button"
-                    className="audit-cycle-card__toggle"
-                    aria-expanded={expanded}
-                    onClick={() => toggleExpanded(cycle.id)}
-                  >
+                <div
+                  className="audit-cycle-card__hit"
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? 'Collapse' : 'Expand'} ${cycle.name} SKU table`}
+                  onClick={() => toggleExpanded(cycle.id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleExpanded(cycle.id);
+                    }
+                  }}
+                >
+                  <header className="audit-cycle-card__head">
+                    <span className="audit-cycle-card__site-mark" aria-hidden>
+                      <SiteIcon size={18} />
+                    </span>
+                    <span className="audit-cycle-card__title-wrap">
+                      <span className="audit-cycle-card__title-row">
+                        <strong className="audit-cycle-card__title">{cycle.name}</strong>
+                        <span className={`audit-cycle-card__status is-${cycle.status}`}>
+                          {statusLabel(cycle.status)}
+                        </span>
+                      </span>
+                      <span className="audit-cycle-card__meta">
+                        <MapPin size={12} aria-hidden />
+                        {auditCycleSiteLabel(cycle.site)}
+                        <span className="audit-cycle-card__meta-sep" aria-hidden>·</span>
+                        Tap anywhere for SKU detail
+                      </span>
+                    </span>
                     <ChevronDown
                       size={18}
                       aria-hidden
                       className={`audit-cycle-card__chevron${expanded ? ' is-open' : ''}`}
                     />
-                    <span className="audit-cycle-card__title-wrap">
-                      <strong className="audit-cycle-card__title">{cycle.name}</strong>
-                      <span className="audit-cycle-card__meta text-muted">
-                        {auditCycleSiteLabel(cycle.site)} · {statusLabel(cycle.status)}
-                      </span>
-                    </span>
-                  </button>
-                  <div className="audit-cycle-card__actions">
-                    {cycle.status === 'open' ? (
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        disabled={busyKey != null}
-                        onClick={e => {
-                          e.stopPropagation();
-                          void handleClose(cycle);
-                        }}
-                      >
-                        <Lock size={14} aria-hidden />
-                        Close
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        disabled={busyKey != null}
-                        onClick={e => {
-                          e.stopPropagation();
-                          void handleOpen(cycle);
-                        }}
-                      >
-                        <Play size={14} aria-hidden />
-                        {cycle.status === 'closed' ? 'Reopen' : 'Open'}
-                      </button>
-                    )}
-                  </div>
-                </header>
+                  </header>
 
                   <div className="audit-cycle-card__stats">
-                  <div>
-                    <span className="audit-cycle-card__stat-label">SKUs in cycle</span>
-                    <strong>{totals.skuCount.toLocaleString('en-IN')}</strong>
+                    <div className="audit-cycle-card__stat">
+                      <span className="audit-cycle-card__stat-label">SKUs in cycle</span>
+                      <strong className="audit-cycle-card__stat-value">
+                        {totals.skuCount.toLocaleString('en-IN')}
+                      </strong>
+                    </div>
+                    <div className="audit-cycle-card__stat">
+                      <span className="audit-cycle-card__stat-label">Audited qty</span>
+                      <strong className="audit-cycle-card__stat-value">
+                        {totals.auditedQty.toLocaleString('en-IN')}
+                      </strong>
+                    </div>
+                    <div className="audit-cycle-card__stat">
+                      <span className="audit-cycle-card__stat-label">Audit Diff</span>
+                      <strong
+                        className={[
+                          'audit-cycle-card__stat-value',
+                          totals.auditDiff === 0 ? '' : totals.auditDiff > 0 ? 'is-over' : 'is-under',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        {formatSignedQty(totals.auditDiff)}
+                      </strong>
+                    </div>
+                    <div className="audit-cycle-card__stat">
+                      <span className="audit-cycle-card__stat-label">Diff × price</span>
+                      <strong
+                        className={[
+                          'audit-cycle-card__stat-value',
+                          totals.diffValue === 0 ? '' : totals.diffValue > 0 ? 'is-over' : 'is-under',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        {formatCurrency(totals.diffValue)}
+                      </strong>
+                    </div>
                   </div>
-                  <div>
-                    <span className="audit-cycle-card__stat-label">Audited qty</span>
-                    <strong>{totals.auditedQty.toLocaleString('en-IN')}</strong>
-                  </div>
-                  <div>
-                    <span className="audit-cycle-card__stat-label">Audit Diff</span>
-                    <strong className={totals.auditDiff === 0 ? '' : totals.auditDiff > 0 ? 'is-over' : 'is-under'}>
-                      {formatSignedQty(totals.auditDiff)}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="audit-cycle-card__stat-label">Diff × price</span>
-                    <strong>{formatCurrency(totals.diffValue)}</strong>
+
+                  <div className="audit-cycle-card__timeline">
+                    <div>
+                      <span>Created</span>
+                      <strong>{formatWhen(cycle.createdAt)}</strong>
+                    </div>
+                    <div>
+                      <span>Opened</span>
+                      <strong>{formatWhen(cycle.openedAt)}</strong>
+                    </div>
+                    <div>
+                      <span>Closed</span>
+                      <strong>{formatWhen(cycle.closedAt)}</strong>
+                    </div>
                   </div>
                 </div>
 
-                <dl className="audit-cycle-card__dates">
-                  <div>
-                    <dt>Created</dt>
-                    <dd>{formatWhen(cycle.createdAt)}</dd>
-                  </div>
-                  <div>
-                    <dt>Opened</dt>
-                    <dd>{formatWhen(cycle.openedAt)}</dd>
-                  </div>
-                  <div>
-                    <dt>Closed</dt>
-                    <dd>{formatWhen(cycle.closedAt)}</dd>
-                  </div>
-                </dl>
+                <div className="audit-cycle-card__footer">
+                  {cycle.status === 'open' ? (
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-sm audit-cycle-card__close-btn"
+                      disabled={busyKey != null}
+                      onClick={() => void handleClose(cycle)}
+                    >
+                      <Lock size={14} aria-hidden />
+                      Close
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={busyKey != null}
+                      onClick={() => void handleOpen(cycle)}
+                    >
+                      <Play size={14} aria-hidden />
+                      {cycle.status === 'closed' ? 'Reopen' : 'Open'}
+                    </button>
+                  )}
+                </div>
 
-                {expanded && (
-                  <div className="audit-cycle-card__table-wrap">
-                    {rows.length === 0 ? (
-                      <p className="text-muted text-sm audit-cycle-card__empty-table">
-                        No SKUs stamped or counted in this cycle yet.
-                      </p>
-                    ) : (
-                      <table className="audit-cycle-card__table">
-                        <thead>
-                          <tr>
-                            <th>SKU</th>
-                            <th>Item name</th>
-                            <th>Zoho count</th>
-                            <th>Audited count</th>
-                            <th>Audited date</th>
-                            <th>Audited time</th>
-                            <th>Audit Diff</th>
-                            <th>Diff × price</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map(row => (
-                            <tr key={row.productId}>
-                              <td>{row.sku}</td>
-                              <td>{row.name}</td>
-                              <td>{row.zohoAtAudit.toLocaleString('en-IN')}</td>
-                              <td>{row.auditedQty.toLocaleString('en-IN')}</td>
-                              <td>{formatAuditDate(row.auditedAt)}</td>
-                              <td>{formatAuditTime(row.auditedAt)}</td>
-                              <td className={row.auditDiff === 0 ? '' : row.auditDiff > 0 ? 'is-over' : 'is-under'}>
-                                {formatSignedQty(row.auditDiff)}
-                              </td>
-                              <td>{formatCurrency(row.diffValue)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr>
-                            <td colSpan={2}>Total ({totals.skuCount} SKUs)</td>
-                            <td>{totals.zohoAtAudit.toLocaleString('en-IN')}</td>
-                            <td>{totals.auditedQty.toLocaleString('en-IN')}</td>
-                            <td colSpan={2} />
-                            <td className={totals.auditDiff === 0 ? '' : totals.auditDiff > 0 ? 'is-over' : 'is-under'}>
-                              {formatSignedQty(totals.auditDiff)}
-                            </td>
-                            <td>{formatCurrency(totals.diffValue)}</td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    )}
+                <div
+                  className={`audit-cycle-card__drawer${expanded ? ' is-open' : ''}`}
+                  aria-hidden={!expanded}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="audit-cycle-card__columns" role="group" aria-label="Visible columns">
+                    <span className="audit-cycle-card__columns-label">Columns</span>
+                    <div className="audit-cycle-card__columns-list">
+                      {AUDIT_CYCLE_COLUMNS.map(col => (
+                        <label key={col.key} className="audit-cycle-card__column-check">
+                          <input
+                            type="checkbox"
+                            checked={visibleColumns[col.key]}
+                            onChange={() => toggleColumn(col.key)}
+                          />
+                          <span>{col.label}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                )}
+
+                  {rows.length === 0 ? (
+                    <p className="audit-cycle-card__empty-table">
+                      No SKUs stamped or counted in this cycle yet.
+                    </p>
+                  ) : visibleColumnList.length === 0 ? (
+                    <p className="audit-cycle-card__empty-table">
+                      Select at least one column to show.
+                    </p>
+                  ) : (
+                    <div className="audit-cycle-card__table-panel">
+                      <div className="audit-cycle-card__table-wrap">
+                        <table className="audit-cycle-card__table">
+                          <thead>
+                            <tr>
+                              {visibleColumnList.map(col => (
+                                <th key={col.key}>{col.label}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map(row => (
+                              <tr key={row.productId}>
+                                {visibleColumns.sku && (
+                                  <td className="audit-cycle-card__sku">{row.sku}</td>
+                                )}
+                                {visibleColumns.name && (
+                                  <td className="audit-cycle-card__name-cell">{row.name}</td>
+                                )}
+                                {visibleColumns.zoho && (
+                                  <td>{row.zohoAtAudit.toLocaleString('en-IN')}</td>
+                                )}
+                                {visibleColumns.audited && (
+                                  <td>{row.auditedQty.toLocaleString('en-IN')}</td>
+                                )}
+                                {visibleColumns.date && (
+                                  <td>{formatAuditDate(row.auditedAt)}</td>
+                                )}
+                                {visibleColumns.time && (
+                                  <td>{formatAuditTime(row.auditedAt)}</td>
+                                )}
+                                {visibleColumns.diff && (
+                                  <td className={row.auditDiff === 0 ? '' : row.auditDiff > 0 ? 'is-over' : 'is-under'}>
+                                    {formatSignedQty(row.auditDiff)}
+                                  </td>
+                                )}
+                                {visibleColumns.diffValue && (
+                                  <td>{formatCurrency(row.diffValue)}</td>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="audit-cycle-card__totals" aria-label="Cycle totals">
+                        <span className="audit-cycle-card__totals-label">
+                          Total · {totals.skuCount.toLocaleString('en-IN')} SKUs
+                        </span>
+                        <div className="audit-cycle-card__totals-metrics">
+                          {visibleColumns.zoho && (
+                            <span>
+                              <em>Zoho</em>
+                              {totals.zohoAtAudit.toLocaleString('en-IN')}
+                            </span>
+                          )}
+                          {visibleColumns.audited && (
+                            <span>
+                              <em>Audited</em>
+                              {totals.auditedQty.toLocaleString('en-IN')}
+                            </span>
+                          )}
+                          {visibleColumns.diff && (
+                            <span className={totals.auditDiff === 0 ? '' : totals.auditDiff > 0 ? 'is-over' : 'is-under'}>
+                              <em>Diff</em>
+                              {formatSignedQty(totals.auditDiff)}
+                            </span>
+                          )}
+                          {visibleColumns.diffValue && (
+                            <span className={totals.diffValue === 0 ? '' : totals.diffValue > 0 ? 'is-over' : 'is-under'}>
+                              <em>Diff × price</em>
+                              {formatCurrency(totals.diffValue)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </article>
             );
           })}
