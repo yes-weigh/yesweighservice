@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
-  ImagePlus,
   Keyboard,
   Lock,
   Mail,
@@ -30,6 +29,10 @@ import {
   peekCachedDealers,
   subscribeDealerCache,
 } from '../../lib/dealer-cache';
+import {
+  prefetchLogisticsGeoFix,
+  stampLogisticsPhotoDataUrl,
+} from '../../lib/logisticsPhotoStamp';
 import {
   BOOK_COURIER_STEPS,
   SHIPMENT_MODES,
@@ -315,15 +318,6 @@ function isAutoDraftStep(step: BookCourierStep): boolean {
   return AUTO_DRAFT_STEPS.includes(step);
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
 function StepProgress({ step }: { step: BookCourierStep }) {
   const activeIndex = bookStepProgressIndex(step);
   const total = BOOK_COURIER_STEPS.length;
@@ -395,7 +389,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const shipFromRef = useRef<HTMLDivElement>(null);
   const shippingLabelRefs = useRef<Array<HTMLDivElement | null>>([]);
   const courierLabelRef = useRef<HTMLDivElement>(null);
-  const finalPhotoAttachInputRef = useRef<HTMLInputElement>(null);
   const finalPhotoCaptureInputRef = useRef<HTMLInputElement>(null);
 
   const selectedDealer = useMemo<LogisticsDealerSnapshot | null>(() => {
@@ -496,6 +489,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     if (step !== 'box') setShipFromOpen(false);
   }, [step]);
 
+  useEffect(() => {
+    if (step === 'box' || step === 'final_photo') {
+      prefetchLogisticsGeoFix();
+    }
+  }, [step]);
+
   const updateDraft = useCallback(<K extends keyof LogisticsBookingDraft>(
     key: K,
     value: LogisticsBookingDraft[K],
@@ -571,11 +570,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const addBoxPhoto = useCallback(async (boxId: string, file: File | undefined) => {
     if (!file) return;
-    const dataUrl = await fileToDataUrl(file);
+    const photoId = newPhotoId();
+    const dataUrl = await stampLogisticsPhotoDataUrl(file);
     setDraft(prev => ({
       ...prev,
       boxes: prev.boxes.map(box => (box.id === boxId
-        ? { ...box, photos: [...box.photos, { id: newPhotoId(), url: dataUrl }] }
+        ? { ...box, photos: [...box.photos, { id: photoId, url: dataUrl }] }
         : box)),
     }));
   }, []);
@@ -591,7 +591,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const handleFinalPhotoChange = useCallback(async (file: File | undefined) => {
     if (!file) return;
-    const dataUrl = await fileToDataUrl(file);
+    const dataUrl = await stampLogisticsPhotoDataUrl(file);
     updateDraft('finalPackagePhoto', dataUrl);
   }, [updateDraft]);
 
@@ -1352,23 +1352,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           {step === 'final_photo' && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
-                Upload <span className="accent">Final</span> Package Photo
+                Capture <span className="accent">Outer</span> Package Photo
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                Capture proof that the courier label is pasted correctly on the package.
+                Use the camera to capture proof that the courier label is pasted correctly on the package.
+                GPS and time are stamped on the photo automatically.
               </p>
 
               {draft.finalPackagePhoto ? (
                 <div className="book-courier__final-photo">
                   <img src={draft.finalPackagePhoto} alt="Final package" onClick={() => setPreviewPhoto(draft.finalPackagePhoto)} />
                   <div className="book-courier__final-photo-actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => finalPhotoAttachInputRef.current?.click()}
-                    >
-                      <ImagePlus size={14} aria-hidden /> Replace
-                    </button>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
@@ -1383,35 +1377,23 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   <button
                     type="button"
                     className="book-courier__scan-visual book-courier__scan-visual--button"
-                    onClick={() => finalPhotoAttachInputRef.current?.click()}
-                  >
-                    <ImagePlus size={36} strokeWidth={1.25} aria-hidden />
-                    <span>Attach package photo</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="book-courier__scan-visual book-courier__scan-visual--button"
                     onClick={() => finalPhotoCaptureInputRef.current?.click()}
                   >
                     <Camera size={36} strokeWidth={1.25} aria-hidden />
-                    <span>Capture package photo</span>
+                    <span>Capture outer package photo</span>
                   </button>
                 </div>
               )}
-              <input
-                ref={finalPhotoAttachInputRef}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={event => void handleFinalPhotoChange(event.target.files?.[0])}
-              />
               <input
                 ref={finalPhotoCaptureInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
                 hidden
-                onChange={event => void handleFinalPhotoChange(event.target.files?.[0])}
+                onChange={event => {
+                  void handleFinalPhotoChange(event.target.files?.[0]);
+                  event.target.value = '';
+                }}
               />
 
               <button
@@ -1487,7 +1469,6 @@ const BoxCard: React.FC<BoxCardProps> = ({
   onPreview,
   onRemoveBox,
 }) => {
-  const photoAttachInputRef = useRef<HTMLInputElement>(null);
   const photoCaptureInputRef = useRef<HTMLInputElement>(null);
   const volumetric = boxVolumetric(box);
   const actualWeight = Number.parseFloat(box.weightKg) || 0;
@@ -1563,7 +1544,7 @@ const BoxCard: React.FC<BoxCardProps> = ({
 
       <p className="book-courier__box-label">
         {isEnvelope ? 'Envelope Photos' : 'Package Photos'}
-        <span className="book-courier__box-req"> * inside photo required</span>
+        <span className="book-courier__box-req"> * inside photo required · camera only</span>
       </p>
       <div className="book-courier__photo-grid">
         {box.photos.map((photo, photoIndex) => (
@@ -1592,15 +1573,6 @@ const BoxCard: React.FC<BoxCardProps> = ({
         <button
           type="button"
           className="book-courier__photo-add"
-          onClick={() => photoAttachInputRef.current?.click()}
-        >
-          <ImagePlus size={20} aria-hidden />
-          <span>{box.photos.length === 0 ? 'Attach inside' : 'Attach'}</span>
-          {box.photos.length > 0 && <em className="book-courier__photo-add-opt">Optional</em>}
-        </button>
-        <button
-          type="button"
-          className="book-courier__photo-add"
           onClick={() => photoCaptureInputRef.current?.click()}
         >
           <Camera size={20} aria-hidden />
@@ -1608,16 +1580,6 @@ const BoxCard: React.FC<BoxCardProps> = ({
           {box.photos.length > 0 && <em className="book-courier__photo-add-opt">Optional</em>}
         </button>
       </div>
-      <input
-        ref={photoAttachInputRef}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={event => {
-          onAddPhoto(event.target.files?.[0]);
-          event.target.value = '';
-        }}
-      />
       <input
         ref={photoCaptureInputRef}
         type="file"

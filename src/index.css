@@ -3018,16 +3018,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   scroll-behavior: smooth;
   scrollbar-width: none;
   padding: 0.12rem 0 0.22rem;
+  padding-left: 0;
 }
 
 .catalog-category-chips::-webkit-scrollbar {
   display: none;
-}
-
-.catalog-category-chips__spacer {
-  flex: 0 0 auto;
-  height: 1px;
-  pointer-events: none;
 }
 
 .catalog-category-chips__chip {
@@ -6473,8 +6468,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
   .catalog-page .catalog-smart-bar .catalog-category-chips {
     gap: 0.36rem;
-    padding-bottom: 0.14rem;
-    margin: 0 -0.15rem;
+    padding: 0.12rem 0 0.14rem;
+    margin: 0;
   }
 
   .catalog-page .catalog-smart-bar .catalog-category-chips__chip {

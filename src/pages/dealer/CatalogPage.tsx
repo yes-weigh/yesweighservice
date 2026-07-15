@@ -794,7 +794,7 @@ export const CatalogPage: React.FC = () => {
   }, [setSearchParams]);
 
   const swipeCategoryIds = useMemo(
-    () => browseCategoryChips.map(category => category.id),
+    () => ['', ...browseCategoryChips.map(category => category.id)],
     [browseCategoryChips],
   );
 
@@ -804,7 +804,7 @@ export const CatalogPage: React.FC = () => {
   }, [setCategoryId]);
 
   const shiftBrowseCategory = useCallback((direction: -1 | 1) => {
-    if (!categoryId || swipeCategoryIds.length === 0) return;
+    if (swipeCategoryIds.length <= 1) return;
     const foundIndex = swipeCategoryIds.indexOf(categoryId);
     if (foundIndex < 0) return;
     const nextIndex = foundIndex + direction;
@@ -984,7 +984,6 @@ export const CatalogPage: React.FC = () => {
   const smartBarRef = useRef<HTMLDivElement>(null);
   const categoryChipsRef = useRef<HTMLDivElement>(null);
   const browseSwipeRef = useRef<HTMLDivElement>(null);
-  const [categoryChipSpacerPx, setCategoryChipSpacerPx] = useState(0);
 
   const showShortcuts = !isSuperAdmin && searchFocused && !searchQuery.trim() && focus === 'browse';
   const showActiveFocus = !isSuperAdmin && focus !== 'browse' && focus !== 'search';
@@ -1448,11 +1447,6 @@ export const CatalogPage: React.FC = () => {
           role="tablist"
           aria-label="Browse categories"
         >
-          <span
-            className="catalog-category-chips__spacer"
-            style={{ flexBasis: categoryChipSpacerPx, width: categoryChipSpacerPx }}
-            aria-hidden
-          />
           <button
             type="button"
             role="tab"
@@ -1480,11 +1474,6 @@ export const CatalogPage: React.FC = () => {
               </button>
             );
           })}
-          <span
-            className="catalog-category-chips__spacer"
-            style={{ flexBasis: categoryChipSpacerPx, width: categoryChipSpacerPx }}
-            aria-hidden
-          />
         </div>
       )}
 
@@ -1583,41 +1572,29 @@ export const CatalogPage: React.FC = () => {
       : '[data-category=""]';
     const chip = root.querySelector<HTMLElement>(selector);
     if (!chip) return;
+    if (!categoryId) {
+      root.scrollTo({ left: 0, behavior });
+      return;
+    }
     const left = chip.offsetLeft - (root.clientWidth / 2) + (chip.offsetWidth / 2);
     root.scrollTo({ left: Math.max(0, left), behavior });
   }, [categoryId]);
 
   useEffect(() => {
-    if (!showBrowseCategoryChips) {
-      setCategoryChipSpacerPx(0);
-      return;
-    }
-    const root = categoryChipsRef.current;
-    if (!root) return;
-    const updateSpacer = () => {
-      setCategoryChipSpacerPx(Math.max(0, Math.round(root.clientWidth / 2)));
-    };
-    updateSpacer();
-    const observer = new ResizeObserver(updateSpacer);
-    observer.observe(root);
-    return () => observer.disconnect();
-  }, [showBrowseCategoryChips, browseCategoryChips.length]);
-
-  useEffect(() => {
     if (!showBrowseCategoryChips) return;
     const frame = window.requestAnimationFrame(() => {
-      centerActiveCategoryChip(categoryChipSpacerPx > 0 ? 'smooth' : 'auto');
+      centerActiveCategoryChip('smooth');
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [showBrowseCategoryChips, categoryId, categoryChipSpacerPx, centerActiveCategoryChip]);
+  }, [showBrowseCategoryChips, categoryId, centerActiveCategoryChip]);
 
   /**
    * Native horizontal scroll-snap pager: [prev][current][next] (mobile only).
-   * Swiping the product list settles on a side page → switch category, then snap back to center.
+   * Swiping the product list settles on a side page → switch category (All ↔ first ↔ …), then snap back to center.
    */
   useEffect(() => {
     const pager = browseSwipeRef.current;
-    if (!pager || !isMobile || !showBrowseCategoryChips || !categoryId) return;
+    if (!pager || !isMobile || !showBrowseCategoryChips) return;
 
     const pageWidth = () => pager.clientWidth || 1;
     const snapToCurrent = () => {
@@ -1873,7 +1850,8 @@ export const CatalogPage: React.FC = () => {
         );
 
         // Swipe pager is mobile-only so desktop HTML5 drag-reorder keeps working.
-        if (!(isMobile && showBrowseCategoryChips && categoryId)) {
+        // Includes All: swipe right → first category, swipe left from first → All.
+        if (!(isMobile && showBrowseCategoryChips)) {
           return browsePanel;
         }
 
