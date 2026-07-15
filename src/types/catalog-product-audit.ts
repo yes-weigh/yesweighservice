@@ -34,9 +34,9 @@ export interface CatalogProductAuditSnapshot {
   lastAuditedAt: string;
   lastAuditedByUid: string | null;
   lastAuditedByName: string | null;
-  /** Diff at last physical audit (historical). Live Diff = physicalQtyAtAudit − current Zoho. */
+  /** Locked Diff at last physical audit. Live Audited = current Zoho + this Diff. */
   baselineDifference: number;
-  /** Frozen physical count from last physical audit — does not move with Zoho sync. */
+  /** Audited qty after last write (moves with Zoho sync to keep Diff locked). */
   physicalQtyAtAudit: number;
   zohoQtyAtAudit: number;
   mode: 'unit' | 'bundle';
@@ -52,4 +52,33 @@ export interface CatalogProductAuditSnapshot {
   lastHeadOfficeAuditCycleId?: string | null;
   /** Last Cochin physical count cycle. */
   lastCochinAuditCycleId?: string | null;
+}
+
+export type CatalogStockMovementType = 'invoice' | 'bill' | 'creditnote' | 'adjustment';
+
+export interface CatalogStockMovement {
+  type: CatalogStockMovementType;
+  typeLabel: string;
+  documentId: string;
+  documentNumber: string;
+  date: string;
+  createdTime: string;
+  createdAt: string | null;
+  status: string;
+  customerOrVendor: string | null;
+  quantity: number;
+  /** Signed stock change (invoices negative). */
+  qtyDelta: number;
+  reference: string | null;
+}
+
+export interface CatalogProductStockMovementsResult {
+  catalogProductId: string;
+  until: string;
+  dateStart: string;
+  dateEnd: string;
+  lookbackDays: number;
+  movementCount: number;
+  netDelta: number;
+  movements: CatalogStockMovement[];
 }

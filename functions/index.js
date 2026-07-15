@@ -846,6 +846,42 @@ export const getCatalogProductAuditLogs = onCall(
   },
 );
 
+/** Zoho stock movements (invoices / bills / credit notes / adjustments) up to a datetime. */
+export const getCatalogProductStockMovements = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
+    const until = String(request.data?.until ?? '').trim();
+
+    if (!catalogProductId) {
+      throw new HttpsError('invalid-argument', 'catalogProductId is required.');
+    }
+    if (!until || Number.isNaN(Date.parse(until))) {
+      throw new HttpsError('invalid-argument', 'until must be a valid ISO datetime.');
+    }
+
+    try {
+      const { listCatalogProductStockMovements } = await import('./lib/zoho-stock-movements.js');
+      return await listCatalogProductStockMovements(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        catalogProductId,
+        until,
+      );
+    } catch (err) {
+      console.error('getCatalogProductStockMovements failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not load stock movements.');
+    }
+  },
+);
+
 /** Migrate existing warehouse + Cochin counts into audit snapshots (idempotent). */
 export const backfillCatalogProductAuditsFn = onCall(
   {

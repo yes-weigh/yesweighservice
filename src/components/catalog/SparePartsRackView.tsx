@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, ChevronRight, Rows3 } from 'lucide-react';
-import type { YesStoreItemDoc } from '../../types/yes-store';
+import { YesStorePhotoImg } from '../yesStore/YesStorePhotoImg';
+import type { YesStoreItemDoc, YesStorePhoto } from '../../types/yes-store';
 import { BIN_NUMBERS, ROW_NUMBERS, VALID_RACK_LETTERS, readItemQuantity } from '../../types/yes-store';
 
 export interface SpareRackSkuChip {
@@ -10,9 +11,16 @@ export interface SpareRackSkuChip {
   quantity: number;
 }
 
+export interface SpareRackUnlinkedChip {
+  itemId: string;
+  quantity: number;
+  photo: YesStorePhoto | null;
+}
+
 interface BinSlot {
   binNumber: number;
   skus: SpareRackSkuChip[];
+  unlinked: SpareRackUnlinkedChip[];
 }
 
 interface RowTile {
@@ -38,9 +46,12 @@ interface SparePartsRackViewProps {
   loading?: boolean;
   /** Highlight this product after returning from detail. */
   highlightedProductId?: string | null;
+  /** Highlight this unlinked audit item after returning from inventory audit. */
+  highlightedAuditItemId?: string | null;
   /** Prefer opening this rack letter (e.g. restore after detail). */
   initialRackId?: string | null;
   onSkuClick: (productId: string, rackId: string) => void;
+  onUnlinkedClick: (itemId: string, rackId: string) => void;
 }
 
 const ROW_ACCENTS = ['blue', 'green', 'amber', 'cyan'] as const;
@@ -50,7 +61,9 @@ const LONG_SKU_SPAN_LEN = 12;
 function binsThroughHighestOccupied(bins: BinSlot[]): BinSlot[] {
   let highest = 0;
   for (const bin of bins) {
-    if (bin.skus.length > 0 && bin.binNumber > highest) highest = bin.binNumber;
+    if ((bin.skus.length > 0 || bin.unlinked.length > 0) && bin.binNumber > highest) {
+      highest = bin.binNumber;
+    }
   }
   if (highest <= 0) return [];
   return bins.filter(bin => bin.binNumber <= highest);
@@ -82,12 +95,13 @@ function rowsWithMissingGaps(rows: RowTile[]): DisplayRow[] {
 
 type RowCell =
   | { kind: 'sku'; binNumber: number; chip: SpareRackSkuChip; wide: boolean }
+  | { kind: 'unlinked'; binNumber: number; chip: SpareRackUnlinkedChip }
   | { kind: 'empty'; binNumber: number };
 
 function cellsForRow(bins: BinSlot[]): RowCell[] {
   const cells: RowCell[] = [];
   for (const bin of bins) {
-    if (bin.skus.length === 0) {
+    if (bin.skus.length === 0 && bin.unlinked.length === 0) {
       cells.push({ kind: 'empty', binNumber: bin.binNumber });
       continue;
     }
@@ -99,6 +113,9 @@ function cellsForRow(bins: BinSlot[]): RowCell[] {
         wide: chip.sku.trim().length > LONG_SKU_SPAN_LEN,
       });
     }
+    for (const chip of bin.unlinked) {
+      cells.push({ kind: 'unlinked', binNumber: bin.binNumber, chip });
+    }
   }
   return cells;
 }
@@ -107,11 +124,19 @@ function normalizeRackId(rackId: string): string {
   return rackId.trim().toLowerCase();
 }
 
+function primaryPhoto(item: YesStoreItemDoc): YesStorePhoto | null {
+  const photos = item.photos ?? [];
+  return photos[0] ?? null;
+}
+
 function buildRowTilesForRack(
   onRack: YesStoreItemDoc[],
   catalogByProductId?: Map<string, { sku: string; name?: string | null }>,
 ): DisplayRow[] {
-  const byRow = new Map<number, Map<number, Map<string, SpareRackSkuChip>>>();
+  const byRow = new Map<number, Map<number, {
+    skus: Map<string, SpareRackSkuChip>;
+    unlinked: SpareRackUnlinkedChip[];
+  }>>();
 
   for (const item of onRack) {
     const row = Number(item.rowNumber);
@@ -119,22 +144,32 @@ function buildRowTilesForRack(
     if (!Number.isFinite(row) || !Number.isFinite(bin)) continue;
     if (!ROW_NUMBERS.includes(row as (typeof ROW_NUMBERS)[number])) continue;
     if (!BIN_NUMBERS.includes(bin as (typeof BIN_NUMBERS)[number])) continue;
-    const productId = item.catalogProductId!.trim();
-    const live = catalogByProductId?.get(productId);
-    const sku = (live?.sku?.trim()
-      || item.catalogProductSku?.trim()
-      || productId);
-    const name = live?.name ?? item.catalogProductName;
-    const quantity = readItemQuantity(item);
+
     if (!byRow.has(row)) byRow.set(row, new Map());
     const binMap = byRow.get(row)!;
-    if (!binMap.has(bin)) binMap.set(bin, new Map());
-    const skuMap = binMap.get(bin)!;
-    const existing = skuMap.get(productId);
-    if (existing) {
-      existing.quantity += quantity;
+    if (!binMap.has(bin)) binMap.set(bin, { skus: new Map(), unlinked: [] });
+    const slot = binMap.get(bin)!;
+    const quantity = readItemQuantity(item);
+    const productId = item.catalogProductId?.trim() || '';
+
+    if (productId) {
+      const live = catalogByProductId?.get(productId);
+      const sku = (live?.sku?.trim()
+        || item.catalogProductSku?.trim()
+        || productId);
+      const name = live?.name ?? item.catalogProductName;
+      const existing = slot.skus.get(productId);
+      if (existing) {
+        existing.quantity += quantity;
+      } else {
+        slot.skus.set(productId, { productId, sku, name, quantity });
+      }
     } else {
-      skuMap.set(productId, { productId, sku, name, quantity });
+      slot.unlinked.push({
+        itemId: item.id,
+        quantity,
+        photo: primaryPhoto(item),
+      });
     }
   }
 
@@ -142,11 +177,14 @@ function buildRowTilesForRack(
     .sort((a, b) => b[0] - a[0])
     .map(([rowNumber, binMap]) => ({
       rowNumber,
-      bins: BIN_NUMBERS.map(binNumber => ({
-        binNumber,
-        skus: [...(binMap.get(binNumber)?.values() ?? [])]
-          .sort((a, b) => a.sku.localeCompare(b.sku)),
-      })),
+      bins: BIN_NUMBERS.map(binNumber => {
+        const slot = binMap.get(binNumber);
+        return {
+          binNumber,
+          skus: [...(slot?.skus.values() ?? [])].sort((a, b) => a.sku.localeCompare(b.sku)),
+          unlinked: slot?.unlinked ?? [],
+        };
+      }),
     }));
 
   return rowsWithMissingGaps(occupied);
@@ -199,6 +237,61 @@ function SkuCell({
   );
 }
 
+function UnlinkedCell({
+  binNumber,
+  chip,
+  rackLetter,
+  highlightedAuditItemId,
+  onUnlinkedClick,
+}: {
+  binNumber: number;
+  chip: SpareRackUnlinkedChip;
+  rackLetter: string;
+  highlightedAuditItemId?: string | null;
+  onUnlinkedClick: (itemId: string, rackId: string) => void;
+}) {
+  const focused = Boolean(highlightedAuditItemId && chip.itemId === highlightedAuditItemId);
+  const qtyLabel = `×${chip.quantity}`;
+  return (
+    <button
+      type="button"
+      data-audit-item-id={chip.itemId}
+      className={[
+        'spare-rack-cell',
+        'spare-rack-cell--unlinked',
+        focused ? 'is-focus' : '',
+      ].filter(Boolean).join(' ')}
+      title={`Bin ${binNumber}: unlinked audit · Qty ${chip.quantity}`}
+      aria-label={`Bin ${binNumber}, unlinked audit item, quantity ${chip.quantity}`}
+      onClick={() => onUnlinkedClick(chip.itemId, rackLetter)}
+    >
+      <div className="spare-rack-cell__meta">
+        <span className="spare-rack-cell__label">BIN {binNumber}</span>
+        <span className="spare-rack-cell__dot" aria-hidden />
+        <span className="spare-rack-cell__qty" aria-label={`Quantity ${chip.quantity}`}>
+          {qtyLabel}
+        </span>
+      </div>
+      <div className="spare-rack-cell__body spare-rack-cell__body--unlinked">
+        <span className="spare-rack-cell__thumb" aria-hidden>
+          {chip.photo ? (
+            <YesStorePhotoImg
+              photo={chip.photo}
+              alt=""
+              className="spare-rack-cell__thumb-img"
+              emptyClassName="spare-rack-cell__thumb-empty"
+            />
+          ) : (
+            <Box className="spare-rack-cell__icon spare-rack-cell__icon--unlinked" size={16} strokeWidth={1.75} />
+          )}
+        </span>
+        <span className="spare-rack-cell__sku spare-rack-cell__sku--unlinked">Unlinked</span>
+        <ChevronRight className="spare-rack-cell__chevron" size={14} strokeWidth={2.25} aria-hidden />
+      </div>
+    </button>
+  );
+}
+
 function EmptyBinCell({ binNumber }: { binNumber: number }) {
   return (
     <div className="spare-rack-cell spare-rack-cell--empty" aria-label={`Bin ${binNumber}, empty`}>
@@ -238,16 +331,20 @@ function EmptyRowCard({ rowNumber }: { rowNumber: number }) {
 function RackRows({
   page,
   highlightedProductId,
+  highlightedAuditItemId,
   onSkuClick,
+  onUnlinkedClick,
 }: {
   page: RackPage;
   highlightedProductId?: string | null;
+  highlightedAuditItemId?: string | null;
   onSkuClick: (productId: string, rackId: string) => void;
+  onUnlinkedClick: (itemId: string, rackId: string) => void;
 }) {
   if (page.rows.length === 0) {
     return (
       <p className="text-muted spare-parts-rack-view__empty">
-        No audited SKUs on rack {page.letter.toUpperCase()}.
+        No audited items on rack {page.letter.toUpperCase()}.
       </p>
     );
   }
@@ -286,10 +383,23 @@ function RackRows({
               </span>
             </header>
             <div className="spare-rack-row__cells">
-              {cells.map(cell => (
-                cell.kind === 'empty' ? (
-                  <EmptyBinCell key={`empty-${cell.binNumber}`} binNumber={cell.binNumber} />
-                ) : (
+              {cells.map(cell => {
+                if (cell.kind === 'empty') {
+                  return <EmptyBinCell key={`empty-${cell.binNumber}`} binNumber={cell.binNumber} />;
+                }
+                if (cell.kind === 'unlinked') {
+                  return (
+                    <UnlinkedCell
+                      key={`unlinked-${cell.binNumber}-${cell.chip.itemId}`}
+                      binNumber={cell.binNumber}
+                      chip={cell.chip}
+                      rackLetter={page.letter}
+                      highlightedAuditItemId={highlightedAuditItemId}
+                      onUnlinkedClick={onUnlinkedClick}
+                    />
+                  );
+                }
+                return (
                   <SkuCell
                     key={`${cell.binNumber}-${cell.chip.productId}`}
                     binNumber={cell.binNumber}
@@ -299,8 +409,8 @@ function RackRows({
                     highlightedProductId={highlightedProductId}
                     onSkuClick={onSkuClick}
                   />
-                )
-              ))}
+                );
+              })}
             </div>
           </article>
         );
@@ -309,28 +419,31 @@ function RackRows({
   );
 }
 
-/** Location-first spare map: racks → row×bin cards with audited SKUs only. */
+/** Location-first spare map: racks → row×bin cards with linked SKUs + unlinked audits. */
 export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
   items,
   spareProductIds,
   catalogByProductId,
   loading = false,
   highlightedProductId = null,
+  highlightedAuditItemId = null,
   initialRackId = null,
   onSkuClick,
+  onUnlinkedClick,
 }) => {
-  const linkedItems = useMemo(() => {
+  const rackItems = useMemo(() => {
     return items.filter(item => {
-      const pid = item.catalogProductId?.trim();
-      if (!pid || !spareProductIds.has(pid)) return false;
       const rack = normalizeRackId(item.rackId);
-      return VALID_RACK_LETTERS.includes(rack);
+      if (!VALID_RACK_LETTERS.includes(rack)) return false;
+      const pid = item.catalogProductId?.trim();
+      if (!pid) return true;
+      return spareProductIds.has(pid);
     });
   }, [items, spareProductIds]);
 
   const rackPages = useMemo((): RackPage[] => {
     const byRack = new Map<string, YesStoreItemDoc[]>();
-    for (const item of linkedItems) {
+    for (const item of rackItems) {
       const letter = normalizeRackId(item.rackId);
       if (!byRack.has(letter)) byRack.set(letter, []);
       byRack.get(letter)!.push(item);
@@ -341,7 +454,7 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
         letter,
         rows: buildRowTilesForRack(byRack.get(letter)!, catalogByProductId),
       }));
-  }, [linkedItems, catalogByProductId]);
+  }, [rackItems, catalogByProductId]);
 
   const rackLetters = useMemo(() => rackPages.map(p => p.letter), [rackPages]);
 
@@ -399,15 +512,16 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
   }, [initialRackId, rackLetters, scrollCarouselToRack]);
 
   useEffect(() => {
-    if (!highlightedProductId) return;
+    if (!highlightedProductId && !highlightedAuditItemId) return;
     const timer = window.setTimeout(() => {
-      const el = document.querySelector<HTMLElement>(
-        `.spare-parts-rack-view [data-product-id="${CSS.escape(highlightedProductId)}"]`,
-      );
+      const selector = highlightedProductId
+        ? `.spare-parts-rack-view [data-product-id="${CSS.escape(highlightedProductId)}"]`
+        : `.spare-parts-rack-view [data-audit-item-id="${CSS.escape(highlightedAuditItemId!)}"]`;
+      const el = document.querySelector<HTMLElement>(selector);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [highlightedProductId, rackFilter, rackPages]);
+  }, [highlightedProductId, highlightedAuditItemId, rackFilter, rackPages]);
 
   useEffect(() => {
     if (!rackFilter || rackPages.length === 0) return;
@@ -439,7 +553,7 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
   const activePage = rackPages.find(p => p.letter === rackFilter) ?? rackPages[0] ?? null;
   const canScrollRacks = rackLetters.length > 4;
 
-  if (loading && linkedItems.length === 0) {
+  if (loading && rackItems.length === 0) {
     return (
       <div className="spare-parts-rack-view">
         <p className="text-muted spare-parts-rack-view__empty">Loading rack locations…</p>
@@ -451,7 +565,7 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
     return (
       <div className="spare-parts-rack-view">
         <p className="text-muted spare-parts-rack-view__empty">
-          No audited spare SKUs in warehouse locations yet.
+          No audited spare SKUs or unlinked items in warehouse locations yet.
         </p>
       </div>
     );
@@ -508,7 +622,9 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
             <RackRows
               page={page}
               highlightedProductId={highlightedProductId}
+              highlightedAuditItemId={highlightedAuditItemId}
               onSkuClick={onSkuClick}
+              onUnlinkedClick={onUnlinkedClick}
             />
           </section>
         ))}
@@ -519,7 +635,9 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
           <RackRows
             page={activePage}
             highlightedProductId={highlightedProductId}
+            highlightedAuditItemId={highlightedAuditItemId}
             onSkuClick={onSkuClick}
+            onUnlinkedClick={onUnlinkedClick}
           />
         </div>
       )}

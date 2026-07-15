@@ -402,12 +402,12 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
         trigger: 'zoho_sync',
         auditCycleId: null,
       };
-      // Keep frozen physical + lastPhysical*; only refresh Zoho/Diff on snapshot.
+      // Keep locked Diff; move Audited with Zoho. Site HO/Cochin stay at last physical count.
       const snapshot = {
         ...prior,
         lastAuditLogId: logRef.id,
         baselineDifference: zohoSyncEntry.baselineDifference,
-        physicalQtyAtAudit: Number(prior.physicalQtyAtAudit ?? zohoSyncEntry.physicalQty),
+        physicalQtyAtAudit: zohoSyncEntry.physicalQty,
         zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
         mode: zohoSyncEntry.mode,
         headOfficeQtyAtAudit: Number(prior.headOfficeQtyAtAudit ?? zohoSyncEntry.headOfficeQty),

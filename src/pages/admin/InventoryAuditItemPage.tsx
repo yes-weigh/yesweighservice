@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Link2, Printer, Unlink } from 'lucide-react';
 import { CatalogProductLinkPicker } from '../../components/yesStore/CatalogProductLinkPicker';
 import { InventoryAuditQtyEditor } from '../../components/yesStore/InventoryAuditQtyEditor';
@@ -24,6 +24,7 @@ import {
   peekAuditReturnFocus,
   rememberAuditReturnFocus,
 } from '../../lib/yesStore/auditReturnFocus';
+import { rememberSpareReturnFocus } from '../../lib/catalogNav';
 import type { CatalogProduct } from '../../types/catalog';
 import {
   formatItemLocationShort,
@@ -33,9 +34,18 @@ import {
   type YesStoreItemDoc,
 } from '../../types/yes-store';
 
+type SpareRackAuditNavState = {
+  fromSpareRack?: boolean;
+  focusRackId?: string;
+  focusAuditItemId?: string;
+};
+
 export const InventoryAuditItemPage: React.FC = () => {
   const { itemId } = useParams<{ itemId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const rackNav = (location.state as SpareRackAuditNavState | null) ?? null;
+  const fromSpareRack = Boolean(rackNav?.fromSpareRack);
   const { user } = useAuth();
   const confirm = useConfirm();
   const base = user?.role === 'super_admin' ? '/super-admin/catalog' : '/catalog';
@@ -138,11 +148,52 @@ export const InventoryAuditItemPage: React.FC = () => {
   const canLink = selectedProduct && item && linkChanged;
   const partModeInvalid = linkMode === 'part' && !partLabel.trim();
 
+  const goToSpareRack = useCallback((options?: {
+    productId?: string;
+    auditItemId?: string;
+    afterLink?: boolean;
+  }) => {
+    const rackId = (
+      rackNav?.focusRackId
+      || item?.rackId?.trim().toLowerCase()
+      || null
+    );
+    rememberSpareReturnFocus({
+      productId: options?.productId,
+      auditItemId: options?.productId
+        ? undefined
+        : (options?.auditItemId ?? item?.id ?? itemId ?? undefined),
+      origin: 'spares-rack',
+      viewMode: 'rack',
+      rackId,
+    });
+    navigate(`${base}?section=spares`, {
+      replace: Boolean(options?.afterLink),
+      state: {
+        origin: 'spares-rack',
+        spareViewMode: 'rack',
+        focusRackId: rackId,
+        focusProductId: options?.productId,
+        focusAuditItemId: options?.productId
+          ? undefined
+          : (options?.auditItemId ?? item?.id ?? itemId ?? undefined),
+      },
+    });
+  }, [navigate, base, rackNav?.focusRackId, item?.rackId, item?.id, itemId]);
+
   const goToAuditList = useCallback((options?: {
     itemId?: string;
     catalogProductId?: string;
     afterLink?: boolean;
   }) => {
+    if (fromSpareRack) {
+      goToSpareRack({
+        productId: options?.catalogProductId,
+        auditItemId: options?.itemId,
+        afterLink: options?.afterLink,
+      });
+      return;
+    }
     const existing = peekAuditReturnFocus();
     rememberAuditReturnFocus({
       itemId: options?.itemId ?? existing?.itemId ?? itemId ?? undefined,
@@ -155,7 +206,7 @@ export const InventoryAuditItemPage: React.FC = () => {
       afterLink: options?.afterLink ?? existing?.afterLink,
     });
     navigate(inventoryAuditListPath(base), { replace: Boolean(options?.afterLink) });
-  }, [navigate, base, itemId]);
+  }, [navigate, base, itemId, fromSpareRack, goToSpareRack]);
 
   const handleLink = async () => {
     if (!item || !selectedProduct || !user || partModeInvalid) return;
@@ -275,7 +326,7 @@ export const InventoryAuditItemPage: React.FC = () => {
           className="btn btn-secondary btn-sm"
           onClick={() => goToAuditList({ itemId })}
         >
-          Back to inventory audit
+          {fromSpareRack ? 'Back to rack view' : 'Back to inventory audit'}
         </button>
       </div>
     );

@@ -39,6 +39,8 @@ export interface CatalogNavState {
   spareViewMode?: SpareCatalogViewMode;
   /** Product/SKU to emphasize after returning to spare list or rack. */
   focusProductId?: string;
+  /** Unlinked audit item to emphasize on rack after returning from inventory audit. */
+  focusAuditItemId?: string;
   /** Rack letter to restore when returning from rack-view SKU tap. */
   focusRackId?: string | null;
   /** Spare list filters to restore after detail back. */
@@ -46,7 +48,10 @@ export interface CatalogNavState {
 }
 
 export interface SpareReturnFocus {
-  productId: string;
+  /** Linked catalog product to emphasize (SKU tile). */
+  productId?: string;
+  /** Unlinked (or just-visited) YesStore audit item to emphasize. */
+  auditItemId?: string;
   origin: CatalogNavOrigin;
   viewMode: SpareCatalogViewMode;
   rackId?: string | null;
@@ -71,7 +76,8 @@ export function peekSpareReturnFocus(maxAgeMs = 30 * 60 * 1000): SpareReturnFocu
     const raw = sessionStorage.getItem(SPARE_RETURN_FOCUS_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SpareReturnFocus;
-    if (!parsed?.productId || !parsed.origin) return null;
+    if (!parsed?.origin) return null;
+    if (!parsed.productId && !parsed.auditItemId) return null;
     if (Date.now() - Number(parsed.savedAt || 0) > maxAgeMs) {
       sessionStorage.removeItem(SPARE_RETURN_FOCUS_KEY);
       return null;
@@ -195,6 +201,7 @@ function sparePartsBackState(navState: CatalogNavState | null | undefined): Cata
       ?? focus?.viewMode
       ?? (origin === 'spares-rack' ? 'rack' : 'items'),
     focusProductId: navState?.focusProductId ?? focus?.productId,
+    focusAuditItemId: navState?.focusAuditItemId ?? focus?.auditItemId,
     focusRackId: navState?.focusRackId ?? focus?.rackId ?? null,
     searchQuery: navState?.searchQuery ?? focus?.searchQuery,
     spareFilters: navState?.spareFilters ?? focus?.spareFilters,

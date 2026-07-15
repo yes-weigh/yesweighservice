@@ -363,7 +363,7 @@ export function catalogProductIsAudited(
   return cochinAuditedIds.has(product.id);
 }
 
-/** Audit vs book stock variance: frozen physical vs current Zoho. */
+/** Audit vs book stock variance: locked Diff from last physical count. */
 export function catalogProductAuditVariance(
   product: Pick<CatalogProduct, 'stock' | 'auditSnapshot'>,
 ): 'zero' | 'overage' | 'shortage' | null {

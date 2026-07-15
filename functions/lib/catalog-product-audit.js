@@ -186,12 +186,13 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
     lastAuditedByUid: isPhysical ? (auditedByUid ?? null) : (prior.lastAuditedByUid ?? null),
     lastAuditedByName: isPhysical ? (auditedByName ?? null) : (prior.lastAuditedByName ?? null),
     baselineDifference,
-    // Freeze physical on zoho_sync; only physical triggers rewrite counted qty.
-    physicalQtyAtAudit: isPhysical
+    // Physical counts rewrite audited qty. Zoho sync moves audited with Zoho to keep Diff locked.
+    physicalQtyAtAudit: (isPhysical || trigger === 'zoho_sync')
       ? physicalQty
       : Number(prior.physicalQtyAtAudit ?? physicalQty),
     zohoQtyAtAudit,
     mode,
+    // Site breakdown stays at last physical count (not shifted by Zoho sync).
     headOfficeQtyAtAudit: isPhysical
       ? headOfficeQty
       : Number(prior.headOfficeQtyAtAudit ?? headOfficeQty),
@@ -221,19 +222,21 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
 }
 
 /**
- * When Zoho stock changes on sync, keep frozen physical count.
- * Diff in the log = frozenPhysical âˆ’ nextZoho. Snapshot lastPhysical* unchanged.
+ * When Zoho stock changes on sync, keep locked Diff and move Audited with Zoho.
+ * Audited = nextZoho + baselineDifference. Site HO/Cochin qty stay at last physical count.
  */
 export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, nextZohoQty, auditedAt) {
-  if (!existingSnapshot || existingSnapshot.physicalQtyAtAudit == null) return null;
+  if (!existingSnapshot || existingSnapshot.baselineDifference == null) return null;
 
   const prevZoho = Number(previousZohoQty);
   const nextZoho = Number(nextZohoQty);
   if (!Number.isFinite(prevZoho) || !Number.isFinite(nextZoho)) return null;
   if (prevZoho === nextZoho) return null;
 
-  const physicalQty = Number(existingSnapshot.physicalQtyAtAudit);
-  const baselineDifference = physicalQty - nextZoho;
+  const baselineDifference = Number(existingSnapshot.baselineDifference);
+  if (!Number.isFinite(baselineDifference)) return null;
+
+  const physicalQty = nextZoho + baselineDifference;
   const mode = existingSnapshot.mode === 'bundle' ? 'bundle' : 'unit';
   const headOfficeQty = Number(existingSnapshot.headOfficeQtyAtAudit ?? 0);
   const cochinQty = Number(existingSnapshot.cochinQtyAtAudit ?? 0);

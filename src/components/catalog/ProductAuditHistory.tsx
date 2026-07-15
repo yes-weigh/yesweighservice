@@ -1,10 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowDown, ArrowUp, RefreshCw, X } from 'lucide-react';
 import { formatStockQuantity } from '../../lib/catalog';
-import { fetchCatalogProductAuditLogs } from '../../lib/catalogProductAudit/data';
+import {
+  fetchCatalogProductAuditLogs,
+  fetchCatalogProductStockMovements,
+} from '../../lib/catalogProductAudit/data';
 import { formatAuditDate, formatAuditTime } from '../../lib/yesStore/format';
 import type { CatalogProduct } from '../../types/catalog';
-import type { CatalogProductAuditLog, CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
+import type {
+  CatalogProductAuditLog,
+  CatalogProductAuditSnapshot,
+  CatalogProductStockMovementsResult,
+} from '../../types/catalog-product-audit';
 
 function auditorDisplayName(log: Pick<CatalogProductAuditLog, 'auditedByName' | 'trigger'>): string {
   if (log.trigger === 'zoho_sync') return 'Zoho sync';
@@ -19,6 +27,11 @@ function diffClassName(value: number): string {
 }
 
 function diffDisplay(value: number): string {
+  if (value > 0) return `+${value}`;
+  return String(value);
+}
+
+function qtyDeltaDisplay(value: number): string {
   if (value > 0) return `+${value}`;
   return String(value);
 }
@@ -43,6 +56,10 @@ export const ProductAuditHistory: React.FC<{
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'desc' | 'asc'>('desc');
+  const [movementsLog, setMovementsLog] = useState<CatalogProductAuditLog | null>(null);
+  const [movements, setMovements] = useState<CatalogProductStockMovementsResult | null>(null);
+  const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsError, setMovementsError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -61,6 +78,38 @@ export const ProductAuditHistory: React.FC<{
       active = false;
     };
   }, [product.id, snapshot?.lastAuditedAt]);
+
+  useEffect(() => {
+    if (!movementsLog) {
+      setMovements(null);
+      setMovementsError(null);
+      setMovementsLoading(false);
+      return;
+    }
+
+    let active = true;
+    setMovementsLoading(true);
+    setMovementsError(null);
+    setMovements(null);
+    void fetchCatalogProductStockMovements(product.id, movementsLog.auditedAt)
+      .then(result => {
+        if (active) setMovements(result);
+      })
+      .catch(err => {
+        if (active) {
+          setMovementsError(
+            err instanceof Error ? err.message : 'Could not load stock movements.',
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setMovementsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [product.id, movementsLog]);
 
   const sortedLogs = useMemo(() => {
     const rows = [...logs];
@@ -108,6 +157,116 @@ export const ProductAuditHistory: React.FC<{
   const toggleSort = () => {
     setSortDirection(prev => (prev === 'desc' ? 'asc' : 'desc'));
   };
+
+  const closeMovements = () => setMovementsLog(null);
+
+  const movementsModal = movementsLog
+    ? createPortal(
+      <div
+        className="spare-link-editor-backdrop product-audit-movements-backdrop"
+        role="presentation"
+        onClick={closeMovements}
+      >
+        <div
+          className="product-audit-movements panel glass"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="product-audit-movements-title"
+          onClick={event => event.stopPropagation()}
+        >
+          <header className="product-audit-movements__header">
+            <div>
+              <h2 id="product-audit-movements-title">Stock movements</h2>
+              <p className="text-muted text-sm">
+                Up to {formatAuditDate(movementsLog.auditedAt)}{' '}
+                {formatAuditTime(movementsLog.auditedAt)}
+                {movements
+                  ? ` · last ${movements.lookbackDays} days · ${movements.movementCount} event${movements.movementCount === 1 ? '' : 's'}`
+                  : null}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={closeMovements}
+              aria-label="Close"
+            >
+              <X size={16} aria-hidden />
+            </button>
+          </header>
+
+          {movementsLoading && (
+            <p className="product-audit-movements__status">Loading from Zoho…</p>
+          )}
+          {movementsError && (
+            <p className="product-audit-log__error">{movementsError}</p>
+          )}
+
+          {!movementsLoading && movements && (
+            <>
+              <p className="product-audit-movements__net text-sm">
+                Net change in window:{' '}
+                <strong className={diffClassName(movements.netDelta)}>
+                  {qtyDeltaDisplay(movements.netDelta)}
+                </strong>
+                {' '}
+                {product.unit}
+              </p>
+              <div className="product-audit-movements__table-wrap">
+                <table className="product-audit-movements__table">
+                  <thead>
+                    <tr>
+                      <th scope="col">When</th>
+                      <th scope="col">Type</th>
+                      <th scope="col">Document</th>
+                      <th scope="col">Party</th>
+                      <th scope="col">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movements.movements.length === 0 ? (
+                      <tr>
+                        <td colSpan={5}>No invoices, bills, credit notes, or adjustments in this window.</td>
+                      </tr>
+                    ) : (
+                      [...movements.movements].reverse().map(row => (
+                        <tr key={`${row.type}-${row.documentId}-${row.createdAt}`}>
+                          <td>
+                            <div className="product-audit-log__datetime">
+                              <strong>
+                                {row.createdAt
+                                  ? formatAuditDate(row.createdAt)
+                                  : row.date || '—'}
+                              </strong>
+                              <span>
+                                {row.createdAt ? formatAuditTime(row.createdAt) : ''}
+                              </span>
+                            </div>
+                          </td>
+                          <td>{row.typeLabel}</td>
+                          <td>
+                            <strong>{row.documentNumber || '—'}</strong>
+                            {row.reference ? (
+                              <span className="product-audit-movements__ref">{row.reference}</span>
+                            ) : null}
+                          </td>
+                          <td>{row.customerOrVendor || '—'}</td>
+                          <td className={diffClassName(row.qtyDelta)}>
+                            {qtyDeltaDisplay(row.qtyDelta)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>,
+      document.body,
+    )
+    : null;
 
   return (
     <div className={`product-audit-log ${embedded ? 'product-audit-log--embedded' : ''}`}>
@@ -187,10 +346,17 @@ export const ProductAuditHistory: React.FC<{
                       )}
                     </td>
                     <td>
-                      <div className="product-audit-log__datetime">
-                        <strong>{formatAuditDate(log.auditedAt)}</strong>
-                        <span>{formatAuditTime(log.auditedAt)}</span>
-                      </div>
+                      <button
+                        type="button"
+                        className="product-audit-log__datetime-btn"
+                        onClick={() => setMovementsLog(log)}
+                        title="View Zoho stock movements up to this time"
+                      >
+                        <div className="product-audit-log__datetime">
+                          <strong>{formatAuditDate(log.auditedAt)}</strong>
+                          <span>{formatAuditTime(log.auditedAt)}</span>
+                        </div>
+                      </button>
                     </td>
                     <td className="product-audit-log__qty">
                       {formatStockQuantity(log.zohoQtyAtAudit, product.unit)}
@@ -208,6 +374,8 @@ export const ProductAuditHistory: React.FC<{
           </tbody>
         </table>
       </div>
+
+      {movementsModal}
     </div>
   );
 };

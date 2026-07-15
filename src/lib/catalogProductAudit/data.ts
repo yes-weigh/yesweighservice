@@ -11,6 +11,7 @@ import type {
   CatalogProductAuditLog,
   CatalogProductAuditSnapshot,
   CatalogProductAuditTrigger,
+  CatalogProductStockMovementsResult,
 } from '../../types/catalog-product-audit';
 import { getOpenAuditCycle } from '../auditCycles/data';
 import { getItem } from '../yesStore/data';
@@ -118,4 +119,21 @@ export async function refreshHeadOfficeAuditSnapshot(
   const openCycle = await getOpenAuditCycle('head_office');
   if (!openCycle?.id) return null;
   return recordCatalogProductAudit(id, 'warehouse_count', openCycle.id);
+}
+
+/** Zoho invoices / bills / credit notes / adjustments with createdAt ≤ until. */
+export async function fetchCatalogProductStockMovements(
+  catalogProductId: string,
+  until: string,
+): Promise<CatalogProductStockMovementsResult> {
+  const callable = httpsCallable<
+    { catalogProductId: string; until: string },
+    CatalogProductStockMovementsResult
+  >(functions, 'getCatalogProductStockMovements', { timeout: 120_000 });
+
+  const result = await callable({
+    catalogProductId: String(catalogProductId ?? '').trim(),
+    until: String(until ?? '').trim(),
+  });
+  return result.data;
 }

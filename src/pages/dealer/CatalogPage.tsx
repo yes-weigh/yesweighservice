@@ -84,6 +84,7 @@ import {
   buildSpareNavState,
   clearSpareReturnFocus,
   peekSpareReturnFocus,
+  rememberSpareReturnFocus,
   type CatalogNavState,
   type SpareCatalogViewMode,
   type SpareListFiltersSnapshot,
@@ -197,6 +198,7 @@ export const CatalogPage: React.FC = () => {
   const [spareViewMode, setSpareViewMode] = useState<SpareCatalogViewMode>('items');
   const [spareQrScannerOpen, setSpareQrScannerOpen] = useState(false);
   const [highlightProductId, setHighlightProductId] = useState<string | null>(null);
+  const [highlightAuditItemId, setHighlightAuditItemId] = useState<string | null>(null);
   const [highlightRackId, setHighlightRackId] = useState<string | null>(null);
   const [productCatalogFilters, setProductCatalogFilters] = useState<Set<CategorizedProductFilter>>(() => new Set());
   const [productStockStatusFilters, setProductStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
@@ -1002,6 +1004,7 @@ export const CatalogPage: React.FC = () => {
       setSpareViewMode('items');
       setSpareQrScannerOpen(false);
       setHighlightProductId(null);
+      setHighlightAuditItemId(null);
       setHighlightRackId(null);
       spareReturnAppliedRef.current = false;
     }
@@ -1036,11 +1039,13 @@ export const CatalogPage: React.FC = () => {
     const stored = peekSpareReturnFocus();
     const hasReturn = Boolean(
       navState?.focusProductId
+      || navState?.focusAuditItemId
       || navState?.spareViewMode
       || navState?.focusRackId
       || navState?.spareFilters
       || navState?.searchQuery
       || stored?.productId
+      || stored?.auditItemId
       || stored?.spareFilters
       || stored?.searchQuery,
     );
@@ -1048,6 +1053,7 @@ export const CatalogPage: React.FC = () => {
 
     spareReturnAppliedRef.current = true;
     const productId = navState?.focusProductId ?? stored?.productId ?? null;
+    const auditItemId = navState?.focusAuditItemId ?? stored?.auditItemId ?? null;
     const viewMode: SpareCatalogViewMode = navState?.spareViewMode
       ?? stored?.viewMode
       ?? (navState?.origin === 'spares-rack' || stored?.origin === 'spares-rack' ? 'rack' : 'items');
@@ -1064,11 +1070,15 @@ export const CatalogPage: React.FC = () => {
     if (productId) {
       setHighlightProductId(productId);
       window.setTimeout(() => setHighlightProductId(null), 5000);
+    } else if (auditItemId) {
+      setHighlightAuditItemId(auditItemId);
+      window.setTimeout(() => setHighlightAuditItemId(null), 5000);
     }
     clearSpareReturnFocus();
 
     if (
       navState?.focusProductId
+      || navState?.focusAuditItemId
       || navState?.spareViewMode
       || navState?.focusRackId
       || navState?.spareFilters
@@ -1157,6 +1167,24 @@ export const CatalogPage: React.FC = () => {
       }),
     });
   }, [navigate, pathname, spareParts, searchQuery, spareListFiltersSnapshot]);
+
+  const openUnlinkedFromRack = useCallback((itemId: string, rackId: string) => {
+    rememberSpareReturnFocus({
+      auditItemId: itemId,
+      origin: 'spares-rack',
+      viewMode: 'rack',
+      rackId,
+      searchQuery: searchQuery.trim() || undefined,
+      spareFilters: spareListFiltersSnapshot(),
+    });
+    navigate(`${pathname}/inventory-audit/${itemId}`, {
+      state: {
+        fromSpareRack: true,
+        focusRackId: rackId,
+        focusAuditItemId: itemId,
+      },
+    });
+  }, [navigate, pathname, searchQuery, spareListFiltersSnapshot]);
 
   const openSpareFromFilteredList = useCallback((product: CatalogProduct) => {
     navigate(`${pathname}/spare/${product.id}`, {
@@ -1892,8 +1920,10 @@ export const CatalogPage: React.FC = () => {
               catalogByProductId={spareCatalogByProductId}
               loading={auditLoading}
               highlightedProductId={highlightProductId}
+              highlightedAuditItemId={highlightAuditItemId}
               initialRackId={highlightRackId}
               onSkuClick={openSpareFromRack}
+              onUnlinkedClick={openUnlinkedFromRack}
             />
           ) : (
             <CatalogBrowse

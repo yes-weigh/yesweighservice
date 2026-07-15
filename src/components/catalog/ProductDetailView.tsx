@@ -643,9 +643,13 @@ export const ProductDetailView: React.FC<{
 
   const auditedLiveMismatch = useMemo(() => {
     if (!showAuditedStock || detailOpenCycles.length === 0) return false;
-    if (summaryAuditedQty == null || livePhysicalQty == null) return false;
-    return summaryAuditedQty !== livePhysicalQty;
-  }, [showAuditedStock, detailOpenCycles.length, summaryAuditedQty, livePhysicalQty]);
+    if (livePhysicalQty == null || !product?.auditSnapshot) return false;
+    // Compare live bins to last physical site totals (not Zoho-adjusted Audited).
+    const snap = product.auditSnapshot;
+    const warehouseFrozen =
+      Number(snap.headOfficeQtyAtAudit ?? 0) + Number(snap.cochinQtyAtAudit ?? 0);
+    return livePhysicalQty !== warehouseFrozen;
+  }, [showAuditedStock, detailOpenCycles.length, livePhysicalQty, product?.auditSnapshot]);
 
   const handleRefreshAuditedFromLocations = useCallback(async () => {
     if (!product || auditRefreshBusy) return;
@@ -2068,13 +2072,15 @@ export const ProductDetailView: React.FC<{
                   ))}
                   {zohoMovedDuringOpenCycle && (
                     <p className="product-detail-page__audit-cycle-warn text-sm">
-                      Zoho stock changed since the last physical count. Diff uses frozen audited qty vs current Zoho.
+                      Zoho stock changed since the last physical count. Diff stays locked; Audited tracks Zoho.
                     </p>
                   )}
                   {auditedLiveMismatch && canEditHeadOffice && (
                     <div className="product-detail-page__audit-cycle-refresh">
                       <p className="product-detail-page__audit-cycle-warn text-sm">
-                        Live locations ({livePhysicalQty}) differ from audited ({summaryAuditedQty}).
+                        Live locations ({livePhysicalQty}) differ from the last warehouse count
+                        ({Number(product?.auditSnapshot?.headOfficeQtyAtAudit ?? 0)
+                          + Number(product?.auditSnapshot?.cochinQtyAtAudit ?? 0)}).
                         Bins were linked or changed after the last count refresh.
                       </p>
                       <button

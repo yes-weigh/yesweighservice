@@ -3,13 +3,13 @@ import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-au
 export interface AdjustedAuditDisplay {
   hasAuditSnapshot: boolean;
   /**
-   * Frozen physical count from the last physical audit cycle.
-   * Does not move when Zoho stock changes between cycles.
+   * Audited stock that tracks Zoho while Diff stays locked:
+   * currentZoho + baselineDifference.
    */
   displayAuditedQty: number | null;
   /**
-   * Live Diff vs current Zoho: frozenPhysical − currentZoho.
-   * Moves as Zoho sells/buys between cycles.
+   * Locked Diff from the last physical count (baselineDifference).
+   * Does not move when Zoho stock changes between counts.
    */
   displayDifference: number | null;
   physicalQtyAtAudit: number | null;
@@ -17,7 +17,7 @@ export interface AdjustedAuditDisplay {
   /** Last physical count time (not Zoho sync). */
   lastAuditedAt: string | null;
   lastAuditedByName: string | null;
-  /** Diff recorded at last physical audit (historical). */
+  /** Diff recorded at last physical audit (locked). */
   baselineDifference: number | null;
   /** Live physical count from bins/sites. */
   livePhysicalQty: number | null;
@@ -25,8 +25,8 @@ export interface AdjustedAuditDisplay {
 }
 
 /**
- * Summary Audited stays at the last physical count.
- * Diff vs Zoho updates as book stock moves between audit cycles.
+ * Diff stays locked at the last physical count.
+ * Audited moves with current Zoho: Audited = Zoho + locked Diff.
  */
 export function resolveAdjustedAuditDisplay(input: {
   currentZohoQty: number | null;
@@ -55,8 +55,12 @@ export function resolveAdjustedAuditDisplay(input: {
     };
   }
 
-  const displayAuditedQty = Number(snapshot.physicalQtyAtAudit ?? 0);
-  const displayDifference = displayAuditedQty - currentZohoQty;
+  const baselineDifference = Number(snapshot.baselineDifference);
+  const lockedDiff = Number.isFinite(baselineDifference)
+    ? baselineDifference
+    : Number(snapshot.physicalQtyAtAudit ?? 0) - Number(snapshot.zohoQtyAtAudit ?? 0);
+  const displayDifference = lockedDiff;
+  const displayAuditedQty = currentZohoQty + lockedDiff;
   const lastPhysicalAt = snapshot.lastPhysicalAuditedAt ?? snapshot.lastAuditedAt;
   const lastPhysicalBy = snapshot.lastPhysicalAuditedByName ?? snapshot.lastAuditedByName;
 
@@ -68,7 +72,7 @@ export function resolveAdjustedAuditDisplay(input: {
     zohoQtyAtAudit: snapshot.zohoQtyAtAudit,
     lastAuditedAt: lastPhysicalAt,
     lastAuditedByName: lastPhysicalBy,
-    baselineDifference: snapshot.baselineDifference,
+    baselineDifference: lockedDiff,
     livePhysicalQty,
     lastAuditCycleId: snapshot.lastAuditCycleId ?? null,
   };
