@@ -17,6 +17,7 @@ import {
   Printer,
   ScanLine,
   Search,
+  Share2,
   Trash2,
   X,
 } from 'lucide-react';
@@ -38,6 +39,7 @@ import {
   SHIPMENT_MODES,
   bookStepProgressIndex,
   computeVolumetricWeight,
+  draftBoxesHaveRequiredPhotos,
   emptyBookingDraft,
   emptyShipmentBoxDraft,
   parseCourierBarcode,
@@ -58,9 +60,11 @@ import {
   formatShippingBookingTime,
 } from '../../lib/shippingLabel';
 import {
-  tryPrintCourierLabelThermal,
-  tryPrintShippingLabelsThermal,
-} from '../../lib/logisticsLabelPrint';
+  buildCourierSlipFromDraft,
+  buildCourierSlipPngBlob,
+  shareCourierSlipImage,
+} from '../../lib/courierSlipImage';
+import { tryPrintShippingLabelsThermal } from '../../lib/logisticsLabelPrint';
 import type { User } from '../../types';
 import type { ZohoDealer } from '../../types/dealers';
 import type {
@@ -274,20 +278,6 @@ function printLabelElements(elements: Array<HTMLElement | null>, title: string):
   }, 250);
 }
 
-function printLabelElement(element: HTMLElement | null, title: string): void {
-  printLabelElements([element], title);
-}
-
-function barcodeBars(seed: string): number[] {
-  const chars = seed || 'YESWEIGH';
-  const bars: number[] = [];
-  for (let i = 0; i < 42; i += 1) {
-    const code = chars.charCodeAt(i % chars.length) + i;
-    bars.push(1 + (code % 3));
-  }
-  return bars;
-}
-
 function boxVolumetric(box: ShipmentBoxDraft): number {
   return computeVolumetricWeight(
     box.lengthCm ? Number.parseFloat(box.lengthCm) : null,
@@ -365,7 +355,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   onDraftSaved,
   onDraftUpdated,
 }) => {
-  const [step, setStep] = useState<BookCourierStep>(initialStep);
+  const [step, setStep] = useState<BookCourierStep>(() => {
+    const boxes = initialDraft?.boxes?.length
+      ? initialDraft.boxes
+      : emptyBookingDraft(partnerId).boxes;
+    if (draftBoxesHaveRequiredPhotos(boxes)) return initialStep;
+    if (initialStep === 'review' || initialStep === 'label' || initialStep === 'final_photo') {
+      return 'box';
+    }
+    return initialStep;
+  });
   const [draft, setDraft] = useState<LogisticsBookingDraft>(() => ({
     ...emptyBookingDraft(partnerId),
     ...initialDraft,
@@ -392,8 +391,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   });
   const shipFromRef = useRef<HTMLDivElement>(null);
   const shippingLabelRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const courierLabelRef = useRef<HTMLDivElement>(null);
   const finalPhotoCaptureInputRef = useRef<HTMLInputElement>(null);
+  const [courierSlipPreviewUrl, setCourierSlipPreviewUrl] = useState<string | null>(null);
+  const [sharingCourierSlip, setSharingCourierSlip] = useState(false);
+  const [courierSlipError, setCourierSlipError] = useState('');
 
   const selectedDealer = useMemo<LogisticsDealerSnapshot | null>(() => {
     const dealer = dealers.find(item => item.id === draft.zohoCustomerId);
@@ -640,6 +641,30 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         });
         draftBookingIdRef.current = saved.id;
         setDraftBookingId(saved.id);
+        // Keep local photo storagePaths in sync so later saves / reopen keep images.
+        setDraft(prev => ({
+          ...prev,
+          boxes: prev.boxes.map(box => {
+            const savedBox = saved.boxes.find(item => item.id === box.id);
+            if (!savedBox?.photos.length) return box;
+            return {
+              ...box,
+              photos: box.photos.map((photo, index) => {
+                const savedPhoto = savedBox.photos[index]
+                  ?? savedBox.photos.find(item => item.storagePath && item.storagePath === photo.storagePath);
+                if (!savedPhoto) return photo;
+                return {
+                  ...photo,
+                  storagePath: savedPhoto.storagePath || photo.storagePath,
+                  url: photo.url || savedPhoto.url || '',
+                };
+              }),
+            };
+          }),
+          finalPackagePhoto: prev.finalPackagePhoto?.startsWith('data:')
+            ? prev.finalPackagePhoto
+            : (saved.finalPackagePhoto ?? prev.finalPackagePhoto),
+        }));
         if (options?.close) {
           onDraftSaved?.(saved);
         } else {
@@ -695,11 +720,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const isEnvelope = draft.shipmentMode === 'envelope';
   const canProceedScan = Boolean(draft.barcodeRaw.trim() || draft.consignmentNo.trim());
-  const boxesValid = draft.boxes.length > 0 && draft.boxes.every(box => {
-    const hasInsidePhoto = box.photos.length > 0;
-    if (isEnvelope) return hasInsidePhoto;
-    return hasInsidePhoto && (Number.parseFloat(box.weightKg) || 0) > 0;
-  });
+  const boxesValid = draftBoxesHaveRequiredPhotos(draft.boxes)
+    && draft.boxes.every(box => {
+      if (isEnvelope) return true;
+      return (Number.parseFloat(box.weightKg) || 0) > 0;
+    });
   const canProceedBox = boxesValid;
   const showDraftStatus = Boolean(selectedDealer) && isAutoDraftStep(step);
   const totalActualWeight = draft.boxes.reduce(
@@ -777,44 +802,64 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     updateDraft('labelGenerated', true);
   }, [shippingLabels, updateDraft]);
 
-  const handlePrintCourierLabel = useCallback(async () => {
-    if (!selectedDealer) return;
-    const deliveryAddress = resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind);
-    try {
-      const thermal = await tryPrintCourierLabelThermal({
-        partnerLabel: logisticsPartnerLabel(partnerId),
-        consignmentNo: draft.consignmentNo.trim() || '—',
-        deliverToName: selectedDealer.name,
-        deliverToAddress: deliveryAddress,
-        serviceType: draft.serviceType,
-        branch: draft.branch,
-        pieces: isEnvelope ? '1' : String(draft.boxes.length),
-        weightKg: totalActualWeight,
-      });
-      if (thermal.usedThermal) {
-        updateDraft('labelGenerated', true);
-        return;
-      }
-    } catch (err) {
-      const fallback = window.confirm(
-        `${err instanceof Error ? err.message : 'Thermal print failed.'}\n\nPrint with the system dialog instead?`,
-      );
-      if (!fallback) return;
-    }
-    printLabelElement(courierLabelRef.current, 'Courier label');
-    updateDraft('labelGenerated', true);
+  const courierSlip = useMemo(() => {
+    if (!selectedDealer) return null;
+    return buildCourierSlipFromDraft({
+      partnerId,
+      draft,
+      dealer: selectedDealer,
+      deliveryAddress: resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind),
+      piecesLabel: isEnvelope ? '1 envelope' : `${draft.boxes.length} box(es)`,
+      weightKg: totalChargeableWeight || totalActualWeight,
+    });
   }, [
     selectedDealer,
-    draft.deliveryAddressKind,
-    draft.consignmentNo,
-    draft.serviceType,
-    draft.branch,
-    draft.boxes.length,
     partnerId,
+    draft,
     isEnvelope,
+    totalChargeableWeight,
     totalActualWeight,
-    updateDraft,
   ]);
+
+  useEffect(() => {
+    if (!courierSlip || step !== 'label') {
+      setCourierSlipPreviewUrl(null);
+      return;
+    }
+    let active = true;
+    let objectUrl: string | null = null;
+    setCourierSlipError('');
+    void buildCourierSlipPngBlob(courierSlip)
+      .then(blob => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setCourierSlipPreviewUrl(objectUrl);
+      })
+      .catch(err => {
+        if (active) {
+          setCourierSlipError(err instanceof Error ? err.message : 'Could not build courier slip.');
+        }
+      });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [courierSlip, step]);
+
+  const handleShareCourierSlip = useCallback(async () => {
+    if (!courierSlip) return;
+    setSharingCourierSlip(true);
+    setCourierSlipError('');
+    try {
+      await shareCourierSlipImage(courierSlip);
+      updateDraft('labelGenerated', true);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      setCourierSlipError(err instanceof Error ? err.message : 'Share failed.');
+    } finally {
+      setSharingCourierSlip(false);
+    }
+  }, [courierSlip, updateDraft]);
 
   const goBack = () => {
     switch (step) {
@@ -1296,17 +1341,29 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       <span>{isEnvelope ? 'Envelope' : `Box ${boxIndex + 1}`}</span>
                     </div>
                   )))}
+                  {!draftBoxesHaveRequiredPhotos(draft.boxes) && (
+                    <p className="text-muted text-sm">No package photo yet. Add one on the Box step to continue.</p>
+                  )}
                 </div>
               </div>
 
-              <button
-                type="button"
-                className="btn btn-primary book-courier__next"
-                disabled={!boxesValid}
-                onClick={() => advanceTo('label')}
-              >
-                Next
-              </button>
+              {boxesValid ? (
+                <button
+                  type="button"
+                  className="btn btn-primary book-courier__next"
+                  onClick={() => advanceTo('label')}
+                >
+                  Next
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary book-courier__next"
+                  onClick={() => setStep('box')}
+                >
+                  Add package photo to continue
+                </button>
+              )}
             </section>
           )}
 
@@ -1317,7 +1374,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 Print <span className="accent">Labels</span>
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                One shipping label per box (100 × 150 mm). On the Android APK, Print sends to the logistics label printer; otherwise the system print dialog opens.
+                Print the shipping label on the logistics printer. The courier slip is a shareable image only — it is not sent to the label printer.
               </p>
 
               <div className="book-courier__label-grid">
@@ -1351,59 +1408,34 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
                 <article className="book-courier__label-card">
                   <header className="book-courier__label-card-head">
-                    <h4>Courier label</h4>
+                    <h4>Courier slip</h4>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      onClick={() => void handlePrintCourierLabel()}
+                      disabled={!courierSlip || sharingCourierSlip || !courierSlipPreviewUrl}
+                      onClick={() => void handleShareCourierSlip()}
                     >
-                      <Printer size={14} aria-hidden />
-                      Print
+                      <Share2 size={14} aria-hidden />
+                      {sharingCourierSlip ? 'Sharing…' : 'Share'}
                     </button>
                   </header>
-                  <div className="book-courier__label-preview">
-                    <div
-                      ref={courierLabelRef}
-                      className="sheet sheet--courier"
-                    >
-                      <div className="sheet__brand">
-                        <strong>{logisticsPartnerLabel(partnerId)}</strong>
-                        <span>Courier label</span>
-                      </div>
-                      <div className="sheet__track">
-                        <code>{draft.consignmentNo || '—'}</code>
-                        <div className="sheet__barcode" aria-hidden>
-                          {barcodeBars(`${partnerId}-${draft.consignmentNo}`).map((w, i) => (
-                            <i key={i} style={{ width: `${w}px` }} />
-                          ))}
-                        </div>
-                      </div>
-                      <p className="sheet__row">
-                        <strong>Deliver to</strong>
-                        {selectedDealer.name}
-                        {'\n'}
-                        {resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)}
-                      </p>
-                      <div className="sheet__meta">
-                        <div>
-                          <strong>Service</strong>
-                          {draft.serviceType || '—'}
-                        </div>
-                        <div>
-                          <strong>Branch</strong>
-                          {draft.branch || '—'}
-                        </div>
-                        <div>
-                          <strong>Pieces</strong>
-                          {isEnvelope ? '1' : String(draft.boxes.length)}
-                        </div>
-                        <div>
-                          <strong>Weight</strong>
-                          {totalActualWeight.toFixed(2)} kg
-                        </div>
-                      </div>
-                    </div>
+                  <div className="book-courier__label-preview book-courier__slip-preview">
+                    {courierSlipError && (
+                      <p className="book-courier__slip-error">{courierSlipError}</p>
+                    )}
+                    {courierSlipPreviewUrl ? (
+                      <img
+                        src={courierSlipPreviewUrl}
+                        alt="Courier slip"
+                        className="book-courier__slip-image"
+                      />
+                    ) : (
+                      <p className="text-muted text-sm">Preparing courier slip…</p>
+                    )}
                   </div>
+                  <p className="book-courier__hint text-muted text-sm">
+                    Share via WhatsApp or any app — not printed from the label printer.
+                  </p>
                 </article>
               </div>
 
@@ -1426,7 +1458,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 Capture <span className="accent">Outer</span> Package Photo
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                Use the camera to capture proof that the courier label is pasted correctly on the package.
+                Use the camera to capture proof that the shipping label is pasted correctly on the package.
                 GPS and time are stamped on the photo automatically.
               </p>
 

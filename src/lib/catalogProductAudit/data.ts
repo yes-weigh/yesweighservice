@@ -103,10 +103,19 @@ export async function recordCatalogProductAuditForYesStoreItem(
   const item = await getItem(itemId);
   const catalogProductId = item?.catalogProductId?.trim();
   if (!catalogProductId) return null;
+  return refreshHeadOfficeAuditSnapshot(catalogProductId);
+}
+
+/**
+ * Recompute frozen Audited stock from current linked bins (open HO cycle required).
+ * Call after link/unlink/qty edits so long-running cycles stay accurate.
+ */
+export async function refreshHeadOfficeAuditSnapshot(
+  catalogProductId: string,
+): Promise<{ log: CatalogProductAuditLog; skipped: boolean } | null> {
+  const id = String(catalogProductId ?? '').trim();
+  if (!id) return null;
   const openCycle = await getOpenAuditCycle('head_office');
-  return recordCatalogProductAudit(
-    catalogProductId,
-    'warehouse_count',
-    openCycle?.id ?? null,
-  );
+  if (!openCycle?.id) return null;
+  return recordCatalogProductAudit(id, 'warehouse_count', openCycle.id);
 }

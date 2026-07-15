@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ExternalLink, FileText, MapPin, Package, Printer, Truck } from 'lucide-react';
+import { Check, ExternalLink, MapPin, Package, Printer, Share2, Truck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
@@ -17,7 +17,11 @@ import {
   shippingLabelFileName,
 } from '../../lib/logisticsBooking';
 import { canDeleteLogisticsBooking, generateLogisticsDocument } from '../../lib/logisticsBookings';
-import { openCourierSlipWindow, openShippingLabelWindow } from '../../lib/logisticsDocuments';
+import {
+  buildCourierSlipFromBooking,
+  shareCourierSlipImage,
+} from '../../lib/courierSlipImage';
+import { openShippingLabelWindow } from '../../lib/logisticsDocuments';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import type {
   LogisticsBooking,
@@ -62,7 +66,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
   const handleGenerateDocument = async (document: LogisticsDocumentType) => {
     if (document === 'courier_slip') {
-      openCourierSlipWindow(booking, false);
+      try {
+        await shareCourierSlipImage(buildCourierSlipFromBooking(booking));
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        window.alert(err instanceof Error ? err.message : 'Could not share courier slip.');
+        return;
+      }
     } else {
       openShippingLabelWindow(booking, false);
     }
@@ -249,10 +259,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               onClick={() => void handleGenerateDocument('courier_slip')}
               disabled={generating !== null}
             >
-              <FileText size={14} aria-hidden />
+              <Share2 size={14} aria-hidden />
               {booking.courierSlipGenerated
-                ? 'Reprint courier slip'
-                : generating === 'courier_slip' ? 'Generating…' : 'Generate courier slip'}
+                ? 'Share courier slip again'
+                : generating === 'courier_slip' ? 'Sharing…' : 'Share courier slip'}
             </button>
             <button
               type="button"

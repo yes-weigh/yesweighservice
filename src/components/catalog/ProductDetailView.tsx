@@ -78,6 +78,7 @@ import { ProductOpenNcTile } from './ProductOpenNcTile';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { listOpenAuditCycles } from '../../lib/auditCycles/data';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
+import { refreshHeadOfficeAuditSnapshot } from '../../lib/catalogProductAudit/data';
 import { getCatalogProductNc } from '../../lib/catalogNc/data';
 import type { AuditCycleDoc } from '../../types/audit-cycle';
 import { auditCycleSiteLabel } from '../../types/audit-cycle';
@@ -252,6 +253,8 @@ export const ProductDetailView: React.FC<{
   const [titleInView, setTitleInView] = useState(true);
   const [printLabelFields, setPrintLabelFields] = useState<BinLabelFields | null>(null);
   const [whatsappShareOpen, setWhatsappShareOpen] = useState(false);
+  const [auditRefreshBusy, setAuditRefreshBusy] = useState(false);
+  const [auditRefreshError, setAuditRefreshError] = useState<string | null>(null);
 
   const scrolledHeaderTitle = useMemo(() => {
     if (variant !== 'app' || titleInView || !product) return null;
@@ -637,6 +640,35 @@ export const ProductDetailView: React.FC<{
     activeInventorySites,
     product?.unit,
   ]);
+
+  const auditedLiveMismatch = useMemo(() => {
+    if (!showAuditedStock || detailOpenCycles.length === 0) return false;
+    if (summaryAuditedQty == null || livePhysicalQty == null) return false;
+    return summaryAuditedQty !== livePhysicalQty;
+  }, [showAuditedStock, detailOpenCycles.length, summaryAuditedQty, livePhysicalQty]);
+
+  const handleRefreshAuditedFromLocations = useCallback(async () => {
+    if (!product || auditRefreshBusy) return;
+    setAuditRefreshBusy(true);
+    setAuditRefreshError(null);
+    try {
+      const result = await refreshHeadOfficeAuditSnapshot(product.id);
+      if (!result) {
+        setAuditRefreshError('No open Head Office audit cycle — counting is locked.');
+        return;
+      }
+      const detail = await fetchCatalogProductDetail(product.id);
+      setProduct(detail);
+      const items = await listItemsByCatalogProduct(product.id);
+      setAuditItems(items);
+    } catch (err) {
+      setAuditRefreshError(
+        err instanceof Error ? err.message : 'Could not refresh audited stock.',
+      );
+    } finally {
+      setAuditRefreshBusy(false);
+    }
+  }, [product, auditRefreshBusy]);
 
   const scrollToNcSection = useCallback((lineId?: string | null) => {
     setNcFocusLineId(lineId ?? null);
@@ -2038,6 +2070,25 @@ export const ProductDetailView: React.FC<{
                     <p className="product-detail-page__audit-cycle-warn text-sm">
                       Zoho stock changed since the last physical count. Diff uses frozen audited qty vs current Zoho.
                     </p>
+                  )}
+                  {auditedLiveMismatch && canEditHeadOffice && (
+                    <div className="product-detail-page__audit-cycle-refresh">
+                      <p className="product-detail-page__audit-cycle-warn text-sm">
+                        Live locations ({livePhysicalQty}) differ from audited ({summaryAuditedQty}).
+                        Bins were linked or changed after the last count refresh.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={auditRefreshBusy}
+                        onClick={() => void handleRefreshAuditedFromLocations()}
+                      >
+                        {auditRefreshBusy ? 'Updating…' : 'Update audited from locations'}
+                      </button>
+                      {auditRefreshError && (
+                        <p className="text-sm product-detail-page__audit-cycle-warn">{auditRefreshError}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

@@ -23,7 +23,9 @@ import { isInternalOpsUser } from './staffAccess';
 import { resolveDeliveryAddress } from './logisticsDealers';
 import {
   computeVolumetricWeight,
+  draftBoxesHaveRequiredPhotos,
   statusForDocument,
+  type BookCourierStep,
 } from './logisticsBooking';
 import {
   dataUrlToFile,
@@ -38,6 +40,7 @@ import type {
   LogisticsDealerSnapshot,
   LogisticsDocumentType,
   ShipmentBox,
+  ShipmentBoxDraft,
 } from '../types/logistics-dispatch';
 import { isStaffLogisticsSite } from '../types/staff-logistics';
 
@@ -467,6 +470,14 @@ export async function persistLogisticsBookingDraft(
       || 'YESWEIGH';
     const labelsPrinted = Boolean(draft.labelGenerated);
 
+    const photosReady = boxes.every(box => box.photos.length > 0);
+    const storedWizardStep = (
+      (wizardStep === 'review' || wizardStep === 'label' || wizardStep === 'final_photo')
+      && !photosReady
+    )
+      ? 'box'
+      : (wizardStep ?? 'box');
+
     const payload: Record<string, unknown> = {
       orderRef,
       source: draft.source,
@@ -519,7 +530,7 @@ export async function persistLogisticsBookingDraft(
       shippingLabelGenerated: labelsPrinted,
       packingSlipGenerated: false,
       status: 'draft',
-      wizardStep: wizardStep ?? 'box',
+      wizardStep: storedWizardStep,
       createdAt,
       updatedAt: now,
       createdByUid: existingCreatedByUid || createdBy.uid,
@@ -628,16 +639,28 @@ export function bookingToWizardState(booking: LogisticsBooking): {
         widthCm: box.widthCm == null ? '' : String(box.widthCm),
         heightCm: box.heightCm == null ? '' : String(box.heightCm),
         weightKg: box.weightKg ? String(box.weightKg) : '',
-        photos: box.photos.map((photo, index) => ({
-          id: `saved-${box.id}-${index}`,
-          url: photo.url || '',
-          storagePath: photo.storagePath,
-        })),
+        photos: box.photos
+          .filter(photo => Boolean(photo.storagePath || photo.url))
+          .map((photo, index) => ({
+            id: `saved-${box.id}-${index}`,
+            url: photo.url || '',
+            storagePath: photo.storagePath,
+          })),
       })),
       finalPackagePhoto: booking.finalPackagePhoto,
       labelGenerated: booking.labelGenerated,
     },
   };
+}
+
+/** If a draft was saved past Box without package photos, reopen on Box so Next works. */
+export function clampWizardStepForDraftPhotos(
+  step: BookCourierStep,
+  boxes: ReadonlyArray<Pick<ShipmentBoxDraft, 'photos'>>,
+): BookCourierStep {
+  if (draftBoxesHaveRequiredPhotos(boxes)) return step;
+  if (step === 'review' || step === 'label' || step === 'final_photo') return 'box';
+  return step;
 }
 
 export async function fetchLogisticsBooking(id: string): Promise<LogisticsBooking | null> {

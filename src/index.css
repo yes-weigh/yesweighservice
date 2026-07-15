@@ -13439,6 +13439,24 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-height: min(70vh, 640px);
 }
 
+.book-courier__slip-preview {
+  background: #0b0f17;
+}
+
+.book-courier__slip-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.book-courier__slip-error {
+  margin: 0 0 0.5rem;
+  color: #fca5a5;
+  font-size: 0.75rem;
+}
+
 .book-courier__label-preview .sheet {
   width: 100mm;
   height: 150mm;
@@ -14402,8 +14420,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   position: relative;
   width: min(100%, 28rem);
   max-height: 100dvh;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   background: #050505;
   color: #fff;
   display: flex;
@@ -14439,6 +14456,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .delivery-method-dialog__header {
   position: relative;
   z-index: 1;
+  flex-shrink: 0;
   display: grid;
   grid-template-columns: 2.25rem 1fr 2.25rem;
   align-items: center;
@@ -14518,6 +14536,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.32rem;
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.15rem;
 }
 
 .delivery-method-card {
@@ -14633,7 +14655,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .delivery-method-dialog__footer {
   position: relative;
-  z-index: 1;
+  z-index: 2;
+  flex-shrink: 0;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -14642,7 +14665,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   padding: 0.45rem 0.6rem;
   border: 2px solid #f97316;
   border-radius: 10px;
-  background: rgba(249, 115, 22, 0.06);
+  background: #0a0a0a;
+  box-shadow: 0 -8px 16px rgba(5, 5, 5, 0.85);
 }
 
 .delivery-method-dialog__footer-icon {
@@ -14663,11 +14687,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.6875rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .delivery-method-dialog__footer-copy span {
   font-size: 0.625rem;
+  line-height: 1.3;
   color: #cbd5e1;
+  overflow-wrap: anywhere;
 }
 
 .delivery-method-dialog__footer-box {
@@ -14678,6 +14706,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .delivery-method-dialog--form .courier-dialog__form {
   position: relative;
   z-index: 1;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 @media (min-width: 480px) {
@@ -27022,6 +27054,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .product-detail-page__audit-cycle-warn {
   margin: 0.35rem 0 0;
   color: #b45309;
+}
+
+.product-detail-page__audit-cycle-refresh {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 .wh-audit-cycle-badge {

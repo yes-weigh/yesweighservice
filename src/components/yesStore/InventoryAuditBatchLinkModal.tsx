@@ -3,6 +3,7 @@ import { Link2, X } from 'lucide-react';
 import { CatalogProductLinkPicker } from './CatalogProductLinkPicker';
 import { useAuth } from '../../context/AuthContext';
 import { batchLinkYesStoreItemsToCatalog } from '../../lib/yesStore/data';
+import { refreshHeadOfficeAuditSnapshot } from '../../lib/catalogProductAudit/data';
 import { syncCatalogAuditImagesToZoho } from '../../lib/yesStore/syncAuditImages';
 import { formatItemLocationShort, type YesStoreItemDoc } from '../../types/yes-store';
 import type { CatalogProduct } from '../../types/catalog';
@@ -38,6 +39,11 @@ export const InventoryAuditBatchLinkModal: React.FC<InventoryAuditBatchLinkModal
           user.uid,
           { linkedByName: user.displayName, mode: 'unit' },
         );
+        try {
+          await refreshHeadOfficeAuditSnapshot(selectedProduct.id);
+        } catch (auditErr) {
+          console.warn('Could not refresh audit snapshot after batch link:', auditErr);
+        }
         // Photo sync is slow — finish linking immediately and sync in background.
         void syncCatalogAuditImagesToZoho(selectedProduct.id).catch(err => {
           console.warn('Zoho audit photo sync failed after batch link:', err);

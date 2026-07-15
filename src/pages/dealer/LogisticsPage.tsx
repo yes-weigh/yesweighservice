@@ -16,11 +16,12 @@ import { isLogisticsPartnerId, logisticsPartnerLabel } from '../../constants/log
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { ENABLED_LOGISTICS_PARTNER_IDS, LOGISTICS_BOOKING_STATUSES } from '../../lib/logisticsBooking';
 import {
+  bookingToWizardState,
   canCreateLogisticsBooking,
   cancelLogisticsBooking,
+  clampWizardStepForDraftPhotos,
   deleteLogisticsBookingPermanently,
   fetchLogisticsBooking,
-  bookingToWizardState,
   subscribeLogisticsBookings,
   updateLogisticsBookingStatus,
   type LogisticsBookingListFilters,
@@ -136,11 +137,12 @@ export const LogisticsPage: React.FC = () => {
         ...wizard.draft,
         boxes: wizard.draft.boxes.length ? wizard.draft.boxes : [emptyShipmentBoxDraft()],
       };
-      const step = (
+      const rawStep = (
         ['scan', 'address', 'box', 'review', 'label', 'final_photo'] as BookCourierStep[]
       ).includes(wizard.step as BookCourierStep)
         ? wizard.step as BookCourierStep
         : 'box';
+      const step = clampWizardStepForDraftPhotos(rawStep, draft.boxes ?? []);
       setResumeBookingId(hydrated.id);
       setResumeDraft(draft);
       setResumeStep(step);

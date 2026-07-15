@@ -16,7 +16,7 @@ import { fetchCatalog, formatStockQuantity } from '../../lib/catalog';
 import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { getOpenAuditCycle } from '../../lib/auditCycles/data';
-import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
+import { recordCatalogProductAudit, refreshHeadOfficeAuditSnapshot } from '../../lib/catalogProductAudit/data';
 import { getItem, linkYesStoreItemToCatalog, listItemsByCatalogProduct, unlinkYesStoreItemFromCatalog } from '../../lib/yesStore/data';
 import { syncCatalogAuditImagesToZoho, reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import {
@@ -168,6 +168,12 @@ export const InventoryAuditItemPage: React.FC = () => {
         unitsPerProduct: linkMode === 'part' ? unitsPerProduct : 1,
         linkedByName: user.displayName,
       });
+      // Refresh frozen Audited qty from all linked bins (keeps long open cycles accurate).
+      try {
+        await refreshHeadOfficeAuditSnapshot(selectedProduct.id);
+      } catch (auditErr) {
+        console.warn('Could not refresh audit snapshot after link:', auditErr);
+      }
       // Photo sync can take minutes — don't block the UI.
       void syncCatalogAuditImagesToZoho(selectedProduct.id).catch(err => {
         console.warn('Zoho audit photo sync failed after link:', err);

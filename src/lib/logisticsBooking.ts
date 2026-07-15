@@ -55,6 +55,15 @@ export function emptyShipmentBoxDraft(): ShipmentBoxDraft {
   };
 }
 
+/** True when every package has at least one inside photo (url or stored path). */
+export function draftBoxesHaveRequiredPhotos(
+  boxes: ReadonlyArray<Pick<ShipmentBoxDraft, 'photos'>>,
+): boolean {
+  return boxes.length > 0 && boxes.every(box =>
+    box.photos.some(photo => Boolean(photo.storagePath?.trim() || photo.url?.trim())),
+  );
+}
+
 /** Per-box chargeable weight = max(actual, volumetric). */
 export function boxChargeableWeight(box: Pick<ShipmentBox, 'weightKg' | 'volumetricWeightKg'>): number {
   return Math.max(box.weightKg || 0, box.volumetricWeightKg || 0);
@@ -204,7 +213,7 @@ export function shippingLabelFileName(booking: LogisticsBooking): string {
 }
 
 export function courierSlipFileName(booking: LogisticsBooking): string {
-  return `courier-slip-${booking.orderRef}.html`;
+  return `courier-slip-${booking.orderRef}.png`;
 }
 
 export function chargeableWeight(booking: LogisticsBooking): number {
