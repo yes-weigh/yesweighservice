@@ -1033,6 +1033,195 @@ export async function addProductImage(productId, buffer, contentType, accessToke
   return { imageUrl: primaryUrl, imageUrls, imageDocs };
 }
 
+/**
+ * Replace a non-primary gallery image in place (same carousel slot).
+ * Deletes the old Zoho/Storage gallery doc, uploads a new one, keeps list order.
+ */
+export async function replaceGalleryImage(
+  productId,
+  documentId,
+  buffer,
+  contentType,
+  accessToken,
+  organizationId,
+) {
+  const id = String(productId ?? '').trim();
+  const targetId = String(documentId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+  if (!targetId) throw new Error('documentId is required.');
+
+  const type = String(contentType ?? 'image/jpeg').toLowerCase();
+  if (!ALLOWED_IMAGE_TYPES.has(type)) {
+    throw new Error('Unsupported image type. Use JPEG, PNG, WebP, or GIF.');
+  }
+  if (buffer.length > 5 * 1024 * 1024) {
+    throw new Error('Image must be 5 MB or smaller.');
+  }
+
+  const productRef = getFirestore().collection(PRODUCTS_COLLECTION).doc(id);
+  const existingSnap = await productRef.get();
+  const existingData = existingSnap.exists ? existingSnap.data() : {};
+  const existingDocs = normalizeImageDocs(existingData?.imageDocs);
+  const targetIndex = existingDocs.findIndex(doc => doc.documentId === targetId);
+  if (targetIndex < 0) throw new Error('Gallery image not found.');
+
+  const target = existingDocs[targetIndex];
+  const bucket = getStorage().bucket();
+
+  if (!targetId.startsWith('local_')) {
+    await deleteProductGalleryImagesFromZoho(accessToken, organizationId, id, [targetId]);
+  }
+  try {
+    await bucket.file(target.storagePath).delete({ ignoreNotFound: true });
+  } catch {
+    // Best-effort
+  }
+
+  let beforeIds = new Set(
+    existingDocs
+      .filter(doc => doc.documentId !== targetId)
+      .map(doc => doc.documentId),
+  );
+  try {
+    const beforeItem = await fetchZohoItemRaw(accessToken, organizationId, id);
+    beforeIds = new Set([...beforeIds, ...listZohoImageDocumentIds(beforeItem)]);
+  } catch {
+    // Best-effort
+  }
+
+  await uploadProductGalleryImagesToZoho(
+    accessToken,
+    organizationId,
+    id,
+    [{ buffer, contentType: type }],
+    { updatePrimary: false },
+  );
+
+  let nextDocumentId = '';
+  try {
+    const afterItem = await fetchZohoItemRaw(accessToken, organizationId, id);
+    const afterIds = listZohoImageDocumentIds(afterItem);
+    nextDocumentId = afterIds.find(docId => !beforeIds.has(docId)) || '';
+    if (!nextDocumentId && afterIds.length) {
+      nextDocumentId = afterIds[afterIds.length - 1];
+    }
+  } catch {
+    nextDocumentId = '';
+  }
+  if (!nextDocumentId) {
+    nextDocumentId = `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  const ext = type.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+  const storagePath = `catalog/products/${id}/gallery/${nextDocumentId}.${ext}`;
+  const file = bucket.file(storagePath);
+  await file.save(buffer, {
+    metadata: { contentType: type, cacheControl: 'public, max-age=31536000' },
+  });
+  await file.makePublic();
+
+  const now = new Date().toISOString();
+  const url = versionedPublicStorageUrl(bucket.name, storagePath, now);
+  const imageDocs = existingDocs.map((doc, index) => (
+    index === targetIndex
+      ? { documentId: nextDocumentId, url, storagePath }
+      : doc
+  ));
+  const primaryUrl = String(existingData?.imageUrl ?? '').trim() || null;
+  const imageUrls = primaryUrl
+    ? [primaryUrl, ...imageDocs.map(doc => doc.url)]
+    : imageDocs.map(doc => doc.url);
+
+  await productRef.set({
+    imageUrl: primaryUrl,
+    imageUrls,
+    imageDocs,
+    syncedAt: now,
+  }, { merge: true });
+
+  return { imageUrl: primaryUrl, imageUrls, imageDocs };
+}
+
+/** Promote a gallery image to primary (main catalog photo). */
+export async function promoteGalleryImageToPrimary(
+  productId,
+  documentId,
+  accessToken,
+  organizationId,
+) {
+  const id = String(productId ?? '').trim();
+  const targetId = String(documentId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+  if (!targetId) throw new Error('documentId is required.');
+
+  const productRef = getFirestore().collection(PRODUCTS_COLLECTION).doc(id);
+  const existingSnap = await productRef.get();
+  const existingData = existingSnap.exists ? existingSnap.data() : {};
+  const imageDocs = normalizeImageDocs(existingData?.imageDocs);
+  const targetIndex = imageDocs.findIndex(doc => doc.documentId === targetId);
+  if (targetIndex < 0) throw new Error('Gallery image not found.');
+
+  const target = imageDocs[targetIndex];
+  const rest = imageDocs.filter((_, index) => index !== targetIndex);
+  const bucket = getStorage().bucket();
+
+  let promotedBuffer = null;
+  let promotedType = 'image/jpeg';
+  try {
+    const [buf] = await bucket.file(target.storagePath).download();
+    promotedBuffer = buf;
+    const [meta] = await bucket.file(target.storagePath).getMetadata();
+    promotedType = String(meta?.contentType ?? 'image/jpeg');
+  } catch {
+    throw new Error('Could not read gallery image to promote.');
+  }
+
+  if (!targetId.startsWith('local_')) {
+    try {
+      await deleteProductGalleryImagesFromZoho(accessToken, organizationId, id, [targetId]);
+    } catch {
+      // Continue — primary upload still needed.
+    }
+  }
+  try {
+    await bucket.file(target.storagePath).delete({ ignoreNotFound: true });
+  } catch {
+    // Best-effort
+  }
+
+  // Temporarily clear the target from Firestore so uploadProductImage keeps only `rest`.
+  await productRef.set({
+    imageDocs: rest,
+    imageUrls: [
+      String(existingData?.imageUrl ?? '').trim(),
+      ...rest.map(doc => doc.url),
+    ].filter(Boolean),
+    syncedAt: new Date().toISOString(),
+  }, { merge: true });
+
+  const result = await uploadProductImage(
+    id,
+    promotedBuffer,
+    promotedType,
+    accessToken,
+    organizationId,
+  );
+
+  const imageUrls = [result.imageUrl, ...rest.map(doc => doc.url)].filter(Boolean);
+  await productRef.set({
+    imageUrl: result.imageUrl,
+    imageUrls,
+    imageDocs: rest,
+    syncedAt: new Date().toISOString(),
+  }, { merge: true });
+
+  return {
+    imageUrl: result.imageUrl,
+    imageUrls,
+    imageDocs: rest,
+  };
+}
+
 /** Zoho first, then Storage cleanup + Firestore cache. */
 export async function deleteProductImage(productId, accessToken, organizationId, options = {}) {
   const id = String(productId ?? '').trim();

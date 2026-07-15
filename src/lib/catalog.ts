@@ -1102,25 +1102,38 @@ export async function uploadCatalogCategoryThumbnail(
   }
 }
 
-/** Zoho + Firestore cache — replace primary or append gallery image. */
+/** Zoho + Firestore cache — replace primary/current gallery slot, append, or promote. */
 export async function uploadCatalogProductImage(
   productId: string,
-  file: File,
-  mode: 'replace' | 'add' = 'replace',
+  file: File | null,
+  mode: 'replace' | 'add' | 'promote' = 'replace',
+  options: { documentId?: string } = {},
 ): Promise<{ imageUrl: string | null; imageUrls: string[]; imageDocs?: CatalogProduct['imageDocs'] }> {
   const callable = httpsCallable<
-    { productId: string; contentType: string; imageBase64: string; mode: 'replace' | 'add' },
+    {
+      productId: string;
+      contentType?: string;
+      imageBase64?: string;
+      mode: 'replace' | 'add' | 'promote';
+      documentId?: string;
+    },
     { imageUrl: string | null; imageUrls?: string[]; imageDocs?: CatalogProduct['imageDocs'] }
   >(functions, 'uploadCatalogProductImage', { timeout: 120_000 });
 
   try {
-    const compressed = await compressImageForUpload(file);
-    const imageBase64 = await fileToBase64(compressed);
+    let contentType = 'image/jpeg';
+    let imageBase64: string | undefined;
+    if (mode !== 'promote') {
+      if (!file) throw new Error('Choose an image file.');
+      const compressed = await compressImageForUpload(file);
+      contentType = compressed.type || 'image/jpeg';
+      imageBase64 = await fileToBase64(compressed);
+    }
     const result = await callable({
       productId,
-      contentType: compressed.type || 'image/jpeg',
-      imageBase64,
       mode,
+      ...(imageBase64 ? { contentType, imageBase64 } : {}),
+      ...(options.documentId ? { documentId: options.documentId } : {}),
     });
     const syncedAt = Date.now();
     const imageUrl = withCatalogImageCacheBust(result.data.imageUrl, syncedAt) ?? result.data.imageUrl;

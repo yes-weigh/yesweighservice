@@ -8070,14 +8070,41 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: color-mix(in srgb, var(--cat-accent) 35%, #94a3b8);
 }
 
-.product-detail-page__image-actions {
+.product-detail-page__image-actions-wrap {
   position: absolute;
   right: 0.65rem;
   bottom: 0.65rem;
   z-index: 3;
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  max-width: calc(100% - 1.3rem);
+}
+
+.product-detail-page__image-actions-hint {
+  margin: 0;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: right;
+  max-width: 100%;
+}
+
+.product-detail-page__image-actions {
+  position: static;
+  right: auto;
+  bottom: auto;
+  z-index: 3;
+  display: flex;
   align-items: center;
   gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .product-detail-page__image-action {

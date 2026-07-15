@@ -436,21 +436,30 @@ export const uploadCatalogProductImage = onCall(
     const contentType = String(request.data?.contentType ?? 'image/jpeg').trim();
     const imageBase64 = String(request.data?.imageBase64 ?? '').trim();
     const modeRaw = String(request.data?.mode ?? 'replace').trim().toLowerCase();
-    const mode = modeRaw === 'add' ? 'add' : 'replace';
+    const mode = modeRaw === 'add' || modeRaw === 'promote' ? modeRaw : 'replace';
+    const documentId = String(request.data?.documentId ?? '').trim() || undefined;
 
-    if (!productId || !imageBase64) {
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+    if (mode !== 'promote' && !imageBase64) {
       throw new HttpsError('invalid-argument', 'productId and imageBase64 are required.');
     }
-
-    let buffer;
-    try {
-      buffer = Buffer.from(imageBase64, 'base64');
-    } catch {
-      throw new HttpsError('invalid-argument', 'Invalid image data.');
+    if (mode === 'promote' && !documentId) {
+      throw new HttpsError('invalid-argument', 'documentId is required to set a gallery photo as main.');
     }
 
-    if (!buffer.length) {
-      throw new HttpsError('invalid-argument', 'Empty image data.');
+    let buffer = Buffer.alloc(0);
+    if (mode !== 'promote') {
+      try {
+        buffer = Buffer.from(imageBase64, 'base64');
+      } catch {
+        throw new HttpsError('invalid-argument', 'Invalid image data.');
+      }
+
+      if (!buffer.length) {
+        throw new HttpsError('invalid-argument', 'Empty image data.');
+      }
     }
 
     const secrets = zohoSecrets();
@@ -465,6 +474,7 @@ export const uploadCatalogProductImage = onCall(
         accessToken,
         organizationId,
         mode,
+        { documentId },
       );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Product image upload failed.');

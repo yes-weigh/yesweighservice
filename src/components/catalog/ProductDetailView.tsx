@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Save,
   ShoppingCart,
+  Star,
   Tag,
   Trash2,
   Upload,
@@ -539,10 +540,23 @@ export const ProductDetailView: React.FC<{
     return urls;
   }, [product?.imageUrl, product?.imageUrls, warehousePhotoUrls]);
 
+  const productImageCount = useMemo(() => {
+    if (product?.imageUrls?.length) return product.imageUrls.length;
+    return product?.imageUrl?.trim() ? 1 : 0;
+  }, [product?.imageUrl, product?.imageUrls]);
+
+  // Reset carousel only when switching products — not after every upload/add.
   useEffect(() => {
     setActiveGalleryIndex(0);
     if (carouselRef.current) carouselRef.current.scrollLeft = 0;
-  }, [galleryUrls]);
+  }, [product?.id]);
+
+  useEffect(() => {
+    setActiveGalleryIndex(index => {
+      if (galleryUrls.length === 0) return 0;
+      return Math.min(index, galleryUrls.length - 1);
+    });
+  }, [galleryUrls.length]);
 
   const auditTotals = useMemo<InventoryAuditGroupTotals | null>(() => {
     if (!showAuditedStock || !product || auditItems.length === 0) return null;
@@ -843,6 +857,27 @@ export const ProductDetailView: React.FC<{
     }
   };
 
+  const applyImageResult = useCallback((
+    result: { imageUrl: string | null; imageUrls: string[]; imageDocs?: CatalogProduct['imageDocs'] },
+    focusIndex: number,
+  ) => {
+    const syncedAt = new Date().toISOString();
+    setProduct(prev => (prev ? {
+      ...prev,
+      imageUrl: result.imageUrl,
+      imageUrls: result.imageUrls,
+      imageDocs: result.imageDocs,
+      syncedAt,
+    } : prev));
+    const nextIndex = Math.max(0, Math.min(focusIndex, Math.max(0, result.imageUrls.length - 1)));
+    setActiveGalleryIndex(nextIndex);
+    window.requestAnimationFrame(() => {
+      const track = carouselRef.current;
+      if (!track) return;
+      track.scrollTo({ left: nextIndex * track.clientWidth, behavior: 'auto' });
+    });
+  }, []);
+
   const handleImagePick = async (
     event: React.ChangeEvent<HTMLInputElement>,
     mode: 'replace' | 'add' = 'replace',
@@ -854,16 +889,32 @@ export const ProductDetailView: React.FC<{
     setImageUploading(true);
     setImageError(null);
     try {
-      const result = await uploadCatalogProductImage(product.id, file, mode);
-      const syncedAt = new Date().toISOString();
-      setProduct(prev => (prev ? {
-        ...prev,
-        imageUrl: result.imageUrl,
-        imageUrls: result.imageUrls,
-        imageDocs: result.imageDocs,
-        syncedAt,
-      } : prev));
-      setActiveGalleryIndex(mode === 'add' ? Math.max(0, result.imageUrls.length - 1) : 0);
+      if (mode === 'add') {
+        const result = await uploadCatalogProductImage(product.id, file, 'add');
+        applyImageResult(result, Math.max(0, result.imageUrls.length - 1));
+        return;
+      }
+
+      // Replace the photo currently on screen (main or gallery slot).
+      const index = Math.min(activeGalleryIndex, Math.max(0, productImageCount - 1));
+      if (productImageCount === 0 || activeGalleryIndex >= productImageCount) {
+        const result = await uploadCatalogProductImage(product.id, file, 'replace');
+        applyImageResult(result, 0);
+        return;
+      }
+      if (index <= 0) {
+        const result = await uploadCatalogProductImage(product.id, file, 'replace');
+        applyImageResult(result, 0);
+        return;
+      }
+      const galleryDoc = product.imageDocs?.[index - 1];
+      if (!galleryDoc?.documentId) {
+        throw new Error('Could not find this gallery photo to replace.');
+      }
+      const result = await uploadCatalogProductImage(product.id, file, 'replace', {
+        documentId: galleryDoc.documentId,
+      });
+      applyImageResult(result, index);
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Could not upload image.');
     } finally {
@@ -871,16 +922,41 @@ export const ProductDetailView: React.FC<{
     }
   };
 
+  const handlePromoteCurrentImage = async () => {
+    if (!product || !productEditMode || !editImages) return;
+    if (activeGalleryIndex <= 0 || activeGalleryIndex >= productImageCount) return;
+    const galleryDoc = product.imageDocs?.[activeGalleryIndex - 1];
+    if (!galleryDoc?.documentId) {
+      setImageError('Could not find this gallery photo.');
+      return;
+    }
+
+    const ok = await confirm({
+      title: 'Set as main photo?',
+      message: 'This gallery photo becomes the main catalog image. The current main photo is replaced.',
+      confirmLabel: 'Set as main',
+    });
+    if (!ok) return;
+
+    setImageUploading(true);
+    setImageError(null);
+    try {
+      const result = await uploadCatalogProductImage(product.id, null, 'promote', {
+        documentId: galleryDoc.documentId,
+      });
+      applyImageResult(result, 0);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Could not set main photo.');
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
   const handleImageDelete = async () => {
     if (!product || !productEditMode || !editImages) return;
+    if (productImageCount <= 0 || activeGalleryIndex >= productImageCount) return;
 
-    const productUrlCount = (product.imageUrls?.length
-      ? product.imageUrls.length
-      : (product.imageUrl ? 1 : 0));
-    if (productUrlCount <= 0) return;
-
-    // Only delete product images (not warehouse audit slides appended after).
-    const index = Math.min(activeGalleryIndex, productUrlCount - 1);
+    const index = Math.min(activeGalleryIndex, productImageCount - 1);
     const isPrimary = index === 0;
     const galleryDoc = !isPrimary
       ? product.imageDocs?.[index - 1]
@@ -903,15 +979,8 @@ export const ProductDetailView: React.FC<{
         product.id,
         galleryDoc?.documentId ? { documentId: galleryDoc.documentId } : {},
       );
-      const syncedAt = new Date().toISOString();
-      setProduct(prev => (prev ? {
-        ...prev,
-        imageUrl: result.imageUrl,
-        imageUrls: result.imageUrls,
-        imageDocs: result.imageDocs,
-        syncedAt,
-      } : prev));
-      setActiveGalleryIndex(0);
+      const focusIndex = Math.min(index, Math.max(0, result.imageUrls.length - 1));
+      applyImageResult(result, focusIndex);
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Could not delete image.');
     } finally {
@@ -1454,92 +1523,131 @@ export const ProductDetailView: React.FC<{
                 <Package size={72} className="product-detail-page__placeholder" aria-hidden />
               )}
               {productEditMode && editImages && (
-                <div className="product-detail-page__image-actions">
-                  {galleryUrls.length > 0 && (
+                <div className="product-detail-page__image-actions-wrap">
+                  <p className="product-detail-page__image-actions-hint">
+                    {activeGalleryIndex < productImageCount
+                      ? `Photo ${activeGalleryIndex + 1}/${productImageCount} · Upload/Camera = replace · Add = new`
+                      : 'Warehouse photo · Add inserts a catalog photo'}
+                  </p>
+                  <div className="product-detail-page__image-actions">
+                    {galleryUrls.length > 0 && (
+                      <button
+                        type="button"
+                        className="product-detail-page__image-action"
+                        title="Download this photo"
+                        aria-label="Download this photo"
+                        disabled={imageBusy}
+                        onClick={() => void handleImageDownload()}
+                      >
+                        {imageDownloading
+                          ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                          : <Download size={18} aria-hidden />}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="product-detail-page__image-action"
-                      title="Download photo"
-                      aria-label="Download photo"
+                      title={
+                        productImageCount === 0 || activeGalleryIndex >= productImageCount
+                          ? 'Upload main photo'
+                          : activeGalleryIndex === 0
+                            ? 'Replace main photo'
+                            : 'Replace this photo'
+                      }
+                      aria-label={
+                        productImageCount === 0 || activeGalleryIndex >= productImageCount
+                          ? 'Upload main photo'
+                          : activeGalleryIndex === 0
+                            ? 'Replace main photo'
+                            : 'Replace this photo'
+                      }
                       disabled={imageBusy}
-                      onClick={() => void handleImageDownload()}
+                      onClick={() => imageInputRef.current?.click()}
                     >
-                      {imageDownloading
+                      {imageUploading
                         ? <RefreshCw size={18} className="spin-icon" aria-hidden />
-                        : <Download size={18} aria-hidden />}
+                        : <Upload size={18} aria-hidden />}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="product-detail-page__image-action"
-                    title="Replace main photo"
-                    aria-label="Replace main photo"
-                    disabled={imageBusy}
-                    onClick={() => imageInputRef.current?.click()}
-                  >
-                    {imageUploading
-                      ? <RefreshCw size={18} className="spin-icon" aria-hidden />
-                      : <Upload size={18} aria-hidden />}
-                  </button>
-                  <button
-                    type="button"
-                    className="product-detail-page__image-action"
-                    title="Add photo"
-                    aria-label="Add photo"
-                    disabled={imageBusy}
-                    onClick={() => addImageInputRef.current?.click()}
-                  >
-                    <ImagePlus size={18} aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    className="product-detail-page__image-action"
-                    title="Capture and add photo"
-                    aria-label="Capture and add photo"
-                    disabled={imageBusy}
-                    onClick={() => captureInputRef.current?.click()}
-                  >
-                    <Camera size={18} aria-hidden />
-                  </button>
-                  {galleryUrls.length > 0 && (
                     <button
                       type="button"
-                      className="product-detail-page__image-action product-detail-page__image-action--danger"
-                      title="Delete current photo"
-                      aria-label="Delete current photo"
+                      className="product-detail-page__image-action"
+                      title="Add new photo"
+                      aria-label="Add new photo"
                       disabled={imageBusy}
-                      onClick={() => void handleImageDelete()}
+                      onClick={() => addImageInputRef.current?.click()}
                     >
-                      {imageDeleting
-                        ? <RefreshCw size={18} className="spin-icon" aria-hidden />
-                        : <Trash2 size={18} aria-hidden />}
+                      <ImagePlus size={18} aria-hidden />
                     </button>
-                  )}
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    className="product-detail-page__image-input"
-                    aria-label="Replace main photo"
-                    onChange={e => void handleImagePick(e, 'replace')}
-                  />
-                  <input
-                    ref={addImageInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    className="product-detail-page__image-input"
-                    aria-label="Add photo"
-                    onChange={e => void handleImagePick(e, 'add')}
-                  />
-                  <input
-                    ref={captureInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="product-detail-page__image-input"
-                    aria-label="Capture and add photo"
-                    onChange={e => void handleImagePick(e, 'add')}
-                  />
+                    <button
+                      type="button"
+                      className="product-detail-page__image-action"
+                      title={
+                        productImageCount === 0 || activeGalleryIndex >= productImageCount
+                          ? 'Capture main photo'
+                          : 'Capture to replace this photo'
+                      }
+                      aria-label={
+                        productImageCount === 0 || activeGalleryIndex >= productImageCount
+                          ? 'Capture main photo'
+                          : 'Capture to replace this photo'
+                      }
+                      disabled={imageBusy}
+                      onClick={() => captureInputRef.current?.click()}
+                    >
+                      <Camera size={18} aria-hidden />
+                    </button>
+                    {activeGalleryIndex > 0 && activeGalleryIndex < productImageCount && (
+                      <button
+                        type="button"
+                        className="product-detail-page__image-action"
+                        title="Set as main photo"
+                        aria-label="Set as main photo"
+                        disabled={imageBusy}
+                        onClick={() => void handlePromoteCurrentImage()}
+                      >
+                        <Star size={18} aria-hidden />
+                      </button>
+                    )}
+                    {productImageCount > 0 && activeGalleryIndex < productImageCount && (
+                      <button
+                        type="button"
+                        className="product-detail-page__image-action product-detail-page__image-action--danger"
+                        title="Delete this photo"
+                        aria-label="Delete this photo"
+                        disabled={imageBusy}
+                        onClick={() => void handleImageDelete()}
+                      >
+                        {imageDeleting
+                          ? <RefreshCw size={18} className="spin-icon" aria-hidden />
+                          : <Trash2 size={18} aria-hidden />}
+                      </button>
+                    )}
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="product-detail-page__image-input"
+                      aria-label="Replace this photo"
+                      onChange={e => void handleImagePick(e, 'replace')}
+                    />
+                    <input
+                      ref={addImageInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="product-detail-page__image-input"
+                      aria-label="Add new photo"
+                      onChange={e => void handleImagePick(e, 'add')}
+                    />
+                    <input
+                      ref={captureInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="product-detail-page__image-input"
+                      aria-label="Capture to replace this photo"
+                      onChange={e => void handleImagePick(e, 'replace')}
+                    />
+                  </div>
                 </div>
               )}
             </div>

@@ -21,6 +21,8 @@ import {
   patchProductCategory,
   uploadProductImage,
   addProductImage,
+  replaceGalleryImage,
+  promoteGalleryImageToPrimary,
   deleteProductImage,
 } from './catalog-sync.js';
 
@@ -134,7 +136,7 @@ export async function mutateCatalogProductCategory(
   return { ok: true };
 }
 
-/** Upload/replace primary image, or append gallery image. */
+/** Upload/replace primary, replace gallery slot, append, or promote gallery → main. */
 export async function mutateCatalogProductImageUpload(
   productId,
   buffer,
@@ -142,9 +144,31 @@ export async function mutateCatalogProductImageUpload(
   accessToken,
   organizationId,
   mode = 'replace',
+  options = {},
 ) {
+  const documentId = String(options.documentId ?? '').trim();
+
   if (mode === 'add') {
     return addProductImage(productId, buffer, contentType, accessToken, organizationId);
+  }
+  if (mode === 'promote') {
+    if (!documentId) throw new Error('documentId is required to set a gallery photo as main.');
+    return promoteGalleryImageToPrimary(
+      productId,
+      documentId,
+      accessToken,
+      organizationId,
+    );
+  }
+  if (documentId) {
+    return replaceGalleryImage(
+      productId,
+      documentId,
+      buffer,
+      contentType,
+      accessToken,
+      organizationId,
+    );
   }
   return uploadProductImage(productId, buffer, contentType, accessToken, organizationId);
 }
