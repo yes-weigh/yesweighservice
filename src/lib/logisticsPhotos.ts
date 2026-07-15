@@ -18,7 +18,9 @@ export function logisticsPhotoStoragePath(
   slot: string,
   fileName: string,
 ): string {
-  return `logistics/${bookingId}/${slot}/${fileName}`;
+  // Flat path — matches storage.rules `logistics/{bookingId}/{fileName}`
+  const safeSlot = slot.replace(/[^\w\-]+/g, '-').slice(0, 80);
+  return `logistics/${bookingId}/${safeSlot}-${fileName}`;
 }
 
 export async function uploadLogisticsPhoto(

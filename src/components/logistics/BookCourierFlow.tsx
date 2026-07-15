@@ -371,6 +371,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     partnerId,
     boxes: initialDraft?.boxes?.length ? initialDraft.boxes : emptyBookingDraft(partnerId).boxes,
   }));
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [draftBookingId, setDraftBookingId] = useState<string | null>(existingBookingId);
   const draftBookingIdRef = useRef<string | null>(existingBookingId);
   draftBookingIdRef.current = draftBookingId;
@@ -623,7 +625,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     wizardStep: BookCourierStep,
     options?: { close?: boolean; draftOverride?: LogisticsBookingDraft },
   ): Promise<LogisticsBooking | null> => {
-    const draftToSave = options?.draftOverride ?? draft;
+    const draftToSave = options?.draftOverride ?? draftRef.current;
     if (!selectedDealer) {
       if (options?.close) onClose();
       return null;
@@ -641,12 +643,22 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         });
         draftBookingIdRef.current = saved.id;
         setDraftBookingId(saved.id);
-        // Keep local photo storagePaths in sync so later saves / reopen keep images.
+        // Keep local photos in sync with uploaded storage paths + download URLs.
         setDraft(prev => ({
           ...prev,
           boxes: prev.boxes.map(box => {
             const savedBox = saved.boxes.find(item => item.id === box.id);
             if (!savedBox?.photos.length) return box;
+            if (savedBox.photos.length >= box.photos.length || box.photos.every(p => !p.storagePath)) {
+              return {
+                ...box,
+                photos: savedBox.photos.map((photo, index) => ({
+                  id: box.photos[index]?.id ?? `saved-${box.id}-${index}`,
+                  url: photo.url || box.photos[index]?.url || '',
+                  storagePath: photo.storagePath,
+                })),
+              };
+            }
             return {
               ...box,
               photos: box.photos.map((photo, index) => {
@@ -656,14 +668,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 return {
                   ...photo,
                   storagePath: savedPhoto.storagePath || photo.storagePath,
-                  url: photo.url || savedPhoto.url || '',
+                  url: savedPhoto.url || photo.url || '',
                 };
               }),
             };
           }),
-          finalPackagePhoto: prev.finalPackagePhoto?.startsWith('data:')
-            ? prev.finalPackagePhoto
-            : (saved.finalPackagePhoto ?? prev.finalPackagePhoto),
+          finalPackagePhoto: saved.finalPackagePhoto
+            ?? (prev.finalPackagePhoto?.startsWith('data:') ? prev.finalPackagePhoto : prev.finalPackagePhoto),
         }));
         if (options?.close) {
           onDraftSaved?.(saved);
@@ -689,7 +700,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const queued = draftSaveChainRef.current.then(run, run);
     draftSaveChainRef.current = queued.then(() => undefined, () => undefined);
     return queued;
-  }, [draft, selectedDealer, user, onClose, onDraftSaved, onDraftUpdated]);
+  }, [selectedDealer, user, onClose, onDraftSaved, onDraftUpdated]);
 
   const requestClose = useCallback(() => {
     if (step === 'complete' || saving) {
@@ -697,21 +708,26 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       return;
     }
     if (isAutoDraftStep(step) && selectedDealer) {
-      void persistDraft(step, { close: true });
+      void persistDraft(step, { close: true, draftOverride: draftRef.current });
       return;
     }
     onClose();
   }, [step, saving, selectedDealer, persistDraft, onClose]);
 
-  const advanceTo = useCallback((
+  const advanceTo = useCallback(async (
     next: BookCourierStep,
     draftOverride?: LogisticsBookingDraft,
   ) => {
-    if (draftOverride) setDraft(draftOverride);
-    setStep(next);
-    if (selectedDealer && isAutoDraftStep(next)) {
-      void persistDraft(next, draftOverride ? { draftOverride } : undefined);
+    const nextDraft = draftOverride ?? draftRef.current;
+    if (draftOverride) {
+      draftRef.current = draftOverride;
+      setDraft(draftOverride);
     }
+    if (selectedDealer && isAutoDraftStep(next)) {
+      const saved = await persistDraft(next, { draftOverride: nextDraft });
+      if (!saved) return;
+    }
+    setStep(next);
   }, [selectedDealer, persistDraft]);
 
   const handleFinish = useCallback(() => {
@@ -1104,7 +1120,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                             <button
                               type="button"
                               className="btn btn-primary book-courier__address-next"
-                              onClick={() => advanceTo('box')}
+                              onClick={() => void advanceTo('box')}
                             >
                               Next
                             </button>
@@ -1230,10 +1246,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                disabled={!canProceedBox}
-                onClick={() => advanceTo('review')}
+                disabled={!canProceedBox || savingDraft}
+                onClick={() => void advanceTo('review')}
               >
-                Confirm &amp; Next
+                {savingDraft ? 'Saving photos…' : 'Confirm & Next'}
               </button>
             </section>
           )}
@@ -1351,7 +1367,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <button
                   type="button"
                   className="btn btn-primary book-courier__next"
-                  onClick={() => advanceTo('label')}
+                  onClick={() => void advanceTo('label')}
                 >
                   Next
                 </button>
@@ -1442,9 +1458,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                onClick={() => {
-                  advanceTo('final_photo', { ...draft, labelGenerated: true });
-                }}
+                  onClick={() => {
+                    void advanceTo('final_photo', { ...draftRef.current, labelGenerated: true });
+                  }}
               >
                 Next
               </button>

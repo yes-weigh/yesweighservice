@@ -389,6 +389,101 @@ function boxesWithoutNewUploads(draft: LogisticsBookingDraft): ShipmentBox[] {
   });
 }
 
+function draftHasPendingPhotoUploads(draft: LogisticsBookingDraft): boolean {
+  const pendingBoxes = draft.boxes.some(box =>
+    box.photos.some(photo => !photo.storagePath && Boolean(photo.url?.startsWith('data:'))),
+  );
+  const pendingFinal = Boolean(draft.finalPackagePhoto?.startsWith('data:'));
+  return pendingBoxes || pendingFinal;
+}
+
+/**
+ * Storage rules for logistics photos allow ops create without a booking doc,
+ * but reads (and some environments) expect the booking to exist first.
+ * Write a minimal draft stub before uploading new photos when creating.
+ */
+async function ensureDraftBookingStub(input: {
+  bookingRef: ReturnType<typeof doc>;
+  draft: LogisticsBookingDraft;
+  dealer: LogisticsDealerSnapshot;
+  createdBy: User;
+  createdAt: string;
+  existingOrderRef: string | null;
+  existingCreatedByUid: string | null;
+  existingCreatedByName: string | null;
+  isNew: boolean;
+}): Promise<void> {
+  if (!input.isNew) return;
+  const now = new Date().toISOString();
+  const orderRef = input.existingOrderRef
+    || input.draft.invoiceNumber
+    || input.draft.supportRequestNumber
+    || `ORD-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+  const createdByName = input.existingCreatedByName
+    || input.createdBy.displayName?.trim()
+    || input.createdBy.loginId?.trim()
+    || input.createdBy.email?.trim()
+    || 'YESWEIGH';
+  await setDoc(input.bookingRef, {
+    orderRef,
+    source: input.draft.source,
+    invoiceId: input.draft.invoiceId ?? null,
+    invoiceNumber: input.draft.invoiceNumber ?? null,
+    supportRequestId: input.draft.supportRequestId ?? null,
+    supportRequestNumber: input.draft.supportRequestNumber ?? null,
+    partnerId: input.draft.partnerId,
+    consignmentNo: input.draft.consignmentNo.trim(),
+    trackingNo: input.draft.consignmentNo.trim(),
+    branch: input.draft.branch.trim(),
+    serviceType: input.draft.serviceType.trim(),
+    bookingDate: input.draft.bookingDate || now.slice(0, 10),
+    zohoCustomerId: input.draft.zohoCustomerId,
+    dealerId: input.draft.dealerId,
+    dealerSnapshot: {
+      zohoCustomerId: input.dealer.zohoCustomerId,
+      dealerId: input.dealer.dealerId,
+      name: input.dealer.name,
+      code: input.dealer.code,
+      contactPerson: input.dealer.contactPerson,
+      mobile: input.dealer.mobile,
+      shippingAddress: input.dealer.shippingAddress,
+      billingAddress: input.dealer.billingAddress,
+      ...(input.dealer.destinationCity?.trim()
+        ? { destinationCity: input.dealer.destinationCity.trim() }
+        : {}),
+    },
+    deliveryAddressKind: input.draft.deliveryAddressKind,
+    deliveryAddress: resolveDeliveryAddress(input.dealer, input.draft.deliveryAddressKind),
+    shipFromSite: input.draft.shipFromSite,
+    shipFromAddress: '',
+    shipmentMode: input.draft.shipmentMode,
+    numberOfBoxes: Math.max(input.draft.boxes.length, 1),
+    actualWeightKg: 0,
+    volumetricWeightKg: 0,
+    chargeableWeightKg: 0,
+    boxes: input.draft.boxes.map(box => ({
+      id: box.id,
+      lengthCm: null,
+      widthCm: null,
+      heightCm: null,
+      weightKg: 0,
+      volumetricWeightKg: 0,
+      photos: [],
+    })),
+    finalPackagePhotoStoragePath: null,
+    labelGenerated: false,
+    courierSlipGenerated: false,
+    shippingLabelGenerated: false,
+    packingSlipGenerated: false,
+    status: 'draft',
+    wizardStep: 'box',
+    createdAt: input.createdAt,
+    updatedAt: now,
+    createdByUid: input.existingCreatedByUid || input.createdBy.uid,
+    createdByName,
+  }, { merge: true });
+}
+
 export async function persistLogisticsBookingDraft(
   input: PersistLogisticsBookingInput,
 ): Promise<LogisticsBooking> {
@@ -396,6 +491,7 @@ export async function persistLogisticsBookingDraft(
   if (!draft.zohoCustomerId.trim()) throw new Error('Select a dealer before saving a draft.');
 
   const now = new Date().toISOString();
+  const isNew = !existingBookingId;
   const bookingRef = existingBookingId
     ? doc(db, COLLECTION, existingBookingId)
     : doc(collection(db, COLLECTION));
@@ -405,6 +501,7 @@ export async function persistLogisticsBookingDraft(
   let existingOrderRef: string | null = null;
   let existingCreatedByUid: string | null = null;
   let existingCreatedByName: string | null = null;
+  let existingBoxes: ShipmentBox[] = [];
   if (existingBookingId) {
     const existing = await getDoc(bookingRef);
     if (!existing.exists()) throw new Error('Draft booking not found.');
@@ -425,9 +522,26 @@ export async function persistLogisticsBookingDraft(
     existingCreatedByName = typeof existing.data()?.createdByName === 'string'
       ? existing.data()?.createdByName
       : null;
+    existingBoxes = Array.isArray(existing.data()?.boxes)
+      ? existing.data()!.boxes.map((box: DocumentData) => mapShipmentBox(box))
+      : [];
   }
 
   try {
+    if (draftHasPendingPhotoUploads(draft)) {
+      await ensureDraftBookingStub({
+        bookingRef,
+        draft,
+        dealer,
+        createdBy,
+        createdAt,
+        existingOrderRef,
+        existingCreatedByUid,
+        existingCreatedByName,
+        isNew,
+      });
+    }
+
     let photoResult: {
       boxes: ShipmentBox[];
       finalPackagePhotoStoragePath: string | null;
@@ -440,12 +554,23 @@ export async function persistLogisticsBookingDraft(
         existingFinalPackagePhotoStoragePath,
       );
     } catch (photoErr) {
-      // Drafts should still save if photo upload fails (e.g. offline / storage rules).
+      // Never wipe newly captured data-URL photos by saving an empty photo list.
+      if (draftHasPendingPhotoUploads(draft)) {
+        throw photoErr instanceof Error
+          ? photoErr
+          : new Error('Could not upload package photos. Try again.');
+      }
       photoUploadWarning = photoErr instanceof Error
         ? photoErr.message
         : 'Some photos could not be uploaded.';
+      // Prefer already-stored photos on the draft, else keep whatever was on the server.
+      const fallbackBoxes = boxesWithoutNewUploads(draft);
       photoResult = {
-        boxes: boxesWithoutNewUploads(draft),
+        boxes: fallbackBoxes.map(box => {
+          if (box.photos.length) return box;
+          const existing = existingBoxes.find(item => item.id === box.id);
+          return existing ? { ...box, photos: existing.photos } : box;
+        }),
         finalPackagePhotoStoragePath: existingFinalPackagePhotoStoragePath,
       };
     }
