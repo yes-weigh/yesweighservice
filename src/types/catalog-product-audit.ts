@@ -61,7 +61,6 @@ export type CatalogStockMovementType =
   | 'adjustment'
   | 'moveorder'
   | 'salesreturn'
-  | 'package'
   | 'purchasereceive'
   | 'transferorder'
   | 'putaway';

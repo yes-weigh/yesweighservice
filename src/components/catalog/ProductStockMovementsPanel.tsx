@@ -40,7 +40,7 @@ const TYPE_META: Record<
 };
 
 /** Zoho package picks do not move stock — hide if present in older cached ledgers. */
-const EXCLUDED_LEDGER_TYPES = new Set<CatalogStockMovementType>(['package']);
+const EXCLUDED_LEDGER_TYPES = new Set<string>(['package']);
 
 function formatDelta(value: number): string {
   if (value > 0) return `+${value}`;
@@ -149,7 +149,7 @@ export const ProductStockMovementsPanel: React.FC<{
   const unit = product.unit || 'nos';
 
   const ledgerMovements = useMemo(
-    () => (data?.movements ?? []).filter(row => !EXCLUDED_LEDGER_TYPES.has(row.type)),
+    () => (data?.movements ?? []).filter(row => !EXCLUDED_LEDGER_TYPES.has(String(row.type))),
     [data?.movements],
   );
 
