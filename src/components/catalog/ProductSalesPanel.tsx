@@ -97,6 +97,26 @@ function formatSaleDate(iso: string): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+function formatCustomerDisplayName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return 'Unknown customer';
+  // Soften ALL-CAPS dealer names for the compact list.
+  if (trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && trimmed.length > 3) {
+    const small = new Set(['AND', 'OF', 'THE', 'FOR', 'A', 'AN']);
+    return trimmed
+      .toLowerCase()
+      .split(/(\s+|[-/&])/)
+      .map((part, index) => {
+        if (!part || /^[\s\-/&]+$/.test(part)) return part;
+        const upper = part.toUpperCase();
+        if (index > 0 && small.has(upper)) return part.toLowerCase();
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join('');
+  }
+  return trimmed;
+}
+
 function SalesCustomerTile({
   row,
   unit,
@@ -106,36 +126,13 @@ function SalesCustomerTile({
 }) {
   return (
     <article className="stock-ledger__sales-tile">
-      <header className="stock-ledger__sales-tile-head">
-        <span className="stock-ledger__type-icon stock-ledger__type-icon--inline" aria-hidden>
-          <ShoppingCart size={14} />
-        </span>
-        <strong>{row.customerName}</strong>
-      </header>
-      <dl className="stock-ledger__sales-tile-grid">
-        <div>
-          <dt>Net qty</dt>
-          <dd className="stock-ledger__closing">
-            {row.netQty.toLocaleString('en-IN')} {unit}
-          </dd>
-        </div>
-        <div>
-          <dt>Sold</dt>
-          <dd className="is-out">{row.qtySold.toLocaleString('en-IN')} {unit}</dd>
-        </div>
-        <div>
-          <dt>Returns</dt>
-          <dd className="is-in">{row.qtyReturned.toLocaleString('en-IN')} {unit}</dd>
-        </div>
-        <div>
-          <dt>Invoices</dt>
-          <dd>{row.invoiceCount.toLocaleString('en-IN')}</dd>
-        </div>
-        <div className="stock-ledger__sales-tile-span">
-          <dt>Last sale</dt>
-          <dd>{formatSaleDate(row.lastSaleDate)}</dd>
-        </div>
-      </dl>
+      <strong className="stock-ledger__sales-tile-name">
+        {formatCustomerDisplayName(row.customerName)}
+      </strong>
+      <span className="stock-ledger__sales-tile-sold">
+        <strong>{row.qtySold.toLocaleString('en-IN')}</strong>
+        <span>{unit}</span>
+      </span>
     </article>
   );
 }
@@ -269,10 +266,7 @@ export const ProductSalesPanel: React.FC<{
         <div className="stock-ledger__product-meta">
           <p className="stock-ledger__product-name">{product.name}</p>
           <p className="stock-ledger__product-line">
-            <span>SKU:</span> {product.sku || '—'}
-          </p>
-          <p className="stock-ledger__product-line">
-            <span>Unit:</span> {unit}
+            {[product.sku?.trim() || null, unit].filter(Boolean).join(' · ')}
           </p>
         </div>
       </section>

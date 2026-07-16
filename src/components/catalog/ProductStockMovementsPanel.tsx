@@ -47,7 +47,7 @@ const TYPE_META: Record<
   bill: { label: 'Purchase', docPrefix: 'Bill', tone: 'purchase', Icon: PurchaseIcon },
   creditnote: { label: 'Credit note', docPrefix: 'Credit note', tone: 'return', Icon: Undo2 },
   salesreturn: { label: 'Sales return', docPrefix: 'Return', tone: 'sales-return', Icon: RotateCcw },
-  adjustment: { label: 'Adjustment', docPrefix: 'Adjustment', tone: 'adjust', Icon: SlidersHorizontal },
+  adjustment: { label: 'Stock transfer', docPrefix: 'Adjustment', tone: 'adjust', Icon: SlidersHorizontal },
   moveorder: { label: 'Stock transfer', docPrefix: 'Transfer', tone: 'transfer', Icon: ArrowLeftRight },
   transferorder: { label: 'Stock transfer', docPrefix: 'Transfer', tone: 'transfer', Icon: ArrowLeftRight },
   purchasereceive: { label: 'Purchase receive', docPrefix: 'Receive', tone: 'purchase', Icon: PurchaseIcon },
