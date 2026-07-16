@@ -76,6 +76,45 @@ function logisticsPhotoStoragePath(bookingId, slot, fileName) {
   return `logistics/${bookingId}/${slot}/${fileName}`;
 }
 
+function assertLogisticsStoragePath(storagePath) {
+  const path = String(storagePath ?? '').trim();
+  // Nested or flat legacy paths under logistics/{bookingId}/…
+  if (!/^logistics\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}\/.+/.test(path)) {
+    throw new HttpsError('invalid-argument', 'Invalid logistics storage path.');
+  }
+  if (path.includes('..')) {
+    throw new HttpsError('invalid-argument', 'Invalid logistics storage path.');
+  }
+  return path;
+}
+
+async function durableReadUrl(storagePath) {
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+  const [exists] = await file.exists();
+  if (!exists) {
+    throw new HttpsError('not-found', 'File not found.');
+  }
+
+  const [metadata] = await file.getMetadata();
+  let token = metadata?.metadata?.firebaseStorageDownloadTokens;
+  if (Array.isArray(token)) token = token[0];
+  if (typeof token === 'string' && token.includes(',')) {
+    token = token.split(',')[0].trim();
+  }
+  if (!token) {
+    token = randomUUID();
+    await file.setMetadata({
+      metadata: {
+        ...(metadata.metadata || {}),
+        firebaseStorageDownloadTokens: token,
+      },
+    });
+  }
+
+  return firebaseDownloadUrl(bucket.name, storagePath, token);
+}
+
 /**
  * Ops logistics photo upload via Admin SDK — bypasses client Storage rules.
  */
@@ -136,4 +175,12 @@ export async function uploadLogisticsPhoto(callerUid, input) {
     fileName,
     uploadedAt: new Date().toISOString(),
   };
+}
+
+/** Durable token URL for logistics photos — bypasses client Storage read rules. */
+export async function getLogisticsPhotoUrl(callerUid, input) {
+  await requireOpsUser(callerUid);
+  const storagePath = assertLogisticsStoragePath(input?.storagePath);
+  const url = await durableReadUrl(storagePath);
+  return { url };
 }

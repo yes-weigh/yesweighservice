@@ -836,7 +836,8 @@ export async function listLogisticsBookings(
     : await fetchDealerBookings(user);
 
   const filtered = base.filter(booking => matchesClientFilters(booking, filters));
-  return Promise.all(filtered.map(booking => hydrateBookingPhotos(booking)));
+  // List consumers do not need photo URLs; hydrate only in fetchLogisticsBooking / after persist.
+  return filtered;
 }
 
 export function subscribeLogisticsBookings(
@@ -864,12 +865,10 @@ export function subscribeLogisticsBookings(
 
   return onSnapshot(q, async snapshot => {
     try {
-      const bookings = await Promise.all(
-        snapshot.docs
-          .map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()))
-          .filter(booking => matchesClientFilters(booking, filters))
-          .map(booking => hydrateBookingPhotos(booking)),
-      );
+      // List view does not render photos — skip hydration to avoid Storage read 403 spam.
+      const bookings = snapshot.docs
+        .map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()))
+        .filter(booking => matchesClientFilters(booking, filters));
       onChange(bookings);
     } catch (err) {
       onError?.(err instanceof Error ? err : new Error('Could not load logistics bookings.'));

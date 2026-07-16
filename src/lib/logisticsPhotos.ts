@@ -6,6 +6,8 @@ import { formatStorageUploadError } from './storageErrors';
 
 const functions = getFunctions(app, 'asia-south1');
 const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
+const resolvedUrlCache = new Map<string, { url: string; at: number }>();
+const RESOLVED_URL_CACHE_MS = 55 * 60 * 1000;
 
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop()?.toLowerCase();
@@ -71,7 +73,7 @@ async function uploadLogisticsPhotoViaFunction(
   bookingId: string,
   slot: string,
   file: File,
-): Promise<string> {
+): Promise<{ storagePath: string; url: string | null }> {
   const callable = httpsCallable<
     {
       bookingId: string;
@@ -80,7 +82,7 @@ async function uploadLogisticsPhotoViaFunction(
       fileBase64: string;
       fileName: string;
     },
-    { storagePath: string }
+    { storagePath: string; url?: string }
   >(functions, 'uploadLogisticsPhotoFn', { timeout: 120_000 });
 
   const result = await callable({
@@ -94,20 +96,24 @@ async function uploadLogisticsPhotoViaFunction(
   if (!storagePath) {
     throw new Error('Could not upload photo.');
   }
-  return storagePath;
+  const url = String(result.data?.url ?? '').trim() || null;
+  if (url) {
+    resolvedUrlCache.set(storagePath, { url, at: Date.now() });
+  }
+  return { storagePath, url };
 }
 
 async function uploadLogisticsPhotoViaClient(
   bookingId: string,
   slot: string,
   file: File,
-): Promise<string> {
+): Promise<{ storagePath: string; url: string | null }> {
   const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extFromFile(file)}`;
   const storagePath = logisticsPhotoStoragePath(bookingId, slot, fileName);
   await uploadBytes(ref(storage, storagePath), file, {
     contentType: file.type || 'image/jpeg',
   });
-  return storagePath;
+  return { storagePath, url: null };
 }
 
 export async function uploadLogisticsPhoto(
@@ -122,7 +128,8 @@ export async function uploadLogisticsPhoto(
   const compressed = await compressImageForUpload(file, { maxBytes: 900_000 });
 
   try {
-    return await uploadLogisticsPhotoViaFunction(bookingId, slot, compressed);
+    const uploaded = await uploadLogisticsPhotoViaFunction(bookingId, slot, compressed);
+    return uploaded.storagePath;
   } catch (fnErr) {
     if (!isCallableUnavailable(fnErr)) {
       throw new Error(formatStorageUploadError(
@@ -132,7 +139,8 @@ export async function uploadLogisticsPhoto(
       ));
     }
     try {
-      return await uploadLogisticsPhotoViaClient(bookingId, slot, compressed);
+      const uploaded = await uploadLogisticsPhotoViaClient(bookingId, slot, compressed);
+      return uploaded.storagePath;
     } catch (clientErr) {
       throw new Error(formatStorageUploadError(
         clientErr,
@@ -143,17 +151,49 @@ export async function uploadLogisticsPhoto(
   }
 }
 
+async function resolveViaFunction(storagePath: string): Promise<string> {
+  const callable = httpsCallable<
+    { storagePath: string },
+    { url: string }
+  >(functions, 'getLogisticsPhotoUrlFn', { timeout: 60_000 });
+  const result = await callable({ storagePath });
+  const url = String(result.data?.url ?? '').trim();
+  if (!url) throw new Error('Could not resolve photo URL.');
+  return url;
+}
+
 export async function resolveLogisticsPhotoUrl(storagePath: string | null | undefined): Promise<string | null> {
-  if (!storagePath?.trim()) return null;
+  const path = storagePath?.trim();
+  if (!path) return null;
+
+  const cached = resolvedUrlCache.get(path);
+  if (cached && Date.now() - cached.at < RESOLVED_URL_CACHE_MS) {
+    return cached.url;
+  }
+
+  await ensureSignedIn().catch(() => undefined);
+
   try {
-    return await getDownloadURL(ref(storage, storagePath));
-  } catch {
-    return null;
+    const url = await resolveViaFunction(path);
+    resolvedUrlCache.set(path, { url, at: Date.now() });
+    return url;
+  } catch (fnErr) {
+    if (!isCallableUnavailable(fnErr)) {
+      // Fall through to client getDownloadURL for environments without the callable.
+    }
+    try {
+      const url = await getDownloadURL(ref(storage, path));
+      resolvedUrlCache.set(path, { url, at: Date.now() });
+      return url;
+    } catch {
+      return null;
+    }
   }
 }
 
 export async function deleteLogisticsPhoto(storagePath: string | null | undefined): Promise<void> {
   if (!storagePath?.trim()) return;
+  resolvedUrlCache.delete(storagePath.trim());
   try {
     await deleteObject(ref(storage, storagePath));
   } catch {
