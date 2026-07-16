@@ -244,6 +244,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [viewMode, setViewMode] = useState<InventoryAuditViewMode>('grid');
   const [printFields, setPrintFields] = useState<BinLabelFields | null>(null);
+  const [printProductId, setPrintProductId] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const isDesktopWeb = useMinWidth(768);
   const catalogById = useMemo(() => catalogMap(catalogProducts), [catalogProducts]);
@@ -784,6 +785,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                             className="btn btn-secondary btn-sm wh-audit-tile__print"
                             onClick={event => {
                               event.stopPropagation();
+                              setPrintProductId(group.catalogProductId);
                               setPrintFields(
                                 binLabelFieldsFromStoreItem(
                                   labelProductForGroup(group),
@@ -857,6 +859,7 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
                             className="product-site-stock__print-btn wh-audit-tile__print-icon"
                             onClick={event => {
                               event.stopPropagation();
+                              setPrintProductId(group.catalogProductId);
                               setPrintFields(
                                 binLabelFieldsFromStoreItem(
                                   labelProductForGroup(group),
@@ -1029,11 +1032,15 @@ export const WarehouseInventoryAuditList: React.FC<WarehouseInventoryAuditListPr
         </>
       )}
 
-      {printFields && (
+      {printFields && printProductId && (
         <BinLabelPrintDialog
           fields={printFields}
           layoutId="genuine-spare"
-          onClose={() => setPrintFields(null)}
+          productId={printProductId}
+          onClose={() => {
+            setPrintFields(null);
+            setPrintProductId(null);
+          }}
         />
       )}
     </div>

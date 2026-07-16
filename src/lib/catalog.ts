@@ -738,7 +738,29 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     ...(typeof data.spareGroupId === 'string' && data.spareGroupId.trim()
       ? { spareGroupId: data.spareGroupId.trim() }
       : {}),
+    ...(typeof data.skuChangedAt === 'string' && data.skuChangedAt.trim()
+      ? { skuChangedAt: data.skuChangedAt.trim() }
+      : {}),
+    ...(typeof data.binLabelPrintedSku === 'string' && data.binLabelPrintedSku.trim()
+      ? { binLabelPrintedSku: data.binLabelPrintedSku.trim() }
+      : {}),
+    ...(typeof data.binLabelPrintedAt === 'string' && data.binLabelPrintedAt.trim()
+      ? { binLabelPrintedAt: data.binLabelPrintedAt.trim() }
+      : {}),
   };
+}
+
+/** Spare-rack SKU colour: white = unchanged, yellow = changed, green = relabel printed. */
+export type SkuLabelRackStatus = 'unchanged' | 'changed' | 'relabel_printed';
+
+export function resolveSkuLabelRackStatus(
+  product: Pick<CatalogProduct, 'sku' | 'skuChangedAt' | 'binLabelPrintedSku'>,
+): SkuLabelRackStatus {
+  if (!product.skuChangedAt?.trim()) return 'unchanged';
+  const currentSku = (product.sku ?? '').trim();
+  const printedSku = (product.binLabelPrintedSku ?? '').trim();
+  if (printedSku && printedSku === currentSku) return 'relabel_printed';
+  return 'changed';
 }
 
 /** Sort products within a category — custom order first, then name. */
@@ -1003,6 +1025,85 @@ export async function applyCatalogSkuRepairs(): Promise<CatalogSkuRepairResult> 
         );
       }
     }
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export interface BulkCatalogSkuUpdateInput {
+  productId: string;
+  name: string;
+  newSku: string;
+  oldSku?: string | null;
+}
+
+/** Apply explicit bulk SKU updates from CSV upload (super admin). */
+export async function applyBulkCatalogSkuUpdates(
+  updates: BulkCatalogSkuUpdateInput[],
+): Promise<CatalogSkuRepairResult> {
+  const callable = httpsCallable<{ updates: BulkCatalogSkuUpdateInput[] }, CatalogSkuRepairResult>(
+    functions,
+    'applyBulkCatalogSkuUpdatesFn',
+    { timeout: 540_000 },
+  );
+  try {
+    const result = await callable({ updates });
+    return result.data;
+  } catch (err) {
+    if (err && typeof err === 'object') {
+      const code = 'code' in err ? String((err as { code: string }).code) : '';
+      const message = 'message' in err ? String((err as { message: string }).message) : '';
+      if (code === 'functions/deadline-exceeded' || message.includes('deadline-exceeded')) {
+        throw new Error(
+          'Bulk SKU update timed out. Wait a minute, then run bulk update again for any remaining rows.',
+        );
+      }
+    }
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** Count duplicate New Proposed SKU values within a bulk-upload batch. */
+export function countDuplicateNewSkusInBatch(newSkus: string[]): number {
+  const counts = new Map<string, number>();
+  for (const raw of newSkus) {
+    const sku = String(raw ?? '').trim();
+    if (!sku) continue;
+    counts.set(sku, (counts.get(sku) ?? 0) + 1);
+  }
+  let duplicateValues = 0;
+  for (const count of counts.values()) {
+    if (count > 1) duplicateValues += 1;
+  }
+  return duplicateValues;
+}
+
+/** Rows whose New Proposed SKU appears more than once in the batch. */
+export function newSkusWithDuplicatesInBatch(newSkus: string[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const raw of newSkus) {
+    const sku = String(raw ?? '').trim();
+    if (!sku) continue;
+    counts.set(sku, (counts.get(sku) ?? 0) + 1);
+  }
+  const dupes = new Set<string>();
+  for (const [sku, count] of counts) {
+    if (count > 1) dupes.add(sku);
+  }
+  return dupes;
+}
+
+/** Record that a bin label was printed with the given SKU (drives spare-rack green status). */
+export async function recordCatalogBinLabelPrint(
+  productId: string,
+  sku: string,
+): Promise<void> {
+  const callable = httpsCallable<{ productId: string; sku: string }, { ok: boolean }>(
+    functions,
+    'recordCatalogBinLabelPrintFn',
+  );
+  try {
+    await callable({ productId: productId.trim(), sku: sku.trim() });
+  } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
 }

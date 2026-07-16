@@ -663,7 +663,55 @@ export async function patchProductDetails(productId, input) {
   }
 
   const db = getFirestore();
-  await db.collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
+  const ref = db.collection(PRODUCTS_COLLECTION).doc(id);
+  const existing = await ref.get();
+  const prevSku = existing.exists ? String(existing.data()?.sku ?? '').trim() : '';
+  const skuChanged = Boolean(prevSku && prevSku !== sku);
+  if (skuChanged) {
+    payload.skuChangedAt = new Date().toISOString();
+  }
+
+  await ref.set(payload, { merge: true });
+
+  if (skuChanged) {
+    await mirrorYesStoreCatalogSkuSnapshot(id, name, sku);
+  }
+}
+
+const YES_STORE_ITEMS_COLLECTION = 'yesStoreItems';
+
+/** Keep linked audit bins in sync when catalog SKU changes. */
+async function mirrorYesStoreCatalogSkuSnapshot(productId, name, sku) {
+  const db = getFirestore();
+  const snap = await db.collection(YES_STORE_ITEMS_COLLECTION)
+    .where('catalogProductId', '==', String(productId).trim())
+    .get();
+  if (snap.empty) return;
+
+  const now = new Date().toISOString();
+  const batch = db.batch();
+  for (const doc of snap.docs) {
+    batch.update(doc.ref, {
+      catalogProductName: name,
+      catalogProductSku: sku,
+      updatedAt: now,
+    });
+  }
+  await batch.commit();
+}
+
+/** Record that a bin label was printed with the current SKU (Firestore only). */
+export async function recordCatalogBinLabelPrint(productId, sku) {
+  const id = String(productId ?? '').trim();
+  const printedSku = String(sku ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+  if (!printedSku) throw new Error('sku is required.');
+
+  const db = getFirestore();
+  await db.collection(PRODUCTS_COLLECTION).doc(id).set({
+    binLabelPrintedSku: printedSku,
+    binLabelPrintedAt: new Date().toISOString(),
+  }, { merge: true });
 }
 
 /** Firestore-only overlays (model / approval / spare group) — no Zoho call. */

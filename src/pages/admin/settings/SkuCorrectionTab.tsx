@@ -12,16 +12,18 @@ import {
 } from '../../../lib/catalog';
 import type { CatalogProduct } from '../../../types/catalog';
 import { fillSearchFromScan, SkuScanButton } from '../../../components/catalog/SkuScanButton';
+import { BulkUpdateSkuSection } from './BulkUpdateSkuSection';
 
-type SkuSubTab = 'all' | 'special' | 'duplicates';
+type SkuSubTab = 'all' | 'special' | 'duplicates' | 'bulk';
 
 const SUB_TABS: { id: SkuSubTab; label: string }[] = [
   { id: 'all', label: 'All SKUs' },
   { id: 'special', label: 'Invalid chars' },
   { id: 'duplicates', label: 'Duplicates' },
+  { id: 'bulk', label: 'Bulk update SKU' },
 ];
 
-const CSV_FILENAMES: Record<SkuSubTab, string> = {
+const CSV_FILENAMES: Record<Exclude<SkuSubTab, 'bulk'>, string> = {
   all: 'sku-all.csv',
   special: 'sku-invalid-chars.csv',
   duplicates: 'sku-duplicates.csv',
@@ -50,7 +52,7 @@ function escapeCsvCell(value: string): string {
 }
 
 function buildSkuCorrectionCsv(
-  tab: SkuSubTab,
+  tab: Exclude<SkuSubTab, 'bulk'>,
   rows: CatalogProduct[],
   duplicateCountBySku: Map<string, number>,
   proposedSkus: Map<string, string>,
@@ -164,9 +166,11 @@ export const SkuCorrectionTab: React.FC = () => {
     all: products.length,
     special: specialProducts.length,
     duplicates: duplicateGroups.size,
+    bulk: 0,
   }), [products.length, specialProducts.length, duplicateGroups.size]);
 
   const sourceRows = useMemo(() => {
+    if (subTab === 'bulk') return [];
     if (subTab === 'special') return specialProducts;
     if (subTab === 'duplicates') return duplicateProducts;
     return products;
@@ -184,7 +188,7 @@ export const SkuCorrectionTab: React.FC = () => {
   }, [sourceRows, search]);
 
   const handleDownloadCsv = () => {
-    if (sourceRows.length === 0) return;
+    if (subTab === 'bulk' || sourceRows.length === 0) return;
     const csv = buildSkuCorrectionCsv(subTab, sourceRows, duplicateCountBySku, proposedSkus);
     downloadCsv(CSV_FILENAMES[subTab], csv);
   };
@@ -277,15 +281,17 @@ export const SkuCorrectionTab: React.FC = () => {
               {applying ? 'Applying…' : 'Apply all repairs'}
             </button>
           )}
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={handleDownloadCsv}
-            disabled={loading || applying || sourceRows.length === 0}
-          >
-            <Download size={15} aria-hidden />
-            Download CSV
-          </button>
+          {subTab !== 'bulk' && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={handleDownloadCsv}
+              disabled={loading || applying || sourceRows.length === 0}
+            >
+              <Download size={15} aria-hidden />
+              Download CSV
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-sm"
@@ -319,11 +325,24 @@ export const SkuCorrectionTab: React.FC = () => {
             onClick={() => setSubTab(tab.id)}
           >
             {tab.label}
-            <span className="settings-sku-correction__subtab-count">{tabCounts[tab.id]}</span>
+            {tab.id !== 'bulk' && (
+              <span className="settings-sku-correction__subtab-count">{tabCounts[tab.id]}</span>
+            )}
           </button>
         ))}
       </div>
 
+      {subTab === 'bulk' ? (
+        <BulkUpdateSkuSection
+          products={products}
+          loading={loading}
+          onRefresh={loadAll}
+          onError={msg => { setError(msg); setSuccess(''); }}
+          onSuccess={msg => { setSuccess(msg); setError(''); }}
+          onClearMessages={() => { setError(''); setSuccess(''); }}
+        />
+      ) : (
+        <>
       <label className="settings-sku-correction__search">
         <Search size={16} aria-hidden />
         <input
@@ -440,6 +459,8 @@ export const SkuCorrectionTab: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </>
+      )}
         </>
       )}
     </section>

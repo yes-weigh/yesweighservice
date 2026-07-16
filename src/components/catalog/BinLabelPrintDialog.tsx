@@ -17,6 +17,7 @@ import {
   type LabelStudioDoc,
 } from '../../lib/labelStudio';
 import { isNativePrintAvailable, sendBinLabel } from '../../lib/localPrinterPrint';
+import { recordCatalogBinLabelPrint } from '../../lib/catalog';
 import type { CatalogProduct } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 import { encodePackedDateBatch } from '../../lib/labelLayouts/batchCode';
@@ -124,14 +125,24 @@ type Props = {
   fields: BinLabelFields;
   /** Built-in layout id — fixed by print location (not user-selectable). */
   layoutId: string;
+  /** When set, records bin label print for spare-rack SKU status after a successful print. */
+  productId?: string;
   onClose: () => void;
+  /** Called after print is recorded successfully. */
+  onPrinted?: () => void;
 };
 
 /**
  * Preview + print with a fixed layout.
  * Always uses the hardcoded store label printer (catalog bin / item labels).
  */
-export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose }) => {
+export const BinLabelPrintDialog: React.FC<Props> = ({
+  fields,
+  layoutId,
+  productId,
+  onClose,
+  onPrinted,
+}) => {
   const [studio, setStudio] = useState<LabelStudioDoc>(emptyLabelStudioDoc);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [fieldDraft, setFieldDraft] = useState<BinLabelFields>(() => ({
@@ -209,6 +220,14 @@ export const BinLabelPrintDialog: React.FC<Props> = ({ fields, layoutId, onClose
         layoutXml,
         fields: { ...fieldDraft, printedOn: new Date() },
       });
+      const printedSku = fieldDraft.sku.trim();
+      if (productId?.trim() && printedSku && fieldDraft.rack?.trim()) {
+        await recordCatalogBinLabelPrint(productId.trim(), printedSku);
+        onPrinted?.();
+        window.dispatchEvent(new CustomEvent('yes-catalog-bin-label-printed', {
+          detail: { productId: productId.trim() },
+        }));
+      }
       setSuccess(
         `Sent via ${printer.name} to ${printer.host.trim()}:${printer.port} (${result.bytesSent} bytes).`,
       );

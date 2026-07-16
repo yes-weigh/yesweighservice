@@ -42,6 +42,9 @@ export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'modelNumber',
   'approvalNumber',
   'spareGroupId',
+  'skuChangedAt',
+  'binLabelPrintedSku',
+  'binLabelPrintedAt',
 ];
 
 /** Update item details on Zoho, then mirror to Firestore (incl. Firestore-only overlays). */

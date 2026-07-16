@@ -60,6 +60,7 @@ import {
   saveCatalogSpareProductLinks,
   syncCatalog,
   uploadCatalogCategoryThumbnail,
+  resolveSkuLabelRackStatus,
 } from '../../lib/catalog';
 import { getOpenAuditCycle, listOpenAuditCycles } from '../../lib/auditCycles/data';
 import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
@@ -282,6 +283,14 @@ export const CatalogPage: React.FC = () => {
 
   useEffect(() => {
     void loadCatalog();
+  }, [loadCatalog]);
+
+  useEffect(() => {
+    const onBinLabelPrinted = () => {
+      void loadCatalog();
+    };
+    window.addEventListener('yes-catalog-bin-label-printed', onBinLabelPrinted);
+    return () => window.removeEventListener('yes-catalog-bin-label-printed', onBinLabelPrinted);
   }, [loadCatalog]);
 
   useEffect(() => {
@@ -1098,11 +1107,16 @@ export const CatalogPage: React.FC = () => {
   );
 
   const spareCatalogByProductId = useMemo(() => {
-    const map = new Map<string, { sku: string; name?: string | null }>();
+    const map = new Map<string, {
+      sku: string;
+      name?: string | null;
+      labelStatus: ReturnType<typeof resolveSkuLabelRackStatus>;
+    }>();
     for (const product of spareParts) {
       map.set(product.id, {
         sku: product.sku?.trim() || product.id,
         name: product.name,
+        labelStatus: resolveSkuLabelRackStatus(product),
       });
     }
     return map;

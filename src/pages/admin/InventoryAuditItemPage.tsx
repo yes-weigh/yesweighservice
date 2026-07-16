@@ -531,10 +531,11 @@ export const InventoryAuditItemPage: React.FC = () => {
         </div>
       </section>
 
-      {printFields && (
+      {printFields && item?.catalogProductId && (
         <BinLabelPrintDialog
           fields={printFields}
           layoutId="genuine-spare"
+          productId={item.catalogProductId}
           onClose={() => setPrintFields(null)}
         />
       )}

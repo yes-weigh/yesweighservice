@@ -66,6 +66,11 @@ export interface CatalogProduct {
   approvalNumber?: string | null;
   /** Spare group id (options from Product settings). Firestore only — spares only. */
   spareGroupId?: string | null;
+  /** Set when SKU changes on Zoho — drives spare-rack yellow/green label status. Firestore only. */
+  skuChangedAt?: string | null;
+  /** SKU on the last printed bin label. Firestore only. */
+  binLabelPrintedSku?: string | null;
+  binLabelPrintedAt?: string | null;
 }
 
 export interface CatalogCategory {

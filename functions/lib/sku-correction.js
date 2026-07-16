@@ -182,3 +182,149 @@ export async function applyAllSkuRepairs(accessToken, organizationId) {
     skipped,
   };
 }
+
+const MAX_BULK_SKU_UPDATES = 500;
+
+/**
+ * Apply explicit SKU updates from a bulk-upload CSV (productId + name + newSku).
+ * Same rate-limit handling as applyAllSkuRepairs.
+ *
+ * @param {{ productId: string; name: string; newSku: string; oldSku?: string | null }[]} updates
+ */
+export async function applyBulkCatalogSkuUpdates(accessToken, organizationId, updates) {
+  if (!Array.isArray(updates)) {
+    throw new Error('updates must be an array.');
+  }
+  if (updates.length === 0) {
+    throw new Error('No SKU updates provided.');
+  }
+  if (updates.length > MAX_BULK_SKU_UPDATES) {
+    throw new Error(`At most ${MAX_BULK_SKU_UPDATES} SKU updates per batch.`);
+  }
+
+  const jobs = [];
+  for (const row of updates) {
+    const productId = String(row?.productId ?? '').trim();
+    const name = String(row?.name ?? '').trim();
+    const newSku = String(row?.newSku ?? '').trim();
+    const oldSku = row?.oldSku == null ? null : String(row.oldSku);
+
+    if (!productId) {
+      jobs.push({
+        kind: 'invalid',
+        productId: '',
+        oldSku,
+        newSku,
+        error: 'productId is required.',
+      });
+      continue;
+    }
+    if (!name) {
+      jobs.push({
+        kind: 'invalid',
+        productId,
+        oldSku,
+        newSku,
+        error: 'Item name is required.',
+      });
+      continue;
+    }
+    if (!newSku) {
+      jobs.push({
+        kind: 'invalid',
+        productId,
+        oldSku,
+        newSku,
+        error: 'New SKU is required.',
+      });
+      continue;
+    }
+    if (skuHasNonUppercaseAlphanumericChars(newSku)) {
+      jobs.push({
+        kind: 'invalid',
+        productId,
+        oldSku,
+        newSku,
+        error: 'New SKU must contain only 0-9 and A-Z.',
+      });
+      continue;
+    }
+    if (String(oldSku ?? '') === newSku) {
+      continue;
+    }
+    jobs.push({
+      kind: 'update',
+      productId,
+      oldSku,
+      newSku,
+      name,
+    });
+  }
+
+  const updated = [];
+  const failed = [];
+  const skipped = [];
+  let rateLimited = false;
+  let firstUpdate = true;
+
+  for (const job of jobs) {
+    if (job.kind === 'invalid') {
+      failed.push({
+        productId: job.productId,
+        oldSku: job.oldSku,
+        newSku: job.newSku,
+        error: job.error,
+      });
+      continue;
+    }
+
+    if (rateLimited) {
+      skipped.push({
+        productId: job.productId,
+        oldSku: job.oldSku,
+        newSku: job.newSku,
+        error: 'Skipped — Zoho rate limit. Run bulk update again after a few minutes.',
+      });
+      continue;
+    }
+
+    if (!firstUpdate) {
+      await sleep(DELAY_BETWEEN_REPAIRS_MS);
+    }
+    firstUpdate = false;
+
+    try {
+      await mutateCatalogProductDetails(accessToken, organizationId, job.productId, {
+        name: job.name,
+        sku: job.newSku,
+      });
+      updated.push({
+        productId: job.productId,
+        oldSku: job.oldSku,
+        newSku: job.newSku,
+      });
+    } catch (err) {
+      const error = err?.message ?? 'Update failed.';
+      failed.push({
+        productId: job.productId,
+        oldSku: job.oldSku,
+        newSku: job.newSku,
+        error,
+      });
+      if (isZohoRateLimitError(err)) {
+        rateLimited = true;
+      }
+    }
+  }
+
+  return {
+    total: jobs.filter(j => j.kind === 'update').length,
+    updatedCount: updated.length,
+    failedCount: failed.length,
+    skippedCount: skipped.length,
+    rateLimited,
+    updated,
+    failed,
+    skipped,
+  };
+}

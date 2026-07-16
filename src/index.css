@@ -1149,6 +1149,24 @@ html::-webkit-scrollbar {
   font-weight: 600;
 }
 
+.spare-rack-cell__sku--changed {
+  color: #facc15;
+}
+
+.spare-rack-cell__sku--relabel-printed {
+  color: #4ade80;
+}
+
+.spare-rack-cell--sku:hover .spare-rack-cell__sku--changed,
+.spare-rack-cell--sku:active .spare-rack-cell__sku--changed {
+  color: #fde047;
+}
+
+.spare-rack-cell--sku:hover .spare-rack-cell__sku--relabel-printed,
+.spare-rack-cell--sku:active .spare-rack-cell__sku--relabel-printed {
+  color: #86efac;
+}
+
 .spare-rack-cell__chevron {
   position: absolute;
   right: 0.35rem;

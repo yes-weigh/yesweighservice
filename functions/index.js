@@ -18,6 +18,7 @@ import {
   saveCategoryProductOrder,
   uploadCategoryThumbnail,
   importProductImagesFromZoho,
+  recordCatalogBinLabelPrint,
 } from './lib/catalog-sync.js';
 import {
   mutateCatalogProductDetails,
@@ -27,7 +28,7 @@ import {
   mutateCatalogProductImageUpload,
   mutateCatalogProductImageDelete,
 } from './lib/catalog-product-mutations.js';
-import { applyAllSkuRepairs } from './lib/sku-correction.js';
+import { applyAllSkuRepairs, applyBulkCatalogSkuUpdates } from './lib/sku-correction.js';
 import {
   recordCatalogProductAudit as persistCatalogProductAudit,
   listCatalogProductAuditLogs,
@@ -617,6 +618,34 @@ export const updateCatalogProductDetails = onCall(
   },
 );
 
+/** Record bin label print for spare-rack SKU status (Firestore only). */
+export const recordCatalogBinLabelPrintFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    const sku = String(request.data?.sku ?? '').trim();
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+    if (!sku) {
+      throw new HttpsError('invalid-argument', 'sku is required.');
+    }
+
+    try {
+      await recordCatalogBinLabelPrint(productId, sku);
+      return { ok: true, productId, sku };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not record bin label print.');
+    }
+  },
+);
+
 /** Firestore-only model / approval / spare group — no Zoho (works while Zoho is rate-limited). */
 export const updateCatalogProductOverlays = onCall(
   {
@@ -741,6 +770,39 @@ export const applyCatalogSkuRepairs = onCall(
     } catch (err) {
       console.error('applyCatalogSkuRepairs failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not apply SKU repairs.');
+    }
+  },
+);
+
+/** Bulk SKU updates from CSV upload — super admin only. */
+export const applyBulkCatalogSkuUpdatesFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const updates = request.data?.updates;
+    if (!Array.isArray(updates) || updates.length === 0) {
+      throw new HttpsError('invalid-argument', 'updates array is required.');
+    }
+
+    const secrets = zohoSecrets();
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+
+    try {
+      return await applyBulkCatalogSkuUpdates(accessToken, organizationId, updates);
+    } catch (err) {
+      console.error('applyBulkCatalogSkuUpdatesFn failed:', err);
+      const message = err?.message ?? 'Could not apply bulk SKU updates.';
+      if (/invalid|required|at most/i.test(message)) {
+        throw new HttpsError('invalid-argument', message);
+      }
+      throw new HttpsError('internal', message);
     }
   },
 );

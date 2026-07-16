@@ -3,12 +3,14 @@ import { Box, ChevronRight, Rows3 } from 'lucide-react';
 import { YesStorePhotoImg } from '../yesStore/YesStorePhotoImg';
 import type { YesStoreItemDoc, YesStorePhoto } from '../../types/yes-store';
 import { BIN_NUMBERS, ROW_NUMBERS, VALID_RACK_LETTERS, readItemQuantity } from '../../types/yes-store';
+import type { SkuLabelRackStatus } from '../../lib/catalog';
 
 export interface SpareRackSkuChip {
   productId: string;
   sku: string;
   name?: string | null;
   quantity: number;
+  labelStatus: SkuLabelRackStatus;
 }
 
 export interface SpareRackUnlinkedChip {
@@ -42,7 +44,11 @@ interface SparePartsRackViewProps {
   /** Catalog spare product ids — only linked audited bins for these show SKUs. */
   spareProductIds: Set<string>;
   /** Live catalog SKUs/names by product id (preferred over yesStore snapshots). */
-  catalogByProductId?: Map<string, { sku: string; name?: string | null }>;
+  catalogByProductId?: Map<string, {
+    sku: string;
+    name?: string | null;
+    labelStatus?: SkuLabelRackStatus;
+  }>;
   loading?: boolean;
   /** Highlight this product after returning from detail. */
   highlightedProductId?: string | null;
@@ -131,7 +137,11 @@ function primaryPhoto(item: YesStoreItemDoc): YesStorePhoto | null {
 
 function buildRowTilesForRack(
   onRack: YesStoreItemDoc[],
-  catalogByProductId?: Map<string, { sku: string; name?: string | null }>,
+  catalogByProductId?: Map<string, {
+    sku: string;
+    name?: string | null;
+    labelStatus?: SkuLabelRackStatus;
+  }>,
 ): DisplayRow[] {
   const byRow = new Map<number, Map<number, {
     skus: Map<string, SpareRackSkuChip>;
@@ -158,11 +168,12 @@ function buildRowTilesForRack(
         || item.catalogProductSku?.trim()
         || productId);
       const name = live?.name ?? item.catalogProductName;
+      const labelStatus = live?.labelStatus ?? 'unchanged';
       const existing = slot.skus.get(productId);
       if (existing) {
         existing.quantity += quantity;
       } else {
-        slot.skus.set(productId, { productId, sku, name, quantity });
+        slot.skus.set(productId, { productId, sku, name, quantity, labelStatus });
       }
     } else {
       slot.unlinked.push({
@@ -208,6 +219,11 @@ function SkuCell({
   const focused = Boolean(highlightedProductId && chip.productId === highlightedProductId);
   const qtyLabel = `×${chip.quantity}`;
   const titleBase = chip.name ? `${chip.sku} · ${chip.name}` : `Bin ${binNumber}: ${chip.sku}`;
+  const skuStatusClass = chip.labelStatus === 'changed'
+    ? 'spare-rack-cell__sku--changed'
+    : chip.labelStatus === 'relabel_printed'
+      ? 'spare-rack-cell__sku--relabel-printed'
+      : '';
   return (
     <button
       type="button"
@@ -230,7 +246,9 @@ function SkuCell({
       </div>
       <div className="spare-rack-cell__body">
         <Box className="spare-rack-cell__icon spare-rack-cell__icon--live" size={16} strokeWidth={1.75} aria-hidden />
-        <span className="spare-rack-cell__sku">{chip.sku}</span>
+        <span className={['spare-rack-cell__sku', skuStatusClass].filter(Boolean).join(' ')}>
+          {chip.sku}
+        </span>
         <ChevronRight className="spare-rack-cell__chevron" size={14} strokeWidth={2.25} aria-hidden />
       </div>
     </button>
