@@ -7,6 +7,7 @@ import { RelatedCatalogItems } from './RelatedCatalogItems';
 import { ProductAuditHistory } from './ProductAuditHistory';
 import { ProductNcPanel, type ProductNcExistingLocation } from './ProductNcPanel';
 import { ProductMediaPanel } from './ProductMediaPanel';
+import { ProductStockMovementsPanel } from './ProductStockMovementsPanel';
 
 export type ProductDetailTabId =
   | 'spare'
@@ -376,7 +377,7 @@ export const ProductDetailTabs: React.FC<{
           className="product-detail-tab-panel"
         >
           <TabPanelBody>
-            <TabPlaceholder label="Stock" />
+            <ProductStockMovementsPanel product={product} />
           </TabPanelBody>
         </div>
         )}

@@ -309,6 +309,14 @@ export const ProductDetailView: React.FC<{
         if (!detail.imageUrl && preview?.imageUrl) {
           detail.imageUrl = preview.imageUrl;
         }
+        // Server omitted auditSnapshot (deleted) — do not keep a stale preview snapshot.
+        if (!detail.auditSnapshot) {
+          const { auditSnapshot: _removed, ...rest } = detail as CatalogProductDetail & {
+            auditSnapshot?: CatalogProduct['auditSnapshot'];
+          };
+          setProduct(rest);
+          return;
+        }
         setProduct(detail);
       })
       .catch(err => {
@@ -2056,20 +2064,6 @@ export const ProductDetailView: React.FC<{
             <div className="product-detail-page__stock-locations product-detail-page__stock-locations--summary">
               {openAuditCycles != null && detailOpenCycles.length > 0 && (
                 <div className="product-detail-page__audit-cycle-banner">
-                  {detailOpenCycles.map(cycle => (
-                    <p key={cycle.id} className="product-detail-page__audit-cycle-line">
-                      Cycle: {auditCycleSiteLabel(cycle.site)} — {cycle.name} (open)
-                      {summaryAuditedQty != null && (
-                        <> · Audited {summaryAuditedQty}</>
-                      )}
-                      {summaryDifference != null && (
-                        <> · Diff {formatQtyDifference(summaryDifference)}</>
-                      )}
-                      {livePhysicalQty != null && (
-                        <> · Live locations {livePhysicalQty}</>
-                      )}
-                    </p>
-                  ))}
                   {zohoMovedDuringOpenCycle && (
                     <p className="product-detail-page__audit-cycle-warn text-sm">
                       Zoho stock changed since the last physical count. Diff stays locked; Audited tracks Zoho.

@@ -553,11 +553,6 @@ function HeadOfficeLocationSection({
           No open audit cycle — counting locked.
         </p>
       )}
-      {openCycle && (
-        <p className="product-site-stock__cycle-banner text-sm">
-          Cycle: {openCycle.name} (open)
-        </p>
-      )}
 
       {editing && canCount ? (
         <div className="product-site-stock__editor-modern">
@@ -973,11 +968,6 @@ function CochinLocationSection({
       {canEdit && openCycle === null && (
         <p className="product-site-stock__cycle-lock text-muted text-sm">
           No open audit cycle — counting locked.
-        </p>
-      )}
-      {openCycle && (
-        <p className="product-site-stock__cycle-banner text-sm">
-          Cycle: {openCycle.name} (open)
         </p>
       )}
 

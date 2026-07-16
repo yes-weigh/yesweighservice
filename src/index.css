@@ -9060,6 +9060,127 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
+.product-stock-movements {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.product-stock-movements__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.product-stock-movements__intro {
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+
+.product-stock-movements__title {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.product-stock-movements__intro p {
+  margin: 0;
+}
+
+.product-stock-movements__toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.product-stock-movements__error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.875rem;
+}
+
+.product-stock-movements__status {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.product-stock-movements__empty {
+  margin: 0;
+}
+
+.product-stock-movements__table-wrap {
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  max-height: min(70vh, 36rem);
+}
+
+.product-stock-movements__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.product-stock-movements__table th,
+.product-stock-movements__table td {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid #eef2f7;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.product-stock-movements__table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.product-stock-movements__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.product-stock-movements__ref {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  white-space: normal;
+}
+
+.product-stock-movements__delta {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.product-stock-movements__delta.is-in {
+  color: #15803d;
+}
+
+.product-stock-movements__delta.is-out {
+  color: #c2410c;
+}
+
+.product-stock-movements__delta.is-flat {
+  color: #64748b;
+}
+
+.product-stock-movements__running {
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
 .product-audit-movements {
   width: min(52rem, calc(100vw - 1.5rem));
   max-height: min(85vh, 40rem);

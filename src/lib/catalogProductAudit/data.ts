@@ -127,13 +127,30 @@ export async function fetchCatalogProductStockMovements(
   until: string,
 ): Promise<CatalogProductStockMovementsResult> {
   const callable = httpsCallable<
-    { catalogProductId: string; until: string },
+    { catalogProductId: string; until: string; lifetime?: boolean },
     CatalogProductStockMovementsResult
-  >(functions, 'getCatalogProductStockMovements', { timeout: 120_000 });
+  >(functions, 'getCatalogProductStockMovements', { timeout: 180_000 });
 
   const result = await callable({
     catalogProductId: String(catalogProductId ?? '').trim(),
     until: String(until ?? '').trim(),
+    lifetime: false,
+  });
+  return result.data;
+}
+
+/** Lifetime Zoho stock ledger for an item (paginated item-transaction APIs). */
+export async function fetchCatalogProductLifetimeStockMovements(
+  catalogProductId: string,
+): Promise<CatalogProductStockMovementsResult> {
+  const callable = httpsCallable<
+    { catalogProductId: string; lifetime: boolean },
+    CatalogProductStockMovementsResult
+  >(functions, 'getCatalogProductStockMovements', { timeout: 180_000 });
+
+  const result = await callable({
+    catalogProductId: String(catalogProductId ?? '').trim(),
+    lifetime: true,
   });
   return result.data;
 }

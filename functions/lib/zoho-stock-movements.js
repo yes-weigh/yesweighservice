@@ -1,41 +1,14 @@
 /**
- * Rebuild / list Zoho stock movements for a catalog item up to a cutoff time.
- * Sources: invoices (out), bills (in), credit notes (in), inventory adjustments.
+ * Zoho item stock movements via /items/transactions/* (includes item_quantity).
+ * Supports lifetime ledger (paginated) and cutoff-filtered history for audit popup.
  */
 import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js';
 
-const REQUEST_GAP_MS = 120;
-const LOOKBACK_DAYS = 365;
+const REQUEST_GAP_MS = 100;
+const PAGE_SIZE = 200;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function dateOnly(iso) {
-  return String(iso).slice(0, 10);
-}
-
-function addDays(isoDate, days) {
-  const d = new Date(`${isoDate}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return dateOnly(d.toISOString());
-}
-
-/** Zoho created_time like 2026-07-10T14:10:00+0530 → ISO UTC */
-export function zohoTimeToIso(zohoTime) {
-  if (!zohoTime) return null;
-  const m = String(zohoTime).match(
-    /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})([+-]\d{4})$/,
-  );
-  if (!m) {
-    const parsed = Date.parse(zohoTime);
-    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
-  }
-  const sign = m[3][0] === '-' ? -1 : 1;
-  const offH = Number(m[3].slice(1, 3));
-  const offM = Number(m[3].slice(3, 5));
-  const utcMs = Date.parse(`${m[1]}T${m[2]}Z`) - sign * (offH * 60 + offM) * 60_000;
-  return new Date(utcMs).toISOString();
 }
 
 function createZohoGetter(accessToken, organizationId) {
@@ -59,45 +32,265 @@ function createZohoGetter(accessToken, organizationId) {
   };
 }
 
-async function listCollection(zohoGet, collection, itemId, dateStart, dateEnd) {
-  const path = `/${collection}?item_id=${encodeURIComponent(itemId)}`
-    + `&date_start=${dateStart}&date_end=${dateEnd}&per_page=200`;
-  const json = await zohoGet(path);
-  return Array.isArray(json[collection]) ? json[collection] : [];
+/**
+ * Paginate an item-transactions collection.
+ * @returns {Promise<object[]>}
+ */
+async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey) {
+  const rows = [];
+  let page = 1;
+  for (;;) {
+    const path = `/items/transactions/${pathSuffix}?item_id=${encodeURIComponent(itemId)}`
+      + `&per_page=${PAGE_SIZE}&page=${page}`;
+    const json = await zohoGet(path);
+    const batch = Array.isArray(json[listKey]) ? json[listKey] : [];
+    rows.push(...batch);
+    const hasMore = Boolean(json.page_context?.has_more_page);
+    if (!hasMore || batch.length === 0) break;
+    page += 1;
+    if (page > 100) break; // safety
+  }
+  return rows;
 }
 
-async function lineQtyForItem(zohoGet, collection, singular, idField, docId, itemId) {
-  const json = await zohoGet(`/${collection}/${docId}`);
-  const doc = json[singular];
-  if (!doc) return null;
-  let qty = 0;
-  for (const line of doc.line_items || []) {
-    if (String(line.item_id) === String(itemId)) qty += Number(line.quantity || 0);
-  }
+function mapInvoice(row) {
+  const qty = Number(row.item_quantity ?? 0);
   if (!qty) return null;
   return {
-    documentId: String(docId),
-    documentNumber: String(doc[idField] ?? docId),
-    date: String(doc.date ?? ''),
-    createdTime: String(doc.created_time ?? ''),
-    createdAt: zohoTimeToIso(doc.created_time),
-    status: String(doc.status ?? ''),
-    customerOrVendor: String(
-      doc.customer_name
-      ?? doc.vendor_name
-      ?? doc.company_name
-      ?? '',
-    ).trim() || null,
-    quantity: qty,
-    reference: String(doc.reference_number ?? doc.salesorder_number ?? '').trim() || null,
+    type: 'invoice',
+    typeLabel: 'Invoice',
+    documentId: String(row.invoice_id ?? ''),
+    documentNumber: String(row.invoice_number ?? ''),
+    date: String(row.date ?? ''),
+    createdTime: String(row.date ?? ''),
+    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    status: String(row.status ?? ''),
+    customerOrVendor: String(row.customer_name ?? '').trim() || null,
+    quantity: Math.abs(qty),
+    qtyDelta: -Math.abs(qty),
+    reference: null,
+    itemPrice: row.item_price != null ? Number(row.item_price) : null,
+    itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
+  };
+}
+
+function mapBill(row) {
+  const qty = Number(row.item_quantity ?? 0);
+  if (!qty) return null;
+  return {
+    type: 'bill',
+    typeLabel: 'Bill',
+    documentId: String(row.bill_id ?? ''),
+    documentNumber: String(row.bill_number ?? ''),
+    date: String(row.date ?? ''),
+    createdTime: String(row.date ?? ''),
+    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    status: String(row.status ?? ''),
+    customerOrVendor: String(row.vendor_name ?? '').trim() || null,
+    quantity: Math.abs(qty),
+    qtyDelta: +Math.abs(qty),
+    reference: null,
+    itemPrice: row.item_price != null ? Number(row.item_price) : null,
+    itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
+  };
+}
+
+function mapCreditNote(row) {
+  const qty = Number(row.item_quantity ?? 0);
+  if (!qty) return null;
+  return {
+    type: 'creditnote',
+    typeLabel: 'Credit note',
+    documentId: String(row.creditnote_id ?? ''),
+    documentNumber: String(row.creditnote_number ?? ''),
+    date: String(row.date ?? ''),
+    createdTime: String(row.date ?? ''),
+    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    status: String(row.status ?? ''),
+    customerOrVendor: String(row.customer_name ?? '').trim() || null,
+    quantity: Math.abs(qty),
+    qtyDelta: +Math.abs(qty),
+    reference: null,
+    itemPrice: row.item_price != null ? Number(row.item_price) : null,
+    itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
+  };
+}
+
+function mapAdjustment(row) {
+  const qty = Number(row.item_quantity ?? row.quantity_adjusted ?? 0);
+  if (!qty) return null;
+  return {
+    type: 'adjustment',
+    typeLabel: 'Adjustment',
+    documentId: String(row.inventoryadjustment_id ?? row.adjustment_id ?? ''),
+    documentNumber: String(row.adjustment_number ?? ''),
+    date: String(row.date ?? ''),
+    createdTime: String(row.date ?? ''),
+    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    status: String(row.status ?? ''),
+    customerOrVendor: null,
+    quantity: Math.abs(qty),
+    qtyDelta: qty,
+    reference: String(row.reason ?? row.description ?? '').trim() || null,
+    itemPrice: null,
+    itemTotal: null,
+  };
+}
+
+function mapMoveOrder(row) {
+  const qty = Number(row.item_quantity ?? 0);
+  if (!qty) return null;
+  return {
+    type: 'moveorder',
+    typeLabel: 'Transfer',
+    documentId: String(row.moveorder_id ?? ''),
+    documentNumber: String(row.moveorder_number ?? row.salesorder_number ?? ''),
+    date: String(row.date ?? ''),
+    createdTime: String(row.date ?? ''),
+    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    status: String(row.status ?? ''),
+    customerOrVendor: null,
+    quantity: Math.abs(qty),
+    qtyDelta: 0, // location transfer — net stock unchanged
+    reference: null,
+    itemPrice: null,
+    itemTotal: null,
+  };
+}
+
+function mapSalesReturn(row) {
+  const qty = Number(row.item_quantity ?? row.quantity ?? 0);
+  if (!qty) return null;
+  return {
+    type: 'salesreturn',
+    typeLabel: 'Sales return',
+    documentId: String(row.salesreturn_id ?? ''),
+    documentNumber: String(row.salesreturn_number ?? ''),
+    date: String(row.date ?? ''),
+    createdTime: String(row.date ?? ''),
+    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    status: String(row.status ?? ''),
+    customerOrVendor: String(row.customer_name ?? '').trim() || null,
+    quantity: Math.abs(qty),
+    qtyDelta: +Math.abs(qty),
+    reference: null,
+    itemPrice: null,
+    itemTotal: null,
+  };
+}
+
+async function listSalesReturns(zohoGet, itemId) {
+  const rows = [];
+  let page = 1;
+  for (;;) {
+    const path = `/salesreturns?item_id=${encodeURIComponent(itemId)}`
+      + `&per_page=${PAGE_SIZE}&page=${page}`;
+    let json;
+    try {
+      json = await zohoGet(path);
+    } catch {
+      return rows;
+    }
+    const batch = Array.isArray(json.salesreturns) ? json.salesreturns : [];
+    // List may lack item_quantity — keep rows; qty may be 0 until we know
+    for (const row of batch) {
+      const mapped = mapSalesReturn(row);
+      if (mapped) rows.push(mapped);
+    }
+    if (!json.page_context?.has_more_page || batch.length === 0) break;
+    page += 1;
+    if (page > 100) break;
+  }
+  return rows;
+}
+
+/**
+ * Lifetime stock movements for an item (paginated Zoho item-transaction APIs).
+ */
+export async function listCatalogProductLifetimeStockMovements(
+  secrets,
+  configuredOrgId,
+  catalogProductId,
+) {
+  const itemId = String(catalogProductId ?? '').trim();
+  if (!itemId) throw new Error('catalogProductId is required.');
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const zohoGet = createZohoGetter(accessToken, organizationId);
+
+  const [invoices, bills, creditnotes, adjustments, moveorders] = await Promise.all([
+    listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices'),
+    listAllItemTransactions(zohoGet, 'bills', itemId, 'bills'),
+    listAllItemTransactions(zohoGet, 'creditnotes', itemId, 'creditnotes'),
+    listAllItemTransactions(zohoGet, 'inventoryadjustments', itemId, 'inventory_adjustments'),
+    listAllItemTransactions(zohoGet, 'moveorders', itemId, 'moveorders'),
+  ]);
+
+  const salesReturns = await listSalesReturns(zohoGet, itemId);
+
+  const movements = [
+    ...invoices.map(mapInvoice),
+    ...bills.map(mapBill),
+    ...creditnotes.map(mapCreditNote),
+    ...adjustments.map(mapAdjustment),
+    ...moveorders.map(mapMoveOrder),
+    ...salesReturns,
+  ].filter(Boolean);
+
+  movements.sort((a, b) => {
+    const da = String(a.date || a.createdAt || '');
+    const db = String(b.date || b.createdAt || '');
+    if (da !== db) return db.localeCompare(da); // newest first
+    return String(b.documentNumber).localeCompare(String(a.documentNumber));
+  });
+
+  // Running stock from oldest → newest, then attach for display (newest-first list).
+  const oldestFirst = [...movements].reverse();
+  let running = 0;
+  const withRunningAsc = oldestFirst.map(m => {
+    running += Number(m.qtyDelta) || 0;
+    return { ...m, runningStock: running };
+  });
+  const byKey = new Map(
+    withRunningAsc.map(m => [`${m.type}:${m.documentId}:${m.date}`, m.runningStock]),
+  );
+  for (const m of movements) {
+    m.runningStock = byKey.get(`${m.type}:${m.documentId}:${m.date}`) ?? null;
+  }
+
+  const netDelta = movements.reduce((sum, m) => sum + (Number(m.qtyDelta) || 0), 0);
+
+  let currentStock = null;
+  try {
+    const itemJson = await zohoGet(`/items/${encodeURIComponent(itemId)}`);
+    const item = itemJson.item;
+    currentStock = Number(
+      item?.stock_on_hand ?? item?.available_stock ?? item?.actual_available_stock ?? NaN,
+    );
+    if (!Number.isFinite(currentStock)) currentStock = null;
+  } catch {
+    // optional
+  }
+
+  return {
+    catalogProductId: itemId,
+    lifetime: true,
+    until: null,
+    dateStart: null,
+    dateEnd: null,
+    lookbackDays: null,
+    movementCount: movements.length,
+    netDelta,
+    currentStock,
+    fetchedAt: new Date().toISOString(),
+    movements,
   };
 }
 
 /**
- * @param {{ clientId: string, clientSecret: string, refreshToken: string }} secrets
- * @param {string} configuredOrgId
- * @param {string} catalogProductId
- * @param {string} untilIso - include movements with createdAt <= untilIso
+ * Movements with created/date ≤ until (for audit-log popup).
+ * Uses the same item-transaction endpoints, then filters by date.
  */
 export async function listCatalogProductStockMovements(
   secrets,
@@ -105,131 +298,38 @@ export async function listCatalogProductStockMovements(
   catalogProductId,
   untilIso,
 ) {
-  const itemId = String(catalogProductId ?? '').trim();
   const until = String(untilIso ?? '').trim();
-  if (!itemId) throw new Error('catalogProductId is required.');
   if (!until || Number.isNaN(Date.parse(until))) {
     throw new Error('until must be a valid ISO datetime.');
   }
+  const untilDate = until.slice(0, 10);
 
-  const accessToken = await getAccessToken(secrets);
-  const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
-  const zohoGet = createZohoGetter(accessToken, organizationId);
+  const full = await listCatalogProductLifetimeStockMovements(
+    secrets,
+    configuredOrgId,
+    catalogProductId,
+  );
 
-  const untilDate = dateOnly(until);
-  const dateStart = addDays(untilDate, -LOOKBACK_DAYS);
-  const movements = [];
-
-  const invoices = await listCollection(zohoGet, 'invoices', itemId, dateStart, untilDate);
-  for (const inv of invoices) {
-    const row = await lineQtyForItem(
-      zohoGet,
-      'invoices',
-      'invoice',
-      'invoice_number',
-      inv.invoice_id,
-      itemId,
-    );
-    if (!row || !row.createdAt || row.createdAt > until) continue;
-    movements.push({
-      ...row,
-      type: 'invoice',
-      typeLabel: 'Invoice',
-      qtyDelta: -row.quantity,
-    });
-  }
-
-  const bills = await listCollection(zohoGet, 'bills', itemId, dateStart, untilDate);
-  for (const bill of bills) {
-    const row = await lineQtyForItem(
-      zohoGet,
-      'bills',
-      'bill',
-      'bill_number',
-      bill.bill_id,
-      itemId,
-    );
-    if (!row || !row.createdAt || row.createdAt > until) continue;
-    movements.push({
-      ...row,
-      type: 'bill',
-      typeLabel: 'Bill',
-      qtyDelta: +row.quantity,
-    });
-  }
-
-  const creditnotes = await listCollection(zohoGet, 'creditnotes', itemId, dateStart, untilDate);
-  for (const cn of creditnotes) {
-    const row = await lineQtyForItem(
-      zohoGet,
-      'creditnotes',
-      'creditnote',
-      'creditnote_number',
-      cn.creditnote_id,
-      itemId,
-    );
-    if (!row || !row.createdAt || row.createdAt > until) continue;
-    movements.push({
-      ...row,
-      type: 'creditnote',
-      typeLabel: 'Credit note',
-      qtyDelta: +row.quantity,
-    });
-  }
-
-  // Inventory adjustments (optional; may be empty for many orgs).
-  try {
-    const adjJson = await zohoGet(
-      `/inventoryadjustments?item_id=${encodeURIComponent(itemId)}`
-      + `&date_start=${dateStart}&date_end=${untilDate}&per_page=200`,
-    );
-    const adjustments = Array.isArray(adjJson.inventory_adjustments)
-      ? adjJson.inventory_adjustments
-      : [];
-    for (const adj of adjustments) {
-      const detail = await zohoGet(`/inventoryadjustments/${adj.inventoryadjustment_id || adj.adjustment_id}`);
-      const doc = detail.inventoryadjustment || detail.inventory_adjustment;
-      if (!doc) continue;
-      let qty = 0;
-      for (const line of doc.line_items || []) {
-        if (String(line.item_id) === String(itemId)) {
-          qty += Number(line.quantity_adjusted ?? line.quantity ?? 0);
-        }
-      }
-      if (!qty) continue;
-      const createdAt = zohoTimeToIso(doc.created_time);
-      if (!createdAt || createdAt > until) continue;
-      movements.push({
-        documentId: String(adj.inventoryadjustment_id || adj.adjustment_id),
-        documentNumber: String(doc.adjustment_number ?? adj.adjustment_number ?? ''),
-        date: String(doc.date ?? ''),
-        createdTime: String(doc.created_time ?? ''),
-        createdAt,
-        status: String(doc.status ?? ''),
-        customerOrVendor: null,
-        quantity: Math.abs(qty),
-        reference: String(doc.reason ?? doc.description ?? '').trim() || null,
-        type: 'adjustment',
-        typeLabel: 'Adjustment',
-        qtyDelta: qty,
-      });
-    }
-  } catch {
-    // Adjustments endpoint varies by org plan — ignore failures.
-  }
-
-  movements.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  const movements = full.movements.filter(m => {
+    const d = String(m.date || '').slice(0, 10);
+    if (d) return d <= untilDate;
+    const at = String(m.createdAt || '');
+    return at && at <= until;
+  });
 
   const netDelta = movements.reduce((sum, m) => sum + (Number(m.qtyDelta) || 0), 0);
 
   return {
-    catalogProductId: itemId,
+    catalogProductId: full.catalogProductId,
+    lifetime: false,
     until,
-    dateStart,
+    dateStart: null,
     dateEnd: untilDate,
-    lookbackDays: LOOKBACK_DAYS,
+    lookbackDays: null,
     movementCount: movements.length,
     netDelta,
+    currentStock: full.currentStock,
+    fetchedAt: full.fetchedAt,
     movements,
   };
 }

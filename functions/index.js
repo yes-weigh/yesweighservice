@@ -258,6 +258,9 @@ export const getCatalogProductDetail = onCall(
       }
       if (data?.auditSnapshot) {
         detail.auditSnapshot = data.auditSnapshot;
+      } else {
+        // Explicit null so clients drop a stale preview snapshot after delete.
+        detail.auditSnapshot = null;
       }
       // Firestore-only overlays (never on Zoho item payload)
       const mrpOverride = Number(data?.mrpOverride);
@@ -846,12 +849,12 @@ export const getCatalogProductAuditLogs = onCall(
   },
 );
 
-/** Zoho stock movements (invoices / bills / credit notes / adjustments) up to a datetime. */
+/** Zoho stock movements — lifetime ledger or up to a datetime (audit popup). */
 export const getCatalogProductStockMovements = onCall(
   {
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
+    timeoutSeconds: 180,
     memory: '512MiB',
   },
   async request => {
@@ -859,16 +862,29 @@ export const getCatalogProductStockMovements = onCall(
 
     const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
     const until = String(request.data?.until ?? '').trim();
+    const lifetime = Boolean(request.data?.lifetime) || !until;
 
     if (!catalogProductId) {
       throw new HttpsError('invalid-argument', 'catalogProductId is required.');
     }
-    if (!until || Number.isNaN(Date.parse(until))) {
+    if (!lifetime && Number.isNaN(Date.parse(until))) {
       throw new HttpsError('invalid-argument', 'until must be a valid ISO datetime.');
     }
 
     try {
-      const { listCatalogProductStockMovements } = await import('./lib/zoho-stock-movements.js');
+      const {
+        listCatalogProductStockMovements,
+        listCatalogProductLifetimeStockMovements,
+      } = await import('./lib/zoho-stock-movements.js');
+
+      if (lifetime) {
+        return await listCatalogProductLifetimeStockMovements(
+          zohoSecrets(),
+          zohoOrganizationId.value(),
+          catalogProductId,
+        );
+      }
+
       return await listCatalogProductStockMovements(
         zohoSecrets(),
         zohoOrganizationId.value(),

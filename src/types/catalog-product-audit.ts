@@ -54,7 +54,13 @@ export interface CatalogProductAuditSnapshot {
   lastCochinAuditCycleId?: string | null;
 }
 
-export type CatalogStockMovementType = 'invoice' | 'bill' | 'creditnote' | 'adjustment';
+export type CatalogStockMovementType =
+  | 'invoice'
+  | 'bill'
+  | 'creditnote'
+  | 'adjustment'
+  | 'moveorder'
+  | 'salesreturn';
 
 export interface CatalogStockMovement {
   type: CatalogStockMovementType;
@@ -70,15 +76,22 @@ export interface CatalogStockMovement {
   /** Signed stock change (invoices negative). */
   qtyDelta: number;
   reference: string | null;
+  itemPrice?: number | null;
+  itemTotal?: number | null;
+  /** Running stock after this movement (oldest→newest). */
+  runningStock?: number | null;
 }
 
 export interface CatalogProductStockMovementsResult {
   catalogProductId: string;
-  until: string;
-  dateStart: string;
-  dateEnd: string;
-  lookbackDays: number;
+  lifetime?: boolean;
+  until: string | null;
+  dateStart: string | null;
+  dateEnd: string | null;
+  lookbackDays: number | null;
   movementCount: number;
   netDelta: number;
+  currentStock?: number | null;
+  fetchedAt?: string;
   movements: CatalogStockMovement[];
 }
