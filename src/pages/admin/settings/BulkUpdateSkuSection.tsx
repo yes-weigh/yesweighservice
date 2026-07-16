@@ -17,12 +17,13 @@ export interface BulkSkuRow {
   matchError: string | null;
 }
 
-type BulkFilter = 'all' | 'invalid' | 'duplicates';
+type BulkFilter = 'all' | 'invalid' | 'duplicates' | 'unmatched';
 
 const BULK_FILTERS: { id: BulkFilter; label: string }[] = [
   { id: 'all', label: 'All rows' },
   { id: 'invalid', label: 'Invalid chars' },
   { id: 'duplicates', label: 'Duplicates' },
+  { id: 'unmatched', label: 'Unmatched' },
 ];
 
 function escapeCsvCell(value: string): string {
@@ -115,16 +116,19 @@ function resolveProductForRow(
   }
 
   const matches = products.filter(p => (p.sku ?? '').trim() === oldSku);
-  if (matches.length === 0) {
+  const catalogMatches = matches.length > 0
+    ? matches
+    : products.filter(p => (p.sku ?? '').trim().toLowerCase() === oldSku.toLowerCase());
+  if (catalogMatches.length === 0) {
     return { productId: null, matchError: 'No catalog item matches this Old SKU.' };
   }
-  if (matches.length === 1) {
-    return { productId: matches[0].id, matchError: null };
+  if (catalogMatches.length === 1) {
+    return { productId: catalogMatches[0].id, matchError: null };
   }
 
   const itemName = row.itemName.trim().toLowerCase();
   if (itemName) {
-    const nameMatches = matches.filter(p => p.name.trim().toLowerCase() === itemName);
+    const nameMatches = catalogMatches.filter(p => p.name.trim().toLowerCase() === itemName);
     if (nameMatches.length === 1) {
       return { productId: nameMatches[0].id, matchError: null };
     }
@@ -225,6 +229,15 @@ export const BulkUpdateSkuSection: React.FC<BulkUpdateSkuSectionProps> = ({
     [rows],
   );
 
+  const unmatchedNeedingUpdate = useMemo(
+    () => rows.filter(r =>
+      (!r.productId || r.matchError)
+      && r.oldSku.trim() !== r.newProposedSku.trim()
+      && r.newProposedSku.trim() !== '',
+    ),
+    [rows],
+  );
+
   const rowsNeedingUpdate = useMemo(
     () => rows.filter(r =>
       r.productId
@@ -241,7 +254,8 @@ export const BulkUpdateSkuSection: React.FC<BulkUpdateSkuSectionProps> = ({
     all: rows.length,
     invalid: invalidCount,
     duplicates: rows.filter(r => duplicateNewSkus.has(r.newProposedSku.trim())).length,
-  }), [rows.length, invalidCount, duplicateNewSkus, rows]);
+    unmatched: unmatchedCount,
+  }), [rows.length, invalidCount, duplicateNewSkus, rows, unmatchedCount]);
 
   const filteredRows = useMemo(() => {
     if (filter === 'invalid') {
@@ -251,6 +265,9 @@ export const BulkUpdateSkuSection: React.FC<BulkUpdateSkuSectionProps> = ({
     }
     if (filter === 'duplicates') {
       return rows.filter(r => duplicateNewSkus.has(r.newProposedSku.trim()));
+    }
+    if (filter === 'unmatched') {
+      return rows.filter(r => !r.productId || r.matchError);
     }
     return rows;
   }, [rows, filter, duplicateNewSkus]);
@@ -271,12 +288,14 @@ export const BulkUpdateSkuSection: React.FC<BulkUpdateSkuSectionProps> = ({
         return;
       }
       setBaseRows(parsed);
-      setFilter('all');
+      const matched = attachCatalogMatches(parsed, products);
+      const unmatched = matched.filter(r => !r.productId || r.matchError).length;
+      setFilter(unmatched > 0 ? 'unmatched' : 'all');
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Could not parse CSV.');
       setBaseRows([]);
     }
-  }, [onClearMessages]);
+  }, [products, onClearMessages]);
 
   const updateRow = useCallback((id: string, patch: Partial<Pick<BulkSkuRow, 'oldSku' | 'newProposedSku' | 'itemName'>>) => {
     setBaseRows(prev => prev.map(row => (row.id === id ? { ...row, ...patch } : row)));
@@ -294,8 +313,12 @@ export const BulkUpdateSkuSection: React.FC<BulkUpdateSkuSectionProps> = ({
       onError(`${duplicateCount} duplicate New Proposed SKU value${duplicateCount === 1 ? '' : 's'} in the batch. Fix them before updating.`);
       return;
     }
-    if (unmatchedCount > 0) {
-      onError(`${unmatchedCount} row${unmatchedCount === 1 ? '' : 's'} could not be matched to a catalog item. Fix Old SKU / Item Name first.`);
+    if (unmatchedNeedingUpdate.length > 0) {
+      onError(
+        `${unmatchedNeedingUpdate.length} unmatched row${unmatchedNeedingUpdate.length === 1 ? '' : 's'} `
+        + 'still need a SKU change — fix Old SKU / Item Name first, or remove those rows from the CSV.',
+      );
+      setFilter('unmatched');
       return;
     }
     if (rowsNeedingUpdate.length === 0) {
@@ -303,12 +326,16 @@ export const BulkUpdateSkuSection: React.FC<BulkUpdateSkuSectionProps> = ({
       return;
     }
 
+    const skipNote = unmatchedCount > 0
+      ? ` ${unmatchedCount} unmatched row${unmatchedCount === 1 ? '' : 's'} with no SKU change will be skipped.`
+      : '';
     const ok = await confirm({
       title: 'Bulk update SKUs?',
       message:
         `This will download a backup CSV, then update ${rowsNeedingUpdate.length} item SKU${rowsNeedingUpdate.length === 1 ? '' : 's'} on Zoho `
         + '(~1.5s per SKU to avoid rate limits). Leave this tab open. '
-        + 'If Zoho blocks mid-run, wait a few minutes and run bulk update again for the rest.',
+        + 'If Zoho blocks mid-run, wait a few minutes and run bulk update again for the rest.'
+        + skipNote,
       confirmLabel: 'Bulk update',
       destructive: true,
     });
