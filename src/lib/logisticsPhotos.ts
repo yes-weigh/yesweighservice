@@ -18,9 +18,11 @@ export function logisticsPhotoStoragePath(
   slot: string,
   fileName: string,
 ): string {
-  // Flat path — matches storage.rules `logistics/{bookingId}/{fileName}`
-  const safeSlot = slot.replace(/[^\w\-]+/g, '-').slice(0, 80);
-  return `logistics/${bookingId}/${safeSlot}-${fileName}`;
+  // Nested path — works with both legacy `/{slot}/{fileName}` rules and
+  // current `/{allPaths=**}` rules. Flat `slot-file` paths 403 under legacy rules.
+  const safeSlot = slot.replace(/[^\w\-]+/g, '-').slice(0, 80) || 'photo';
+  const safeName = fileName.replace(/[^\w.\-]+/g, '-').slice(0, 120) || 'photo.jpg';
+  return `logistics/${bookingId}/${safeSlot}/${safeName}`;
 }
 
 export async function uploadLogisticsPhoto(
