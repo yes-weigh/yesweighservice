@@ -9203,9 +9203,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #475569;
 }
 
-.product-stock-movements__chip--type.is-moveorder {
+.product-stock-movements__chip--type.is-putaway {
   background: #f5f3ff;
   color: #6d28d9;
+}
+
+.product-stock-movements__chip--type.is-opening {
+  background: #ecfeff;
+  color: #0e7490;
 }
 
 .product-stock-movements__chip--status {

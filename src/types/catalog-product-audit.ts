@@ -60,7 +60,12 @@ export type CatalogStockMovementType =
   | 'creditnote'
   | 'adjustment'
   | 'moveorder'
-  | 'salesreturn';
+  | 'salesreturn'
+  | 'package'
+  | 'purchasereceive'
+  | 'transferorder'
+  | 'putaway'
+  | 'opening';
 
 export interface CatalogStockMovement {
   type: CatalogStockMovementType;
@@ -92,6 +97,8 @@ export interface CatalogProductStockMovementsResult {
   movementCount: number;
   netDelta: number;
   currentStock?: number | null;
+  /** Implied opening stock so Running ends at current Zoho. */
+  openingStock?: number | null;
   fetchedAt?: string;
   movements: CatalogStockMovement[];
 }
