@@ -3,9 +3,13 @@ import { RefreshCw } from 'lucide-react';
 import { fetchCatalogProductLifetimeStockMovements } from '../../lib/catalogProductAudit/data';
 import { formatStockQuantity } from '../../lib/catalog';
 import type { CatalogProduct } from '../../types/catalog';
-import type { CatalogProductStockMovementsResult } from '../../types/catalog-product-audit';
+import type {
+  CatalogProductStockMovementsResult,
+  CatalogStockMovement,
+} from '../../types/catalog-product-audit';
 
-function qtyDeltaClass(value: number): string {
+function qtyDeltaClass(value: number, voided = false): string {
+  if (voided) return 'product-stock-movements__delta is-void';
   if (value < 0) return 'product-stock-movements__delta is-out';
   if (value > 0) return 'product-stock-movements__delta is-in';
   return 'product-stock-movements__delta is-flat';
@@ -16,39 +20,63 @@ function formatDelta(value: number): string {
   return String(value);
 }
 
+function isVoidRow(row: CatalogStockMovement): boolean {
+  return row.affectsStock === false && String(row.status).toLowerCase().includes('void');
+}
+
+function displayDelta(row: CatalogStockMovement): number {
+  if (row.displayQtyDelta != null) return row.displayQtyDelta;
+  return row.qtyDelta;
+}
+
 export const ProductStockMovementsPanel: React.FC<{
   product: CatalogProduct;
 }> = ({ product }) => {
   const [data, setData] = useState<CatalogProductStockMovementsResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasFetched = data != null;
 
-  useEffect(() => {
-    setData(null);
-    setError(null);
-    setLoading(false);
-  }, [product.id]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (forceRefresh: boolean) => {
+    if (forceRefresh) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     try {
-      const result = await fetchCatalogProductLifetimeStockMovements(product.id);
+      const result = await fetchCatalogProductLifetimeStockMovements(product.id, {
+        forceRefresh,
+      });
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load stock movements.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [product.id]);
+
+  useEffect(() => {
+    setData(null);
+    setError(null);
+    void load(false);
+  }, [product.id, load]);
+
+  const hasData = data != null;
+  const fetchedLabel = data?.fetchedAt
+    ? new Date(data.fetchedAt).toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    : null;
 
   return (
     <div className="product-stock-movements">
       <div className="product-stock-movements__toolbar">
         <div className="product-stock-movements__intro">
           <h3 className="product-stock-movements__title">Stock movements</h3>
-          {hasFetched ? (
+          {hasData ? (
             <p className="text-muted text-sm">
               {data.movementCount} transaction{data.movementCount === 1 ? '' : 's'}
               {data.currentStock != null
@@ -57,64 +85,40 @@ export const ProductStockMovementsPanel: React.FC<{
               {data.netDelta != null
                 ? ` · listed net ${formatDelta(data.netDelta)}`
                 : ''}
-              {data.fetchedAt
-                ? ` · fetched ${new Date(data.fetchedAt).toLocaleString('en-IN', {
-                  day: '2-digit',
-                  month: 'short',
-                  year: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}`
+              {fetchedLabel
+                ? ` · ${data.fromCache ? 'saved' : 'fetched'} ${fetchedLabel}`
                 : ''}
             </p>
           ) : (
             <p className="text-muted text-sm">
-              Load lifetime Zoho invoices, bills, credit notes, adjustments, and transfers.
+              Zoho invoices, bills, credit notes, adjustments, and transfers for this item.
             </p>
           )}
         </div>
 
-        {!hasFetched ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={loading}
-            onClick={() => void load()}
-          >
-            {loading ? (
-              <>
-                <RefreshCw size={14} className="spin-icon" aria-hidden />
-                Fetching…
-              </>
-            ) : (
-              'Fetch all stock movements'
-            )}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={loading}
-            onClick={() => void load()}
-          >
-            {loading ? (
-              <>
-                <RefreshCw size={14} className="spin-icon" aria-hidden />
-                Refreshing…
-              </>
-            ) : (
-              <>
-                <RefreshCw size={14} aria-hidden />
-                Refresh
-              </>
-            )}
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={loading || refreshing}
+          onClick={() => void load(true)}
+        >
+          {refreshing || (loading && !hasData) ? (
+            <>
+              <RefreshCw size={14} className="spin-icon" aria-hidden />
+              {hasData ? 'Refreshing…' : 'Loading…'}
+            </>
+          ) : (
+            <>
+              <RefreshCw size={14} aria-hidden />
+              Refresh from Zoho
+            </>
+          )}
+        </button>
       </div>
 
       {error && <p className="product-stock-movements__error">{error}</p>}
 
-      {hasFetched && data.unexplainedGap != null && data.unexplainedGap !== 0 && (
+      {hasData && data.unexplainedGap != null && data.unexplainedGap !== 0 && (
         <div
           className={`product-stock-movements__gap ${data.unexplainedGap > 0 ? 'is-surplus' : 'is-short'}`}
           role="status"
@@ -128,26 +132,18 @@ export const ProductStockMovementsPanel: React.FC<{
         </div>
       )}
 
-      {hasFetched && data.unexplainedGap === 0 && (
+      {hasData && data.unexplainedGap === 0 && (
         <p className="product-stock-movements__gap is-matched" role="status">
-          Listed transactions fully explain Zoho stock.
+          Listed transactions fully explain Zoho stock
+          {data.fromCache ? ' (from saved ledger)' : ''}.
         </p>
       )}
 
-      {!hasFetched && !loading && !error && (
-        <div className="product-detail-tab-panel__placeholder product-stock-movements__empty">
-          <p className="product-detail-tab-panel__placeholder-title">Stock ledger</p>
-          <p className="text-muted text-sm">
-            Click “Fetch all stock movements” to load the full Zoho transaction history for this item.
-          </p>
-        </div>
+      {loading && !hasData && (
+        <p className="product-stock-movements__status">Loading stock movements…</p>
       )}
 
-      {loading && !hasFetched && (
-        <p className="product-stock-movements__status">Loading lifetime movements from Zoho…</p>
-      )}
-
-      {hasFetched && (
+      {hasData && (
         <div className="product-stock-movements__table-wrap">
           <table className="product-stock-movements__table">
             <thead>
@@ -165,42 +161,52 @@ export const ProductStockMovementsPanel: React.FC<{
                   <td colSpan={5}>No stock movements found for this item.</td>
                 </tr>
               ) : (
-                data.movements.map(row => (
-                  <tr key={`${row.type}-${row.documentId}-${row.date}-${row.qtyDelta}`}>
-                    <td>{row.date || '—'}</td>
-                    <td>
-                      <div className="product-stock-movements__party-block">
-                        <span
-                          className={`product-stock-movements__chip product-stock-movements__chip--type is-${row.type}`}
-                        >
-                          {row.typeLabel}
-                        </span>
-                        <span className="product-stock-movements__party">
-                          {row.customerOrVendor || '—'}
-                        </span>
-                        {row.status ? (
-                          <span className="product-stock-movements__chip product-stock-movements__chip--status">
-                            {row.status}
+                data.movements.map(row => {
+                  const voided = isVoidRow(row);
+                  const delta = displayDelta(row);
+                  return (
+                    <tr
+                      key={`${row.type}-${row.documentId}-${row.date}-${delta}-${row.status}`}
+                      className={voided ? 'is-void-row' : undefined}
+                    >
+                      <td>{row.date || '—'}</td>
+                      <td>
+                        <div className="product-stock-movements__party-block">
+                          <span
+                            className={`product-stock-movements__chip product-stock-movements__chip--type is-${row.type}`}
+                          >
+                            {row.typeLabel}
                           </span>
+                          <span className="product-stock-movements__party">
+                            {row.customerOrVendor || '—'}
+                          </span>
+                          {row.status ? (
+                            <span
+                              className={`product-stock-movements__chip product-stock-movements__chip--status${voided ? ' is-void' : ''}`}
+                            >
+                              {row.status}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{row.documentNumber || '—'}</strong>
+                        {row.reference ? (
+                          <span className="product-stock-movements__ref">{row.reference}</span>
                         ) : null}
-                      </div>
-                    </td>
-                    <td>
-                      <strong>{row.documentNumber || '—'}</strong>
-                      {row.reference ? (
-                        <span className="product-stock-movements__ref">{row.reference}</span>
-                      ) : null}
-                    </td>
-                    <td className={qtyDeltaClass(row.qtyDelta)}>
-                      {formatDelta(row.qtyDelta)}
-                    </td>
-                    <td className="product-stock-movements__running">
-                      {row.runningStock != null
-                        ? formatStockQuantity(row.runningStock, product.unit)
-                        : '—'}
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className={qtyDeltaClass(delta, voided)}>
+                        {formatDelta(delta)}
+                        {voided ? ' (no stock)' : ''}
+                      </td>
+                      <td className="product-stock-movements__running">
+                        {row.runningStock != null
+                          ? formatStockQuantity(row.runningStock, product.unit)
+                          : '—'}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

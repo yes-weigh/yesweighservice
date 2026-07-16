@@ -874,14 +874,17 @@ export const getCatalogProductStockMovements = onCall(
     try {
       const {
         listCatalogProductStockMovements,
-        listCatalogProductLifetimeStockMovements,
+        getLifetimeStockMovements,
       } = await import('./lib/zoho-stock-movements.js');
 
+      const forceRefresh = Boolean(request.data?.forceRefresh);
+
       if (lifetime) {
-        return await listCatalogProductLifetimeStockMovements(
+        return await getLifetimeStockMovements(
           zohoSecrets(),
           zohoOrganizationId.value(),
           catalogProductId,
+          { forceRefresh },
         );
       }
 
@@ -890,6 +893,7 @@ export const getCatalogProductStockMovements = onCall(
         zohoOrganizationId.value(),
         catalogProductId,
         until,
+        { forceRefresh },
       );
     } catch (err) {
       console.error('getCatalogProductStockMovements failed:', err);

@@ -1,13 +1,16 @@
 /**
  * Zoho item stock movements via /items/transactions/* (includes item_quantity).
- * Fetches all stock-affecting doc types. Running is cumulative from listed
- * transactions only. Any Zoho-vs-txn gap is returned as unexplainedGap (not
- * injected as a fake balanced row — that hid audit discrepancies).
+ * Fetches all stock-affecting doc types. Void/cancelled docs stay visible but
+ * qtyDelta=0 so Running matches Zoho accounting stock. Lifetime results are
+ * cached under catalogProducts/{id}/stockMovements/lifetime.
  */
+import { getFirestore } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js';
 
 const REQUEST_GAP_MS = 100;
 const PAGE_SIZE = 200;
+const STOCK_MOVEMENTS_SUB = 'stockMovements';
+const LIFETIME_CACHE_DOC = 'lifetime';
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -62,14 +65,37 @@ function baseMovement(partial) {
     reference: null,
     itemPrice: null,
     itemTotal: null,
+    affectsStock: true,
+    displayQtyDelta: null,
     ...partial,
+  };
+}
+
+/** Void/cancelled docs stay visible but do not change Zoho accounting stock. */
+function isVoidStatus(status) {
+  const s = String(status ?? '').trim().toLowerCase();
+  return s === 'void' || s === 'voided' || s === 'cancelled' || s === 'canceled';
+}
+
+function withStockEffect(movement, signedDelta) {
+  const voided = isVoidStatus(movement.status);
+  if (!voided) {
+    return { ...movement, qtyDelta: signedDelta, displayQtyDelta: signedDelta, affectsStock: true };
+  }
+  return {
+    ...movement,
+    qtyDelta: 0,
+    displayQtyDelta: signedDelta,
+    affectsStock: false,
+    reference: movement.reference
+      || 'Void — excluded from stock (Zoho does not move inventory)',
   };
 }
 
 function mapInvoice(row) {
   const qty = Number(row.item_quantity ?? 0);
   if (!qty) return null;
-  return baseMovement({
+  return withStockEffect(baseMovement({
     type: 'invoice',
     typeLabel: 'Invoice',
     documentId: String(row.invoice_id ?? ''),
@@ -80,16 +106,15 @@ function mapInvoice(row) {
     status: String(row.status ?? ''),
     customerOrVendor: String(row.customer_name ?? '').trim() || null,
     quantity: Math.abs(qty),
-    qtyDelta: -Math.abs(qty),
     itemPrice: row.item_price != null ? Number(row.item_price) : null,
     itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
-  });
+  }), -Math.abs(qty));
 }
 
 function mapBill(row) {
   const qty = Number(row.item_quantity ?? 0);
   if (!qty) return null;
-  return baseMovement({
+  return withStockEffect(baseMovement({
     type: 'bill',
     typeLabel: 'Bill',
     documentId: String(row.bill_id ?? ''),
@@ -100,16 +125,15 @@ function mapBill(row) {
     status: String(row.status ?? ''),
     customerOrVendor: String(row.vendor_name ?? '').trim() || null,
     quantity: Math.abs(qty),
-    qtyDelta: +Math.abs(qty),
     itemPrice: row.item_price != null ? Number(row.item_price) : null,
     itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
-  });
+  }), +Math.abs(qty));
 }
 
 function mapCreditNote(row) {
   const qty = Number(row.item_quantity ?? 0);
   if (!qty) return null;
-  return baseMovement({
+  return withStockEffect(baseMovement({
     type: 'creditnote',
     typeLabel: 'Credit note',
     documentId: String(row.creditnote_id ?? ''),
@@ -120,16 +144,15 @@ function mapCreditNote(row) {
     status: String(row.status ?? ''),
     customerOrVendor: String(row.customer_name ?? '').trim() || null,
     quantity: Math.abs(qty),
-    qtyDelta: +Math.abs(qty),
     itemPrice: row.item_price != null ? Number(row.item_price) : null,
     itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
-  });
+  }), +Math.abs(qty));
 }
 
 function mapAdjustment(row) {
   const qty = Number(row.item_quantity ?? row.quantity_adjusted ?? 0);
   if (!qty) return null;
-  return baseMovement({
+  return withStockEffect(baseMovement({
     type: 'adjustment',
     typeLabel: 'Adjustment',
     documentId: String(row.inventoryadjustment_id ?? row.adjustment_id ?? ''),
@@ -140,9 +163,8 @@ function mapAdjustment(row) {
     status: String(row.status ?? ''),
     customerOrVendor: null,
     quantity: Math.abs(qty),
-    qtyDelta: qty,
     reference: String(row.reason ?? row.description ?? '').trim() || null,
-  });
+  }), qty);
 }
 
 function mapTransferLike(row, type, typeLabel, idField, numberField) {
@@ -166,6 +188,7 @@ function mapTransferLike(row, type, typeLabel, idField, numberField) {
 function mapPurchaseReceive(row) {
   const qty = Number(row.item_quantity ?? 0);
   if (!qty) return null;
+  // Visibility only — bill already moves accounting stock.
   return baseMovement({
     type: 'purchasereceive',
     typeLabel: 'Purchase receive',
@@ -177,7 +200,9 @@ function mapPurchaseReceive(row) {
     status: String(row.status ?? ''),
     customerOrVendor: String(row.vendor_name ?? '').trim() || null,
     quantity: Math.abs(qty),
-    qtyDelta: +Math.abs(qty),
+    qtyDelta: 0,
+    displayQtyDelta: +Math.abs(qty),
+    affectsStock: false,
   });
 }
 
@@ -204,7 +229,7 @@ function mapPackage(row) {
 function mapSalesReturn(row) {
   const qty = Number(row.item_quantity ?? row.quantity ?? 0);
   if (!qty) return null;
-  return baseMovement({
+  return withStockEffect(baseMovement({
     type: 'salesreturn',
     typeLabel: 'Sales return',
     documentId: String(row.salesreturn_id ?? ''),
@@ -215,8 +240,7 @@ function mapSalesReturn(row) {
     status: String(row.status ?? ''),
     customerOrVendor: String(row.customer_name ?? '').trim() || null,
     quantity: Math.abs(qty),
-    qtyDelta: +Math.abs(qty),
-  });
+  }), +Math.abs(qty));
 }
 
 async function listSalesReturns(zohoGet, itemId) {
@@ -252,18 +276,22 @@ function sortNewestFirst(movements) {
   });
 }
 
+function movementKey(m) {
+  return `${m.type}:${m.documentId}:${m.date}:${m.displayQtyDelta ?? m.qtyDelta}:${m.status}`;
+}
+
 function attachRunningStock(movementsNewestFirst) {
   const oldestFirst = [...movementsNewestFirst].reverse();
   let running = 0;
   const withRunningAsc = oldestFirst.map(m => {
-    running += Number(m.qtyDelta) || 0;
+    if (m.affectsStock !== false) {
+      running += Number(m.qtyDelta) || 0;
+    }
     return { ...m, runningStock: running };
   });
-  const byKey = new Map(
-    withRunningAsc.map(m => [`${m.type}:${m.documentId}:${m.date}:${m.qtyDelta}`, m.runningStock]),
-  );
+  const byKey = new Map(withRunningAsc.map(m => [movementKey(m), m.runningStock]));
   for (const m of movementsNewestFirst) {
-    m.runningStock = byKey.get(`${m.type}:${m.documentId}:${m.date}:${m.qtyDelta}`) ?? null;
+    m.runningStock = byKey.get(movementKey(m)) ?? null;
   }
   return movementsNewestFirst;
 }
@@ -361,12 +389,14 @@ export async function listCatalogProductLifetimeStockMovements(
 
 /**
  * Movements with date ≤ until (for audit-log popup).
+ * Uses cached lifetime ledger when available unless forceRefresh.
  */
 export async function listCatalogProductStockMovements(
   secrets,
   configuredOrgId,
   catalogProductId,
   untilIso,
+  { forceRefresh = false } = {},
 ) {
   const until = String(untilIso ?? '').trim();
   if (!until || Number.isNaN(Date.parse(until))) {
@@ -374,10 +404,11 @@ export async function listCatalogProductStockMovements(
   }
   const untilDate = until.slice(0, 10);
 
-  const full = await listCatalogProductLifetimeStockMovements(
+  const full = await getLifetimeStockMovements(
     secrets,
     configuredOrgId,
     catalogProductId,
+    { forceRefresh },
   );
 
   const movements = full.movements.filter(m => {
@@ -404,6 +435,63 @@ export async function listCatalogProductStockMovements(
     unexplainedGap: full.unexplainedGap,
     openingStock: full.unexplainedGap,
     fetchedAt: full.fetchedAt,
+    fromCache: full.fromCache ?? false,
     movements: sorted,
   };
+}
+
+async function readLifetimeCache(catalogProductId) {
+  const snap = await getFirestore()
+    .collection('catalogProducts')
+    .doc(catalogProductId)
+    .collection(STOCK_MOVEMENTS_SUB)
+    .doc(LIFETIME_CACHE_DOC)
+    .get();
+  if (!snap.exists) return null;
+  const data = snap.data();
+  if (!Array.isArray(data?.movements)) return null;
+  return data;
+}
+
+async function writeLifetimeCache(payload) {
+  const { fromCache: _fc, ...rest } = payload;
+  await getFirestore()
+    .collection('catalogProducts')
+    .doc(payload.catalogProductId)
+    .collection(STOCK_MOVEMENTS_SUB)
+    .doc(LIFETIME_CACHE_DOC)
+    .set({
+      ...rest,
+      cachedAt: new Date().toISOString(),
+    });
+}
+
+/**
+ * Lifetime ledger with Firestore cache.
+ * forceRefresh=false → return cache if present, else fetch Zoho and save.
+ * forceRefresh=true → always refetch Zoho and overwrite cache.
+ */
+export async function getLifetimeStockMovements(
+  secrets,
+  configuredOrgId,
+  catalogProductId,
+  { forceRefresh = false } = {},
+) {
+  const itemId = String(catalogProductId ?? '').trim();
+  if (!itemId) throw new Error('catalogProductId is required.');
+
+  if (!forceRefresh) {
+    const cached = await readLifetimeCache(itemId);
+    if (cached) {
+      return { ...cached, fromCache: true };
+    }
+  }
+
+  const fresh = await listCatalogProductLifetimeStockMovements(
+    secrets,
+    configuredOrgId,
+    itemId,
+  );
+  await writeLifetimeCache(fresh);
+  return { ...fresh, fromCache: false };
 }

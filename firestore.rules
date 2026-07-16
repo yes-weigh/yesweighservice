@@ -213,6 +213,11 @@ service cloud.firestore {
         allow read: if isOpsUser() || isWarehouse();
         allow write: if false;
       }
+
+      match /stockMovements/{docId} {
+        allow read: if isOpsUser() || isWarehouse();
+        allow write: if false;
+      }
     }
 
     match /catalogCategories/{categoryId} {

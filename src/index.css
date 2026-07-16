@@ -9278,6 +9278,21 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #64748b;
 }
 
+.product-stock-movements__delta.is-void {
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+.product-stock-movements__table tbody tr.is-void-row td {
+  opacity: 0.72;
+}
+
+.product-stock-movements__chip--status.is-void {
+  background: #f1f5f9;
+  color: #64748b;
+  text-decoration: line-through;
+}
+
 .product-stock-movements__running {
   font-variant-numeric: tabular-nums;
   color: #0f172a;

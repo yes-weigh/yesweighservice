@@ -125,9 +125,10 @@ export async function refreshHeadOfficeAuditSnapshot(
 export async function fetchCatalogProductStockMovements(
   catalogProductId: string,
   until: string,
+  options?: { forceRefresh?: boolean },
 ): Promise<CatalogProductStockMovementsResult> {
   const callable = httpsCallable<
-    { catalogProductId: string; until: string; lifetime?: boolean },
+    { catalogProductId: string; until: string; lifetime?: boolean; forceRefresh?: boolean },
     CatalogProductStockMovementsResult
   >(functions, 'getCatalogProductStockMovements', { timeout: 180_000 });
 
@@ -135,22 +136,25 @@ export async function fetchCatalogProductStockMovements(
     catalogProductId: String(catalogProductId ?? '').trim(),
     until: String(until ?? '').trim(),
     lifetime: false,
+    forceRefresh: Boolean(options?.forceRefresh),
   });
   return result.data;
 }
 
-/** Lifetime Zoho stock ledger for an item (paginated item-transaction APIs). */
+/** Lifetime Zoho stock ledger (Firestore cache unless forceRefresh). */
 export async function fetchCatalogProductLifetimeStockMovements(
   catalogProductId: string,
+  options?: { forceRefresh?: boolean },
 ): Promise<CatalogProductStockMovementsResult> {
   const callable = httpsCallable<
-    { catalogProductId: string; lifetime: boolean },
+    { catalogProductId: string; lifetime: boolean; forceRefresh?: boolean },
     CatalogProductStockMovementsResult
   >(functions, 'getCatalogProductStockMovements', { timeout: 180_000 });
 
   const result = await callable({
     catalogProductId: String(catalogProductId ?? '').trim(),
     lifetime: true,
+    forceRefresh: Boolean(options?.forceRefresh),
   });
   return result.data;
 }

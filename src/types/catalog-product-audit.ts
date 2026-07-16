@@ -77,12 +77,16 @@ export interface CatalogStockMovement {
   status: string;
   customerOrVendor: string | null;
   quantity: number;
-  /** Signed stock change (invoices negative). */
+  /** Signed stock change used for Running (0 when void/cancelled). */
   qtyDelta: number;
+  /** Original signed qty for display when void (stock effect excluded). */
+  displayQtyDelta?: number | null;
+  /** False for void/cancelled or visibility-only rows. */
+  affectsStock?: boolean;
   reference: string | null;
   itemPrice?: number | null;
   itemTotal?: number | null;
-  /** Running stock after this movement (oldest→newest from listed txns only). */
+  /** Running stock after this movement (oldest→newest from stock-affecting txns). */
   runningStock?: number | null;
 }
 
@@ -97,12 +101,14 @@ export interface CatalogProductStockMovementsResult {
   netDelta: number;
   currentStock?: number | null;
   /**
-   * Zoho book stock minus sum of listed transactions.
+   * Zoho book stock minus sum of listed stock-affecting transactions.
    * Non-zero means stock is not fully explained by docs — investigate.
    */
   unexplainedGap?: number | null;
   /** @deprecated use unexplainedGap */
   openingStock?: number | null;
   fetchedAt?: string;
+  cachedAt?: string;
+  fromCache?: boolean;
   movements: CatalogStockMovement[];
 }
