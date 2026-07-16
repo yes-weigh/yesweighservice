@@ -1489,8 +1489,13 @@ export async function replaceGalleryImage(
   const target = existingDocs[targetIndex];
   const bucket = getStorage().bucket();
 
-  if (!targetId.startsWith('local_')) {
-    await deleteProductGalleryImagesFromZoho(accessToken, organizationId, id, [targetId]);
+  // Stale Firebase document_ids (common after bulk image push) must not block replace.
+  if (!isLocalOnlyImageDocumentId(targetId)) {
+    try {
+      await deleteProductGalleryImagesFromZoho(accessToken, organizationId, id, [targetId]);
+    } catch (err) {
+      if (!isRecoverableZohoImageDeleteError(err?.message)) throw err;
+    }
   }
   try {
     await bucket.file(target.storagePath).delete({ ignoreNotFound: true });
