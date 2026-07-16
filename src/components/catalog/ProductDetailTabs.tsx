@@ -209,25 +209,27 @@ export const ProductDetailTabs: React.FC<{
 
   return (
     <div ref={tabsRootRef} className="product-detail-tabs">
-      <div
-        className="product-detail-tabs__track"
-        role="tablist"
-        aria-label="Product information"
-      >
-        {visibleTabDefs.map(tab => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            id={`product-detail-tab-${tab.id}`}
-            aria-selected={activeTab === tab.id}
-            aria-controls={panelId(tab.id)}
-            className={`product-detail-tabs__btn${activeTab === tab.id ? ' is-active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="product-detail-tabs__nav">
+        <div
+          className="product-detail-tabs__track"
+          role="tablist"
+          aria-label="Product information"
+        >
+          {visibleTabDefs.map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={`product-detail-tab-${tab.id}`}
+              aria-selected={activeTab === tab.id}
+              aria-controls={panelId(tab.id)}
+              className={`product-detail-tabs__btn${activeTab === tab.id ? ' is-active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="product-detail-tabs__panels">

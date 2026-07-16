@@ -136,7 +136,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           )}
           {product.modelNumber?.trim() && (
             <span className="catalog-product-card__sku-badge catalog-product-card__model-badge">
-              model: {product.modelNumber.trim()}
+              {product.modelNumber.trim()}
             </span>
           )}
           <StockBadge status={product.stockStatus} overlay variant="tile" iconOnly />

@@ -537,53 +537,58 @@ export const ProductStockMovementsPanel: React.FC<{
                         voided ? 'is-void' : '',
                       ].filter(Boolean).join(' ')}
                     >
-                      <div className="stock-ledger__tile-top">
-                        <div className="stock-ledger__tile-title">
-                          <div className={`stock-ledger__type is-${meta.tone}`}>
-                            <span className="stock-ledger__type-icon" aria-hidden>
-                              <Icon size={11} />
-                            </span>
+                      <div
+                        className={`stock-ledger__tile-rail stock-ledger__type is-${meta.tone}`}
+                        aria-hidden
+                      >
+                        <span className="stock-ledger__type-icon">
+                          <Icon size={16} />
+                        </span>
+                      </div>
+                      <div className="stock-ledger__tile-body">
+                        <div className="stock-ledger__tile-top">
+                          <div className="stock-ledger__tile-title">
                             <span className="visually-hidden">{meta.label}</span>
+                            <p className="stock-ledger__tile-party">
+                              {row.customerOrVendor || meta.label}
+                            </p>
                           </div>
-                          <p className="stock-ledger__tile-party">
-                            {row.customerOrVendor || meta.label}
+                          <div className="stock-ledger__when">
+                            <strong>{when.day}</strong>
+                            {when.time ? <span>{when.time}</span> : null}
+                          </div>
+                        </div>
+
+                        <div className="stock-ledger__tile-meta">
+                          <p className="stock-ledger__tile-doc">
+                            <strong>{row.documentNumber || '—'}</strong>
+                            {(voided || row.status) ? (
+                              <span className="stock-ledger__tile-status">{row.status}</span>
+                            ) : null}
+                            {voided ? (
+                              <span className="stock-ledger__tile-status">no stock effect</span>
+                            ) : null}
                           </p>
+                          <div className="stock-ledger__tile-stats">
+                            <span className={`stock-ledger__tile-stat ${qtyClass(delta, voided)}`}>
+                              <strong>{formatDelta(delta)}</strong>
+                              <span>{unit}</span>
+                            </span>
+                            <span className="stock-ledger__tile-stat stock-ledger__closing">
+                              <span className="stock-ledger__tile-stat-label">bal</span>
+                              <strong>
+                                {closing != null
+                                  ? Number(closing).toLocaleString('en-IN')
+                                  : '—'}
+                              </strong>
+                            </span>
+                          </div>
                         </div>
-                        <div className="stock-ledger__when">
-                          <strong>{when.day}</strong>
-                          {when.time ? <span>{when.time}</span> : null}
-                        </div>
-                      </div>
 
-                      <div className="stock-ledger__tile-meta">
-                        <p className="stock-ledger__tile-doc">
-                          <strong>{row.documentNumber || '—'}</strong>
-                          {(voided || row.status) ? (
-                            <span className="stock-ledger__tile-status">{row.status}</span>
-                          ) : null}
-                          {voided ? (
-                            <span className="stock-ledger__tile-status">no stock effect</span>
-                          ) : null}
-                        </p>
-                        <div className="stock-ledger__tile-stats">
-                          <span className={`stock-ledger__tile-stat ${qtyClass(delta, voided)}`}>
-                            <strong>{formatDelta(delta)}</strong>
-                            <span>{unit}</span>
-                          </span>
-                          <span className="stock-ledger__tile-stat stock-ledger__closing">
-                            <span className="stock-ledger__tile-stat-label">bal</span>
-                            <strong>
-                              {closing != null
-                                ? Number(closing).toLocaleString('en-IN')
-                                : '—'}
-                            </strong>
-                          </span>
-                        </div>
+                        {row.reference ? (
+                          <p className="stock-ledger__ref">{row.reference}</p>
+                        ) : null}
                       </div>
-
-                      {row.reference ? (
-                        <p className="stock-ledger__ref">{row.reference}</p>
-                      ) : null}
                     </li>
                   );
                 })}
