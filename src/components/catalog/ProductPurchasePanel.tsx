@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, ShoppingCart } from 'lucide-react';
-import { formatStockQuantity } from '../../lib/catalog';
+import { RefreshCw } from 'lucide-react';
+import { formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import { loadCatalogProductStockLedger, isBrokenStockLedger } from '../../lib/catalogProductAudit/loadStockLedger';
 import {
   formatPeriodLabel,
@@ -18,89 +18,31 @@ import {
   useLedgerPagination,
 } from './StockLedgerPagination';
 
-interface CustomerSalesRow {
-  customerKey: string;
-  customerName: string;
-  invoiceCount: number;
-  returnCount: number;
-  qtySold: number;
-  qtyReturned: number;
-  netQty: number;
-  lastSaleDate: string;
+function doesNotAffectPurchase(row: CatalogStockMovement): boolean {
+  if (row.affectsStock === false) {
+    const s = String(row.status ?? '').trim().toLowerCase();
+    return (
+      s === 'draft'
+      || s.includes('void')
+      || s.includes('cancel')
+      || s === 'rejected'
+      || s === 'declined'
+    );
+  }
+  return false;
 }
 
-function isVoidRow(row: CatalogStockMovement): boolean {
-  return row.affectsStock === false && String(row.status).toLowerCase().includes('void');
+function isPurchaseBill(row: CatalogStockMovement): boolean {
+  return row.type === 'bill';
 }
 
-function isSalesMovement(row: CatalogStockMovement): boolean {
-  return row.type === 'invoice' || row.type === 'creditnote' || row.type === 'salesreturn';
-}
-
-function soldQty(row: CatalogStockMovement): number {
-  if (isVoidRow(row)) return 0;
+function billQty(row: CatalogStockMovement): number {
   return Math.abs(Number(row.quantity) || Math.abs(Number(row.displayQtyDelta ?? row.qtyDelta) || 0));
 }
 
-function aggregateSalesByCustomer(rows: CatalogStockMovement[]): CustomerSalesRow[] {
-  const byCustomer = new Map<string, CustomerSalesRow>();
-
-  for (const row of rows) {
-    if (!isSalesMovement(row)) continue;
-
-    const customerName = String(row.customerOrVendor ?? '').trim() || 'Unknown dealer';
-    const customerKey = customerName.toLowerCase();
-    const existing = byCustomer.get(customerKey) ?? {
-      customerKey,
-      customerName,
-      invoiceCount: 0,
-      returnCount: 0,
-      qtySold: 0,
-      qtyReturned: 0,
-      netQty: 0,
-      lastSaleDate: '',
-    };
-
-    const qty = soldQty(row);
-    const date = String(row.date || '').slice(0, 10);
-
-    if (row.type === 'invoice') {
-      if (!isVoidRow(row)) {
-        existing.invoiceCount += 1;
-        existing.qtySold += qty;
-        if (date && date > existing.lastSaleDate) existing.lastSaleDate = date;
-      }
-    } else if (qty > 0) {
-      existing.returnCount += 1;
-      existing.qtyReturned += qty;
-    }
-
-    byCustomer.set(customerKey, existing);
-  }
-
-  return [...byCustomer.values()]
-    .map(row => ({
-      ...row,
-      netQty: row.qtySold - row.qtyReturned,
-    }))
-    .filter(row => row.invoiceCount > 0 || row.returnCount > 0)
-    .sort((a, b) => {
-      if (b.netQty !== a.netQty) return b.netQty - a.netQty;
-      if (b.qtySold !== a.qtySold) return b.qtySold - a.qtySold;
-      return a.customerName.localeCompare(b.customerName);
-    });
-}
-
-function formatSaleDate(iso: string): string {
-  if (!iso) return '—';
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function formatCustomerDisplayName(name: string): string {
+function formatVendorDisplayName(name: string): string {
   const trimmed = name.trim();
-  if (!trimmed) return 'Unknown dealer';
-  // Soften ALL-CAPS dealer names for the compact list.
+  if (!trimmed) return 'Unknown vendor';
   if (trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && trimmed.length > 3) {
     const small = new Set(['AND', 'OF', 'THE', 'FOR', 'A', 'AN']);
     return trimmed
@@ -117,27 +59,72 @@ function formatCustomerDisplayName(name: string): string {
   return trimmed;
 }
 
-function SalesCustomerTile({
+function formatPurchaseWhen(row: CatalogStockMovement): { day: string; time: string } {
+  const iso = row.createdAt || (row.date ? `${row.date}T00:00:00` : '');
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) {
+    return { day: row.date || '—', time: '' };
+  }
+  return {
+    day: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+    time: row.createdAt
+      ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+      : '',
+  };
+}
+
+function sortNewestFirst(rows: CatalogStockMovement[]): CatalogStockMovement[] {
+  return [...rows].sort((a, b) => {
+    const da = String(a.createdAt || a.date || '');
+    const db = String(b.createdAt || b.date || '');
+    if (da !== db) return db.localeCompare(da);
+    return String(b.documentNumber).localeCompare(String(a.documentNumber));
+  });
+}
+
+function PurchaseBillTile({
   row,
   unit,
 }: {
-  row: CustomerSalesRow;
+  row: CatalogStockMovement;
   unit: string;
 }) {
+  const excluded = doesNotAffectPurchase(row);
+  const when = formatPurchaseWhen(row);
+  const qty = billQty(row);
+  const unitPrice = row.itemPrice != null && Number.isFinite(Number(row.itemPrice))
+    ? Number(row.itemPrice)
+    : null;
+  const name = formatVendorDisplayName(row.customerOrVendor || 'Unknown vendor');
+
   return (
-    <article className="stock-ledger__sales-tile">
-      <strong className="stock-ledger__sales-tile-name">
-        {formatCustomerDisplayName(row.customerName)}
-      </strong>
-      <span className="stock-ledger__sales-tile-sold">
-        <strong>{row.qtySold.toLocaleString('en-IN')}</strong>
-        <span>{unit}</span>
-      </span>
+    <article className={['stock-ledger__purchase-tile', excluded ? 'is-excluded' : ''].filter(Boolean).join(' ')}>
+      <div className="stock-ledger__purchase-tile-top">
+        <strong className="stock-ledger__purchase-tile-name">{name}</strong>
+        <div className="stock-ledger__purchase-tile-when">
+          <strong>{when.day}</strong>
+          {when.time ? <span>{when.time}</span> : null}
+        </div>
+      </div>
+      <div className="stock-ledger__purchase-tile-bottom">
+        <span className="stock-ledger__purchase-tile-qty">
+          <strong>{qty.toLocaleString('en-IN')}</strong>
+          <span>{unit}</span>
+        </span>
+        <span className="stock-ledger__purchase-tile-price">
+          {unitPrice != null ? (
+            <>
+              {formatCurrency(unitPrice)}
+              <span className="stock-ledger__purchase-tile-price-unit">per piece</span>
+            </>
+          ) : '—'}
+        </span>
+      </div>
     </article>
   );
 }
 
-export const ProductSalesPanel: React.FC<{
+export const ProductPurchasePanel: React.FC<{
   product: CatalogProduct;
 }> = ({ product }) => {
   const [data, setData] = useState<CatalogProductStockMovementsResult | null>(null);
@@ -157,11 +144,11 @@ export const ProductSalesPanel: React.FC<{
     try {
       const result = await loadCatalogProductStockLedger(product.id, forceRefresh);
       if (isBrokenStockLedger(result)) {
-        setError('Could not load sales from Zoho. Try Refresh again.');
+        setError('Could not load purchases from Zoho. Try Refresh again.');
       }
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load sales.');
+      setError(err instanceof Error ? err.message : 'Could not load purchases.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -182,18 +169,15 @@ export const ProductSalesPanel: React.FC<{
     [periodPreset, customFrom, customTo],
   );
 
-  const periodSalesRows = useMemo(() => {
+  const purchaseRows = useMemo(() => {
     if (!data) return [];
-    const salesOnly = data.movements.filter(row => isSalesMovement(row));
-    return salesOnly.filter(row => inPeriod(row.date, period.from, period.to));
+    const bills = data.movements
+      .filter(row => isPurchaseBill(row))
+      .filter(row => inPeriod(row.date, period.from, period.to));
+    return sortNewestFirst(bills);
   }, [data, period.from, period.to]);
 
-  const customerRows = useMemo(
-    () => aggregateSalesByCustomer(periodSalesRows),
-    [periodSalesRows],
-  );
-
-  const paginationResetKey = `${product.id}:${periodPreset}:${period.from ?? ''}:${period.to ?? ''}`;
+  const paginationResetKey = `${product.id}:purchase:${periodPreset}:${period.from ?? ''}:${period.to ?? ''}`;
   const {
     page,
     setPage,
@@ -202,23 +186,27 @@ export const ProductSalesPanel: React.FC<{
     totalCount,
     rangeStart,
     rangeEnd,
-  } = useLedgerPagination(customerRows, paginationResetKey);
+  } = useLedgerPagination(purchaseRows, paginationResetKey);
 
   const summary = useMemo(() => {
-    const customers = customerRows.length;
-    let totalSold = 0;
-    let totalReturned = 0;
-    for (const row of customerRows) {
-      totalSold += row.qtySold;
-      totalReturned += row.qtyReturned;
+    const vendors = new Set<string>();
+    let totalPurchased = 0;
+    let billCount = 0;
+    for (const row of purchaseRows) {
+      if (doesNotAffectPurchase(row)) continue;
+      const qty = billQty(row);
+      if (qty <= 0) continue;
+      billCount += 1;
+      totalPurchased += qty;
+      const key = String(row.customerOrVendor ?? '').trim().toLowerCase() || 'unknown';
+      vendors.add(key);
     }
     return {
-      customers,
-      totalSold,
-      totalReturned,
-      netSold: totalSold - totalReturned,
+      vendors: vendors.size,
+      totalPurchased,
+      billCount,
     };
-  }, [customerRows]);
+  }, [purchaseRows]);
 
   const dateRangeLabel = useMemo(
     () => formatPeriodLabel(periodPreset, period.from, period.to),
@@ -240,9 +228,9 @@ export const ProductSalesPanel: React.FC<{
   const hasData = data != null;
 
   return (
-    <div className="stock-ledger stock-ledger--sales">
+    <div className="stock-ledger stock-ledger--purchase">
       <header className="stock-ledger__header">
-        <h3 className="stock-ledger__title">Sales Ledger</h3>
+        <h3 className="stock-ledger__title">Purchase Ledger</h3>
         <button
           type="button"
           className="stock-ledger__refresh"
@@ -274,34 +262,34 @@ export const ProductSalesPanel: React.FC<{
       {error && <p className="stock-ledger__error">{error}</p>}
 
       {loading && !hasData && (
-        <p className="stock-ledger__status">Loading sales ledger…</p>
+        <p className="stock-ledger__status">Loading purchase ledger…</p>
       )}
 
       {hasData && (
         <>
-          <section className="stock-ledger__summary" aria-label="Sales summary">
+          <section className="stock-ledger__summary" aria-label="Purchase summary">
             <div className="stock-ledger__stat">
-              <span className="stock-ledger__stat-label">Dealers</span>
+              <span className="stock-ledger__stat-label">Vendors</span>
               <strong className="stock-ledger__stat-value is-neutral">
-                {summary.customers.toLocaleString('en-IN')}
+                {summary.vendors.toLocaleString('en-IN')}
               </strong>
             </div>
             <div className="stock-ledger__stat">
-              <span className="stock-ledger__stat-label">Total Sold</span>
-              <strong className="stock-ledger__stat-value is-out">
-                {formatStockQuantity(summary.totalSold, unit)}
-              </strong>
-            </div>
-            <div className="stock-ledger__stat">
-              <span className="stock-ledger__stat-label">Returns</span>
+              <span className="stock-ledger__stat-label">Total Purchased</span>
               <strong className="stock-ledger__stat-value is-in">
-                {formatStockQuantity(summary.totalReturned, unit)}
+                {formatStockQuantity(summary.totalPurchased, unit)}
               </strong>
             </div>
             <div className="stock-ledger__stat">
-              <span className="stock-ledger__stat-label">Net Sold</span>
+              <span className="stock-ledger__stat-label">Bills</span>
               <strong className="stock-ledger__stat-value is-neutral">
-                {formatStockQuantity(summary.netSold, unit)}
+                {summary.billCount.toLocaleString('en-IN')}
+              </strong>
+            </div>
+            <div className="stock-ledger__stat">
+              <span className="stock-ledger__stat-label">Net Purchased</span>
+              <strong className="stock-ledger__stat-value is-neutral">
+                {formatStockQuantity(summary.totalPurchased, unit)}
               </strong>
             </div>
           </section>
@@ -353,16 +341,20 @@ export const ProductSalesPanel: React.FC<{
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}
             onPageChange={setPage}
-            label="Sales pagination"
+            label="Purchase pagination"
           />
 
-          {customerRows.length === 0 ? (
-            <p className="stock-ledger__empty">No sales in this period.</p>
+          {purchaseRows.length === 0 ? (
+            <p className="stock-ledger__empty">No purchases in this period.</p>
           ) : (
             <>
-              <div className="stock-ledger__sales-tiles" aria-label="Sales by dealer">
-                {paginatedRows.map(row => (
-                  <SalesCustomerTile key={row.customerKey} row={row} unit={unit} />
+              <div className="stock-ledger__purchase-tiles" aria-label="Purchase bills">
+                {paginatedRows.map((row, index) => (
+                  <PurchaseBillTile
+                    key={`${row.documentId}-${row.date}-${row.status}-${index}`}
+                    row={row}
+                    unit={unit}
+                  />
                 ))}
               </div>
 
@@ -370,41 +362,46 @@ export const ProductSalesPanel: React.FC<{
                 <table className="stock-ledger__table stock-ledger__table--sales">
                   <thead>
                     <tr>
-                      <th scope="col">Dealer</th>
-                      <th scope="col">Invoices</th>
-                      <th scope="col">Last sale</th>
-                      <th scope="col">Sold</th>
-                      <th scope="col">Returns</th>
-                      <th scope="col">Net qty</th>
+                      <th scope="col">Date</th>
+                      <th scope="col">Vendor</th>
+                      <th scope="col">Qty</th>
+                      <th scope="col">Unit price</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedRows.map(row => (
-                      <tr key={row.customerKey}>
-                        <td>
-                          <div className="stock-ledger__customer">
-                            <span className="stock-ledger__type-icon stock-ledger__type-icon--inline" aria-hidden>
-                              <ShoppingCart size={14} />
-                            </span>
-                            <strong>{row.customerName}</strong>
-                          </div>
-                        </td>
-                        <td>{row.invoiceCount.toLocaleString('en-IN')}</td>
-                        <td>{formatSaleDate(row.lastSaleDate)}</td>
-                        <td className="stock-ledger__qty is-out">
-                          <strong>{row.qtySold.toLocaleString('en-IN')}</strong>
-                          <span>{unit}</span>
-                        </td>
-                        <td className="stock-ledger__qty is-in">
-                          <strong>{row.qtyReturned.toLocaleString('en-IN')}</strong>
-                          <span>{unit}</span>
-                        </td>
-                        <td className="stock-ledger__closing">
-                          <strong>{row.netQty.toLocaleString('en-IN')}</strong>
-                          <span>{unit}</span>
-                        </td>
-                      </tr>
-                    ))}
+                    {paginatedRows.map((row, index) => {
+                      const when = formatPurchaseWhen(row);
+                      const excluded = doesNotAffectPurchase(row);
+                      const qty = billQty(row);
+                      const unitPrice = row.itemPrice != null && Number.isFinite(Number(row.itemPrice))
+                        ? Number(row.itemPrice)
+                        : null;
+                      return (
+                        <tr
+                          key={`desk-${row.documentId}-${row.date}-${index}`}
+                          className={excluded ? 'is-void-row' : undefined}
+                        >
+                          <td>
+                            <div className="stock-ledger__when">
+                              <strong>{when.day}</strong>
+                              {when.time ? <span>{when.time}</span> : null}
+                            </div>
+                          </td>
+                          <td>
+                            <strong>
+                              {formatVendorDisplayName(row.customerOrVendor || 'Unknown vendor')}
+                            </strong>
+                          </td>
+                          <td className={`stock-ledger__qty ${excluded ? 'is-void' : 'is-in'}`}>
+                            <strong>{qty.toLocaleString('en-IN')}</strong>
+                            <span>{unit}</span>
+                          </td>
+                          <td className="stock-ledger__closing">
+                            {unitPrice != null ? `${formatCurrency(unitPrice)} per piece` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -418,11 +415,11 @@ export const ProductSalesPanel: React.FC<{
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}
             onPageChange={setPage}
-            label="Sales pagination"
+            label="Purchase pagination"
           />
 
           <footer className="stock-ledger__footer">
-            <p>Sorted by net quantity bought — highest first. Void invoices excluded.</p>
+            <p>Newest bills first. Draft and void bills stay visible but are excluded from totals.</p>
             {lastUpdated ? (
               <p>
                 Last updated: {lastUpdated}

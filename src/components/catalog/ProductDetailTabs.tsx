@@ -9,6 +9,7 @@ import { ProductNcPanel, type ProductNcExistingLocation } from './ProductNcPanel
 import { ProductMediaPanel } from './ProductMediaPanel';
 import { ProductStockMovementsPanel } from './ProductStockMovementsPanel';
 import { ProductSalesPanel } from './ProductSalesPanel';
+import { ProductPurchasePanel } from './ProductPurchasePanel';
 
 export type ProductDetailTabId =
   | 'spare'
@@ -366,22 +367,33 @@ export const ProductDetailTabs: React.FC<{
         </div>
         )}
 
-        {(['purchase', 'support'] as const)
-          .filter(tabId => visibleTabDefs.some(tab => tab.id === tabId))
-          .map(tabId => (
+        {visibleTabDefs.some(tab => tab.id === 'purchase') && (
+        <div
+          id={panelId('purchase')}
+          role="tabpanel"
+          aria-labelledby="product-detail-tab-purchase"
+          hidden={activeTab !== 'purchase'}
+          className="product-detail-tab-panel"
+        >
+          <TabPanelBody>
+            <ProductPurchasePanel product={product} />
+          </TabPanelBody>
+        </div>
+        )}
+
+        {visibleTabDefs.some(tab => tab.id === 'support') && (
           <div
-            key={tabId}
-            id={panelId(tabId)}
+            id={panelId('support')}
             role="tabpanel"
-            aria-labelledby={`product-detail-tab-${tabId}`}
-            hidden={activeTab !== tabId}
+            aria-labelledby="product-detail-tab-support"
+            hidden={activeTab !== 'support'}
             className="product-detail-tab-panel"
           >
             <TabPanelBody>
-              <TabPlaceholder label={TAB_DEFS.find(t => t.id === tabId)?.label ?? tabId} />
+              <TabPlaceholder label="Support" />
             </TabPanelBody>
           </div>
-        ))}
+        )}
 
         {visibleTabDefs.some(tab => tab.id === 'sales') && (
         <div
