@@ -9505,6 +9505,143 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 18rem;
 }
 
+.stock-ledger__pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+.stock-ledger__pagination-info {
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.stock-ledger__pagination-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.stock-ledger__pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.stock-ledger__pagination-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stock-ledger__pagination-page {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #475569;
+  min-width: 6.5rem;
+  text-align: center;
+}
+
+.stock-ledger__empty {
+  margin: 0;
+  padding: 1rem 0.75rem;
+  color: #64748b;
+  font-size: 0.875rem;
+  text-align: center;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.65rem;
+}
+
+.stock-ledger__sales-tiles {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.stock-ledger__sales-tile {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.stock-ledger__sales-tile-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+}
+
+.stock-ledger__sales-tile-head strong {
+  color: #0f172a;
+  line-height: 1.35;
+  font-size: 0.9375rem;
+}
+
+.stock-ledger__sales-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.75rem;
+  margin: 0;
+}
+
+.stock-ledger__sales-tile-grid div {
+  min-width: 0;
+}
+
+.stock-ledger__sales-tile-grid dt {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.stock-ledger__sales-tile-grid dd {
+  margin: 0.12rem 0 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.stock-ledger__sales-tile-grid dd.is-out {
+  color: #c2410c;
+}
+
+.stock-ledger__sales-tile-grid dd.is-in {
+  color: #15803d;
+}
+
+.stock-ledger__sales-tile-span {
+  grid-column: 1 / -1;
+}
+
+.stock-ledger__table-wrap--sales-desktop {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .stock-ledger__sales-tiles {
+    display: none;
+  }
+
+  .stock-ledger__table-wrap--sales-desktop {
+    display: block;
+  }
+}
+
 .stock-ledger .visually-hidden {
   position: absolute;
   width: 1px;

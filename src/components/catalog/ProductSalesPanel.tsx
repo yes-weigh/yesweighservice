@@ -13,6 +13,10 @@ import type {
   CatalogProductStockMovementsResult,
   CatalogStockMovement,
 } from '../../types/catalog-product-audit';
+import {
+  StockLedgerPagination,
+  useLedgerPagination,
+} from './StockLedgerPagination';
 
 interface CustomerSalesRow {
   customerKey: string;
@@ -93,6 +97,49 @@ function formatSaleDate(iso: string): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+function SalesCustomerTile({
+  row,
+  unit,
+}: {
+  row: CustomerSalesRow;
+  unit: string;
+}) {
+  return (
+    <article className="stock-ledger__sales-tile">
+      <header className="stock-ledger__sales-tile-head">
+        <span className="stock-ledger__type-icon stock-ledger__type-icon--inline" aria-hidden>
+          <ShoppingCart size={14} />
+        </span>
+        <strong>{row.customerName}</strong>
+      </header>
+      <dl className="stock-ledger__sales-tile-grid">
+        <div>
+          <dt>Net qty</dt>
+          <dd className="stock-ledger__closing">
+            {row.netQty.toLocaleString('en-IN')} {unit}
+          </dd>
+        </div>
+        <div>
+          <dt>Sold</dt>
+          <dd className="is-out">{row.qtySold.toLocaleString('en-IN')} {unit}</dd>
+        </div>
+        <div>
+          <dt>Returns</dt>
+          <dd className="is-in">{row.qtyReturned.toLocaleString('en-IN')} {unit}</dd>
+        </div>
+        <div>
+          <dt>Invoices</dt>
+          <dd>{row.invoiceCount.toLocaleString('en-IN')}</dd>
+        </div>
+        <div className="stock-ledger__sales-tile-span">
+          <dt>Last sale</dt>
+          <dd>{formatSaleDate(row.lastSaleDate)}</dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
 export const ProductSalesPanel: React.FC<{
   product: CatalogProduct;
 }> = ({ product }) => {
@@ -148,6 +195,17 @@ export const ProductSalesPanel: React.FC<{
     () => aggregateSalesByCustomer(periodSalesRows),
     [periodSalesRows],
   );
+
+  const paginationResetKey = `${product.id}:${periodPreset}:${period.from ?? ''}:${period.to ?? ''}`;
+  const {
+    page,
+    setPage,
+    totalPages,
+    paginatedRows,
+    totalCount,
+    rangeStart,
+    rangeEnd,
+  } = useLedgerPagination(customerRows, paginationResetKey);
 
   const summary = useMemo(() => {
     const customers = customerRows.length;
@@ -294,54 +352,80 @@ export const ProductSalesPanel: React.FC<{
             <p className="stock-ledger__filter-hint text-muted text-sm">{dateRangeLabel}</p>
           </div>
 
-          <div className="stock-ledger__table-wrap">
-            <table className="stock-ledger__table stock-ledger__table--sales">
-              <thead>
-                <tr>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Invoices</th>
-                  <th scope="col">Last sale</th>
-                  <th scope="col">Sold</th>
-                  <th scope="col">Returns</th>
-                  <th scope="col">Net qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {customerRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>No sales in this period.</td>
-                  </tr>
-                ) : (
-                  customerRows.map(row => (
-                    <tr key={row.customerKey}>
-                      <td>
-                        <div className="stock-ledger__customer">
-                          <span className="stock-ledger__type-icon stock-ledger__type-icon--inline" aria-hidden>
-                            <ShoppingCart size={14} />
-                          </span>
-                          <strong>{row.customerName}</strong>
-                        </div>
-                      </td>
-                      <td>{row.invoiceCount.toLocaleString('en-IN')}</td>
-                      <td>{formatSaleDate(row.lastSaleDate)}</td>
-                      <td className="stock-ledger__qty is-out">
-                        <strong>{row.qtySold.toLocaleString('en-IN')}</strong>
-                        <span>{unit}</span>
-                      </td>
-                      <td className="stock-ledger__qty is-in">
-                        <strong>{row.qtyReturned.toLocaleString('en-IN')}</strong>
-                        <span>{unit}</span>
-                      </td>
-                      <td className="stock-ledger__closing">
-                        <strong>{row.netQty.toLocaleString('en-IN')}</strong>
-                        <span>{unit}</span>
-                      </td>
+          <StockLedgerPagination
+            page={page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setPage}
+            label="Sales pagination"
+          />
+
+          {customerRows.length === 0 ? (
+            <p className="stock-ledger__empty">No sales in this period.</p>
+          ) : (
+            <>
+              <div className="stock-ledger__sales-tiles" aria-label="Sales by customer">
+                {paginatedRows.map(row => (
+                  <SalesCustomerTile key={row.customerKey} row={row} unit={unit} />
+                ))}
+              </div>
+
+              <div className="stock-ledger__table-wrap stock-ledger__table-wrap--sales-desktop">
+                <table className="stock-ledger__table stock-ledger__table--sales">
+                  <thead>
+                    <tr>
+                      <th scope="col">Customer</th>
+                      <th scope="col">Invoices</th>
+                      <th scope="col">Last sale</th>
+                      <th scope="col">Sold</th>
+                      <th scope="col">Returns</th>
+                      <th scope="col">Net qty</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {paginatedRows.map(row => (
+                      <tr key={row.customerKey}>
+                        <td>
+                          <div className="stock-ledger__customer">
+                            <span className="stock-ledger__type-icon stock-ledger__type-icon--inline" aria-hidden>
+                              <ShoppingCart size={14} />
+                            </span>
+                            <strong>{row.customerName}</strong>
+                          </div>
+                        </td>
+                        <td>{row.invoiceCount.toLocaleString('en-IN')}</td>
+                        <td>{formatSaleDate(row.lastSaleDate)}</td>
+                        <td className="stock-ledger__qty is-out">
+                          <strong>{row.qtySold.toLocaleString('en-IN')}</strong>
+                          <span>{unit}</span>
+                        </td>
+                        <td className="stock-ledger__qty is-in">
+                          <strong>{row.qtyReturned.toLocaleString('en-IN')}</strong>
+                          <span>{unit}</span>
+                        </td>
+                        <td className="stock-ledger__closing">
+                          <strong>{row.netQty.toLocaleString('en-IN')}</strong>
+                          <span>{unit}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          <StockLedgerPagination
+            page={page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setPage}
+            label="Sales pagination"
+          />
 
           <footer className="stock-ledger__footer">
             <p>Sorted by net quantity bought — highest first. Void invoices excluded.</p>

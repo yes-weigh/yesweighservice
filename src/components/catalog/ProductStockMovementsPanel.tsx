@@ -9,6 +9,10 @@ import {
   Truck,
   Undo2,
 } from 'lucide-react';
+import {
+  StockLedgerPagination,
+  useLedgerPagination,
+} from './StockLedgerPagination';
 import { fetchCatalogProductLifetimeStockMovements } from '../../lib/catalogProductAudit/data';
 import { formatStockQuantity } from '../../lib/catalog';
 import type { CatalogProduct } from '../../types/catalog';
@@ -197,6 +201,17 @@ export const ProductStockMovementsPanel: React.FC<{
     if (typeFilter === 'all') return periodRows;
     return periodRows.filter(row => row.type === typeFilter);
   }, [periodRows, typeFilter]);
+
+  const paginationResetKey = `${product.id}:${periodPreset}:${period.from ?? ''}:${period.to ?? ''}:${typeFilter}`;
+  const {
+    page,
+    setPage,
+    totalPages,
+    paginatedRows,
+    totalCount,
+    rangeStart,
+    rangeEnd,
+  } = useLedgerPagination(filteredRows, paginationResetKey);
 
   const summary = useMemo(() => {
     if (!data) {
@@ -397,6 +412,16 @@ export const ProductStockMovementsPanel: React.FC<{
             <p className="stock-ledger__filter-hint text-muted text-sm">{dateRangeLabel}</p>
           </div>
 
+          <StockLedgerPagination
+            page={page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setPage}
+            label="Stock movements pagination"
+          />
+
           <div className="stock-ledger__table-wrap">
             <table className="stock-ledger__table">
               <thead>
@@ -414,7 +439,7 @@ export const ProductStockMovementsPanel: React.FC<{
                     <td colSpan={5}>No transactions in this filter.</td>
                   </tr>
                 ) : (
-                  filteredRows.map((row, rowIndex) => {
+                  paginatedRows.map((row, rowIndex) => {
                     const meta = TYPE_META[row.type] ?? TYPE_META.adjustment;
                     const Icon = meta.Icon;
                     const voided = isVoidRow(row);
@@ -476,6 +501,16 @@ export const ProductStockMovementsPanel: React.FC<{
               </tbody>
             </table>
           </div>
+
+          <StockLedgerPagination
+            page={page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setPage}
+            label="Stock movements pagination"
+          />
 
           <footer className="stock-ledger__footer">
             <p>Closing stock is calculated after each transaction.</p>
