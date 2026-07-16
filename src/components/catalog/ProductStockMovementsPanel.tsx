@@ -62,8 +62,18 @@ function formatDelta(value: number): string {
   return String(value);
 }
 
-function isVoidRow(row: CatalogStockMovement): boolean {
-  return row.affectsStock === false && String(row.status).toLowerCase().includes('void');
+function isNonStockAffectingRow(row: CatalogStockMovement): boolean {
+  if (row.affectsStock === false) {
+    const s = String(row.status ?? '').trim().toLowerCase();
+    return (
+      s === 'draft'
+      || s.includes('void')
+      || s.includes('cancel')
+      || s === 'rejected'
+      || s === 'declined'
+    );
+  }
+  return false;
 }
 
 function displayDelta(row: CatalogStockMovement): number {
@@ -462,7 +472,7 @@ export const ProductStockMovementsPanel: React.FC<{
                     {paginatedRows.map((row, rowIndex) => {
                       const meta = TYPE_META[row.type] ?? TYPE_META.adjustment;
                       const Icon = meta.Icon;
-                      const voided = isVoidRow(row);
+                      const voided = isNonStockAffectingRow(row);
                       const delta = displayDelta(row);
                       const when = formatLedgerDate(row);
                       const closing = row.runningStock;
@@ -525,7 +535,7 @@ export const ProductStockMovementsPanel: React.FC<{
                 {paginatedRows.map((row, rowIndex) => {
                   const meta = TYPE_META[row.type] ?? TYPE_META.adjustment;
                   const Icon = meta.Icon;
-                  const voided = isVoidRow(row);
+                  const voided = isNonStockAffectingRow(row);
                   const delta = displayDelta(row);
                   const when = formatLedgerDate(row);
                   const closing = row.runningStock;

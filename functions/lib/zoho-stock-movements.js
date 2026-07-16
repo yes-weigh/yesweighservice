@@ -1,6 +1,6 @@
 /**
  * Zoho item stock movements via /items/transactions/* (includes item_quantity).
- * Fetches all stock-affecting doc types. Void/cancelled docs stay visible but
+ * Fetches stock-affecting doc types. Draft/void/cancelled docs stay visible but
  * qtyDelta=0 so Running matches Zoho accounting stock. Lifetime results are
  * cached under catalogProducts/{id}/stockMovements/lifetime.
  */
@@ -71,24 +71,48 @@ function baseMovement(partial) {
   };
 }
 
-/** Void/cancelled docs stay visible but do not change Zoho accounting stock. */
-function isVoidStatus(status) {
+/** Docs that stay visible but do not change Zoho accounting stock. */
+function doesNotAffectAccountingStock(status) {
   const s = String(status ?? '').trim().toLowerCase();
-  return s === 'void' || s === 'voided' || s === 'cancelled' || s === 'canceled';
+  return (
+    s === 'draft'
+    || s === 'void'
+    || s === 'voided'
+    || s === 'cancelled'
+    || s === 'canceled'
+    || s === 'rejected'
+    || s === 'declined'
+  );
+}
+
+function stockExclusionReason(status) {
+  const s = String(status ?? '').trim().toLowerCase();
+  if (s === 'draft') {
+    return 'Draft — excluded from stock (Zoho does not move inventory until confirmed)';
+  }
+  if (s === 'rejected' || s === 'declined') {
+    return 'Rejected — excluded from stock (Zoho does not move inventory)';
+  }
+  return 'Void — excluded from stock (Zoho does not move inventory)';
 }
 
 function withStockEffect(movement, signedDelta) {
-  const voided = isVoidStatus(movement.status);
-  if (!voided) {
-    return { ...movement, qtyDelta: signedDelta, displayQtyDelta: signedDelta, affectsStock: true };
+  if (!doesNotAffectAccountingStock(movement.status)) {
+    return {
+      ...movement,
+      qtyDelta: signedDelta,
+      displayQtyDelta: signedDelta,
+      affectsStock: true,
+    };
   }
+  const keepRef = movement.reference
+    && !/excluded from stock/i.test(String(movement.reference));
   return {
     ...movement,
     qtyDelta: 0,
     displayQtyDelta: signedDelta,
     affectsStock: false,
-    reference: movement.reference
-      || 'Void — excluded from stock (Zoho does not move inventory)',
+    reference: keepRef ? movement.reference : stockExclusionReason(movement.status),
   };
 }
 
@@ -206,7 +230,7 @@ function mapPurchaseReceive(row) {
   });
 }
 
-function mapPurchaseReceive(row) {
+function mapSalesReturn(row) {
   const qty = Number(row.item_quantity ?? row.quantity ?? 0);
   if (!qty) return null;
   return withStockEffect(baseMovement({
@@ -250,17 +274,59 @@ async function listSalesReturns(zohoGet, itemId) {
 /** Zoho package picks are excluded — stock moves on invoice, not package. */
 const EXCLUDED_LEDGER_TYPES = new Set(['package']);
 
-function stripExcludedLedgerMovements(payload) {
-  if (!payload?.movements?.length) return payload;
-  const movements = payload.movements.filter(m => !EXCLUDED_LEDGER_TYPES.has(m.type));
-  if (movements.length === payload.movements.length) return payload;
+/** Types whose qtyDelta follows invoice/bill-style status rules. */
+const ACCOUNTING_STOCK_TYPES = new Set([
+  'invoice',
+  'bill',
+  'creditnote',
+  'adjustment',
+  'salesreturn',
+]);
+
+function signedDeltaForMovement(m) {
+  const display = m.displayQtyDelta != null ? Number(m.displayQtyDelta) : NaN;
+  const qtyDelta = m.qtyDelta != null ? Number(m.qtyDelta) : NaN;
+  if (Number.isFinite(display) && display !== 0) return display;
+  if (Number.isFinite(qtyDelta) && qtyDelta !== 0) return qtyDelta;
+  if (Number.isFinite(display)) return display;
+
+  const qty = Math.abs(Number(m.quantity) || 0);
+  if (!qty) return 0;
+  if (m.type === 'invoice') return -qty;
+  if (m.type === 'adjustment') return qty;
+  return qty;
+}
+
+function normalizeMovementStockEffect(m) {
+  if (!ACCOUNTING_STOCK_TYPES.has(m.type)) return m;
+  return withStockEffect({ ...m }, signedDeltaForMovement(m));
+}
+
+function recomputeLedgerAggregates(payload) {
+  if (!payload?.movements) return payload;
+  const movements = sortNewestFirst(
+    payload.movements
+      .filter(m => !EXCLUDED_LEDGER_TYPES.has(m.type))
+      .map(normalizeMovementStockEffect),
+  );
+  attachRunningStock(movements);
   const netDelta = movements.reduce((sum, m) => sum + (Number(m.qtyDelta) || 0), 0);
+  const currentStock = payload.currentStock != null && Number.isFinite(Number(payload.currentStock))
+    ? Number(payload.currentStock)
+    : null;
+  const unexplainedGap = currentStock != null ? currentStock - netDelta : null;
   return {
     ...payload,
     movements,
     movementCount: movements.length,
     netDelta,
+    unexplainedGap,
+    openingStock: unexplainedGap,
   };
+}
+
+function stripExcludedLedgerMovements(payload) {
+  return recomputeLedgerAggregates(payload);
 }
 
 function sortNewestFirst(movements) {
