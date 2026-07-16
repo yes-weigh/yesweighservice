@@ -130,31 +130,44 @@ export const ProductStockMovementsPanel: React.FC<{
             <thead>
               <tr>
                 <th scope="col">Date</th>
-                <th scope="col">Type</th>
+                <th scope="col">Details</th>
                 <th scope="col">Document</th>
-                <th scope="col">Party</th>
                 <th scope="col">In / Out</th>
                 <th scope="col">Running</th>
-                <th scope="col">Status</th>
               </tr>
             </thead>
             <tbody>
               {data.movements.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>No stock movements found for this item.</td>
+                  <td colSpan={5}>No stock movements found for this item.</td>
                 </tr>
               ) : (
                 data.movements.map(row => (
                   <tr key={`${row.type}-${row.documentId}-${row.date}-${row.qtyDelta}`}>
                     <td>{row.date || '—'}</td>
-                    <td>{row.typeLabel}</td>
+                    <td>
+                      <div className="product-stock-movements__party-block">
+                        <span
+                          className={`product-stock-movements__chip product-stock-movements__chip--type is-${row.type}`}
+                        >
+                          {row.typeLabel}
+                        </span>
+                        <span className="product-stock-movements__party">
+                          {row.customerOrVendor || '—'}
+                        </span>
+                        {row.status ? (
+                          <span className="product-stock-movements__chip product-stock-movements__chip--status">
+                            {row.status}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
                     <td>
                       <strong>{row.documentNumber || '—'}</strong>
                       {row.reference ? (
                         <span className="product-stock-movements__ref">{row.reference}</span>
                       ) : null}
                     </td>
-                    <td>{row.customerOrVendor || '—'}</td>
                     <td className={qtyDeltaClass(row.qtyDelta)}>
                       {formatDelta(row.qtyDelta)}
                     </td>
@@ -163,7 +176,6 @@ export const ProductStockMovementsPanel: React.FC<{
                         ? formatStockQuantity(row.runningStock, product.unit)
                         : '—'}
                     </td>
-                    <td>{row.status || '—'}</td>
                   </tr>
                 ))
               )}
