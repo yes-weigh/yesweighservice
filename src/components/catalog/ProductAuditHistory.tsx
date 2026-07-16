@@ -237,7 +237,10 @@ export const ProductAuditHistory: React.FC<{
                         <td colSpan={5}>No invoices, bills, credit notes, or adjustments in this window.</td>
                       </tr>
                     ) : (
-                      [...movements.movements].reverse().map(row => (
+                      [...movements.movements]
+                        .filter(row => row.type !== 'package')
+                        .reverse()
+                        .map(row => (
                         <tr key={`${row.type}-${row.documentId}-${row.createdAt}`}>
                           <td>
                             <div className="product-audit-log__datetime">

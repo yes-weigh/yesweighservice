@@ -8,6 +8,7 @@ import {
   getAccessToken,
   resolveOrganizationId,
   fetchProductDetail,
+  getStockStatus,
 } from './lib/zoho.js';
 import {
   syncCatalogToFirestore,
@@ -228,58 +229,103 @@ export const getCatalogProductDetail = onCall(
     const accessToken = await getAccessToken(secrets);
     const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
 
-    const detail = await fetchProductDetail(accessToken, organizationId, productId);
+    const cached = await getFirestore().collection('catalogProducts').doc(productId).get();
+    const cachedData = cached.exists ? (cached.data() ?? {}) : null;
 
-    // Import any Zoho gallery/rear images missing from the app catalog cache.
+    let detail;
+    let zohoLive = true;
     try {
-      await importProductImagesFromZoho(productId, accessToken, organizationId);
+      detail = await fetchProductDetail(accessToken, organizationId, productId);
     } catch (err) {
-      console.warn('importProductImagesFromZoho failed:', err?.message ?? err);
+      console.warn('getCatalogProductDetail: Zoho fetch failed:', err?.message ?? err);
+      if (!cachedData) {
+        const message = err?.message ?? 'Could not load product from Zoho.';
+        const rateLimited = /rate|blocked|too many requests|exceeded the maximum number of requests/i.test(message);
+        throw new HttpsError(rateLimited ? 'resource-exhausted' : 'internal', message);
+      }
+      const stock = Number(cachedData.stock ?? 0);
+      const reorderLevel = Number(cachedData.reorderLevel ?? 0);
+      detail = {
+        id: String(cachedData.id ?? productId),
+        name: String(cachedData.name ?? ''),
+        sku: cachedData.sku == null ? null : String(cachedData.sku),
+        description: cachedData.description == null ? null : String(cachedData.description),
+        unit: String(cachedData.unit ?? 'pcs'),
+        rate: Number(cachedData.rate ?? 0),
+        stock,
+        stockStatus: cachedData.stockStatus ?? getStockStatus(stock, reorderLevel),
+        categoryId: cachedData.categoryId ?? null,
+        categoryName: cachedData.categoryName ?? null,
+        status: String(cachedData.status ?? 'active'),
+        hsn: cachedData.hsn ?? null,
+        taxName: cachedData.taxName ?? null,
+        taxPercentage: cachedData.taxPercentage != null ? Number(cachedData.taxPercentage) : null,
+        reorderLevel,
+        preferredVendor: null,
+        warehouses: Array.isArray(cachedData.warehouses) ? cachedData.warehouses : [],
+      };
+      zohoLive = false;
     }
 
-    const cached = await getFirestore().collection('catalogProducts').doc(productId).get();
-    if (cached.exists) {
-      const data = cached.data();
-      // Prefer cached catalog images (primary + gallery).
-      if (data?.imageUrl) {
-        detail.imageUrl = data.imageUrl;
+    if (zohoLive) {
+      try {
+        await importProductImagesFromZoho(productId, accessToken, organizationId);
+      } catch (err) {
+        console.warn('importProductImagesFromZoho failed:', err?.message ?? err);
       }
-      if (Array.isArray(data?.imageUrls) && data.imageUrls.length) {
-        detail.imageUrls = data.imageUrls.filter(url => String(url ?? '').trim());
+    }
+
+    if (cachedData) {
+      if (cachedData.imageUrl) {
+        detail.imageUrl = cachedData.imageUrl;
       }
-      if (Array.isArray(data?.imageDocs) && data.imageDocs.length) {
-        detail.imageDocs = data.imageDocs;
+      if (Array.isArray(cachedData.imageUrls) && cachedData.imageUrls.length) {
+        detail.imageUrls = cachedData.imageUrls.filter(url => String(url ?? '').trim());
       }
-      if (data?.syncedAt) {
-        detail.syncedAt = data.syncedAt;
+      if (Array.isArray(cachedData.imageDocs) && cachedData.imageDocs.length) {
+        detail.imageDocs = cachedData.imageDocs;
       }
-      const packageInfo = readPackageInfo(data?.packageInfo);
+      if (cachedData.syncedAt) {
+        detail.syncedAt = cachedData.syncedAt;
+      }
+      const packageInfo = readPackageInfo(cachedData.packageInfo);
       if (packageInfo) {
         detail.packageInfo = packageInfo;
       }
-      if (data?.auditSnapshot) {
-        detail.auditSnapshot = data.auditSnapshot;
+      if (cachedData.auditSnapshot) {
+        detail.auditSnapshot = cachedData.auditSnapshot;
       } else {
-        // Explicit null so clients drop a stale preview snapshot after delete.
         detail.auditSnapshot = null;
       }
-      // Firestore-only overlays (never on Zoho item payload)
-      const mrpOverride = Number(data?.mrpOverride);
+      const mrpOverride = Number(cachedData.mrpOverride);
       if (Number.isFinite(mrpOverride) && mrpOverride > 0) {
         detail.mrpOverride = Math.round(mrpOverride * 100) / 100;
       }
-      const modelNumber = String(data?.modelNumber ?? '').trim();
+      const modelNumber = String(cachedData.modelNumber ?? '').trim();
       if (modelNumber) {
         detail.modelNumber = modelNumber;
       }
-      const approvalNumber = String(data?.approvalNumber ?? '').trim();
+      const approvalNumber = String(cachedData.approvalNumber ?? '').trim();
       if (approvalNumber) {
         detail.approvalNumber = approvalNumber;
       }
-      const spareGroupId = String(data?.spareGroupId ?? '').trim();
+      const spareGroupId = String(cachedData.spareGroupId ?? '').trim();
       if (spareGroupId) {
         detail.spareGroupId = spareGroupId;
       }
+      if (typeof cachedData.skuChangedAt === 'string' && cachedData.skuChangedAt.trim()) {
+        detail.skuChangedAt = cachedData.skuChangedAt.trim();
+      }
+      if (typeof cachedData.binLabelPrintedSku === 'string' && cachedData.binLabelPrintedSku.trim()) {
+        detail.binLabelPrintedSku = cachedData.binLabelPrintedSku.trim();
+      }
+      if (typeof cachedData.binLabelPrintedAt === 'string' && cachedData.binLabelPrintedAt.trim()) {
+        detail.binLabelPrintedAt = cachedData.binLabelPrintedAt.trim();
+      }
+    }
+
+    if (!zohoLive) {
+      detail.zohoLive = false;
     }
 
     return detail;

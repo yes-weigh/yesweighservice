@@ -585,6 +585,13 @@ function catalogErrorMessage(err: unknown): string {
       return 'Catalog sync timed out. Deploy the latest functions and try again — sync should finish in under a minute.';
     }
 
+    if (
+      code === 'functions/resource-exhausted'
+      || /rate.?limit|blocked for some time|too many requests|exceeded the maximum number of requests/i.test(message)
+    ) {
+      return 'Zoho is temporarily rate-limited after heavy updates. Wait a few minutes, then try again.';
+    }
+
     const isMissingFunction =
       code === 'functions/not-found'
       || /not[- ]found/i.test(message)

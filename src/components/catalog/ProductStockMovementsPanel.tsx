@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeftRight,
-  Package,
   RefreshCw,
   RotateCcw,
   ShoppingCart,
@@ -36,10 +35,12 @@ const TYPE_META: Record<
   adjustment: { label: 'Adjustment', docPrefix: 'Adjustment', tone: 'adjust', Icon: SlidersHorizontal },
   moveorder: { label: 'Stock transfer', docPrefix: 'Transfer', tone: 'transfer', Icon: ArrowLeftRight },
   transferorder: { label: 'Stock transfer', docPrefix: 'Transfer', tone: 'transfer', Icon: ArrowLeftRight },
-  package: { label: 'Package', docPrefix: 'Package', tone: 'package', Icon: Package },
   purchasereceive: { label: 'Purchase receive', docPrefix: 'Receive', tone: 'purchase', Icon: Truck },
   putaway: { label: 'Putaway', docPrefix: 'Putaway', tone: 'transfer', Icon: ArrowLeftRight },
 };
+
+/** Zoho package picks do not move stock — hide if present in older cached ledgers. */
+const EXCLUDED_LEDGER_TYPES = new Set<CatalogStockMovementType>(['package']);
 
 function formatDelta(value: number): string {
   if (value > 0) return `+${value}`;
@@ -147,6 +148,11 @@ export const ProductStockMovementsPanel: React.FC<{
 
   const unit = product.unit || 'nos';
 
+  const ledgerMovements = useMemo(
+    () => (data?.movements ?? []).filter(row => !EXCLUDED_LEDGER_TYPES.has(row.type)),
+    [data?.movements],
+  );
+
   const load = useCallback(async (forceRefresh: boolean) => {
     if (forceRefresh) setRefreshing(true);
     else setLoading(true);
@@ -194,8 +200,8 @@ export const ProductStockMovementsPanel: React.FC<{
 
   const periodRows = useMemo(() => {
     if (!data) return [];
-    return data.movements.filter(row => inPeriod(row.date, period.from, period.to));
-  }, [data, period.from, period.to]);
+    return ledgerMovements.filter(row => inPeriod(row.date, period.from, period.to));
+  }, [data, ledgerMovements, period.from, period.to]);
 
   const filteredRows = useMemo(() => {
     if (typeFilter === 'all') return periodRows;
@@ -218,7 +224,7 @@ export const ProductStockMovementsPanel: React.FC<{
       return { opening: 0, totalIn: 0, totalOut: 0, closing: 0 };
     }
 
-    const oldestAll = [...data.movements].reverse();
+    const oldestAll = [...ledgerMovements].reverse();
     let opening = 0;
     if (period.from) {
       for (const row of oldestAll) {
@@ -238,14 +244,14 @@ export const ProductStockMovementsPanel: React.FC<{
     const closing = opening + totalIn - totalOut;
 
     return { opening, totalIn, totalOut, closing };
-  }, [data, period.from, periodRows]);
+  }, [data, ledgerMovements, period.from, periodRows]);
 
   const typeOptions = useMemo(() => {
     if (!data) return [] as CatalogStockMovementType[];
     const seen = new Set<CatalogStockMovementType>();
-    for (const row of data.movements) seen.add(row.type);
+    for (const row of ledgerMovements) seen.add(row.type);
     return [...seen].sort((a, b) => TYPE_META[a].label.localeCompare(TYPE_META[b].label));
-  }, [data]);
+  }, [data, ledgerMovements]);
 
   const dateRangeLabel = useMemo(() => {
     if (periodPreset === 'lifetime') return 'Lifetime';

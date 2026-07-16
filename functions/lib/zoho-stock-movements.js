@@ -206,27 +206,7 @@ function mapPurchaseReceive(row) {
   });
 }
 
-function mapPackage(row) {
-  const qty = Number(row.item_quantity ?? 0);
-  if (!qty) return null;
-  // Packages usually confirm pick against an SO; stock is typically reduced on invoice.
-  // Include for visibility with net-zero so we don't double-count vs invoices.
-  return baseMovement({
-    type: 'package',
-    typeLabel: 'Package',
-    documentId: String(row.package_id ?? ''),
-    documentNumber: String(row.package_number ?? ''),
-    date: String(row.date ?? ''),
-    createdTime: String(row.date ?? ''),
-    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
-    status: String(row.status ?? ''),
-    customerOrVendor: String(row.customer_name ?? '').trim() || null,
-    quantity: Math.abs(qty),
-    qtyDelta: 0,
-  });
-}
-
-function mapSalesReturn(row) {
+function mapPurchaseReceive(row) {
   const qty = Number(row.item_quantity ?? row.quantity ?? 0);
   if (!qty) return null;
   return withStockEffect(baseMovement({
@@ -265,6 +245,22 @@ async function listSalesReturns(zohoGet, itemId) {
     if (page > 100) break;
   }
   return rows;
+}
+
+/** Zoho package picks are excluded — stock moves on invoice, not package. */
+const EXCLUDED_LEDGER_TYPES = new Set(['package']);
+
+function stripExcludedLedgerMovements(payload) {
+  if (!payload?.movements?.length) return payload;
+  const movements = payload.movements.filter(m => !EXCLUDED_LEDGER_TYPES.has(m.type));
+  if (movements.length === payload.movements.length) return payload;
+  const netDelta = movements.reduce((sum, m) => sum + (Number(m.qtyDelta) || 0), 0);
+  return {
+    ...payload,
+    movements,
+    movementCount: movements.length,
+    netDelta,
+  };
 }
 
 function sortNewestFirst(movements) {
@@ -317,7 +313,6 @@ export async function listCatalogProductLifetimeStockMovements(
     creditnotes,
     adjustments,
     moveorders,
-    packages,
     purchasereceives,
     transferorders,
     putaways,
@@ -327,7 +322,6 @@ export async function listCatalogProductLifetimeStockMovements(
     listAllItemTransactions(zohoGet, 'creditnotes', itemId, 'creditnotes'),
     listAllItemTransactions(zohoGet, 'inventoryadjustments', itemId, 'inventory_adjustments'),
     listAllItemTransactions(zohoGet, 'moveorders', itemId, 'moveorders'),
-    listAllItemTransactions(zohoGet, 'packages', itemId, 'packages'),
     listAllItemTransactions(zohoGet, 'purchasereceives', itemId, 'purchasereceives'),
     listAllItemTransactions(zohoGet, 'transferorders', itemId, 'transferorders'),
     listAllItemTransactions(zohoGet, 'putaways', itemId, 'putaways'),
@@ -341,7 +335,6 @@ export async function listCatalogProductLifetimeStockMovements(
     ...creditnotes.map(mapCreditNote),
     ...adjustments.map(mapAdjustment),
     ...moveorders.map(r => mapTransferLike(r, 'moveorder', 'Transfer', 'moveorder_id', 'moveorder_number')),
-    ...packages.map(mapPackage),
     ...purchasereceives.map(mapPurchaseReceive),
     ...transferorders.map(r => mapTransferLike(r, 'transferorder', 'Transfer order', 'transfer_order_id', 'transfer_order_number')),
     ...putaways.map(r => mapTransferLike(r, 'putaway', 'Putaway', 'putaway_id', 'putaway_number')),
@@ -492,7 +485,7 @@ export async function getLifetimeStockMovements(
   if (!forceRefresh) {
     const cached = await readLifetimeCache(itemId);
     if (cached) {
-      return { ...cached, fromCache: true };
+      return { ...stripExcludedLedgerMovements(cached), fromCache: true };
     }
   }
 
@@ -507,6 +500,7 @@ export async function getLifetimeStockMovements(
     return { ...fresh, fromCache: false, fetchFailed: true };
   }
 
-  await writeLifetimeCache(fresh);
-  return { ...fresh, fromCache: false };
+  const cleaned = stripExcludedLedgerMovements(fresh);
+  await writeLifetimeCache(cleaned);
+  return { ...cleaned, fromCache: false };
 }
