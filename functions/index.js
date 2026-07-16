@@ -94,6 +94,7 @@ import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
+import { uploadLogisticsPhoto as storeLogisticsPhoto } from './lib/logistics-upload.js';
 import {
   uploadApprovalNumberPdf as storeApprovalNumberPdf,
   removeApprovalNumberPdf as clearApprovalNumberPdf,
@@ -2260,6 +2261,22 @@ export const uploadYesStorePhotoFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not upload warehouse photo.');
+    }
+  },
+);
+
+/** Logistics package photo upload — Admin SDK (avoids client Storage rule 403s). */
+export const uploadLogisticsPhotoFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await storeLogisticsPhoto(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload logistics photo.');
     }
   },
 );

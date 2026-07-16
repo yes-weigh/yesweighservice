@@ -210,8 +210,15 @@ service firebase.storage {
       );
     }
 
-    // logistics/{bookingId}/… (flat or nested photo paths)
-    match /logistics/{bookingId}/{allPaths=**} {
+    // Nested paths used by the client: logistics/{bookingId}/{slot}/{fileName}
+    match /logistics/{bookingId}/{slot}/{fileName} {
+      allow read: if isOpsUser() || canAccessLogisticsBooking(bookingId);
+      allow create, update: if canWriteLogisticsPhoto(bookingId);
+      allow delete: if isOpsUser();
+    }
+
+    // Flat legacy paths: logistics/{bookingId}/{fileName}
+    match /logistics/{bookingId}/{fileName} {
       allow read: if isOpsUser() || canAccessLogisticsBooking(bookingId);
       allow create, update: if canWriteLogisticsPhoto(bookingId);
       allow delete: if isOpsUser();
