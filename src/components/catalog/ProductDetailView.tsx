@@ -293,7 +293,6 @@ export const ProductDetailView: React.FC<{
   );
 
   const cardStyle = {
-    '--cat-bg': theme.bg,
     '--cat-accent': theme.accent,
     '--cat-badge': theme.badge,
   } as React.CSSProperties;

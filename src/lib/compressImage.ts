@@ -22,6 +22,15 @@ function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<B
   });
 }
 
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      blob => (blob ? resolve(blob) : reject(new Error('Could not compress image.'))),
+      'image/png',
+    );
+  });
+}
+
 /** Resize and re-encode photos before upload — keeps aspect ratio, no cropping. */
 export async function compressImageForUpload(
   file: File,
@@ -33,12 +42,21 @@ export async function compressImageForUpload(
     throw new Error('Please choose an image file.');
   }
 
-  if (file.size <= maxBytes && file.type === 'image/jpeg') {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxWidth / bitmap.width, maxHeight / bitmap.height);
+  const needsResize = scale < 1;
+  const baseName = file.name.replace(/\.[^.]+$/, '') || 'photo';
+
+  if (file.type === 'image/png' && !needsResize && file.size <= maxBytes) {
+    bitmap.close?.();
     return file;
   }
 
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxWidth / bitmap.width, maxHeight / bitmap.height);
+  if (file.type === 'image/jpeg' && !needsResize && file.size <= maxBytes) {
+    bitmap.close?.();
+    return file;
+  }
+
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
 
@@ -52,8 +70,21 @@ export async function compressImageForUpload(
     throw new Error('Could not process image.');
   }
 
+  if (file.type !== 'image/png') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+  }
+
   ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close?.();
+
+  if (file.type === 'image/png') {
+    const blob = await canvasToPngBlob(canvas);
+    return new File([blob], `${baseName}.png`, {
+      type: 'image/png',
+      lastModified: Date.now(),
+    });
+  }
 
   let q = quality;
   let blob = await canvasToJpegBlob(canvas, q);
@@ -62,7 +93,6 @@ export async function compressImageForUpload(
     blob = await canvasToJpegBlob(canvas, q);
   }
 
-  const baseName = file.name.replace(/\.[^.]+$/, '') || 'photo';
   return new File([blob], `${baseName}.jpg`, {
     type: 'image/jpeg',
     lastModified: Date.now(),

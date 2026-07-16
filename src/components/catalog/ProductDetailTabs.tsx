@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileText } from 'lucide-react';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
@@ -162,6 +162,7 @@ export const ProductDetailTabs: React.FC<{
 }) => {
   const [internalTab, setInternalTab] = useState<ProductDetailTabId>('spare');
   const activeTab = controlledTab ?? internalTab;
+  const tabsRootRef = useRef<HTMLDivElement>(null);
 
   const visibleTabDefs = useMemo(() => {
     const allowed = visibleTabs ?? TAB_DEFS.map(tab => tab.id);
@@ -184,6 +185,17 @@ export const ProductDetailTabs: React.FC<{
     }
   }, [activeTab, visibleTabDefs]);
 
+  useEffect(() => {
+    if (activeTab !== 'stock') return;
+    const el = tabsRootRef.current;
+    if (!el) return;
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    });
+  }, [activeTab]);
+
   const spareTitle = relatedKind === 'spares' ? 'Mapped spares' : 'Mapped products';
   const spareEmpty = relatedKind === 'spares'
     ? 'No spares mapped to this product yet.'
@@ -195,7 +207,7 @@ export const ProductDetailTabs: React.FC<{
   );
 
   return (
-    <div className="product-detail-tabs">
+    <div ref={tabsRootRef} className="product-detail-tabs">
       <div
         className="product-detail-tabs__track"
         role="tablist"

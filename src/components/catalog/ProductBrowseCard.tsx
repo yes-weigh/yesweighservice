@@ -88,7 +88,6 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const showAuditInfo = auditDisplay?.hasAuditSnapshot === true && auditDiff != null;
 
   const cardStyle = {
-    '--cat-bg': theme.bg,
     '--cat-accent': theme.accent,
     '--cat-badge': theme.badge,
   } as React.CSSProperties;
@@ -143,7 +142,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           )}
           {product.imageUrl ? (
             <div className="catalog-product-card__visual" aria-hidden>
-              <CategoryThumbnail src={product.imageUrl} />
+              <CategoryThumbnail src={product.imageUrl} blend={false} />
             </div>
           ) : (
             <Package size={36} className="catalog-product-card__fallback" aria-hidden />
