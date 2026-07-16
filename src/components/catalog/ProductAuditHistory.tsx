@@ -238,7 +238,7 @@ export const ProductAuditHistory: React.FC<{
                       </tr>
                     ) : (
                       [...movements.movements]
-                        .filter(row => row.type !== 'package')
+                        .filter(row => String(row.type) !== 'package')
                         .reverse()
                         .map(row => (
                         <tr key={`${row.type}-${row.documentId}-${row.createdAt}`}>
