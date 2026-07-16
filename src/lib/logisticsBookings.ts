@@ -29,6 +29,7 @@ import {
 } from './logisticsBooking';
 import {
   dataUrlToFile,
+  deleteLogisticsPhoto,
   resolveLogisticsPhotoUrl,
   uploadLogisticsPhoto,
 } from './logisticsPhotos';
@@ -69,23 +70,25 @@ function resolveDealerIdForUser(user: User): string {
 }
 
 function isEditableStatus(status: LogisticsBookingStatus): boolean {
-  return status !== 'in_transit' && status !== 'delivered' && status !== 'cancelled';
+  return status === 'label_generated';
 }
 
 /** Map legacy/unknown status values onto the current pipeline statuses. */
 function normalizeBookingStatus(raw: string): LogisticsBookingStatus {
   switch (raw) {
-    case 'draft':
     case 'label_generated':
+    case 'shipped':
     case 'in_transit':
     case 'delivered':
     case 'cancelled':
       return raw;
+    // Legacy draft/booked (and aliases) → start of public pipeline
+    case 'draft':
     case 'booked':
     case 'courier_booked':
     case 'pickup_pending':
     default:
-      return 'booked';
+      return 'label_generated';
   }
 }
 
@@ -130,7 +133,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
   const partnerId = isLogisticsPartnerId(String(data.partnerId ?? ''))
     ? String(data.partnerId) as LogisticsPartnerId
     : 'st_courier';
-  const status = normalizeBookingStatus(String(data.status ?? 'booked'));
+  const status = normalizeBookingStatus(String(data.status ?? 'label_generated'));
   const shipmentMode = data.shipmentMode === 'envelope' ? 'envelope' : 'box';
   const boxes = Array.isArray(data.boxes)
     ? data.boxes.map((box: DocumentData) => mapShipmentBox(box))
@@ -344,7 +347,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     shippingLabelGenerated: Boolean(draft.labelGenerated),
     packingSlipGenerated: false,
     status,
-    wizardStep: status === 'draft' ? (wizardStep ?? null) : null,
+    wizardStep: wizardStep ?? null,
     createdAt,
     updatedAt: now,
     createdByUid: createdBy.uid,
@@ -359,7 +362,7 @@ function formatLogisticsPersistError(err: unknown, fallback: string): Error {
     : '';
   if (code.includes('permission-denied') || /permission/i.test(message)) {
     return new Error(
-      'Could not save logistics booking (permission denied). Deploy the latest Firestore rules that allow status “draft”.',
+      'Could not save logistics booking (permission denied). Deploy the latest Firestore rules for logistics bookings.',
     );
   }
   if (/unsupported field value|undefined/i.test(message)) {
@@ -475,7 +478,7 @@ async function ensureDraftBookingStub(input: {
     courierSlipGenerated: false,
     shippingLabelGenerated: false,
     packingSlipGenerated: false,
-    status: 'draft',
+    status: 'label_generated',
     wizardStep: 'box',
     createdAt: input.createdAt,
     updatedAt: now,
@@ -505,9 +508,12 @@ export async function persistLogisticsBookingDraft(
   if (existingBookingId) {
     const existing = await getDoc(bookingRef);
     if (!existing.exists()) throw new Error('Draft booking not found.');
-    const existingStatus = normalizeBookingStatus(String(existing.data()?.status ?? 'booked'));
-    if (existingStatus !== 'draft') {
-      throw new Error('Only draft bookings can be updated this way.');
+    const existingWizardStep = typeof existing.data()?.wizardStep === 'string'
+      ? existing.data()?.wizardStep
+      : null;
+    // Any open wizard step (including final_photo after labels) can still be saved.
+    if (!existingWizardStep?.trim()) {
+      throw new Error('Only in-progress bookings can be updated this way.');
     }
     createdAt = String(existing.data()?.createdAt ?? now);
     existingFinalPackagePhotoStoragePath = typeof existing.data()?.finalPackagePhotoStoragePath === 'string'
@@ -654,7 +660,7 @@ export async function persistLogisticsBookingDraft(
       courierSlipGenerated: labelsPrinted,
       shippingLabelGenerated: labelsPrinted,
       packingSlipGenerated: false,
-      status: 'draft',
+      status: 'label_generated',
       wizardStep: storedWizardStep,
       createdAt,
       updatedAt: now,
@@ -709,12 +715,15 @@ export async function persistLogisticsBooking(
 
   try {
     const labelsPrinted = Boolean(draft.labelGenerated);
+    if (!labelsPrinted) {
+      throw new Error('Generate the shipping label before confirming the shipment.');
+    }
     const payload = await buildBookingPayload({
       draft,
       dealer,
       createdBy,
       bookingId: bookingRef.id,
-      status: labelsPrinted ? 'label_generated' : 'booked',
+      status: 'shipped',
       createdAt,
       wizardStep: null,
       existingFinalPackagePhotoStoragePath,
@@ -936,7 +945,19 @@ export async function deleteLogisticsBookingPermanently(
   if (normalizeRole(user.role) !== 'super_admin') {
     throw new Error('Only super admin can permanently delete shipments.');
   }
-  await deleteDoc(doc(db, COLLECTION, bookingId));
+
+  const bookingRef = doc(db, COLLECTION, bookingId);
+  const snap = await getDoc(bookingRef);
+  if (snap.exists()) {
+    const booking = mapLogisticsBookingDoc(snap.id, snap.data());
+    const storagePaths = [
+      ...booking.boxes.flatMap(box => box.photos.map(photo => photo.storagePath)),
+      booking.finalPackagePhotoStoragePath,
+    ].filter((path): path is string => Boolean(path?.trim()));
+    await Promise.all(storagePaths.map(path => deleteLogisticsPhoto(path)));
+  }
+
+  await deleteDoc(bookingRef);
 }
 
 export function canEditLogisticsBooking(booking: LogisticsBooking, user: User): boolean {

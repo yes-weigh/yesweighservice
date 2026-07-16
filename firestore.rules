@@ -700,11 +700,20 @@ service cloud.firestore {
       return isOpsUser()
         && data.partnerId is string
         && data.consignmentNo is string
-        && (data.status == 'draft' || data.consignmentNo.size() > 0)
+        && (
+          data.consignmentNo.size() > 0
+          || (data.keys().hasAny(['wizardStep']) && data.wizardStep is string && data.wizardStep.size() > 0)
+        )
         && data.zohoCustomerId is string
         && data.dealerId is string
         && data.dealerSnapshot is map
-        && (data.status == 'booked' || data.status == 'draft')
+        && (
+          data.status == 'label_generated'
+          || data.status == 'shipped'
+          || data.status == 'in_transit'
+          || data.status == 'delivered'
+          || data.status == 'cancelled'
+        )
         && data.createdByUid == request.auth.uid
         && data.createdAt is string
         && data.updatedAt is string;

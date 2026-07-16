@@ -2297,6 +2297,71 @@ export const getLogisticsPhotoUrlFn = onCall(
   },
 );
 
+/**
+ * Promote same-day shipped bookings to in_transit after 6 PM IST.
+ * Runs every 30 minutes; catches late same-day confirms and any missed prior days.
+ */
+export const promoteShippedToInTransitScheduled = onSchedule(
+  {
+    schedule: '*/30 * * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async () => {
+    const db = getFirestore();
+    const nowParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date());
+    const part = (type) => nowParts.find(item => item.type === type)?.value ?? '';
+    const todayYmd = `${part('year')}-${part('month')}-${part('day')}`;
+    const hour = Number(part('hour')) || 0;
+
+    const snap = await db.collection('logisticsBookings').where('status', '==', 'shipped').get();
+    if (snap.empty) {
+      console.log('promoteShippedToInTransit: no shipped bookings.');
+      return;
+    }
+
+    const updatedAt = new Date().toISOString();
+    let promoted = 0;
+    let skipped = 0;
+    const writers = [];
+
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data() || {};
+      const bookingDate = String(data.bookingDate || '').slice(0, 10);
+      const pastBookingDay = Boolean(bookingDate) && bookingDate < todayYmd;
+      const sameDayAfterSix = (!bookingDate || bookingDate === todayYmd) && hour >= 18;
+      if (!pastBookingDay && !sameDayAfterSix) {
+        skipped += 1;
+        continue;
+      }
+      writers.push(
+        docSnap.ref.update({
+          status: 'in_transit',
+          updatedAt,
+          inTransitAt: updatedAt,
+        }),
+      );
+      promoted += 1;
+    }
+
+    if (writers.length) {
+      await Promise.all(writers);
+    }
+    console.log(
+      `promoteShippedToInTransit: promoted=${promoted}, skipped=${skipped}, checked=${snap.size} (IST ${todayYmd} ${hour}:00).`,
+    );
+  },
+);
+
 /** Catalog NC photo upload — Admin SDK (avoids client Storage rule 403s). */
 export const uploadCatalogNcPhotoFn = onCall(
   { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },

@@ -7,12 +7,15 @@ import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import { homePathForRole } from '../../types';
 import {
   LOGISTICS_BOOKING_STATUSES,
+  LOGISTICS_PIPELINE_STATUSES,
   boxChargeableWeight,
   boxDimensionsLabel,
   bookingStatusIndex,
   bookingSummaryLines,
   chargeableWeight,
   courierSlipFileName,
+  isIncompleteLogisticsBooking,
+  needsFinalPackagePhoto,
   shipmentModeLabel,
   shippingLabelFileName,
 } from '../../lib/logisticsBooking';
@@ -38,9 +41,7 @@ interface LogisticsBookingDetailProps {
   onDelete?: () => void;
 }
 
-const PROGRESS_STATUSES = LOGISTICS_BOOKING_STATUSES.filter(
-  item => item.id !== 'cancelled' && item.id !== 'draft',
-);
+const PROGRESS_STATUSES = LOGISTICS_PIPELINE_STATUSES;
 
 export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   booking,
@@ -54,13 +55,19 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
-  const currentIndex = booking.status === 'cancelled' ? -1 : bookingStatusIndex(booking.status);
-  // Booked → Label Generated is document-driven unless labels were already printed in the wizard.
-  const nextStatus = booking.status === 'cancelled'
+  const currentIndex = isIncompleteLogisticsBooking(booking)
+    ? -1
+    : bookingStatusIndex(booking.status);
+  // Advance only along the public pipeline (Label → Shipped → Transit → Delivered).
+  const nextStatus = (
+    isIncompleteLogisticsBooking(booking)
+    || needsFinalPackagePhoto(booking)
+    || booking.status === 'cancelled'
+    || booking.status === 'delivered'
+    || (booking.status === 'label_generated' && !booking.shippingLabelGenerated)
+  )
     ? null
-    : booking.status === 'booked' && !booking.shippingLabelGenerated
-      ? null
-      : PROGRESS_STATUSES[currentIndex + 1]?.id;
+    : PROGRESS_STATUSES[currentIndex + 1]?.id ?? null;
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const trackUrl = logisticsTrackingUrl(booking.partnerId, booking.trackingNo || booking.consignmentNo);
 
@@ -110,8 +117,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             )}
           </p>
         </div>
-        <span className={`logistics-booking__status logistics-booking__status--${booking.status}`}>
-          {LOGISTICS_BOOKING_STATUSES.find(item => item.id === booking.status)?.label}
+        <span className={`logistics-booking__status logistics-booking__status--${
+          isIncompleteLogisticsBooking(booking) ? 'incomplete' : booking.status
+        }`}
+        >
+          {isIncompleteLogisticsBooking(booking)
+            ? 'Incomplete'
+            : LOGISTICS_BOOKING_STATUSES.find(item => item.id === booking.status)?.label}
         </span>
       </header>
 
@@ -140,7 +152,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </section>
       )}
 
-      {booking.status !== 'cancelled' && (
+      {!isIncompleteLogisticsBooking(booking) && booking.status !== 'cancelled' && (
         <section className="logistics-booking__timeline" aria-label="Shipment status">
           <ol className="logistics-booking__timeline-list">
             {PROGRESS_STATUSES.map((item, index) => {
@@ -283,26 +295,31 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               {booking.shippingLabelGenerated && shippingLabelFileName(booking)}
             </p>
           )}
-          {!booking.shippingLabelGenerated && booking.status === 'booked' && (
+          {!booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
             <p className="text-muted text-sm logistics-booking__slip-hint">
-              Generate the shipping label to move this shipment to “Label Generated”.
+              Generate the shipping label to confirm this shipment.
             </p>
           )}
         </section>
       )}
 
-      {isOps && booking.status !== 'cancelled' && booking.status !== 'delivered' && (
+      {isOps && booking.status !== 'cancelled' && booking.status !== 'delivered' && onCancel && (
         <div className="logistics-booking__ops-actions">
-          {onCancel && (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
-              Cancel shipment
-            </button>
-          )}
-          {user && canDeleteLogisticsBooking(user) && onDelete && (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onDelete}>
-              Delete permanently
-            </button>
-          )}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
+            Cancel shipment
+          </button>
+        </div>
+      )}
+
+      {user && canDeleteLogisticsBooking(user) && onDelete && (
+        <div className="logistics-booking__ops-actions logistics-booking__ops-actions--danger">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm logistics-booking__delete-btn"
+            onClick={onDelete}
+          >
+            Delete permanently
+          </button>
         </div>
       )}
 

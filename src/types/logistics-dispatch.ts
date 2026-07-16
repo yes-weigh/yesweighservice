@@ -2,9 +2,8 @@ import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import type { StaffLogisticsSite } from './staff-logistics';
 
 export type LogisticsBookingStatus =
-  | 'draft'
-  | 'booked'
   | 'label_generated'
+  | 'shipped'
   | 'in_transit'
   | 'delivered'
   | 'cancelled';
@@ -134,7 +133,7 @@ export interface LogisticsBooking {
   /** @deprecated no longer surfaced in the UI */
   packingSlipGenerated?: boolean;
   status: LogisticsBookingStatus;
-  /** Wizard step to resume when status is draft. */
+  /** Wizard step while booking is still in progress (`null` once confirmed). */
   wizardStep?: string | null;
   createdAt: string;
   updatedAt: string;

@@ -24,13 +24,54 @@ export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
   id: LogisticsBookingStatus;
   label: string;
 }> = [
-  { id: 'draft', label: 'Draft' },
-  { id: 'booked', label: 'Booked' },
   { id: 'label_generated', label: 'Label Generated' },
+  { id: 'shipped', label: 'Shipped' },
   { id: 'in_transit', label: 'In Transit' },
   { id: 'delivered', label: 'Delivered' },
   { id: 'cancelled', label: 'Cancelled' },
 ];
+
+/** Stages shown in dashboard / filters. */
+export const LOGISTICS_DASHBOARD_STATUSES = LOGISTICS_BOOKING_STATUSES;
+
+/** Progress timeline after labels are generated. */
+export const LOGISTICS_PIPELINE_STATUSES: ReadonlyArray<{
+  id: LogisticsBookingStatus;
+  label: string;
+}> = [
+  { id: 'label_generated', label: 'Label Generated' },
+  { id: 'shipped', label: 'Shipped' },
+  { id: 'in_transit', label: 'In Transit' },
+  { id: 'delivered', label: 'Delivered' },
+];
+
+export function isLogisticsDashboardStatus(
+  status: LogisticsBookingStatus,
+): boolean {
+  return LOGISTICS_DASHBOARD_STATUSES.some(item => item.id === status);
+}
+
+/**
+ * Early wizard booking (before shipping labels). After labels, wizardStep may be
+ * `final_photo` — that counts as Label Generated, not Incomplete.
+ */
+export function isIncompleteLogisticsBooking(
+  booking: Pick<LogisticsBooking, 'wizardStep'>,
+): boolean {
+  const step = booking.wizardStep?.trim();
+  if (!step) return false;
+  if (step === 'final_photo') return false;
+  return true;
+}
+
+/** Label Generated entry still needs the outer package photo before Shipped. */
+export function needsFinalPackagePhoto(
+  booking: Pick<LogisticsBooking, 'status' | 'wizardStep' | 'finalPackagePhotoStoragePath'>,
+): boolean {
+  if (booking.status !== 'label_generated') return false;
+  if (booking.wizardStep === 'final_photo') return true;
+  return !booking.finalPackagePhotoStoragePath?.trim();
+}
 
 export const SHIPMENT_MODES: ReadonlyArray<{ id: ShipmentMode; label: string }> = [
   { id: 'box', label: 'Box' },
@@ -71,21 +112,25 @@ export function boxChargeableWeight(box: Pick<ShipmentBox, 'weightKg' | 'volumet
 
 /**
  * Resolve the status a booking should have after a document is generated.
- * Courier Slip ⇒ at least "Booked"; Shipping Label ⇒ at least "Label Generated".
+ * Shipping Label ⇒ at least "Label Generated".
  * Never regresses a booking that is already further along (or terminal).
  */
 export function statusForDocument(
   current: LogisticsBookingStatus,
   document: LogisticsDocumentType,
 ): LogisticsBookingStatus {
-  if (current === 'cancelled' || current === 'delivered' || current === 'in_transit') {
+  if (
+    current === 'cancelled'
+    || current === 'delivered'
+    || current === 'in_transit'
+    || current === 'shipped'
+  ) {
     return current;
   }
-  if (current === 'draft') {
-    return document === 'shipping_label' ? 'label_generated' : 'booked';
+  if (document === 'shipping_label') {
+    return 'label_generated';
   }
-  const target: LogisticsBookingStatus = document === 'shipping_label' ? 'label_generated' : 'booked';
-  return bookingStatusIndex(current) >= bookingStatusIndex(target) ? current : target;
+  return current;
 }
 
 export const VOLUMETRIC_WEIGHT_DIVISOR = 5000;
@@ -199,12 +244,9 @@ export function parseCourierBarcode(
 }
 
 export function bookingStatusIndex(status: LogisticsBookingStatus): number {
-  const visible = LOGISTICS_BOOKING_STATUSES.filter(
-    item => item.id !== 'cancelled' && item.id !== 'draft',
-  );
-  const idx = visible.findIndex(item => item.id === status);
+  const idx = LOGISTICS_PIPELINE_STATUSES.findIndex(item => item.id === status);
   if (idx >= 0) return idx;
-  if (status === 'cancelled' || status === 'draft') return -1;
+  if (status === 'cancelled') return -1;
   return 0;
 }
 

@@ -884,7 +884,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       case 'box': setStep('address'); break;
       case 'review': setStep('box'); break;
       case 'label': setStep('review'); break;
-      case 'final_photo': setStep('label'); break;
+      case 'final_photo':
+        // After labels, this stage is resumed from the list — back returns there.
+        if (draft.labelGenerated) onClose();
+        else setStep('label');
+        break;
       case 'complete': break;
       default: onClose();
     }
@@ -1458,11 +1462,15 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                  onClick={() => {
-                    void advanceTo('final_photo', { ...draftRef.current, labelGenerated: true });
-                  }}
+                disabled={savingDraft}
+                onClick={() => {
+                  void persistDraft('final_photo', {
+                    close: true,
+                    draftOverride: { ...draftRef.current, labelGenerated: true },
+                  });
+                }}
               >
-                Next
+                {savingDraft ? 'Saving…' : 'Next'}
               </button>
             </section>
           )}
@@ -1521,7 +1529,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 disabled={saving || !draft.finalPackagePhoto}
                 onClick={() => void handleConfirmShipment()}
               >
-                <CheckCircle2 size={16} aria-hidden /> {saving ? 'Saving…' : 'Confirm Shipment'}
+                <CheckCircle2 size={16} aria-hidden /> {saving ? 'Saving…' : 'Confirm & Mark Shipped'}
               </button>
             </section>
           )}
@@ -1532,7 +1540,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <div className="book-courier__success-badge">
                 <CheckCircle2 size={44} aria-hidden />
               </div>
-              <h3 className="book-courier__success-title">Shipment Booked Successfully</h3>
+              <h3 className="book-courier__success-title">Shipment Marked as Shipped</h3>
               <div className="book-courier__success-track">
                 <span>Tracking Number</span>
                 <strong>{booking.trackingNo}</strong>

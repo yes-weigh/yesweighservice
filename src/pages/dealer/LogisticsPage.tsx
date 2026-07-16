@@ -9,9 +9,12 @@ import {
   Info,
   MapPin,
   Package,
+  PackageCheck,
   Plus,
   Search,
   SlidersHorizontal,
+  Tag,
+  Trash2,
   Truck,
   X,
 } from 'lucide-react';
@@ -28,10 +31,16 @@ import { LogisticsBookingDetail } from '../../components/logistics/LogisticsBook
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { isLogisticsPartnerId, logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
-import { ENABLED_LOGISTICS_PARTNER_IDS, LOGISTICS_BOOKING_STATUSES } from '../../lib/logisticsBooking';
+import {
+  ENABLED_LOGISTICS_PARTNER_IDS,
+  LOGISTICS_DASHBOARD_STATUSES,
+  isIncompleteLogisticsBooking,
+  needsFinalPackagePhoto,
+} from '../../lib/logisticsBooking';
 import {
   bookingToWizardState,
   canCreateLogisticsBooking,
+  canDeleteLogisticsBooking,
   cancelLogisticsBooking,
   clampWizardStepForDraftPhotos,
   deleteLogisticsBookingPermanently,
@@ -53,9 +62,21 @@ import { emptyShipmentBoxDraft } from '../../lib/logisticsBooking';
 import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
 
 type FlowStep = 'closed' | 'partner' | 'book';
-type QuickFilter = '' | 'transit' | 'delivered' | 'exception';
-type StatsTone = 'total' | 'transit' | 'delivered' | 'exception';
-type CardTone = 'draft' | 'booked' | 'label' | 'transit' | 'delivered' | 'exception';
+type CardTone = 'incomplete' | 'label' | 'shipped' | 'transit' | 'delivered' | 'exception';
+
+const STATUS_STAT_META: ReadonlyArray<{
+  id: LogisticsBookingStatus;
+  label: string;
+  shortLabel: string;
+  Icon: typeof Package;
+  tone: CardTone;
+}> = [
+  { id: 'label_generated', label: 'Label Generated', shortLabel: 'Label', Icon: Tag, tone: 'label' },
+  { id: 'shipped', label: 'Shipped', shortLabel: 'Shipped', Icon: PackageCheck, tone: 'shipped' },
+  { id: 'in_transit', label: 'In Transit', shortLabel: 'Transit', Icon: Truck, tone: 'transit' },
+  { id: 'delivered', label: 'Delivered', shortLabel: 'Delivered', Icon: CheckCircle2, tone: 'delivered' },
+  { id: 'cancelled', label: 'Cancelled', shortLabel: 'Cancel', Icon: AlertCircle, tone: 'exception' },
+];
 
 function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = useState(() =>
@@ -132,14 +153,13 @@ function formatShipmentDateTime(booking: LogisticsBooking): string {
   return `${day} | ${time}`;
 }
 
-function cardToneForStatus(status: LogisticsBookingStatus): CardTone {
-  switch (status) {
-    case 'draft':
-      return 'draft';
-    case 'booked':
-      return 'booked';
+function cardToneForStatus(booking: LogisticsBooking): CardTone {
+  if (isIncompleteLogisticsBooking(booking)) return 'incomplete';
+  switch (booking.status) {
     case 'label_generated':
       return 'label';
+    case 'shipped':
+      return 'shipped';
     case 'in_transit':
       return 'transit';
     case 'delivered':
@@ -147,30 +167,35 @@ function cardToneForStatus(status: LogisticsBookingStatus): CardTone {
     case 'cancelled':
       return 'exception';
     default:
-      return 'booked';
+      return 'incomplete';
   }
 }
 
-function statusBadgeLabel(status: LogisticsBookingStatus): string {
-  if (status === 'cancelled') return 'Exception';
-  if (status === 'label_generated') return 'Label Ready';
-  return LOGISTICS_BOOKING_STATUSES.find(item => item.id === status)?.label ?? status;
+function statusBadgeLabel(booking: LogisticsBooking): string {
+  if (isIncompleteLogisticsBooking(booking)) return 'Incomplete';
+  if (booking.status === 'cancelled') return 'Cancelled';
+  if (booking.status === 'label_generated') return 'Label Generated';
+  if (booking.status === 'shipped') return 'Shipped';
+  if (booking.status === 'in_transit') return 'In Transit';
+  if (booking.status === 'delivered') return 'Delivered';
+  return booking.status;
 }
 
 function statusBannerMessage(booking: LogisticsBooking): string {
+  if (isIncompleteLogisticsBooking(booking)) return '';
   switch (booking.status) {
-    case 'draft':
-      return 'Draft booking — tap to continue';
-    case 'booked':
-      return 'Shipment booked with courier';
     case 'label_generated':
-      return 'Shipping label generated';
+      return needsFinalPackagePhoto(booking)
+        ? 'Capture outer package photo to mark as shipped'
+        : 'Shipping label generated';
+    case 'shipped':
+      return 'Shipment shipped — moves to in transit after 6 PM';
     case 'in_transit':
       return 'Shipment in transit';
     case 'delivered':
       return 'Shipment delivered successfully';
     case 'cancelled':
-      return 'Shipment cancelled / exception';
+      return 'Shipment cancelled';
     default:
       return 'View shipment details';
   }
@@ -185,7 +210,7 @@ function destinationLabel(booking: LogisticsBooking): string {
 }
 
 function showsRoute(status: LogisticsBookingStatus): boolean {
-  return status === 'booked' || status === 'label_generated' || status === 'in_transit';
+  return status === 'label_generated' || status === 'shipped' || status === 'in_transit';
 }
 
 export const LogisticsPage: React.FC = () => {
@@ -209,13 +234,14 @@ export const LogisticsPage: React.FC = () => {
     query: '',
   });
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('');
+  const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
   const canCreate = user ? canCreateLogisticsBooking(user) : false;
+  const canDelete = user ? canDeleteLogisticsBooking(user) : false;
 
   const activeBooking = useMemo(
     () => bookings.find(item => item.id === activeBookingId) ?? null,
@@ -260,48 +286,31 @@ export const LogisticsPage: React.FC = () => {
     [bookings, dateRange.from, dateRange.to],
   );
 
+  const pipelineBookings = useMemo(
+    () => datedBookings.filter(booking => !isIncompleteLogisticsBooking(booking)),
+    [datedBookings],
+  );
+
   const rangedBookings = useMemo(() => {
-    if (quickFilter === 'transit') {
-      return datedBookings.filter(booking => (
-        booking.status === 'in_transit'
-        || booking.status === 'booked'
-        || booking.status === 'label_generated'
-      ));
-    }
-    if (quickFilter === 'delivered') {
-      return datedBookings.filter(booking => booking.status === 'delivered');
-    }
-    if (quickFilter === 'exception') {
-      return datedBookings.filter(booking => booking.status === 'cancelled');
-    }
-    if (filters.status) {
-      return datedBookings.filter(booking => booking.status === filters.status);
-    }
-    return datedBookings;
-  }, [datedBookings, filters.status, quickFilter]);
+    const activeStatus = statusFilter || filters.status || '';
+    const source = activeStatus ? pipelineBookings : datedBookings;
+    if (!activeStatus) return source;
+    return source.filter(booking => booking.status === activeStatus);
+  }, [datedBookings, pipelineBookings, filters.status, statusFilter]);
 
   const stats = useMemo(() => {
-    let transit = 0;
-    let delivered = 0;
-    let exception = 0;
-    for (const booking of datedBookings) {
-      if (booking.status === 'delivered') delivered += 1;
-      else if (booking.status === 'cancelled') exception += 1;
-      else if (
-        booking.status === 'in_transit'
-        || booking.status === 'booked'
-        || booking.status === 'label_generated'
-      ) {
-        transit += 1;
-      }
-    }
-    return {
-      total: datedBookings.length,
-      transit,
-      delivered,
-      exception,
+    const counts: Record<LogisticsBookingStatus, number> = {
+      label_generated: 0,
+      shipped: 0,
+      in_transit: 0,
+      delivered: 0,
+      cancelled: 0,
     };
-  }, [datedBookings]);
+    for (const booking of pipelineBookings) {
+      counts[booking.status] += 1;
+    }
+    return counts;
+  }, [pipelineBookings]);
 
   const openFlow = useCallback(() => {
     setFlowStep('partner');
@@ -328,11 +337,13 @@ export const LogisticsPage: React.FC = () => {
         ...wizard.draft,
         boxes: wizard.draft.boxes.length ? wizard.draft.boxes : [emptyShipmentBoxDraft()],
       };
-      const rawStep = (
-        ['scan', 'address', 'box', 'review', 'label', 'final_photo'] as BookCourierStep[]
-      ).includes(wizard.step as BookCourierStep)
-        ? wizard.step as BookCourierStep
-        : 'box';
+      const rawStep = needsFinalPackagePhoto(hydrated)
+        ? 'final_photo' as BookCourierStep
+        : (
+          ['scan', 'address', 'box', 'review', 'label', 'final_photo'] as BookCourierStep[]
+        ).includes(wizard.step as BookCourierStep)
+          ? wizard.step as BookCourierStep
+          : 'box';
       const step = clampWizardStepForDraftPhotos(rawStep, draft.boxes ?? []);
       setResumeBookingId(hydrated.id);
       setResumeDraft(draft);
@@ -410,17 +421,22 @@ export const LogisticsPage: React.FC = () => {
 
   const handleDelete = useCallback(async (bookingId: string) => {
     if (!user) return;
+    const ok = window.confirm(
+      'Permanently delete this logistics booking from Firestore? Photos will be removed too. This cannot be undone.',
+    );
+    if (!ok) return;
     try {
       await deleteLogisticsBookingPermanently(bookingId, user);
       setBookings(prev => prev.filter(item => item.id !== bookingId));
       setActiveBookingId(null);
+      setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete shipment.');
     }
   }, [user]);
 
   const openBooking = useCallback((booking: LogisticsBooking) => {
-    if (booking.status === 'draft') {
+    if (isIncompleteLogisticsBooking(booking) || needsFinalPackagePhoto(booking)) {
       void openResumeDraft(booking);
       return;
     }
@@ -432,16 +448,13 @@ export const LogisticsPage: React.FC = () => {
       .catch(() => undefined);
   }, [openResumeDraft, handleUpdateBooking]);
 
-  const applyStatFilter = useCallback((tone: StatsTone) => {
+  const applyStatFilter = useCallback((status: LogisticsBookingStatus) => {
     setFilters(prev => ({ ...prev, status: '' }));
-    setQuickFilter(prev => {
-      if (tone === 'total') return '';
-      return prev === tone ? '' : tone;
-    });
+    setStatusFilter(prev => (prev === status ? '' : status));
   }, []);
 
   const showListControls = isOps && !flowOpen && !activeBooking;
-  const hasActiveFilters = Boolean(filters.status) || Boolean(filters.partnerId) || Boolean(quickFilter);
+  const hasActiveFilters = Boolean(filters.status) || Boolean(filters.partnerId) || Boolean(statusFilter);
   const hasSearchQuery = Boolean(filters.query?.trim());
 
   useEffect(() => {
@@ -566,7 +579,7 @@ export const LogisticsPage: React.FC = () => {
               <select
                 value={filters.status ?? ''}
                 onChange={event => {
-                  setQuickFilter('');
+                  setStatusFilter('');
                   setFilters(prev => ({
                     ...prev,
                     status: event.target.value as LogisticsBookingStatus | '',
@@ -574,7 +587,7 @@ export const LogisticsPage: React.FC = () => {
                 }}
               >
                 <option value="">All statuses</option>
-                {LOGISTICS_BOOKING_STATUSES.map(item => (
+                {LOGISTICS_DASHBOARD_STATUSES.map(item => (
                   <option key={item.id} value={item.id}>{item.label}</option>
                 ))}
               </select>
@@ -600,7 +613,7 @@ export const LogisticsPage: React.FC = () => {
               type="button"
               className="logistics-filter-dropdown__clear"
               onClick={() => {
-                setQuickFilter('');
+                setStatusFilter('');
                 setFilters(prev => ({ ...prev, status: '', partnerId: '' }));
               }}
               disabled={!hasActiveFilters}
@@ -675,34 +688,27 @@ export const LogisticsPage: React.FC = () => {
           </div>
 
           <div className="logistics-page__stats" role="group" aria-label="Shipment summary">
-            {(
-              [
-                { id: 'total' as const, label: 'Total', value: stats.total, Icon: Package },
-                { id: 'transit' as const, label: 'In Transit', value: stats.transit, Icon: Truck },
-                { id: 'delivered' as const, label: 'Delivered', value: stats.delivered, Icon: CheckCircle2 },
-                { id: 'exception' as const, label: 'Exception', value: stats.exception, Icon: AlertCircle },
-              ]
-            ).map(stat => (
-              <button
-                key={stat.id}
-                type="button"
-                className={`logistics-page__stat logistics-page__stat--${stat.id}${
-                  (stat.id === 'total' && !quickFilter && !filters.status)
-                  || (stat.id === 'transit' && quickFilter === 'transit')
-                  || (stat.id === 'delivered' && quickFilter === 'delivered')
-                  || (stat.id === 'exception' && quickFilter === 'exception')
-                    ? ' is-active'
-                    : ''
-                }`}
-                onClick={() => applyStatFilter(stat.id)}
-              >
-                <strong>{stat.value}</strong>
-                <span>
-                  <stat.Icon size={12} aria-hidden />
-                  {stat.label}
-                </span>
-              </button>
-            ))}
+            {STATUS_STAT_META.map(stat => {
+              const active = statusFilter === stat.id
+                || (!statusFilter && filters.status === stat.id);
+              return (
+                <button
+                  key={stat.id}
+                  type="button"
+                  className={`logistics-page__stat logistics-page__stat--${stat.tone}${active ? ' is-active' : ''}`}
+                  onClick={() => applyStatFilter(stat.id)}
+                  title={stat.label}
+                  aria-pressed={active}
+                >
+                  <strong>{stats[stat.id]}</strong>
+                  <span>
+                    <stat.Icon size={12} aria-hidden />
+                    <em className="logistics-page__stat-label-full">{stat.label}</em>
+                    <em className="logistics-page__stat-label-short">{stat.shortLabel}</em>
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {rangedBookings.length === 0 ? (
@@ -721,7 +727,7 @@ export const LogisticsPage: React.FC = () => {
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
-                    setQuickFilter('');
+                    setStatusFilter('');
                     setFilters({ status: '', partnerId: '', query: '' });
                   }}
                 >
@@ -738,7 +744,7 @@ export const LogisticsPage: React.FC = () => {
               <ul className="logistics-page__entries">
                 {rangedBookings.map(booking => {
                   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
-                  const tone = cardToneForStatus(booking.status);
+                  const tone = cardToneForStatus(booking);
                   const waybill = booking.trackingNo || booking.consignmentNo || '—';
                   const trackUrl = logisticsTrackingUrl(booking.partnerId, waybill);
                   return (
@@ -760,8 +766,24 @@ export const LogisticsPage: React.FC = () => {
                             <div className="logistics-shipment__copy">
                               <div className="logistics-shipment__title-row">
                                 <strong>{logisticsPartnerLabel(booking.partnerId)}</strong>
-                                <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
-                                  {statusBadgeLabel(booking.status)}
+                                <span className="logistics-shipment__title-actions">
+                                  <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
+                                    {statusBadgeLabel(booking)}
+                                  </span>
+                                  {canDelete && (
+                                    <button
+                                      type="button"
+                                      className="logistics-shipment__delete"
+                                      aria-label="Delete logistics booking permanently"
+                                      title="Delete permanently"
+                                      onClick={event => {
+                                        event.stopPropagation();
+                                        void handleDelete(booking.id);
+                                      }}
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  )}
                                 </span>
                               </div>
                               <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
@@ -805,12 +827,7 @@ export const LogisticsPage: React.FC = () => {
                               <AlertCircle size={15} aria-hidden />
                               <span>Exception · {formatShipmentDateTime(booking)}</span>
                             </div>
-                          ) : (
-                            <div className="logistics-shipment__outcome">
-                              <Info size={15} aria-hidden />
-                              <span>{statusBannerMessage(booking)}</span>
-                            </div>
-                          )}
+                          ) : null}
 
                           <div className="logistics-shipment__meta">
                             <CalendarDays size={12} aria-hidden />
@@ -818,23 +835,25 @@ export const LogisticsPage: React.FC = () => {
                           </div>
                         </button>
 
-                        <button
-                          type="button"
-                          className={`logistics-shipment__banner logistics-shipment__banner--${tone}`}
-                          onClick={() => openBooking(booking)}
-                        >
-                          <span>
-                            {booking.status === 'delivered' ? (
-                              <CheckCircle2 size={14} aria-hidden />
-                            ) : booking.status === 'cancelled' ? (
-                              <AlertCircle size={14} aria-hidden />
-                            ) : (
-                              <Info size={14} aria-hidden />
-                            )}
-                            {statusBannerMessage(booking)}
-                          </span>
-                          <ChevronRight size={16} aria-hidden />
-                        </button>
+                        {!isIncompleteLogisticsBooking(booking) && (
+                          <button
+                            type="button"
+                            className={`logistics-shipment__banner logistics-shipment__banner--${tone}`}
+                            onClick={() => openBooking(booking)}
+                          >
+                            <span>
+                              {booking.status === 'delivered' ? (
+                                <CheckCircle2 size={14} aria-hidden />
+                              ) : booking.status === 'cancelled' ? (
+                                <AlertCircle size={14} aria-hidden />
+                              ) : (
+                                <Info size={14} aria-hidden />
+                              )}
+                              {statusBannerMessage(booking)}
+                            </span>
+                            <ChevronRight size={16} aria-hidden />
+                          </button>
+                        )}
                       </article>
                     </li>
                   );
