@@ -9481,6 +9481,30 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.stock-ledger__customer {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.stock-ledger__customer strong {
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.stock-ledger__type-icon--inline {
+  margin-top: 0.1rem;
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.stock-ledger__table--sales td:first-child {
+  white-space: normal;
+  min-width: 10rem;
+  max-width: 18rem;
+}
+
 .stock-ledger .visually-hidden {
   position: absolute;
   width: 1px;

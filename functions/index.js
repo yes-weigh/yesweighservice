@@ -516,6 +516,7 @@ export const deleteCatalogProductImage = onCall(
       throw new HttpsError('invalid-argument', 'productId is required.');
     }
     const documentId = String(request.data?.documentId ?? '').trim() || undefined;
+    const imageUrl = String(request.data?.imageUrl ?? '').trim() || undefined;
 
     const secrets = zohoSecrets();
     const accessToken = await getAccessToken(secrets);
@@ -526,7 +527,10 @@ export const deleteCatalogProductImage = onCall(
         productId,
         accessToken,
         organizationId,
-        documentId ? { documentId } : {},
+        {
+          ...(documentId ? { documentId } : {}),
+          ...(imageUrl ? { imageUrl } : {}),
+        },
       );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Product image delete failed.');

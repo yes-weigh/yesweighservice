@@ -8,6 +8,7 @@ import { ProductAuditHistory } from './ProductAuditHistory';
 import { ProductNcPanel, type ProductNcExistingLocation } from './ProductNcPanel';
 import { ProductMediaPanel } from './ProductMediaPanel';
 import { ProductStockMovementsPanel } from './ProductStockMovementsPanel';
+import { ProductSalesPanel } from './ProductSalesPanel';
 
 export type ProductDetailTabId =
   | 'spare'
@@ -186,7 +187,7 @@ export const ProductDetailTabs: React.FC<{
   }, [activeTab, visibleTabDefs]);
 
   useEffect(() => {
-    if (activeTab !== 'stock') return;
+    if (activeTab !== 'stock' && activeTab !== 'sales') return;
     const el = tabsRootRef.current;
     if (!el) return;
     window.requestAnimationFrame(() => {
@@ -363,7 +364,7 @@ export const ProductDetailTabs: React.FC<{
         </div>
         )}
 
-        {(['sales', 'purchase', 'support'] as const)
+        {(['purchase', 'support'] as const)
           .filter(tabId => visibleTabDefs.some(tab => tab.id === tabId))
           .map(tabId => (
           <div
@@ -379,6 +380,20 @@ export const ProductDetailTabs: React.FC<{
             </TabPanelBody>
           </div>
         ))}
+
+        {visibleTabDefs.some(tab => tab.id === 'sales') && (
+        <div
+          id={panelId('sales')}
+          role="tabpanel"
+          aria-labelledby="product-detail-tab-sales"
+          hidden={activeTab !== 'sales'}
+          className="product-detail-tab-panel"
+        >
+          <TabPanelBody>
+            <ProductSalesPanel product={product} />
+          </TabPanelBody>
+        </div>
+        )}
 
         {visibleTabDefs.some(tab => tab.id === 'stock') && (
         <div

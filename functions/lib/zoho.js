@@ -530,6 +530,26 @@ export async function uploadProductGalleryImagesToZoho(
   return payload ?? { ok: true };
 }
 
+const LOCAL_ONLY_IMAGE_DOCUMENT_IDS = new Set(['zoho_back']);
+
+/** Firestore-only gallery ids — never send to Zoho delete APIs. */
+export function isLocalOnlyImageDocumentId(documentId) {
+  const id = String(documentId ?? '').trim();
+  return !id || id.startsWith('local_') || LOCAL_ONLY_IMAGE_DOCUMENT_IDS.has(id);
+}
+
+/** Zoho delete failures that still allow removing the app/Storage copy. */
+export function isRecoverableZohoImageDeleteError(message) {
+  const msg = String(message ?? '').toLowerCase();
+  return (
+    msg.includes('does not exist')
+    || msg.includes('invalid value passed for document_ids')
+    || msg.includes('not authorized to perform this operation')
+    || msg.includes('image not found')
+    || msg.includes('no image')
+  );
+}
+
 /** Delete specific gallery images by Zoho document_id. */
 export async function deleteProductGalleryImagesFromZoho(accessToken, orgId, itemId, documentIds) {
   const ids = [...new Set((documentIds ?? []).map(id => String(id).trim()).filter(Boolean))];

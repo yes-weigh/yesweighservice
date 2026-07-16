@@ -13,6 +13,8 @@ import {
   deleteProductGalleryImagesFromZoho,
   deleteProductImageFromZoho,
   fetchZohoItemRaw,
+  isLocalOnlyImageDocumentId,
+  isRecoverableZohoImageDeleteError,
   normaliseCategoryId,
 } from './zoho.js';
 import { buildZohoSyncAuditAdjustment } from './catalog-product-audit.js';
@@ -946,6 +948,10 @@ function normalizeImageDocs(raw) {
     .filter(Boolean);
 }
 
+function imageUrlPathKey(url) {
+  return String(url ?? '').split('?')[0] ?? '';
+}
+
 function listZohoImageDocumentIds(item) {
   const docs = Array.isArray(item?.documents) ? item.documents : [];
   return docs
@@ -1362,13 +1368,48 @@ export async function deleteProductImage(productId, accessToken, organizationId,
   const bucket = getStorage().bucket();
   const now = new Date().toISOString();
 
+  const imageUrlHint = String(options.imageUrl ?? '').trim();
+
   // Delete a specific gallery image.
-  if (documentId) {
-    const target = imageDocs.find(doc => doc.documentId === documentId);
+  if (documentId || imageUrlHint) {
+    const urlKey = imageUrlHint ? imageUrlPathKey(imageUrlHint) : '';
+    let target = documentId
+      ? imageDocs.find(doc => doc.documentId === documentId)
+      : null;
+    if (!target && urlKey) {
+      target = imageDocs.find(doc => imageUrlPathKey(doc.url) === urlKey);
+    }
+    const resolvedDocumentId = String(target?.documentId ?? documentId ?? '').trim();
+
+    // Carousel slot with no imageDoc — drop the URL only.
+    if (!target && urlKey) {
+      const primaryUrl = String(existingData?.imageUrl ?? '').trim() || null;
+      const prevUrls = Array.isArray(existingData?.imageUrls)
+        ? existingData.imageUrls.map(u => String(u ?? '').trim()).filter(Boolean)
+        : [];
+      const imageUrls = prevUrls.filter(u => imageUrlPathKey(u) !== urlKey);
+      await productRef.set({
+        imageUrl: primaryUrl,
+        imageUrls,
+        imageDocs,
+        syncedAt: now,
+      }, { merge: true });
+      return { ok: true, imageUrl: primaryUrl, imageUrls, imageDocs };
+    }
+
     if (!target) throw new Error('Gallery image not found.');
 
-    if (!documentId.startsWith('local_')) {
-      await deleteProductGalleryImagesFromZoho(accessToken, organizationId, id, [documentId]);
+    if (resolvedDocumentId && !isLocalOnlyImageDocumentId(resolvedDocumentId)) {
+      try {
+        await deleteProductGalleryImagesFromZoho(
+          accessToken,
+          organizationId,
+          id,
+          [resolvedDocumentId],
+        );
+      } catch (err) {
+        if (!isRecoverableZohoImageDeleteError(err?.message)) throw err;
+      }
     }
 
     try {
@@ -1377,7 +1418,7 @@ export async function deleteProductImage(productId, accessToken, organizationId,
       // Best-effort
     }
 
-    const nextDocs = imageDocs.filter(doc => doc.documentId !== documentId);
+    const nextDocs = imageDocs.filter(doc => doc.documentId !== target.documentId);
     const primaryUrl = String(existingData?.imageUrl ?? '').trim() || null;
     const imageUrls = primaryUrl
       ? [primaryUrl, ...nextDocs.map(doc => doc.url)]
@@ -1394,7 +1435,11 @@ export async function deleteProductImage(productId, accessToken, organizationId,
   }
 
   // Delete primary image.
-  await deleteProductImageFromZoho(accessToken, organizationId, id);
+  try {
+    await deleteProductImageFromZoho(accessToken, organizationId, id);
+  } catch (err) {
+    if (!isRecoverableZohoImageDeleteError(err?.message)) throw err;
+  }
 
   for (const ext of ['jpg', 'jpeg', 'png', 'webp', 'gif']) {
     try {

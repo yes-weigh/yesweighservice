@@ -440,6 +440,13 @@ export async function listCatalogProductStockMovements(
   };
 }
 
+/** Failed Zoho pulls look like empty ledger + no book stock — never trust/cache those. */
+function isUsableLedgerPayload(data) {
+  if (!data || !Array.isArray(data.movements)) return false;
+  if (data.movements.length > 0) return true;
+  return data.currentStock != null && Number.isFinite(Number(data.currentStock));
+}
+
 async function readLifetimeCache(catalogProductId) {
   const snap = await getFirestore()
     .collection('catalogProducts')
@@ -449,11 +456,12 @@ async function readLifetimeCache(catalogProductId) {
     .get();
   if (!snap.exists) return null;
   const data = snap.data();
-  if (!Array.isArray(data?.movements)) return null;
+  if (!isUsableLedgerPayload(data)) return null;
   return data;
 }
 
 async function writeLifetimeCache(payload) {
+  if (!isUsableLedgerPayload(payload)) return false;
   const { fromCache: _fc, ...rest } = payload;
   await getFirestore()
     .collection('catalogProducts')
@@ -464,12 +472,13 @@ async function writeLifetimeCache(payload) {
       ...rest,
       cachedAt: new Date().toISOString(),
     });
+  return true;
 }
 
 /**
  * Lifetime ledger with Firestore cache.
  * forceRefresh=false → return cache if present, else fetch Zoho and save.
- * forceRefresh=true → always refetch Zoho and overwrite cache.
+ * forceRefresh=true → always refetch Zoho and overwrite cache (skips empty failures).
  */
 export async function getLifetimeStockMovements(
   secrets,
@@ -492,6 +501,12 @@ export async function getLifetimeStockMovements(
     configuredOrgId,
     itemId,
   );
+
+  if (!isUsableLedgerPayload(fresh)) {
+    // Keep any previous good cache; surface the empty result with a clear flag.
+    return { ...fresh, fromCache: false, fetchFailed: true };
+  }
+
   await writeLifetimeCache(fresh);
   return { ...fresh, fromCache: false };
 }

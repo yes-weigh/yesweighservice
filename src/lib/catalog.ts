@@ -1166,10 +1166,10 @@ export async function uploadCatalogProductImage(
 /** Zoho + Firestore cache — remove primary or a gallery image. */
 export async function deleteCatalogProductImage(
   productId: string,
-  options: { documentId?: string } = {},
+  options: { documentId?: string; imageUrl?: string } = {},
 ): Promise<{ imageUrl: string | null; imageUrls: string[]; imageDocs?: CatalogProduct['imageDocs'] }> {
   const callable = httpsCallable<
-    { productId: string; documentId?: string },
+    { productId: string; documentId?: string; imageUrl?: string },
     {
       ok: boolean;
       imageUrl?: string | null;
@@ -1185,6 +1185,7 @@ export async function deleteCatalogProductImage(
     const result = await callable({
       productId,
       ...(options.documentId ? { documentId: options.documentId } : {}),
+      ...(options.imageUrl ? { imageUrl: options.imageUrl } : {}),
     });
     const syncedAt = Date.now();
     const imageUrl = withCatalogImageCacheBust(result.data.imageUrl ?? null, syncedAt)

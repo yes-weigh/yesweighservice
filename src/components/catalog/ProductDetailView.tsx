@@ -1003,9 +1003,12 @@ export const ProductDetailView: React.FC<{
     if (productImageCount <= 0 || activeGalleryIndex >= productImageCount) return;
 
     const index = Math.min(activeGalleryIndex, productImageCount - 1);
-    const isPrimary = index === 0;
+    const imageUrl = galleryUrls[index] ?? '';
+    const urlKey = imageUrl.split('?')[0] ?? imageUrl;
+    const primaryKey = (product.imageUrl ?? galleryUrls[0] ?? '').split('?')[0] ?? '';
+    const isPrimary = index === 0 || (primaryKey !== '' && urlKey === primaryKey);
     const galleryDoc = !isPrimary
-      ? product.imageDocs?.[index - 1]
+      ? product.imageDocs?.find(doc => (doc.url.split('?')[0] ?? doc.url) === urlKey)
       : undefined;
 
     const ok = await confirm({
@@ -1023,7 +1026,12 @@ export const ProductDetailView: React.FC<{
     try {
       const result = await deleteCatalogProductImage(
         product.id,
-        galleryDoc?.documentId ? { documentId: galleryDoc.documentId } : {},
+        isPrimary
+          ? {}
+          : {
+            ...(galleryDoc?.documentId ? { documentId: galleryDoc.documentId } : {}),
+            ...(imageUrl ? { imageUrl } : {}),
+          },
       );
       const focusIndex = Math.min(index, Math.max(0, result.imageUrls.length - 1));
       applyImageResult(result, focusIndex);

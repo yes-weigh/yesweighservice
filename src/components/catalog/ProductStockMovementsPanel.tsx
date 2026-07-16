@@ -148,9 +148,22 @@ export const ProductStockMovementsPanel: React.FC<{
     else setLoading(true);
     setError(null);
     try {
-      const result = await fetchCatalogProductLifetimeStockMovements(product.id, {
+      let result = await fetchCatalogProductLifetimeStockMovements(product.id, {
         forceRefresh,
       });
+      // Bad empty cache / failed Zoho pull — retry once from Zoho.
+      const emptyBroken =
+        (!result.movements?.length)
+        && (result.currentStock == null)
+        && !forceRefresh;
+      if (emptyBroken) {
+        result = await fetchCatalogProductLifetimeStockMovements(product.id, {
+          forceRefresh: true,
+        });
+      }
+      if ((!result.movements?.length) && result.currentStock == null) {
+        setError('Could not load stock movements from Zoho. Try Refresh again.');
+      }
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load stock movements.');
@@ -401,7 +414,7 @@ export const ProductStockMovementsPanel: React.FC<{
                     <td colSpan={5}>No transactions in this filter.</td>
                   </tr>
                 ) : (
-                  filteredRows.map(row => {
+                  filteredRows.map((row, rowIndex) => {
                     const meta = TYPE_META[row.type] ?? TYPE_META.adjustment;
                     const Icon = meta.Icon;
                     const voided = isVoidRow(row);
@@ -410,7 +423,7 @@ export const ProductStockMovementsPanel: React.FC<{
                     const closing = row.runningStock;
                     return (
                       <tr
-                        key={`${row.type}-${row.documentId}-${row.date}-${delta}-${row.status}`}
+                        key={`${row.type}-${row.documentId}-${row.date}-${delta}-${row.status}-${rowIndex}`}
                         className={voided ? 'is-void-row' : undefined}
                       >
                         <td>
