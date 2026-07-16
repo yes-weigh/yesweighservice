@@ -54,6 +54,9 @@ export const ProductStockMovementsPanel: React.FC<{
               {data.currentStock != null
                 ? ` · Zoho stock ${formatStockQuantity(data.currentStock, product.unit)}`
                 : ''}
+              {data.netDelta != null
+                ? ` · listed net ${formatDelta(data.netDelta)}`
+                : ''}
               {data.fetchedAt
                 ? ` · fetched ${new Date(data.fetchedAt).toLocaleString('en-IN', {
                   day: '2-digit',
@@ -110,6 +113,26 @@ export const ProductStockMovementsPanel: React.FC<{
       </div>
 
       {error && <p className="product-stock-movements__error">{error}</p>}
+
+      {hasFetched && data.unexplainedGap != null && data.unexplainedGap !== 0 && (
+        <div
+          className={`product-stock-movements__gap ${data.unexplainedGap > 0 ? 'is-surplus' : 'is-short'}`}
+          role="status"
+        >
+          <strong>Unexplained stock: {formatDelta(data.unexplainedGap)}</strong>
+          <span>
+            Zoho book ({formatStockQuantity(data.currentStock ?? 0, product.unit)}) does not match
+            the sum of listed transactions ({formatDelta(data.netDelta)}). This gap is not a
+            document — investigate missing entries, opening stock, or theft.
+          </span>
+        </div>
+      )}
+
+      {hasFetched && data.unexplainedGap === 0 && (
+        <p className="product-stock-movements__gap is-matched" role="status">
+          Listed transactions fully explain Zoho stock.
+        </p>
+      )}
 
       {!hasFetched && !loading && !error && (
         <div className="product-detail-tab-panel__placeholder product-stock-movements__empty">

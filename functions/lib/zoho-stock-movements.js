@@ -1,7 +1,8 @@
 /**
  * Zoho item stock movements via /items/transactions/* (includes item_quantity).
- * Fetches all stock-affecting doc types, then anchors Running to current Zoho
- * with an Opening stock row when history doesn't fully explain book stock.
+ * Fetches all stock-affecting doc types. Running is cumulative from listed
+ * transactions only. Any Zoho-vs-txn gap is returned as unexplainedGap (not
+ * injected as a fake balanced row — that hid audit discrepancies).
  */
 import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js';
 
@@ -247,8 +248,6 @@ function sortNewestFirst(movements) {
     const da = String(a.date || a.createdAt || '');
     const db = String(b.date || b.createdAt || '');
     if (da !== db) return db.localeCompare(da);
-    if (a.type === 'opening') return 1;
-    if (b.type === 'opening') return -1;
     return String(b.documentNumber).localeCompare(String(a.documentNumber));
   });
 }
@@ -334,31 +333,8 @@ export async function listCatalogProductLifetimeStockMovements(
   }
 
   const txnNet = movements.reduce((sum, m) => sum + (Number(m.qtyDelta) || 0), 0);
-  let openingStock = null;
-  if (currentStock != null) {
-    openingStock = currentStock - txnNet;
-    if (openingStock !== 0) {
-      const earliest = movements.reduce((min, m) => {
-        const d = String(m.date || '');
-        return !min || (d && d < min) ? d : min;
-      }, '');
-      const openDate = earliest || '1970-01-01';
-      movements.push(baseMovement({
-        type: 'opening',
-        typeLabel: 'Opening stock',
-        documentId: 'opening',
-        documentNumber: 'Opening',
-        date: openDate,
-        createdTime: openDate,
-        createdAt: `${openDate}T00:00:00.000Z`,
-        status: 'balanced',
-        customerOrVendor: null,
-        quantity: Math.abs(openingStock),
-        qtyDelta: openingStock,
-        reference: 'Bridges Zoho book stock vs listed transactions',
-      }));
-    }
-  }
+  /** Zoho book − sum of listed txns. Non-zero = investigate (missing docs / opening / theft). */
+  const unexplainedGap = currentStock != null ? currentStock - txnNet : null;
 
   const sorted = sortNewestFirst(movements);
   attachRunningStock(sorted);
@@ -375,7 +351,9 @@ export async function listCatalogProductLifetimeStockMovements(
     movementCount: sorted.length,
     netDelta,
     currentStock,
-    openingStock,
+    unexplainedGap,
+    /** @deprecated use unexplainedGap */
+    openingStock: unexplainedGap,
     fetchedAt: new Date().toISOString(),
     movements: sorted,
   };
@@ -403,14 +381,12 @@ export async function listCatalogProductStockMovements(
   );
 
   const movements = full.movements.filter(m => {
-    if (m.type === 'opening') return true;
     const d = String(m.date || '').slice(0, 10);
     if (d) return d <= untilDate;
     const at = String(m.createdAt || '');
     return at && at <= until;
   });
 
-  // Recompute running for the filtered set, still anchored to current Zoho via opening.
   const sorted = sortNewestFirst(movements);
   attachRunningStock(sorted);
   const netDelta = sorted.reduce((sum, m) => sum + (Number(m.qtyDelta) || 0), 0);
@@ -425,7 +401,8 @@ export async function listCatalogProductStockMovements(
     movementCount: sorted.length,
     netDelta,
     currentStock: full.currentStock,
-    openingStock: full.openingStock,
+    unexplainedGap: full.unexplainedGap,
+    openingStock: full.unexplainedGap,
     fetchedAt: full.fetchedAt,
     movements: sorted,
   };

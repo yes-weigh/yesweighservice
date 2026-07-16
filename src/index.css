@@ -9104,6 +9104,30 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.875rem;
 }
 
+.product-stock-movements__gap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0 0 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.product-stock-movements__gap.is-surplus,
+.product-stock-movements__gap.is-short {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+}
+
+.product-stock-movements__gap.is-matched {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+}
+
 .product-stock-movements__status {
   margin: 0;
   color: #64748b;
@@ -9206,11 +9230,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .product-stock-movements__chip--type.is-putaway {
   background: #f5f3ff;
   color: #6d28d9;
-}
-
-.product-stock-movements__chip--type.is-opening {
-  background: #ecfeff;
-  color: #0e7490;
 }
 
 .product-stock-movements__chip--status {

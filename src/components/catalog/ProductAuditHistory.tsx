@@ -211,6 +211,14 @@ export const ProductAuditHistory: React.FC<{
                 </strong>
                 {' '}
                 {product.unit}
+                {movements.unexplainedGap != null && movements.unexplainedGap !== 0 ? (
+                  <>
+                    {' · '}
+                    <strong className={diffClassName(movements.unexplainedGap)}>
+                      unexplained vs Zoho {qtyDeltaDisplay(movements.unexplainedGap)}
+                    </strong>
+                  </>
+                ) : null}
               </p>
               <div className="product-audit-movements__table-wrap">
                 <table className="product-audit-movements__table">

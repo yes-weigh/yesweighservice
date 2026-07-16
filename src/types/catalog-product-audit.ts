@@ -64,8 +64,7 @@ export type CatalogStockMovementType =
   | 'package'
   | 'purchasereceive'
   | 'transferorder'
-  | 'putaway'
-  | 'opening';
+  | 'putaway';
 
 export interface CatalogStockMovement {
   type: CatalogStockMovementType;
@@ -83,7 +82,7 @@ export interface CatalogStockMovement {
   reference: string | null;
   itemPrice?: number | null;
   itemTotal?: number | null;
-  /** Running stock after this movement (oldest→newest). */
+  /** Running stock after this movement (oldest→newest from listed txns only). */
   runningStock?: number | null;
 }
 
@@ -97,7 +96,12 @@ export interface CatalogProductStockMovementsResult {
   movementCount: number;
   netDelta: number;
   currentStock?: number | null;
-  /** Implied opening stock so Running ends at current Zoho. */
+  /**
+   * Zoho book stock minus sum of listed transactions.
+   * Non-zero means stock is not fully explained by docs — investigate.
+   */
+  unexplainedGap?: number | null;
+  /** @deprecated use unexplainedGap */
   openingStock?: number | null;
   fetchedAt?: string;
   movements: CatalogStockMovement[];
