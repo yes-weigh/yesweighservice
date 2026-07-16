@@ -1223,6 +1223,77 @@ export async function uploadCatalogCategoryThumbnail(
   }
 }
 
+export interface PushMissingCatalogImagesResult {
+  productId: string;
+  dryRun: boolean;
+  firebaseCount: number;
+  zohoCount: number;
+  missingCount: number;
+  uploadedCount: number;
+  failedCount: number;
+  skipped: boolean;
+  message: string;
+  uploaded?: Array<{ kind: string; documentId: string | null; previousDocumentId?: string }>;
+  failed?: Array<{ kind: string; documentId: string | null; error: string }>;
+}
+
+/** Compare Firebase vs Zoho images; optionally upload Firebase-only images to Zoho. */
+export async function pushMissingCatalogProductImagesToZoho(
+  productId: string,
+  options?: { dryRun?: boolean },
+): Promise<PushMissingCatalogImagesResult> {
+  const callable = httpsCallable<
+    { productId: string; dryRun?: boolean },
+    PushMissingCatalogImagesResult
+  >(functions, 'pushMissingCatalogProductImagesToZohoFn', { timeout: 300_000 });
+  try {
+    const result = await callable({
+      productId: productId.trim(),
+      dryRun: Boolean(options?.dryRun),
+    });
+    return result.data;
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export interface CatalogProductWithFirebaseImages {
+  id: string;
+  sku: string;
+  name: string;
+  firebaseImageCount: number;
+}
+
+/** Catalog products that have at least one image stored in Firebase. */
+export async function listCatalogProductsWithFirebaseImages(): Promise<
+  CatalogProductWithFirebaseImages[]
+> {
+  try {
+    const snap = await getDocs(collection(db, 'catalogProducts'));
+    return snap.docs
+      .map(docSnap => {
+        const product = mapProduct(docSnap.data() as Record<string, unknown>);
+        const docsCount = product.imageDocs?.length ?? 0;
+        const urlsCount = product.imageUrls?.length ?? 0;
+        const firebaseImageCount = Math.max(
+          docsCount,
+          urlsCount,
+          product.imageUrl ? 1 : 0,
+        );
+        return {
+          id: product.id,
+          sku: product.sku?.trim() || product.id,
+          name: product.name,
+          firebaseImageCount,
+        };
+      })
+      .filter(row => row.id && row.firebaseImageCount > 0)
+      .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { sensitivity: 'base' }));
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
 /** Zoho + Firestore cache — replace primary/current gallery slot, append, or promote. */
 export async function uploadCatalogProductImage(
   productId: string,

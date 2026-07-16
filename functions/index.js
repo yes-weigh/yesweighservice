@@ -19,6 +19,7 @@ import {
   saveCategoryProductOrder,
   uploadCategoryThumbnail,
   importProductImagesFromZoho,
+  pushMissingCatalogProductImagesToZoho,
   recordCatalogBinLabelPrint,
 } from './lib/catalog-sync.js';
 import {
@@ -581,6 +582,48 @@ export const deleteCatalogProductImage = onCall(
       );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Product image delete failed.');
+    }
+  },
+);
+
+/**
+ * Compare Firebase vs Zoho product images; optionally upload Firebase-only images to Zoho
+ * (slow, rate-limit safe). Staff / super admin / media.
+ */
+export const pushMissingCatalogProductImagesToZohoFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 300,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, CATALOG_IMAGE_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+    const dryRun = Boolean(request.data?.dryRun);
+
+    const secrets = zohoSecrets();
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+
+    try {
+      return await pushMissingCatalogProductImagesToZoho(
+        productId,
+        accessToken,
+        organizationId,
+        { dryRun },
+      );
+    } catch (err) {
+      console.error('pushMissingCatalogProductImagesToZohoFn failed:', err);
+      const message = err?.message ?? 'Could not push images to Zoho.';
+      if (/rate|blocked|too many requests/i.test(message)) {
+        throw new HttpsError('resource-exhausted', message);
+      }
+      throw new HttpsError('internal', message);
     }
   },
 );

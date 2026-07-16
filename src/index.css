@@ -9499,6 +9499,251 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.stock-ledger__empty {
+  margin: 0;
+  padding: 1rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  color: #64748b;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.stock-ledger__tiles {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 0.35rem;
+}
+
+.stock-ledger__tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.55rem;
+  background: #fff;
+}
+
+.stock-ledger__tile.is-void {
+  opacity: 0.72;
+}
+
+.stock-ledger__tile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.stock-ledger__tile-title {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.stock-ledger__tile-top .stock-ledger__type {
+  flex-shrink: 0;
+  font-size: 0;
+  gap: 0;
+}
+
+.stock-ledger__tile-top .stock-ledger__type-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.stock-ledger__tile-top .stock-ledger__when {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.3rem;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.stock-ledger__tile-top .stock-ledger__when strong {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.stock-ledger__tile-top .stock-ledger__when span {
+  font-size: 0.625rem;
+  color: #94a3b8;
+}
+
+.stock-ledger__tile-party {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stock-ledger__tile-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.stock-ledger__tile-doc {
+  margin: 0;
+  min-width: 0;
+  flex: 1;
+  font-size: 0.6875rem;
+  color: #64748b;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stock-ledger__tile-doc strong {
+  color: #334155;
+  font-weight: 700;
+}
+
+.stock-ledger__tile-status {
+  margin-left: 0.3rem;
+  color: #94a3b8;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.stock-ledger__tile .stock-ledger__ref {
+  margin: 0;
+  font-size: 0.625rem;
+  line-height: 1.2;
+  color: #94a3b8;
+}
+
+.stock-ledger__tile-stats {
+  display: inline-flex;
+  align-items: baseline;
+  flex-shrink: 0;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.stock-ledger__tile-stat {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0.15rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  min-width: 0;
+}
+
+.stock-ledger__tile-stat-label {
+  flex: 0 0 auto;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.stock-ledger__tile-stat.stock-ledger__qty,
+.stock-ledger__tile-stat.stock-ledger__closing {
+  display: inline-flex;
+}
+
+.stock-ledger__tile-stat.stock-ledger__qty strong,
+.stock-ledger__tile-stat.stock-ledger__closing strong {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.stock-ledger__tile-stat.stock-ledger__qty span,
+.stock-ledger__tile-stat.stock-ledger__closing span {
+  font-size: 0.5625rem;
+}
+
+@media (max-width: 767px) {
+  .stock-ledger {
+    gap: 0.65rem;
+  }
+
+  .stock-ledger__product {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .stock-ledger__summary {
+    gap: 0.4rem;
+  }
+
+  .stock-ledger__stat {
+    padding: 0.55rem 0.6rem;
+  }
+
+  .stock-ledger__table-wrap--desktop {
+    display: none;
+  }
+
+  .stock-ledger__tiles {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .stock-ledger__tile {
+    padding: 0.45rem 0.6rem;
+    gap: 0.2rem;
+  }
+
+  .stock-ledger__filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+    align-items: stretch;
+  }
+
+  .stock-ledger__filter--period,
+  .stock-ledger__filter--type {
+    flex: none;
+    min-width: 0;
+    width: auto;
+  }
+
+  .stock-ledger__filter--period select,
+  .stock-ledger__filter--type select {
+    width: 100%;
+  }
+
+  .stock-ledger__custom-dates {
+    grid-column: 1 / -1;
+    flex: none;
+  }
+
+  .stock-ledger__filter-hint {
+    display: none;
+  }
+
+  .stock-ledger__pagination {
+    padding: 0.45rem 0.55rem;
+  }
+}
+
 .stock-ledger__customer {
   display: flex;
   align-items: flex-start;

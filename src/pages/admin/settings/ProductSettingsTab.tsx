@@ -26,6 +26,7 @@ import {
   type CatalogSpareGroupOption,
 } from '../../../lib/catalogProductSettings';
 import { calculateProductMrpBreakdown, getMrpFormulaOption } from '../../../lib/catalogMrp';
+import { PushFirebaseImagesToZohoSection } from './PushFirebaseImagesToZohoSection';
 
 type MrpDraftGroup = {
   formula: CatalogMrpFormulaId;
@@ -42,12 +43,13 @@ type MrpTestDraft = {
   taxPercent: string;
 };
 
-type ProductSettingsSubTab = 'packaging' | 'model-approval' | 'spare-groups';
+type ProductSettingsSubTab = 'packaging' | 'model-approval' | 'spare-groups' | 'images';
 
 const PRODUCT_SETTINGS_SUBTABS: { id: ProductSettingsSubTab; label: string }[] = [
   { id: 'packaging', label: 'Carton & MRP' },
   { id: 'model-approval', label: 'Model & approval' },
   { id: 'spare-groups', label: 'Spare groups' },
+  { id: 'images', label: 'Images' },
 ];
 
 const DEFAULT_MRP_TEST: MrpTestDraft = { rate: '100', taxPercent: '18' };
@@ -848,7 +850,7 @@ export const ProductSettingsTab: React.FC = () => {
         <div>
           <h3>Product settings</h3>
           <p className="text-muted text-sm">
-            Carton qty, MRP, model & approval options, and spare groups.
+            Carton qty, MRP, model & approval options, spare groups, and image tools.
           </p>
         </div>
       </header>
@@ -1006,6 +1008,7 @@ export const ProductSettingsTab: React.FC = () => {
           </>
         )}
         {subTab === 'spare-groups' && renderSpareGroupSection()}
+        {subTab === 'images' && <PushFirebaseImagesToZohoSection />}
       </div>
     </section>
   );

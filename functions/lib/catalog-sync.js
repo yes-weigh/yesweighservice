@@ -1132,6 +1132,246 @@ export async function importProductImagesFromZoho(productId, accessToken, organi
   };
 }
 
+const DELAY_BETWEEN_ZOHO_IMAGE_UPLOADS_MS = 2_000;
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function zohoHasPrimaryImage(rawItem) {
+  return Boolean(
+    String(rawItem?.image_document_id ?? rawItem?.image_id ?? '').trim()
+    || String(rawItem?.image_name ?? '').trim()
+    || String(rawItem?.image_url ?? '').trim(),
+  );
+}
+
+function countZohoItemImages(rawItem) {
+  const primaryId = String(rawItem?.image_document_id ?? rawItem?.image_id ?? '').trim();
+  const docIds = listZohoImageDocumentIds(rawItem);
+  const galleryCount = docIds.filter(id => id !== primaryId).length;
+  const primaryCount = zohoHasPrimaryImage(rawItem) ? 1 : 0;
+  return {
+    primaryCount,
+    galleryCount,
+    total: primaryCount + galleryCount,
+    documentIds: new Set(docIds),
+    primaryDocumentId: primaryId || null,
+  };
+}
+
+async function readStorageImageBuffer(storagePath) {
+  const path = String(storagePath ?? '').trim();
+  if (!path) throw new Error('storagePath is required.');
+  const bucket = getStorage().bucket();
+  const file = bucket.file(path);
+  const [exists] = await file.exists();
+  if (!exists) throw new Error(`Storage file missing: ${path}`);
+  const [buffer] = await file.download();
+  const [metadata] = await file.getMetadata();
+  const contentType = String(metadata?.contentType ?? 'image/jpeg').toLowerCase();
+  return { buffer, contentType };
+}
+
+/**
+ * Compare Firebase catalog images vs Zoho. Optionally upload Firebase-only images
+ * to Zoho (one-at-a-time with delay). Does not delete anything.
+ *
+ * @param {{ dryRun?: boolean }} [options]
+ */
+export async function pushMissingCatalogProductImagesToZoho(
+  productId,
+  accessToken,
+  organizationId,
+  options = {},
+) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+  const dryRun = Boolean(options.dryRun);
+
+  const productRef = getFirestore().collection(PRODUCTS_COLLECTION).doc(id);
+  const existingSnap = await productRef.get();
+  if (!existingSnap.exists) {
+    throw new Error('Catalog product not found in Firebase.');
+  }
+  const existingData = existingSnap.data() ?? {};
+  const firebasePrimaryUrl = String(existingData.imageUrl ?? '').trim() || null;
+  let imageDocs = normalizeImageDocs(existingData.imageDocs);
+  const firebaseCount = (firebasePrimaryUrl ? 1 : 0) + imageDocs.length;
+
+  const rawItem = await fetchZohoItemRaw(accessToken, organizationId, id);
+  const zoho = countZohoItemImages(rawItem);
+
+  const missing = [];
+
+  if (firebasePrimaryUrl && zoho.primaryCount === 0) {
+    missing.push({ kind: 'primary', documentId: null, storagePath: null, url: firebasePrimaryUrl });
+  }
+
+  for (const doc of imageDocs) {
+    const needsPush = isLocalOnlyImageDocumentId(doc.documentId)
+      || !zoho.documentIds.has(doc.documentId);
+    if (needsPush) {
+      missing.push({
+        kind: 'gallery',
+        documentId: doc.documentId,
+        storagePath: doc.storagePath,
+        url: doc.url,
+      });
+    }
+  }
+
+  const result = {
+    productId: id,
+    dryRun,
+    firebaseCount,
+    zohoCount: zoho.total,
+    missingCount: missing.length,
+    uploadedCount: 0,
+    failedCount: 0,
+    skipped: false,
+    uploaded: [],
+    failed: [],
+    message: '',
+  };
+
+  if (missing.length === 0) {
+    result.skipped = true;
+    result.message = firebaseCount <= zoho.total
+      ? `Firebase (${firebaseCount}) is not ahead of Zoho (${zoho.total}). Nothing to push.`
+      : `No uploadable Firebase images found beyond Zoho (${zoho.total}).`;
+    return result;
+  }
+
+  if (dryRun) {
+    result.message = `Firebase has ${firebaseCount} image(s), Zoho has ${zoho.total}. `
+      + `${missing.length} Firebase image(s) can be uploaded to Zoho.`;
+    return result;
+  }
+
+  let first = true;
+  let imageDocsNext = [...imageDocs];
+  let remappedDocs = false;
+
+  for (const item of missing) {
+    if (!first) {
+      await sleep(DELAY_BETWEEN_ZOHO_IMAGE_UPLOADS_MS);
+    }
+    first = false;
+
+    try {
+      let buffer;
+      let contentType;
+
+      if (item.kind === 'primary') {
+        // Resolve primary storage file by listing known extensions.
+        const bucket = getStorage().bucket();
+        const candidates = ['jpg', 'jpeg', 'png', 'webp', 'gif'].map(
+          ext => `catalog/products/${id}.${ext}`,
+        );
+        let found = null;
+        for (const path of candidates) {
+          const file = bucket.file(path);
+          const [exists] = await file.exists();
+          if (exists) {
+            found = path;
+            break;
+          }
+        }
+        if (!found) {
+          throw new Error('Primary image file not found in Firebase Storage.');
+        }
+        ({ buffer, contentType } = await readStorageImageBuffer(found));
+        await uploadProductImageToZoho(accessToken, organizationId, id, buffer, contentType);
+        result.uploaded.push({ kind: 'primary', documentId: null });
+      } else {
+        ({ buffer, contentType } = await readStorageImageBuffer(item.storagePath));
+        const beforeItem = await fetchZohoItemRaw(accessToken, organizationId, id);
+        const beforeIds = new Set(listZohoImageDocumentIds(beforeItem));
+
+        await uploadProductGalleryImagesToZoho(
+          accessToken,
+          organizationId,
+          id,
+          [{ buffer, contentType }],
+          { updatePrimary: false },
+        );
+
+        await sleep(400);
+        const afterItem = await fetchZohoItemRaw(accessToken, organizationId, id);
+        const afterIds = listZohoImageDocumentIds(afterItem);
+        let newDocumentId = afterIds.find(docId => !beforeIds.has(docId)) || '';
+        if (!newDocumentId && afterIds.length) {
+          newDocumentId = afterIds[afterIds.length - 1];
+        }
+
+        if (newDocumentId && item.documentId && newDocumentId !== item.documentId) {
+          // Remap local_/stale Firebase gallery id → real Zoho document id.
+          imageDocsNext = imageDocsNext.map(doc => {
+            if (doc.documentId !== item.documentId) return doc;
+            const ext = String(doc.storagePath).split('.').pop() || 'jpg';
+            const nextPath = `catalog/products/${id}/gallery/${newDocumentId}.${ext}`;
+            return {
+              documentId: newDocumentId,
+              url: doc.url,
+              storagePath: doc.storagePath || nextPath,
+            };
+          });
+          remappedDocs = true;
+        }
+
+        result.uploaded.push({
+          kind: 'gallery',
+          documentId: newDocumentId || item.documentId,
+          previousDocumentId: item.documentId,
+        });
+      }
+
+      result.uploadedCount += 1;
+    } catch (err) {
+      result.failedCount += 1;
+      result.failed.push({
+        kind: item.kind,
+        documentId: item.documentId,
+        error: err?.message ?? 'Upload failed.',
+      });
+      // Stop on rate limit so remaining can be retried later.
+      const msg = String(err?.message ?? '');
+      if (/rate|blocked|too many requests|exceeded the maximum number of requests/i.test(msg)) {
+        result.message = `Stopped after Zoho rate limit. Uploaded ${result.uploadedCount}, `
+          + `${missing.length - result.uploadedCount - result.failedCount + 1} remaining — wait and run again.`;
+        break;
+      }
+    }
+  }
+
+  if (remappedDocs || result.uploadedCount > 0) {
+    const primaryUrl = firebasePrimaryUrl;
+    const imageUrls = primaryUrl
+      ? [primaryUrl, ...imageDocsNext.map(doc => doc.url)]
+      : imageDocsNext.map(doc => doc.url);
+    await productRef.set({
+      imageDocs: imageDocsNext,
+      imageUrls,
+      syncedAt: new Date().toISOString(),
+    }, { merge: true });
+  }
+
+  if (!result.message) {
+    result.message = result.failedCount > 0
+      ? `Uploaded ${result.uploadedCount} of ${missing.length} image(s) to Zoho `
+        + `(${result.failedCount} failed). Run Catalog Sync after Zoho settles.`
+      : `Uploaded ${result.uploadedCount} image(s) to Zoho. `
+        + `Firebase had ${firebaseCount}, Zoho had ${zoho.total}. Now run Catalog Sync.`;
+  }
+
+  return {
+    ...result,
+    firebaseCount,
+    zohoCountAfterAttempt: zoho.total + result.uploadedCount,
+  };
+}
+
 /** Append a gallery image on Zoho + Storage (does not replace primary). */
 export async function addProductImage(productId, buffer, contentType, accessToken, organizationId) {
   const id = String(productId ?? '').trim();

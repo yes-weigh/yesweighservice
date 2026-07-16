@@ -428,85 +428,153 @@ export const ProductStockMovementsPanel: React.FC<{
             label="Stock movements pagination"
           />
 
-          <div className="stock-ledger__table-wrap">
-            <table className="stock-ledger__table">
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Type</th>
-                  <th scope="col">Details</th>
-                  <th scope="col">In/Out</th>
-                  <th scope="col">Closing Stock</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={5}>No transactions in this filter.</td>
-                  </tr>
-                ) : (
-                  paginatedRows.map((row, rowIndex) => {
-                    const meta = TYPE_META[row.type] ?? TYPE_META.adjustment;
-                    const Icon = meta.Icon;
-                    const voided = isVoidRow(row);
-                    const delta = displayDelta(row);
-                    const when = formatLedgerDate(row);
-                    const closing = row.runningStock;
-                    return (
-                      <tr
-                        key={`${row.type}-${row.documentId}-${row.date}-${delta}-${row.status}-${rowIndex}`}
-                        className={voided ? 'is-void-row' : undefined}
-                      >
-                        <td>
-                          <div className="stock-ledger__when">
-                            <strong>{when.day}</strong>
-                            {when.time ? <span>{when.time}</span> : null}
-                          </div>
-                        </td>
-                        <td>
+          {filteredRows.length === 0 ? (
+            <p className="stock-ledger__empty">No transactions in this filter.</p>
+          ) : (
+            <>
+              <div className="stock-ledger__table-wrap stock-ledger__table-wrap--desktop">
+                <table className="stock-ledger__table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Date</th>
+                      <th scope="col">Type</th>
+                      <th scope="col">Details</th>
+                      <th scope="col">In/Out</th>
+                      <th scope="col">Closing Stock</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedRows.map((row, rowIndex) => {
+                      const meta = TYPE_META[row.type] ?? TYPE_META.adjustment;
+                      const Icon = meta.Icon;
+                      const voided = isVoidRow(row);
+                      const delta = displayDelta(row);
+                      const when = formatLedgerDate(row);
+                      const closing = row.runningStock;
+                      return (
+                        <tr
+                          key={`table-${row.type}-${row.documentId}-${row.date}-${delta}-${row.status}-${rowIndex}`}
+                          className={voided ? 'is-void-row' : undefined}
+                        >
+                          <td>
+                            <div className="stock-ledger__when">
+                              <strong>{when.day}</strong>
+                              {when.time ? <span>{when.time}</span> : null}
+                            </div>
+                          </td>
+                          <td>
+                            <div className={`stock-ledger__type is-${meta.tone}`}>
+                              <span className="stock-ledger__type-icon" aria-hidden>
+                                <Icon size={14} />
+                              </span>
+                              <span>{meta.label}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="stock-ledger__details">
+                              <p>
+                                {meta.docPrefix}: <strong>{row.documentNumber || '—'}</strong>
+                              </p>
+                              {row.customerOrVendor ? <p>{row.customerOrVendor}</p> : null}
+                              {row.reference ? (
+                                <p className="stock-ledger__ref">{row.reference}</p>
+                              ) : null}
+                              {voided || row.status ? (
+                                <p className="stock-ledger__status-line">
+                                  {row.status}
+                                  {voided ? ' · no stock effect' : ''}
+                                </p>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td className={qtyClass(delta, voided)}>
+                            <strong>{formatDelta(delta)}</strong>
+                            <span>{unit}</span>
+                          </td>
+                          <td className="stock-ledger__closing">
+                            <strong>
+                              {closing != null
+                                ? Number(closing).toLocaleString('en-IN')
+                                : '—'}
+                            </strong>
+                            <span>{unit}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <ul className="stock-ledger__tiles" aria-label="Stock transactions">
+                {paginatedRows.map((row, rowIndex) => {
+                  const meta = TYPE_META[row.type] ?? TYPE_META.adjustment;
+                  const Icon = meta.Icon;
+                  const voided = isVoidRow(row);
+                  const delta = displayDelta(row);
+                  const when = formatLedgerDate(row);
+                  const closing = row.runningStock;
+                  return (
+                    <li
+                      key={`tile-${row.type}-${row.documentId}-${row.date}-${delta}-${row.status}-${rowIndex}`}
+                      className={[
+                        'stock-ledger__tile',
+                        voided ? 'is-void' : '',
+                      ].filter(Boolean).join(' ')}
+                    >
+                      <div className="stock-ledger__tile-top">
+                        <div className="stock-ledger__tile-title">
                           <div className={`stock-ledger__type is-${meta.tone}`}>
                             <span className="stock-ledger__type-icon" aria-hidden>
-                              <Icon size={14} />
+                              <Icon size={11} />
                             </span>
-                            <span>{meta.label}</span>
+                            <span className="visually-hidden">{meta.label}</span>
                           </div>
-                        </td>
-                        <td>
-                          <div className="stock-ledger__details">
-                            <p>
-                              {meta.docPrefix}: <strong>{row.documentNumber || '—'}</strong>
-                            </p>
-                            {row.customerOrVendor ? <p>{row.customerOrVendor}</p> : null}
-                            {row.reference ? (
-                              <p className="stock-ledger__ref">{row.reference}</p>
-                            ) : null}
-                            {voided || row.status ? (
-                              <p className="stock-ledger__status-line">
-                                {row.status}
-                                {voided ? ' · no stock effect' : ''}
-                              </p>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className={qtyClass(delta, voided)}>
-                          <strong>{formatDelta(delta)}</strong>
-                          <span>{unit}</span>
-                        </td>
-                        <td className="stock-ledger__closing">
-                          <strong>
-                            {closing != null
-                              ? Number(closing).toLocaleString('en-IN')
-                              : '—'}
-                          </strong>
-                          <span>{unit}</span>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                          <p className="stock-ledger__tile-party">
+                            {row.customerOrVendor || meta.label}
+                          </p>
+                        </div>
+                        <div className="stock-ledger__when">
+                          <strong>{when.day}</strong>
+                          {when.time ? <span>{when.time}</span> : null}
+                        </div>
+                      </div>
+
+                      <div className="stock-ledger__tile-meta">
+                        <p className="stock-ledger__tile-doc">
+                          <strong>{row.documentNumber || '—'}</strong>
+                          {(voided || row.status) ? (
+                            <span className="stock-ledger__tile-status">{row.status}</span>
+                          ) : null}
+                          {voided ? (
+                            <span className="stock-ledger__tile-status">no stock effect</span>
+                          ) : null}
+                        </p>
+                        <div className="stock-ledger__tile-stats">
+                          <span className={`stock-ledger__tile-stat ${qtyClass(delta, voided)}`}>
+                            <strong>{formatDelta(delta)}</strong>
+                            <span>{unit}</span>
+                          </span>
+                          <span className="stock-ledger__tile-stat stock-ledger__closing">
+                            <span className="stock-ledger__tile-stat-label">bal</span>
+                            <strong>
+                              {closing != null
+                                ? Number(closing).toLocaleString('en-IN')
+                                : '—'}
+                            </strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      {row.reference ? (
+                        <p className="stock-ledger__ref">{row.reference}</p>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
 
           <StockLedgerPagination
             page={page}

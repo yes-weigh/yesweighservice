@@ -287,6 +287,14 @@
   padding: 0.75rem 0.85rem 0.85rem;
 }
 
+.settings-product-images__failures {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+  color: var(--danger, #b42318);
+}
+
 .settings-product-qty {
   display: flex;
   flex-direction: column;
