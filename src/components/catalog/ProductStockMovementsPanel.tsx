@@ -5,9 +5,9 @@ import {
   RotateCcw,
   ShoppingCart,
   SlidersHorizontal,
-  Truck,
   Undo2,
 } from 'lucide-react';
+import purchaseIconUrl from '../../assets/purchase-icon.png';
 import {
   StockLedgerPagination,
   useLedgerPagination,
@@ -24,18 +24,33 @@ import type {
 type TypeFilter = 'all' | CatalogStockMovementType;
 type PeriodPreset = 'month' | 'financial_year' | 'lifetime' | 'custom';
 
+type LedgerTypeIcon = React.ComponentType<{ size?: number; className?: string }>;
+
+function PurchaseIcon({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <img
+      src={purchaseIconUrl}
+      alt=""
+      width={size}
+      height={size}
+      className={className ? `stock-ledger__purchase-icon ${className}` : 'stock-ledger__purchase-icon'}
+      draggable={false}
+    />
+  );
+}
+
 const TYPE_META: Record<
   CatalogStockMovementType,
-  { label: string; docPrefix: string; tone: string; Icon: typeof ShoppingCart }
+  { label: string; docPrefix: string; tone: string; Icon: LedgerTypeIcon }
 > = {
   invoice: { label: 'Sales', docPrefix: 'Invoice', tone: 'sales', Icon: ShoppingCart },
-  bill: { label: 'Purchase', docPrefix: 'Bill', tone: 'purchase', Icon: Truck },
+  bill: { label: 'Purchase', docPrefix: 'Bill', tone: 'purchase', Icon: PurchaseIcon },
   creditnote: { label: 'Credit note', docPrefix: 'Credit note', tone: 'return', Icon: Undo2 },
   salesreturn: { label: 'Sales return', docPrefix: 'Return', tone: 'sales-return', Icon: RotateCcw },
   adjustment: { label: 'Adjustment', docPrefix: 'Adjustment', tone: 'adjust', Icon: SlidersHorizontal },
   moveorder: { label: 'Stock transfer', docPrefix: 'Transfer', tone: 'transfer', Icon: ArrowLeftRight },
   transferorder: { label: 'Stock transfer', docPrefix: 'Transfer', tone: 'transfer', Icon: ArrowLeftRight },
-  purchasereceive: { label: 'Purchase receive', docPrefix: 'Receive', tone: 'purchase', Icon: Truck },
+  purchasereceive: { label: 'Purchase receive', docPrefix: 'Receive', tone: 'purchase', Icon: PurchaseIcon },
   putaway: { label: 'Putaway', docPrefix: 'Putaway', tone: 'transfer', Icon: ArrowLeftRight },
 };
 
