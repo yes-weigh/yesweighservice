@@ -13079,13 +13079,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   text-decoration: underline;
 }
 
-.logistics-shipment__title-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-shrink: 0;
-}
-
 .logistics-shipment__delete {
   display: inline-flex;
   align-items: center;
@@ -13098,6 +13091,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: rgba(248, 113, 113, 0.1);
   color: #f87171;
   cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .logistics-shipment__delete:hover {
@@ -13228,13 +13223,22 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .logistics-shipment__meta {
-  flex-wrap: wrap;
-  gap: 0.3rem 0.35rem;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.6875rem;
   color: var(--text-muted);
 }
 
-.logistics-shipment__meta svg {
+.logistics-shipment__meta-info {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.35rem;
+  min-width: 0;
+}
+
+.logistics-shipment__meta-info svg {
   flex-shrink: 0;
   opacity: 0.9;
 }

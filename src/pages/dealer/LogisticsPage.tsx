@@ -790,24 +790,8 @@ export const LogisticsPage: React.FC = () => {
                                   waybill
                                 )}
                               </strong>
-                              <span className="logistics-shipment__title-actions">
-                                <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
-                                  {statusBadgeLabel(booking)}
-                                </span>
-                                {canDelete && (
-                                  <button
-                                    type="button"
-                                    className="logistics-shipment__delete"
-                                    aria-label="Delete logistics booking permanently"
-                                    title="Delete permanently"
-                                    onClick={event => {
-                                      event.stopPropagation();
-                                      void handleDelete(booking.id);
-                                    }}
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                )}
+                              <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
+                                {statusBadgeLabel(booking)}
                               </span>
                             </div>
 
@@ -842,11 +826,27 @@ export const LogisticsPage: React.FC = () => {
                             ) : null}
 
                             <div className="logistics-shipment__row logistics-shipment__meta">
-                              <CalendarDays size={12} aria-hidden />
-                              <span>{formatShipmentDateTime(booking)}</span>
-                              <span className="logistics-shipment__sep" aria-hidden>|</span>
-                              <Package size={12} aria-hidden />
-                              <span>{packageCountLabel(booking)}</span>
+                              <span className="logistics-shipment__meta-info">
+                                <CalendarDays size={12} aria-hidden />
+                                <span>{formatShipmentDateTime(booking)}</span>
+                                <span className="logistics-shipment__sep" aria-hidden>|</span>
+                                <Package size={12} aria-hidden />
+                                <span>{packageCountLabel(booking)}</span>
+                              </span>
+                              {canDelete && (
+                                <button
+                                  type="button"
+                                  className="logistics-shipment__delete"
+                                  aria-label="Delete logistics booking permanently"
+                                  title="Delete permanently"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    void handleDelete(booking.id);
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
                             </div>
                           </div>
 
