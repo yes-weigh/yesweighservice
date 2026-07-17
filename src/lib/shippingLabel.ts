@@ -20,6 +20,29 @@ export function extractDestinationCity(address: string): string {
   return lines.find(line => line.length <= 40) || '—';
 }
 
+/**
+ * Best-effort "City, State" from a multiline / comma address
+ * (e.g. "Manjeri, Kerala, 676121" or separate lines).
+ */
+export function extractCityState(address: string): string | null {
+  const lines = address
+    .split(/\n/)
+    .map(part => part.trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    if (/^india$/i.test(line)) continue;
+    const match = line.match(/^([^,]+),\s*([^,]+?)(?:,\s*\d{5,6})?$/);
+    if (!match) continue;
+    const city = match[1].trim();
+    const state = match[2].trim();
+    if (!city || !state || /^\d+$/.test(state)) continue;
+    if (city.length > 40 || state.length > 40) continue;
+    if (/^(street|road|rd|lane|ln|plot|near|opp)/i.test(city)) continue;
+    return `${city}, ${state}`;
+  }
+  return null;
+}
+
 export function resolveDestinationCity(
   dealer: Pick<LogisticsDealerSnapshot, 'destinationCity' | 'shippingAddress' | 'billingAddress'>,
   deliveryAddress: string,
@@ -27,6 +50,27 @@ export function resolveDestinationCity(
   const stored = dealer.destinationCity?.trim();
   if (stored) return stored;
   return extractDestinationCity(deliveryAddress || dealer.shippingAddress || dealer.billingAddress || '');
+}
+
+/** Card / list label: prefer "City, State", else city only. */
+export function resolveDestinationPlace(
+  dealer: Pick<LogisticsDealerSnapshot, 'destinationCity' | 'shippingAddress' | 'billingAddress'>,
+  deliveryAddress: string,
+): string {
+  const address = deliveryAddress || dealer.shippingAddress || dealer.billingAddress || '';
+  const cityState = extractCityState(address);
+  if (cityState) return cityState;
+  const city = resolveDestinationCity(dealer, deliveryAddress);
+  if (!city || city === '—') return '—';
+  // If stored city is already "City, State", keep it.
+  if (city.includes(',')) return city;
+  const stateFromAddress = address.match(
+    new RegExp(`${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[,\\s]+([A-Za-z][A-Za-z .]{1,40})`, 'i'),
+  );
+  if (stateFromAddress?.[1] && !/^\d+$/.test(stateFromAddress[1].trim())) {
+    return `${city}, ${stateFromAddress[1].trim()}`;
+  }
+  return city;
 }
 
 export function logisticsPartnerImage(partnerId: LogisticsPartnerId | string): string | null {

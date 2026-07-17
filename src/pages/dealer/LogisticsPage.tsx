@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Info,
   LayoutGrid,
   MapPin,
   Package,
@@ -30,7 +29,7 @@ import { BookCourierFlow } from '../../components/logistics/BookCourierFlow';
 import { CourierPartnerPicker } from '../../components/logistics/CourierPartnerPicker';
 import { LogisticsBookingDetail } from '../../components/logistics/LogisticsBookingDetail';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
-import { isLogisticsPartnerId, logisticsPartnerLabel } from '../../constants/logisticsPartners';
+import { isLogisticsPartnerId } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import {
   ENABLED_LOGISTICS_PARTNER_IDS,
@@ -50,7 +49,7 @@ import {
   updateLogisticsBookingStatus,
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
-import { resolveDestinationCity } from '../../lib/shippingLabel';
+import { extractCityState, resolveDestinationPlace } from '../../lib/shippingLabel';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { LogisticsBooking, LogisticsBookingDraft, LogisticsBookingStatus } from '../../types/logistics-dispatch';
@@ -60,7 +59,7 @@ import {
 } from '../../lib/logisticsPrefill';
 import type { BookCourierStep } from '../../lib/logisticsBooking';
 import { emptyShipmentBoxDraft } from '../../lib/logisticsBooking';
-import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
+import type { StaffLogisticsSite } from '../../types/staff-logistics';
 
 type FlowStep = 'closed' | 'partner' | 'book';
 type CardTone = 'all' | 'incomplete' | 'label' | 'shipped' | 'transit' | 'delivered' | 'exception';
@@ -184,32 +183,28 @@ function statusBadgeLabel(booking: LogisticsBooking): string {
   return booking.status;
 }
 
-function statusBannerMessage(booking: LogisticsBooking): string {
-  if (isIncompleteLogisticsBooking(booking)) return '';
-  switch (booking.status) {
-    case 'label_generated':
-      return needsFinalPackagePhoto(booking)
-        ? 'Capture outer package photo to mark as shipped'
-        : 'Shipping label generated';
-    case 'shipped':
-      return 'Shipment shipped — moves to in transit after 6 PM';
-    case 'in_transit':
-      return 'Shipment in transit';
-    case 'delivered':
-      return 'Shipment delivered successfully';
-    case 'cancelled':
-      return 'Shipment cancelled';
-    default:
-      return 'View shipment details';
+const ORIGIN_PLACE_FALLBACK: Record<StaffLogisticsSite, string> = {
+  cochin: 'Kochi, Kerala',
+  head_office: 'Head Office',
+};
+
+function originPlaceLabel(booking: LogisticsBooking): string {
+  const fromAddress = booking.shipFromAddress?.trim() || '';
+  return extractCityState(fromAddress)
+    || ORIGIN_PLACE_FALLBACK[booking.shipFromSite]
+    || 'Origin';
+}
+
+function destinationPlaceLabel(booking: LogisticsBooking): string {
+  return resolveDestinationPlace(booking.dealer, booking.deliveryAddress);
+}
+
+function packageCountLabel(booking: LogisticsBooking): string {
+  if (booking.shipmentMode === 'envelope') {
+    return '1 envelope';
   }
-}
-
-function originLabel(booking: LogisticsBooking): string {
-  return STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'Origin';
-}
-
-function destinationLabel(booking: LogisticsBooking): string {
-  return resolveDestinationCity(booking.dealer, booking.deliveryAddress);
+  const count = Math.max(1, Number(booking.numberOfBoxes) || booking.boxes?.length || 1);
+  return count === 1 ? '1 box' : `${count} boxes`;
 }
 
 function showsRoute(status: LogisticsBookingStatus): boolean {
@@ -771,40 +766,17 @@ export const LogisticsPage: React.FC = () => {
                           className="logistics-shipment__main"
                           onClick={() => openBooking(booking)}
                         >
-                          <div className="logistics-shipment__top">
-                            <span className="logistics-shipment__logo" aria-hidden>
-                              {partner ? (
-                                <img src={partner.image} alt="" />
-                              ) : (
-                                <Package size={20} />
-                              )}
-                            </span>
-                            <div className="logistics-shipment__copy">
-                              <div className="logistics-shipment__title-row">
-                                <strong>{logisticsPartnerLabel(booking.partnerId)}</strong>
-                                <span className="logistics-shipment__title-actions">
-                                  <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
-                                    {statusBadgeLabel(booking)}
-                                  </span>
-                                  {canDelete && (
-                                    <button
-                                      type="button"
-                                      className="logistics-shipment__delete"
-                                      aria-label="Delete logistics booking permanently"
-                                      title="Delete permanently"
-                                      onClick={event => {
-                                        event.stopPropagation();
-                                        void handleDelete(booking.id);
-                                      }}
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  )}
-                                </span>
-                              </div>
-                              <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
-                              <span className="logistics-shipment__waybill">
-                                Waybill:{' '}
+                          <span className="logistics-shipment__logo" aria-hidden>
+                            {partner ? (
+                              <img src={partner.image} alt="" />
+                            ) : (
+                              <Package size={20} />
+                            )}
+                          </span>
+
+                          <div className="logistics-shipment__body">
+                            <div className="logistics-shipment__row logistics-shipment__row--top">
+                              <strong className="logistics-shipment__tracking">
                                 {trackUrl ? (
                                   <a
                                     href={trackUrl}
@@ -815,61 +787,71 @@ export const LogisticsPage: React.FC = () => {
                                     {waybill}
                                   </a>
                                 ) : (
-                                  <em>{waybill}</em>
+                                  waybill
+                                )}
+                              </strong>
+                              <span className="logistics-shipment__title-actions">
+                                <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
+                                  {statusBadgeLabel(booking)}
+                                </span>
+                                {canDelete && (
+                                  <button
+                                    type="button"
+                                    className="logistics-shipment__delete"
+                                    aria-label="Delete logistics booking permanently"
+                                    title="Delete permanently"
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      void handleDelete(booking.id);
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
                                 )}
                               </span>
                             </div>
+
+                            <div className="logistics-shipment__row logistics-shipment__order">
+                              <span>Order: —</span>
+                              <span className="logistics-shipment__sep" aria-hidden>·</span>
+                              <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
+                            </div>
+
+                            {showsRoute(booking.status) ? (
+                              <div className="logistics-shipment__row logistics-shipment__route">
+                                <span className="logistics-shipment__place logistics-shipment__place--from">
+                                  <MapPin size={13} aria-hidden />
+                                  <span>{originPlaceLabel(booking)}</span>
+                                </span>
+                                <span className="logistics-shipment__route-arrow" aria-hidden>→</span>
+                                <span className="logistics-shipment__place logistics-shipment__place--to">
+                                  <MapPin size={13} aria-hidden />
+                                  <span>{destinationPlaceLabel(booking)}</span>
+                                </span>
+                              </div>
+                            ) : booking.status === 'delivered' ? (
+                              <div className="logistics-shipment__outcome logistics-shipment__outcome--delivered">
+                                <CheckCircle2 size={15} aria-hidden />
+                                <span>Delivered on {formatShipmentDateTime(booking)}</span>
+                              </div>
+                            ) : booking.status === 'cancelled' ? (
+                              <div className="logistics-shipment__outcome logistics-shipment__outcome--exception">
+                                <AlertCircle size={15} aria-hidden />
+                                <span>Exception · {formatShipmentDateTime(booking)}</span>
+                              </div>
+                            ) : null}
+
+                            <div className="logistics-shipment__row logistics-shipment__meta">
+                              <CalendarDays size={12} aria-hidden />
+                              <span>{formatShipmentDateTime(booking)}</span>
+                              <span className="logistics-shipment__sep" aria-hidden>|</span>
+                              <Package size={12} aria-hidden />
+                              <span>{packageCountLabel(booking)}</span>
+                            </div>
                           </div>
 
-                          {showsRoute(booking.status) ? (
-                            <div className="logistics-shipment__route">
-                              <div className="logistics-shipment__route-col">
-                                <MapPin size={13} aria-hidden />
-                                <span>{originLabel(booking)}</span>
-                              </div>
-                              <div className="logistics-shipment__route-line" aria-hidden />
-                              <div className="logistics-shipment__route-col logistics-shipment__route-col--end">
-                                <MapPin size={13} aria-hidden />
-                                <span>{destinationLabel(booking)}</span>
-                              </div>
-                            </div>
-                          ) : booking.status === 'delivered' ? (
-                            <div className="logistics-shipment__outcome logistics-shipment__outcome--delivered">
-                              <CheckCircle2 size={15} aria-hidden />
-                              <span>Delivered on {formatShipmentDateTime(booking)}</span>
-                            </div>
-                          ) : booking.status === 'cancelled' ? (
-                            <div className="logistics-shipment__outcome logistics-shipment__outcome--exception">
-                              <AlertCircle size={15} aria-hidden />
-                              <span>Exception · {formatShipmentDateTime(booking)}</span>
-                            </div>
-                          ) : null}
-
-                          <div className="logistics-shipment__meta">
-                            <CalendarDays size={12} aria-hidden />
-                            <span>{formatShipmentDateTime(booking)}</span>
-                          </div>
+                          <ChevronRight size={16} className="logistics-shipment__chevron" aria-hidden />
                         </button>
-
-                        {!isIncompleteLogisticsBooking(booking) && (
-                          <button
-                            type="button"
-                            className={`logistics-shipment__banner logistics-shipment__banner--${tone}`}
-                            onClick={() => openBooking(booking)}
-                          >
-                            <span>
-                              {booking.status === 'delivered' ? (
-                                <CheckCircle2 size={14} aria-hidden />
-                              ) : booking.status === 'cancelled' ? (
-                                <AlertCircle size={14} aria-hidden />
-                              ) : (
-                                <Info size={14} aria-hidden />
-                              )}
-                              {statusBannerMessage(booking)}
-                            </span>
-                            <ChevronRight size={16} aria-hidden />
-                          </button>
-                        )}
                       </article>
                     </li>
                   );
