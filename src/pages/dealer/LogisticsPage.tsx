@@ -723,6 +723,7 @@ export const LogisticsPage: React.FC = () => {
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
                     setStatusFilter('');
+                    setDateRange(defaultDateRange());
                     setFilters({ status: '', partnerId: '', query: '' });
                   }}
                 >
@@ -744,12 +745,19 @@ export const LogisticsPage: React.FC = () => {
                   const trackUrl = logisticsTrackingUrl(booking.partnerId, waybill);
                   return (
                     <li key={booking.id}>
-                      <article className={`logistics-shipment logistics-shipment--${tone}`}>
-                        <button
-                          type="button"
-                          className="logistics-shipment__main"
-                          onClick={() => openBooking(booking)}
-                        >
+                      <article
+                        className={`logistics-shipment logistics-shipment--${tone}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openBooking(booking)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            openBooking(booking);
+                          }
+                        }}
+                      >
+                        <div className="logistics-shipment__main">
                           <span className="logistics-shipment__logo" aria-hidden>
                             {partner ? (
                               <img src={partner.image} alt="" />
@@ -815,7 +823,7 @@ export const LogisticsPage: React.FC = () => {
                           </div>
 
                           <ChevronRight size={18} className="logistics-shipment__chevron" aria-hidden />
-                        </button>
+                        </div>
                       </article>
                     </li>
                   );

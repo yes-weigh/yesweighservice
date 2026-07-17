@@ -973,7 +973,7 @@ export async function uploadProductImage(productId, buffer, contentType, accessT
   const id = String(productId ?? '').trim();
   if (!id) throw new Error('productId is required.');
 
-  const type = String(contentType ?? 'image/jpeg').toLowerCase();
+  const type = normalizeImageContentType(contentType);
   if (!ALLOWED_IMAGE_TYPES.has(type)) {
     throw new Error('Unsupported image type. Use JPEG, PNG, WebP, or GIF.');
   }
@@ -1021,6 +1021,30 @@ function normalizeImageDocs(raw) {
       return { documentId, url, storagePath };
     })
     .filter(Boolean);
+}
+
+/** Prefer full docs; keep incomplete rows so replace/delete can still find documentId. */
+function readImageDocsLoose(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(row => {
+      const documentId = String(row?.documentId ?? '').trim();
+      const url = String(row?.url ?? '').trim();
+      const storagePath = String(row?.storagePath ?? '').trim();
+      if (!documentId && !url) return null;
+      return {
+        documentId: documentId || `local_${Date.now().toString(36)}`,
+        url,
+        storagePath,
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeImageContentType(contentType) {
+  const type = String(contentType ?? 'image/jpeg').trim().toLowerCase();
+  if (type === 'image/jpg') return 'image/jpeg';
+  return type;
 }
 
 function imageUrlPathKey(url) {
@@ -1404,7 +1428,7 @@ export async function addProductImage(productId, buffer, contentType, accessToke
   const id = String(productId ?? '').trim();
   if (!id) throw new Error('productId is required.');
 
-  const type = String(contentType ?? 'image/jpeg').toLowerCase();
+  const type = normalizeImageContentType(contentType);
   if (!ALLOWED_IMAGE_TYPES.has(type)) {
     throw new Error('Unsupported image type. Use JPEG, PNG, WebP, or GIF.');
   }
@@ -1498,7 +1522,7 @@ export async function replaceGalleryImage(
   if (!id) throw new Error('productId is required.');
   if (!targetId) throw new Error('documentId is required.');
 
-  const type = String(contentType ?? 'image/jpeg').toLowerCase();
+  const type = normalizeImageContentType(contentType);
   if (!ALLOWED_IMAGE_TYPES.has(type)) {
     throw new Error('Unsupported image type. Use JPEG, PNG, WebP, or GIF.');
   }
@@ -1509,31 +1533,39 @@ export async function replaceGalleryImage(
   const productRef = getFirestore().collection(PRODUCTS_COLLECTION).doc(id);
   const existingSnap = await productRef.get();
   const existingData = existingSnap.exists ? existingSnap.data() : {};
-  const existingDocs = normalizeImageDocs(existingData?.imageDocs);
+  // Loose read keeps incomplete Firestore rows (missing storagePath) that normalize would drop.
+  const existingDocs = readImageDocsLoose(existingData?.imageDocs);
   const targetIndex = existingDocs.findIndex(doc => doc.documentId === targetId);
-  if (targetIndex < 0) throw new Error('Gallery image not found.');
+  if (targetIndex < 0) {
+    throw new Error(
+      'Gallery image not found in catalog cache. Refresh the product and try again.',
+    );
+  }
 
   const target = existingDocs[targetIndex];
   const bucket = getStorage().bucket();
 
   // Stale Firebase document_ids (common after bulk image push) must not block replace.
-  if (!isLocalOnlyImageDocumentId(targetId)) {
+  if (targetId && !isLocalOnlyImageDocumentId(targetId)) {
     try {
       await deleteProductGalleryImagesFromZoho(accessToken, organizationId, id, [targetId]);
     } catch (err) {
       if (!isRecoverableZohoImageDeleteError(err?.message)) throw err;
     }
   }
-  try {
-    await bucket.file(target.storagePath).delete({ ignoreNotFound: true });
-  } catch {
-    // Best-effort
+  if (target.storagePath) {
+    try {
+      await bucket.file(target.storagePath).delete({ ignoreNotFound: true });
+    } catch {
+      // Best-effort
+    }
   }
 
   let beforeIds = new Set(
     existingDocs
       .filter(doc => doc.documentId !== targetId)
-      .map(doc => doc.documentId),
+      .map(doc => doc.documentId)
+      .filter(Boolean),
   );
   try {
     const beforeItem = await fetchZohoItemRaw(accessToken, organizationId, id);
@@ -1575,11 +1607,21 @@ export async function replaceGalleryImage(
 
   const now = new Date().toISOString();
   const url = versionedPublicStorageUrl(bucket.name, storagePath, now);
-  const imageDocs = existingDocs.map((doc, index) => (
-    index === targetIndex
-      ? { documentId: nextDocumentId, url, storagePath }
-      : doc
-  ));
+  const imageDocs = existingDocs
+    .map((doc, index) => {
+      if (index === targetIndex) {
+        return { documentId: nextDocumentId, url, storagePath };
+      }
+      if (doc.documentId && doc.url && doc.storagePath) {
+        return {
+          documentId: doc.documentId,
+          url: doc.url,
+          storagePath: doc.storagePath,
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
   const primaryUrl = String(existingData?.imageUrl ?? '').trim() || null;
   const imageUrls = primaryUrl
     ? [primaryUrl, ...imageDocs.map(doc => doc.url)]

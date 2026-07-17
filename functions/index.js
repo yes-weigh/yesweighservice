@@ -287,7 +287,17 @@ export const getCatalogProductDetail = onCall(
         detail.imageUrls = cachedData.imageUrls.filter(url => String(url ?? '').trim());
       }
       if (Array.isArray(cachedData.imageDocs) && cachedData.imageDocs.length) {
-        detail.imageDocs = cachedData.imageDocs;
+        detail.imageDocs = cachedData.imageDocs
+          .map(row => {
+            const documentId = String(row?.documentId ?? '').trim();
+            const url = String(row?.url ?? '').trim();
+            const storagePath = String(row?.storagePath ?? '').trim();
+            if (!documentId || !url) return null;
+            return storagePath
+              ? { documentId, url, storagePath }
+              : { documentId, url };
+          })
+          .filter(Boolean);
       }
       if (cachedData.syncedAt) {
         detail.syncedAt = cachedData.syncedAt;
@@ -549,7 +559,22 @@ export const uploadCatalogProductImage = onCall(
         { documentId },
       );
     } catch (err) {
-      throw new HttpsError('internal', err?.message ?? 'Product image upload failed.');
+      const message = err?.message ?? 'Product image upload failed.';
+      console.error('uploadCatalogProductImage failed:', {
+        productId,
+        mode,
+        documentId: documentId || null,
+        contentType,
+        bufferBytes: buffer?.length ?? 0,
+        message,
+      });
+      if (/not found|refresh the product|unsupported image|empty image|5 mb/i.test(message)) {
+        throw new HttpsError('failed-precondition', message);
+      }
+      if (/rate|blocked|too many requests/i.test(message)) {
+        throw new HttpsError('resource-exhausted', message);
+      }
+      throw new HttpsError('internal', message);
     }
   },
 );

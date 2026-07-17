@@ -12932,6 +12932,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-radius: 16px;
   background: linear-gradient(165deg, #1a2029 0%, #141920 100%);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.logistics-shipment:focus-visible {
+  box-shadow: 0 0 0 2px rgba(245, 130, 32, 0.55);
 }
 
 .logistics-shipment__main {
@@ -12940,17 +12947,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.75rem;
   width: 100%;
   padding: 0.85rem 0.65rem 0.85rem 0.85rem;
-  border: none;
-  background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
+  pointer-events: none;
 }
 
-.logistics-shipment__main:active {
-  background: rgba(255, 255, 255, 0.02);
+.logistics-shipment__main a {
+  pointer-events: auto;
 }
 
 .logistics-shipment__logo {
