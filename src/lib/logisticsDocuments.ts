@@ -6,30 +6,21 @@ import {
   chargeableWeight,
   shipmentModeLabel,
 } from './logisticsBooking';
+import { SHIPPING_LABEL_SHEET_STYLES } from './logisticsLabelPrint';
 import {
   buildShippingLabelsFromBooking,
+  formatShippingAddressLines,
   shippingLabelBarcodeBars,
   type ShippingLabelViewModel,
 } from './shippingLabel';
+import { shippingLabelHeaderHtml } from './shippingLabelHeader';
 
 const DOC_STYLES = `
   * { box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
   @page { margin: 0; size: 100mm 150mm; }
   html, body { margin: 0; padding: 0; }
   body { background: #fff; color: #111; }
-  .sheet {
-    width: 100mm;
-    height: 150mm;
-    border: 2px solid #111;
-    padding: 4.5mm 4mm;
-    margin: 0;
-    overflow: hidden;
-    page-break-after: always;
-    break-after: page;
-    display: flex;
-    flex-direction: column;
-  }
-  .sheet:last-child { page-break-after: auto; break-after: auto; }
+  ${SHIPPING_LABEL_SHEET_STYLES}
   .doc {
     width: 100mm;
     height: 150mm;
@@ -40,123 +31,6 @@ const DOC_STYLES = `
     page-break-after: always;
   }
   .doc:last-child { page-break-after: auto; }
-  .sheet__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 6px;
-    padding-bottom: 5px;
-    border-bottom: 2px solid #111;
-  }
-  .sheet__logo { height: 22px; width: auto; object-fit: contain; }
-  .sheet__product-line {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .sheet__parties {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-bottom: 6px;
-  }
-  .sheet__party-label {
-    display: block;
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-bottom: 2px;
-  }
-  .sheet__party-name {
-    display: block;
-    font-size: 11px;
-    font-weight: 800;
-    margin-bottom: 2px;
-  }
-  .sheet__party-address {
-    margin: 0;
-    font-size: 9px;
-    line-height: 1.3;
-    white-space: pre-line;
-  }
-  .sheet__box-meta,
-  .sheet__weights {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    margin-bottom: 6px;
-    padding: 5px 0;
-    border-top: 1px solid #111;
-    border-bottom: 1px solid #111;
-  }
-  .sheet__weights { border-top: none; }
-  .sheet__box-meta span,
-  .sheet__weights span,
-  .sheet__dest span,
-  .sheet__booking span {
-    display: block;
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    margin-bottom: 1px;
-  }
-  .sheet__box-meta strong,
-  .sheet__weights strong,
-  .sheet__dest strong,
-  .sheet__booking strong {
-    display: block;
-    font-size: 12px;
-    font-weight: 800;
-  }
-  .sheet__carrier {
-    display: grid;
-    grid-template-columns: 0.9fr 1.1fr;
-    gap: 8px;
-    align-items: center;
-    margin: 8px 0;
-    min-height: 48px;
-  }
-  .sheet__carrier-logo img {
-    max-width: 100%;
-    max-height: 36px;
-    object-fit: contain;
-  }
-  .sheet__carrier-logo strong { font-size: 12px; font-weight: 800; }
-  .sheet__barcode-block { text-align: center; }
-  .sheet__barcode-block code {
-    display: block;
-    font-size: 13px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    margin-bottom: 4px;
-  }
-  .sheet__barcode {
-    display: flex;
-    justify-content: center;
-    gap: 1px;
-    height: 34px;
-  }
-  .sheet__barcode i {
-    display: block;
-    width: 2px;
-    background: #111;
-    height: 100%;
-  }
-  .sheet__barcode i:nth-child(3n) { width: 1px; }
-  .sheet__barcode i:nth-child(5n) { width: 3px; }
-  .sheet__footer {
-    display: grid;
-    grid-template-columns: 1fr 1.1fr;
-    gap: 8px;
-    margin-top: auto;
-    padding-top: 6px;
-    border-top: 2px solid #111;
-  }
-  .sheet__booking { display: grid; gap: 4px; }
   .doc__partner { font-size: 20px; font-weight: 800; text-transform: uppercase; }
   .doc__title { font-size: 11px; letter-spacing: 2px; color: #555; margin-bottom: 12px; }
   .doc__track { border: 1px dashed #111; border-radius: 6px; padding: 10px; text-align: center; margin-bottom: 12px; }
@@ -219,6 +93,37 @@ function packageMetaRows(booking: LogisticsBooking): Array<[string, string]> {
   return rows;
 }
 
+function iconSvg(paths: string): string {
+  return `<svg class="sheet__glyph" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+}
+
+const DOC_ICONS = {
+  boxes: iconSvg('<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>'),
+  boxNumber: iconSvg('<path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><rect x="4" y="11" width="16" height="10" rx="2"/>'),
+  dimensions: iconSvg('<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>'),
+  contents: iconSvg('<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>'),
+  weight: iconSvg('<circle cx="12" cy="5" r="3"/><path d="M6.5 8a2 2 0 0 0-1.905 1.46L2.1 18.5A2 2 0 0 0 4 21h16a2 2 0 0 0 1.925-2.54L19.4 9.5A2 2 0 0 0 17.48 8Z"/>'),
+  transport: iconSvg('<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>'),
+  payment: iconSvg('<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>'),
+  branch: iconSvg('<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>'),
+  destination: iconSvg('<path d="M20 10c0 4.993-5.539 10.193-7.399 11.964a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>'),
+  time: iconSvg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
+  bookedBy: iconSvg('<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>'),
+} as const;
+
+function metricCellHtml(title: string, value: string, icon: keyof typeof DOC_ICONS): string {
+  return `<div class="sheet__metric"><div class="sheet__metric-head">${DOC_ICONS[icon]}<span class="sheet__metric-title">${escapeHtml(title)}</span></div><strong class="sheet__metric-value">${escapeHtml(value)}</strong></div>`;
+}
+
+function infoCellHtml(
+  title: string,
+  value: string,
+  icon: keyof typeof DOC_ICONS,
+  large = false,
+): string {
+  return `<div class="sheet__info-cell${large ? ' sheet__info-cell--large' : ''}"><div class="sheet__info-head">${DOC_ICONS[icon]}<span class="sheet__pill">${escapeHtml(title)}</span></div><strong>${escapeHtml(value)}</strong></div>`;
+}
+
 function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
   const bars = shippingLabelBarcodeBars(label.consignmentNo)
     .map(w => `<i style="width:${w}px"></i>`)
@@ -227,55 +132,52 @@ function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
     ? '1/1'
     : `${label.boxIndex}/${label.boxTotal}`;
   const boxCount = label.shipmentMode === 'envelope' ? 'Envelope' : String(label.numberOfBoxes);
-  const carrier = label.partnerImage
+  const carrierImg = label.partnerImage
     ? `<img src="${escapeHtml(label.partnerImage)}" alt="${escapeHtml(label.partnerLabel)}" />`
-    : `<strong>${escapeHtml(label.partnerLabel)}</strong>`;
+    : '';
 
   return `
     <div class="sheet sheet--shipping">
-      <header class="sheet__header">
-        <img class="sheet__logo" src="/logo.png" alt="YESWEIGH" />
-        <strong class="sheet__product-line">GENUINE SPARE PART</strong>
-      </header>
+      ${shippingLabelHeaderHtml(label.firmName)}
       <div class="sheet__parties">
         <div class="sheet__party">
-          <span class="sheet__party-label">From (shipper)</span>
+          <span class="sheet__pill">FROM (SHIPPER)</span>
           <strong class="sheet__party-name">${escapeHtml(label.fromName)}</strong>
-          <p class="sheet__party-address">${escapeHtml(label.fromAddress)}</p>
+          <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.fromAddress))}</p>
         </div>
         <div class="sheet__party">
-          <span class="sheet__party-label">To (consignee)</span>
+          <span class="sheet__pill">TO (CONSIGNEE)</span>
           <strong class="sheet__party-name">${escapeHtml(label.toName)}</strong>
-          <p class="sheet__party-address">${escapeHtml(label.toAddress)}</p>
+          <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.toAddress))}</p>
         </div>
       </div>
-      <div class="sheet__box-meta">
-        <div><span>Number of boxes</span><strong>${escapeHtml(boxCount)}</strong></div>
-        <div><span>Box number</span><strong>${escapeHtml(boxLabel)}</strong></div>
+      <div class="sheet__panel sheet__metrics">
+        ${metricCellHtml('NO. OF BOXES', boxCount, 'boxes')}
+        ${metricCellHtml('BOX NUMBER', boxLabel, 'boxNumber')}
+        ${metricCellHtml('BOX DIMENSIONS (L × B × H)', label.boxDimensions, 'dimensions')}
+        ${metricCellHtml('CONTENTS', label.contents, 'contents')}
+        ${metricCellHtml('GROSS WEIGHT', `${label.grossWeightKg.toFixed(2)} kg`, 'weight')}
+        ${metricCellHtml('CHARGEABLE WEIGHT', `${label.chargeableWeightKg.toFixed(2)} kg`, 'weight')}
+        ${metricCellHtml('MODE OF TRANSPORT', label.transportMode, 'transport')}
+        ${metricCellHtml('PAYMENT MODE', label.paymentMode, 'payment')}
       </div>
-      <div class="sheet__weights">
-        <div><span>Gross weight</span><strong>${label.grossWeightKg.toFixed(2)} kg</strong></div>
-        <div><span>Chargeable weight</span><strong>${label.chargeableWeightKg.toFixed(2)} kg</strong></div>
-      </div>
-      <div class="sheet__carrier">
-        <div class="sheet__carrier-logo">${carrier}</div>
-        <div class="sheet__barcode-block">
-          <code>${escapeHtml(label.consignmentNo)}</code>
+      <div class="sheet__panel sheet__courier">
+        <div class="sheet__courier-side">
+          <span class="sheet__pill">COURIER</span>
+          <div class="sheet__carrier-logo">${carrierImg}<strong class="sheet__carrier-name">${escapeHtml(label.partnerLabel)}</strong></div>
+        </div>
+        <div class="sheet__courier-side sheet__courier-side--track">
+          <span class="sheet__pill">AWB / TRACKING NUMBER</span>
+          <code class="sheet__awb">${escapeHtml(label.consignmentNo)}</code>
           <div class="sheet__barcode" aria-hidden="true">${bars}</div>
         </div>
       </div>
-      <footer class="sheet__footer">
-        <div class="sheet__dest">
-          <span>Destination city</span>
-          <strong>${escapeHtml(label.destinationCity)}</strong>
-        </div>
-        <div class="sheet__booking">
-          <div><span>Booking branch</span><strong>${escapeHtml(label.bookingBranch)}</strong></div>
-          <div><span>Booking date</span><strong>${escapeHtml(label.bookingDate)}</strong></div>
-          <div><span>Booking time</span><strong>${escapeHtml(label.bookingTime)}</strong></div>
-          <div><span>Booked by</span><strong>${escapeHtml(label.bookedBy)}</strong></div>
-        </div>
-      </footer>
+      <div class="sheet__panel sheet__info">
+        ${infoCellHtml('BOOKING BRANCH', label.bookingBranch, 'branch', true)}
+        ${infoCellHtml('DESTINATION', label.destinationCity, 'destination', true)}
+        ${infoCellHtml('BOOKING TIME', label.bookingTime, 'time')}
+        ${infoCellHtml('BOOKED BY', label.bookedBy, 'bookedBy')}
+      </div>
     </div>`;
 }
 

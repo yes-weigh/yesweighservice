@@ -1,13 +1,53 @@
+import { FIRM_NAME } from '../constants/brand';
 import { DELIVERY_METHODS } from '../constants/deliveryMethods';
 import { logisticsPartnerLabel } from '../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import type {
   LogisticsBooking,
   LogisticsDealerSnapshot,
+  ShipmentBox,
   ShipmentMode,
 } from '../types/logistics-dispatch';
 import { STAFF_LOGISTICS_SITE_LABELS } from '../types/staff-logistics';
-import { boxChargeableWeight, chargeableWeight } from './logisticsBooking';
+import {
+  boxChargeableWeight,
+  boxDimensionsLabel,
+  chargeableWeight,
+} from './logisticsBooking';
+
+export const SHIPPING_LABEL_CONTENTS = 'Genuine Spare Part';
+export const SHIPPING_LABEL_PAYMENT_MODE = 'PREPAID';
+export const SHIPPING_LABEL_FIRM = FIRM_NAME;
+
+/** Normalize address for label columns (prefer existing newlines; else wrap on commas). */
+export function formatShippingAddressLines(address: string, maxLines = 5): string {
+  const trimmed = address.replace(/\r\n/g, '\n').trim();
+  if (!trimmed || trimmed === '—') return '—';
+  if (trimmed.includes('\n')) {
+    return trimmed
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .slice(0, maxLines)
+      .join('\n');
+  }
+  const parts = trimmed.split(',').map(part => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return trimmed;
+  const lines: string[] = [];
+  let current = '';
+  for (const part of parts) {
+    const next = current ? `${current}, ${part}` : part;
+    if (current && next.length > 34) {
+      lines.push(current);
+      current = part;
+      if (lines.length >= maxLines - 1) break;
+    } else {
+      current = next;
+    }
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  return lines.join('\n') || trimmed;
+}
 
 /** Best-effort city from a multiline address when Zoho city is missing. */
 export function extractDestinationCity(address: string): string {
@@ -126,6 +166,10 @@ export interface ShippingLabelViewModel {
   numberOfBoxes: number;
   boxIndex: number;
   boxTotal: number;
+  boxDimensions: string;
+  contents: string;
+  transportMode: string;
+  paymentMode: string;
   grossWeightKg: number;
   chargeableWeightKg: number;
   partnerId: LogisticsPartnerId | string;
@@ -137,6 +181,23 @@ export interface ShippingLabelViewModel {
   bookingTime: string;
   bookedBy: string;
   shipmentMode: ShipmentMode;
+  firmName: string;
+}
+
+function resolveBoxDimensions(
+  shipmentMode: ShipmentMode,
+  box: ShipmentBox | undefined,
+  lengthCm?: string | number | null,
+  widthCm?: string | number | null,
+  heightCm?: string | number | null,
+): string {
+  if (shipmentMode === 'envelope') return 'Envelope';
+  if (box) return boxDimensionsLabel(box);
+  const l = lengthCm == null || lengthCm === '' ? null : Number(lengthCm);
+  const w = widthCm == null || widthCm === '' ? null : Number(widthCm);
+  const h = heightCm == null || heightCm === '' ? null : Number(heightCm);
+  if (l && w && h) return `${l} × ${w} × ${h} cm`;
+  return '—';
 }
 
 export function shippingLabelBarcodeBars(seed: string): number[] {
@@ -156,6 +217,13 @@ export function buildShippingLabelViewModel(input: {
   deliveryAddress: string;
   numberOfBoxes: number;
   boxIndex: number;
+  box?: ShipmentBox;
+  lengthCm?: string | number | null;
+  widthCm?: string | number | null;
+  heightCm?: string | number | null;
+  serviceType?: string;
+  paymentMode?: string;
+  contents?: string;
   grossWeightKg: number;
   chargeableWeightKg: number;
   partnerId: LogisticsPartnerId | string;
@@ -167,6 +235,7 @@ export function buildShippingLabelViewModel(input: {
   shipmentMode: ShipmentMode;
 }): ShippingLabelViewModel {
   const boxTotal = Math.max(1, input.numberOfBoxes);
+  const transport = (input.serviceType || 'SURFACE').trim().toUpperCase() || 'SURFACE';
   return {
     fromName: input.fromName.trim() || 'YESWEIGH',
     fromAddress: input.fromAddress.trim() || '—',
@@ -176,6 +245,17 @@ export function buildShippingLabelViewModel(input: {
     numberOfBoxes: boxTotal,
     boxIndex: input.boxIndex,
     boxTotal,
+    boxDimensions: resolveBoxDimensions(
+      input.shipmentMode,
+      input.box,
+      input.lengthCm,
+      input.widthCm,
+      input.heightCm,
+    ),
+    contents: (input.contents || SHIPPING_LABEL_CONTENTS).trim() || SHIPPING_LABEL_CONTENTS,
+    transportMode: transport,
+    paymentMode: (input.paymentMode || SHIPPING_LABEL_PAYMENT_MODE).trim().toUpperCase()
+      || SHIPPING_LABEL_PAYMENT_MODE,
     grossWeightKg: input.grossWeightKg,
     chargeableWeightKg: input.chargeableWeightKg,
     partnerId: input.partnerId,
@@ -187,6 +267,7 @@ export function buildShippingLabelViewModel(input: {
     bookingTime: input.bookingTime?.trim() || formatShippingBookingTime(),
     bookedBy: (input.bookedBy ?? 'YESWEIGH').trim() || 'YESWEIGH',
     shipmentMode: input.shipmentMode,
+    firmName: SHIPPING_LABEL_FIRM,
   };
 }
 
@@ -211,6 +292,8 @@ export function buildShippingLabelsFromBooking(booking: LogisticsBooking): Shipp
       deliveryAddress: booking.deliveryAddress,
       numberOfBoxes: count,
       boxIndex: index + 1,
+      box,
+      serviceType: booking.serviceType,
       grossWeightKg: booking.shipmentMode === 'envelope' ? booking.actualWeightKg : boxActual,
       chargeableWeightKg: booking.shipmentMode === 'envelope' ? chargeable : boxChargeable,
       partnerId: booking.partnerId,

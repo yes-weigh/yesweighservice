@@ -11,6 +11,7 @@ import {
 } from './labelStudio';
 import type { ShippingLabelViewModel } from './shippingLabel';
 import { buildShippingLabelBitmapJob } from './shippingLabelBitmap';
+import { SHIPPING_LABEL_HEADER_STYLES } from './shippingLabelHeader';
 
 function escapeTspl(value: string): string {
   return value.replace(/"/g, "'").replace(/\r?\n/g, ' ').trim();
@@ -184,138 +185,190 @@ export async function tryPrintCourierLabelThermal(input: {
   return { usedThermal: true, bytesSent: result.bytesSent };
 }
 
+/** Shared sheet CSS for browser print + standalone shipping-label HTML. */
+export const SHIPPING_LABEL_SHEET_STYLES = `
+  .sheet {
+    width: ${LOGISTICS_LABEL_WIDTH_MM}mm;
+    height: ${LOGISTICS_LABEL_HEIGHT_MM}mm;
+    margin: 0;
+    border: 2.5px solid #111;
+    border-radius: 4mm;
+    padding: 2.6mm;
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    box-sizing: border-box;
+    color: #111;
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
+  ${SHIPPING_LABEL_HEADER_STYLES}
+  .sheet__header { border-bottom: none; margin: 0; padding-bottom: 0; }
+  .sheet__pill {
+    display: inline-block;
+    background: #111;
+    color: #fff;
+    font-size: 6.5px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 2px 5px;
+    border-radius: 999px;
+    line-height: 1.15;
+    margin-bottom: 0;
+  }
+  .sheet__glyph { width: 12px; height: 12px; flex-shrink: 0; }
+  .sheet__panel {
+    border: 1.4px solid #111;
+    border-radius: 2.2mm;
+    overflow: hidden;
+    margin-top: 1.6mm;
+  }
+  .sheet__parties {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-top: 1.5px solid #111;
+    border-bottom: 1.5px solid #111;
+    margin: 1.6mm 0 0;
+  }
+  .sheet__party { padding: 7px; min-width: 0; }
+  .sheet__party .sheet__pill { margin-bottom: 5px; }
+  .sheet__party + .sheet__party { border-left: 1.5px solid #111; }
+  .sheet__party-name {
+    display: block;
+    font-size: 9.5px;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-bottom: 3px;
+  }
+  .sheet__party-address {
+    margin: 0;
+    font-size: 8px;
+    line-height: 1.28;
+    white-space: pre-line;
+  }
+  .sheet__metrics { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; }
+  .sheet__metric {
+    padding: 5px 4px;
+    border-right: 1px solid #111;
+    border-bottom: 1px solid #111;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sheet__metric:nth-child(4n) { border-right: none; }
+  .sheet__metric:nth-child(n + 5) { border-bottom: none; }
+  .sheet__metric-head { display: flex; align-items: flex-start; gap: 3px; }
+  .sheet__metric-title {
+    font-size: 6px;
+    font-weight: 700;
+    text-transform: uppercase;
+    line-height: 1.15;
+  }
+  .sheet__metric-value {
+    font-size: 9.5px;
+    font-weight: 800;
+    line-height: 1.15;
+    word-break: break-word;
+    margin-top: auto;
+  }
+  .sheet__courier {
+    display: grid;
+    grid-template-columns: 0.9fr 1.2fr;
+    margin: 0;
+    min-height: 80px;
+  }
+  .sheet__courier-side {
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .sheet__courier-side + .sheet__courier-side { border-left: 1.4px solid #111; }
+  .sheet__courier-side--track { align-items: center; text-align: center; }
+  .sheet__carrier-logo {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+  .sheet__carrier-logo img { max-width: 100%; max-height: 36px; object-fit: contain; }
+  .sheet__carrier-name {
+    font-size: 8px;
+    font-weight: 800;
+    text-align: center;
+    text-transform: uppercase;
+  }
+  .sheet__awb {
+    display: block;
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    margin: 4px 0 6px;
+  }
+  .sheet__barcode {
+    display: flex;
+    justify-content: center;
+    height: 26px;
+    width: 100%;
+    margin-top: auto;
+  }
+  .sheet__barcode i {
+    display: block;
+    width: 2px;
+    background: #111;
+    height: 100%;
+    margin-left: 1px;
+  }
+  .sheet__info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1.35fr 0.85fr;
+    margin: 0;
+    margin-top: auto;
+    flex: 1;
+    min-height: 100px;
+  }
+  .sheet__info-cell {
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    border-right: 1.4px solid #111;
+    border-bottom: 1.4px solid #111;
+  }
+  .sheet__info-cell:nth-child(2n) { border-right: none; }
+  .sheet__info-cell:nth-child(n + 3) { border-bottom: none; }
+  .sheet__info-head { display: flex; align-items: center; gap: 4px; }
+  .sheet__info-cell strong {
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.15;
+    word-break: break-word;
+  }
+  .sheet__info-cell--large strong {
+    margin-top: auto;
+    font-size: 14px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+`;
+
 /** Browser print fallback — clones rendered 100×150 mm sheets into a print window. */
 export const SHIPPING_LABEL_BROWSER_PRINT_STYLES = `
   @page { margin: 0; size: ${LOGISTICS_LABEL_WIDTH_MM}mm ${LOGISTICS_LABEL_HEIGHT_MM}mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; }
-  .sheet {
-    width: ${LOGISTICS_LABEL_WIDTH_MM}mm;
-    height: ${LOGISTICS_LABEL_HEIGHT_MM}mm;
-    margin: 0;
-    border: 2px solid #111;
-    padding: 4.5mm 4mm;
-    overflow: hidden;
-    page-break-after: always;
-    break-after: page;
-    display: flex;
-    flex-direction: column;
-  }
-  .sheet:last-child { page-break-after: auto; break-after: auto; }
-  .sheet__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 6px;
-    padding-bottom: 5px;
-    border-bottom: 2px solid #111;
-  }
-  .sheet__logo { height: 22px; width: auto; object-fit: contain; }
-  .sheet__product-line {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .sheet__parties {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-bottom: 6px;
-  }
-  .sheet__party-label {
-    display: block;
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-bottom: 2px;
-  }
-  .sheet__party-name {
-    display: block;
-    font-size: 11px;
-    font-weight: 800;
-    margin-bottom: 2px;
-  }
-  .sheet__party-address {
-    margin: 0;
-    font-size: 9px;
-    line-height: 1.3;
-    white-space: pre-line;
-  }
-  .sheet__box-meta,
-  .sheet__weights {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    margin-bottom: 6px;
-    padding: 5px 0;
-    border-top: 1px solid #111;
-    border-bottom: 1px solid #111;
-  }
-  .sheet__weights { border-top: none; }
-  .sheet__box-meta span,
-  .sheet__weights span,
-  .sheet__dest span,
-  .sheet__booking span {
-    display: block;
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    margin-bottom: 1px;
-  }
-  .sheet__box-meta strong,
-  .sheet__weights strong,
-  .sheet__dest strong,
-  .sheet__booking strong {
-    display: block;
-    font-size: 13px;
-    font-weight: 800;
-  }
-  .sheet__carrier {
-    display: grid;
-    grid-template-columns: 1fr 1.4fr;
-    gap: 8px;
-    align-items: center;
-    margin: 6px 0;
-  }
-  .sheet__carrier-logo img { max-height: 36px; max-width: 100%; object-fit: contain; }
-  .sheet__carrier-logo strong { font-size: 12px; font-weight: 800; }
-  .sheet__barcode-block { text-align: right; }
-  .sheet__barcode-block code {
-    display: block;
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    margin-bottom: 4px;
-  }
-  .sheet__barcode {
-    display: flex;
-    justify-content: flex-end;
-    align-items: stretch;
-    height: 36px;
-    gap: 0;
-  }
-  .sheet__barcode i {
-    display: block;
-    height: 100%;
-    background: #111;
-    margin-left: 1px;
-  }
-  .sheet__footer {
-    margin-top: auto;
-    padding-top: 6px;
-    border-top: 2px solid #111;
-  }
-  .sheet__dest { margin-bottom: 6px; }
-  .sheet__booking {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px 8px;
-  }
+  ${SHIPPING_LABEL_SHEET_STYLES}
 `;
 
 export function printShippingLabelElements(
