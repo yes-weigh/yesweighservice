@@ -15771,6 +15771,52 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #f87171;
 }
 
+.shipping-label-print-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow: auto;
+}
+
+.shipping-label-print-dialog {
+  width: min(100%, 28rem);
+  max-height: min(94vh, 52rem);
+  overflow: auto;
+  margin: auto;
+}
+
+.shipping-label-print-dialog__preview {
+  margin-top: 0.35rem;
+  max-height: min(62vh, 36rem);
+  overflow: auto;
+  padding: 0.65rem;
+  border-radius: 12px;
+  background: #0f1318;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.shipping-label-print-dialog__preview .sheet {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.shipping-label-print-dialog__hint {
+  margin: 0.65rem 0 0;
+}
+
+.shipping-label-print-dialog__success {
+  color: #4ade80;
+  margin: 0 0 0.65rem;
+}
+
+.shipping-label-print-dialog__actions {
+  margin-top: 0.85rem;
+}
+
 .logistics-booking__slip-hint {
   margin: 0.35rem 0 0;
   font-style: italic;

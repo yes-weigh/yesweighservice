@@ -181,3 +181,163 @@ export async function tryPrintCourierLabelThermal(input: {
   const result = await sendRawToPrinter({ ...printer, payload });
   return { usedThermal: true, bytesSent: result.bytesSent };
 }
+
+/** Browser print fallback — clones rendered 100×150 mm sheets into a print window. */
+export const SHIPPING_LABEL_BROWSER_PRINT_STYLES = `
+  @page { margin: 0; size: ${LOGISTICS_LABEL_WIDTH_MM}mm ${LOGISTICS_LABEL_HEIGHT_MM}mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; }
+  .sheet {
+    width: ${LOGISTICS_LABEL_WIDTH_MM}mm;
+    height: ${LOGISTICS_LABEL_HEIGHT_MM}mm;
+    margin: 0;
+    border: 2px solid #111;
+    padding: 4.5mm 4mm;
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+    display: flex;
+    flex-direction: column;
+  }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
+  .sheet__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+    border-bottom: 2px solid #111;
+  }
+  .sheet__logo { height: 22px; width: auto; object-fit: contain; }
+  .sheet__product-line {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .sheet__parties {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .sheet__party-label {
+    display: block;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .sheet__party-name {
+    display: block;
+    font-size: 11px;
+    font-weight: 800;
+    margin-bottom: 2px;
+  }
+  .sheet__party-address {
+    margin: 0;
+    font-size: 9px;
+    line-height: 1.3;
+    white-space: pre-line;
+  }
+  .sheet__box-meta,
+  .sheet__weights {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 6px;
+    padding: 5px 0;
+    border-top: 1px solid #111;
+    border-bottom: 1px solid #111;
+  }
+  .sheet__weights { border-top: none; }
+  .sheet__box-meta span,
+  .sheet__weights span,
+  .sheet__dest span,
+  .sheet__booking span {
+    display: block;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 1px;
+  }
+  .sheet__box-meta strong,
+  .sheet__weights strong,
+  .sheet__dest strong,
+  .sheet__booking strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .sheet__carrier {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 8px;
+    align-items: center;
+    margin: 6px 0;
+  }
+  .sheet__carrier-logo img { max-height: 36px; max-width: 100%; object-fit: contain; }
+  .sheet__carrier-logo strong { font-size: 12px; font-weight: 800; }
+  .sheet__barcode-block { text-align: right; }
+  .sheet__barcode-block code {
+    display: block;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+  .sheet__barcode {
+    display: flex;
+    justify-content: flex-end;
+    align-items: stretch;
+    height: 36px;
+    gap: 0;
+  }
+  .sheet__barcode i {
+    display: block;
+    height: 100%;
+    background: #111;
+    margin-left: 1px;
+  }
+  .sheet__footer {
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 2px solid #111;
+  }
+  .sheet__dest { margin-bottom: 6px; }
+  .sheet__booking {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 8px;
+  }
+`;
+
+export function printShippingLabelElements(
+  elements: Array<HTMLElement | null>,
+  title = 'Shipping label',
+): void {
+  const sheets = elements.filter((el): el is HTMLElement => Boolean(el));
+  if (!sheets.length || typeof window === 'undefined') return;
+  const win = window.open('', '_blank', 'noopener,noreferrer,width=420,height=640');
+  if (!win) {
+    throw new Error('Pop-up blocked. Allow pop-ups to print the shipping label.');
+  }
+  win.document.open();
+  win.document.write(
+    `<!DOCTYPE html><html><head><title>${title}</title>`
+    + `<style>${SHIPPING_LABEL_BROWSER_PRINT_STYLES}</style></head>`
+    + `<body>${sheets.map(el => el.outerHTML).join('')}</body></html>`,
+  );
+  win.document.close();
+  win.focus();
+  win.onload = () => {
+    win.print();
+  };
+  window.setTimeout(() => {
+    try { win.print(); } catch { /* ignore */ }
+  }, 250);
+}

@@ -24,13 +24,13 @@ import {
   buildCourierSlipFromBooking,
   shareCourierSlipImage,
 } from '../../lib/courierSlipImage';
-import { openShippingLabelWindow } from '../../lib/logisticsDocuments';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import type {
   LogisticsBooking,
   LogisticsBookingStatus,
   LogisticsDocumentType,
 } from '../../types/logistics-dispatch';
+import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
 
 interface LogisticsBookingDetailProps {
   booking: LogisticsBooking;
@@ -54,6 +54,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const { user } = useAuth();
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
   const [shareError, setShareError] = useState('');
+  const [shippingLabelOpen, setShippingLabelOpen] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const currentIndex = isIncompleteLogisticsBooking(booking)
@@ -91,14 +92,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       return;
     }
 
-    openShippingLabelWindow(booking, false);
+    setShippingLabelOpen(true);
+  };
+
+  const handleShippingLabelPrinted = async () => {
     if (!user) return;
-    setGenerating(document);
+    setGenerating('shipping_label');
     try {
-      const updated = await generateLogisticsDocument(booking, document, user);
+      const updated = await generateLogisticsDocument(booking, 'shipping_label', user);
       onUpdate(updated);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not generate document.');
+      window.alert(err instanceof Error ? err.message : 'Could not update shipping label status.');
     } finally {
       setGenerating(null);
     }
@@ -348,6 +352,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           ))}
         </dl>
       </details>
+
+      {shippingLabelOpen && (
+        <ShippingLabelPrintDialog
+          booking={booking}
+          onClose={() => setShippingLabelOpen(false)}
+          onPrinted={() => void handleShippingLabelPrinted()}
+        />
+      )}
     </article>
   );
 };

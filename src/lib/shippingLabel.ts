@@ -1,7 +1,13 @@
 import { DELIVERY_METHODS } from '../constants/deliveryMethods';
 import { logisticsPartnerLabel } from '../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
-import type { LogisticsDealerSnapshot, ShipmentMode } from '../types/logistics-dispatch';
+import type {
+  LogisticsBooking,
+  LogisticsDealerSnapshot,
+  ShipmentMode,
+} from '../types/logistics-dispatch';
+import { STAFF_LOGISTICS_SITE_LABELS } from '../types/staff-logistics';
+import { boxChargeableWeight, chargeableWeight } from './logisticsBooking';
 
 /** Best-effort city from a multiline address when Zoho city is missing. */
 export function extractDestinationCity(address: string): string {
@@ -182,4 +188,38 @@ export function buildShippingLabelViewModel(input: {
     bookedBy: (input.bookedBy ?? 'YESWEIGH').trim() || 'YESWEIGH',
     shipmentMode: input.shipmentMode,
   };
+}
+
+/** Build one 100×150 mm shipping-label view model per box (or one for envelope). */
+export function buildShippingLabelsFromBooking(booking: LogisticsBooking): ShippingLabelViewModel[] {
+  const count = booking.shipmentMode === 'envelope'
+    ? 1
+    : Math.max(1, booking.numberOfBoxes || booking.boxes.length || 1);
+  const bookingTime = booking.createdAt
+    ? formatShippingBookingTime(new Date(booking.createdAt))
+    : formatShippingBookingTime();
+  const chargeable = chargeableWeight(booking);
+
+  return Array.from({ length: count }, (_, index) => {
+    const box = booking.boxes[index];
+    const boxActual = box?.weightKg ?? booking.actualWeightKg;
+    const boxChargeable = box ? boxChargeableWeight(box) : chargeable;
+    return buildShippingLabelViewModel({
+      fromName: STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'YESWEIGH',
+      fromAddress: booking.shipFromAddress || '—',
+      dealer: booking.dealer,
+      deliveryAddress: booking.deliveryAddress,
+      numberOfBoxes: count,
+      boxIndex: index + 1,
+      grossWeightKg: booking.shipmentMode === 'envelope' ? booking.actualWeightKg : boxActual,
+      chargeableWeightKg: booking.shipmentMode === 'envelope' ? chargeable : boxChargeable,
+      partnerId: booking.partnerId,
+      consignmentNo: booking.consignmentNo || booking.trackingNo,
+      bookingBranch: booking.branch,
+      bookingDate: booking.bookingDate,
+      bookingTime,
+      bookedBy: booking.createdByName?.trim() || 'YESWEIGH',
+      shipmentMode: booking.shipmentMode,
+    });
+  });
 }
