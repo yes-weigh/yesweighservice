@@ -105,8 +105,6 @@ const DOC_ICONS = {
   weight: iconSvg('<circle cx="12" cy="5" r="3"/><path d="M6.5 8a2 2 0 0 0-1.905 1.46L2.1 18.5A2 2 0 0 0 4 21h16a2 2 0 0 0 1.925-2.54L19.4 9.5A2 2 0 0 0 17.48 8Z"/>'),
   transport: iconSvg('<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>'),
   payment: iconSvg('<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>'),
-  branch: iconSvg('<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>'),
-  destination: iconSvg('<path d="M20 10c0 4.993-5.539 10.193-7.399 11.964a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>'),
   time: iconSvg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
   bookedBy: iconSvg('<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>'),
 } as const;
@@ -118,15 +116,16 @@ function metricCellHtml(title: string, value: string, icon: keyof typeof DOC_ICO
 function infoCellHtml(
   title: string,
   value: string,
-  icon: keyof typeof DOC_ICONS,
-  large = false,
+  icon: 'time' | 'bookedBy',
 ): string {
-  return `<div class="sheet__info-cell${large ? ' sheet__info-cell--large' : ''}"><div class="sheet__info-head">${DOC_ICONS[icon]}<span class="sheet__pill">${escapeHtml(title)}</span></div><strong>${escapeHtml(value)}</strong></div>`;
+  return `<div class="sheet__info-cell"><div class="sheet__info-head">${DOC_ICONS[icon]}<span class="sheet__label">${escapeHtml(title)}</span></div><strong>${escapeHtml(value)}</strong></div>`;
 }
 
 function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
   const bars = shippingLabelBarcodeBars(label.consignmentNo)
-    .map(w => `<i style="width:${w}px"></i>`)
+    .map((w, i) => (
+      `<i style="flex:${w} ${w} 0;background:${i % 2 === 0 ? '#111' : 'transparent'}"></i>`
+    ))
     .join('');
   const boxLabel = label.shipmentMode === 'envelope'
     ? '1/1'
@@ -138,45 +137,45 @@ function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
 
   return `
     <div class="sheet sheet--shipping">
-      ${shippingLabelHeaderHtml(label.firmName)}
-      <div class="sheet__parties">
-        <div class="sheet__party">
-          <span class="sheet__pill">FROM (SHIPPER)</span>
-          <strong class="sheet__party-name">${escapeHtml(label.fromName)}</strong>
-          <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.fromAddress))}</p>
+      <div class="sheet__frame">
+        ${shippingLabelHeaderHtml(label.firmName)}
+        <div class="sheet__parties">
+          <div class="sheet__party">
+            <span class="sheet__label">FROM (SHIPPER)</span>
+            <strong class="sheet__party-name">${escapeHtml(label.fromName)}</strong>
+            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.fromAddress))}</p>
+          </div>
+          <div class="sheet__party">
+            <span class="sheet__label">TO (CONSIGNEE)</span>
+            <strong class="sheet__party-name">${escapeHtml(label.toName)}</strong>
+            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.toAddress))}</p>
+          </div>
         </div>
-        <div class="sheet__party">
-          <span class="sheet__pill">TO (CONSIGNEE)</span>
-          <strong class="sheet__party-name">${escapeHtml(label.toName)}</strong>
-          <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.toAddress))}</p>
+        <div class="sheet__panel sheet__metrics">
+          ${metricCellHtml('NO. OF BOXES', boxCount, 'boxes')}
+          ${metricCellHtml('BOX NUMBER', boxLabel, 'boxNumber')}
+          ${metricCellHtml('BOX DIMENSIONS (L × B × H)', label.boxDimensions, 'dimensions')}
+          ${metricCellHtml('CONTENTS', label.contents, 'contents')}
+          ${metricCellHtml('GROSS WEIGHT', `${label.grossWeightKg.toFixed(2)} kg`, 'weight')}
+          ${metricCellHtml('CHARGEABLE WEIGHT', `${label.chargeableWeightKg.toFixed(2)} kg`, 'weight')}
+          ${metricCellHtml('MODE OF TRANSPORT', label.transportMode, 'transport')}
+          ${metricCellHtml('PAYMENT MODE', label.paymentMode, 'payment')}
         </div>
-      </div>
-      <div class="sheet__panel sheet__metrics">
-        ${metricCellHtml('NO. OF BOXES', boxCount, 'boxes')}
-        ${metricCellHtml('BOX NUMBER', boxLabel, 'boxNumber')}
-        ${metricCellHtml('BOX DIMENSIONS (L × B × H)', label.boxDimensions, 'dimensions')}
-        ${metricCellHtml('CONTENTS', label.contents, 'contents')}
-        ${metricCellHtml('GROSS WEIGHT', `${label.grossWeightKg.toFixed(2)} kg`, 'weight')}
-        ${metricCellHtml('CHARGEABLE WEIGHT', `${label.chargeableWeightKg.toFixed(2)} kg`, 'weight')}
-        ${metricCellHtml('MODE OF TRANSPORT', label.transportMode, 'transport')}
-        ${metricCellHtml('PAYMENT MODE', label.paymentMode, 'payment')}
-      </div>
-      <div class="sheet__panel sheet__courier">
-        <div class="sheet__courier-side">
-          <span class="sheet__pill">COURIER</span>
-          <div class="sheet__carrier-logo">${carrierImg}<strong class="sheet__carrier-name">${escapeHtml(label.partnerLabel)}</strong></div>
+        <div class="sheet__panel sheet__courier">
+          <div class="sheet__courier-side">
+            <span class="sheet__label">COURIER</span>
+            <div class="sheet__carrier-logo">${carrierImg}<strong class="sheet__carrier-name">${escapeHtml(label.partnerLabel)}</strong></div>
+          </div>
+          <div class="sheet__courier-side sheet__courier-side--track">
+            <span class="sheet__label">AWB / TRACKING NUMBER</span>
+            <code class="sheet__awb">${escapeHtml(label.consignmentNo)}</code>
+            <div class="sheet__barcode" aria-hidden="true">${bars}</div>
+          </div>
         </div>
-        <div class="sheet__courier-side sheet__courier-side--track">
-          <span class="sheet__pill">AWB / TRACKING NUMBER</span>
-          <code class="sheet__awb">${escapeHtml(label.consignmentNo)}</code>
-          <div class="sheet__barcode" aria-hidden="true">${bars}</div>
+        <div class="sheet__panel sheet__info">
+          ${infoCellHtml('BOOKING TIME', label.bookingTime, 'time')}
+          ${infoCellHtml('BOOKED BY', label.bookedBy, 'bookedBy')}
         </div>
-      </div>
-      <div class="sheet__panel sheet__info">
-        ${infoCellHtml('BOOKING BRANCH', label.bookingBranch, 'branch', true)}
-        ${infoCellHtml('DESTINATION', label.destinationCity, 'destination', true)}
-        ${infoCellHtml('BOOKING TIME', label.bookingTime, 'time')}
-        ${infoCellHtml('BOOKED BY', label.bookedBy, 'bookedBy')}
       </div>
     </div>`;
 }

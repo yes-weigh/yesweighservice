@@ -1,9 +1,7 @@
 import {
-  Building2,
   ClipboardList,
   Clock3,
   CreditCard,
-  MapPin,
   Package,
   PackageOpen,
   Ruler,
@@ -22,7 +20,7 @@ export type ShippingMetricIcon =
   | 'transport'
   | 'payment';
 
-export type ShippingInfoIcon = 'branch' | 'destination' | 'time' | 'bookedBy';
+export type ShippingInfoIcon = 'time' | 'bookedBy';
 
 const METRIC_ICONS: Record<ShippingMetricIcon, LucideIcon> = {
   boxes: Package,
@@ -35,8 +33,6 @@ const METRIC_ICONS: Record<ShippingMetricIcon, LucideIcon> = {
 };
 
 const INFO_ICONS: Record<ShippingInfoIcon, LucideIcon> = {
-  branch: Building2,
-  destination: MapPin,
   time: Clock3,
   bookedBy: UserRound,
 };

@@ -9,6 +9,7 @@ import type {
   ShipmentMode,
 } from '../types/logistics-dispatch';
 import { STAFF_LOGISTICS_SITE_LABELS } from '../types/staff-logistics';
+import { encodeCode128 } from './code128';
 import {
   boxChargeableWeight,
   boxDimensionsLabel,
@@ -200,14 +201,12 @@ function resolveBoxDimensions(
   return '—';
 }
 
-export function shippingLabelBarcodeBars(seed: string): number[] {
-  const chars = seed || 'YESWEIGH';
-  const bars: number[] = [];
-  for (let i = 0; i < 48; i += 1) {
-    const code = chars.charCodeAt(i % chars.length) + i;
-    bars.push(1 + (code % 3));
-  }
-  return bars;
+/**
+ * Code 128 module runs for the AWB / consignment number.
+ * Alternating bar, space, bar, space… widths in modules (starts with a bar).
+ */
+export function shippingLabelBarcodeBars(value: string): number[] {
+  return encodeCode128(value || '0');
 }
 
 export function buildShippingLabelViewModel(input: {

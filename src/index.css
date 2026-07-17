@@ -15141,9 +15141,9 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   height: 150mm;
   max-width: 100%;
   margin: 0 auto;
-  border: 2.5px solid #111;
-  border-radius: 4mm;
-  padding: 2.6mm 2.6mm 2.4mm;
+  border: none;
+  border-radius: 0;
+  padding: 2.5mm;
   background: #fff;
   color: #111;
   font-family: Arial, Helvetica, sans-serif;
@@ -15154,6 +15154,20 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0;
 }
 
+.book-courier__label-preview .sheet__frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 2.5px solid #111;
+  border-radius: 3.2mm;
+  padding: 2.4mm 2.4mm 2.2mm;
+  background: #fff;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
 .book-courier__label-preview .sheet--courier {
   border-width: 3px;
 }
@@ -15161,125 +15175,62 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .book-courier__label-preview .sheet__header {
   display: flex;
   align-items: center;
-  gap: 2.4mm;
+  gap: 2mm;
   padding: 0;
   margin: 0;
   border-bottom: none;
-  min-height: 11mm;
+  min-height: 9mm;
 }
 
-.book-courier__label-preview .sheet__y1 {
-  flex: 0 0 auto;
-  width: 9.4mm;
-  height: 9.4mm;
-  background: #111;
-  color: #fff;
+.book-courier__label-preview .sheet__brand-lockup {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0.35mm;
-  line-height: 1;
-}
-
-.book-courier__label-preview .sheet__y1-mark {
-  font-family: "Arial Black", Arial, Helvetica, sans-serif;
-  font-size: 4.4mm;
-  font-weight: 900;
-  letter-spacing: -0.04em;
-  line-height: 1;
-}
-
-.book-courier__label-preview .sheet__y1-sub {
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 1.35mm;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.book-courier__label-preview .sheet__brand {
-  flex: 0 1 auto;
-  text-align: left;
-  line-height: 1.05;
+  gap: 2mm;
   min-width: 0;
+  flex: 1 1 auto;
+  width: 100%;
 }
 
-.book-courier__label-preview .sheet__brand strong {
+.book-courier__label-preview .sheet__mark {
+  height: 7mm;
+  width: auto;
   display: block;
-  font-family: "Arial Black", Arial, Helvetica, sans-serif;
-  font-size: 5.6mm;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  line-height: 1;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .book-courier__label-preview .sheet__firm {
-  display: block;
-  margin-top: 0.8mm;
-  font-size: 2.2mm;
-  font-weight: 500;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: "Arial Black", Arial, Helvetica, sans-serif;
+  font-size: 5.2mm;
+  font-weight: 900;
   letter-spacing: 0.01em;
+  line-height: 1.05;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: #111;
 }
 
-.book-courier__label-preview .sheet__firm em {
-  font-style: normal;
-  font-weight: 400;
-  padding: 0 0.55mm;
-}
-
-.book-courier__label-preview .sheet__badge {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 1.2mm;
-  flex: 0 0 auto;
-}
-
-.book-courier__label-preview .sheet__badge-icon {
-  width: 5.2mm;
-  height: 6.1mm;
+.book-courier__label-preview .sheet__label {
   display: block;
-  flex-shrink: 0;
-}
-
-.book-courier__label-preview .sheet__badge-text {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.2mm;
-  line-height: 1.05;
-}
-
-.book-courier__label-preview .sheet__badge-text b {
-  font-size: 2.1mm;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  color: #111;
+  background: none;
+  font-size: 2.4mm;
+  font-weight: 900;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-}
-
-.book-courier__label-preview .sheet__pill {
-  display: inline-block;
-  background: #111;
-  color: #fff;
-  font-size: 1.75mm;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 0.65mm 1.35mm;
-  border-radius: 999px;
   line-height: 1.15;
   margin-bottom: 0;
 }
 
 .book-courier__label-preview .sheet__glyph {
-  width: 3.2mm;
-  height: 3.2mm;
+  width: 3.8mm;
+  height: 3.8mm;
   flex-shrink: 0;
   stroke: #111;
+  stroke-width: 2.5;
 }
 
 .book-courier__label-preview .sheet__panel {
@@ -15297,7 +15248,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 1.6mm 0 0;
   border: none;
   border-top: 1.5px solid #111;
-  border-bottom: 1.5px solid #111;
+  border-bottom: none;
   border-radius: 0;
   padding: 0;
 }
@@ -15307,8 +15258,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   min-width: 0;
 }
 
-.book-courier__label-preview .sheet__party .sheet__pill {
-  margin-bottom: 1.3mm;
+.book-courier__label-preview .sheet__party .sheet__label {
+  margin-bottom: 1.2mm;
 }
 
 .book-courier__label-preview .sheet__party + .sheet__party {
@@ -15317,17 +15268,17 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .book-courier__label-preview .sheet__party-name {
   display: block;
-  font-size: 2.55mm;
-  font-weight: 800;
+  font-size: 3.2mm;
+  font-weight: 900;
   line-height: 1.2;
-  margin-bottom: 0.7mm;
+  margin-bottom: 0.8mm;
   text-transform: none;
 }
 
 .book-courier__label-preview .sheet__party-address {
   margin: 0;
-  font-size: 2.15mm;
-  font-weight: 400;
+  font-size: 2.7mm;
+  font-weight: 700;
   line-height: 1.28;
   white-space: pre-line;
 }
@@ -15364,8 +15315,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .book-courier__label-preview .sheet__metric-title {
   display: block;
-  font-size: 1.55mm;
-  font-weight: 700;
+  font-size: 2.1mm;
+  font-weight: 900;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   line-height: 1.15;
@@ -15374,8 +15325,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .book-courier__label-preview .sheet__metric-value {
   display: block;
-  font-size: 2.55mm;
-  font-weight: 800;
+  font-size: 3.2mm;
+  font-weight: 900;
   line-height: 1.15;
   word-break: break-word;
   margin-top: auto;
@@ -15421,17 +15372,21 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .book-courier__label-preview .sheet__carrier-name {
-  font-size: 2.2mm;
-  font-weight: 800;
+  font-size: 2.8mm;
+  font-weight: 900;
   text-align: center;
   text-transform: uppercase;
   line-height: 1.15;
 }
 
+.book-courier__label-preview .sheet__courier-side > .sheet__label {
+  margin-bottom: 1mm;
+}
+
 .book-courier__label-preview .sheet__awb {
   display: block;
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 5.2mm;
+  font-family: "Arial Black", Arial, Helvetica, sans-serif;
+  font-size: 6mm;
   font-weight: 900;
   letter-spacing: 0.04em;
   margin: 1.2mm 0 1.4mm;
@@ -15446,42 +15401,35 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   height: 7mm;
   width: 100%;
   margin-top: auto;
+  padding: 0 2mm;
+  box-sizing: border-box;
 }
 
 .book-courier__label-preview .sheet__barcode i {
   display: block;
-  width: 2px;
-  background: #111;
+  min-width: 0;
   height: 100%;
-  margin-left: 1px;
 }
 
 .book-courier__label-preview .sheet__info {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1.35fr 0.85fr;
   margin: 0;
   margin-top: auto;
-  flex: 1;
-  min-height: 28mm;
+  min-height: 12mm;
 }
 
 .book-courier__label-preview .sheet__info-cell {
-  padding: 1.6mm 1.8mm;
+  padding: 2mm 2.2mm;
   display: flex;
   flex-direction: column;
-  gap: 1mm;
+  gap: 1.2mm;
   min-width: 0;
   border-right: 1.4px solid #111;
-  border-bottom: 1.4px solid #111;
 }
 
 .book-courier__label-preview .sheet__info-cell:nth-child(2n) {
   border-right: none;
-}
-
-.book-courier__label-preview .sheet__info-cell:nth-child(n + 3) {
-  border-bottom: none;
 }
 
 .book-courier__label-preview .sheet__info-head {
@@ -15491,18 +15439,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .book-courier__label-preview .sheet__info-cell strong {
-  font-size: 2.6mm;
-  font-weight: 800;
+  font-size: 3.6mm;
+  font-weight: 900;
   line-height: 1.15;
   word-break: break-word;
-}
-
-.book-courier__label-preview .sheet__info-cell--large strong {
-  margin-top: auto;
-  font-size: 3.8mm;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
 }
 
 .book-courier__label-preview .sheet--courier .sheet__brand {

@@ -191,9 +191,8 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     width: ${LOGISTICS_LABEL_WIDTH_MM}mm;
     height: ${LOGISTICS_LABEL_HEIGHT_MM}mm;
     margin: 0;
-    border: 2.5px solid #111;
-    border-radius: 4mm;
-    padding: 2.6mm;
+    border: none;
+    padding: 2.5mm;
     overflow: hidden;
     page-break-after: always;
     break-after: page;
@@ -206,22 +205,32 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     font-family: Arial, Helvetica, sans-serif;
   }
   .sheet:last-child { page-break-after: auto; break-after: auto; }
+  .sheet__frame {
+    flex: 1 1 auto;
+    min-height: 0;
+    border: 2.5px solid #111;
+    border-radius: 3.2mm;
+    padding: 2.4mm 2.4mm 2.2mm;
+    background: #fff;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
   ${SHIPPING_LABEL_HEADER_STYLES}
   .sheet__header { border-bottom: none; margin: 0; padding-bottom: 0; }
-  .sheet__pill {
-    display: inline-block;
-    background: #111;
-    color: #fff;
-    font-size: 6.5px;
-    font-weight: 800;
-    letter-spacing: 0.04em;
+  .sheet__label {
+    display: block;
+    color: #111;
+    background: none;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
-    padding: 2px 5px;
-    border-radius: 999px;
     line-height: 1.15;
     margin-bottom: 0;
   }
-  .sheet__glyph { width: 12px; height: 12px; flex-shrink: 0; }
+  .sheet__glyph { width: 14px; height: 14px; flex-shrink: 0; }
   .sheet__panel {
     border: 1.4px solid #111;
     border-radius: 2.2mm;
@@ -232,22 +241,23 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     display: grid;
     grid-template-columns: 1fr 1fr;
     border-top: 1.5px solid #111;
-    border-bottom: 1.5px solid #111;
+    border-bottom: none;
     margin: 1.6mm 0 0;
   }
   .sheet__party { padding: 7px; min-width: 0; }
-  .sheet__party .sheet__pill { margin-bottom: 5px; }
+  .sheet__party .sheet__label { margin-bottom: 5px; }
   .sheet__party + .sheet__party { border-left: 1.5px solid #111; }
   .sheet__party-name {
     display: block;
-    font-size: 9.5px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: 900;
     line-height: 1.2;
     margin-bottom: 3px;
   }
   .sheet__party-address {
     margin: 0;
-    font-size: 8px;
+    font-size: 10px;
+    font-weight: 700;
     line-height: 1.28;
     white-space: pre-line;
   }
@@ -265,14 +275,14 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
   .sheet__metric:nth-child(n + 5) { border-bottom: none; }
   .sheet__metric-head { display: flex; align-items: flex-start; gap: 3px; }
   .sheet__metric-title {
-    font-size: 6px;
-    font-weight: 700;
+    font-size: 8px;
+    font-weight: 900;
     text-transform: uppercase;
     line-height: 1.15;
   }
   .sheet__metric-value {
-    font-size: 9.5px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: 900;
     line-height: 1.15;
     word-break: break-word;
     margin-top: auto;
@@ -291,6 +301,7 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
   }
   .sheet__courier-side + .sheet__courier-side { border-left: 1.4px solid #111; }
   .sheet__courier-side--track { align-items: center; text-align: center; }
+  .sheet__courier-side > .sheet__label { margin-bottom: 4px; }
   .sheet__carrier-logo {
     flex: 1;
     display: flex;
@@ -301,14 +312,15 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
   }
   .sheet__carrier-logo img { max-width: 100%; max-height: 36px; object-fit: contain; }
   .sheet__carrier-name {
-    font-size: 8px;
-    font-weight: 800;
+    font-size: 11px;
+    font-weight: 900;
     text-align: center;
     text-transform: uppercase;
   }
   .sheet__awb {
     display: block;
-    font-size: 20px;
+    font-family: Arial Black, Arial, Helvetica, sans-serif;
+    font-size: 22px;
     font-weight: 900;
     letter-spacing: 0.04em;
     margin: 4px 0 6px;
@@ -316,49 +328,41 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
   .sheet__barcode {
     display: flex;
     justify-content: center;
+    align-items: stretch;
+    gap: 0;
     height: 26px;
     width: 100%;
     margin-top: auto;
+    padding: 0 8px;
+    box-sizing: border-box;
   }
   .sheet__barcode i {
     display: block;
-    width: 2px;
-    background: #111;
+    min-width: 0;
     height: 100%;
-    margin-left: 1px;
   }
   .sheet__info {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1.35fr 0.85fr;
     margin: 0;
     margin-top: auto;
-    flex: 1;
-    min-height: 100px;
+    min-height: 44px;
   }
   .sheet__info-cell {
-    padding: 6px;
+    padding: 8px;
     display: flex;
     flex-direction: column;
     gap: 4px;
     min-width: 0;
     border-right: 1.4px solid #111;
-    border-bottom: 1.4px solid #111;
   }
   .sheet__info-cell:nth-child(2n) { border-right: none; }
-  .sheet__info-cell:nth-child(n + 3) { border-bottom: none; }
   .sheet__info-head { display: flex; align-items: center; gap: 4px; }
   .sheet__info-cell strong {
-    font-size: 10px;
-    font-weight: 800;
-    line-height: 1.15;
-    word-break: break-word;
-  }
-  .sheet__info-cell--large strong {
-    margin-top: auto;
     font-size: 14px;
     font-weight: 900;
-    text-transform: uppercase;
+    line-height: 1.15;
+    word-break: break-word;
   }
 `;
 

@@ -200,17 +200,17 @@ const SHIPPING_LABEL_PRINT_STYLES = `
   .sheet__barcode {
     display: flex;
     justify-content: center;
-    gap: 1px;
+    align-items: stretch;
+    gap: 0;
     height: 34px;
+    padding: 0 8px;
+    box-sizing: border-box;
   }
   .sheet__barcode i {
     display: block;
-    width: 2px;
-    background: #111;
+    min-width: 0;
     height: 100%;
   }
-  .sheet__barcode i:nth-child(3n) { width: 1px; }
-  .sheet__barcode i:nth-child(5n) { width: 3px; }
   .sheet__footer {
     display: grid;
     grid-template-columns: 1fr 1.1fr;
