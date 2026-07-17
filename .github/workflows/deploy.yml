@@ -97,6 +97,8 @@ jobs:
           if [ "$status" -ne 0 ]; then
             echo "::warning::Functions deploy had errors."
             echo "::warning::If the log mentions a missing environment variable, add it to functions/.env.yesweigh-service via the Prepare functions environment step (e.g. ZOHO_WEBHOOK_SECRET)."
+            echo "::warning::If deploy aborted because a function exists in the project but not in source, CI should pass --force (scripts/ci-firebase-deploy.sh). Or delete manually:"
+            echo "::warning::  firebase functions:delete <name> --region asia-south1 --project yesweigh-service"
             echo "::warning::If syncZohoCatalogScheduled failed with cloudscheduler.jobs.update, grant the CI service account:"
             echo "::warning::  Role: Cloud Scheduler Admin (roles/cloudscheduler.admin)"
             echo "::warning::  IAM: https://console.cloud.google.com/iam-admin/iam?project=yesweigh-service"

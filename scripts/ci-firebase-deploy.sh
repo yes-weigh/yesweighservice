@@ -10,6 +10,13 @@ REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
 HTTP_AGENT_FIX="${REPO_ROOT}/scripts/ci-node-http-agent-fix.cjs"
 FIREBASE_CLI="${FIREBASE_CLI:-npx --yes firebase-tools@15.22.1}"
 
+# --force on functions: delete orphans removed from source (non-interactive) and
+# apply Artifact Registry cleanup policy without prompting (see README).
+FORCE_FLAG=()
+case "$TARGETS" in
+  *functions*) FORCE_FLAG=(--force) ;;
+esac
+
 if [ -f "$HTTP_AGENT_FIX" ]; then
   export NODE_OPTIONS="--require ${HTTP_AGENT_FIX}${NODE_OPTIONS:+ ${NODE_OPTIONS}}"
 fi
@@ -35,6 +42,7 @@ run_deploy() {
       --only "$TARGETS" \
       --project "$PROJECT" \
       --non-interactive \
+      "${FORCE_FLAG[@]}" \
       "${debug_flag[@]}"
   else
     if [ -z "${FIREBASE_TOKEN:-}" ]; then
@@ -47,6 +55,7 @@ run_deploy() {
       --project "$PROJECT" \
       --non-interactive \
       --token "$FIREBASE_TOKEN" \
+      "${FORCE_FLAG[@]}" \
       "${debug_flag[@]}"
   fi
 }
