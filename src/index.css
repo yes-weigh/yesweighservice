@@ -3630,7 +3630,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.45);
   overflow: hidden;
-  isolation: isolate;
   text-align: left;
   cursor: pointer;
   color: var(--cat-accent, #1d4f8c);
@@ -3710,8 +3709,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   justify-content: flex-start;
 }
 
-.catalog-category-card--simple .catalog-category-card__img {
-  filter: none;
+.catalog-category-card--simple .catalog-category-card__img--blend {
+  filter: brightness(1.18) contrast(1.1) saturate(1.02);
 }
 
 .catalog-category-card__genuine-badge {
@@ -3737,7 +3736,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   align-items: flex-end;
   justify-content: center;
   overflow: hidden;
-  background: var(--cat-bg);
+  background: transparent;
   pointer-events: none;
 }
 
@@ -3747,11 +3746,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 120%;
   object-fit: contain;
   object-position: bottom center;
-  filter: drop-shadow(0 5px 8px rgba(0, 0, 0, 0.14));
 }
 
-.catalog-category-card__img--blend {
+/* Category tiles only — knock white/gray photo backgrounds into the tint */
+.catalog-category-card .catalog-category-card__img--blend {
   mix-blend-mode: darken;
+  filter: brightness(1.18) contrast(1.1) saturate(1.02);
 }
 
 .catalog-category-card__fallback {
@@ -7852,11 +7852,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 94%;
   object-fit: contain;
   object-position: center bottom;
-}
-
-.product-detail-page .catalog-category-card__img--blend {
-  mix-blend-mode: darken;
-  filter: brightness(1.14) contrast(1.08) saturate(1.02);
+  filter: none;
 }
 
 .product-detail-page__image-stage--editable .catalog-stock--overlay {
@@ -12655,11 +12651,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 96%;
   object-fit: contain;
   object-position: center bottom;
-}
-
-.related-catalog .catalog-category-card__img--blend {
-  mix-blend-mode: darken;
-  filter: brightness(1.14) contrast(1.08) saturate(1.02);
+  filter: none;
 }
 
 .related-catalog__media > svg {
@@ -16568,11 +16560,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 94%;
   object-fit: contain;
   object-position: center bottom;
-}
-
-.spare-product-map__image-stage .catalog-category-card__img--blend {
-  mix-blend-mode: darken;
-  filter: brightness(1.14) contrast(1.08) saturate(1.02);
+  filter: none;
 }
 
 .spare-product-map__placeholder {

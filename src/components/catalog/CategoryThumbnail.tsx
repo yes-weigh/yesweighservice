@@ -1,22 +1,20 @@
 interface CategoryThumbnailProps {
   src: string;
   className?: string;
-  /** JPG knock-out blend — off for product grid cards. */
-  blend?: boolean;
+  /**
+   * `category` — tinted tile knock-out (blend + brighten) on catalogue category cards only.
+   * `false` — plain image for products, spares, detail, orders, etc.
+   */
+  knockout?: 'category' | false;
 }
 
-function isPngImageSrc(src: string): boolean {
-  const path = src.split(/[?#]/)[0] ?? src;
-  return /\.png$/i.test(path);
-}
-
-/** Catalog image — optional JPG knock-out via CSS blend; PNGs never blend. */
+/** Category tile vs product/spare image rendering. */
 export const CategoryThumbnail: React.FC<CategoryThumbnailProps> = ({
   src,
   className = '',
-  blend = true,
+  knockout = false,
 }) => {
-  const useBlend = blend && !isPngImageSrc(src);
+  const useKnockout = knockout === 'category';
 
   return (
     <img
@@ -24,7 +22,7 @@ export const CategoryThumbnail: React.FC<CategoryThumbnailProps> = ({
       alt=""
       className={[
         'catalog-category-card__img',
-        useBlend ? 'catalog-category-card__img--blend' : '',
+        useKnockout ? 'catalog-category-card__img--blend' : '',
         className,
       ].filter(Boolean).join(' ')}
       loading="lazy"

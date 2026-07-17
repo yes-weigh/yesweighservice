@@ -49,7 +49,7 @@ function SpareImageStage({
   return (
     <div className={`spare-product-map__image-stage spare-product-map__image-stage--${size}`}>
       {src ? (
-        <CategoryThumbnail src={src} />
+        <CategoryThumbnail src={src} knockout={false} />
       ) : (
         <Package
           size={size === 'hero' ? 32 : 24}

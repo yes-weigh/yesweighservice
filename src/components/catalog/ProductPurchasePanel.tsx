@@ -82,6 +82,14 @@ function sortNewestFirst(rows: CatalogStockMovement[]): CatalogStockMovement[] {
   });
 }
 
+function formatPurchaseUnitPrice(row: CatalogStockMovement): string | null {
+  const unitPrice = row.itemPrice != null && Number.isFinite(Number(row.itemPrice))
+    ? Number(row.itemPrice)
+    : null;
+  if (unitPrice == null) return null;
+  return formatCurrency(unitPrice, row.currencyCode ?? 'INR');
+}
+
 function PurchaseBillTile({
   row,
   unit,
@@ -92,9 +100,7 @@ function PurchaseBillTile({
   const excluded = doesNotAffectPurchase(row);
   const when = formatPurchaseWhen(row);
   const qty = billQty(row);
-  const unitPrice = row.itemPrice != null && Number.isFinite(Number(row.itemPrice))
-    ? Number(row.itemPrice)
-    : null;
+  const unitPriceLabel = formatPurchaseUnitPrice(row);
   const name = formatVendorDisplayName(row.customerOrVendor || 'Unknown vendor');
 
   return (
@@ -112,9 +118,9 @@ function PurchaseBillTile({
           <span>{unit}</span>
         </span>
         <span className="stock-ledger__purchase-tile-price">
-          {unitPrice != null ? (
+          {unitPriceLabel != null ? (
             <>
-              {formatCurrency(unitPrice)}
+              {unitPriceLabel}
               <span className="stock-ledger__purchase-tile-price-unit">per piece</span>
             </>
           ) : '—'}
@@ -373,9 +379,7 @@ export const ProductPurchasePanel: React.FC<{
                       const when = formatPurchaseWhen(row);
                       const excluded = doesNotAffectPurchase(row);
                       const qty = billQty(row);
-                      const unitPrice = row.itemPrice != null && Number.isFinite(Number(row.itemPrice))
-                        ? Number(row.itemPrice)
-                        : null;
+                      const unitPriceLabel = formatPurchaseUnitPrice(row);
                       return (
                         <tr
                           key={`desk-${row.documentId}-${row.date}-${index}`}
@@ -397,7 +401,7 @@ export const ProductPurchasePanel: React.FC<{
                             <span>{unit}</span>
                           </td>
                           <td className="stock-ledger__closing">
-                            {unitPrice != null ? `${formatCurrency(unitPrice)} per piece` : '—'}
+                            {unitPriceLabel != null ? `${unitPriceLabel} per piece` : '—'}
                           </td>
                         </tr>
                       );

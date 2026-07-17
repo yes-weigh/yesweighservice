@@ -177,7 +177,7 @@ export const RelatedCatalogItems: React.FC<{
                   <div className="related-catalog__media">
                     {item.imageUrl ? (
                       <div className="related-catalog__visual" aria-hidden>
-                        <CategoryThumbnail src={item.imageUrl} />
+                        <CategoryThumbnail src={item.imageUrl} knockout={false} />
                       </div>
                     ) : (
                       <Package size={24} aria-hidden />

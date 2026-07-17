@@ -92,7 +92,7 @@ export const CategoryBrowseCard: React.FC<CategoryBrowseCardProps> = ({
       )}
       <div className="catalog-category-card__visual" aria-hidden>
         {category.thumbnailUrl ? (
-          <CategoryThumbnail src={category.thumbnailUrl} />
+          <CategoryThumbnail src={category.thumbnailUrl} knockout="category" />
         ) : (
           <FolderOpen size={36} className="catalog-category-card__fallback" />
         )}

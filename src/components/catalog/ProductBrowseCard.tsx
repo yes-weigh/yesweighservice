@@ -147,7 +147,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           )}
           {product.imageUrl ? (
             <div className="catalog-product-card__visual" aria-hidden>
-              <CategoryThumbnail src={product.imageUrl} blend={false} />
+              <CategoryThumbnail src={product.imageUrl} />
             </div>
           ) : (
             <Package size={36} className="catalog-product-card__fallback" aria-hidden />

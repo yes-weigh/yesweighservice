@@ -1705,12 +1705,21 @@ export async function saveCatalogSpareProductLinks(
   }
 }
 
-export function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 2,
-  }).format(value);
+export function formatCurrency(value: number, currencyCode = 'INR'): string {
+  const code = String(currencyCode || 'INR').trim().toUpperCase() || 'INR';
+  try {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: code,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
 }
 
 /** Dealer price without paise — for compact product-detail display. */

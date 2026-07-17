@@ -65,9 +65,20 @@ function baseMovement(partial) {
     reference: null,
     itemPrice: null,
     itemTotal: null,
+    currencyCode: null,
+    currencySymbol: null,
     affectsStock: true,
     displayQtyDelta: null,
     ...partial,
+  };
+}
+
+function parseCurrencyFields(row) {
+  const code = row.currency_code ?? row.currencyCode;
+  const symbol = row.currency_symbol ?? row.currencySymbol;
+  return {
+    currencyCode: code ? String(code).trim().toUpperCase() : null,
+    currencySymbol: symbol ? String(symbol).trim() : null,
   };
 }
 
@@ -132,6 +143,7 @@ function mapInvoice(row) {
     quantity: Math.abs(qty),
     itemPrice: row.item_price != null ? Number(row.item_price) : null,
     itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
+    ...parseCurrencyFields(row),
   }), -Math.abs(qty));
 }
 
@@ -151,6 +163,7 @@ function mapBill(row) {
     quantity: Math.abs(qty),
     itemPrice: row.item_price != null ? Number(row.item_price) : null,
     itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
+    ...parseCurrencyFields(row),
   }), +Math.abs(qty));
 }
 
@@ -170,6 +183,7 @@ function mapCreditNote(row) {
     quantity: Math.abs(qty),
     itemPrice: row.item_price != null ? Number(row.item_price) : null,
     itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
+    ...parseCurrencyFields(row),
   }), +Math.abs(qty));
 }
 

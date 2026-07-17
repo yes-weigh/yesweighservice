@@ -85,6 +85,10 @@ export interface CatalogStockMovement {
   reference: string | null;
   itemPrice?: number | null;
   itemTotal?: number | null;
+  /** ISO 4217 code from Zoho (e.g. INR, USD). */
+  currencyCode?: string | null;
+  /** Zoho currency symbol when provided. */
+  currencySymbol?: string | null;
   /** Running stock after this movement (oldest→newest from stock-affecting txns). */
   runningStock?: number | null;
 }

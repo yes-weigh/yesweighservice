@@ -89,7 +89,7 @@ export const OrdersPage: React.FC = () => {
               >
                 <div className="orders-page__item-media">
                   {item.imageUrl ? (
-                    <CategoryThumbnail src={item.imageUrl} />
+                    <CategoryThumbnail src={item.imageUrl} knockout={false} />
                   ) : (
                     <Package size={28} aria-hidden />
                   )}

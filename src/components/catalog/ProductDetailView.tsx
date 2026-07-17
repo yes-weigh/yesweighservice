@@ -1543,7 +1543,7 @@ export const ProductDetailView: React.FC<{
                   >
                     {galleryUrls.map((url, index) => (
                       <div key={`${url}-${index}`} className="product-detail-page__carousel-slide">
-                        <CategoryThumbnail src={url} />
+                        <CategoryThumbnail src={url} knockout={false} />
                       </div>
                     ))}
                   </div>
@@ -1572,7 +1572,7 @@ export const ProductDetailView: React.FC<{
                   </div>
                 </>
               ) : galleryUrls.length === 1 ? (
-                <CategoryThumbnail src={galleryUrls[0]} />
+                <CategoryThumbnail src={galleryUrls[0]} knockout={false} />
               ) : (
                 <Package size={72} className="product-detail-page__placeholder" aria-hidden />
               )}
