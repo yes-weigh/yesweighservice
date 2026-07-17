@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  # Needed to resolve the last successful deploy SHA for functions catch-up.
+  actions: read
 
 jobs:
   deploy:
@@ -16,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Need the push "before" SHA for selective functions deploy (changed-functions.mjs).
+          # Full history so we can diff functions/ against the last successful deploy.
           fetch-depth: 0
 
       - name: Setup Node
@@ -60,18 +62,74 @@ jobs:
       - name: Deploy hosting, Firestore, and Storage
         run: bash scripts/ci-firebase-deploy.sh hosting,firestore,storage
 
-      - name: Determine changed functions
-        id: changed_functions
+      - name: Resolve functions deploy base
+        id: functions_base
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          BASE="${{ github.event.before }}"
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            BASE="HEAD~1"
+          set -euo pipefail
+
+          # Prefer the last *successful* workflow run on this branch so a failed
+          # functions deploy is retried on the next push even if that push only
+          # fixes hosting/frontend (no new functions/ files).
+          LAST_SUCCESS=""
+          if command -v gh >/dev/null 2>&1; then
+            LAST_SUCCESS="$(
+              gh run list \
+                --workflow "${{ github.workflow }}" \
+                --branch "${{ github.ref_name }}" \
+                --status success \
+                --limit 1 \
+                --json headSha \
+                --jq '.[0].headSha // empty' \
+              2>/dev/null || true
+            )"
           fi
+
+          BEFORE="${{ github.event.before }}"
+          BASE=""
+          REASON=""
+
+          if [ -n "$LAST_SUCCESS" ] && [ "$LAST_SUCCESS" != "${{ github.sha }}" ]; then
+            if git rev-parse --verify "${LAST_SUCCESS}^{commit}" >/dev/null 2>&1 \
+              || git fetch --depth=1 origin "${LAST_SUCCESS}" >/dev/null 2>&1; then
+              if git merge-base --is-ancestor "${LAST_SUCCESS}" HEAD 2>/dev/null; then
+                BASE="$LAST_SUCCESS"
+                REASON="last successful deploy (${LAST_SUCCESS})"
+              fi
+            fi
+          fi
+
+          if [ -z "$BASE" ]; then
+            if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+              BASE="$BEFORE"
+              REASON="push before SHA (${BEFORE})"
+            else
+              BASE="HEAD~1"
+              REASON="HEAD~1 (no prior success / before SHA)"
+            fi
+          fi
+
           if ! git rev-parse --verify "${BASE}^{commit}" >/dev/null 2>&1; then
             echo "Base commit ${BASE} not in clone — fetching from origin"
             git fetch --depth=1 origin "${BASE}" || true
           fi
-          echo "Comparing functions/ against ${BASE}"
+
+          if ! git rev-parse --verify "${BASE}^{commit}" >/dev/null 2>&1; then
+            echo "::warning::Could not resolve functions base ${BASE}; falling back to HEAD~1"
+            BASE="HEAD~1"
+            REASON="HEAD~1 (fallback)"
+          fi
+
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+          echo "reason=${REASON}" >> "$GITHUB_OUTPUT"
+          echo "Functions diff base: ${BASE} (${REASON})"
+
+      - name: Determine changed functions
+        id: changed_functions
+        run: |
+          BASE="${{ steps.functions_base.outputs.base }}"
+          echo "Comparing functions/ against ${BASE} (${{ steps.functions_base.outputs.reason }})"
           mapfile -t lines < <(node functions/scripts/changed-functions.mjs --base "$BASE")
           for line in "${lines[@]}"; do
             echo "$line"
@@ -83,17 +141,33 @@ jobs:
       - name: Deploy Functions
         if: steps.changed_functions.outputs.skip != 'true'
         run: |
+          set -euo pipefail
+
           if [ "${{ steps.changed_functions.outputs.deploy_all }}" = "true" ]; then
             DEPLOY_TARGET="functions"
+            SELECTIVE=false
             echo "Deploying all functions (shared functions/ change)."
           else
             DEPLOY_TARGET="${{ steps.changed_functions.outputs.deploy_only }}"
+            SELECTIVE=true
             echo "Deploying ${DEPLOY_TARGET} (${{ steps.changed_functions.outputs.count }} function(s))."
           fi
+
           set +e
           bash scripts/ci-firebase-deploy.sh "$DEPLOY_TARGET"
           status=$?
           set -e
+
+          # Selective deploy can leave some functions updated and others not.
+          # One full retry covers orphans / partial failures from this or a prior run.
+          if [ "$status" -ne 0 ] && [ "$SELECTIVE" = "true" ]; then
+            echo "::warning::Selective functions deploy failed — retrying full functions deploy."
+            set +e
+            bash scripts/ci-firebase-deploy.sh functions
+            status=$?
+            set -e
+          fi
+
           if [ "$status" -ne 0 ]; then
             echo "::warning::Functions deploy had errors."
             echo "::warning::If the log mentions a missing environment variable, add it to functions/.env.yesweigh-service via the Prepare functions environment step (e.g. ZOHO_WEBHOOK_SECRET)."
@@ -107,12 +181,14 @@ jobs:
 
       - name: Functions deploy skipped
         if: steps.changed_functions.outputs.skip == 'true'
-        run: echo "No functions/ changes — skipping functions deploy (${{ steps.changed_functions.outputs.reason }})."
+        run: |
+          echo "No functions/ changes since ${{ steps.functions_base.outputs.reason }} — skipping functions deploy (${{ steps.changed_functions.outputs.reason }})."
 
       - name: Verify Functions deploy
         if: env.FUNCTIONS_DEPLOY_FAILED == 'true'
         run: |
           echo "::error::Functions deploy failed earlier in this workflow."
           echo "::error::Hosting, Firestore, and Storage may still have deployed successfully."
+          echo "::error::The next push will re-attempt any functions/ changes since the last successful deploy (even if that push only fixes hosting)."
           echo "::error::Common fixes: ensure functions/.env.yesweigh-service includes ZOHO_WEBHOOK_SECRET (empty is OK); grant Cloud Scheduler Admin to FIREBASE_SERVICE_ACCOUNT if scheduler jobs fail."
           exit 1
