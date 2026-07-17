@@ -157,7 +157,6 @@ export async function renderShippingLabelCanvas(
     ctx.fillText(label.partnerLabel, pad, y + mmToDots(2, LABEL_DPI));
   }
 
-  const barcodeX = pad + colW + colGap;
   ctx.font = `bold ${mmToDots(3.5, LABEL_DPI)}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'right';
   ctx.fillText(label.consignmentNo, width - pad, y);
