@@ -108,6 +108,8 @@ export async function transferCatalogProductWarehouseStock(secrets, configuredOr
     }
     if (qty <= 0) continue;
 
+    const itemName = String(detail.name ?? '').trim() || catalogProductId;
+    const itemUnit = String(detail.unit ?? 'pcs').trim() || 'pcs';
     const createPayload = {
       date: todayIsoDate(),
       from_warehouse_id: source.warehouseId,
@@ -117,6 +119,8 @@ export async function transferCatalogProductWarehouseStock(secrets, configuredOr
       line_items: [
         {
           item_id: catalogProductId,
+          name: itemName,
+          unit: itemUnit,
           quantity_transfer: qty,
         },
       ],
