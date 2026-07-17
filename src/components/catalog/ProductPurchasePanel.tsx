@@ -87,7 +87,17 @@ function formatPurchaseUnitPrice(row: CatalogStockMovement): string | null {
     ? Number(row.itemPrice)
     : null;
   if (unitPrice == null) return null;
-  return formatCurrency(unitPrice, row.currencyCode ?? 'INR');
+  if (row.currencyCode) {
+    return formatCurrency(unitPrice, row.currencyCode);
+  }
+  if (row.currencySymbol) {
+    const amount = unitPrice.toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${row.currencySymbol}${amount}`;
+  }
+  return formatCurrency(unitPrice, 'INR');
 }
 
 function PurchaseBillTile({

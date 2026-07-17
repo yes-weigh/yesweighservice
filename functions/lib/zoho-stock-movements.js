@@ -11,6 +11,15 @@ const REQUEST_GAP_MS = 100;
 const PAGE_SIZE = 200;
 const STOCK_MOVEMENTS_SUB = 'stockMovements';
 const LIFETIME_CACHE_DOC = 'lifetime';
+/** Bump when ledger shape/logic changes so stale Firestore caches are ignored. */
+const LEDGER_CACHE_VERSION = 2;
+
+/** Item-transaction rows omit currency; fetch parent documents for bill/invoice/credit note. */
+const DOCUMENT_CURRENCY_SOURCES = {
+  bill: { path: 'bills', responseKey: 'bill' },
+  invoice: { path: 'invoices', responseKey: 'invoice' },
+  creditnote: { path: 'creditnotes', responseKey: 'creditnote' },
+};
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -80,6 +89,46 @@ function parseCurrencyFields(row) {
     currencyCode: code ? String(code).trim().toUpperCase() : null,
     currencySymbol: symbol ? String(symbol).trim() : null,
   };
+}
+
+async function enrichMovementsWithDocumentCurrency(zohoGet, movements) {
+  const idsByType = new Map();
+  for (const movement of movements) {
+    if (movement.currencyCode || !movement.documentId) continue;
+    const source = DOCUMENT_CURRENCY_SOURCES[movement.type];
+    if (!source) continue;
+    if (!idsByType.has(movement.type)) idsByType.set(movement.type, new Set());
+    idsByType.get(movement.type).add(movement.documentId);
+  }
+  if (idsByType.size === 0) return movements;
+
+  const currencyByKey = new Map();
+  for (const [type, ids] of idsByType) {
+    const source = DOCUMENT_CURRENCY_SOURCES[type];
+    for (const documentId of ids) {
+      try {
+        const json = await zohoGet(`/${source.path}/${encodeURIComponent(documentId)}`);
+        const doc = json[source.responseKey] ?? json;
+        const currency = parseCurrencyFields(doc);
+        if (currency.currencyCode || currency.currencySymbol) {
+          currencyByKey.set(`${type}:${documentId}`, currency);
+        }
+      } catch {
+        // optional enrichment
+      }
+    }
+  }
+  if (currencyByKey.size === 0) return movements;
+
+  return movements.map(movement => {
+    const currency = currencyByKey.get(`${movement.type}:${movement.documentId}`);
+    if (!currency) return movement;
+    return {
+      ...movement,
+      currencyCode: movement.currencyCode ?? currency.currencyCode,
+      currencySymbol: movement.currencySymbol ?? currency.currencySymbol,
+    };
+  });
 }
 
 /** Docs that stay visible but do not change Zoho accounting stock. */
@@ -409,7 +458,7 @@ export async function listCatalogProductLifetimeStockMovements(
 
   const salesReturns = await listSalesReturns(zohoGet, itemId);
 
-  const movements = [
+  const movementsRaw = [
     ...invoices.map(mapInvoice),
     ...bills.map(mapBill),
     ...creditnotes.map(mapCreditNote),
@@ -420,6 +469,8 @@ export async function listCatalogProductLifetimeStockMovements(
     ...putaways.map(r => mapTransferLike(r, 'putaway', 'Putaway', 'putaway_id', 'putaway_number')),
     ...salesReturns,
   ].filter(Boolean);
+
+  const movements = await enrichMovementsWithDocumentCurrency(zohoGet, movementsRaw);
 
   let currentStock = null;
   try {
@@ -530,6 +581,7 @@ async function readLifetimeCache(catalogProductId) {
   if (!snap.exists) return null;
   const data = snap.data();
   if (!isUsableLedgerPayload(data)) return null;
+  if ((data.ledgerCacheVersion ?? 1) < LEDGER_CACHE_VERSION) return null;
   return data;
 }
 
@@ -543,6 +595,7 @@ async function writeLifetimeCache(payload) {
     .doc(LIFETIME_CACHE_DOC)
     .set({
       ...rest,
+      ledgerCacheVersion: LEDGER_CACHE_VERSION,
       cachedAt: new Date().toISOString(),
     });
   return true;
