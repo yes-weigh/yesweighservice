@@ -15766,6 +15766,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0.45rem 0 0;
 }
 
+.logistics-booking__share-error {
+  margin: 0.45rem 0 0;
+  color: #f87171;
+}
+
 .logistics-booking__slip-hint {
   margin: 0.35rem 0 0;
   font-style: italic;

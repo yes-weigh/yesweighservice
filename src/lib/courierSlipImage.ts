@@ -359,17 +359,40 @@ export async function shareCourierSlipImage(slip: CourierSlipViewModel): Promise
     title: `Courier slip · ${slip.consignmentNo}`,
   };
   if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
-    await navigator.share(shareData);
-    return;
+    try {
+      await navigator.share(shareData);
+      return;
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      // Fall through to WhatsApp / download if the system share sheet fails.
+    }
   }
 
-  const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
-  const shareText = [
-    `Courier slip · ${slip.partnerLabel}`,
-    `Consignment: ${slip.consignmentNo}`,
-    `${slip.dealerName}${slip.dealerCode ? ` (${slip.dealerCode})` : ''}`,
-    imageUrl,
-    FIRM_NAME,
-  ].filter(Boolean).join('\n');
-  openWhatsAppWithText(shareText);
+  try {
+    const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
+    const shareText = [
+      `Courier slip · ${slip.partnerLabel}`,
+      `Consignment: ${slip.consignmentNo}`,
+      `${slip.dealerName}${slip.dealerCode ? ` (${slip.dealerCode})` : ''}`,
+      imageUrl,
+      FIRM_NAME,
+    ].filter(Boolean).join('\n');
+    openWhatsAppWithText(shareText);
+    return;
+  } catch {
+    // Storage upload often blocked (rules / auth). Still give the user the PNG.
+    downloadCourierSlipPng(blob, fileName);
+  }
+}
+
+function downloadCourierSlipPng(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2_000);
 }

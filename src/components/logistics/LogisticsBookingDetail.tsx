@@ -53,6 +53,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 }) => {
   const { user } = useAuth();
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
+  const [shareError, setShareError] = useState('');
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const currentIndex = isIncompleteLogisticsBooking(booking)
@@ -73,16 +74,24 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
   const handleGenerateDocument = async (document: LogisticsDocumentType) => {
     if (document === 'courier_slip') {
+      setShareError('');
+      setGenerating('courier_slip');
       try {
         await shareCourierSlipImage(buildCourierSlipFromBooking(booking));
+        if (user) {
+          const updated = await generateLogisticsDocument(booking, document, user);
+          onUpdate(updated);
+        }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
-        window.alert(err instanceof Error ? err.message : 'Could not share courier slip.');
-        return;
+        setShareError(err instanceof Error ? err.message : 'Could not share courier slip.');
+      } finally {
+        setGenerating(null);
       }
-    } else {
-      openShippingLabelWindow(booking, false);
+      return;
     }
+
+    openShippingLabelWindow(booking, false);
     if (!user) return;
     setGenerating(document);
     try {
@@ -272,9 +281,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               disabled={generating !== null}
             >
               <Share2 size={14} aria-hidden />
-              {booking.courierSlipGenerated
-                ? 'Share courier slip again'
-                : generating === 'courier_slip' ? 'Sharing…' : 'Share courier slip'}
+              {generating === 'courier_slip'
+                ? 'Sharing…'
+                : booking.courierSlipGenerated
+                  ? 'Share courier slip again'
+                  : 'Share courier slip'}
             </button>
             <button
               type="button"
@@ -288,6 +299,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 : generating === 'shipping_label' ? 'Generating…' : 'Generate shipping label'}
             </button>
           </div>
+          {shareError && (
+            <p className="text-sm logistics-booking__share-error" role="alert">{shareError}</p>
+          )}
           {(booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
             <p className="text-muted text-sm logistics-booking__slip-names">
               {booking.courierSlipGenerated && courierSlipFileName(booking)}

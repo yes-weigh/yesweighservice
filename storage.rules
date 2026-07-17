@@ -227,7 +227,8 @@ service firebase.storage {
     /** Temporary product share cards — public read so WhatsApp can fetch the image. */
     match /whatsappShares/{userId}/{fileName} {
       allow read: if true;
-      allow create, update: if isActivePortalUser()
+      // Signed-in owner only — avoid Firestore lookups that can fail closed as 403.
+      allow create, update: if signedIn()
         && request.auth.uid == userId
         && request.resource.size < 4 * 1024 * 1024
         && (
