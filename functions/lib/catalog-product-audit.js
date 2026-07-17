@@ -552,3 +552,120 @@ export async function listCatalogProductAuditLogs(catalogProductId, max = 20) {
 
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
+
+/**
+ * Products that still have auditSnapshot after log cleanup, but an empty
+ * auditLogs subcollection — recreate a matching log (and refresh snapshot).
+ */
+export async function repairSnapshotsMissingAuditLogs(options = {}) {
+  const dryRun = Boolean(options.dryRun);
+  const db = getFirestore();
+  const summary = {
+    dryRun,
+    scanned: 0,
+    repaired: 0,
+    skippedHasLogs: 0,
+    skippedNoSnapshot: 0,
+    errors: [],
+    samples: [],
+  };
+
+  const productsSnap = await db.collection(PRODUCTS_COLLECTION).get();
+  for (const doc of productsSnap.docs) {
+    const data = doc.data() ?? {};
+    const snapshot = data.auditSnapshot;
+    if (!snapshot || typeof snapshot !== 'object') {
+      summary.skippedNoSnapshot += 1;
+      continue;
+    }
+    summary.scanned += 1;
+
+    try {
+      const logsSnap = await doc.ref.collection('auditLogs').limit(1).get();
+      if (!logsSnap.empty) {
+        summary.skippedHasLogs += 1;
+        continue;
+      }
+
+      const physicalQty = Number(snapshot.physicalQtyAtAudit ?? 0);
+      const zohoQtyAtAudit = Number(snapshot.zohoQtyAtAudit ?? data.stock ?? 0);
+      const headOfficeQty = Number(snapshot.headOfficeQtyAtAudit ?? 0);
+      const cochinQty = Number(snapshot.cochinQtyAtAudit ?? 0);
+      const baselineDifference = Number.isFinite(Number(snapshot.baselineDifference))
+        ? Number(snapshot.baselineDifference)
+        : physicalQty - zohoQtyAtAudit;
+      const auditedAt = String(
+        snapshot.lastPhysicalAuditedAt
+        || snapshot.lastAuditedAt
+        || new Date().toISOString(),
+      );
+      let auditedByName = String(
+        snapshot.lastPhysicalAuditedByName
+        || snapshot.lastAuditedByName
+        || '',
+      ).trim();
+      if (!auditedByName || /reset after clearing/i.test(auditedByName)) {
+        auditedByName = 'Legacy backfill';
+      }
+      const auditedByUid = snapshot.lastPhysicalAuditedByUid
+        ?? snapshot.lastAuditedByUid
+        ?? null;
+      const preferredLogId = String(snapshot.lastAuditLogId ?? '').trim() || null;
+
+      const entry = {
+        auditedAt,
+        auditedByUid,
+        auditedByName,
+        mode: snapshot.mode === 'bundle' ? 'bundle' : 'unit',
+        headOfficeQty,
+        cochinQty,
+        physicalQty,
+        rawPhysicalQty: null,
+        zohoQtyAtAudit,
+        baselineDifference,
+        trigger: 'legacy_backfill',
+        logId: preferredLogId,
+        auditCycleId: snapshot.lastAuditCycleId
+          ?? snapshot.lastHeadOfficeAuditCycleId
+          ?? snapshot.lastCochinAuditCycleId
+          ?? null,
+        existingSnapshot: snapshot,
+      };
+
+      if (dryRun) {
+        summary.repaired += 1;
+        if (summary.samples.length < 8) {
+          summary.samples.push({
+            productId: doc.id,
+            sku: data.sku ?? null,
+            physicalQty,
+            zohoQtyAtAudit,
+            baselineDifference,
+            logId: preferredLogId,
+          });
+        }
+        continue;
+      }
+
+      await writeCatalogProductAuditEntry(doc.ref, entry);
+      summary.repaired += 1;
+      if (summary.samples.length < 8) {
+        summary.samples.push({
+          productId: doc.id,
+          sku: data.sku ?? null,
+          physicalQty,
+          zohoQtyAtAudit,
+          baselineDifference,
+          logId: preferredLogId,
+        });
+      }
+    } catch (err) {
+      summary.errors.push({
+        productId: doc.id,
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+
+  return summary;
+}
