@@ -376,7 +376,7 @@ export const ProductDetailTabs: React.FC<{
           className="product-detail-tab-panel"
         >
           <TabPanelBody>
-            <ProductPurchasePanel product={product} />
+            <ProductPurchasePanel product={product} active={activeTab === 'purchase'} />
           </TabPanelBody>
         </div>
         )}
@@ -404,7 +404,7 @@ export const ProductDetailTabs: React.FC<{
           className="product-detail-tab-panel"
         >
           <TabPanelBody>
-            <ProductSalesPanel product={product} />
+            <ProductSalesPanel product={product} active={activeTab === 'sales'} />
           </TabPanelBody>
         </div>
         )}
@@ -418,7 +418,7 @@ export const ProductDetailTabs: React.FC<{
           className="product-detail-tab-panel"
         >
           <TabPanelBody>
-            <ProductStockMovementsPanel product={product} />
+            <ProductStockMovementsPanel product={product} active={activeTab === 'stock'} />
           </TabPanelBody>
         </div>
         )}

@@ -12,7 +12,7 @@ import {
   StockLedgerPagination,
   useLedgerPagination,
 } from './StockLedgerPagination';
-import { fetchCatalogProductLifetimeStockMovements } from '../../lib/catalogProductAudit/data';
+import { loadCatalogProductStockLedger, isBrokenStockLedger } from '../../lib/catalogProductAudit/loadStockLedger';
 import { formatStockQuantity } from '../../lib/catalog';
 import type { CatalogProduct } from '../../types/catalog';
 import type {
@@ -161,7 +161,8 @@ function inPeriod(date: string, from: string | null, to: string | null): boolean
 
 export const ProductStockMovementsPanel: React.FC<{
   product: CatalogProduct;
-}> = ({ product }) => {
+  active?: boolean;
+}> = ({ product, active = true }) => {
   const [data, setData] = useState<CatalogProductStockMovementsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -178,25 +179,13 @@ export const ProductStockMovementsPanel: React.FC<{
     [data?.movements],
   );
 
-  const load = useCallback(async (forceRefresh: boolean) => {
-    if (forceRefresh) setRefreshing(true);
+  const load = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
     try {
-      let result = await fetchCatalogProductLifetimeStockMovements(product.id, {
-        forceRefresh,
-      });
-      // Bad empty cache / failed Zoho pull — retry once from Zoho.
-      const emptyBroken =
-        (!result.movements?.length)
-        && (result.currentStock == null)
-        && !forceRefresh;
-      if (emptyBroken) {
-        result = await fetchCatalogProductLifetimeStockMovements(product.id, {
-          forceRefresh: true,
-        });
-      }
-      if ((!result.movements?.length) && result.currentStock == null) {
+      const result = await loadCatalogProductStockLedger(product.id);
+      if (isBrokenStockLedger(result)) {
         setError('Could not load stock movements from Zoho. Try Refresh again.');
       }
       setData(result);
@@ -209,14 +198,15 @@ export const ProductStockMovementsPanel: React.FC<{
   }, [product.id]);
 
   useEffect(() => {
+    if (!active) return;
     setData(null);
     setError(null);
     setPeriodPreset('lifetime');
     setCustomFrom('');
     setCustomTo('');
     setTypeFilter('all');
-    void load(false);
-  }, [product.id, load]);
+    void load();
+  }, [product.id, active, load]);
 
   const period = useMemo(
     () => resolvePeriodBounds(periodPreset, customFrom, customTo),
@@ -619,10 +609,7 @@ export const ProductStockMovementsPanel: React.FC<{
           <footer className="stock-ledger__footer">
             <p>Closing stock is calculated after each transaction.</p>
             {lastUpdated ? (
-              <p>
-                Last updated: {lastUpdated}
-                {data.fromCache ? ' (saved)' : ''}
-              </p>
+              <p>Last updated: {lastUpdated}</p>
             ) : null}
           </footer>
         </>

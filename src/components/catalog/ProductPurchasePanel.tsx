@@ -140,7 +140,8 @@ function PurchaseBillTile({
 
 export const ProductPurchasePanel: React.FC<{
   product: CatalogProduct;
-}> = ({ product }) => {
+  active?: boolean;
+}> = ({ product, active = true }) => {
   const [data, setData] = useState<CatalogProductStockMovementsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -151,12 +152,12 @@ export const ProductPurchasePanel: React.FC<{
 
   const unit = product.unit || 'nos';
 
-  const load = useCallback(async (forceRefresh: boolean) => {
-    if (forceRefresh) setRefreshing(true);
+  const load = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
     try {
-      const result = await loadCatalogProductStockLedger(product.id, forceRefresh);
+      const result = await loadCatalogProductStockLedger(product.id);
       if (isBrokenStockLedger(result)) {
         setError('Could not load purchases from Zoho. Try Refresh again.');
       }
@@ -170,13 +171,14 @@ export const ProductPurchasePanel: React.FC<{
   }, [product.id]);
 
   useEffect(() => {
+    if (!active) return;
     setData(null);
     setError(null);
     setPeriodPreset('lifetime');
     setCustomFrom('');
     setCustomTo('');
-    void load(false);
-  }, [product.id, load]);
+    void load();
+  }, [product.id, active, load]);
 
   const period = useMemo(
     () => resolvePeriodBounds(periodPreset, customFrom, customTo),
@@ -433,10 +435,7 @@ export const ProductPurchasePanel: React.FC<{
           <footer className="stock-ledger__footer">
             <p>Newest bills first. Draft and void bills stay visible but are excluded from totals.</p>
             {lastUpdated ? (
-              <p>
-                Last updated: {lastUpdated}
-                {data.fromCache ? ' (saved)' : ''}
-              </p>
+              <p>Last updated: {lastUpdated}</p>
             ) : null}
           </footer>
         </>

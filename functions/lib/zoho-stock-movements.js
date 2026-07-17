@@ -1,8 +1,7 @@
 /**
  * Zoho item stock movements via /items/transactions/* (includes item_quantity).
  * Fetches stock-affecting doc types. Draft/void/cancelled docs stay visible but
- * qtyDelta=0 so Running matches Zoho accounting stock. Lifetime results are
- * cached under catalogProducts/{id}/stockMovements/lifetime.
+ * qtyDelta=0 so Running matches Zoho accounting stock. Always fetched live from Zoho.
  */
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js';
@@ -10,16 +9,7 @@ import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js'
 const REQUEST_GAP_MS = 100;
 const PAGE_SIZE = 200;
 const STOCK_MOVEMENTS_SUB = 'stockMovements';
-const LIFETIME_CACHE_DOC = 'lifetime';
-/** Bump when ledger shape/logic changes so stale Firestore caches are ignored. */
-const LEDGER_CACHE_VERSION = 2;
-
-/** Item-transaction rows omit currency; fetch parent documents for bill/invoice/credit note. */
-const DOCUMENT_CURRENCY_SOURCES = {
-  bill: { path: 'bills', responseKey: 'bill' },
-  invoice: { path: 'invoices', responseKey: 'invoice' },
-  creditnote: { path: 'creditnotes', responseKey: 'creditnote' },
-};
+const LEGACY_CACHE_PURGE_KEY = 'no-firestore-stock-ledger-v1';
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -91,37 +81,33 @@ function parseCurrencyFields(row) {
   };
 }
 
-async function enrichMovementsWithDocumentCurrency(zohoGet, movements) {
-  const idsByType = new Map();
+/** Item-transaction rows omit currency; bill header has currency_code / currency_symbol. */
+async function enrichBillMovementsWithDocumentCurrency(zohoGet, movements) {
+  const billIds = new Set();
   for (const movement of movements) {
-    if (movement.currencyCode || !movement.documentId) continue;
-    const source = DOCUMENT_CURRENCY_SOURCES[movement.type];
-    if (!source) continue;
-    if (!idsByType.has(movement.type)) idsByType.set(movement.type, new Set());
-    idsByType.get(movement.type).add(movement.documentId);
+    if (movement.type !== 'bill' || movement.currencyCode || !movement.documentId) continue;
+    billIds.add(movement.documentId);
   }
-  if (idsByType.size === 0) return movements;
+  if (billIds.size === 0) return movements;
 
-  const currencyByKey = new Map();
-  for (const [type, ids] of idsByType) {
-    const source = DOCUMENT_CURRENCY_SOURCES[type];
-    for (const documentId of ids) {
-      try {
-        const json = await zohoGet(`/${source.path}/${encodeURIComponent(documentId)}`);
-        const doc = json[source.responseKey] ?? json;
-        const currency = parseCurrencyFields(doc);
-        if (currency.currencyCode || currency.currencySymbol) {
-          currencyByKey.set(`${type}:${documentId}`, currency);
-        }
-      } catch {
-        // optional enrichment
+  const currencyByBillId = new Map();
+  for (const billId of billIds) {
+    try {
+      const json = await zohoGet(`/bills/${encodeURIComponent(billId)}`);
+      const doc = json.bill ?? json;
+      const currency = parseCurrencyFields(doc);
+      if (currency.currencyCode || currency.currencySymbol) {
+        currencyByBillId.set(billId, currency);
       }
+    } catch {
+      // optional enrichment
     }
   }
-  if (currencyByKey.size === 0) return movements;
+  if (currencyByBillId.size === 0) return movements;
 
   return movements.map(movement => {
-    const currency = currencyByKey.get(`${movement.type}:${movement.documentId}`);
+    if (movement.type !== 'bill') return movement;
+    const currency = currencyByBillId.get(movement.documentId);
     if (!currency) return movement;
     return {
       ...movement,
@@ -470,7 +456,12 @@ export async function listCatalogProductLifetimeStockMovements(
     ...salesReturns,
   ].filter(Boolean);
 
-  const movements = await enrichMovementsWithDocumentCurrency(zohoGet, movementsRaw);
+  let movements = movementsRaw;
+  try {
+    movements = await enrichBillMovementsWithDocumentCurrency(zohoGet, movementsRaw);
+  } catch {
+    movements = movementsRaw;
+  }
 
   let currentStock = null;
   try {
@@ -513,14 +504,12 @@ export async function listCatalogProductLifetimeStockMovements(
 
 /**
  * Movements with date ≤ until (for audit-log popup).
- * Uses cached lifetime ledger when available unless forceRefresh.
  */
 export async function listCatalogProductStockMovements(
   secrets,
   configuredOrgId,
   catalogProductId,
   untilIso,
-  { forceRefresh = false } = {},
 ) {
   const until = String(untilIso ?? '').trim();
   if (!until || Number.isNaN(Date.parse(until))) {
@@ -532,7 +521,6 @@ export async function listCatalogProductStockMovements(
     secrets,
     configuredOrgId,
     catalogProductId,
-    { forceRefresh },
   );
 
   const movements = full.movements.filter(m => {
@@ -559,81 +547,73 @@ export async function listCatalogProductStockMovements(
     unexplainedGap: full.unexplainedGap,
     openingStock: full.unexplainedGap,
     fetchedAt: full.fetchedAt,
-    fromCache: full.fromCache ?? false,
     movements: sorted,
   };
 }
 
-/** Failed Zoho pulls look like empty ledger + no book stock — never trust/cache those. */
-function isUsableLedgerPayload(data) {
-  if (!data || !Array.isArray(data.movements)) return false;
-  if (data.movements.length > 0) return true;
-  return data.currentStock != null && Number.isFinite(Number(data.currentStock));
-}
-
-async function readLifetimeCache(catalogProductId) {
+async function deleteStockMovementsCache(catalogProductId) {
   const snap = await getFirestore()
     .collection('catalogProducts')
     .doc(catalogProductId)
     .collection(STOCK_MOVEMENTS_SUB)
-    .doc(LIFETIME_CACHE_DOC)
     .get();
-  if (!snap.exists) return null;
-  const data = snap.data();
-  if (!isUsableLedgerPayload(data)) return null;
-  if ((data.ledgerCacheVersion ?? 1) < LEDGER_CACHE_VERSION) return null;
-  return data;
+  if (snap.empty) return 0;
+  const batch = getFirestore().batch();
+  for (const doc of snap.docs) {
+    batch.delete(doc.ref);
+  }
+  await batch.commit();
+  return snap.size;
 }
 
-async function writeLifetimeCache(payload) {
-  if (!isUsableLedgerPayload(payload)) return false;
-  const { fromCache: _fc, ...rest } = payload;
-  await getFirestore()
-    .collection('catalogProducts')
-    .doc(payload.catalogProductId)
-    .collection(STOCK_MOVEMENTS_SUB)
-    .doc(LIFETIME_CACHE_DOC)
-    .set({
-      ...rest,
-      ledgerCacheVersion: LEDGER_CACHE_VERSION,
-      cachedAt: new Date().toISOString(),
+/** One-time removal of legacy Firestore stock-ledger caches (all products). */
+export async function purgeAllStockMovementCaches() {
+  const db = getFirestore();
+  const productsSnap = await db.collection('catalogProducts').select().get();
+  let deleted = 0;
+  for (const productDoc of productsSnap.docs) {
+    deleted += await deleteStockMovementsCache(productDoc.id);
+  }
+  return deleted;
+}
+
+let legacyCachePurgeStarted = false;
+
+async function ensureLegacyStockMovementCachesPurged() {
+  if (legacyCachePurgeStarted) return;
+  legacyCachePurgeStarted = true;
+  try {
+    const db = getFirestore();
+    const metaRef = db.collection('catalogMeta').doc('stockMovementsCachePurged');
+    const snap = await metaRef.get();
+    if (snap.data()?.key === LEGACY_CACHE_PURGE_KEY) return;
+    await purgeAllStockMovementCaches();
+    await metaRef.set({
+      key: LEGACY_CACHE_PURGE_KEY,
+      purgedAt: new Date().toISOString(),
     });
-  return true;
+  } catch (err) {
+    legacyCachePurgeStarted = false;
+    console.warn('purgeAllStockMovementCaches failed:', err?.message ?? err);
+  }
 }
 
-/**
- * Lifetime ledger with Firestore cache.
- * forceRefresh=false → return cache if present, else fetch Zoho and save.
- * forceRefresh=true → always refetch Zoho and overwrite cache (skips empty failures).
- */
+/** Lifetime ledger — always fetched live from Zoho. */
 export async function getLifetimeStockMovements(
   secrets,
   configuredOrgId,
   catalogProductId,
-  { forceRefresh = false } = {},
 ) {
   const itemId = String(catalogProductId ?? '').trim();
   if (!itemId) throw new Error('catalogProductId is required.');
 
-  if (!forceRefresh) {
-    const cached = await readLifetimeCache(itemId);
-    if (cached) {
-      return { ...stripExcludedLedgerMovements(cached), fromCache: true };
-    }
-  }
+  await ensureLegacyStockMovementCachesPurged();
+  void deleteStockMovementsCache(itemId).catch(() => {});
 
   const fresh = await listCatalogProductLifetimeStockMovements(
     secrets,
     configuredOrgId,
     itemId,
   );
-
-  if (!isUsableLedgerPayload(fresh)) {
-    // Keep any previous good cache; surface the empty result with a clear flag.
-    return { ...fresh, fromCache: false, fetchFailed: true };
-  }
-
-  const cleaned = stripExcludedLedgerMovements(fresh);
-  await writeLifetimeCache(cleaned);
-  return { ...cleaned, fromCache: false };
+  return stripExcludedLedgerMovements(fresh);
 }

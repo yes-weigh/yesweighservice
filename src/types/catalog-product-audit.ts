@@ -111,7 +111,5 @@ export interface CatalogProductStockMovementsResult {
   /** @deprecated use unexplainedGap */
   openingStock?: number | null;
   fetchedAt?: string;
-  cachedAt?: string;
-  fromCache?: boolean;
   movements: CatalogStockMovement[];
 }
