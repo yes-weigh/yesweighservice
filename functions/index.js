@@ -326,6 +326,9 @@ export const getCatalogProductDetail = onCall(
       if (typeof cachedData.binLabelPrintedAt === 'string' && cachedData.binLabelPrintedAt.trim()) {
         detail.binLabelPrintedAt = cachedData.binLabelPrintedAt.trim();
       }
+      if (cachedData.hiddenFromCatalog === true) {
+        detail.hiddenFromCatalog = true;
+      }
     }
 
     if (!zohoLive) {

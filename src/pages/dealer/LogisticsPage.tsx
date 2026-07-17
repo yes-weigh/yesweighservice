@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Info,
+  LayoutGrid,
   MapPin,
   Package,
   PackageCheck,
@@ -62,15 +63,17 @@ import { emptyShipmentBoxDraft } from '../../lib/logisticsBooking';
 import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
 
 type FlowStep = 'closed' | 'partner' | 'book';
-type CardTone = 'incomplete' | 'label' | 'shipped' | 'transit' | 'delivered' | 'exception';
+type CardTone = 'all' | 'incomplete' | 'label' | 'shipped' | 'transit' | 'delivered' | 'exception';
+type StatFilterId = 'all' | LogisticsBookingStatus;
 
 const STATUS_STAT_META: ReadonlyArray<{
-  id: LogisticsBookingStatus;
+  id: StatFilterId;
   label: string;
   shortLabel: string;
   Icon: typeof Package;
   tone: CardTone;
 }> = [
+  { id: 'all', label: 'All', shortLabel: 'All', Icon: LayoutGrid, tone: 'all' },
   { id: 'label_generated', label: 'Label Generated', shortLabel: 'Label', Icon: Tag, tone: 'label' },
   { id: 'shipped', label: 'Shipped', shortLabel: 'Shipped', Icon: PackageCheck, tone: 'shipped' },
   { id: 'in_transit', label: 'In Transit', shortLabel: 'Transit', Icon: Truck, tone: 'transit' },
@@ -299,7 +302,8 @@ export const LogisticsPage: React.FC = () => {
   }, [datedBookings, pipelineBookings, filters.status, statusFilter]);
 
   const stats = useMemo(() => {
-    const counts: Record<LogisticsBookingStatus, number> = {
+    const counts: Record<StatFilterId, number> = {
+      all: datedBookings.length,
       label_generated: 0,
       shipped: 0,
       in_transit: 0,
@@ -310,7 +314,7 @@ export const LogisticsPage: React.FC = () => {
       counts[booking.status] += 1;
     }
     return counts;
-  }, [pipelineBookings]);
+  }, [datedBookings.length, pipelineBookings]);
 
   const openFlow = useCallback(() => {
     setFlowStep('partner');
@@ -448,8 +452,12 @@ export const LogisticsPage: React.FC = () => {
       .catch(() => undefined);
   }, [openResumeDraft, handleUpdateBooking]);
 
-  const applyStatFilter = useCallback((status: LogisticsBookingStatus) => {
+  const applyStatFilter = useCallback((status: StatFilterId) => {
     setFilters(prev => ({ ...prev, status: '' }));
+    if (status === 'all') {
+      setStatusFilter('');
+      return;
+    }
     setStatusFilter(prev => (prev === status ? '' : status));
   }, []);
 
@@ -689,22 +697,30 @@ export const LogisticsPage: React.FC = () => {
 
           <div className="logistics-page__stats" role="group" aria-label="Shipment summary">
             {STATUS_STAT_META.map(stat => {
-              const active = statusFilter === stat.id
-                || (!statusFilter && filters.status === stat.id);
+              const count = stats[stat.id];
+              const active = stat.id === 'all'
+                ? !statusFilter && !filters.status
+                : statusFilter === stat.id
+                  || (!statusFilter && filters.status === stat.id);
+              const empty = count === 0 && !active;
               return (
                 <button
                   key={stat.id}
                   type="button"
-                  className={`logistics-page__stat logistics-page__stat--${stat.tone}${active ? ' is-active' : ''}`}
+                  className={[
+                    'logistics-page__stat',
+                    `logistics-page__stat--${stat.tone}`,
+                    active ? 'is-active' : '',
+                    empty ? 'is-empty' : '',
+                  ].filter(Boolean).join(' ')}
                   onClick={() => applyStatFilter(stat.id)}
                   title={stat.label}
                   aria-pressed={active}
                 >
-                  <strong>{stats[stat.id]}</strong>
+                  <strong>{count}</strong>
                   <span>
-                    <stat.Icon size={12} aria-hidden />
-                    <em className="logistics-page__stat-label-full">{stat.label}</em>
-                    <em className="logistics-page__stat-label-short">{stat.shortLabel}</em>
+                    <stat.Icon size={11} aria-hidden />
+                    <em>{stat.shortLabel}</em>
                   </span>
                 </button>
               );

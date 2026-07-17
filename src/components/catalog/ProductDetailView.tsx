@@ -7,6 +7,8 @@ import {
   Camera,
   ChevronRight,
   Download,
+  Eye,
+  EyeOff,
   ImagePlus,
   IndianRupee,
   Package,
@@ -36,6 +38,7 @@ import {
   isCatalogSparePartProduct,
   saveCatalogProductSpareLinks,
   saveCatalogSpareProductLinks,
+  setCatalogProductHidden,
   setCatalogProductStatus,
   updateCatalogProductDetails,
   updateCatalogProductOverlays,
@@ -216,6 +219,7 @@ export const ProductDetailView: React.FC<{
   const [imageDownloading, setImageDownloading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [hiddenUpdating, setHiddenUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [productEditMode, setProductEditMode] = useState(false);
   const [editName, setEditName] = useState('');
@@ -1417,7 +1421,7 @@ export const ProductDetailView: React.FC<{
   };
 
   const handleSetInactive = async () => {
-    if (!product || !canSetInactive || !productEditMode || statusUpdating) return;
+    if (!product || !canSetInactive || !productEditMode || statusUpdating || hiddenUpdating) return;
 
     const ok = await confirm({
       title: 'Set inactive on Zoho?',
@@ -1436,6 +1440,33 @@ export const ProductDetailView: React.FC<{
       setStatusError(err instanceof Error ? err.message : 'Could not set item inactive on Zoho.');
     } finally {
       setStatusUpdating(false);
+    }
+  };
+
+  const handleToggleHiddenFromCatalogue = async () => {
+    if (!product || !canSetInactive || !productEditMode || statusUpdating || hiddenUpdating) return;
+
+    const hide = product.hiddenFromCatalog !== true;
+    const actionLabel = hide ? 'Hide from catalogue' : 'Show in catalogue';
+    const ok = await confirm({
+      title: `${actionLabel}?`,
+      message: hide
+        ? `“${product.name}” will no longer appear in the dealer/public catalogue. The item stays active in Zoho.`
+        : `“${product.name}” will appear in the catalogue again.`,
+      confirmLabel: actionLabel,
+      destructive: hide,
+    });
+    if (!ok) return;
+
+    setHiddenUpdating(true);
+    setStatusError(null);
+    try {
+      const result = await setCatalogProductHidden(product.id, hide);
+      setProduct(prev => (prev ? { ...prev, hiddenFromCatalog: result.hiddenFromCatalog } : prev));
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : 'Could not update catalogue visibility.');
+    } finally {
+      setHiddenUpdating(false);
     }
   };
 
@@ -1989,17 +2020,34 @@ export const ProductDetailView: React.FC<{
                     </button>
                   </div>
                   {canSetInactive && (isCategorizedProduct || isSpareItem) && (
-                    <button
-                      type="button"
-                      className="btn btn-sm product-detail-page__inactive-btn product-detail-page__details-edit-inactive"
-                      onClick={() => void handleSetInactive()}
-                      disabled={statusUpdating || detailsSaving || imageBusy}
-                    >
-                      {statusUpdating
-                        ? <RefreshCw size={15} className="spin-icon" aria-hidden />
-                        : <Ban size={15} aria-hidden />}
-                      Set inactive on Zoho
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm product-detail-page__inactive-btn product-detail-page__details-edit-inactive"
+                        onClick={() => void handleSetInactive()}
+                        disabled={statusUpdating || hiddenUpdating || detailsSaving || imageBusy}
+                      >
+                        {statusUpdating
+                          ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                          : <Ban size={15} aria-hidden />}
+                        Set inactive on Zoho
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm product-detail-page__inactive-btn product-detail-page__details-edit-inactive"
+                        onClick={() => void handleToggleHiddenFromCatalogue()}
+                        disabled={statusUpdating || hiddenUpdating || detailsSaving || imageBusy}
+                      >
+                        {hiddenUpdating
+                          ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                          : product.hiddenFromCatalog === true
+                            ? <Eye size={15} aria-hidden />
+                            : <EyeOff size={15} aria-hidden />}
+                        {product.hiddenFromCatalog === true
+                          ? 'Show in catalogue'
+                          : 'Hide from catalogue'}
+                      </button>
+                    </>
                   )}
                 </div>
               </>
