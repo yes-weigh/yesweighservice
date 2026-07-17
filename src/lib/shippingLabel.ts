@@ -38,6 +38,7 @@ export function extractCityState(address: string): string | null {
     if (!city || !state || /^\d+$/.test(state)) continue;
     if (city.length > 40 || state.length > 40) continue;
     if (/^(street|road|rd|lane|ln|plot|near|opp)/i.test(city)) continue;
+    if (city.toLowerCase() === state.toLowerCase()) return city;
     return `${city}, ${state}`;
   }
   return null;
@@ -62,13 +63,17 @@ export function resolveDestinationPlace(
   if (cityState) return cityState;
   const city = resolveDestinationCity(dealer, deliveryAddress);
   if (!city || city === '—') return '—';
-  // If stored city is already "City, State", keep it.
-  if (city.includes(',')) return city;
+  if (city.includes(',')) {
+    const [left, right] = city.split(',').map(part => part.trim());
+    if (left && right && left.toLowerCase() === right.toLowerCase()) return left;
+    return city;
+  }
   const stateFromAddress = address.match(
     new RegExp(`${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[,\\s]+([A-Za-z][A-Za-z .]{1,40})`, 'i'),
   );
-  if (stateFromAddress?.[1] && !/^\d+$/.test(stateFromAddress[1].trim())) {
-    return `${city}, ${stateFromAddress[1].trim()}`;
+  const state = stateFromAddress?.[1]?.trim();
+  if (state && !/^\d+$/.test(state) && state.toLowerCase() !== city.toLowerCase()) {
+    return `${city}, ${state}`;
   }
   return city;
 }

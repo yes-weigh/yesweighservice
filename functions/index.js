@@ -2377,7 +2377,7 @@ export const getLogisticsPhotoUrlFn = onCall(
 );
 
 /**
- * Promote same-day shipped bookings to in_transit after 6 PM IST.
+ * Promote same-day shipped bookings to in_transit after 7 PM IST.
  * Runs every 30 minutes; catches late same-day confirms and any missed prior days.
  */
 export const promoteShippedToInTransitScheduled = onSchedule(
@@ -2417,8 +2417,8 @@ export const promoteShippedToInTransitScheduled = onSchedule(
       const data = docSnap.data() || {};
       const bookingDate = String(data.bookingDate || '').slice(0, 10);
       const pastBookingDay = Boolean(bookingDate) && bookingDate < todayYmd;
-      const sameDayAfterSix = (!bookingDate || bookingDate === todayYmd) && hour >= 18;
-      if (!pastBookingDay && !sameDayAfterSix) {
+      const sameDayAfterSeven = (!bookingDate || bookingDate === todayYmd) && hour >= 19;
+      if (!pastBookingDay && !sameDayAfterSeven) {
         skipped += 1;
         continue;
       }

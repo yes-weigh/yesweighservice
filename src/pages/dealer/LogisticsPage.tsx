@@ -4,7 +4,6 @@ import {
   AlertCircle,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   LayoutGrid,
   MapPin,
@@ -14,7 +13,6 @@ import {
   Search,
   SlidersHorizontal,
   Tag,
-  Trash2,
   Truck,
   X,
 } from 'lucide-react';
@@ -40,7 +38,6 @@ import {
 import {
   bookingToWizardState,
   canCreateLogisticsBooking,
-  canDeleteLogisticsBooking,
   cancelLogisticsBooking,
   clampWizardStepForDraftPhotos,
   deleteLogisticsBookingPermanently,
@@ -106,17 +103,9 @@ function defaultDateRange(): { from: string; to: string } {
   return { from: toDateInputValue(from), to: toDateInputValue(to) };
 }
 
-function formatRangeLabel(from: string, to: string): string {
-  const fmt = (value: string) => {
-    const [y, m, d] = value.split('-').map(Number);
-    if (!y || !m || !d) return value;
-    return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
-  return `${fmt(from)} To ${fmt(to)}`;
+function isDefaultDateRange(range: { from: string; to: string }): boolean {
+  const defaults = defaultDateRange();
+  return range.from === defaults.from && range.to === defaults.to;
 }
 
 function bookingTimestamp(booking: LogisticsBooking): number {
@@ -234,12 +223,10 @@ export const LogisticsPage: React.FC = () => {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
-  const [dateRangeOpen, setDateRangeOpen] = useState(false);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
   const canCreate = user ? canCreateLogisticsBooking(user) : false;
-  const canDelete = user ? canDeleteLogisticsBooking(user) : false;
 
   const activeBooking = useMemo(
     () => bookings.find(item => item.id === activeBookingId) ?? null,
@@ -447,6 +434,10 @@ export const LogisticsPage: React.FC = () => {
       .catch(() => undefined);
   }, [openResumeDraft, handleUpdateBooking]);
 
+  const closeBooking = useCallback(() => {
+    setActiveBookingId(null);
+  }, []);
+
   const applyStatFilter = useCallback((status: StatFilterId) => {
     setFilters(prev => ({ ...prev, status: '' }));
     if (status === 'all') {
@@ -457,7 +448,10 @@ export const LogisticsPage: React.FC = () => {
   }, []);
 
   const showListControls = isOps && !flowOpen && !activeBooking;
-  const hasActiveFilters = Boolean(filters.status) || Boolean(filters.partnerId) || Boolean(statusFilter);
+  const hasActiveFilters = Boolean(filters.status)
+    || Boolean(filters.partnerId)
+    || Boolean(statusFilter)
+    || !isDefaultDateRange(dateRange);
   const hasSearchQuery = Boolean(filters.query?.trim());
 
   useEffect(() => {
@@ -543,6 +537,8 @@ export const LogisticsPage: React.FC = () => {
     {
       mobileCompactHeader: isMobile && showListControls,
       subtitle: !flowOpen && !activeBooking ? 'All Shipments' : null,
+      showBack: Boolean(activeBooking) && !flowOpen,
+      onBack: closeBooking,
     },
     true,
   );
@@ -574,6 +570,38 @@ export const LogisticsPage: React.FC = () => {
                 aria-label="Close filters"
               >
                 <X size={18} />
+              </button>
+            </div>
+
+            <div className="logistics-filter-field logistics-filter-field--dates" role="group" aria-label="Shipment date range">
+              <span>Date range</span>
+              <div className="logistics-filter-dates">
+                <label>
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={dateRange.from}
+                    max={dateRange.to}
+                    onChange={event => setDateRange(prev => ({ ...prev, from: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={dateRange.to}
+                    min={dateRange.from}
+                    onChange={event => setDateRange(prev => ({ ...prev, to: event.target.value }))}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                className="logistics-filter-dates__preset"
+                onClick={() => setDateRange(defaultDateRange())}
+              >
+                <CalendarDays size={14} aria-hidden />
+                Last 30 days
               </button>
             </div>
 
@@ -617,6 +645,7 @@ export const LogisticsPage: React.FC = () => {
               className="logistics-filter-dropdown__clear"
               onClick={() => {
                 setStatusFilter('');
+                setDateRange(defaultDateRange());
                 setFilters(prev => ({ ...prev, status: '', partnerId: '' }));
               }}
               disabled={!hasActiveFilters}
@@ -645,51 +674,6 @@ export const LogisticsPage: React.FC = () => {
         />
       ) : (
         <div className="logistics-page__dashboard">
-          <div className="logistics-page__date-wrap">
-            <button
-              type="button"
-              className={`logistics-page__date-range${dateRangeOpen ? ' is-open' : ''}`}
-              onClick={() => setDateRangeOpen(open => !open)}
-              aria-expanded={dateRangeOpen}
-            >
-              <CalendarDays size={16} aria-hidden />
-              <span>{formatRangeLabel(dateRange.from, dateRange.to)}</span>
-              <ChevronDown size={16} aria-hidden />
-            </button>
-            {dateRangeOpen && (
-              <div className="logistics-page__date-panel" role="group" aria-label="Shipment date range">
-                <label>
-                  <span>From</span>
-                  <input
-                    type="date"
-                    value={dateRange.from}
-                    max={dateRange.to}
-                    onChange={event => setDateRange(prev => ({ ...prev, from: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  <span>To</span>
-                  <input
-                    type="date"
-                    value={dateRange.to}
-                    min={dateRange.from}
-                    onChange={event => setDateRange(prev => ({ ...prev, to: event.target.value }))}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    setDateRange(defaultDateRange());
-                    setDateRangeOpen(false);
-                  }}
-                >
-                  Last 30 days
-                </button>
-              </div>
-            )}
-          </div>
-
           <div className="logistics-page__stats" role="group" aria-label="Shipment summary">
             {STATUS_STAT_META.map(stat => {
               const count = stats[stat.id];
@@ -775,82 +759,62 @@ export const LogisticsPage: React.FC = () => {
                           </span>
 
                           <div className="logistics-shipment__body">
-                            <div className="logistics-shipment__row logistics-shipment__row--top">
-                              <strong className="logistics-shipment__tracking">
-                                {trackUrl ? (
-                                  <a
-                                    href={trackUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    onClick={event => event.stopPropagation()}
-                                  >
-                                    {waybill}
-                                  </a>
-                                ) : (
-                                  waybill
-                                )}
-                              </strong>
-                              <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
-                                {statusBadgeLabel(booking)}
-                              </span>
-                            </div>
+                            <strong className="logistics-shipment__tracking">
+                              {trackUrl ? (
+                                <a
+                                  href={trackUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={event => event.stopPropagation()}
+                                >
+                                  {waybill}
+                                </a>
+                              ) : (
+                                waybill
+                              )}
+                            </strong>
 
-                            <div className="logistics-shipment__row logistics-shipment__order">
-                              <span>Order: —</span>
-                              <span className="logistics-shipment__sep" aria-hidden>·</span>
-                              <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
-                            </div>
+                            <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
 
                             {showsRoute(booking.status) ? (
-                              <div className="logistics-shipment__row logistics-shipment__route">
+                              <div className="logistics-shipment__route">
                                 <span className="logistics-shipment__place logistics-shipment__place--from">
-                                  <MapPin size={13} aria-hidden />
+                                  <MapPin size={12} aria-hidden />
                                   <span>{originPlaceLabel(booking)}</span>
                                 </span>
                                 <span className="logistics-shipment__route-arrow" aria-hidden>→</span>
                                 <span className="logistics-shipment__place logistics-shipment__place--to">
-                                  <MapPin size={13} aria-hidden />
+                                  <MapPin size={12} aria-hidden />
                                   <span>{destinationPlaceLabel(booking)}</span>
                                 </span>
                               </div>
                             ) : booking.status === 'delivered' ? (
                               <div className="logistics-shipment__outcome logistics-shipment__outcome--delivered">
-                                <CheckCircle2 size={15} aria-hidden />
+                                <CheckCircle2 size={14} aria-hidden />
                                 <span>Delivered on {formatShipmentDateTime(booking)}</span>
                               </div>
                             ) : booking.status === 'cancelled' ? (
                               <div className="logistics-shipment__outcome logistics-shipment__outcome--exception">
-                                <AlertCircle size={15} aria-hidden />
+                                <AlertCircle size={14} aria-hidden />
                                 <span>Exception · {formatShipmentDateTime(booking)}</span>
                               </div>
                             ) : null}
 
-                            <div className="logistics-shipment__row logistics-shipment__meta">
+                            <div className="logistics-shipment__meta">
                               <span className="logistics-shipment__meta-info">
                                 <CalendarDays size={12} aria-hidden />
                                 <span>{formatShipmentDateTime(booking)}</span>
-                                <span className="logistics-shipment__sep" aria-hidden>|</span>
+                                <span className="logistics-shipment__sep" aria-hidden>·</span>
                                 <Package size={12} aria-hidden />
                                 <span>{packageCountLabel(booking)}</span>
                               </span>
-                              {canDelete && (
-                                <button
-                                  type="button"
-                                  className="logistics-shipment__delete"
-                                  aria-label="Delete logistics booking permanently"
-                                  title="Delete permanently"
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                    void handleDelete(booking.id);
-                                  }}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
+                              <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
+                                {statusBadgeLabel(booking)}
+                              </span>
                             </div>
                           </div>
 
-                          <ChevronRight size={16} className="logistics-shipment__chevron" aria-hidden />
+                          <ChevronRight size={18} className="logistics-shipment__chevron" aria-hidden />
                         </button>
                       </article>
                     </li>
@@ -860,16 +824,6 @@ export const LogisticsPage: React.FC = () => {
             </section>
           )}
         </div>
-      )}
-
-      {activeBooking && bookings.length > 1 && (
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm logistics-page__back-list"
-          onClick={() => setActiveBookingId(null)}
-        >
-          View all bookings
-        </button>
       )}
 
       {flowStep === 'partner' && (
