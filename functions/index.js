@@ -25,6 +25,7 @@ import {
 import {
   mutateCatalogProductDetails,
   mutateCatalogProductOverlays,
+  mutateCatalogProductCatalogVisibility,
   mutateCatalogProductStatus,
   mutateCatalogProductCategory,
   mutateCatalogProductImageUpload,
@@ -770,6 +771,37 @@ export const updateCatalogProductOverlays = onCall(
       return { ok: true, ...saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update product overlays.');
+    }
+  },
+);
+
+/** Hide/unhide a product from dealer/public catalogue — super admin only (Firestore). */
+export const setCatalogProductHidden = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+    if (typeof request.data?.hidden !== 'boolean') {
+      throw new HttpsError('invalid-argument', 'hidden must be a boolean.');
+    }
+
+    try {
+      const saved = await mutateCatalogProductCatalogVisibility(
+        productId,
+        request.data.hidden,
+        request.auth?.uid ?? null,
+      );
+      return { ok: true, ...saved };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not update catalogue visibility.');
     }
   },
 );

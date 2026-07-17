@@ -71,6 +71,8 @@ export interface CatalogProduct {
   /** SKU on the last printed bin label. Firestore only. */
   binLabelPrintedSku?: string | null;
   binLabelPrintedAt?: string | null;
+  /** Super admin — excluded from dealer/public catalogue browse. Firestore only. */
+  hiddenFromCatalog?: boolean;
 }
 
 export interface CatalogCategory {

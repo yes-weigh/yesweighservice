@@ -439,6 +439,12 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       doc.displayOrder = existing.displayOrder;
     }
 
+    if (existing?.hiddenFromCatalog === true) {
+      doc.hiddenFromCatalog = true;
+      if (existing.hiddenFromCatalogAt) doc.hiddenFromCatalogAt = existing.hiddenFromCatalogAt;
+      if (existing.hiddenFromCatalogByUid) doc.hiddenFromCatalogByUid = existing.hiddenFromCatalogByUid;
+    }
+
     if (batchCount >= batchSize) {
       await commitBatch();
     }
@@ -757,6 +763,27 @@ export async function patchProductOverlays(productId, input) {
     ...('approvalNumber' in payload ? { approvalNumber: payload.approvalNumber } : {}),
     ...('spareGroupId' in payload ? { spareGroupId: payload.spareGroupId } : {}),
   };
+}
+
+/** Super admin — hide/unhide from dealer/public catalogue (Firestore only). */
+export async function patchProductCatalogVisibility(productId, hidden, actorUid) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+
+  const existing = await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).get();
+  if (!existing.exists) {
+    throw new Error('Catalog product not found.');
+  }
+
+  const payload = {
+    hiddenFromCatalog: Boolean(hidden),
+    hiddenFromCatalogAt: new Date().toISOString(),
+    hiddenFromCatalogByUid: actorUid ? String(actorUid) : null,
+    syncedAt: new Date().toISOString(),
+  };
+
+  await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
+  return { hiddenFromCatalog: payload.hiddenFromCatalog };
 }
 
 function parseOptionalPositiveNumber(value, { allowZero = false, integer = false } = {}) {

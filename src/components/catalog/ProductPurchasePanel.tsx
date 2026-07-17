@@ -105,14 +105,9 @@ function PurchaseBillTile({
 
   return (
     <article className={['stock-ledger__purchase-tile', excluded ? 'is-excluded' : ''].filter(Boolean).join(' ')}>
-      <div className="stock-ledger__purchase-tile-top">
-        <strong className="stock-ledger__purchase-tile-name">{name}</strong>
-        <div className="stock-ledger__purchase-tile-when">
-          <strong>{when.day}</strong>
-          {when.time ? <span>{when.time}</span> : null}
-        </div>
-      </div>
-      <div className="stock-ledger__purchase-tile-bottom">
+      <strong className="stock-ledger__purchase-tile-name">{name}</strong>
+      <div className="stock-ledger__purchase-tile-metrics">
+        <span className="stock-ledger__purchase-tile-date">{when.day}</span>
         <span className="stock-ledger__purchase-tile-qty">
           <strong>{qty.toLocaleString('en-IN')}</strong>
           <span>{unit}</span>
@@ -121,11 +116,14 @@ function PurchaseBillTile({
           {unitPriceLabel != null ? (
             <>
               {unitPriceLabel}
-              <span className="stock-ledger__purchase-tile-price-unit">per piece</span>
+              <span className="stock-ledger__purchase-tile-price-unit">/ pcs</span>
             </>
           ) : '—'}
         </span>
       </div>
+      {when.time ? (
+        <span className="stock-ledger__purchase-tile-time">{when.time}</span>
+      ) : null}
     </article>
   );
 }

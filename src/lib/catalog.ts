@@ -46,11 +46,12 @@ export function isHiddenCatalogCategory(category: Pick<CatalogCategory, 'name'>)
   return HIDDEN_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
 }
 
-/** Products in hidden categories — excluded from dealer catalogue browse and search. */
+/** Products in hidden categories or explicitly hidden — excluded from dealer catalogue browse and search. */
 export function isHiddenCatalogProduct(
-  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName' | 'hiddenFromCatalog'>,
   categories: CatalogCategory[] = [],
 ): boolean {
+  if (product.hiddenFromCatalog === true) return true;
   if (product.categoryName && isHiddenCatalogCategory({ name: product.categoryName })) {
     return true;
   }
@@ -754,6 +755,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     ...(typeof data.binLabelPrintedAt === 'string' && data.binLabelPrintedAt.trim()
       ? { binLabelPrintedAt: data.binLabelPrintedAt.trim() }
       : {}),
+    ...(data.hiddenFromCatalog === true ? { hiddenFromCatalog: true } : {}),
   };
 }
 
@@ -1591,6 +1593,23 @@ export async function updateCatalogProductOverlays(
         ? { spareGroupId: result.data.spareGroupId ?? null }
         : {}),
     };
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** Super admin — hide or unhide a product from dealer/public catalogue browse. */
+export async function setCatalogProductHidden(
+  productId: string,
+  hidden: boolean,
+): Promise<{ hiddenFromCatalog: boolean }> {
+  const callable = httpsCallable<
+    { productId: string; hidden: boolean },
+    { ok: boolean; hiddenFromCatalog: boolean }
+  >(functions, 'setCatalogProductHidden');
+  try {
+    const result = await callable({ productId, hidden });
+    return { hiddenFromCatalog: result.data.hiddenFromCatalog === true };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

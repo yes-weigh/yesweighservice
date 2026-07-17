@@ -24,6 +24,7 @@ import {
   replaceGalleryImage,
   promoteGalleryImageToPrimary,
   deleteProductImage,
+  patchProductCatalogVisibility,
 } from './catalog-sync.js';
 
 export const ZOHO_BACKED_CATALOG_PRODUCT_FIELDS = [
@@ -45,6 +46,9 @@ export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'skuChangedAt',
   'binLabelPrintedSku',
   'binLabelPrintedAt',
+  'hiddenFromCatalog',
+  'hiddenFromCatalogAt',
+  'hiddenFromCatalogByUid',
 ];
 
 /** Update item details on Zoho, then mirror to Firestore (incl. Firestore-only overlays). */
@@ -116,6 +120,11 @@ export async function mutateCatalogProductOverlays(productId, input) {
     throw new Error('No Firestore-only fields to update.');
   }
   return patchProductOverlays(productId, patch);
+}
+
+/** Firestore-only catalogue visibility — does not change Zoho item status. */
+export async function mutateCatalogProductCatalogVisibility(productId, hidden, actorUid) {
+  return patchProductCatalogVisibility(productId, hidden, actorUid);
 }
 
 /** Set item active/inactive on Zoho, then mirror to Firestore. */
