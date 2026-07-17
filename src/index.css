@@ -3618,7 +3618,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
-/* E-commerce style category tiles — text left, product image right */
+/* E-commerce style category tiles â€“ text left, product image right */
 .catalog-category-card {
   position: relative;
   display: flex;
@@ -3748,7 +3748,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   object-position: bottom center;
 }
 
-/* Category tiles only — knock white/gray photo backgrounds into the tint */
+/* Category tiles only â€“ knock white/gray photo backgrounds into the tint */
 .catalog-category-card .catalog-category-card__img--blend {
   mix-blend-mode: darken;
   filter: brightness(1.18) contrast(1.1) saturate(1.02);
@@ -3850,7 +3850,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
-/* E-commerce product cards — vertical tile (Flipkart / Amazon mobile pattern) */
+/* E-commerce product cards â€“ vertical tile (Flipkart / Amazon mobile pattern) */
 .catalog-product-card--editable {
   cursor: grab;
 }
@@ -3965,7 +3965,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
 }
 
-/* Product grid — plain image on white; no knock-out blend or drop-shadow */
+/* Product grid â€“ plain image on white; no knock-out blend or drop-shadow */
 .catalog-product-card .catalog-category-card__img {
   position: relative;
   z-index: 1;
@@ -5733,7 +5733,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-radius: 20px;
 }
 
-/* Uniform product image stage — white canvas on dark cards */
+/* Uniform product image stage â€“ white canvas on dark cards */
 .catalog-product-image {
   display: flex;
   align-items: center;
@@ -6405,7 +6405,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 
   .catalog-page--smart.catalog-page--admin-tabs {
-    /* Tabs + optional category chips — ResizeObserver refines this. */
+    /* Tabs + optional category chips â€“ ResizeObserver refines this. */
     --catalog-section-bar-height: 5.25rem;
   }
 
@@ -6594,7 +6594,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     min-width: 0;
   }
 
-  /* Keep section labels readable — scroll instead of ellipsis crush. */
+  /* Keep section labels readable â€“ scroll instead of ellipsis crush. */
   .catalog-page .catalog-smart-bar .spares-mode-toggle--ops {
     width: 100%;
     max-width: 100%;
@@ -20823,7 +20823,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   line-height: 1.35;
 }
 
-/* Legacy horizontal tabs — staff queue */
+/* Legacy horizontal tabs â€“ staff queue */
 .support-request-list__tabs {
   display: flex;
   gap: 0.15rem;
@@ -27926,7 +27926,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 
-/* Audit cycles — premium hub */
+/* Audit cycles â€“ premium hub */
 .audit-cycles-hub {
   --ac-ink: var(--text-primary, #f8fafc);
   --ac-mute: var(--text-muted, #94a3b8);
