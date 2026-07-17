@@ -84,6 +84,8 @@ export interface CatalogBrowseProps {
   openNcQtyByProductId?: Map<string, number>;
   /** Staff/super_admin — audited location label per product id. */
   auditedLocationByProductId?: Map<string, string>;
+  /** Staff/super_admin — long-press product tile (e.g. Zoho warehouse move). */
+  onLongPressProduct?: (product: CatalogProduct) => void;
   /** Emphasize this product after returning from detail. */
   highlightedProductId?: string | null;
   /** Override default navigation when a product tile is opened. */
@@ -238,6 +240,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   warehouseLinkedProductIds,
   openNcQtyByProductId,
   auditedLocationByProductId,
+  onLongPressProduct,
   highlightedProductId = null,
   onProductSelect,
 }) => {
@@ -513,6 +516,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               warehouseLinkedProductIds={warehouseLinkedProductIds}
               openNcQtyByProductId={openNcQtyByProductId}
               auditedLocationByProductId={auditedLocationByProductId}
+              onLongPressProduct={onLongPressProduct}
             />
           ) : filterMode === 'minimal' || viewMode === 'grid' ? (
             <div className="catalog-grid catalog-grid--tiles">
@@ -541,6 +545,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
                   openNcCount={openNcQtyByProductId?.get(product.id)}
                   auditedLocationLabel={auditedLocationByProductId?.get(product.id)}
+                  onLongPress={onLongPressProduct}
                   highlighted={highlightedProductId === product.id}
                 />
               ))}

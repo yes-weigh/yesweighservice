@@ -38,6 +38,7 @@ import {
   backfillLegacyCatalogProductAudits,
 } from './lib/catalog-product-audit.js';
 import { migrateExistingAuditsIntoCycles } from './lib/audit-cycles-migrate.js';
+import { transferCatalogProductWarehouseStock as persistWarehouseTransfer } from './lib/zoho-warehouse-transfer.js';
 import {
   getLinkedSparesForProduct,
   getLinkedProductsForSpare,
@@ -1082,6 +1083,53 @@ export const getCatalogProductStockMovements = onCall(
     } catch (err) {
       console.error('getCatalogProductStockMovements failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not load stock movements.');
+    }
+  },
+);
+
+/**
+ * Move Zoho stock between Cochin and Head Office.
+ * Updates catalog product warehouses[] only — never auditSnapshot / auditLogs.
+ */
+export const transferCatalogProductWarehouseStock = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
+    const toWarehouseName = String(request.data?.toWarehouseName ?? '').trim();
+    const quantityRaw = request.data?.quantity;
+    const quantity = quantityRaw == null || quantityRaw === ''
+      ? null
+      : Number(quantityRaw);
+
+    if (!catalogProductId) {
+      throw new HttpsError('invalid-argument', 'catalogProductId is required.');
+    }
+    if (!toWarehouseName) {
+      throw new HttpsError('invalid-argument', 'toWarehouseName is required.');
+    }
+    if (quantity != null && (!Number.isFinite(quantity) || quantity <= 0)) {
+      throw new HttpsError('invalid-argument', 'quantity must be a positive number.');
+    }
+
+    try {
+      return await persistWarehouseTransfer(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { catalogProductId, toWarehouseName, quantity },
+      );
+    } catch (err) {
+      if (err?.code === 'failed-precondition') {
+        throw new HttpsError('failed-precondition', err.message);
+      }
+      console.error('transferCatalogProductWarehouseStock failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not transfer warehouse stock.');
     }
   },
 );

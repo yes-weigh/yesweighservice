@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
@@ -10,6 +10,9 @@ import type { CatalogProduct } from '../../types/catalog';
 import { AuditedSealIcon } from './AuditedSealIcon';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { StockBadge, StockQuantity } from './StockBadge';
+
+const LONG_PRESS_MS = 480;
+const LONG_PRESS_MOVE_PX = 10;
 
 export interface ProductBrowseCardProps {
   product: CatalogProduct;
@@ -25,6 +28,8 @@ export interface ProductBrowseCardProps {
   openNcCount?: number;
   /** Audited location label (Zone·Row or Rack·Row·Bin) — staff/super_admin. */
   auditedLocationLabel?: string | null;
+  /** Long-press (e.g. update Zoho warehouse) — staff/super_admin. */
+  onLongPress?: (product: CatalogProduct) => void;
   /** Emphasize after returning from product detail. */
   highlighted?: boolean;
   editable?: boolean;
@@ -58,6 +63,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   warehouseLinked = false,
   openNcCount,
   auditedLocationLabel = null,
+  onLongPress,
   highlighted = false,
   editable = false,
   dragProps,
@@ -66,9 +72,53 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const { flyToCart } = useCartFly();
   const [addedFlash, setAddedFlash] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const longPressTimer = useRef<number | null>(null);
+  const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
+  const longPressFired = useRef(false);
   const theme = getCategoryTheme(index);
   const outOfStock = product.stockStatus === 'out_of_stock';
   const inCart = isInCart(product.id);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current != null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    longPressOrigin.current = null;
+  };
+
+  const handlePointerDown = (event: React.PointerEvent) => {
+    if (!onLongPress || event.button !== 0) return;
+    longPressFired.current = false;
+    longPressOrigin.current = { x: event.clientX, y: event.clientY };
+    clearLongPress();
+    longPressTimer.current = window.setTimeout(() => {
+      longPressTimer.current = null;
+      longPressFired.current = true;
+      onLongPress(product);
+    }, LONG_PRESS_MS);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent) => {
+    if (!longPressOrigin.current || longPressTimer.current == null) return;
+    const dx = event.clientX - longPressOrigin.current.x;
+    const dy = event.clientY - longPressOrigin.current.y;
+    if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) {
+      clearLongPress();
+    }
+  };
+
+  const handlePointerUp = () => {
+    clearLongPress();
+  };
+
+  const handleSelect = () => {
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+    onSelect();
+  };
 
   const auditDisplay = useMemo(() => {
     if (!showStockQuantity || !product.auditSnapshot) return null;
@@ -112,6 +162,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         inCart ? 'catalog-product-card--in-cart' : '',
         editable ? 'catalog-product-card--editable' : '',
         dragOver ? 'catalog-product-card--drag-over' : '',
+        onLongPress ? 'catalog-product-card--long-press' : '',
         highlighted ? 'is-focus' : '',
       ].filter(Boolean).join(' ')}
       data-product-id={product.id}
@@ -128,8 +179,16 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         setDragOver(false);
         dragProps?.onDrop(e);
       } : undefined}
+      onPointerDown={onLongPress ? handlePointerDown : undefined}
+      onPointerMove={onLongPress ? handlePointerMove : undefined}
+      onPointerUp={onLongPress ? handlePointerUp : undefined}
+      onPointerCancel={onLongPress ? handlePointerUp : undefined}
+      onContextMenu={onLongPress ? e => {
+        e.preventDefault();
+        onLongPress(product);
+      } : undefined}
     >
-      <button type="button" className="catalog-product-card__main" onClick={onSelect}>
+      <button type="button" className="catalog-product-card__main" onClick={handleSelect}>
         <div className="catalog-product-card__media">
           {product.sku && (
             <span className="catalog-product-card__sku-badge">{product.sku}</span>

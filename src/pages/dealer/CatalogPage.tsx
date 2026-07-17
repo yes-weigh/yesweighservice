@@ -80,6 +80,7 @@ import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGro
 import { canUseCart } from '../../types';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
+import { WarehouseLocationTransferDialog } from '../../components/catalog/WarehouseLocationTransferDialog';
 import {
   buildProductNavState,
   buildSpareNavState,
@@ -210,6 +211,7 @@ export const CatalogPage: React.FC = () => {
   const [mediaProductFilters, setMediaProductFilters] = useState<Set<MediaProductFilter>>(() => new Set());
   const [productIdsWithMedia, setProductIdsWithMedia] = useState<Set<string>>(() => new Set());
   const [mediaIndexLoading, setMediaIndexLoading] = useState(false);
+  const [warehouseTransferProduct, setWarehouseTransferProduct] = useState<CatalogProduct | null>(null);
   const [openAuditCycles, setOpenAuditCycles] = useState<AuditCycleDoc[]>([]);
 
   const applySpareFilters = useCallback(
@@ -613,7 +615,11 @@ export const CatalogPage: React.FC = () => {
       items = items.filter(product => matchesSpareStockStatusFilters(product, spareStockStatusFilters));
       items = items.filter(product => matchesSpareLocationFilters(product, spareLocationFilters));
     }
-    return items;
+    return [...items].sort((a, b) => {
+      const imageDiff = Number(catalogProductHasImage(b)) - Number(catalogProductHasImage(a));
+      if (imageDiff !== 0) return imageDiff;
+      return a.name.localeCompare(b.name);
+    });
   }, [
     isSuperAdmin,
     spareParts,
@@ -860,6 +866,39 @@ export const CatalogPage: React.FC = () => {
     }, { replace: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [setSearchParams]);
+
+  const canTransferWarehouseLocation = showAuditedLocations;
+
+  const handleLongPressWarehouseLocation = useCallback((product: CatalogProduct) => {
+    if (!canTransferWarehouseLocation) return;
+    setWarehouseTransferProduct(product);
+  }, [canTransferWarehouseLocation]);
+
+  const handleWarehouseTransferred = useCallback((
+    productId: string,
+    patch: { warehouses: CatalogProduct['warehouses']; stock: number },
+  ) => {
+    setCatalog(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        items: prev.items.map(item => (
+          item.id === productId
+            ? {
+              ...item,
+              warehouses: patch.warehouses,
+              stock: patch.stock,
+              stockStatus: patch.stock <= 0
+                ? 'out_of_stock'
+                : (item.reorderLevel ?? 0) > 0 && patch.stock <= (item.reorderLevel ?? 0)
+                  ? 'low_stock'
+                  : 'in_stock',
+            }
+            : item
+        )),
+      };
+    });
+  }, []);
 
   const handleCategoriesReorder = async (nextCategories: CatalogCategory[]) => {
     const orderById = new Map(nextCategories.map((cat, index) => [cat.id, index]));
@@ -1833,6 +1872,7 @@ export const CatalogPage: React.FC = () => {
             spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
             openNcQtyByProductId={isSuperAdmin ? openNcQtyByProductId : undefined}
             auditedLocationByProductId={auditedLocationByProductId}
+            onLongPressProduct={canTransferWarehouseLocation ? handleLongPressWarehouseLocation : undefined}
             activeCategoryId={categoryId}
             onActiveCategoryChange={setCategoryId}
             emptyTitle={
@@ -1958,6 +1998,7 @@ export const CatalogPage: React.FC = () => {
               highlightedProductId={highlightProductId}
               onProductSelect={openSpareFromFilteredList}
               auditedLocationByProductId={auditedLocationByProductId}
+              onLongPressProduct={canTransferWarehouseLocation ? handleLongPressWarehouseLocation : undefined}
               manageItemLabel={isSuperAdmin && canSync && spareCatalogFilters.has('unmapped') ? 'Link to products' : undefined}
               onManageItem={
                 isSuperAdmin && canSync && spareCatalogFilters.has('unmapped')
@@ -2077,6 +2118,17 @@ export const CatalogPage: React.FC = () => {
           saving={linkEditorSaving}
           onClose={() => setLinkEditorSpare(null)}
           onSave={handleSaveSpareLinks}
+        />
+      )}
+
+      {warehouseTransferProduct && (
+        <WarehouseLocationTransferDialog
+          product={warehouseTransferProduct}
+          auditedLocationLabel={auditedLocationByProductId?.get(warehouseTransferProduct.id) ?? null}
+          onClose={() => setWarehouseTransferProduct(null)}
+          onTransferred={patch => {
+            handleWarehouseTransferred(warehouseTransferProduct.id, patch);
+          }}
         />
       )}
     </div>

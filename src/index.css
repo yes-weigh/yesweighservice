@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg-app: #030712;
   --bg-glass: rgba(17, 24, 39, 0.65);
   --bg-glass-hover: rgba(31, 41, 55, 0.8);
@@ -2666,7 +2666,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .confirm-dialog-actions { display: flex; gap: 0.5rem; }
 
-/* ── Catalog (themed for YesOne Platform) ── */
+/* -- Catalog (themed for YesOne Platform) -- */
 .open-catalog-page {
   min-height: 100vh;
   padding: 0;
@@ -3618,7 +3618,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
-/* E-commerce style category tiles — text left, product image right */
+/* E-commerce style category tiles � text left, product image right */
 .catalog-category-card {
   position: relative;
   display: flex;
@@ -3748,7 +3748,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   object-position: bottom center;
 }
 
-/* Category tiles only — knock white/gray photo backgrounds into the tint */
+/* Category tiles only � knock white/gray photo backgrounds into the tint */
 .catalog-category-card .catalog-category-card__img--blend {
   mix-blend-mode: darken;
   filter: brightness(1.18) contrast(1.1) saturate(1.02);
@@ -3850,7 +3850,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
-/* E-commerce product cards — vertical tile (Flipkart / Amazon mobile pattern) */
+/* E-commerce product cards � vertical tile (Flipkart / Amazon mobile pattern) */
 .catalog-product-card--editable {
   cursor: grab;
 }
@@ -3965,7 +3965,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
 }
 
-/* Product grid — plain image on white; no knock-out blend or drop-shadow */
+/* Product grid � plain image on white; no knock-out blend or drop-shadow */
 .catalog-product-card .catalog-category-card__img {
   position: relative;
   z-index: 1;
@@ -5733,7 +5733,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-radius: 20px;
 }
 
-/* Uniform product image stage — white canvas on dark cards */
+/* Uniform product image stage � white canvas on dark cards */
 .catalog-product-image {
   display: flex;
   align-items: center;
@@ -6405,7 +6405,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 
   .catalog-page--smart.catalog-page--admin-tabs {
-    /* Tabs + optional category chips — ResizeObserver refines this. */
+    /* Tabs + optional category chips � ResizeObserver refines this. */
     --catalog-section-bar-height: 5.25rem;
   }
 
@@ -6594,7 +6594,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     min-width: 0;
   }
 
-  /* Keep section labels readable — scroll instead of ellipsis crush. */
+  /* Keep section labels readable � scroll instead of ellipsis crush. */
   .catalog-page .catalog-smart-bar .spares-mode-toggle--ops {
     width: 100%;
     max-width: 100%;
@@ -11442,7 +11442,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   text-decoration: underline;
 }
 
-/* ── Orders / cart page ─────────────────────────────────────── */
+/* -- Orders / cart page --------------------------------------- */
 .orders-page {
   max-width: 1100px;
   margin: 0 auto;
@@ -11663,7 +11663,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
-/* ── Dealer dashboard ───────────────────────────────────────── */
+/* -- Dealer dashboard ----------------------------------------- */
 .dealer-dashboard {
   display: flex;
   flex-direction: column;
@@ -12554,7 +12554,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   .dealer-dash__mini-stats { grid-area: mini; }
 }
 
-/* ── Product ↔ spare links ───────────────────────────────────── */
+/* -- Product ? spare links ------------------------------------- */
 .related-catalog__header {
   display: flex;
   align-items: center;
@@ -14251,7 +14251,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #64748b;
 }
 
-/* ── Box details (Screen 3, new box-based model) ───────────────── */
+/* -- Box details (Screen 3, new box-based model) ----------------- */
 .book-courier__boxes {
   display: flex;
   flex-direction: column;
@@ -17109,7 +17109,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
-/* ─── Zoho Dealers page ─── */
+/* --- Zoho Dealers page --- */
 .dealers-page {
   display: flex;
   flex-direction: column;
@@ -19162,7 +19162,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   opacity: 0.8;
 }
 
-/* ─── Dealer invoices page ─── */
+/* --- Dealer invoices page --- */
 .invoices-page {
   --invoices-pad: 1rem;
   --invoices-toolbar-height: 2.35rem;
@@ -19712,7 +19712,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
-/* ── Invoice detail ───────────────────────────────────────────── */
+/* -- Invoice detail --------------------------------------------- */
 .invoice-detail-page {
   display: flex;
   flex-direction: column;
@@ -20301,7 +20301,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   text-align: center;
 }
 
-/* ── Service requests ─────────────────────────────────────────── */
+/* -- Service requests ------------------------------------------- */
 .services-page,
 .service-request-page {
   display: flex;
@@ -20510,7 +20510,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-color: rgba(245, 130, 32, 0.45);
 }
 
-/* ── Warranty & Support hub ───────────────────────────────────── */
+/* -- Warranty & Support hub ------------------------------------- */
 .warranty-support-page {
   display: flex;
   flex-direction: column;
@@ -20655,7 +20655,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.4rem;
 }
 
-/* ── Support request list (dealer) ───────────────────────────── */
+/* -- Support request list (dealer) ----------------------------- */
 .support-request-list {
   display: flex;
   flex-direction: column;
@@ -20823,7 +20823,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   line-height: 1.35;
 }
 
-/* Legacy horizontal tabs — staff queue */
+/* Legacy horizontal tabs � staff queue */
 .support-request-list__tabs {
   display: flex;
   gap: 0.15rem;
@@ -22733,7 +22733,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.875rem;
 }
 
-/* ── Support chat ─────────────────────────────────────────────── */
+/* -- Support chat ----------------------------------------------- */
 .support-detail-page {
   display: flex;
   flex-direction: column;
@@ -27926,7 +27926,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 
-/* Audit cycles — premium hub */
+/* Audit cycles � premium hub */
 .audit-cycles-hub {
   --ac-ink: var(--text-primary, #f8fafc);
   --ac-mute: var(--text-muted, #94a3b8);
@@ -28744,4 +28744,155 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   .audit-cycle-card__timeline {
     grid-template-columns: 1fr;
   }
+}
+
+
+/* Zoho warehouse location transfer (long-press on catalog cards) */
+.warehouse-location-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.warehouse-location-dialog {
+  width: min(420px, 100%);
+  max-height: min(85vh, 560px);
+  overflow: auto;
+  padding: 1rem 1.1rem 1.15rem;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.warehouse-location-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.warehouse-location-dialog__heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.warehouse-location-dialog__heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.warehouse-location-dialog__sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.warehouse-location-dialog__audit-note {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.warehouse-location-dialog__label,
+.warehouse-location-dialog__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.warehouse-location-dialog__hint {
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.warehouse-location-dialog__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.warehouse-location-dialog__option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.warehouse-location-dialog__option:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.warehouse-location-dialog__option.is-current {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.warehouse-location-dialog__option.is-selected {
+  border-color: var(--accent, #ea580c);
+  background: rgba(234, 88, 12, 0.1);
+}
+
+.warehouse-location-dialog__option-name {
+  font-weight: 650;
+  font-size: 0.95rem;
+}
+
+.warehouse-location-dialog__option-stock {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.warehouse-location-dialog__error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #b91c1c;
+}
+
+.warehouse-location-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+@media (min-width: 640px) {
+  .warehouse-location-dialog__backdrop {
+    align-items: center;
+  }
+}
+
+.catalog-product-card--long-press {
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
 }
