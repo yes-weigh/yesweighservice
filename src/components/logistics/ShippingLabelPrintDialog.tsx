@@ -128,6 +128,12 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
             On web, Print opens the system dialog for {LOGISTICS_LABEL_WIDTH_MM}×{LOGISTICS_LABEL_HEIGHT_MM} mm stock.
           </p>
         )}
+        {native && (
+          <p className="text-muted text-sm shipping-label-print-dialog__hint">
+            Sends a 203 DPI bitmap of this preview to the logistics printer (same method as catalog labels).
+            If you see TSPL text/hex on the label, power-cycle the printer to leave dump mode, then print again.
+          </p>
+        )}
 
         <div className="dealers-modal__actions shipping-label-print-dialog__actions">
           <button

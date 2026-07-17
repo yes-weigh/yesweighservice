@@ -10,6 +10,7 @@ import {
   loadLabelStudioDoc,
 } from './labelStudio';
 import type { ShippingLabelViewModel } from './shippingLabel';
+import { buildShippingLabelBitmapJob } from './shippingLabelBitmap';
 
 function escapeTspl(value: string): string {
   return value.replace(/"/g, "'").replace(/\r?\n/g, ' ').trim();
@@ -156,7 +157,8 @@ export async function tryPrintShippingLabelsThermal(
   const printer = await resolveLogisticsPrinterOrThrow();
   let bytesSent = 0;
   for (const label of labels) {
-    const payload = buildShippingLabelTspl(label);
+    // Bitmap job (catalog-style) — not vector TEXT TSPL.
+    const payload = await buildShippingLabelBitmapJob(label);
     const result = await sendRawToPrinter({ ...printer, payload });
     bytesSent += result.bytesSent;
   }

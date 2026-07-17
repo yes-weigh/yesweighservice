@@ -76,6 +76,34 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 export { bytesToBase64 };
 
+/** Build TSPL job from an already-rendered canvas (WYSIWYG). */
+export function buildCanvasTsplBitmapJob(
+  canvas: HTMLCanvasElement,
+  media: {
+    labelWidthMm: number;
+    labelHeightMm: number;
+    labelGapMm: number;
+  },
+): Uint8Array {
+  const { widthBytes, height, data } = canvasToTsplBitmapBytes(canvas);
+  const header = new TextEncoder().encode(
+    [
+      `SIZE ${media.labelWidthMm} mm,${media.labelHeightMm} mm`,
+      `GAP ${media.labelGapMm} mm,0`,
+      'DIRECTION 1',
+      'REFERENCE 0,0',
+      'CLS',
+      `BITMAP 0,0,${widthBytes},${height},0,`,
+    ].join('\r\n'),
+  );
+  const footer = new TextEncoder().encode('\r\nPRINT 1,1\r\n');
+  const out = new Uint8Array(header.length + data.length + footer.length);
+  out.set(header, 0);
+  out.set(data, header.length);
+  out.set(footer, header.length + data.length);
+  return out;
+}
+
 /** Build TSPL job: SIZE/GAP/CLS + BITMAP + PRINT (same pixels as preview). */
 export async function buildLabelBitmapJob(
   fields: BinLabelFields,
@@ -96,24 +124,11 @@ export async function buildLabelBitmapJob(
     labelWidthMm,
     labelHeightMm,
   });
-  const { widthBytes, height, data } = canvasToTsplBitmapBytes(canvas);
-
-  const header = new TextEncoder().encode(
-    [
-      'SIZE ' + `${labelWidthMm} mm,${labelHeightMm} mm`,
-      `GAP ${labelGapMm} mm,0`,
-      'DIRECTION 1',
-      'REFERENCE 0,0',
-      'CLS',
-      `BITMAP 0,0,${widthBytes},${height},0,`,
-    ].join('\r\n'),
-  );
-  const footer = new TextEncoder().encode('\r\nPRINT 1,1\r\n');
-  const out = new Uint8Array(header.length + data.length + footer.length);
-  out.set(header, 0);
-  out.set(data, header.length);
-  out.set(footer, header.length + data.length);
-  return out;
+  return buildCanvasTsplBitmapJob(canvas, {
+    labelWidthMm,
+    labelHeightMm,
+    labelGapMm,
+  });
 }
 
 /** @deprecated Use buildLabelBitmapJob */
