@@ -43,7 +43,11 @@ function stopVideoTracks(video: HTMLVideoElement | null) {
   if (video) video.srcObject = null;
 }
 
-// Code 128 only — courier consignment barcodes; fewer formats = faster decode.
+/**
+ * Courier slips are almost always Code 128. Restricting formats speeds each
+ * attempt; perceived speed comes from short delays + enough horizontal pixels
+ * to resolve thin bars (640px was often too narrow).
+ */
 const COURIER_BARCODE_FORMATS = [BarcodeFormat.CODE_128];
 
 export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onClose }) => {
@@ -63,10 +67,13 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
 
     const hints = new Map();
     hints.set(DecodeHintType.POSSIBLE_FORMATS, COURIER_BARCODE_FORMATS);
-    // Skip TRY_HARDER — too heavy for live preview on phones.
+    // Single format → TRY_HARDER is cheap and catches angled / soft focus slips.
+    hints.set(DecodeHintType.TRY_HARDER, true);
+
     const reader = new BrowserMultiFormatReader(hints, {
-      delayBetweenScanAttempts: 200,
-      delayBetweenScanSuccess: 400,
+      // Snappy live decode — Code 128-only keeps each attempt light.
+      delayBetweenScanAttempts: 40,
+      delayBetweenScanSuccess: 80,
     });
 
     const secure = window.isSecureContext || location.hostname === 'localhost';
@@ -81,9 +88,6 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
     }
 
     const start = async () => {
-      await new Promise<void>(resolve => {
-        window.setTimeout(resolve, 60);
-      });
       if (cancelled || !videoRef.current) return;
 
       try {
@@ -91,9 +95,10 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onDetected, onCl
           {
             video: {
               facingMode: { ideal: 'environment' },
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-              frameRate: { ideal: 24, max: 30 },
+              // Wider frame resolves Code 128 modules faster than 640×480.
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30, max: 30 },
             },
           },
           videoRef.current,
