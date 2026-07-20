@@ -120,16 +120,6 @@ export function stripDuplicateAddressPhrases(
   return result || '—';
 }
 
-/** True when `haystack` already contains `needle` (loose, case-insensitive). */
-function addressAlreadyHasPhrase(haystack: string, needle: string): boolean {
-  const h = normalizePhrase(haystack);
-  const n = normalizePhrase(needle);
-  if (!h || !n || n.length < 3) return false;
-  if (h.includes(n)) return true;
-  const first = n.split(' ').find(t => t.length >= 4);
-  return Boolean(first && h.includes(first));
-}
-
 /** Normalize address for label columns (prefer existing newlines; else wrap on commas). */
 export function formatShippingAddressLines(address: string, maxLines = 5): string {
   const trimmed = address.replace(/\r\n/g, '\n').trim();
