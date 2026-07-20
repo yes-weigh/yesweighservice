@@ -17,7 +17,6 @@ import {
 import {
   drawRoundedRectStroke,
   drawShippingLabelHeader,
-  roundedRectPath,
 } from './shippingLabelHeader';
 import {
   drawShippingIcon,
