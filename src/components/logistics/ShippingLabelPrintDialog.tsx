@@ -7,12 +7,12 @@ import {
 } from '../../constants/localPrinterSettings';
 import { isNativePrintAvailable } from '../../lib/localPrinterPrint';
 import {
-  printShippingLabelElements,
+  printShippingLabelCanvases,
   tryPrintShippingLabelsThermal,
 } from '../../lib/logisticsLabelPrint';
 import { buildShippingLabelsFromBooking } from '../../lib/shippingLabel';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
-import { ShippingLabelSheet } from './ShippingLabelSheet';
+import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
 
 type Props = {
   booking: LogisticsBooking;
@@ -29,7 +29,7 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
   const [printing, setPrinting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const labelRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const canvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
   const native = isNativePrintAvailable();
 
   const labels = useMemo(
@@ -63,8 +63,8 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
         if (!fallback) return;
       }
 
-      printShippingLabelElements(
-        labelRefs.current,
+      printShippingLabelCanvases(
+        canvasRefs.current,
         `Shipping Label ${booking.consignmentNo || booking.trackingNo}`,
       );
       setSuccess('Opened system print dialog.');
@@ -93,7 +93,7 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
             <h2 id="shipping-label-print-title">Shipping label</h2>
             <p className="text-muted text-sm">
               {booking.consignmentNo || booking.trackingNo || booking.orderRef}
-              {` · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm`}
+              {` · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm · 203 DPI`}
               {labels.length > 1 ? ` · ${labels.length} labels` : ''}
             </p>
           </div>
@@ -112,11 +112,11 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
 
         <div className="shipping-label-print-dialog__preview book-courier__label-preview book-courier__label-preview--stack">
           {labels.map((label, index) => (
-            <ShippingLabelSheet
+            <ShippingLabelBitmapPreview
               key={`${label.consignmentNo}-${label.boxIndex}`}
               label={label}
               ref={el => {
-                labelRefs.current[index] = el;
+                canvasRefs.current[index] = el;
               }}
             />
           ))}
@@ -124,13 +124,13 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
 
         {!native && (
           <p className="text-muted text-sm shipping-label-print-dialog__hint">
-            Thermal print uses the YesWeigh Android APK on the same Wi‑Fi as the logistics printer.
+            Preview is the exact 203 DPI bitmap. Thermal print uses the YesWeigh Android APK on the same Wi‑Fi as the logistics printer.
             On web, Print opens the system dialog for {LOGISTICS_LABEL_WIDTH_MM}×{LOGISTICS_LABEL_HEIGHT_MM} mm stock.
           </p>
         )}
         {native && (
           <p className="text-muted text-sm shipping-label-print-dialog__hint">
-            Sends a 203 DPI bitmap of this preview to the logistics printer (same method as catalog labels).
+            Preview matches the 203 DPI bitmap sent to the logistics printer (same pixels as print).
             If you see TSPL text/hex on the label, power-cycle the printer to leave dump mode, then print again.
           </p>
         )}

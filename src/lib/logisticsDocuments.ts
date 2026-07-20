@@ -11,7 +11,7 @@ import {
   buildShippingLabelsFromBooking,
   formatShippingAddressLines,
   shippingLabelBarcodeBars,
-  shippingLabelMetricCells,
+  shippingLabelMetricRows,
   type ShippingLabelViewModel,
 } from './shippingLabel';
 import { shippingLabelHeaderHtml } from './shippingLabelHeader';
@@ -128,12 +128,16 @@ function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
       `<i style="flex:${w} ${w} 0;background:${i % 2 === 0 ? '#111' : 'transparent'}"></i>`
     ))
     .join('');
-  const metricsHtml = shippingLabelMetricCells(label)
-    .map(cell => metricCellHtml(cell.title, cell.value, cell.icon))
+  const metricsHtml = shippingLabelMetricRows(label)
+    .map(row => (
+      `<div class="sheet__metrics-row sheet__metrics-row--${row.length}">`
+      + row.map(cell => metricCellHtml(cell.title, cell.value, cell.icon)).join('')
+      + '</div>'
+    ))
     .join('');
-  const carrierImg = label.partnerImage
+  const carrierInner = label.partnerImage
     ? `<img src="${escapeHtml(label.partnerImage)}" alt="${escapeHtml(label.partnerLabel)}" />`
-    : '';
+    : `<strong class="sheet__carrier-name">${escapeHtml(label.partnerLabel)}</strong>`;
 
   return `
     <div class="sheet sheet--shipping">
@@ -143,21 +147,21 @@ function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
           <div class="sheet__party">
             <span class="sheet__label">FROM (SHIPPER)</span>
             <strong class="sheet__party-name">${escapeHtml(label.fromName)}</strong>
-            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.fromAddress, 4))}</p>
+            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.fromAddress, 6))}</p>
           </div>
           <div class="sheet__party">
             <span class="sheet__label">TO (CONSIGNEE)</span>
             <strong class="sheet__party-name">${escapeHtml(label.toName)}</strong>
-            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.toAddress, 4))}</p>
+            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.toAddress, 6))}</p>
+            ${label.toPhone ? `<strong class="sheet__party-phone">Ph: ${escapeHtml(label.toPhone)}</strong>` : ''}
           </div>
         </div>
         <div class="sheet__panel sheet__metrics">
           ${metricsHtml}
         </div>
         <div class="sheet__panel sheet__courier">
-          <div class="sheet__courier-side">
-            <span class="sheet__label">COURIER</span>
-            <div class="sheet__carrier-logo">${carrierImg}<strong class="sheet__carrier-name">${escapeHtml(label.partnerLabel)}</strong></div>
+          <div class="sheet__courier-side sheet__courier-side--logo">
+            <div class="sheet__carrier-logo">${carrierInner}</div>
           </div>
           <div class="sheet__courier-side sheet__courier-side--track">
             <span class="sheet__label">AWB / TRACKING</span>

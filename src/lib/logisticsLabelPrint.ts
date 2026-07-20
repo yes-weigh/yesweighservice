@@ -244,46 +244,67 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     border-top: 1.5px solid #111;
     border-bottom: none;
     margin: 1.2mm 0 0;
-    max-height: 32mm;
+    min-height: 36mm;
     overflow: hidden;
-    flex: 0 0 auto;
+    flex: 1 1 auto;
   }
-  .sheet__party { padding: 6px; min-width: 0; overflow: hidden; }
-  .sheet__party .sheet__label { margin-bottom: 3px; }
+  .sheet__party {
+    padding: 7px 8px;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .sheet__party .sheet__label { margin-bottom: 5px; font-size: 10px; }
   .sheet__party + .sheet__party { border-left: 1.5px solid #111; }
   .sheet__party-name {
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     overflow: hidden;
-    font-size: 11px;
+    font-family: Arial Black, Arial, Helvetica, sans-serif;
+    font-size: 13px;
     font-weight: 900;
-    line-height: 1.18;
-    margin-bottom: 2px;
+    line-height: 1.15;
+    margin-bottom: 5px;
   }
   .sheet__party-address {
     margin: 0;
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 1.22;
+    font-family: Arial Black, Arial, Helvetica, sans-serif;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.25;
     white-space: pre-line;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 4;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: hidden;
   }
+  .sheet__party-phone {
+    display: block;
+    margin-top: 5px;
+    font-family: Arial Black, Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1.15;
+  }
   .sheet__metrics {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    grid-template-rows: 1fr 1fr;
+    display: flex;
+    flex-direction: column;
     margin: 0;
     min-height: 96px;
     flex: 0 0 auto;
   }
+  .sheet__metrics-row {
+    display: grid;
+    flex: 1 1 0;
+    min-height: 0;
+  }
+  .sheet__metrics-row--3 { grid-template-columns: repeat(3, 1fr); }
+  .sheet__metrics-row--4 { grid-template-columns: repeat(4, 1fr); }
+  .sheet__metrics-row + .sheet__metrics-row { border-top: 1px solid #111; }
   .sheet__metric {
     padding: 5px 4px;
     border-right: 1px solid #111;
-    border-bottom: 1px solid #111;
     min-width: 0;
     min-height: 0;
     display: flex;
@@ -291,8 +312,7 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     gap: 4px;
     overflow: hidden;
   }
-  .sheet__metric:nth-child(4n) { border-right: none; }
-  .sheet__metric:nth-child(n + 5) { border-bottom: none; }
+  .sheet__metric:last-child { border-right: none; }
   .sheet__metric-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
   .sheet__metric-title {
     font-size: 7.5px;
@@ -327,18 +347,26 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     flex-direction: column;
     min-width: 0;
   }
+  .sheet__courier-side--logo { padding: 0; }
   .sheet__courier-side + .sheet__courier-side { border-left: 1.4px solid #111; }
   .sheet__courier-side--track { align-items: center; text-align: center; }
-  .sheet__courier-side > .sheet__label { margin-bottom: 4px; }
   .sheet__carrier-logo {
     flex: 1;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
   }
-  .sheet__carrier-logo img { max-width: 100%; max-height: 36px; object-fit: contain; }
+  .sheet__courier-side--logo .sheet__carrier-logo img {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    object-fit: cover;
+    display: block;
+  }
   .sheet__carrier-name {
     font-size: 11px;
     font-weight: 900;
@@ -423,6 +451,55 @@ export function printShippingLabelElements(
     `<!DOCTYPE html><html><head><title>${title}</title>`
     + `<style>${SHIPPING_LABEL_BROWSER_PRINT_STYLES}</style></head>`
     + `<body>${sheets.map(el => el.outerHTML).join('')}</body></html>`,
+  );
+  win.document.close();
+  win.focus();
+  win.onload = () => {
+    win.print();
+  };
+  window.setTimeout(() => {
+    try { win.print(); } catch { /* ignore */ }
+  }, 250);
+}
+
+/** Browser print fallback using the same 203 DPI canvases as thermal / on-screen preview. */
+export function printShippingLabelCanvases(
+  canvases: Array<HTMLCanvasElement | null>,
+  title = 'Shipping label',
+): void {
+  const ready = canvases.filter(
+    (canvas): canvas is HTMLCanvasElement => Boolean(canvas && canvas.width > 0 && canvas.height > 0),
+  );
+  if (!ready.length || typeof window === 'undefined') {
+    throw new Error('Label preview is still rendering. Wait a moment and try again.');
+  }
+  const win = window.open('', '_blank', 'noopener,noreferrer,width=420,height=640');
+  if (!win) {
+    throw new Error('Pop-up blocked. Allow pop-ups to print the shipping label.');
+  }
+  const styles = `
+    @page { margin: 0; size: ${LOGISTICS_LABEL_WIDTH_MM}mm ${LOGISTICS_LABEL_HEIGHT_MM}mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { margin: 0; background: #fff; }
+    img {
+      display: block;
+      width: ${LOGISTICS_LABEL_WIDTH_MM}mm;
+      height: ${LOGISTICS_LABEL_HEIGHT_MM}mm;
+      page-break-after: always;
+      break-after: page;
+    }
+    img:last-child { page-break-after: auto; break-after: auto; }
+  `;
+  const body = ready
+    .map(canvas => (
+      `<img src="${canvas.toDataURL('image/png')}" `
+      + `width="${canvas.width}" height="${canvas.height}" alt="" />`
+    ))
+    .join('');
+  win.document.open();
+  win.document.write(
+    `<!DOCTYPE html><html><head><title>${title}</title><style>${styles}</style></head>`
+    + `<body>${body}</body></html>`,
   );
   win.document.close();
   win.focus();

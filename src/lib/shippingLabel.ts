@@ -15,6 +15,7 @@ import {
   boxDimensionsLabel,
   chargeableWeight,
 } from './logisticsBooking';
+import { resolveReceiverPhoneFromSnapshot } from './logisticsDealers';
 
 export const SHIPPING_LABEL_CONTENTS = 'Genuine Spare Part';
 export const SHIPPING_LABEL_PAYMENT_MODE = 'PREPAID';
@@ -175,6 +176,8 @@ export interface ShippingLabelViewModel {
   fromAddress: string;
   toName: string;
   toAddress: string;
+  /** Receiver phone (shipping → billing → contact → any). Empty when unknown. */
+  toPhone: string;
   destinationCity: string;
   numberOfBoxes: number;
   boxIndex: number;
@@ -233,12 +236,17 @@ export type ShippingLabelMetricIcon =
   | 'transport'
   | 'payment';
 
-/** Metric grid cells shared by preview, HTML print, and thermal bitmap. */
-export function shippingLabelMetricCells(label: ShippingLabelViewModel): Array<{
+export type ShippingLabelMetricCell = {
   title: string;
   value: string;
   icon: ShippingLabelMetricIcon;
-}> {
+};
+
+/**
+ * Metric grid rows (CONTENTS column removed).
+ * Top: 3 cells · Bottom: 4 cells.
+ */
+export function shippingLabelMetricRows(label: ShippingLabelViewModel): ShippingLabelMetricCell[][] {
   const t = SHIPPING_LABEL_METRIC_TITLES;
   const boxLabel = label.shipmentMode === 'envelope'
     ? '1/1'
@@ -247,15 +255,23 @@ export function shippingLabelMetricCells(label: ShippingLabelViewModel): Array<{
     ? 'Envelope'
     : String(label.numberOfBoxes);
   return [
-    { title: t.boxes, value: boxCount, icon: 'boxes' },
-    { title: t.boxNumber, value: boxLabel, icon: 'boxNumber' },
-    { title: t.dimensions, value: label.boxDimensions, icon: 'dimensions' },
-    { title: t.contents, value: label.contents, icon: 'contents' },
-    { title: t.grossWeight, value: `${label.grossWeightKg.toFixed(2)} kg`, icon: 'weight' },
-    { title: t.chargeableWeight, value: `${label.chargeableWeightKg.toFixed(2)} kg`, icon: 'weight' },
-    { title: t.transport, value: label.transportMode, icon: 'transport' },
-    { title: t.payment, value: label.paymentMode, icon: 'payment' },
+    [
+      { title: t.boxes, value: boxCount, icon: 'boxes' },
+      { title: t.boxNumber, value: boxLabel, icon: 'boxNumber' },
+      { title: t.dimensions, value: label.boxDimensions, icon: 'dimensions' },
+    ],
+    [
+      { title: t.grossWeight, value: `${label.grossWeightKg.toFixed(2)} kg`, icon: 'weight' },
+      { title: t.chargeableWeight, value: `${label.chargeableWeightKg.toFixed(2)} kg`, icon: 'weight' },
+      { title: t.transport, value: label.transportMode, icon: 'transport' },
+      { title: t.payment, value: label.paymentMode, icon: 'payment' },
+    ],
   ];
+}
+
+/** Flat list of metric cells (row-major). */
+export function shippingLabelMetricCells(label: ShippingLabelViewModel): ShippingLabelMetricCell[] {
+  return shippingLabelMetricRows(label).flat();
 }
 
 /**
@@ -292,11 +308,26 @@ export function buildShippingLabelViewModel(input: {
 }): ShippingLabelViewModel {
   const boxTotal = Math.max(1, input.numberOfBoxes);
   const transport = (input.serviceType || 'SURFACE').trim().toUpperCase() || 'SURFACE';
+  const resolvedPhone = resolveReceiverPhoneFromSnapshot(input.dealer);
+  const toPhone = resolvedPhone === '—' ? '' : resolvedPhone;
+  const contact = input.dealer.contactPerson?.trim() || '';
+  let delivery = input.deliveryAddress.trim() || '—';
+  // Avoid repeating the phone inside the address body when we print Ph: below.
+  if (toPhone) {
+    const phonePattern = toPhone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+    delivery = delivery.replace(new RegExp(phonePattern, 'gi'), ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{2,}/g, '\n').trim() || '—';
+  }
+  const toAddressLines: string[] = [];
+  if (contact && contact !== '—' && !delivery.toLowerCase().includes(contact.toLowerCase())) {
+    toAddressLines.push(contact);
+  }
+  if (delivery && delivery !== '—') toAddressLines.push(delivery);
   return {
     fromName: input.fromName.trim() || 'YESWEIGH',
     fromAddress: input.fromAddress.trim() || '—',
     toName: input.dealer.name.trim() || '—',
-    toAddress: input.deliveryAddress.trim() || '—',
+    toAddress: toAddressLines.join('\n') || '—',
+    toPhone,
     destinationCity: resolveDestinationCity(input.dealer, input.deliveryAddress),
     numberOfBoxes: boxTotal,
     boxIndex: input.boxIndex,

@@ -2,7 +2,7 @@ import React from 'react';
 import {
   formatShippingAddressLines,
   shippingLabelBarcodeBars,
-  shippingLabelMetricCells,
+  shippingLabelMetricRows,
   type ShippingLabelViewModel,
 } from '../../lib/shippingLabel';
 import {
@@ -60,7 +60,7 @@ function InfoCell({
 export const ShippingLabelSheet = React.forwardRef<HTMLDivElement, Props>(
   function ShippingLabelSheet({ label, className }, ref) {
     const bars = shippingLabelBarcodeBars(label.consignmentNo);
-    const metrics = shippingLabelMetricCells(label);
+    const metricRows = shippingLabelMetricRows(label);
 
     return (
       <div
@@ -80,37 +80,47 @@ export const ShippingLabelSheet = React.forwardRef<HTMLDivElement, Props>(
               <span className="sheet__label">FROM (SHIPPER)</span>
               <strong className="sheet__party-name">{label.fromName}</strong>
               <p className="sheet__party-address">
-                {formatShippingAddressLines(label.fromAddress, 4)}
+                {formatShippingAddressLines(label.fromAddress, 6)}
               </p>
             </div>
             <div className="sheet__party">
               <span className="sheet__label">TO (CONSIGNEE)</span>
               <strong className="sheet__party-name">{label.toName}</strong>
               <p className="sheet__party-address">
-                {formatShippingAddressLines(label.toAddress, 4)}
+                {formatShippingAddressLines(label.toAddress, 6)}
               </p>
+              {label.toPhone ? (
+                <strong className="sheet__party-phone">{`Ph: ${label.toPhone}`}</strong>
+              ) : null}
             </div>
           </div>
 
           <div className="sheet__panel sheet__metrics">
-            {metrics.map(cell => (
-              <MetricCell
-                key={`${cell.title}-${cell.value}`}
-                icon={cell.icon}
-                title={cell.title}
-                value={cell.value}
-              />
+            {metricRows.map((row, rowIndex) => (
+              <div
+                key={`metric-row-${rowIndex}`}
+                className={`sheet__metrics-row sheet__metrics-row--${row.length}`}
+              >
+                {row.map(cell => (
+                  <MetricCell
+                    key={`${cell.title}-${cell.value}`}
+                    icon={cell.icon}
+                    title={cell.title}
+                    value={cell.value}
+                  />
+                ))}
+              </div>
             ))}
           </div>
 
           <div className="sheet__panel sheet__courier">
-            <div className="sheet__courier-side">
-              <span className="sheet__label">COURIER</span>
+            <div className="sheet__courier-side sheet__courier-side--logo">
               <div className="sheet__carrier-logo">
                 {label.partnerImage ? (
                   <img src={label.partnerImage} alt={label.partnerLabel} />
-                ) : null}
-                <strong className="sheet__carrier-name">{label.partnerLabel}</strong>
+                ) : (
+                  <strong className="sheet__carrier-name">{label.partnerLabel}</strong>
+                )}
               </div>
             </div>
             <div className="sheet__courier-side sheet__courier-side--track">

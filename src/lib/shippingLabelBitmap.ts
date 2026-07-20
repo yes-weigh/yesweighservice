@@ -9,7 +9,7 @@ import { getLabelMediaForUsage } from './labelStudio';
 import {
   formatShippingAddressLines,
   shippingLabelBarcodeBars,
-  shippingLabelMetricCells,
+  shippingLabelMetricRows,
   type ShippingLabelViewModel,
 } from './shippingLabel';
 import {
@@ -43,17 +43,52 @@ function wrapCanvasText(
   const words = text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
   const lines: string[] = [];
   let current = '';
+
+  const pushHard = (chunk: string) => {
+    if (!chunk || lines.length >= maxLines) return;
+    lines.push(chunk);
+  };
+
+  const breakLongWord = (word: string): string[] => {
+    const parts: string[] = [];
+    let chunk = '';
+    for (const ch of word) {
+      const next = chunk + ch;
+      if (chunk && ctx.measureText(next).width > maxWidth) {
+        parts.push(chunk);
+        chunk = ch;
+      } else {
+        chunk = next;
+      }
+    }
+    if (chunk) parts.push(chunk);
+    return parts.length ? parts : [word];
+  };
+
   for (const word of words) {
+    if (lines.length >= maxLines) break;
     const next = current ? `${current} ${word}` : word;
     if (ctx.measureText(next).width <= maxWidth) {
       current = next;
       continue;
     }
-    if (current) lines.push(current);
-    current = word;
+    if (current) {
+      pushHard(current);
+      current = '';
+    }
     if (lines.length >= maxLines) break;
+    if (ctx.measureText(word).width <= maxWidth) {
+      current = word;
+      continue;
+    }
+    const parts = breakLongWord(word);
+    for (let i = 0; i < parts.length; i += 1) {
+      if (lines.length >= maxLines) break;
+      if (i < parts.length - 1) pushHard(parts[i]!);
+      else current = parts[i]!;
+    }
   }
-  if (current && lines.length < maxLines) lines.push(current);
+  if (current && lines.length < maxLines) pushHard(current);
   return lines.length ? lines.slice(0, maxLines) : ['—'];
 }
 
@@ -113,119 +148,226 @@ export async function renderShippingLabelCanvas(
     dpiScale: LABEL_DPI / 203,
   });
 
-  // —— Parties (no bottom rule — metrics panel owns its top border) ——
-  const partyH = mmToDots(30, LABEL_DPI);
+  // —— Parties: all leftover height after metrics/courier/info goes here ——
+  const metricH = mmToDots(24, LABEL_DPI);
+  const courierHTarget = mmToDots(22, LABEL_DPI);
+  const infoHFixed = mmToDots(11.5, LABEL_DPI);
+  const contentBottomEarly = frameY + frameH - borderW - pad;
+  const reservedBelow = metricH + courierHTarget + infoHFixed + gap * 3;
+  const partyH = Math.max(mmToDots(28, LABEL_DPI), contentBottomEarly - y - reservedBelow);
   ctx.fillStyle = INK;
   ctx.fillRect(contentX, y, contentW, line);
   ctx.fillRect(contentX + colW, y, line, partyH);
 
-  const drawParty = (x: number, labelText: string, name: string, address: string) => {
-    const inner = mmToDots(1.6, LABEL_DPI);
+  const drawParty = (
+    x: number,
+    labelText: string,
+    name: string,
+    address: string,
+    phone = '',
+  ) => {
+    const inner = mmToDots(1.8, LABEL_DPI);
     const maxW = colW - inner * 2;
+    const topPad = mmToDots(1.5, LABEL_DPI);
+    const bottomPad = mmToDots(1.5, LABEL_DPI);
+    const usableH = Math.max(1, partyH - topPad - bottomPad);
+    const phoneText = phone.trim();
+    const sectionLabelH = Math.min(mmToDots(2.8, LABEL_DPI), Math.max(mmToDots(2.5, LABEL_DPI), usableH * 0.072));
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, colW - 2, partyH - 2);
     ctx.clip();
 
-    let py = y + mmToDots(1.6, LABEL_DPI);
-    const { h: labelH } = drawLabel(ctx, labelText, x + inner, py, mmToDots(2.3, LABEL_DPI));
-    py += labelH + mmToDots(0.8, LABEL_DPI);
+    const buildAddrLines = (fontPx: number, maxLines: number): string[] => {
+      ctx.font = `900 ${fontPx}px Arial Black, Arial, Helvetica, sans-serif`;
+      const raw = formatShippingAddressLines(address, 8).split('\n').filter(Boolean);
+      const out: string[] = [];
+      for (const rawLine of raw) {
+        if (out.length >= maxLines) break;
+        for (const wl of wrapCanvasText(ctx, rawLine, maxW, maxLines - out.length)) {
+          if (out.length >= maxLines) break;
+          out.push(wl);
+        }
+      }
+      return out.length ? out : ['—'];
+    };
+
+    // Prefer large bold type; shrink only if content would overflow.
+    let nameFont = Math.min(mmToDots(4.5, LABEL_DPI), Math.max(mmToDots(3.5, LABEL_DPI), usableH * 0.13));
+    let addrFont = Math.min(mmToDots(3.7, LABEL_DPI), Math.max(mmToDots(3.0, LABEL_DPI), usableH * 0.105));
+    let nameLines: string[] = [];
+    let addrLines: string[] = [];
+    let nameLineH = 0;
+    let addrLineH = 0;
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      nameLineH = nameFont * 1.16;
+      addrLineH = addrFont * 1.2;
+      ctx.font = `900 ${nameFont}px Arial Black, Arial, Helvetica, sans-serif`;
+      nameLines = wrapCanvasText(ctx, name, maxW, 3);
+      const fixed = sectionLabelH * 1.15
+        + mmToDots(1.2, LABEL_DPI)
+        + nameLines.length * nameLineH
+        + mmToDots(1.1, LABEL_DPI)
+        + (phoneText ? addrLineH + mmToDots(1.2, LABEL_DPI) : 0);
+      const maxAddrLines = Math.max(2, Math.floor((usableH - fixed) / addrLineH));
+      addrLines = buildAddrLines(addrFont, maxAddrLines);
+      const used = fixed + addrLines.length * addrLineH;
+      if (used <= usableH || nameFont <= mmToDots(3.2, LABEL_DPI)) break;
+      nameFont *= 0.93;
+      addrFont *= 0.93;
+    }
+
+    // Pack from the top, then stretch line spacing so the column fills evenly.
+    const baseLabelGap = mmToDots(1.2, LABEL_DPI);
+    const baseNameGap = mmToDots(1.1, LABEL_DPI);
+    const basePhoneGap = phoneText ? mmToDots(1.2, LABEL_DPI) : 0;
+    const packed = sectionLabelH * 1.15
+      + baseLabelGap
+      + nameLines.length * nameLineH
+      + baseNameGap
+      + addrLines.length * addrLineH
+      + basePhoneGap
+      + (phoneText ? addrLineH : 0);
+    const slack = Math.max(0, usableH - packed);
+    const stretchSlots = nameLines.length + addrLines.length + (phoneText ? 1 : 0) + 2;
+    const bump = slack / Math.max(1, stretchSlots);
+    nameLineH += bump;
+    addrLineH += bump;
+    const labelGap = baseLabelGap + bump;
+    const nameGap = baseNameGap + bump;
+    const phoneGap = basePhoneGap + (phoneText ? bump : 0);
+
+    let py = y + topPad;
     ctx.fillStyle = INK;
     ctx.textBaseline = 'top';
-    ctx.font = `900 ${mmToDots(2.9, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
-    for (const nl of wrapCanvasText(ctx, name, maxW, 2)) {
+    ctx.textAlign = 'left';
+    drawLabel(ctx, labelText, x + inner, py, sectionLabelH);
+    py += sectionLabelH * 1.15 + labelGap;
+
+    ctx.font = `900 ${nameFont}px Arial Black, Arial, Helvetica, sans-serif`;
+    for (const nl of nameLines) {
       ctx.fillText(nl, x + inner, py);
-      py += mmToDots(3.3, LABEL_DPI);
+      py += nameLineH;
     }
-    py += mmToDots(0.3, LABEL_DPI);
-    ctx.font = `700 ${mmToDots(2.45, LABEL_DPI)}px Arial, Helvetica, sans-serif`;
-    const addrBottom = y + partyH - mmToDots(1.2, LABEL_DPI);
-    const lineH = mmToDots(2.85, LABEL_DPI);
-    for (const al of formatShippingAddressLines(address, 4).split('\n')) {
-      if (py + lineH > addrBottom) break;
-      ctx.fillText(wrapCanvasText(ctx, al, maxW, 1)[0] ?? al, x + inner, py);
-      py += lineH;
+    py += nameGap;
+
+    ctx.font = `900 ${addrFont}px Arial Black, Arial, Helvetica, sans-serif`;
+    for (const al of addrLines) {
+      ctx.fillText(al, x + inner, py);
+      py += addrLineH;
+    }
+
+    if (phoneText) {
+      py += phoneGap;
+      const phoneLine = wrapCanvasText(ctx, `Ph: ${phoneText}`, maxW, 1)[0] ?? `Ph: ${phoneText}`;
+      ctx.fillText(phoneLine, x + inner, py);
     }
     ctx.restore();
   };
   drawParty(contentX, 'FROM (SHIPPER)', label.fromName, label.fromAddress);
-  drawParty(contentX + colW, 'TO (CONSIGNEE)', label.toName, label.toAddress);
+  drawParty(contentX + colW, 'TO (CONSIGNEE)', label.toName, label.toAddress, label.toPhone);
   y += partyH + gap;
 
-  // —— Metrics panel (short titles + stacked value — no overlap) ——
-  const metrics = shippingLabelMetricCells(label);
-  const metricH = mmToDots(26, LABEL_DPI);
-  const cellW = contentW / 4;
-  const cellH = metricH / 2;
+  // —— Metrics panel: top 3 cols (no CONTENTS), bottom 4 cols ——
+  const metricRows = shippingLabelMetricRows(label);
+  const cellH = metricH / metricRows.length;
   drawRoundedRectStroke(ctx, contentX, y, contentW, metricH, panelR, line);
-  for (let c = 1; c < 4; c += 1) ctx.fillRect(contentX + cellW * c, y, line, metricH);
-  ctx.fillRect(contentX, y + cellH, contentW, line);
+  for (let r = 1; r < metricRows.length; r += 1) {
+    ctx.fillRect(contentX, y + cellH * r, contentW, line);
+  }
 
-  metrics.forEach(({ title, value, icon }, index) => {
-    const col = index % 4;
-    const row = Math.floor(index / 4);
-    const cx = contentX + col * cellW;
-    const cy = y + row * cellH;
-    const inset = mmToDots(1.1, LABEL_DPI);
-    const iconSize = mmToDots(3.1, LABEL_DPI);
-    const maxW = cellW - inset * 2;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(cx + 1, cy + 1, cellW - 2, cellH - 2);
-    ctx.clip();
-
-    drawShippingIcon(ctx, icon, cx + inset, cy + inset + mmToDots(0.15, LABEL_DPI), iconSize);
-    ctx.fillStyle = INK;
-    ctx.textBaseline = 'top';
-    ctx.font = `900 ${mmToDots(2.05, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
-    const titleX = cx + inset + iconSize + mmToDots(0.6, LABEL_DPI);
-    const titleMaxW = Math.max(8, cx + cellW - inset - titleX);
-    const titleText = wrapCanvasText(ctx, title, titleMaxW, 1)[0] ?? title;
-    ctx.fillText(titleText, titleX, cy + inset + mmToDots(0.35, LABEL_DPI));
-
-    const valueY = cy + inset + iconSize + mmToDots(1.4, LABEL_DPI);
-    ctx.font = `900 ${mmToDots(2.95, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
-    const valueLineH = mmToDots(3.25, LABEL_DPI);
-    const valueLines = wrapCanvasText(ctx, value, maxW, 2);
-    let vy = valueY;
-    for (const vl of valueLines) {
-      ctx.fillText(vl, cx + inset, vy);
-      vy += valueLineH;
+  metricRows.forEach((rowCells, row) => {
+    const cols = rowCells.length;
+    const cellW = contentW / cols;
+    for (let c = 1; c < cols; c += 1) {
+      ctx.fillRect(contentX + cellW * c, y + cellH * row, line, cellH);
     }
-    ctx.restore();
+    rowCells.forEach(({ title, value, icon }, col) => {
+      const cx = contentX + col * cellW;
+      const cy = y + row * cellH;
+      const inset = mmToDots(1.1, LABEL_DPI);
+      const iconSize = mmToDots(3.1, LABEL_DPI);
+      const maxW = cellW - inset * 2;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(cx + 1, cy + 1, cellW - 2, cellH - 2);
+      ctx.clip();
+
+      drawShippingIcon(ctx, icon, cx + inset, cy + inset + mmToDots(0.15, LABEL_DPI), iconSize);
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'top';
+      ctx.font = `900 ${mmToDots(2.05, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
+      const titleX = cx + inset + iconSize + mmToDots(0.6, LABEL_DPI);
+      const titleMaxW = Math.max(8, cx + cellW - inset - titleX);
+      const titleText = wrapCanvasText(ctx, title, titleMaxW, 1)[0] ?? title;
+      ctx.fillText(titleText, titleX, cy + inset + mmToDots(0.35, LABEL_DPI));
+
+      const valueY = cy + inset + iconSize + mmToDots(1.4, LABEL_DPI);
+      ctx.font = `900 ${mmToDots(2.95, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
+      const valueLineH = mmToDots(3.25, LABEL_DPI);
+      const valueLines = wrapCanvasText(ctx, value, maxW, 2);
+      let vy = valueY;
+      for (const vl of valueLines) {
+        ctx.fillText(vl, cx + inset, vy);
+        vy += valueLineH;
+      }
+      ctx.restore();
+    });
   });
   y += metricH + gap;
 
   // —— Courier panel ——
   const contentBottom = frameY + frameH - borderW - pad;
-  const infoMinH = mmToDots(11, LABEL_DPI);
   const courierH = Math.max(
-    mmToDots(22, LABEL_DPI),
-    Math.min(mmToDots(24, LABEL_DPI), contentBottom - y - infoMinH - gap),
+    mmToDots(21, LABEL_DPI),
+    Math.min(courierHTarget, contentBottom - y - infoHFixed - gap),
   );
   const courierSplit = contentW * 0.38;
   drawRoundedRectStroke(ctx, contentX, y, contentW, courierH, panelR, line);
   ctx.fillRect(contentX + courierSplit, y, line, courierH);
 
+  // Courier cell: logo only, edge-to-edge inside the panel border.
   const partnerImg = label.partnerImage ? await loadImage(label.partnerImage) : null;
-  drawLabel(ctx, 'COURIER', contentX + mmToDots(1.4, LABEL_DPI), y + mmToDots(1.3, LABEL_DPI), mmToDots(2.3, LABEL_DPI));
-  const logoAreaY = y + mmToDots(6.5, LABEL_DPI);
-  const logoMaxH = mmToDots(8, LABEL_DPI);
-  if (partnerImg) {
-    const pw = Math.min(courierSplit - mmToDots(4, LABEL_DPI), (partnerImg.width / partnerImg.height) * logoMaxH);
-    ctx.drawImage(partnerImg, contentX + (courierSplit - pw) / 2, logoAreaY, pw, logoMaxH);
-  }
-  ctx.fillStyle = INK;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.font = `900 ${mmToDots(2.6, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
-  const partnerLines = wrapCanvasText(ctx, label.partnerLabel.toUpperCase(), courierSplit - mmToDots(3.5, LABEL_DPI), 2);
-  let ply = partnerImg ? logoAreaY + logoMaxH + mmToDots(0.6, LABEL_DPI) : y + courierH / 2 - mmToDots(1.5, LABEL_DPI);
-  for (const pl of partnerLines) {
-    if (ply + mmToDots(3, LABEL_DPI) > y + courierH - mmToDots(1, LABEL_DPI)) break;
-    ctx.fillText(pl, contentX + courierSplit / 2, ply);
-    ply += mmToDots(3, LABEL_DPI);
+  const logoInset = Math.max(1, line); // stay just inside the stroke
+  const logoBoxX = contentX + logoInset;
+  const logoBoxY = y + logoInset;
+  const logoBoxW = courierSplit - logoInset * 2 - line;
+  const logoBoxH = courierH - logoInset * 2;
+  if (partnerImg && partnerImg.width > 0 && partnerImg.height > 0) {
+    // Cover the cell (crops asset padding) so the mark fills the courier panel.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(logoBoxX, logoBoxY, logoBoxW, logoBoxH);
+    ctx.clip();
+    const scale = Math.max(logoBoxW / partnerImg.width, logoBoxH / partnerImg.height);
+    const pw = partnerImg.width * scale;
+    const ph = partnerImg.height * scale;
+    ctx.drawImage(
+      partnerImg,
+      logoBoxX + (logoBoxW - pw) / 2,
+      logoBoxY + (logoBoxH - ph) / 2,
+      pw,
+      ph,
+    );
+    ctx.restore();
+  } else {
+    // Fallback when partner art is missing — keep a short name so the cell is not blank.
+    ctx.fillStyle = INK;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `900 ${mmToDots(3.2, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
+    const fallback = wrapCanvasText(ctx, label.partnerLabel.toUpperCase(), logoBoxW, 2);
+    const lineH = mmToDots(3.6, LABEL_DPI);
+    let ply = y + courierH / 2 - ((fallback.length - 1) * lineH) / 2;
+    for (const pl of fallback) {
+      ctx.fillText(pl, contentX + courierSplit / 2, ply);
+      ply += lineH;
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
   }
 
   const trackX = contentX + courierSplit;
@@ -259,8 +401,8 @@ export async function renderShippingLabelCanvas(
   ctx.textAlign = 'left';
   y += courierH + gap;
 
-  // —— Info panel: booking time | booked by ——
-  const infoH = Math.max(infoMinH, Math.min(mmToDots(14, LABEL_DPI), contentBottom - y));
+  // —— Info panel: booking time | booked by (fixed height — no empty stretch) ——
+  const infoH = Math.min(infoHFixed, Math.max(mmToDots(11, LABEL_DPI), contentBottom - y));
   drawRoundedRectStroke(ctx, contentX, y, contentW, infoH, panelR, line);
   ctx.fillRect(contentX + colW, y, line, infoH);
 

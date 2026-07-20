@@ -64,7 +64,10 @@ import {
   buildCourierSlipPngBlob,
   shareCourierSlipImage,
 } from '../../lib/courierSlipImage';
-import { tryPrintShippingLabelsThermal } from '../../lib/logisticsLabelPrint';
+import {
+  printShippingLabelCanvases,
+  tryPrintShippingLabelsThermal,
+} from '../../lib/logisticsLabelPrint';
 import type { User } from '../../types';
 import type { ZohoDealer } from '../../types/dealers';
 import type {
@@ -78,204 +81,12 @@ import type {
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { STAFF_LOGISTICS_SITES, STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
 import { BarcodeScanner } from './BarcodeScanner';
-import { ShippingLabelSheet } from './ShippingLabelSheet';
+import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
 
 type BoxNumberField = 'lengthCm' | 'widthCm' | 'heightCm' | 'weightKg';
 
 function newPhotoId(): string {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-const SHIPPING_LABEL_PRINT_STYLES = `
-  @page { margin: 0; size: 100mm 150mm; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; }
-  .sheet {
-    width: 100mm;
-    height: 150mm;
-    margin: 0;
-    border: 2px solid #111;
-    padding: 4.5mm 4mm;
-    overflow: hidden;
-    page-break-after: always;
-    break-after: page;
-  }
-  .sheet:last-child { page-break-after: auto; break-after: auto; }
-  .sheet--courier { border-width: 3px; }
-  .sheet__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 6px;
-    padding-bottom: 5px;
-    border-bottom: 2px solid #111;
-  }
-  .sheet__logo { height: 22px; width: auto; object-fit: contain; }
-  .sheet__product-line {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .sheet__parties {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-bottom: 6px;
-  }
-  .sheet__party-label {
-    display: block;
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-bottom: 2px;
-  }
-  .sheet__party-name {
-    display: block;
-    font-size: 11px;
-    font-weight: 800;
-    margin-bottom: 2px;
-  }
-  .sheet__party-address {
-    margin: 0;
-    font-size: 9px;
-    line-height: 1.3;
-    white-space: pre-line;
-  }
-  .sheet__box-meta,
-  .sheet__weights {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    margin-bottom: 6px;
-    padding: 5px 0;
-    border-top: 1px solid #111;
-    border-bottom: 1px solid #111;
-  }
-  .sheet__weights { border-top: none; }
-  .sheet__box-meta span,
-  .sheet__weights span,
-  .sheet__dest span,
-  .sheet__booking span {
-    display: block;
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    margin-bottom: 1px;
-  }
-  .sheet__box-meta strong,
-  .sheet__weights strong,
-  .sheet__dest strong,
-  .sheet__booking strong {
-    display: block;
-    font-size: 12px;
-    font-weight: 800;
-  }
-  .sheet__carrier {
-    display: grid;
-    grid-template-columns: 0.9fr 1.1fr;
-    gap: 8px;
-    align-items: center;
-    margin: 8px 0;
-    min-height: 48px;
-  }
-  .sheet__carrier-logo img {
-    max-width: 100%;
-    max-height: 36px;
-    object-fit: contain;
-  }
-  .sheet__carrier-logo strong { font-size: 12px; font-weight: 800; }
-  .sheet__barcode-block { text-align: center; }
-  .sheet__barcode-block code {
-    display: block;
-    font-size: 13px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    margin-bottom: 4px;
-  }
-  .sheet__barcode {
-    display: flex;
-    justify-content: center;
-    align-items: stretch;
-    gap: 0;
-    height: 34px;
-    padding: 0 8px;
-    box-sizing: border-box;
-  }
-  .sheet__barcode i {
-    display: block;
-    min-width: 0;
-    height: 100%;
-  }
-  .sheet__footer {
-    display: grid;
-    grid-template-columns: 1fr 1.1fr;
-    gap: 8px;
-    margin-top: auto;
-    padding-top: 6px;
-    border-top: 2px solid #111;
-  }
-  .sheet__booking { display: grid; gap: 4px; }
-  .sheet__brand {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 0.75rem;
-    margin-bottom: 10px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid #111;
-  }
-  .sheet__brand strong { font-size: 18px; letter-spacing: 0.04em; }
-  .sheet__brand span { font-size: 11px; font-weight: 700; text-transform: uppercase; }
-  .sheet__row { margin: 0 0 8px; font-size: 12px; line-height: 1.35; white-space: pre-line; }
-  .sheet__row strong { display: block; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 2px; }
-  .sheet__track {
-    margin: 12px 0;
-    padding: 10px 8px;
-    border: 1px dashed #111;
-    text-align: center;
-  }
-  .sheet__track code {
-    display: block;
-    font-size: 20px;
-    font-weight: 800;
-    letter-spacing: 0.12em;
-    margin-bottom: 6px;
-  }
-  .sheet__meta {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px solid #111;
-    font-size: 11px;
-  }
-  .sheet__meta strong { display: block; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; }
-`;
-
-function printLabelElements(elements: Array<HTMLElement | null>, title: string): void {
-  const sheets = elements.filter((el): el is HTMLElement => Boolean(el));
-  if (!sheets.length || typeof window === 'undefined') return;
-  const win = window.open('', '_blank', 'noopener,noreferrer,width=420,height=620');
-  if (!win) return;
-  win.document.open();
-  win.document.write(
-    `<!DOCTYPE html><html><head><title>${title}</title><style>${SHIPPING_LABEL_PRINT_STYLES}</style></head>`
-    + `<body>${sheets.map(el => el.outerHTML).join('')}</body></html>`,
-  );
-  win.document.close();
-  win.focus();
-  win.onload = () => {
-    win.print();
-  };
-  window.setTimeout(() => {
-    try { win.print(); } catch { /* ignore */ }
-  }, 250);
 }
 
 function boxVolumetric(box: ShipmentBoxDraft): number {
@@ -392,7 +203,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     head_office: '',
   });
   const shipFromRef = useRef<HTMLDivElement>(null);
-  const shippingLabelRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const shippingLabelCanvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
   const finalPhotoCaptureInputRef = useRef<HTMLInputElement>(null);
   const [courierSlipPreviewUrl, setCourierSlipPreviewUrl] = useState<string | null>(null);
   const [sharingCourierSlip, setSharingCourierSlip] = useState(false);
@@ -808,19 +619,23 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const handlePrintShippingLabels = useCallback(async () => {
     try {
-      const thermal = await tryPrintShippingLabelsThermal(shippingLabels);
-      if (thermal.usedThermal) {
-        updateDraft('labelGenerated', true);
-        return;
+      try {
+        const thermal = await tryPrintShippingLabelsThermal(shippingLabels);
+        if (thermal.usedThermal) {
+          updateDraft('labelGenerated', true);
+          return;
+        }
+      } catch (err) {
+        const fallback = window.confirm(
+          `${err instanceof Error ? err.message : 'Thermal print failed.'}\n\nPrint with the system dialog instead?`,
+        );
+        if (!fallback) return;
       }
+      printShippingLabelCanvases(shippingLabelCanvasRefs.current, 'Shipping label');
+      updateDraft('labelGenerated', true);
     } catch (err) {
-      const fallback = window.confirm(
-        `${err instanceof Error ? err.message : 'Thermal print failed.'}\n\nPrint with the system dialog instead?`,
-      );
-      if (!fallback) return;
+      window.alert(err instanceof Error ? err.message : 'Print failed.');
     }
-    printLabelElements(shippingLabelRefs.current, 'Shipping label');
-    updateDraft('labelGenerated', true);
   }, [shippingLabels, updateDraft]);
 
   const courierSlip = useMemo(() => {
@@ -1420,15 +1235,18 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   </header>
                   <div className="book-courier__label-preview book-courier__label-preview--stack">
                     {shippingLabels.map((label, index) => (
-                      <ShippingLabelSheet
+                      <ShippingLabelBitmapPreview
                         key={`ship-${label.boxIndex}`}
                         label={label}
                         ref={el => {
-                          shippingLabelRefs.current[index] = el;
+                          shippingLabelCanvasRefs.current[index] = el;
                         }}
                       />
                     ))}
                   </div>
+                  <p className="book-courier__hint text-muted text-sm">
+                    Exact 203 DPI print preview — what you see is what the logistics printer receives.
+                  </p>
                 </article>
 
                 <article className="book-courier__label-card">

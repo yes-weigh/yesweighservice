@@ -26,7 +26,15 @@ export interface LogisticsDealerSnapshot {
   name: string;
   code: string;
   contactPerson: string;
+  /**
+   * Receiver phone for labels / courier slip.
+   * Preference: shipping address → billing address → contact person → any other field.
+   */
   mobile: string;
+  /** Phone on Zoho shipping address (when available). */
+  shippingPhone?: string;
+  /** Phone on Zoho billing address (when available). */
+  billingPhone?: string;
   shippingAddress: string;
   billingAddress: string;
   /** Preferred destination city for shipping labels. */
