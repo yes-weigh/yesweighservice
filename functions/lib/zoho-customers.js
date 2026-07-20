@@ -5,9 +5,23 @@ import {
   extractZohoDetailFields,
   extractZohoListFields,
 } from './zoho-contact-fields.js';
+import { classifyZohoHttpError, recordZohoApiFailure } from './zoho-api-usage.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const SETTINGS_COLLECTION = 'dealerSettings';
+
+async function parseZohoJsonResponse(res) {
+  const text = await res.text().catch(() => '');
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+  return { text, payload };
+}
 
 async function fetchCustomersPage(accessToken, orgId, page = 1, perPage = 200) {
   const url = new URL(`${ZOHO_API_BASE}/contacts`);
@@ -17,15 +31,17 @@ async function fetchCustomersPage(accessToken, orgId, page = 1, perPage = 200) {
   url.searchParams.set('per_page', String(perPage));
 
   const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Zoho contacts API error: ${res.status} ${body}`);
+  const { text, payload } = await parseZohoJsonResponse(res);
+
+  if (!res.ok || payload?.code !== 0) {
+    const err = classifyZohoHttpError(res.status, payload ?? { message: text || 'Zoho contacts API error' });
+    if (err.code === 'RATE_LIMITED') {
+      await recordZohoApiFailure(err, { operation: 'syncZohoCustomers', source: 'dealers' });
+    }
+    throw err;
   }
 
-  const data = await res.json();
-  if (data.code !== 0) {
-    throw new Error(data.message || 'Zoho contacts API error');
-  }
+  const data = payload;
 
   const contacts = (data.contacts ?? []).map(c => ({
     id: String(c.contact_id),
@@ -85,13 +101,18 @@ export function processCustomers(rawCustomers) {
 export async function fetchRawCustomerDetail(accessToken, orgId, contactId) {
   const url = `${ZOHO_API_BASE}/contacts/${contactId}?organization_id=${orgId}`;
   const res = await fetch(url, { headers: authHeaders(accessToken, orgId) });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Zoho contact detail error: ${res.status} ${body}`);
+  const { text, payload } = await parseZohoJsonResponse(res);
+  if (!res.ok || payload?.code !== 0) {
+    const err = classifyZohoHttpError(
+      res.status,
+      payload ?? { message: text || 'Zoho contact detail error' },
+    );
+    if (err.code === 'RATE_LIMITED') {
+      await recordZohoApiFailure(err, { operation: 'fetchZohoCustomerDetail', source: 'dealers' });
+    }
+    throw err;
   }
-  const data = await res.json();
-  if (data.code !== 0) throw new Error(data.message || 'Zoho contact detail error');
-  return data.contact;
+  return payload.contact;
 }
 
 export async function syncCustomersToFirestore(secrets, orgId) {

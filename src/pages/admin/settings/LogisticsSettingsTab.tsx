@@ -18,6 +18,7 @@ import {
   staffLogisticsSiteLabel,
   type StaffLogisticsSite,
 } from '../../../types/staff-logistics';
+import { StCourierRatesSettings } from './StCourierRatesSettings';
 
 export const LogisticsSettingsTab: React.FC = () => {
   const { user } = useAuth();
@@ -264,6 +265,8 @@ export const LogisticsSettingsTab: React.FC = () => {
             ))}
           </div>
         </div>
+
+        <StCourierRatesSettings onError={setError} />
 
         <div className="settings-logistics__summary">
           {STAFF_LOGISTICS_SITES.map(site => (

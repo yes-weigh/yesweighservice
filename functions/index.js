@@ -1487,7 +1487,20 @@ export const syncZohoCustomers = onCall(
       return { syncedCount: count };
     } catch (err) {
       console.error('syncZohoCustomers failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Zoho customer sync failed.');
+      const message = err?.message ?? 'Zoho customer sync failed.';
+      if (
+        err?.code === 'RATE_LIMITED'
+        || err?.dailyQuota
+        || /rate.?limit|too many requests|maximum call rate limit|10,?000/i.test(message)
+      ) {
+        throw new HttpsError(
+          'resource-exhausted',
+          err?.dailyQuota || /maximum call rate limit|10,?000/i.test(message)
+            ? 'Zoho daily API limit (10,000 calls) has been reached for this organization. Wait until the quota resets, then try Sync again. You can check usage under Admin → Invoice Sync.'
+            : 'Zoho is temporarily rate-limited. Wait a few minutes, then try Sync again.',
+        );
+      }
+      throw new HttpsError('internal', message);
     }
   },
 );
