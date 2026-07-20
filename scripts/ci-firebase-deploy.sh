@@ -5,7 +5,8 @@ set -u
 TARGETS="${1:?Usage: ci-firebase-deploy.sh <targets> [project]}"
 PROJECT="${2:-yesweigh-service}"
 MAX_ATTEMPTS="${FIREBASE_DEPLOY_RETRIES:-5}"
-DELAY="${FIREBASE_DEPLOY_RETRY_DELAY_SEC:-20}"
+# Short first backoff helps clear firebaserules HTTP 409 races quickly.
+DELAY="${FIREBASE_DEPLOY_RETRY_DELAY_SEC:-10}"
 REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
 HTTP_AGENT_FIX="${REPO_ROOT}/scripts/ci-node-http-agent-fix.cjs"
 FIREBASE_CLI="${FIREBASE_CLI:-npx --yes firebase-tools@15.22.1}"
@@ -77,6 +78,7 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     echo "::error::Firebase deploy failed after ${MAX_ATTEMPTS} attempts (--only ${TARGETS})."
     echo "::error::If the log shows \"Premature close\" on oauth2/token, pin Node to 22.23.1+ or 22.22.x in the workflow (nodejs/node#63989)."
     echo "::error::If the log shows HTTP 503 from firebaserules.googleapis.com, this is usually a transient Google outage — re-run the workflow."
+    echo "::error::If the log shows HTTP 409 \"Requested entity already exists\" on firebaserules releases, another deploy raced the rules release — re-run once (concurrency should prevent overlaps)."
     exit 1
   fi
 

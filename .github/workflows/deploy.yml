@@ -6,6 +6,12 @@ on:
       - main
   workflow_dispatch:
 
+# One deploy at a time — overlapping runs race Firebase Rules releases (HTTP 409).
+# Queue instead of cancel so a nearly finished deploy is not killed mid-flight.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   # Needed to resolve the last successful deploy SHA for functions catch-up.
