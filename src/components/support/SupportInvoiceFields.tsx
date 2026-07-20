@@ -231,6 +231,8 @@ interface SupportInvoiceProductPickerProps {
   onNext?: () => void;
   onMatchedSerial?: (serial: string) => void;
   disabled?: boolean;
+  /** When false, invoice selection is optional (e.g. out-of-warranty / no invoice). */
+  invoiceRequired?: boolean;
   requestType?: Extract<SupportRequestType, 'service' | 'return'>;
 }
 
@@ -250,6 +252,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
   onNext,
   onMatchedSerial,
   disabled = false,
+  invoiceRequired = true,
   requestType,
 }) => {
   const [invoice, setInvoice] = useState<SupportInvoicePick | null>(
@@ -339,7 +342,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
         customerId={customerId}
         value={invoice}
         onChange={handleInvoiceChange}
-        required
+        required={invoiceRequired}
         disabled={disabled}
         id="support-invoice"
         label="Invoice number"

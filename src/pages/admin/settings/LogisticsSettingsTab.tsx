@@ -146,7 +146,7 @@ export const LogisticsSettingsTab: React.FC = () => {
       {error && <p className="settings-locations__error text-sm">{error}</p>}
 
       <div className="settings-logistics">
-        <div className="settings-logistics__default panel glass">
+        <div className="settings-logistics__default panel">
           <div className="settings-logistics__default-head">
             <div>
               <h4 className="settings-logistics__title">Default logistics location</h4>
@@ -225,7 +225,7 @@ export const LogisticsSettingsTab: React.FC = () => {
           </div>
         </div>
 
-        <div className="settings-logistics__default panel glass">
+        <div className="settings-logistics__default panel">
           <div className="settings-logistics__default-head">
             <div>
               <h4 className="settings-logistics__title">Ship-from addresses</h4>

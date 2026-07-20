@@ -587,8 +587,19 @@
 }
 
 .settings-logistics__default {
+  position: relative;
+  z-index: 0;
+  flex-shrink: 0;
   padding: 0.85rem 0.95rem;
-  background: rgba(15, 23, 42, 0.35);
+  /* Solid fill — nested backdrop-filter/glass over glass paints over siblings. */
+  background: #141414;
+  border: 1px solid #262626;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.settings-logistics__default:has(.settings-logistics__site-trigger.is-open) {
+  z-index: 5;
 }
 
 .settings-logistics__default-head {
@@ -671,19 +682,26 @@
 }
 
 .settings-logistics__site-trigger-address {
-  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
   line-height: 1.35;
   font-size: 0.72rem;
   font-weight: 500;
   color: #94a3b8;
 }
 
+/* In-flow menu so it pushes Ship-from down instead of swallowing under it. */
 .settings-logistics__site-menu {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 0.35rem);
-  z-index: 20;
+  position: relative;
+  left: auto;
+  right: auto;
+  top: auto;
+  z-index: 1;
+  margin-top: 0.35rem;
   display: flex;
   flex-direction: column;
   border: 1px solid #262626;

@@ -147,6 +147,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const [productSelection, setProductSelection] = useState<SupportProductDraft | null>(
     productDraft ?? (resumeDraft ? requestToProductDraft(resumeDraft) : null),
   );
+  const [proceedWithoutInvoice, setProceedWithoutInvoice] = useState(
+    () => Boolean(resumeDraft && !requestToProductDraft(resumeDraft)),
+  );
   const [draftRequestId, setDraftRequestId] = useState(resumeDraft?.id ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -232,14 +235,32 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     }
   };
 
+  const hasProductLink = Boolean(productDraft || productSelection);
+
+  const handleProductSelectionChange = useCallback((draft: SupportProductDraft | null) => {
+    setProductSelection(draft);
+    if (draft) {
+      setProceedWithoutInvoice(false);
+      setError('');
+    }
+  }, []);
+
+  const handleProceedWithoutInvoiceChange = useCallback((checked: boolean) => {
+    setProceedWithoutInvoice(checked);
+    setError('');
+    if (checked) {
+      setProductSelection(null);
+    }
+  }, []);
+
   const handleProductNext = useCallback(() => {
-    if (needsProduct && !productDraft && !productSelection) {
-      setError('Select an invoice and product from your invoice.');
+    if (needsProduct && !hasProductLink && !proceedWithoutInvoice) {
+      setError('Select an invoice and product, or choose to continue without an invoice.');
       return;
     }
     setError('');
     setStep('details');
-  }, [needsProduct, productDraft, productSelection]);
+  }, [needsProduct, hasProductLink, proceedWithoutInvoice]);
 
   const buildRequestPayload = () => {
     const selection = productDraft ?? productSelection;
@@ -270,8 +291,8 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const handleSaveDraft = async () => {
     if (!intent) return;
 
-    if (needsProduct && !productDraft && !productSelection) {
-      setError('Select an invoice and product before saving a draft.');
+    if (needsProduct && !hasProductLink && !proceedWithoutInvoice) {
+      setError('Select an invoice and product, or continue without an invoice, before saving a draft.');
       return;
     }
 
@@ -727,16 +748,36 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             )}
 
             {!productDraft && (
-              <SupportInvoiceProductPicker
-                cacheKey={invoiceCacheKey}
-                customerId={invoiceCustomerId}
-                value={productSelection}
-                onChange={setProductSelection}
-                onNext={handleProductNext}
-                onMatchedSerial={setSerialNumber}
-                disabled={isBusy}
-                requestType={intent === 'service' || intent === 'return' ? intent : undefined}
-              />
+              <>
+                <SupportInvoiceProductPicker
+                  key={proceedWithoutInvoice ? 'no-invoice' : 'with-invoice'}
+                  cacheKey={invoiceCacheKey}
+                  customerId={invoiceCustomerId}
+                  value={productSelection}
+                  onChange={handleProductSelectionChange}
+                  onNext={handleProductNext}
+                  onMatchedSerial={setSerialNumber}
+                  disabled={isBusy || proceedWithoutInvoice}
+                  invoiceRequired={!proceedWithoutInvoice}
+                  requestType={intent === 'service' || intent === 'return' ? intent : undefined}
+                />
+
+                <label className="support-wizard__no-invoice">
+                  <input
+                    type="checkbox"
+                    checked={proceedWithoutInvoice}
+                    disabled={isBusy}
+                    onChange={e => handleProceedWithoutInvoiceChange(e.target.checked)}
+                  />
+                  <span>
+                    Continue without an invoice
+                    <span className="support-wizard__no-invoice-hint">
+                      Use when the invoice is unavailable (e.g. out of warranty). You can still
+                      enter the serial number and describe the product on the next step.
+                    </span>
+                  </span>
+                </label>
+              </>
             )}
           </div>
         </section>
@@ -758,7 +799,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
             {isGeneralSupport && 'What do you need help with?'}
           </h3>
 
-          {selectedProduct && (
+          {selectedProduct ? (
             <div className="support-wizard__product panel glass">
               <Package size={18} aria-hidden />
               <div>
@@ -769,6 +810,12 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                 </span>
               </div>
             </div>
+          ) : (
+            needsProduct && proceedWithoutInvoice && (
+              <p className="text-sm text-muted support-wizard__no-invoice-banner">
+                Continuing without an invoice — include product details and serial number below.
+              </p>
+            )
           )}
 
           {needsProduct && (
@@ -850,10 +897,14 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
               onChange={e => setDescription(e.target.value)}
               placeholder={
                 intent === 'return'
-                  ? 'When did the fault start? Any error messages or photos available?'
+                  ? proceedWithoutInvoice && !selectedProduct
+                    ? 'Product name/model, when the fault started, error messages, and why there is no invoice…'
+                    : 'When did the fault start? Any error messages or photos available?'
                   : isGeneralSupport
                     ? 'Include relevant order numbers, dates, or names if helpful — invoice and product details are not required.'
-                    : 'Symptoms, error codes, when it started, etc.'
+                    : proceedWithoutInvoice && !selectedProduct
+                      ? 'Product name/model, symptoms, error codes, when it started, and why there is no invoice…'
+                      : 'Symptoms, error codes, when it started, etc.'
               }
             />
           </div>
