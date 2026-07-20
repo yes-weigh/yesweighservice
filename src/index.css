@@ -15226,11 +15226,16 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .book-courier__label-preview .sheet__glyph {
-  width: 3.8mm;
-  height: 3.8mm;
+  width: 3.2mm;
+  height: 3.2mm;
   flex-shrink: 0;
   stroke: #111;
   stroke-width: 2.5;
+}
+
+.book-courier__label-preview .sheet__metric-head .sheet__glyph {
+  width: 3mm;
+  height: 3mm;
 }
 
 .book-courier__label-preview .sheet__panel {
@@ -15238,28 +15243,32 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-radius: 2.2mm;
   overflow: hidden;
   background: #fff;
-  margin-top: 1.6mm;
+  margin-top: 1.2mm;
 }
 
 .book-courier__label-preview .sheet__parties {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
-  margin: 1.6mm 0 0;
+  margin: 1.2mm 0 0;
   border: none;
   border-top: 1.5px solid #111;
   border-bottom: none;
   border-radius: 0;
   padding: 0;
+  flex: 0 0 auto;
+  max-height: 32mm;
+  overflow: hidden;
 }
 
 .book-courier__label-preview .sheet__party {
-  padding: 2mm 2mm 2.2mm;
+  padding: 1.6mm 1.6mm 1.8mm;
   min-width: 0;
+  overflow: hidden;
 }
 
 .book-courier__label-preview .sheet__party .sheet__label {
-  margin-bottom: 1.2mm;
+  margin-bottom: 0.8mm;
 }
 
 .book-courier__label-preview .sheet__party + .sheet__party {
@@ -15267,36 +15276,48 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .book-courier__label-preview .sheet__party-name {
-  display: block;
-  font-size: 3.2mm;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 2.9mm;
   font-weight: 900;
-  line-height: 1.2;
-  margin-bottom: 0.8mm;
+  line-height: 1.18;
+  margin-bottom: 0.6mm;
   text-transform: none;
 }
 
 .book-courier__label-preview .sheet__party-address {
   margin: 0;
-  font-size: 2.7mm;
+  font-size: 2.4mm;
   font-weight: 700;
-  line-height: 1.28;
+  line-height: 1.22;
   white-space: pre-line;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
 }
 
 .book-courier__label-preview .sheet__metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: 1fr 1fr;
   margin: 0;
+  flex: 0 0 auto;
+  min-height: 26mm;
 }
 
 .book-courier__label-preview .sheet__metric {
-  padding: 1.5mm 1.3mm 1.4mm;
+  padding: 1.3mm 1.2mm 1.2mm;
   border-right: 1px solid #111;
   border-bottom: 1px solid #111;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 1mm;
+  gap: 1.2mm;
+  overflow: hidden;
 }
 
 .book-courier__label-preview .sheet__metric:nth-child(4n) {
@@ -15309,34 +15330,44 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .book-courier__label-preview .sheet__metric-head {
   display: flex;
-  align-items: flex-start;
-  gap: 0.8mm;
+  align-items: center;
+  gap: 0.6mm;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .book-courier__label-preview .sheet__metric-title {
   display: block;
-  font-size: 2.1mm;
+  font-size: 2mm;
   font-weight: 900;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   text-transform: uppercase;
-  line-height: 1.15;
+  line-height: 1.1;
   color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .book-courier__label-preview .sheet__metric-value {
-  display: block;
-  font-size: 3.2mm;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 2.9mm;
   font-weight: 900;
   line-height: 1.15;
   word-break: break-word;
-  margin-top: auto;
+  margin-top: 0;
 }
 
 .book-courier__label-preview .sheet__courier {
   display: grid;
-  grid-template-columns: 0.9fr 1.2fr;
+  grid-template-columns: 0.85fr 1.25fr;
   margin: 0;
   min-height: 22mm;
+  flex: 1 1 auto;
 }
 
 .book-courier__label-preview .sheet__courier-side {
@@ -15386,11 +15417,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .book-courier__label-preview .sheet__awb {
   display: block;
   font-family: "Arial Black", Arial, Helvetica, sans-serif;
-  font-size: 6mm;
+  font-size: 5.2mm;
   font-weight: 900;
-  letter-spacing: 0.04em;
-  margin: 1.2mm 0 1.4mm;
+  letter-spacing: 0.03em;
+  margin: 1mm 0 1.2mm;
   line-height: 1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .book-courier__label-preview .sheet__barcode {
@@ -15398,11 +15433,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   justify-content: center;
   align-items: stretch;
   gap: 0;
-  height: 7mm;
+  height: 6.8mm;
   width: 100%;
   margin-top: auto;
-  padding: 0 2mm;
+  padding: 0 2.2mm;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .book-courier__label-preview .sheet__barcode i {

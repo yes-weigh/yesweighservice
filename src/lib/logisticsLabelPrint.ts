@@ -230,68 +230,96 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     line-height: 1.15;
     margin-bottom: 0;
   }
-  .sheet__glyph { width: 14px; height: 14px; flex-shrink: 0; }
+  .sheet__glyph { width: 12px; height: 12px; flex-shrink: 0; }
+  .sheet__metric-head .sheet__glyph { width: 11px; height: 11px; }
   .sheet__panel {
     border: 1.4px solid #111;
     border-radius: 2.2mm;
     overflow: hidden;
-    margin-top: 1.6mm;
+    margin-top: 1.2mm;
   }
   .sheet__parties {
     display: grid;
     grid-template-columns: 1fr 1fr;
     border-top: 1.5px solid #111;
     border-bottom: none;
-    margin: 1.6mm 0 0;
+    margin: 1.2mm 0 0;
+    max-height: 32mm;
+    overflow: hidden;
+    flex: 0 0 auto;
   }
-  .sheet__party { padding: 7px; min-width: 0; }
-  .sheet__party .sheet__label { margin-bottom: 5px; }
+  .sheet__party { padding: 6px; min-width: 0; overflow: hidden; }
+  .sheet__party .sheet__label { margin-bottom: 3px; }
   .sheet__party + .sheet__party { border-left: 1.5px solid #111; }
   .sheet__party-name {
-    display: block;
-    font-size: 12px;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: 11px;
     font-weight: 900;
-    line-height: 1.2;
-    margin-bottom: 3px;
+    line-height: 1.18;
+    margin-bottom: 2px;
   }
   .sheet__party-address {
     margin: 0;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
-    line-height: 1.28;
+    line-height: 1.22;
     white-space: pre-line;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
   }
-  .sheet__metrics { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; }
+  .sheet__metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: 1fr 1fr;
+    margin: 0;
+    min-height: 96px;
+    flex: 0 0 auto;
+  }
   .sheet__metric {
     padding: 5px 4px;
     border-right: 1px solid #111;
     border-bottom: 1px solid #111;
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 4px;
+    overflow: hidden;
   }
   .sheet__metric:nth-child(4n) { border-right: none; }
   .sheet__metric:nth-child(n + 5) { border-bottom: none; }
-  .sheet__metric-head { display: flex; align-items: flex-start; gap: 3px; }
+  .sheet__metric-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
   .sheet__metric-title {
-    font-size: 8px;
+    font-size: 7.5px;
     font-weight: 900;
     text-transform: uppercase;
-    line-height: 1.15;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
   .sheet__metric-value {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 900;
     line-height: 1.15;
     word-break: break-word;
-    margin-top: auto;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
   }
   .sheet__courier {
     display: grid;
-    grid-template-columns: 0.9fr 1.2fr;
+    grid-template-columns: 0.85fr 1.25fr;
     margin: 0;
     min-height: 80px;
+    flex: 1 1 auto;
   }
   .sheet__courier-side {
     padding: 6px;
@@ -320,21 +348,26 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
   .sheet__awb {
     display: block;
     font-family: Arial Black, Arial, Helvetica, sans-serif;
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 900;
-    letter-spacing: 0.04em;
-    margin: 4px 0 6px;
+    letter-spacing: 0.03em;
+    margin: 4px 0 5px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .sheet__barcode {
     display: flex;
     justify-content: center;
     align-items: stretch;
     gap: 0;
-    height: 26px;
+    height: 24px;
     width: 100%;
     margin-top: auto;
     padding: 0 8px;
     box-sizing: border-box;
+    flex-shrink: 0;
   }
   .sheet__barcode i {
     display: block;

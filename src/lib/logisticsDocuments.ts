@@ -11,6 +11,7 @@ import {
   buildShippingLabelsFromBooking,
   formatShippingAddressLines,
   shippingLabelBarcodeBars,
+  shippingLabelMetricCells,
   type ShippingLabelViewModel,
 } from './shippingLabel';
 import { shippingLabelHeaderHtml } from './shippingLabelHeader';
@@ -127,10 +128,9 @@ function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
       `<i style="flex:${w} ${w} 0;background:${i % 2 === 0 ? '#111' : 'transparent'}"></i>`
     ))
     .join('');
-  const boxLabel = label.shipmentMode === 'envelope'
-    ? '1/1'
-    : `${label.boxIndex}/${label.boxTotal}`;
-  const boxCount = label.shipmentMode === 'envelope' ? 'Envelope' : String(label.numberOfBoxes);
+  const metricsHtml = shippingLabelMetricCells(label)
+    .map(cell => metricCellHtml(cell.title, cell.value, cell.icon))
+    .join('');
   const carrierImg = label.partnerImage
     ? `<img src="${escapeHtml(label.partnerImage)}" alt="${escapeHtml(label.partnerLabel)}" />`
     : '';
@@ -143,23 +143,16 @@ function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
           <div class="sheet__party">
             <span class="sheet__label">FROM (SHIPPER)</span>
             <strong class="sheet__party-name">${escapeHtml(label.fromName)}</strong>
-            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.fromAddress))}</p>
+            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.fromAddress, 4))}</p>
           </div>
           <div class="sheet__party">
             <span class="sheet__label">TO (CONSIGNEE)</span>
             <strong class="sheet__party-name">${escapeHtml(label.toName)}</strong>
-            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.toAddress))}</p>
+            <p class="sheet__party-address">${escapeHtml(formatShippingAddressLines(label.toAddress, 4))}</p>
           </div>
         </div>
         <div class="sheet__panel sheet__metrics">
-          ${metricCellHtml('NO. OF BOXES', boxCount, 'boxes')}
-          ${metricCellHtml('BOX NUMBER', boxLabel, 'boxNumber')}
-          ${metricCellHtml('BOX DIMENSIONS (L × B × H)', label.boxDimensions, 'dimensions')}
-          ${metricCellHtml('CONTENTS', label.contents, 'contents')}
-          ${metricCellHtml('GROSS WEIGHT', `${label.grossWeightKg.toFixed(2)} kg`, 'weight')}
-          ${metricCellHtml('CHARGEABLE WEIGHT', `${label.chargeableWeightKg.toFixed(2)} kg`, 'weight')}
-          ${metricCellHtml('MODE OF TRANSPORT', label.transportMode, 'transport')}
-          ${metricCellHtml('PAYMENT MODE', label.paymentMode, 'payment')}
+          ${metricsHtml}
         </div>
         <div class="sheet__panel sheet__courier">
           <div class="sheet__courier-side">
@@ -167,7 +160,7 @@ function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
             <div class="sheet__carrier-logo">${carrierImg}<strong class="sheet__carrier-name">${escapeHtml(label.partnerLabel)}</strong></div>
           </div>
           <div class="sheet__courier-side sheet__courier-side--track">
-            <span class="sheet__label">AWB / TRACKING NUMBER</span>
+            <span class="sheet__label">AWB / TRACKING</span>
             <code class="sheet__awb">${escapeHtml(label.consignmentNo)}</code>
             <div class="sheet__barcode" aria-hidden="true">${bars}</div>
           </div>

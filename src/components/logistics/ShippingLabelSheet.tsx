@@ -2,6 +2,7 @@ import React from 'react';
 import {
   formatShippingAddressLines,
   shippingLabelBarcodeBars,
+  shippingLabelMetricCells,
   type ShippingLabelViewModel,
 } from '../../lib/shippingLabel';
 import {
@@ -59,12 +60,7 @@ function InfoCell({
 export const ShippingLabelSheet = React.forwardRef<HTMLDivElement, Props>(
   function ShippingLabelSheet({ label, className }, ref) {
     const bars = shippingLabelBarcodeBars(label.consignmentNo);
-    const boxLabel = label.shipmentMode === 'envelope'
-      ? '1/1'
-      : `${label.boxIndex}/${label.boxTotal}`;
-    const boxCount = label.shipmentMode === 'envelope'
-      ? 'Envelope'
-      : String(label.numberOfBoxes);
+    const metrics = shippingLabelMetricCells(label);
 
     return (
       <div
@@ -84,27 +80,27 @@ export const ShippingLabelSheet = React.forwardRef<HTMLDivElement, Props>(
               <span className="sheet__label">FROM (SHIPPER)</span>
               <strong className="sheet__party-name">{label.fromName}</strong>
               <p className="sheet__party-address">
-                {formatShippingAddressLines(label.fromAddress)}
+                {formatShippingAddressLines(label.fromAddress, 4)}
               </p>
             </div>
             <div className="sheet__party">
               <span className="sheet__label">TO (CONSIGNEE)</span>
               <strong className="sheet__party-name">{label.toName}</strong>
               <p className="sheet__party-address">
-                {formatShippingAddressLines(label.toAddress)}
+                {formatShippingAddressLines(label.toAddress, 4)}
               </p>
             </div>
           </div>
 
           <div className="sheet__panel sheet__metrics">
-            <MetricCell icon="boxes" title="NO. OF BOXES" value={boxCount} />
-            <MetricCell icon="boxNumber" title="BOX NUMBER" value={boxLabel} />
-            <MetricCell icon="dimensions" title="BOX DIMENSIONS (L × B × H)" value={label.boxDimensions} />
-            <MetricCell icon="contents" title="CONTENTS" value={label.contents} />
-            <MetricCell icon="weight" title="GROSS WEIGHT" value={`${label.grossWeightKg.toFixed(2)} kg`} />
-            <MetricCell icon="weight" title="CHARGEABLE WEIGHT" value={`${label.chargeableWeightKg.toFixed(2)} kg`} />
-            <MetricCell icon="transport" title="MODE OF TRANSPORT" value={label.transportMode} />
-            <MetricCell icon="payment" title="PAYMENT MODE" value={label.paymentMode} />
+            {metrics.map(cell => (
+              <MetricCell
+                key={`${cell.title}-${cell.value}`}
+                icon={cell.icon}
+                title={cell.title}
+                value={cell.value}
+              />
+            ))}
           </div>
 
           <div className="sheet__panel sheet__courier">
@@ -118,7 +114,7 @@ export const ShippingLabelSheet = React.forwardRef<HTMLDivElement, Props>(
               </div>
             </div>
             <div className="sheet__courier-side sheet__courier-side--track">
-              <span className="sheet__label">AWB / TRACKING NUMBER</span>
+              <span className="sheet__label">AWB / TRACKING</span>
               <code className="sheet__awb">{label.consignmentNo}</code>
               <div className="sheet__barcode" role="img" aria-label={`Code 128 barcode ${label.consignmentNo}`}>
                 {bars.map((w, i) => (

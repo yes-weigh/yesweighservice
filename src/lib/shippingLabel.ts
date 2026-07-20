@@ -20,6 +20,18 @@ export const SHIPPING_LABEL_CONTENTS = 'Genuine Spare Part';
 export const SHIPPING_LABEL_PAYMENT_MODE = 'PREPAID';
 export const SHIPPING_LABEL_FIRM = FIRM_NAME;
 
+/** Short metric titles that fit one line in a 4-column label grid. */
+export const SHIPPING_LABEL_METRIC_TITLES = {
+  boxes: 'BOXES',
+  boxNumber: 'BOX NO.',
+  dimensions: 'DIMENSIONS',
+  contents: 'CONTENTS',
+  grossWeight: 'GROSS WT',
+  chargeableWeight: 'CHG. WT',
+  transport: 'TRANSPORT',
+  payment: 'PAYMENT',
+} as const;
+
 /** Normalize address for label columns (prefer existing newlines; else wrap on commas). */
 export function formatShippingAddressLines(address: string, maxLines = 5): string {
   const trimmed = address.replace(/\r\n/g, '\n').trim();
@@ -185,6 +197,17 @@ export interface ShippingLabelViewModel {
   firmName: string;
 }
 
+/** Compact L×B×H for narrow metric cells (cm implied by DIMENSIONS title). */
+function compactBoxDimensions(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed === '—') return '—';
+  if (/^envelope$/i.test(trimmed)) return 'Envelope';
+  return trimmed
+    .replace(/\s*[×x]\s*/gi, '×')
+    .replace(/\s*cm\s*$/i, '')
+    .trim() || '—';
+}
+
 function resolveBoxDimensions(
   shipmentMode: ShipmentMode,
   box: ShipmentBox | undefined,
@@ -193,12 +216,46 @@ function resolveBoxDimensions(
   heightCm?: string | number | null,
 ): string {
   if (shipmentMode === 'envelope') return 'Envelope';
-  if (box) return boxDimensionsLabel(box);
+  if (box) return compactBoxDimensions(boxDimensionsLabel(box));
   const l = lengthCm == null || lengthCm === '' ? null : Number(lengthCm);
   const w = widthCm == null || widthCm === '' ? null : Number(widthCm);
   const h = heightCm == null || heightCm === '' ? null : Number(heightCm);
-  if (l && w && h) return `${l} × ${w} × ${h} cm`;
+  if (l && w && h) return compactBoxDimensions(`${l}×${w}×${h}`);
   return '—';
+}
+
+export type ShippingLabelMetricIcon =
+  | 'boxes'
+  | 'boxNumber'
+  | 'dimensions'
+  | 'contents'
+  | 'weight'
+  | 'transport'
+  | 'payment';
+
+/** Metric grid cells shared by preview, HTML print, and thermal bitmap. */
+export function shippingLabelMetricCells(label: ShippingLabelViewModel): Array<{
+  title: string;
+  value: string;
+  icon: ShippingLabelMetricIcon;
+}> {
+  const t = SHIPPING_LABEL_METRIC_TITLES;
+  const boxLabel = label.shipmentMode === 'envelope'
+    ? '1/1'
+    : `${label.boxIndex}/${label.boxTotal}`;
+  const boxCount = label.shipmentMode === 'envelope'
+    ? 'Envelope'
+    : String(label.numberOfBoxes);
+  return [
+    { title: t.boxes, value: boxCount, icon: 'boxes' },
+    { title: t.boxNumber, value: boxLabel, icon: 'boxNumber' },
+    { title: t.dimensions, value: label.boxDimensions, icon: 'dimensions' },
+    { title: t.contents, value: label.contents, icon: 'contents' },
+    { title: t.grossWeight, value: `${label.grossWeightKg.toFixed(2)} kg`, icon: 'weight' },
+    { title: t.chargeableWeight, value: `${label.chargeableWeightKg.toFixed(2)} kg`, icon: 'weight' },
+    { title: t.transport, value: label.transportMode, icon: 'transport' },
+    { title: t.payment, value: label.paymentMode, icon: 'payment' },
+  ];
 }
 
 /**
