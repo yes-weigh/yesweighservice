@@ -612,7 +612,11 @@ export const deleteCatalogProductImage = onCall(
         },
       );
     } catch (err) {
-      throw new HttpsError('internal', err?.message ?? 'Product image delete failed.');
+      const message = err?.message ?? 'Product image delete failed.';
+      if (/rate|blocked|too many requests|exceeded the maximum number of requests/i.test(message)) {
+        throw new HttpsError('resource-exhausted', message);
+      }
+      throw new HttpsError('internal', message);
     }
   },
 );

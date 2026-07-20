@@ -547,6 +547,14 @@ export function isRecoverableZohoImageDeleteError(message) {
     || msg.includes('not authorized to perform this operation')
     || msg.includes('image not found')
     || msg.includes('no image')
+    // Rate limit / daily quota — clear Firebase now; Zoho cleanup can retry later.
+    || msg.includes('rate limit')
+    || msg.includes('rate-limit')
+    || msg.includes('too many requests')
+    || msg.includes('blocked for some time')
+    || msg.includes('exceeded the maximum number of requests')
+    || msg.includes('maximum call rate limit')
+    || /\b429\b/.test(msg)
   );
 }
 
@@ -563,6 +571,7 @@ export async function deleteProductGalleryImagesFromZoho(accessToken, orgId, ite
     method: 'DELETE',
     headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
   });
+  await recordZohoApiResponse(response, { operation: 'deleteProductGalleryImages', source: 'catalog' });
 
   const text = await response.text();
   let payload = null;
@@ -574,11 +583,15 @@ export async function deleteProductGalleryImagesFromZoho(accessToken, orgId, ite
     }
   }
 
-  if (payload?.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.message || 'Zoho gallery image delete failed.');
-  }
-  if (!response.ok) {
-    throw new Error(payload?.message || `Zoho gallery image delete failed (${response.status}).`);
+  const zohoFailed = (payload?.code !== undefined && payload.code !== 0) || !response.ok;
+  if (zohoFailed) {
+    const err = classifyZohoHttpError(
+      response.status,
+      payload ?? { message: `Zoho gallery image delete failed (${response.status}).` },
+    );
+    await recordZohoApiFailure(err, { operation: 'deleteProductGalleryImages', source: 'catalog' });
+    // Prefer Zoho body message so recoverable-matchers (rate limit, not found, …) still work.
+    throw new Error(payload?.message || err.message || 'Zoho gallery image delete failed.');
   }
 
   return payload ?? { ok: true };
@@ -596,6 +609,7 @@ export async function deleteProductImageFromZoho(accessToken, orgId, itemId) {
     method: 'DELETE',
     headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
   });
+  await recordZohoApiResponse(response, { operation: 'deleteProductImage', source: 'catalog' });
 
   if (response.status === 404) {
     return { ok: true };
@@ -611,11 +625,14 @@ export async function deleteProductImageFromZoho(accessToken, orgId, itemId) {
     }
   }
 
-  if (payload?.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.message || 'Zoho image delete failed.');
-  }
-  if (!response.ok) {
-    throw new Error(payload?.message || `Zoho image delete failed (${response.status}).`);
+  const zohoFailed = (payload?.code !== undefined && payload.code !== 0) || !response.ok;
+  if (zohoFailed) {
+    const err = classifyZohoHttpError(
+      response.status,
+      payload ?? { message: `Zoho image delete failed (${response.status}).` },
+    );
+    await recordZohoApiFailure(err, { operation: 'deleteProductImage', source: 'catalog' });
+    throw new Error(payload?.message || err.message || 'Zoho image delete failed.');
   }
 
   return payload ?? { ok: true };

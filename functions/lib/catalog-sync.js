@@ -327,7 +327,15 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     const existing = existingMap.get(product.id);
     let imageUrl = existing?.imageUrl ?? null;
 
-    if (!skipNewImages && product.hasImage && !imageUrl && !skipFurtherImages) {
+    const suppressZohoImageImport = Boolean(existing?.suppressZohoImageImport);
+
+    if (
+      !skipNewImages
+      && product.hasImage
+      && !imageUrl
+      && !skipFurtherImages
+      && !suppressZohoImageImport
+    ) {
       const cached = await cacheProductImage(accessToken, organizationId, product.id, imageUrl);
       if (cached === 'RATE_LIMITED') {
         skipFurtherImages = true;
@@ -358,6 +366,11 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       syncedAt: now,
       organizationId,
     };
+
+    // Keep intentional local deletes from being re-pulled while Zoho still has the image.
+    if (suppressZohoImageImport && !imageUrl) {
+      doc.suppressZohoImageImport = true;
+    }
 
     const packageInfo = readPackageInfo(existing?.packageInfo);
     if (packageInfo) {
@@ -1004,6 +1017,7 @@ export async function uploadProductImage(productId, buffer, contentType, accessT
     imageUrl,
     imageUrls,
     imageDocs,
+    suppressZohoImageImport: FieldValue.delete(),
     syncedAt: now,
   }, { merge: true });
 
@@ -1797,10 +1811,12 @@ export async function deleteProductImage(productId, accessToken, organizationId,
   }
 
   // Delete primary image.
+  let zohoPrimaryDeleteSkipped = false;
   try {
     await deleteProductImageFromZoho(accessToken, organizationId, id);
   } catch (err) {
     if (!isRecoverableZohoImageDeleteError(err?.message)) throw err;
+    zohoPrimaryDeleteSkipped = true;
   }
 
   for (const ext of ['jpg', 'jpeg', 'png', 'webp', 'gif']) {
@@ -1856,6 +1872,7 @@ export async function deleteProductImage(productId, accessToken, organizationId,
           imageUrl: result.imageUrl,
           imageUrls,
           imageDocs: rest,
+          suppressZohoImageImport: FieldValue.delete(),
           syncedAt: new Date().toISOString(),
         }, { merge: true });
         return {
@@ -1872,6 +1889,8 @@ export async function deleteProductImage(productId, accessToken, organizationId,
     imageUrl: null,
     imageUrls: [],
     imageDocs: [],
+    // Zoho may still have the image (rate limit / auth). Block sync re-import.
+    ...(zohoPrimaryDeleteSkipped ? { suppressZohoImageImport: true } : { suppressZohoImageImport: FieldValue.delete() }),
     syncedAt: now,
   }, { merge: true });
 
