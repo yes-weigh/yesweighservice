@@ -620,10 +620,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     user.loginId,
   ]);
 
-  const handlePrintShippingLabels = useCallback(async () => {
+  const handlePrintShippingLabels = useCallback(async (
+    mode: 'bitmap' | 'tspl_to' = 'bitmap',
+  ) => {
     try {
       try {
-        const thermal = await tryPrintShippingLabelsThermal(shippingLabels);
+        const thermal = await tryPrintShippingLabelsThermal(shippingLabels, { mode });
         if (thermal.usedThermal) {
           updateDraft('labelGenerated', true);
           return;
@@ -633,6 +635,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           `${err instanceof Error ? err.message : 'Thermal print failed.'}\n\nPrint with the system dialog instead?`,
         );
         if (!fallback) return;
+      }
+      if (mode === 'tspl_to') {
+        window.alert(
+          'TSPL TO-address print needs the YesWeigh Android APK and logistics printer IP.',
+        );
+        return;
       }
       printShippingLabelCanvases(shippingLabelCanvasRefs.current, 'Shipping label');
       updateDraft('labelGenerated', true);
@@ -1225,14 +1233,25 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       Shipping label
                       {shippingLabelCount > 1 ? ` · ${shippingLabelCount} pcs` : ''}
                     </h4>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => void handlePrintShippingLabels()}
-                    >
-                      <Printer size={14} aria-hidden />
-                      {shippingLabelCount > 1 ? 'Print all' : 'Print'}
-                    </button>
+                    <div className="book-courier__label-print-actions">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => void handlePrintShippingLabels('bitmap')}
+                      >
+                        <Printer size={14} aria-hidden />
+                        {shippingLabelCount > 1 ? 'Print all' : 'Print'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        title="Bitmap label with sharper TSPL text for the TO address only"
+                        onClick={() => void handlePrintShippingLabels('tspl_to')}
+                      >
+                        <Printer size={14} aria-hidden />
+                        with TSPL
+                      </button>
+                    </div>
                   </header>
                   <div className="book-courier__label-preview book-courier__label-preview--stack">
                     {shippingLabels.map((label, index) => (

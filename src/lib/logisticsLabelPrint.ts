@@ -10,7 +10,10 @@ import {
   loadLabelStudioDoc,
 } from './labelStudio';
 import type { ShippingLabelViewModel } from './shippingLabel';
-import { buildShippingLabelBitmapJob } from './shippingLabelBitmap';
+import {
+  buildShippingLabelBitmapJob,
+  buildShippingLabelBitmapJobWithTsplTo,
+} from './shippingLabelBitmap';
 import { SHIPPING_LABEL_HEADER_STYLES } from './shippingLabelHeader';
 
 function escapeTspl(value: string): string {
@@ -148,18 +151,23 @@ export async function resolveLogisticsPrinterOrThrow(): Promise<{ host: string; 
   return { host: printer.host.trim(), port: printer.port };
 }
 
+export type ShippingLabelThermalPrintMode = 'bitmap' | 'tspl_to';
+
 /** Native thermal print when APK + IP available; otherwise returns false for browser fallback. */
 export async function tryPrintShippingLabelsThermal(
   labels: ShippingLabelViewModel[],
+  options: { mode?: ShippingLabelThermalPrintMode } = {},
 ): Promise<{ usedThermal: boolean; bytesSent: number }> {
   if (!isNativePrintAvailable() || !labels.length) {
     return { usedThermal: false, bytesSent: 0 };
   }
+  const mode = options.mode ?? 'bitmap';
   const printer = await resolveLogisticsPrinterOrThrow();
   let bytesSent = 0;
   for (const label of labels) {
-    // Bitmap job (catalog-style) — not vector TEXT TSPL.
-    const payload = await buildShippingLabelBitmapJob(label);
+    const payload = mode === 'tspl_to'
+      ? await buildShippingLabelBitmapJobWithTsplTo(label)
+      : await buildShippingLabelBitmapJob(label);
     const result = await sendRawToPrinter({ ...printer, payload });
     bytesSent += result.bytesSent;
   }

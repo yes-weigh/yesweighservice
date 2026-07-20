@@ -15097,6 +15097,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.65rem;
 }
 
+.book-courier__label-print-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
 .book-courier__label-card-head h4 {
   margin: 0;
   font-size: 0.9rem;

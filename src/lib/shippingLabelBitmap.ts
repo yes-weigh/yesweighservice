@@ -130,10 +130,36 @@ function drawLabel(
   return { w: ctx.measureText(text).width, h: px * 1.2 };
 }
 
+export type ShippingLabelTsplTextLine = {
+  x: number;
+  y: number;
+  text: string;
+};
+
+export type RenderShippingLabelOptions = {
+  /**
+   * Leave TO name/address/phone blank in the bitmap and collect positions
+   * for native TSPL TEXT overlay (sharper on thermal printers).
+   */
+  omitToBodyText?: boolean;
+};
+
 /** Render one 100×150 mm shipping label to a 203 DPI canvas (WYSIWYG thermal bitmap). */
 export async function renderShippingLabelCanvas(
   label: ShippingLabelViewModel,
+  options: RenderShippingLabelOptions = {},
 ): Promise<HTMLCanvasElement> {
+  const { canvas } = await renderShippingLabelCanvasDetailed(label, options);
+  return canvas;
+}
+
+/** Same as renderShippingLabelCanvas, plus optional TSPL TEXT overlay lines for TO. */
+export async function renderShippingLabelCanvasDetailed(
+  label: ShippingLabelViewModel,
+  options: RenderShippingLabelOptions = {},
+): Promise<{ canvas: HTMLCanvasElement; toTsplTextLines: ShippingLabelTsplTextLine[] }> {
+  const toTsplTextLines: ShippingLabelTsplTextLine[] = [];
+  const omitToBodyText = Boolean(options.omitToBodyText);
   const width = mmToDots(LOGISTICS_LABEL_WIDTH_MM, LABEL_DPI);
   const height = mmToDots(LOGISTICS_LABEL_HEIGHT_MM, LABEL_DPI);
   const canvas = document.createElement('canvas');
@@ -306,6 +332,8 @@ export async function renderShippingLabelCanvas(
     qrImage: HTMLImageElement | null = null,
     qrCaption = '',
     qrSize = sharedQrSize,
+    omitBodyText = false,
+    collectBodyText: ShippingLabelTsplTextLine[] | null = null,
   ) => {
     const qrCaptionH = qrImage && qrCaption ? bodyFont : 0;
     const captionGap = qrCaptionH ? qrCaptionGap : 0;
@@ -344,6 +372,19 @@ export async function renderShippingLabelCanvas(
     const maxAddrLines = Math.max(2, Math.floor((usableH - fixed) / partyLineH));
     const addrLines = buildAddrLines(maxAddrLines);
 
+    const emitBodyLine = (text: string, lineY: number) => {
+      const tx = Math.round(x + partyInner);
+      const ty = Math.round(lineY);
+      if (collectBodyText) collectBodyText.push({ x: tx, y: ty, text });
+      if (!omitBodyText) {
+        ctx.fillStyle = INK;
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'left';
+        ctx.font = thermalFont(bodyFont);
+        ctx.fillText(text, tx, ty);
+      }
+    };
+
     let py = y + partyTopPad;
     ctx.fillStyle = INK;
     ctx.textBaseline = 'top';
@@ -351,22 +392,21 @@ export async function renderShippingLabelCanvas(
     drawLabel(ctx, labelText, x + partyInner, py, bodyFont);
     py += partyLineH + partyLabelGap;
 
-    ctx.font = thermalFont(bodyFont);
     for (const nl of nameLines) {
-      ctx.fillText(nl, x + partyInner, Math.round(py));
+      emitBodyLine(nl, py);
       py += partyLineH;
     }
     py += partyNameGap;
 
     for (const al of addrLines) {
-      ctx.fillText(al, x + partyInner, Math.round(py));
+      emitBodyLine(al, py);
       py += partyLineH;
     }
 
     if (phoneText) {
       py += partyPhoneGap;
       const phoneLine = wrapCanvasText(ctx, `Ph: ${phoneText}`, partyMaxW, 1)[0] ?? `Ph: ${phoneText}`;
-      ctx.fillText(phoneLine, x + partyInner, Math.round(py));
+      emitBodyLine(phoneLine, py);
       py += partyLineH;
     }
 
@@ -404,6 +444,9 @@ export async function renderShippingLabelCanvas(
     label.toPhone,
     trackingQr,
     'TRACKING',
+    sharedQrSize,
+    omitToBodyText,
+    omitToBodyText ? toTsplTextLines : null,
   );
   y += partyH + gap;
 
@@ -620,7 +663,14 @@ export async function renderShippingLabelCanvas(
 
   // Match thermal BITMAP: colored logos/art become pure black & white.
   applyThermalMonochrome(canvas);
-  return canvas;
+  return { canvas, toTsplTextLines };
+}
+
+function escapeTsplText(value: string): string {
+  return value
+    .replace(/"/g, "'")
+    .replace(/[^\x20-\x7E]/g, '?')
+    .trim();
 }
 
 /** BITMAP TSPL job for one shipping label (same approach as catalog bin labels). */
@@ -634,4 +684,30 @@ export async function buildShippingLabelBitmapJob(
     labelHeightMm: media.labelHeightMm || LOGISTICS_LABEL_HEIGHT_MM,
     labelGapMm: media.labelGapMm || LOGISTICS_LABEL_GAP_MM,
   });
+}
+
+/**
+ * Hybrid job: full label BITMAP with TO name/address/phone omitted,
+ * then native TSPL TEXT for those lines (sharper on thermal).
+ */
+export async function buildShippingLabelBitmapJobWithTsplTo(
+  label: ShippingLabelViewModel,
+): Promise<Uint8Array> {
+  const media = getLabelMediaForUsage('logistics_shipping');
+  const { canvas, toTsplTextLines } = await renderShippingLabelCanvasDetailed(label, {
+    omitToBodyText: true,
+  });
+  // Font "2" ×1 — built-in bitmap face; coords match the canvas layout.
+  const textCommands = toTsplTextLines.map(
+    ({ x, y, text }) => `TEXT ${x},${y},"2",0,1,1,"${escapeTsplText(text)}"`,
+  );
+  return buildCanvasTsplBitmapJob(
+    canvas,
+    {
+      labelWidthMm: media.labelWidthMm || LOGISTICS_LABEL_WIDTH_MM,
+      labelHeightMm: media.labelHeightMm || LOGISTICS_LABEL_HEIGHT_MM,
+      labelGapMm: media.labelGapMm || LOGISTICS_LABEL_GAP_MM,
+    },
+    textCommands,
+  );
 }

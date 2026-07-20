@@ -113,6 +113,8 @@ export function buildCanvasTsplBitmapJob(
     labelHeightMm: number;
     labelGapMm: number;
   },
+  /** Extra TSPL lines after BITMAP data (e.g. native TEXT overlays), before PRINT. */
+  afterBitmapCommands: string[] = [],
 ): Uint8Array {
   const { widthBytes, height, data } = canvasToTsplBitmapBytes(canvas);
   const header = new TextEncoder().encode(
@@ -125,7 +127,10 @@ export function buildCanvasTsplBitmapJob(
       `BITMAP 0,0,${widthBytes},${height},0,`,
     ].join('\r\n'),
   );
-  const footer = new TextEncoder().encode('\r\nPRINT 1,1\r\n');
+  const after = afterBitmapCommands.length
+    ? `\r\n${afterBitmapCommands.join('\r\n')}`
+    : '';
+  const footer = new TextEncoder().encode(`${after}\r\nPRINT 1,1\r\n`);
   const out = new Uint8Array(header.length + data.length + footer.length);
   out.set(header, 0);
   out.set(data, header.length);
