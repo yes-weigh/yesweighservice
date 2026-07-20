@@ -99,7 +99,7 @@ export function drawShippingIcon(
       ctx.moveTo(x + s * 0.34, y + s * 0.36);
       ctx.quadraticCurveTo(x + s * 0.5, y + s * 0.12, x + s * 0.66, y + s * 0.36);
       ctx.stroke();
-      ctx.font = `bold ${Math.round(s * 0.22)}px Arial, Helvetica, sans-serif`;
+      ctx.font = `${Math.round(s * 0.22)}px Verdana, Tahoma, Geneva, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('KG', x + s * 0.5, y + s * 0.6);

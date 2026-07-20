@@ -29,17 +29,21 @@ import {
   type ShippingCanvasIcon,
 } from './shippingLabelIconsCanvas';
 
-const INK = '#111111';
+const INK = '#000000';
 const PAPER = '#ffffff';
-/** Clean thermal-safe face — Arial Black looks jagged at 203 DPI. */
-const FONT = 'Arial, Helvetica, sans-serif';
+/**
+ * Verdana regular — open counters, designed for low-res clarity.
+ * Bold fills letter holes after 203 DPI thermal thresholding.
+ */
+const FONT = 'Verdana, Tahoma, Geneva, sans-serif';
 
 function fontPx(size: number): number {
   return Math.max(8, Math.round(size));
 }
 
-function fontBold(size: number): string {
-  return `bold ${fontPx(size)}px ${FONT}`;
+/** Regular weight only — sharpest on 203 DPI BITMAP. */
+function thermalFont(size: number): string {
+  return `${fontPx(size)}px ${FONT}`;
 }
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
@@ -119,10 +123,10 @@ function drawLabel(
   size: number,
 ): { w: number; h: number } {
   const px = fontPx(size);
-  ctx.font = fontBold(px);
+  ctx.font = thermalFont(px);
   ctx.textBaseline = 'top';
   ctx.fillStyle = INK;
-  ctx.fillText(text, x, y);
+  ctx.fillText(text, Math.round(x), Math.round(y));
   return { w: ctx.measureText(text).width, h: px * 1.2 };
 }
 
@@ -137,8 +141,8 @@ export async function renderShippingLabelCanvas(
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not create shipping label canvas.');
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
+  // Crisp BITMAP text/logos — smoothing softens edges before 1-bit threshold.
+  ctx.imageSmoothingEnabled = false;
 
   const outerMargin = mmToDots(2.5, LABEL_DPI); // white pad outside the border
   const borderW = Math.max(2, mmToDots(0.55, LABEL_DPI));
@@ -237,7 +241,7 @@ export async function renderShippingLabelCanvas(
     const usableH = Math.max(1, partyH - partyTopPad - partyBottomPad - bottomReserve);
     const phoneText = phone.trim();
 
-    ctx.font = fontBold(bodyFont);
+    ctx.font = thermalFont(bodyFont);
     const nameLines = wrapCanvasText(ctx, name, partyMaxW, 3);
     const fixed = partyLineH
       + partyLabelGap
@@ -317,7 +321,7 @@ export async function renderShippingLabelCanvas(
     ctx.clip();
 
     const buildAddrLines = (maxLines: number): string[] => {
-      ctx.font = fontBold(bodyFont);
+      ctx.font = thermalFont(bodyFont);
       const raw = formatShippingAddressLines(address, 8).split('\n').filter(Boolean);
       const out: string[] = [];
       for (const rawLine of raw) {
@@ -330,7 +334,7 @@ export async function renderShippingLabelCanvas(
       return out.length ? out : ['—'];
     };
 
-    ctx.font = fontBold(bodyFont);
+    ctx.font = thermalFont(bodyFont);
     const nameLines = wrapCanvasText(ctx, name, partyMaxW, 3);
     const fixed = partyLineH
       + partyLabelGap
@@ -347,7 +351,7 @@ export async function renderShippingLabelCanvas(
     drawLabel(ctx, labelText, x + partyInner, py, bodyFont);
     py += partyLineH + partyLabelGap;
 
-    ctx.font = fontBold(bodyFont);
+    ctx.font = thermalFont(bodyFont);
     for (const nl of nameLines) {
       ctx.fillText(nl, x + partyInner, Math.round(py));
       py += partyLineH;
@@ -375,7 +379,7 @@ export async function renderShippingLabelCanvas(
       const qx = Math.round(x + (colW - qrSize) / 2);
       ctx.drawImage(qrImage, qx, qy, qrSize, qrSize);
       if (qrCaptionH && qrCaption) {
-        ctx.font = fontBold(bodyFont);
+        ctx.font = thermalFont(bodyFont);
         const captionW = ctx.measureText(qrCaption).width;
         const captionX = Math.round(x + (colW - captionW) / 2);
         drawLabel(ctx, qrCaption, captionX, qy + qrSize + captionGap, bodyFont);
@@ -432,14 +436,14 @@ export async function renderShippingLabelCanvas(
       drawShippingIcon(ctx, icon, cx + inset, cy + inset + mmToDots(0.15, LABEL_DPI), iconSize);
       ctx.fillStyle = INK;
       ctx.textBaseline = 'top';
-      ctx.font = fontBold(mmToDots(2.1, LABEL_DPI));
+      ctx.font = thermalFont(mmToDots(2.1, LABEL_DPI));
       const titleX = cx + inset + iconSize + mmToDots(0.6, LABEL_DPI);
       const titleMaxW = Math.max(8, cx + cellW - inset - titleX);
       const titleText = wrapCanvasText(ctx, title, titleMaxW, 1)[0] ?? title;
       ctx.fillText(titleText, titleX, cy + inset + mmToDots(0.35, LABEL_DPI));
 
       const valueY = cy + inset + iconSize + mmToDots(1.4, LABEL_DPI);
-      ctx.font = fontBold(mmToDots(3.0, LABEL_DPI));
+      ctx.font = thermalFont(mmToDots(3.0, LABEL_DPI));
       const valueLineH = mmToDots(3.25, LABEL_DPI);
       const valueLines = wrapCanvasText(ctx, value, maxW, 2);
       let vy = valueY;
@@ -506,7 +510,7 @@ export async function renderShippingLabelCanvas(
     ctx.fillStyle = INK;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = fontBold(mmToDots(3.2, LABEL_DPI));
+    ctx.font = thermalFont(mmToDots(3.2, LABEL_DPI));
     const fallback = wrapCanvasText(ctx, label.partnerLabel.toUpperCase(), logoBoxW, 2);
     const lineH = mmToDots(3.6, LABEL_DPI);
     let ply = y + courierH / 2 - ((fallback.length - 1) * lineH) / 2;
@@ -524,7 +528,7 @@ export async function renderShippingLabelCanvas(
   const trackPad = mmToDots(1.2, LABEL_DPI);
   const awbLabel = 'AWB / TRACKING';
   const awbLabelSize = mmToDots(2.2, LABEL_DPI);
-  ctx.font = fontBold(awbLabelSize);
+  ctx.font = thermalFont(awbLabelSize);
   const awbLabelW = ctx.measureText(awbLabel).width;
   drawLabel(
     ctx,
@@ -562,7 +566,7 @@ export async function renderShippingLabelCanvas(
   ctx.fillStyle = INK;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.font = fontBold(awbFont);
+  ctx.font = thermalFont(awbFont);
   const awbText = wrapCanvasText(ctx, label.consignmentNo, trackW - mmToDots(3, LABEL_DPI), 1)[0] ?? label.consignmentNo;
   ctx.fillText(awbText, trackX + trackW / 2, awbY);
   ctx.textAlign = 'left';
@@ -601,7 +605,7 @@ export async function renderShippingLabelCanvas(
     ctx.fillStyle = INK;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = fontBold(mmToDots(3.0, LABEL_DPI));
+    ctx.font = thermalFont(mmToDots(3.0, LABEL_DPI));
     const lines = wrapCanvasText(ctx, value, colW - inset * 2, 2);
     let vy = y + inset + labelH + mmToDots(1, LABEL_DPI);
     for (const vl of lines) {
