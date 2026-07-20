@@ -262,18 +262,18 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
     overflow: hidden;
-    font-family: Arial Black, Arial, Helvetica, sans-serif;
+    font-family: Arial, Helvetica, sans-serif;
     font-size: 13px;
-    font-weight: 900;
-    line-height: 1.15;
+    font-weight: 700;
+    line-height: 1.2;
     margin-bottom: 5px;
   }
   .sheet__party-address {
     margin: 0;
-    font-family: Arial Black, Arial, Helvetica, sans-serif;
+    font-family: Arial, Helvetica, sans-serif;
     font-size: 11px;
-    font-weight: 900;
-    line-height: 1.25;
+    font-weight: 700;
+    line-height: 1.3;
     white-space: pre-line;
     flex: 1 1 auto;
     min-height: 0;
@@ -282,10 +282,10 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
   .sheet__party-phone {
     display: block;
     margin-top: 5px;
-    font-family: Arial Black, Arial, Helvetica, sans-serif;
+    font-family: Arial, Helvetica, sans-serif;
     font-size: 12px;
-    font-weight: 900;
-    line-height: 1.15;
+    font-weight: 700;
+    line-height: 1.2;
   }
   .sheet__metrics {
     display: flex;
@@ -375,10 +375,10 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
   }
   .sheet__awb {
     display: block;
-    font-family: Arial Black, Arial, Helvetica, sans-serif;
+    font-family: Arial, Helvetica, sans-serif;
     font-size: 20px;
-    font-weight: 900;
-    letter-spacing: 0.03em;
+    font-weight: 700;
+    letter-spacing: 0.02em;
     margin: 4px 0 5px;
     max-width: 100%;
     overflow: hidden;

@@ -23,6 +23,16 @@ import {
 
 const INK = '#111111';
 const PAPER = '#ffffff';
+/** Clean thermal-safe face — Arial Black looks jagged at 203 DPI. */
+const FONT = 'Arial, Helvetica, sans-serif';
+
+function fontPx(size: number): number {
+  return Math.max(8, Math.round(size));
+}
+
+function fontBold(size: number): string {
+  return `bold ${fontPx(size)}px ${FONT}`;
+}
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise(resolve => {
@@ -98,13 +108,14 @@ function drawLabel(
   text: string,
   x: number,
   y: number,
-  fontPx: number,
+  size: number,
 ): { w: number; h: number } {
-  ctx.font = `900 ${fontPx}px Arial Black, Arial, Helvetica, sans-serif`;
+  const px = fontPx(size);
+  ctx.font = fontBold(px);
   ctx.textBaseline = 'top';
   ctx.fillStyle = INK;
   ctx.fillText(text, x, y);
-  return { w: ctx.measureText(text).width, h: fontPx * 1.2 };
+  return { w: ctx.measureText(text).width, h: px * 1.2 };
 }
 
 /** Render one 100×150 mm shipping label to a 203 DPI canvas (WYSIWYG thermal bitmap). */
@@ -118,6 +129,8 @@ export async function renderShippingLabelCanvas(
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not create shipping label canvas.');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   const outerMargin = mmToDots(2.5, LABEL_DPI); // white pad outside the border
   const borderW = Math.max(2, mmToDots(0.55, LABEL_DPI));
@@ -168,19 +181,22 @@ export async function renderShippingLabelCanvas(
   ) => {
     const inner = mmToDots(1.8, LABEL_DPI);
     const maxW = colW - inner * 2;
-    const topPad = mmToDots(1.5, LABEL_DPI);
-    const bottomPad = mmToDots(1.5, LABEL_DPI);
+    const topPad = mmToDots(1.8, LABEL_DPI);
+    const bottomPad = mmToDots(1.8, LABEL_DPI);
     const usableH = Math.max(1, partyH - topPad - bottomPad);
     const phoneText = phone.trim();
-    const sectionLabelH = Math.min(mmToDots(2.8, LABEL_DPI), Math.max(mmToDots(2.5, LABEL_DPI), usableH * 0.072));
+    const sectionLabelH = fontPx(mmToDots(2.6, LABEL_DPI));
+    const labelGap = mmToDots(1.4, LABEL_DPI);
+    const nameGap = mmToDots(1.2, LABEL_DPI);
+    const phoneGap = mmToDots(1.4, LABEL_DPI);
 
     ctx.save();
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, colW - 2, partyH - 2);
     ctx.clip();
 
-    const buildAddrLines = (fontPx: number, maxLines: number): string[] => {
-      ctx.font = `900 ${fontPx}px Arial Black, Arial, Helvetica, sans-serif`;
+    const buildAddrLines = (size: number, maxLines: number): string[] => {
+      ctx.font = fontBold(size);
       const raw = formatShippingAddressLines(address, 8).split('\n').filter(Boolean);
       const out: string[] = [];
       for (const rawLine of raw) {
@@ -193,51 +209,31 @@ export async function renderShippingLabelCanvas(
       return out.length ? out : ['—'];
     };
 
-    // Prefer large bold type; shrink only if content would overflow.
-    let nameFont = Math.min(mmToDots(4.5, LABEL_DPI), Math.max(mmToDots(3.5, LABEL_DPI), usableH * 0.13));
-    let addrFont = Math.min(mmToDots(3.7, LABEL_DPI), Math.max(mmToDots(3.0, LABEL_DPI), usableH * 0.105));
+    // Readable sizes with even spacing — no stretched line gaps.
+    let nameFont = fontPx(Math.min(mmToDots(3.8, LABEL_DPI), Math.max(mmToDots(3.2, LABEL_DPI), usableH * 0.1)));
+    let addrFont = fontPx(Math.min(mmToDots(3.2, LABEL_DPI), Math.max(mmToDots(2.7, LABEL_DPI), usableH * 0.085)));
     let nameLines: string[] = [];
     let addrLines: string[] = [];
     let nameLineH = 0;
     let addrLineH = 0;
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      nameLineH = nameFont * 1.16;
-      addrLineH = addrFont * 1.2;
-      ctx.font = `900 ${nameFont}px Arial Black, Arial, Helvetica, sans-serif`;
+      nameLineH = Math.round(nameFont * 1.22);
+      addrLineH = Math.round(addrFont * 1.28);
+      ctx.font = fontBold(nameFont);
       nameLines = wrapCanvasText(ctx, name, maxW, 3);
       const fixed = sectionLabelH * 1.15
-        + mmToDots(1.2, LABEL_DPI)
+        + labelGap
         + nameLines.length * nameLineH
-        + mmToDots(1.1, LABEL_DPI)
-        + (phoneText ? addrLineH + mmToDots(1.2, LABEL_DPI) : 0);
+        + nameGap
+        + (phoneText ? phoneGap + addrLineH : 0);
       const maxAddrLines = Math.max(2, Math.floor((usableH - fixed) / addrLineH));
       addrLines = buildAddrLines(addrFont, maxAddrLines);
       const used = fixed + addrLines.length * addrLineH;
-      if (used <= usableH || nameFont <= mmToDots(3.2, LABEL_DPI)) break;
-      nameFont *= 0.93;
-      addrFont *= 0.93;
+      if (used <= usableH || nameFont <= fontPx(mmToDots(2.9, LABEL_DPI))) break;
+      nameFont = fontPx(nameFont * 0.92);
+      addrFont = fontPx(addrFont * 0.92);
     }
-
-    // Pack from the top, then stretch line spacing so the column fills evenly.
-    const baseLabelGap = mmToDots(1.2, LABEL_DPI);
-    const baseNameGap = mmToDots(1.1, LABEL_DPI);
-    const basePhoneGap = phoneText ? mmToDots(1.2, LABEL_DPI) : 0;
-    const packed = sectionLabelH * 1.15
-      + baseLabelGap
-      + nameLines.length * nameLineH
-      + baseNameGap
-      + addrLines.length * addrLineH
-      + basePhoneGap
-      + (phoneText ? addrLineH : 0);
-    const slack = Math.max(0, usableH - packed);
-    const stretchSlots = nameLines.length + addrLines.length + (phoneText ? 1 : 0) + 2;
-    const bump = slack / Math.max(1, stretchSlots);
-    nameLineH += bump;
-    addrLineH += bump;
-    const labelGap = baseLabelGap + bump;
-    const nameGap = baseNameGap + bump;
-    const phoneGap = basePhoneGap + (phoneText ? bump : 0);
 
     let py = y + topPad;
     ctx.fillStyle = INK;
@@ -246,23 +242,24 @@ export async function renderShippingLabelCanvas(
     drawLabel(ctx, labelText, x + inner, py, sectionLabelH);
     py += sectionLabelH * 1.15 + labelGap;
 
-    ctx.font = `900 ${nameFont}px Arial Black, Arial, Helvetica, sans-serif`;
+    ctx.font = fontBold(nameFont);
     for (const nl of nameLines) {
-      ctx.fillText(nl, x + inner, py);
+      ctx.fillText(nl, x + inner, Math.round(py));
       py += nameLineH;
     }
     py += nameGap;
 
-    ctx.font = `900 ${addrFont}px Arial Black, Arial, Helvetica, sans-serif`;
+    ctx.font = fontBold(addrFont);
     for (const al of addrLines) {
-      ctx.fillText(al, x + inner, py);
+      ctx.fillText(al, x + inner, Math.round(py));
       py += addrLineH;
     }
 
     if (phoneText) {
       py += phoneGap;
+      ctx.font = fontBold(addrFont);
       const phoneLine = wrapCanvasText(ctx, `Ph: ${phoneText}`, maxW, 1)[0] ?? `Ph: ${phoneText}`;
-      ctx.fillText(phoneLine, x + inner, py);
+      ctx.fillText(phoneLine, x + inner, Math.round(py));
     }
     ctx.restore();
   };
@@ -299,14 +296,14 @@ export async function renderShippingLabelCanvas(
       drawShippingIcon(ctx, icon, cx + inset, cy + inset + mmToDots(0.15, LABEL_DPI), iconSize);
       ctx.fillStyle = INK;
       ctx.textBaseline = 'top';
-      ctx.font = `900 ${mmToDots(2.05, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
+      ctx.font = fontBold(mmToDots(2.1, LABEL_DPI));
       const titleX = cx + inset + iconSize + mmToDots(0.6, LABEL_DPI);
       const titleMaxW = Math.max(8, cx + cellW - inset - titleX);
       const titleText = wrapCanvasText(ctx, title, titleMaxW, 1)[0] ?? title;
       ctx.fillText(titleText, titleX, cy + inset + mmToDots(0.35, LABEL_DPI));
 
       const valueY = cy + inset + iconSize + mmToDots(1.4, LABEL_DPI);
-      ctx.font = `900 ${mmToDots(2.95, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
+      ctx.font = fontBold(mmToDots(3.0, LABEL_DPI));
       const valueLineH = mmToDots(3.25, LABEL_DPI);
       const valueLines = wrapCanvasText(ctx, value, maxW, 2);
       let vy = valueY;
@@ -358,7 +355,7 @@ export async function renderShippingLabelCanvas(
     ctx.fillStyle = INK;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `900 ${mmToDots(3.2, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
+    ctx.font = fontBold(mmToDots(3.2, LABEL_DPI));
     const fallback = wrapCanvasText(ctx, label.partnerLabel.toUpperCase(), logoBoxW, 2);
     const lineH = mmToDots(3.6, LABEL_DPI);
     let ply = y + courierH / 2 - ((fallback.length - 1) * lineH) / 2;
@@ -373,18 +370,18 @@ export async function renderShippingLabelCanvas(
   const trackX = contentX + courierSplit;
   const trackW = contentW - courierSplit;
   const awbLabel = 'AWB / TRACKING';
-  ctx.font = `900 ${mmToDots(2.3, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
+  ctx.font = fontBold(mmToDots(2.3, LABEL_DPI));
   const awbW = ctx.measureText(awbLabel).width;
   drawLabel(ctx, awbLabel, trackX + (trackW - awbW) / 2, y + mmToDots(1.2, LABEL_DPI), mmToDots(2.3, LABEL_DPI));
 
   const bars = shippingLabelBarcodeBars(label.consignmentNo);
   const barH = mmToDots(6.8, LABEL_DPI);
   const barY = y + courierH - barH - mmToDots(1.4, LABEL_DPI);
-  const awbFont = mmToDots(5.4, LABEL_DPI);
+  const awbFont = fontPx(mmToDots(5.2, LABEL_DPI));
   const awbY = y + mmToDots(5.8, LABEL_DPI);
   ctx.fillStyle = INK;
   ctx.textAlign = 'center';
-  ctx.font = `900 ${awbFont}px Arial Black, Arial, Helvetica, sans-serif`;
+  ctx.font = fontBold(awbFont);
   const awbText = wrapCanvasText(ctx, label.consignmentNo, trackW - mmToDots(3, LABEL_DPI), 1)[0] ?? label.consignmentNo;
   ctx.fillText(awbText, trackX + trackW / 2, awbY);
 
@@ -429,7 +426,7 @@ export async function renderShippingLabelCanvas(
     ctx.fillStyle = INK;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = `900 ${mmToDots(3.2, LABEL_DPI)}px Arial Black, Arial, Helvetica, sans-serif`;
+    ctx.font = fontBold(mmToDots(3.2, LABEL_DPI));
     const lines = wrapCanvasText(ctx, value, colW - inset * 2, 1);
     ctx.fillText(lines[0] ?? '—', x + inset, y + inset + labelH + mmToDots(1, LABEL_DPI));
     ctx.restore();
