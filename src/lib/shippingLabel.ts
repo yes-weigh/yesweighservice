@@ -490,13 +490,9 @@ export function buildShippingLabelViewModel(input: {
     const phonePattern = escapeRegExp(toPhone).replace(/\s+/g, '\\s*');
     delivery = delivery.replace(new RegExp(phonePattern, 'gi'), ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{2,}/g, '\n').trim() || '—';
   }
-  // Drop company / contact phrases that already appear as the TO heading.
+  // Drop company / contact phrases from the address body (contact person is not printed).
   delivery = stripDuplicateAddressPhrases(delivery, [toName, contact, input.dealer.name]);
-  const toAddressLines: string[] = [];
-  if (contact && contact !== '—' && !addressAlreadyHasPhrase(delivery, contact)) {
-    toAddressLines.push(contact);
-  }
-  if (delivery && delivery !== '—') toAddressLines.push(delivery);
+  const toAddress = delivery && delivery !== '—' ? delivery : '—';
 
   // FROM: site name is the heading — strip firm / site repeats from the address body.
   const fromAddress = stripDuplicateAddressPhrases(input.fromAddress.trim() || '—', [
@@ -512,7 +508,7 @@ export function buildShippingLabelViewModel(input: {
     fromName,
     fromAddress,
     toName,
-    toAddress: toAddressLines.join('\n') || '—',
+    toAddress,
     toPhone,
     destinationCity: resolveDestinationCity(input.dealer, input.deliveryAddress),
     numberOfBoxes: boxTotal,

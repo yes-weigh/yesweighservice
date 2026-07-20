@@ -26,6 +26,35 @@ export async function renderBinLabelCanvas(
   });
 }
 
+/** Same luminance cut used for TSPL BITMAP (matches thermal burn). */
+export const THERMAL_BLACK_LUMINANCE = 160;
+
+/**
+ * Force canvas to pure black/white using the thermal BITMAP threshold.
+ * Preview then matches what the logistics printer will burn.
+ */
+export function applyThermalMonochrome(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+  const { width, height } = canvas;
+  const image = ctx.getImageData(0, 0, width, height);
+  const pixels = image.data;
+  for (let i = 0; i < pixels.length; i += 4) {
+    const r = pixels[i]!;
+    const g = pixels[i + 1]!;
+    const b = pixels[i + 2]!;
+    const a = pixels[i + 3]!;
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    const black = a > 128 && lum < THERMAL_BLACK_LUMINANCE;
+    const v = black ? 0x11 : 0xff;
+    pixels[i] = v;
+    pixels[i + 1] = v;
+    pixels[i + 2] = v;
+    pixels[i + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
 /**
  * Convert canvas pixels to 1-bit packed rows for TSC BITMAP (1 = black).
  * Width is padded to a multiple of 8.
@@ -51,7 +80,7 @@ export function canvasToTsplBitmapBytes(canvas: HTMLCanvasElement): {
       const b = image[i + 2];
       const a = image[i + 3];
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      const black = a > 128 && lum < 160;
+      const black = a > 128 && lum < THERMAL_BLACK_LUMINANCE;
       if (black) {
         const byteIndex = y * widthBytes + (x >> 3);
         data[byteIndex] |= 0x80 >> (x & 7);

@@ -4,7 +4,10 @@ import {
   LOGISTICS_LABEL_HEIGHT_MM,
   LOGISTICS_LABEL_WIDTH_MM,
 } from '../constants/localPrinterSettings';
-import { buildCanvasTsplBitmapJob } from './localPrinterLabelBitmap';
+import {
+  applyThermalMonochrome,
+  buildCanvasTsplBitmapJob,
+} from './localPrinterLabelBitmap';
 import { LABEL_DPI, mmToDots } from './labelLayouts/units';
 import { getLabelMediaForUsage } from './labelStudio';
 import { resolveLogisticsPhotoUrl } from './logisticsPhotos';
@@ -363,18 +366,20 @@ export async function renderShippingLabelCanvas(
       py += partyLineH;
     }
 
-    // Pin caption + QR to the bottom of the column so both sides align.
+    // Pin QR + caption (under QR) to the bottom; center both horizontally.
     if (qrImage) {
-      const captionBlock = qrCaptionH ? qrCaptionH + captionGap : 0;
-      let qy = Math.round(y + partyH - partyBottomPad - qrSize);
+      const captionBlock = qrCaptionH ? captionGap + qrCaptionH : 0;
+      let qy = Math.round(y + partyH - partyBottomPad - captionBlock - qrSize);
       const minTop = Math.round(py + qrGap);
-      if (qy - captionBlock < minTop) {
-        qy = minTop + captionBlock;
-      }
+      if (qy < minTop) qy = minTop;
+      const qx = Math.round(x + (colW - qrSize) / 2);
+      ctx.drawImage(qrImage, qx, qy, qrSize, qrSize);
       if (qrCaptionH && qrCaption) {
-        drawLabel(ctx, qrCaption, x + partyInner, qy - captionGap - qrCaptionH, bodyFont);
+        ctx.font = fontBold(bodyFont);
+        const captionW = ctx.measureText(qrCaption).width;
+        const captionX = Math.round(x + (colW - captionW) / 2);
+        drawLabel(ctx, qrCaption, captionX, qy + qrSize + captionGap, bodyFont);
       }
-      ctx.drawImage(qrImage, x + partyInner, qy, qrSize, qrSize);
     }
     ctx.restore();
   };
@@ -385,7 +390,7 @@ export async function renderShippingLabelCanvas(
     label.fromAddress,
     '',
     insideQr,
-    'INSIDE PHOTO',
+    'VIEW PACKAGE CONTENTS',
   );
   drawParty(
     contentX + colW,
@@ -609,6 +614,8 @@ export async function renderShippingLabelCanvas(
   drawInfo(contentX, 'BOOKING DATE', label.bookingTime, 'time');
   drawInfo(contentX + colW, 'BOOKED BY', label.bookedBy, 'bookedBy');
 
+  // Match thermal BITMAP: colored logos/art become pure black & white.
+  applyThermalMonochrome(canvas);
   return canvas;
 }
 
