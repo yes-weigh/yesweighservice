@@ -117,7 +117,44 @@ export function stripDuplicateAddressPhrases(
   }
 
   const result = kept.join('\n').replace(/\n{2,}/g, '\n').trim();
-  return result || '—';
+  return collapseRepeatedAddressPhrases(result || '—');
+}
+
+/**
+ * Drop repeated comma / line phrases so e.g. "Manjeri, Manjeri, Kerala" → "Manjeri, Kerala".
+ * First occurrence wins (case-insensitive).
+ */
+export function collapseRepeatedAddressPhrases(address: string): string {
+  const cleaned = address.replace(/\r\n/g, '\n').trim();
+  if (!cleaned || cleaned === '—') return '—';
+
+  const seen = new Set<string>();
+  const keepPart = (part: string): string | null => {
+    const trimmed = part.replace(/\s+/g, ' ').trim();
+    if (!trimmed) return null;
+    const key = normalizePhrase(trimmed);
+    if (!key) return null;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    return trimmed;
+  };
+
+  const lines = cleaned.split('\n').map(line => line.trim()).filter(Boolean);
+  const outLines: string[] = [];
+  for (const line of lines) {
+    if (line.includes(',')) {
+      const parts = line
+        .split(',')
+        .map(keepPart)
+        .filter((p): p is string => Boolean(p));
+      if (parts.length) outLines.push(parts.join(', '));
+      continue;
+    }
+    const kept = keepPart(line);
+    if (kept) outLines.push(kept);
+  }
+
+  return outLines.join('\n').trim() || '—';
 }
 
 /** Normalize address for label columns (prefer existing newlines; else wrap on commas). */
@@ -482,17 +519,21 @@ export function buildShippingLabelViewModel(input: {
   }
   // Drop company / contact phrases from the address body (contact person is not printed).
   delivery = stripDuplicateAddressPhrases(delivery, [toName, contact, input.dealer.name]);
-  const toAddress = delivery && delivery !== '—' ? delivery : '—';
+  const toAddress = collapseRepeatedAddressPhrases(
+    delivery && delivery !== '—' ? delivery : '—',
+  );
 
   // FROM: site name is the heading — strip firm / site repeats from the address body.
-  const fromAddress = stripDuplicateAddressPhrases(input.fromAddress.trim() || '—', [
-    fromName,
-    SHIPPING_LABEL_FIRM,
-    FIRM_NAME,
-    'Interweighing',
-    'YesWeigh',
-    'YESWEIGH',
-  ]);
+  const fromAddress = collapseRepeatedAddressPhrases(
+    stripDuplicateAddressPhrases(input.fromAddress.trim() || '—', [
+      fromName,
+      SHIPPING_LABEL_FIRM,
+      FIRM_NAME,
+      'Interweighing',
+      'YesWeigh',
+      'YESWEIGH',
+    ]),
+  );
 
   return {
     fromName,

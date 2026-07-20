@@ -410,20 +410,20 @@ export async function renderShippingLabelCanvasDetailed(
       py += partyLineH;
     }
 
-    // Pin QR + caption (under QR) to the bottom; center both horizontally.
+    // Pin caption (above QR) + QR to the bottom; center both horizontally.
     if (qrImage) {
-      const captionBlock = qrCaptionH ? captionGap + qrCaptionH : 0;
-      let qy = Math.round(y + partyH - partyBottomPad - captionBlock - qrSize);
-      const minTop = Math.round(py + qrGap);
+      const captionBlock = qrCaptionH ? qrCaptionH + captionGap : 0;
+      let qy = Math.round(y + partyH - partyBottomPad - qrSize);
+      const minTop = Math.round(py + qrGap + captionBlock);
       if (qy < minTop) qy = minTop;
       const qx = Math.round(x + (colW - qrSize) / 2);
-      ctx.drawImage(qrImage, qx, qy, qrSize, qrSize);
       if (qrCaptionH && qrCaption) {
         ctx.font = thermalFont(bodyFont);
         const captionW = ctx.measureText(qrCaption).width;
         const captionX = Math.round(x + (colW - captionW) / 2);
-        drawLabel(ctx, qrCaption, captionX, qy + qrSize + captionGap, bodyFont);
+        drawLabel(ctx, qrCaption, captionX, qy - captionGap - qrCaptionH, bodyFont);
       }
+      ctx.drawImage(qrImage, qx, qy, qrSize, qrSize);
     }
     ctx.restore();
   };
