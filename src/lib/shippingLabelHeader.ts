@@ -49,7 +49,7 @@ export const SHIPPING_LABEL_HEADER_STYLES = `
     min-width: 0;
     font-family: Verdana, Tahoma, Geneva, sans-serif;
     font-size: 5.2mm;
-    font-weight: 400;
+    font-weight: 700;
     letter-spacing: 0.01em;
     line-height: 1.05;
     white-space: nowrap;
@@ -121,7 +121,7 @@ function fitFirmFont(
 ): number {
   let size = maxPx;
   while (size > minPx) {
-    ctx.font = `${size}px Verdana, Tahoma, Geneva, sans-serif`;
+    ctx.font = `bold ${size}px Verdana, Tahoma, Geneva, sans-serif`;
     if (ctx.measureText(text).width <= maxWidth) return size;
     size -= 1;
   }
@@ -179,7 +179,7 @@ export async function drawShippingLabelHeader(
   ctx.fillStyle = '#111';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.font = `${firmPx}px Verdana, Tahoma, Geneva, sans-serif`;
+  ctx.font = `bold ${firmPx}px Verdana, Tahoma, Geneva, sans-serif`;
   ctx.fillText(firmName, Math.round(cursorX), Math.round(midY));
 
   return y + headerH + Math.round(8 * s);

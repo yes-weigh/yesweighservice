@@ -41,9 +41,14 @@ function fontPx(size: number): number {
   return Math.max(8, Math.round(size));
 }
 
-/** Regular weight only — sharpest on 203 DPI BITMAP. */
+/** Regular weight — sharpest for body text on 203 DPI BITMAP. */
 function thermalFont(size: number): string {
   return `${fontPx(size)}px ${FONT}`;
+}
+
+/** Bold for titles / section labels only. */
+function thermalFontBold(size: number): string {
+  return `bold ${fontPx(size)}px ${FONT}`;
 }
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
@@ -121,9 +126,10 @@ function drawLabel(
   x: number,
   y: number,
   size: number,
+  bold = false,
 ): { w: number; h: number } {
   const px = fontPx(size);
-  ctx.font = thermalFont(px);
+  ctx.font = bold ? thermalFontBold(px) : thermalFont(px);
   ctx.textBaseline = 'top';
   ctx.fillStyle = INK;
   ctx.fillText(text, Math.round(x), Math.round(y));
@@ -389,7 +395,7 @@ export async function renderShippingLabelCanvasDetailed(
     ctx.fillStyle = INK;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
-    drawLabel(ctx, labelText, x + partyInner, py, bodyFont);
+    drawLabel(ctx, labelText, x + partyInner, py, bodyFont, true);
     py += partyLineH + partyLabelGap;
 
     for (const nl of nameLines) {
