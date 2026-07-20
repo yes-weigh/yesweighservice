@@ -19,6 +19,7 @@ import {
 import {
   drawRoundedRectStroke,
   drawShippingLabelHeader,
+  roundedRectPath,
 } from './shippingLabelHeader';
 import {
   drawShippingIcon,
@@ -463,16 +464,28 @@ export async function renderShippingLabelCanvas(
     Math.max(0, courierH - panelInset * 2),
   );
 
-  // Courier cell: logo only, padded inside the rounded panel.
+  // Courier cell: logo only — fill the cell (cover) with a tight inset.
   const partnerImg = label.partnerImage ? await loadImage(label.partnerImage) : null;
-  const logoInset = 10; // 10px pad around the courier icon
+  const logoInset = 2;
   const logoBoxX = contentX + logoInset;
   const logoBoxY = y + logoInset;
   const logoBoxW = courierSplit - logoInset * 2;
   const logoBoxH = courierH - logoInset * 2;
   if (partnerImg && partnerImg.width > 0 && partnerImg.height > 0) {
-    // Fit the full logo inside the padded box (contain — no crop).
-    const scale = Math.min(logoBoxW / partnerImg.width, logoBoxH / partnerImg.height);
+    ctx.save();
+    roundedRectPath(
+      ctx,
+      contentX + panelInset,
+      y + panelInset,
+      courierSplit - panelInset * 2,
+      courierH - panelInset * 2,
+      Math.max(0, panelR - panelInset),
+    );
+    ctx.clip();
+    ctx.beginPath();
+    ctx.rect(logoBoxX, logoBoxY, logoBoxW, logoBoxH);
+    ctx.clip();
+    const scale = Math.max(logoBoxW / partnerImg.width, logoBoxH / partnerImg.height);
     const pw = partnerImg.width * scale;
     const ph = partnerImg.height * scale;
     ctx.drawImage(
@@ -482,6 +495,7 @@ export async function renderShippingLabelCanvas(
       pw,
       ph,
     );
+    ctx.restore();
   } else {
     // Fallback when partner art is missing — keep a short name so the cell is not blank.
     ctx.fillStyle = INK;

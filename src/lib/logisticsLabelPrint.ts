@@ -347,7 +347,7 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     flex-direction: column;
     min-width: 0;
   }
-  .sheet__courier-side--logo { padding: 10px; }
+  .sheet__courier-side--logo { padding: 2px; }
   .sheet__courier-side + .sheet__courier-side { border-left: 1.4px solid #111; }
   .sheet__courier-side--track { align-items: center; text-align: center; }
   .sheet__carrier-logo {
@@ -364,7 +364,7 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     height: 100%;
     max-width: none;
     max-height: none;
-    object-fit: contain;
+    object-fit: cover;
     display: block;
   }
   .sheet__carrier-name {

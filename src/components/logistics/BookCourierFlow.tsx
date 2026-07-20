@@ -708,9 +708,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       case 'review': setStep('box'); break;
       case 'label': setStep('review'); break;
       case 'final_photo':
-        // After labels, this stage is resumed from the list — back returns there.
-        if (draft.labelGenerated) onClose();
-        else setStep('label');
+        setStep('label');
         break;
       case 'complete': break;
       default: onClose();

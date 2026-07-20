@@ -341,15 +341,17 @@ export function shippingLabelInsidePhoto(
   };
 }
 
-/** Compact L×B×H for narrow metric cells (cm implied by DIMENSIONS title). */
+/** Compact L×B×H for narrow metric cells, with cm unit. */
 function compactBoxDimensions(text: string): string {
   const trimmed = text.trim();
   if (!trimmed || trimmed === '—') return '—';
   if (/^envelope$/i.test(trimmed)) return 'Envelope';
-  return trimmed
+  const dims = trimmed
     .replace(/\s*[×x]\s*/gi, '×')
     .replace(/\s*cm\s*$/i, '')
-    .trim() || '—';
+    .trim();
+  if (!dims) return '—';
+  return `${dims} cm`;
 }
 
 function resolveBoxDimensions(
