@@ -33,6 +33,103 @@ export const SHIPPING_LABEL_METRIC_TITLES = {
   payment: 'PAYMENT',
 } as const;
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizePhrase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Remove repeated company / contact phrases from an address body when they
+ * already appear as the party name (or elsewhere on the label).
+ */
+export function stripDuplicateAddressPhrases(
+  address: string,
+  phrases: Array<string | null | undefined>,
+): string {
+  const cleaned = address.replace(/\r\n/g, '\n').trim();
+  if (!cleaned || cleaned === '—') return '—';
+
+  const uniquePhrases = [...new Set(
+    phrases
+      .map(p => (p ?? '').replace(/\s+/g, ' ').trim())
+      .filter(p => p.length >= 3 && p !== '—'),
+  )].sort((a, b) => b.length - a.length);
+
+  if (!uniquePhrases.length) return cleaned;
+
+  const stripFromChunk = (chunk: string): string => {
+    let working = chunk;
+    for (const phrase of uniquePhrases) {
+      const pattern = escapeRegExp(phrase).replace(/\s+/g, '\\s+');
+      working = working.replace(new RegExp(pattern, 'gi'), ' ');
+    }
+    return working
+      .replace(/\s*,\s*,+/g, ',')
+      .replace(/^[\s,;.\-/]+|[\s,;.\-/]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const isRedundant = (chunk: string): boolean => {
+    const norm = normalizePhrase(chunk);
+    if (!norm) return true;
+    return uniquePhrases.some(phrase => {
+      const np = normalizePhrase(phrase);
+      if (!np) return false;
+      // Exact / near-exact match, or one fully contains the other.
+      if (norm === np) return true;
+      if (np.length >= 6 && (norm.includes(np) || np.includes(norm))) return true;
+      // Contact first-token match ("Riyas" vs "Mr. Riyas K")
+      const phraseTokens = np.split(' ').filter(t => t.length >= 3);
+      const chunkTokens = norm.split(' ').filter(t => t.length >= 3);
+      if (
+        phraseTokens.length &&
+        chunkTokens.length <= 3
+        && phraseTokens.some(t => chunkTokens.includes(t))
+        && chunkTokens.every(t => phraseTokens.includes(t) || ['mr', 'mrs', 'ms', 'dr'].includes(t))
+      ) {
+        return true;
+      }
+      return false;
+    });
+  };
+
+  const lines = cleaned.split('\n').map(line => line.trim()).filter(Boolean);
+  const kept: string[] = [];
+  for (const line of lines) {
+    // Prefer comma-aware cleanup so "Name, COMPANY, Street" drops COMPANY.
+    const parts = line.includes(',')
+      ? line.split(',').map(part => stripFromChunk(part)).filter(part => part && !isRedundant(part))
+      : [];
+    if (parts.length) {
+      kept.push(parts.join(', '));
+      continue;
+    }
+    const stripped = stripFromChunk(line);
+    if (stripped && !isRedundant(stripped)) kept.push(stripped);
+  }
+
+  const result = kept.join('\n').replace(/\n{2,}/g, '\n').trim();
+  return result || '—';
+}
+
+/** True when `haystack` already contains `needle` (loose, case-insensitive). */
+function addressAlreadyHasPhrase(haystack: string, needle: string): boolean {
+  const h = normalizePhrase(haystack);
+  const n = normalizePhrase(needle);
+  if (!h || !n || n.length < 3) return false;
+  if (h.includes(n)) return true;
+  const first = n.split(' ').find(t => t.length >= 4);
+  return Boolean(first && h.includes(first));
+}
+
 /** Normalize address for label columns (prefer existing newlines; else wrap on commas). */
 export function formatShippingAddressLines(address: string, maxLines = 5): string {
   const trimmed = address.replace(/\r\n/g, '\n').trim();
@@ -171,6 +268,24 @@ export function formatShippingBookingDate(isoDate: string, fallback = new Date()
   });
 }
 
+/** Combined booking date + time for the label footer (e.g. "20 Jul 2026, 11:09 am"). */
+export function formatShippingBookingDateTime(
+  isoDate: string,
+  timeSource: Date | string = new Date(),
+): string {
+  const datePart = formatShippingBookingDate(
+    isoDate,
+    timeSource instanceof Date ? timeSource : new Date(),
+  );
+  const timePart = typeof timeSource === 'string' && timeSource.trim()
+    ? timeSource.trim()
+    : formatShippingBookingTime(timeSource instanceof Date ? timeSource : new Date());
+  return `${datePart}, ${timePart}`;
+}
+
+/** Always printed on shipping labels. */
+export const SHIPPING_LABEL_BOOKED_BY = 'YESWEIGH';
+
 export interface ShippingLabelViewModel {
   fromName: string;
   fromAddress: string;
@@ -282,6 +397,25 @@ export function shippingLabelBarcodeBars(value: string): number[] {
   return encodeCode128(value || '0');
 }
 
+/** ST Courier public AWB tracking page (keyword = consignment / AWB). */
+export function stCourierTrackingUrl(consignmentNo: string): string {
+  const keyword = consignmentNo.trim();
+  return `http://www.erpstcourier.com/awb_tracking2.php?keyword=${encodeURIComponent(keyword || '0')}`;
+}
+
+/**
+ * Partner tracking URL encoded in the TO-column QR (null when not applicable).
+ * ST Courier → http://www.erpstcourier.com/awb_tracking2.php?keyword={AWB}
+ */
+export function buildShippingLabelTrackingUrl(
+  label: Pick<ShippingLabelViewModel, 'partnerId' | 'consignmentNo'>,
+): string | null {
+  const awb = label.consignmentNo?.trim();
+  if (!awb || awb === '—') return null;
+  if (label.partnerId === 'st_courier') return stCourierTrackingUrl(awb);
+  return null;
+}
+
 export function buildShippingLabelViewModel(input: {
   fromName: string;
   fromAddress: string;
@@ -311,21 +445,36 @@ export function buildShippingLabelViewModel(input: {
   const resolvedPhone = resolveReceiverPhoneFromSnapshot(input.dealer);
   const toPhone = resolvedPhone === '—' ? '' : resolvedPhone;
   const contact = input.dealer.contactPerson?.trim() || '';
+  const toName = input.dealer.name.trim() || '—';
+  const fromName = input.fromName.trim() || 'YESWEIGH';
   let delivery = input.deliveryAddress.trim() || '—';
   // Avoid repeating the phone inside the address body when we print Ph: below.
   if (toPhone) {
-    const phonePattern = toPhone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+    const phonePattern = escapeRegExp(toPhone).replace(/\s+/g, '\\s*');
     delivery = delivery.replace(new RegExp(phonePattern, 'gi'), ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{2,}/g, '\n').trim() || '—';
   }
+  // Drop company / contact phrases that already appear as the TO heading.
+  delivery = stripDuplicateAddressPhrases(delivery, [toName, contact, input.dealer.name]);
   const toAddressLines: string[] = [];
-  if (contact && contact !== '—' && !delivery.toLowerCase().includes(contact.toLowerCase())) {
+  if (contact && contact !== '—' && !addressAlreadyHasPhrase(delivery, contact)) {
     toAddressLines.push(contact);
   }
   if (delivery && delivery !== '—') toAddressLines.push(delivery);
+
+  // FROM: site name is the heading — strip firm / site repeats from the address body.
+  const fromAddress = stripDuplicateAddressPhrases(input.fromAddress.trim() || '—', [
+    fromName,
+    SHIPPING_LABEL_FIRM,
+    FIRM_NAME,
+    'Interweighing',
+    'YesWeigh',
+    'YESWEIGH',
+  ]);
+
   return {
-    fromName: input.fromName.trim() || 'YESWEIGH',
-    fromAddress: input.fromAddress.trim() || '—',
-    toName: input.dealer.name.trim() || '—',
+    fromName,
+    fromAddress,
+    toName,
     toAddress: toAddressLines.join('\n') || '—',
     toPhone,
     destinationCity: resolveDestinationCity(input.dealer, input.deliveryAddress),
@@ -351,8 +500,11 @@ export function buildShippingLabelViewModel(input: {
     consignmentNo: input.consignmentNo.trim() || '—',
     bookingBranch: input.bookingBranch.trim() || '—',
     bookingDate: formatShippingBookingDate(input.bookingDate),
-    bookingTime: input.bookingTime?.trim() || formatShippingBookingTime(),
-    bookedBy: (input.bookedBy ?? 'YESWEIGH').trim() || 'YESWEIGH',
+    bookingTime: formatShippingBookingDateTime(
+      input.bookingDate,
+      input.bookingTime?.trim() || formatShippingBookingTime(),
+    ),
+    bookedBy: SHIPPING_LABEL_BOOKED_BY,
     shipmentMode: input.shipmentMode,
     firmName: SHIPPING_LABEL_FIRM,
   };
@@ -363,9 +515,7 @@ export function buildShippingLabelsFromBooking(booking: LogisticsBooking): Shipp
   const count = booking.shipmentMode === 'envelope'
     ? 1
     : Math.max(1, booking.numberOfBoxes || booking.boxes.length || 1);
-  const bookingTime = booking.createdAt
-    ? formatShippingBookingTime(new Date(booking.createdAt))
-    : formatShippingBookingTime();
+  const timeSource = booking.createdAt ? new Date(booking.createdAt) : new Date();
   const chargeable = chargeableWeight(booking);
 
   return Array.from({ length: count }, (_, index) => {
@@ -387,8 +537,7 @@ export function buildShippingLabelsFromBooking(booking: LogisticsBooking): Shipp
       consignmentNo: booking.consignmentNo || booking.trackingNo,
       bookingBranch: booking.branch,
       bookingDate: booking.bookingDate,
-      bookingTime,
-      bookedBy: booking.createdByName?.trim() || 'YESWEIGH',
+      bookingTime: formatShippingBookingTime(timeSource),
       shipmentMode: booking.shipmentMode,
     });
   });

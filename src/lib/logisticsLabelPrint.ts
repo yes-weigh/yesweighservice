@@ -85,10 +85,10 @@ export function buildShippingLabelTspl(
     `TEXT 400,690,"2",0,1,1,"${escapeTspl(label.bookingBranch)}"`,
     'TEXT 400,740,"1",0,1,1,"BOOKING DATE"',
     `TEXT 400,770,"2",0,1,1,"${escapeTspl(label.bookingDate)}"`,
-    'TEXT 400,810,"1",0,1,1,"BOOKING TIME"',
+    'TEXT 400,810,"1",0,1,1,"BOOKING DATE"',
     `TEXT 400,840,"2",0,1,1,"${escapeTspl(label.bookingTime)}"`,
     'TEXT 400,880,"1",0,1,1,"BOOKED BY"',
-    `TEXT 400,910,"2",0,1,1,"${escapeTspl(label.bookedBy)}"`,
+    `TEXT 400,910,"2",0,1,1,"YESWEIGH"`,
     'PRINT 1,1',
   ];
   return `${lines.join('\r\n')}\r\n`;
@@ -347,7 +347,7 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     flex-direction: column;
     min-width: 0;
   }
-  .sheet__courier-side--logo { padding: 0; }
+  .sheet__courier-side--logo { padding: 10px; }
   .sheet__courier-side + .sheet__courier-side { border-left: 1.4px solid #111; }
   .sheet__courier-side--track { align-items: center; text-align: center; }
   .sheet__carrier-logo {
@@ -364,7 +364,7 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     height: 100%;
     max-width: none;
     max-height: none;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
   }
   .sheet__carrier-name {
@@ -376,10 +376,10 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
   .sheet__awb {
     display: block;
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 20px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.02em;
-    margin: 4px 0 5px;
+    margin: 3px 0 0;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -390,12 +390,13 @@ export const SHIPPING_LABEL_SHEET_STYLES = `
     justify-content: center;
     align-items: stretch;
     gap: 0;
-    height: 24px;
+    height: 40px;
     width: 100%;
-    margin-top: auto;
+    margin-top: 4px;
     padding: 0 8px;
     box-sizing: border-box;
-    flex-shrink: 0;
+    flex: 1 1 auto;
+    min-height: 36px;
   }
   .sheet__barcode i {
     display: block;

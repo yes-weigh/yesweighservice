@@ -165,12 +165,12 @@ function shippingLabelSheetHtml(label: ShippingLabelViewModel): string {
           </div>
           <div class="sheet__courier-side sheet__courier-side--track">
             <span class="sheet__label">AWB / TRACKING</span>
-            <code class="sheet__awb">${escapeHtml(label.consignmentNo)}</code>
             <div class="sheet__barcode" aria-hidden="true">${bars}</div>
+            <code class="sheet__awb">${escapeHtml(label.consignmentNo)}</code>
           </div>
         </div>
         <div class="sheet__panel sheet__info">
-          ${infoCellHtml('BOOKING TIME', label.bookingTime, 'time')}
+          ${infoCellHtml('BOOKING DATE', label.bookingTime, 'time')}
           ${infoCellHtml('BOOKED BY', label.bookedBy, 'bookedBy')}
         </div>
       </div>

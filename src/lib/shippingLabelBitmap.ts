@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import {
   LOGISTICS_LABEL_GAP_MM,
   LOGISTICS_LABEL_HEIGHT_MM,
@@ -7,6 +8,7 @@ import { buildCanvasTsplBitmapJob } from './localPrinterLabelBitmap';
 import { LABEL_DPI, mmToDots } from './labelLayouts/units';
 import { getLabelMediaForUsage } from './labelStudio';
 import {
+  buildShippingLabelTrackingUrl,
   formatShippingAddressLines,
   shippingLabelBarcodeBars,
   shippingLabelMetricRows,
@@ -15,6 +17,7 @@ import {
 import {
   drawRoundedRectStroke,
   drawShippingLabelHeader,
+  roundedRectPath,
 } from './shippingLabelHeader';
 import {
   drawShippingIcon,
@@ -172,18 +175,39 @@ export async function renderShippingLabelCanvas(
   ctx.fillRect(contentX, y, contentW, line);
   ctx.fillRect(contentX + colW, y, line, partyH);
 
+  // ST Courier tracking QR under TO address (dynamic AWB in keyword=).
+  const trackingUrl = buildShippingLabelTrackingUrl(label);
+  const qrSize = mmToDots(16, LABEL_DPI);
+  const qrGap = mmToDots(1.4, LABEL_DPI);
+  let trackingQr: HTMLImageElement | null = null;
+  if (trackingUrl) {
+    try {
+      const dataUrl = await QRCode.toDataURL(trackingUrl, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: Math.max(96, qrSize),
+        color: { dark: '#111111', light: '#ffffff' },
+      });
+      trackingQr = await loadImage(dataUrl);
+    } catch {
+      trackingQr = null;
+    }
+  }
+  const toQrReserve = trackingQr ? qrSize + qrGap : 0;
+
   const drawParty = (
     x: number,
     labelText: string,
     name: string,
     address: string,
     phone = '',
+    bottomReserve = 0,
   ) => {
     const inner = mmToDots(1.8, LABEL_DPI);
     const maxW = colW - inner * 2;
     const topPad = mmToDots(1.8, LABEL_DPI);
     const bottomPad = mmToDots(1.8, LABEL_DPI);
-    const usableH = Math.max(1, partyH - topPad - bottomPad);
+    const usableH = Math.max(1, partyH - topPad - bottomPad - bottomReserve);
     const phoneText = phone.trim();
     const sectionLabelH = fontPx(mmToDots(2.6, LABEL_DPI));
     const labelGap = mmToDots(1.4, LABEL_DPI);
@@ -260,11 +284,28 @@ export async function renderShippingLabelCanvas(
       ctx.font = fontBold(addrFont);
       const phoneLine = wrapCanvasText(ctx, `Ph: ${phoneText}`, maxW, 1)[0] ?? `Ph: ${phoneText}`;
       ctx.fillText(phoneLine, x + inner, Math.round(py));
+      py += addrLineH;
+    }
+
+    // Tracking QR directly under TO address / phone.
+    if (bottomReserve > 0 && trackingQr) {
+      py += qrGap;
+      const qx = x + inner;
+      const maxQy = y + partyH - bottomPad - qrSize;
+      const qy = Math.min(Math.round(py), maxQy);
+      ctx.drawImage(trackingQr, qx, qy, qrSize, qrSize);
     }
     ctx.restore();
   };
   drawParty(contentX, 'FROM (SHIPPER)', label.fromName, label.fromAddress);
-  drawParty(contentX + colW, 'TO (CONSIGNEE)', label.toName, label.toAddress, label.toPhone);
+  drawParty(
+    contentX + colW,
+    'TO (CONSIGNEE)',
+    label.toName,
+    label.toAddress,
+    label.toPhone,
+    toQrReserve,
+  );
   y += partyH + gap;
 
   // —— Metrics panel: top 3 cols (no CONTENTS), bottom 4 cols ——
@@ -323,23 +364,26 @@ export async function renderShippingLabelCanvas(
     Math.min(courierHTarget, contentBottom - y - infoHFixed - gap),
   );
   const courierSplit = contentW * 0.38;
-  drawRoundedRectStroke(ctx, contentX, y, contentW, courierH, panelR, line);
-  ctx.fillRect(contentX + courierSplit, y, line, courierH);
+  // Divider / logo first; stroke last so rounded corners stay unbroken.
+  const panelInset = Math.max(line, Math.ceil(line / 2) + 1);
+  ctx.fillStyle = INK;
+  ctx.fillRect(
+    contentX + courierSplit,
+    y + panelInset,
+    line,
+    Math.max(0, courierH - panelInset * 2),
+  );
 
-  // Courier cell: logo only, edge-to-edge inside the panel border.
+  // Courier cell: logo only, padded inside the rounded panel.
   const partnerImg = label.partnerImage ? await loadImage(label.partnerImage) : null;
-  const logoInset = Math.max(1, line); // stay just inside the stroke
+  const logoInset = 10; // 10px pad around the courier icon
   const logoBoxX = contentX + logoInset;
   const logoBoxY = y + logoInset;
-  const logoBoxW = courierSplit - logoInset * 2 - line;
+  const logoBoxW = courierSplit - logoInset * 2;
   const logoBoxH = courierH - logoInset * 2;
   if (partnerImg && partnerImg.width > 0 && partnerImg.height > 0) {
-    // Cover the cell (crops asset padding) so the mark fills the courier panel.
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(logoBoxX, logoBoxY, logoBoxW, logoBoxH);
-    ctx.clip();
-    const scale = Math.max(logoBoxW / partnerImg.width, logoBoxH / partnerImg.height);
+    // Fit the full logo inside the padded box (contain — no crop).
+    const scale = Math.min(logoBoxW / partnerImg.width, logoBoxH / partnerImg.height);
     const pw = partnerImg.width * scale;
     const ph = partnerImg.height * scale;
     ctx.drawImage(
@@ -349,7 +393,6 @@ export async function renderShippingLabelCanvas(
       pw,
       ph,
     );
-    ctx.restore();
   } else {
     // Fallback when partner art is missing — keep a short name so the cell is not blank.
     ctx.fillStyle = INK;
@@ -366,25 +409,37 @@ export async function renderShippingLabelCanvas(
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
   }
+  drawRoundedRectStroke(ctx, contentX, y, contentW, courierH, panelR, line);
 
   const trackX = contentX + courierSplit;
   const trackW = contentW - courierSplit;
+  const trackPad = mmToDots(1.2, LABEL_DPI);
   const awbLabel = 'AWB / TRACKING';
-  ctx.font = fontBold(mmToDots(2.3, LABEL_DPI));
-  const awbW = ctx.measureText(awbLabel).width;
-  drawLabel(ctx, awbLabel, trackX + (trackW - awbW) / 2, y + mmToDots(1.2, LABEL_DPI), mmToDots(2.3, LABEL_DPI));
+  const awbLabelSize = mmToDots(2.2, LABEL_DPI);
+  ctx.font = fontBold(awbLabelSize);
+  const awbLabelW = ctx.measureText(awbLabel).width;
+  drawLabel(
+    ctx,
+    awbLabel,
+    trackX + (trackW - awbLabelW) / 2,
+    y + trackPad,
+    awbLabelSize,
+  );
+
+  // Human-readable AWB under the bars (smaller); barcode fills most of the cell.
+  const awbFont = fontPx(mmToDots(3.2, LABEL_DPI));
+  const awbTextH = Math.round(awbFont * 1.15);
+  const textGap = mmToDots(0.8, LABEL_DPI);
+  const bottomPad = mmToDots(1.2, LABEL_DPI);
+  const topAfterLabel = y + trackPad + awbLabelSize * 1.2 + mmToDots(1.0, LABEL_DPI);
+  const barH = Math.max(
+    mmToDots(10, LABEL_DPI),
+    courierH - (topAfterLabel - y) - textGap - awbTextH - bottomPad,
+  );
+  const barY = topAfterLabel;
+  const awbY = barY + barH + textGap;
 
   const bars = shippingLabelBarcodeBars(label.consignmentNo);
-  const barH = mmToDots(6.8, LABEL_DPI);
-  const barY = y + courierH - barH - mmToDots(1.4, LABEL_DPI);
-  const awbFont = fontPx(mmToDots(5.2, LABEL_DPI));
-  const awbY = y + mmToDots(5.8, LABEL_DPI);
-  ctx.fillStyle = INK;
-  ctx.textAlign = 'center';
-  ctx.font = fontBold(awbFont);
-  const awbText = wrapCanvasText(ctx, label.consignmentNo, trackW - mmToDots(3, LABEL_DPI), 1)[0] ?? label.consignmentNo;
-  ctx.fillText(awbText, trackX + trackW / 2, awbY);
-
   const quiet = mmToDots(2.2, LABEL_DPI);
   const usableW = Math.max(1, trackW - quiet * 2);
   const modules = bars.reduce((sum, w) => sum + w, 0);
@@ -395,13 +450,25 @@ export async function renderShippingLabelCanvas(
     if (i % 2 === 0) ctx.fillRect(Math.round(bx), barY, Math.max(1, Math.round(w)), barH);
     bx += w;
   }
+
+  ctx.fillStyle = INK;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = fontBold(awbFont);
+  const awbText = wrapCanvasText(ctx, label.consignmentNo, trackW - mmToDots(3, LABEL_DPI), 1)[0] ?? label.consignmentNo;
+  ctx.fillText(awbText, trackX + trackW / 2, awbY);
   ctx.textAlign = 'left';
   y += courierH + gap;
 
-  // —— Info panel: booking time | booked by (fixed height — no empty stretch) ——
+  // —— Info panel: booking date | booked by (fixed height — no empty stretch) ——
   const infoH = Math.min(infoHFixed, Math.max(mmToDots(11, LABEL_DPI), contentBottom - y));
   drawRoundedRectStroke(ctx, contentX, y, contentW, infoH, panelR, line);
-  ctx.fillRect(contentX + colW, y, line, infoH);
+  ctx.fillRect(
+    contentX + colW,
+    y + panelInset,
+    line,
+    Math.max(0, infoH - panelInset * 2),
+  );
 
   const drawInfo = (
     x: number,
@@ -426,13 +493,17 @@ export async function renderShippingLabelCanvas(
     ctx.fillStyle = INK;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = fontBold(mmToDots(3.2, LABEL_DPI));
-    const lines = wrapCanvasText(ctx, value, colW - inset * 2, 1);
-    ctx.fillText(lines[0] ?? '—', x + inset, y + inset + labelH + mmToDots(1, LABEL_DPI));
+    ctx.font = fontBold(mmToDots(3.0, LABEL_DPI));
+    const lines = wrapCanvasText(ctx, value, colW - inset * 2, 2);
+    let vy = y + inset + labelH + mmToDots(1, LABEL_DPI);
+    for (const vl of lines) {
+      ctx.fillText(vl, x + inset, vy);
+      vy += mmToDots(3.2, LABEL_DPI);
+    }
     ctx.restore();
   };
 
-  drawInfo(contentX, 'BOOKING TIME', label.bookingTime, 'time');
+  drawInfo(contentX, 'BOOKING DATE', label.bookingTime, 'time');
   drawInfo(contentX + colW, 'BOOKED BY', label.bookedBy, 'bookedBy');
 
   return canvas;

@@ -58,6 +58,7 @@ export const SHIPPING_LABEL_HEADER_STYLES = `
   }
 `;
 
+/** Rounded rect outline — explicit arcs avoid arcTo stroke gaps at corners. */
 export function drawRoundedRectStroke(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -68,16 +69,47 @@ export function drawRoundedRectStroke(
   lineW: number,
 ): void {
   const radius = Math.min(r, w / 2, h / 2);
+  ctx.save();
   ctx.strokeStyle = '#111';
   ctx.lineWidth = lineW;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
-  ctx.arcTo(x + w, y, x + w, y + h, radius);
-  ctx.arcTo(x + w, y + h, x, y + h, radius);
-  ctx.arcTo(x, y + h, x, y, radius);
-  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.lineTo(x + w - radius, y);
+  ctx.arc(x + w - radius, y + radius, radius, -Math.PI / 2, 0);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.arc(x + w - radius, y + h - radius, radius, 0, Math.PI / 2);
+  ctx.lineTo(x + radius, y + h);
+  ctx.arc(x + radius, y + h - radius, radius, Math.PI / 2, Math.PI);
+  ctx.lineTo(x, y + radius);
+  ctx.arc(x + radius, y + radius, radius, Math.PI, Math.PI * 1.5);
   ctx.closePath();
   ctx.stroke();
+  ctx.restore();
+}
+
+/** Rounded rect path (for clipping content inside a panel). */
+export function roundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.arc(x + w - radius, y + radius, radius, -Math.PI / 2, 0);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.arc(x + w - radius, y + h - radius, radius, 0, Math.PI / 2);
+  ctx.lineTo(x + radius, y + h);
+  ctx.arc(x + radius, y + h - radius, radius, Math.PI / 2, Math.PI);
+  ctx.lineTo(x, y + radius);
+  ctx.arc(x + radius, y + radius, radius, Math.PI, Math.PI * 1.5);
+  ctx.closePath();
 }
 
 function fitFirmFont(

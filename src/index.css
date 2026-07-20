@@ -15438,7 +15438,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .book-courier__label-preview .sheet__courier-side--logo {
-  padding: 0;
+  padding: 10px;
 }
 
 .book-courier__label-preview .sheet__courier-side + .sheet__courier-side {
@@ -15465,7 +15465,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   height: 100%;
   max-width: none;
   max-height: none;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 
@@ -15480,11 +15480,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .book-courier__label-preview .sheet__awb {
   display: block;
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 5.2mm;
+  font-size: 3.2mm;
   font-weight: 700;
   letter-spacing: 0.02em;
-  margin: 1mm 0 1.2mm;
-  line-height: 1;
+  margin: 0.8mm 0 0;
+  line-height: 1.1;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -15496,12 +15496,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   justify-content: center;
   align-items: stretch;
   gap: 0;
-  height: 6.8mm;
+  height: 11mm;
   width: 100%;
-  margin-top: auto;
+  margin-top: 1mm;
   padding: 0 2.2mm;
   box-sizing: border-box;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-height: 10mm;
 }
 
 .book-courier__label-preview .sheet__barcode i {

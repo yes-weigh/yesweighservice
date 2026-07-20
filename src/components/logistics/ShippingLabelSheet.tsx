@@ -125,7 +125,6 @@ export const ShippingLabelSheet = React.forwardRef<HTMLDivElement, Props>(
             </div>
             <div className="sheet__courier-side sheet__courier-side--track">
               <span className="sheet__label">AWB / TRACKING</span>
-              <code className="sheet__awb">{label.consignmentNo}</code>
               <div className="sheet__barcode" role="img" aria-label={`Code 128 barcode ${label.consignmentNo}`}>
                 {bars.map((w, i) => (
                   <i
@@ -137,11 +136,12 @@ export const ShippingLabelSheet = React.forwardRef<HTMLDivElement, Props>(
                   />
                 ))}
               </div>
+              <code className="sheet__awb">{label.consignmentNo}</code>
             </div>
           </div>
 
           <div className="sheet__panel sheet__info">
-            <InfoCell icon="time" title="BOOKING TIME" value={label.bookingTime} />
+            <InfoCell icon="time" title="BOOKING DATE" value={label.bookingTime} />
             <InfoCell icon="bookedBy" title="BOOKED BY" value={label.bookedBy} />
           </div>
         </div>
