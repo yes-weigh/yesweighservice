@@ -13,6 +13,7 @@ import {
   Search,
   SlidersHorizontal,
   Tag,
+  Trash2,
   Truck,
   X,
 } from 'lucide-react';
@@ -38,6 +39,7 @@ import {
 import {
   bookingToWizardState,
   canCreateLogisticsBooking,
+  canDeleteLogisticsBooking,
   cancelLogisticsBooking,
   clampWizardStepForDraftPhotos,
   deleteLogisticsBookingPermanently,
@@ -223,10 +225,18 @@ export const LogisticsPage: React.FC = () => {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
+  /** Super-admin wipe mode — off by default; only meaningful for super_admin. */
+  const [superMode, setSuperMode] = useState(false);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
   const canCreate = user ? canCreateLogisticsBooking(user) : false;
+  const canSuperDelete = user ? canDeleteLogisticsBooking(user) : false;
+  const showTileDelete = canSuperDelete && superMode;
+
+  useEffect(() => {
+    if (!canSuperDelete && superMode) setSuperMode(false);
+  }, [canSuperDelete, superMode]);
 
   const activeBooking = useMemo(
     () => bookings.find(item => item.id === activeBookingId) ?? null,
@@ -640,6 +650,27 @@ export const LogisticsPage: React.FC = () => {
               </select>
             </label>
 
+            {canSuperDelete && (
+              <label className="logistics-filter-supermode">
+                <span className="logistics-filter-supermode__copy">
+                  <strong>Super mode</strong>
+                  <em>Show delete on list tiles — permanently wipes booking + photos</em>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={superMode}
+                  className={[
+                    'logistics-filter-supermode__switch',
+                    superMode ? 'logistics-filter-supermode__switch--on' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => setSuperMode(prev => !prev)}
+                >
+                  <span className="logistics-filter-supermode__knob" />
+                </button>
+              </label>
+            )}
+
             <button
               type="button"
               className="logistics-filter-dropdown__clear"
@@ -670,7 +701,9 @@ export const LogisticsPage: React.FC = () => {
           onUpdate={handleUpdateBooking}
           onAdvanceStatus={status => void handleAdvanceStatus(activeBooking, status)}
           onCancel={() => void handleCancel(activeBooking)}
-          onDelete={() => void handleDelete(activeBooking.id)}
+          onDelete={showTileDelete
+            ? () => void handleDelete(activeBooking.id)
+            : undefined}
         />
       ) : (
         <div className="logistics-page__dashboard">
@@ -822,7 +855,23 @@ export const LogisticsPage: React.FC = () => {
                             </div>
                           </div>
 
-                          <ChevronRight size={18} className="logistics-shipment__chevron" aria-hidden />
+                          <div className="logistics-shipment__trail">
+                            {showTileDelete && (
+                              <button
+                                type="button"
+                                className="logistics-shipment__delete"
+                                aria-label={`Delete booking ${waybill}`}
+                                title="Delete permanently"
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  void handleDelete(booking.id);
+                                }}
+                              >
+                                <Trash2 size={16} aria-hidden />
+                              </button>
+                            )}
+                            <ChevronRight size={18} className="logistics-shipment__chevron" aria-hidden />
+                          </div>
                         </div>
                       </article>
                     </li>
