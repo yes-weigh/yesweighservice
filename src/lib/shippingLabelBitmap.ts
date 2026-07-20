@@ -7,9 +7,11 @@ import {
 import { buildCanvasTsplBitmapJob } from './localPrinterLabelBitmap';
 import { LABEL_DPI, mmToDots } from './labelLayouts/units';
 import { getLabelMediaForUsage } from './labelStudio';
+import { resolveLogisticsPhotoUrl } from './logisticsPhotos';
 import {
   buildShippingLabelTrackingUrl,
   formatShippingAddressLines,
+  publicInsidePhotoUrl,
   shippingLabelBarcodeBars,
   shippingLabelMetricRows,
   type ShippingLabelViewModel,
@@ -174,25 +176,118 @@ export async function renderShippingLabelCanvas(
   ctx.fillRect(contentX, y, contentW, line);
   ctx.fillRect(contentX + colW, y, line, partyH);
 
-  // ST Courier tracking QR under TO address (dynamic AWB in keyword=).
-  const trackingUrl = buildShippingLabelTrackingUrl(label);
-  const qrSize = mmToDots(16, LABEL_DPI);
+  // Party-column QRs — sized at draw time to fill leftover height after the address.
   const qrGap = mmToDots(1.4, LABEL_DPI);
-  let trackingQr: HTMLImageElement | null = null;
-  if (trackingUrl) {
+  const qrMin = mmToDots(12, LABEL_DPI);
+  const qrMax = mmToDots(36, LABEL_DPI);
+
+  const makeQrImage = async (payload: string | null): Promise<HTMLImageElement | null> => {
+    const text = payload?.trim();
+    if (!text) return null;
     try {
-      const dataUrl = await QRCode.toDataURL(trackingUrl, {
+      const dataUrl = await QRCode.toDataURL(text, {
         errorCorrectionLevel: 'M',
         margin: 1,
-        width: Math.max(96, qrSize),
+        width: 256,
         color: { dark: '#111111', light: '#ffffff' },
       });
-      trackingQr = await loadImage(dataUrl);
+      return await loadImage(dataUrl);
     } catch {
-      trackingQr = null;
+      return null;
     }
+  };
+
+  // FROM: public Firebase Storage URL for this box's inside photo.
+  let insidePhotoUrl = publicInsidePhotoUrl(label.insidePhotoUrl);
+  if (!insidePhotoUrl && label.insidePhotoStoragePath) {
+    insidePhotoUrl = await resolveLogisticsPhotoUrl(label.insidePhotoStoragePath);
   }
-  const toQrReserve = trackingQr ? qrSize + qrGap : 0;
+  const insideQr = await makeQrImage(insidePhotoUrl);
+
+  // TO: ST Courier tracking URL (dynamic AWB in keyword=).
+  const trackingQr = await makeQrImage(buildShippingLabelTrackingUrl(label));
+
+  const partyInner = mmToDots(1.8, LABEL_DPI);
+  const partyMaxW = colW - partyInner * 2;
+  const partyTopPad = mmToDots(1.8, LABEL_DPI);
+  const partyBottomPad = mmToDots(1.8, LABEL_DPI);
+  const bodyFont = fontPx(mmToDots(3.0, LABEL_DPI));
+  const partyLineH = Math.round(bodyFont * 1.28);
+  const partyLabelGap = mmToDots(1.2, LABEL_DPI);
+  const partyNameGap = mmToDots(1.0, LABEL_DPI);
+  const partyPhoneGap = mmToDots(1.0, LABEL_DPI);
+  const qrCaptionGap = mmToDots(0.6, LABEL_DPI);
+
+  /** Max square QR that fits under a party column after its address text. */
+  const measurePartyQrSize = (
+    name: string,
+    address: string,
+    phone: string,
+    hasQr: boolean,
+    hasCaption: boolean,
+  ): number => {
+    if (!hasQr) return qrMax;
+    const captionH = hasCaption ? bodyFont : 0;
+    const captionGap = captionH ? qrCaptionGap : 0;
+    const bottomReserve = qrMin + qrGap + captionH + captionGap;
+    const usableH = Math.max(1, partyH - partyTopPad - partyBottomPad - bottomReserve);
+    const phoneText = phone.trim();
+
+    ctx.font = fontBold(bodyFont);
+    const nameLines = wrapCanvasText(ctx, name, partyMaxW, 3);
+    const fixed = partyLineH
+      + partyLabelGap
+      + nameLines.length * partyLineH
+      + partyNameGap
+      + (phoneText ? partyPhoneGap + partyLineH : 0);
+    const maxAddrLines = Math.max(2, Math.floor((usableH - fixed) / partyLineH));
+
+    const raw = formatShippingAddressLines(address, 8).split('\n').filter(Boolean);
+    const addrLines: string[] = [];
+    for (const rawLine of raw) {
+      if (addrLines.length >= maxAddrLines) break;
+      for (const wl of wrapCanvasText(ctx, rawLine, partyMaxW, maxAddrLines - addrLines.length)) {
+        if (addrLines.length >= maxAddrLines) break;
+        addrLines.push(wl);
+      }
+    }
+    const addrCount = addrLines.length || 1;
+
+    let used = partyTopPad
+      + partyLineH
+      + partyLabelGap
+      + nameLines.length * partyLineH
+      + partyNameGap
+      + addrCount * partyLineH;
+    if (phoneText) used += partyPhoneGap + partyLineH;
+    used += qrGap + captionH + captionGap;
+
+    const availH = Math.max(qrMin, partyH - partyBottomPad - used);
+    return Math.max(qrMin, Math.min(partyMaxW, availH, qrMax));
+  };
+
+  // Same size for both QRs — limited by the tighter column.
+  const fromQrAvail = measurePartyQrSize(
+    label.fromName,
+    label.fromAddress,
+    '',
+    Boolean(insideQr),
+    Boolean(insideQr),
+  );
+  const toQrAvail = measurePartyQrSize(
+    label.toName,
+    label.toAddress,
+    label.toPhone,
+    Boolean(trackingQr),
+    Boolean(trackingQr),
+  );
+  const sharedQrSize = (() => {
+    const sizes: number[] = [];
+    if (insideQr) sizes.push(fromQrAvail);
+    if (trackingQr) sizes.push(toQrAvail);
+    if (!sizes.length) return qrMin;
+    return Math.max(qrMin, Math.min(...sizes));
+  })();
 
   const drawParty = (
     x: number,
@@ -200,31 +295,30 @@ export async function renderShippingLabelCanvas(
     name: string,
     address: string,
     phone = '',
-    bottomReserve = 0,
+    qrImage: HTMLImageElement | null = null,
+    qrCaption = '',
+    qrSize = sharedQrSize,
   ) => {
-    const inner = mmToDots(1.8, LABEL_DPI);
-    const maxW = colW - inner * 2;
-    const topPad = mmToDots(1.8, LABEL_DPI);
-    const bottomPad = mmToDots(1.8, LABEL_DPI);
-    const usableH = Math.max(1, partyH - topPad - bottomPad - bottomReserve);
+    const qrCaptionH = qrImage && qrCaption ? bodyFont : 0;
+    const captionGap = qrCaptionH ? qrCaptionGap : 0;
+    const bottomReserve = qrImage
+      ? qrSize + qrGap + qrCaptionH + captionGap
+      : 0;
+    const usableH = Math.max(1, partyH - partyTopPad - partyBottomPad - bottomReserve);
     const phoneText = phone.trim();
-    const sectionLabelH = fontPx(mmToDots(2.6, LABEL_DPI));
-    const labelGap = mmToDots(1.4, LABEL_DPI);
-    const nameGap = mmToDots(1.2, LABEL_DPI);
-    const phoneGap = mmToDots(1.4, LABEL_DPI);
 
     ctx.save();
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, colW - 2, partyH - 2);
     ctx.clip();
 
-    const buildAddrLines = (size: number, maxLines: number): string[] => {
-      ctx.font = fontBold(size);
+    const buildAddrLines = (maxLines: number): string[] => {
+      ctx.font = fontBold(bodyFont);
       const raw = formatShippingAddressLines(address, 8).split('\n').filter(Boolean);
       const out: string[] = [];
       for (const rawLine of raw) {
         if (out.length >= maxLines) break;
-        for (const wl of wrapCanvasText(ctx, rawLine, maxW, maxLines - out.length)) {
+        for (const wl of wrapCanvasText(ctx, rawLine, partyMaxW, maxLines - out.length)) {
           if (out.length >= maxLines) break;
           out.push(wl);
         }
@@ -232,78 +326,74 @@ export async function renderShippingLabelCanvas(
       return out.length ? out : ['—'];
     };
 
-    // Readable sizes with even spacing — no stretched line gaps.
-    let nameFont = fontPx(Math.min(mmToDots(3.8, LABEL_DPI), Math.max(mmToDots(3.2, LABEL_DPI), usableH * 0.1)));
-    let addrFont = fontPx(Math.min(mmToDots(3.2, LABEL_DPI), Math.max(mmToDots(2.7, LABEL_DPI), usableH * 0.085)));
-    let nameLines: string[] = [];
-    let addrLines: string[] = [];
-    let nameLineH = 0;
-    let addrLineH = 0;
+    ctx.font = fontBold(bodyFont);
+    const nameLines = wrapCanvasText(ctx, name, partyMaxW, 3);
+    const fixed = partyLineH
+      + partyLabelGap
+      + nameLines.length * partyLineH
+      + partyNameGap
+      + (phoneText ? partyPhoneGap + partyLineH : 0);
+    const maxAddrLines = Math.max(2, Math.floor((usableH - fixed) / partyLineH));
+    const addrLines = buildAddrLines(maxAddrLines);
 
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      nameLineH = Math.round(nameFont * 1.22);
-      addrLineH = Math.round(addrFont * 1.28);
-      ctx.font = fontBold(nameFont);
-      nameLines = wrapCanvasText(ctx, name, maxW, 3);
-      const fixed = sectionLabelH * 1.15
-        + labelGap
-        + nameLines.length * nameLineH
-        + nameGap
-        + (phoneText ? phoneGap + addrLineH : 0);
-      const maxAddrLines = Math.max(2, Math.floor((usableH - fixed) / addrLineH));
-      addrLines = buildAddrLines(addrFont, maxAddrLines);
-      const used = fixed + addrLines.length * addrLineH;
-      if (used <= usableH || nameFont <= fontPx(mmToDots(2.9, LABEL_DPI))) break;
-      nameFont = fontPx(nameFont * 0.92);
-      addrFont = fontPx(addrFont * 0.92);
-    }
-
-    let py = y + topPad;
+    let py = y + partyTopPad;
     ctx.fillStyle = INK;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
-    drawLabel(ctx, labelText, x + inner, py, sectionLabelH);
-    py += sectionLabelH * 1.15 + labelGap;
+    drawLabel(ctx, labelText, x + partyInner, py, bodyFont);
+    py += partyLineH + partyLabelGap;
 
-    ctx.font = fontBold(nameFont);
+    ctx.font = fontBold(bodyFont);
     for (const nl of nameLines) {
-      ctx.fillText(nl, x + inner, Math.round(py));
-      py += nameLineH;
+      ctx.fillText(nl, x + partyInner, Math.round(py));
+      py += partyLineH;
     }
-    py += nameGap;
+    py += partyNameGap;
 
-    ctx.font = fontBold(addrFont);
     for (const al of addrLines) {
-      ctx.fillText(al, x + inner, Math.round(py));
-      py += addrLineH;
+      ctx.fillText(al, x + partyInner, Math.round(py));
+      py += partyLineH;
     }
 
     if (phoneText) {
-      py += phoneGap;
-      ctx.font = fontBold(addrFont);
-      const phoneLine = wrapCanvasText(ctx, `Ph: ${phoneText}`, maxW, 1)[0] ?? `Ph: ${phoneText}`;
-      ctx.fillText(phoneLine, x + inner, Math.round(py));
-      py += addrLineH;
+      py += partyPhoneGap;
+      const phoneLine = wrapCanvasText(ctx, `Ph: ${phoneText}`, partyMaxW, 1)[0] ?? `Ph: ${phoneText}`;
+      ctx.fillText(phoneLine, x + partyInner, Math.round(py));
+      py += partyLineH;
     }
 
-    // Tracking QR directly under TO address / phone.
-    if (bottomReserve > 0 && trackingQr) {
-      py += qrGap;
-      const qx = x + inner;
-      const maxQy = y + partyH - bottomPad - qrSize;
-      const qy = Math.min(Math.round(py), maxQy);
-      ctx.drawImage(trackingQr, qx, qy, qrSize, qrSize);
+    // Pin caption + QR to the bottom of the column so both sides align.
+    if (qrImage) {
+      const captionBlock = qrCaptionH ? qrCaptionH + captionGap : 0;
+      let qy = Math.round(y + partyH - partyBottomPad - qrSize);
+      const minTop = Math.round(py + qrGap);
+      if (qy - captionBlock < minTop) {
+        qy = minTop + captionBlock;
+      }
+      if (qrCaptionH && qrCaption) {
+        drawLabel(ctx, qrCaption, x + partyInner, qy - captionGap - qrCaptionH, bodyFont);
+      }
+      ctx.drawImage(qrImage, x + partyInner, qy, qrSize, qrSize);
     }
     ctx.restore();
   };
-  drawParty(contentX, 'FROM (SHIPPER)', label.fromName, label.fromAddress);
+  drawParty(
+    contentX,
+    'FROM (SHIPPER)',
+    label.fromName,
+    label.fromAddress,
+    '',
+    insideQr,
+    'INSIDE PHOTO',
+  );
   drawParty(
     contentX + colW,
     'TO (CONSIGNEE)',
     label.toName,
     label.toAddress,
     label.toPhone,
-    toQrReserve,
+    trackingQr,
+    'TRACKING',
   );
   y += partyH + gap;
 

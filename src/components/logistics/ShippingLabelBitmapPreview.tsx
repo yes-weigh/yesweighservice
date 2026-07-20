@@ -35,6 +35,8 @@ function labelPreviewKey(label: ShippingLabelViewModel): string {
     label.bookingTime,
     label.bookedBy,
     label.firmName,
+    label.insidePhotoUrl ?? '',
+    label.insidePhotoStoragePath ?? '',
   ].join('\u0001');
 }
 

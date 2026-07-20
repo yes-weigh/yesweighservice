@@ -575,6 +575,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       const boxChargeable = box
         ? Math.max(boxActual, boxVolumetric(box))
         : totalChargeableWeight;
+      const inside = box?.photos?.[0];
       return buildShippingLabelViewModel({
         fromName,
         fromAddress,
@@ -595,6 +596,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         bookingTime,
         bookedBy: user.displayName?.trim() || user.loginId?.trim() || 'YESWEIGH',
         shipmentMode: draft.shipmentMode,
+        insidePhotoUrl: inside?.url,
+        insidePhotoStoragePath: inside?.storagePath,
       });
     });
   }, [

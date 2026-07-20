@@ -313,6 +313,32 @@ export interface ShippingLabelViewModel {
   bookedBy: string;
   shipmentMode: ShipmentMode;
   firmName: string;
+  /**
+   * Public HTTPS URL for this box's inside photo (QR under FROM).
+   * Prefer a durable Firebase Storage token URL when available.
+   */
+  insidePhotoUrl: string | null;
+  /** Storage path for resolving a durable public URL at print time. */
+  insidePhotoStoragePath: string | null;
+}
+
+/** Prefer an https URL suitable for a scannable QR (skip data:/blob: previews). */
+export function publicInsidePhotoUrl(url: string | null | undefined): string | null {
+  const trimmed = url?.trim() || '';
+  if (!trimmed) return null;
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  return trimmed;
+}
+
+/** Inside photo (`photos[0]`) fields for a shipping-label view model. */
+export function shippingLabelInsidePhoto(
+  box?: Pick<ShipmentBox, 'photos'> | null,
+): { insidePhotoUrl: string | null; insidePhotoStoragePath: string | null } {
+  const photo = box?.photos?.[0];
+  return {
+    insidePhotoUrl: publicInsidePhotoUrl(photo?.url),
+    insidePhotoStoragePath: photo?.storagePath?.trim() || null,
+  };
 }
 
 /** Compact L×B×H for narrow metric cells (cm implied by DIMENSIONS title). */
@@ -439,8 +465,17 @@ export function buildShippingLabelViewModel(input: {
   bookingTime?: string;
   bookedBy?: string;
   shipmentMode: ShipmentMode;
+  insidePhotoUrl?: string | null;
+  insidePhotoStoragePath?: string | null;
 }): ShippingLabelViewModel {
   const boxTotal = Math.max(1, input.numberOfBoxes);
+  const fromBoxPhoto = shippingLabelInsidePhoto(input.box);
+  const insidePhotoUrl = publicInsidePhotoUrl(input.insidePhotoUrl) ?? fromBoxPhoto.insidePhotoUrl;
+  const insidePhotoStoragePath = (
+    input.insidePhotoStoragePath?.trim()
+    || fromBoxPhoto.insidePhotoStoragePath
+    || null
+  );
   const transport = (input.serviceType || 'SURFACE').trim().toUpperCase() || 'SURFACE';
   const resolvedPhone = resolveReceiverPhoneFromSnapshot(input.dealer);
   const toPhone = resolvedPhone === '—' ? '' : resolvedPhone;
@@ -507,6 +542,8 @@ export function buildShippingLabelViewModel(input: {
     bookedBy: SHIPPING_LABEL_BOOKED_BY,
     shipmentMode: input.shipmentMode,
     firmName: SHIPPING_LABEL_FIRM,
+    insidePhotoUrl,
+    insidePhotoStoragePath,
   };
 }
 
