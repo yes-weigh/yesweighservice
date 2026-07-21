@@ -1,8 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ChevronRight, FileText, IndianRupee, PackageCheck, Search, Truck, X } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  IndianRupee,
+  PackageCheck,
+  Search,
+  SlidersHorizontal,
+  Truck,
+  X,
+} from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
-import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
 import { useAuth } from '../../context/AuthContext';
 import { usePageHeaderSlot } from '../../context/PageHeaderContext';
 import { formatCurrency } from '../../lib/catalog';
@@ -13,15 +25,25 @@ import {
   fetchDealerInvoiceDashboardWithCache,
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
-  formatInvoiceRelativeTime,
-  formatKpiPeriodRange,
-  getInvoiceDeliveryStage,
   invoiceDeliveryLabel,
+  getInvoiceDeliveryStage,
   invoiceErrorMessage,
+  formatKpiPeriodRange,
   readCachedDealerInvoiceDashboard,
   readCachedDealerInvoices,
 } from '../../lib/invoices';
 import type { DealerInvoice, InvoiceDashboardSummary, InvoiceListParams, SalesRangePreset } from '../../types/invoices';
+import { SALES_RANGE_OPTIONS } from '../../types/invoices';
+
+type InvoiceSortField = NonNullable<InvoiceListParams['sortField']>;
+
+const SORT_OPTIONS: Array<{ value: InvoiceSortField; label: string }> = [
+  { value: 'date', label: 'Invoice date' },
+  { value: 'invoiceNumber', label: 'Invoice number' },
+  { value: 'total', label: 'Total amount' },
+  { value: 'dueDate', label: 'Due date' },
+  { value: 'balance', label: 'Balance' },
+];
 
 function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= breakpoint);
@@ -80,35 +102,175 @@ function InvoiceDeliveryBadge({ date }: { date: string | null | undefined }) {
   const Icon = stage === 'delivered' ? PackageCheck : Truck;
   return (
     <span className={`invoices-delivery invoices-delivery--${stage}`}>
-      <Icon size={14} strokeWidth={2.25} aria-hidden />
+      <Icon size={12} strokeWidth={2.25} aria-hidden />
       {invoiceDeliveryLabel(stage)}
     </span>
   );
 }
 
-function InvoiceMobileCard({ invoice, onOpen }: { invoice: DealerInvoice; onOpen: (id: string) => void }) {
+function InvoiceDateRangeControl({
+  value,
+  onChange,
+  rangeLabel,
+}: {
+  value: SalesRangePreset;
+  onChange: (value: SalesRangePreset) => void;
+  rangeLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  return (
+    <div className={`invoices-date-range${open ? ' is-open' : ''}`}>
+      <button
+        type="button"
+        className="invoices-date-range__trigger"
+        onClick={() => setOpen(v => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Date range"
+      >
+        <CalendarDays size={16} aria-hidden />
+        <span className="invoices-date-range__copy">
+          <span className="invoices-date-range__label">Date Range</span>
+          <span className="invoices-date-range__value">{rangeLabel}</span>
+        </span>
+        <ChevronDown size={16} className="invoices-date-range__chevron" aria-hidden />
+      </button>
+
+      {open && (
+        <>
+          <button
+            type="button"
+            className="invoices-date-range__backdrop"
+            aria-label="Close date range"
+            onClick={() => setOpen(false)}
+          />
+          <ul className="invoices-date-range__menu panel glass" role="listbox" aria-label="Date range options">
+            {SALES_RANGE_OPTIONS.map(option => {
+              const isActive = option.value === value;
+              return (
+                <li key={String(option.value)} role="presentation">
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isActive}
+                    className={`invoices-date-range__option${isActive ? ' is-active' : ''}`}
+                    onClick={() => {
+                      onChange(option.value);
+                      setOpen(false);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function InvoiceFilterSheet({
+  open,
+  sortField,
+  sortDir,
+  onClose,
+  onSortChange,
+}: {
+  open: boolean;
+  sortField: InvoiceSortField;
+  sortDir: 'asc' | 'desc';
+  onClose: () => void;
+  onSortChange: (field: InvoiceSortField, dir: 'asc' | 'desc') => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div className="invoices-filter-sheet" role="dialog" aria-modal="true" aria-label="Filter invoices">
+      <button type="button" className="invoices-filter-sheet__backdrop" aria-label="Close filters" onClick={onClose} />
+      <div className="invoices-filter-sheet__panel panel glass">
+        <header className="invoices-filter-sheet__header">
+          <h3 className="invoices-filter-sheet__title">Filter</h3>
+          <button type="button" className="invoices-filter-sheet__close" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </header>
+
+        <section className="invoices-filter-sheet__section">
+          <h4 className="invoices-filter-sheet__section-title">Sort by</h4>
+          <div className="invoices-filter-sheet__options">
+            {SORT_OPTIONS.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                className={`invoices-filter-sheet__option${sortField === option.value ? ' is-active' : ''}`}
+                onClick={() => onSortChange(option.value, sortField === option.value && sortDir === 'desc' ? 'asc' : 'desc')}
+              >
+                {option.label}
+                {sortField === option.value ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <footer className="invoices-filter-sheet__footer">
+          <button type="button" className="btn btn-primary" onClick={onClose}>
+            Done
+          </button>
+        </footer>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen: (id: string) => void }) {
   return (
     <button
       type="button"
-      className="invoices-card invoices-card--link panel glass"
+      className="invoices-mobile-row"
       onClick={() => onOpen(invoice.id)}
+      aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
     >
-      <div className="invoices-card__main">
-        <div className="invoices-card__row">
-          <strong className="invoices-card__number">{invoice.invoiceNumber || '—'}</strong>
-          <span className="invoices-card__total">{formatCurrency(invoice.total)}</span>
-        </div>
-        <div className="invoices-card__row invoices-card__row--meta">
-          <div className="invoices-card__meta">
-            <span className="invoices-card__date">{formatInvoiceDate(invoice.date)}</span>
-            {invoice.referenceNumber && (
-              <span className="invoices-card__so">{invoice.referenceNumber}</span>
-            )}
-          </div>
-          <InvoiceDeliveryBadge date={invoice.date} />
-        </div>
-      </div>
-      <span className="invoices-card__chevron" aria-hidden>
+      <span className="invoices-mobile-row__icon" aria-hidden>
+        <FileText size={16} strokeWidth={2.25} />
+      </span>
+      <span className="invoices-mobile-row__invoice">
+        <strong>{invoice.invoiceNumber || '—'}</strong>
+        {invoice.referenceNumber && (
+          <span className="invoices-mobile-row__so">{invoice.referenceNumber}</span>
+        )}
+      </span>
+      <span className="invoices-mobile-row__date">{formatInvoiceDate(invoice.date)}</span>
+      <span className="invoices-mobile-row__amount">
+        <strong>{formatCurrency(invoice.total)}</strong>
+        <InvoiceDeliveryBadge date={invoice.date} />
+      </span>
+      <span className="invoices-mobile-row__chevron" aria-hidden>
         <ChevronRight size={18} />
       </span>
     </button>
@@ -148,7 +310,7 @@ function InvoicePagination({
           Prev
         </button>
         <span className="invoices-pagination__page text-sm">
-          {page}/{totalPages}
+          {page} / {totalPages}
         </span>
         <button
           type="button"
@@ -176,16 +338,16 @@ export const InvoicesPage: React.FC = () => {
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 400);
-  const [sortField, setSortField] = useState<NonNullable<InvoiceListParams['sortField']>>('date');
+  const [sortField, setSortField] = useState<InvoiceSortField>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
+  const [filterOpen, setFilterOpen] = useState(false);
   const limit = 25;
 
   const [invoices, setInvoices] = useState<DealerInvoice[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<InvoiceDashboardSummary | null>(null);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>('current_month');
@@ -209,7 +371,6 @@ export const InvoicesPage: React.FC = () => {
       if (cached) {
         setInvoices(cached.data);
         setTotal(cached.pagination.total);
-        setLastSyncedAt(cached.lastSyncedAt ?? null);
         setLoading(false);
         usedCache = true;
       } else {
@@ -225,14 +386,12 @@ export const InvoicesPage: React.FC = () => {
       const res = await fetchDealerInvoicesWithCache(uid, queryParams);
       setInvoices(res.data);
       setTotal(res.pagination.total);
-      setLastSyncedAt(res.lastSyncedAt ?? null);
       setError('');
     } catch (err) {
       if (!usedCache) {
         setError(invoiceErrorMessage(err));
         setInvoices([]);
         setTotal(0);
-        setLastSyncedAt(null);
       } else {
         setError('Could not refresh. Showing saved invoices.');
       }
@@ -279,7 +438,7 @@ export const InvoicesPage: React.FC = () => {
     setPage(1);
   }, [debouncedSearch, sortField, sortDir]);
 
-  const handleSort = (field: NonNullable<InvoiceListParams['sortField']>) => {
+  const handleSort = (field: InvoiceSortField) => {
     if (sortField === field) {
       setSortDir(dir => (dir === 'asc' ? 'desc' : 'asc'));
     } else {
@@ -288,7 +447,7 @@ export const InvoicesPage: React.FC = () => {
     }
   };
 
-  const SortMark = ({ field }: { field: NonNullable<InvoiceListParams['sortField']> }) => (
+  const SortMark = ({ field }: { field: InvoiceSortField }) => (
     <span className="invoices-sort-mark">{sortField === field ? (sortDir === 'asc' ? '↑' : '↓') : ''}</span>
   );
 
@@ -303,8 +462,6 @@ export const InvoicesPage: React.FC = () => {
         periodStart: null as string | null,
         periodEnd: new Date().toISOString(),
         invoiceCount: 0,
-        unpaidCount: 0,
-        outstanding: 0,
       };
     }
 
@@ -315,8 +472,6 @@ export const InvoicesPage: React.FC = () => {
         periodStart: sales.periodStart,
         periodEnd: sales.periodEnd,
         invoiceCount: countInvoiceSalesEntriesInPeriod(dashboard.salesEntries, rangePreset),
-        unpaidCount: dashboard.unpaidCount,
-        outstanding: dashboard.outstandingBalance,
       };
     }
 
@@ -325,8 +480,6 @@ export const InvoicesPage: React.FC = () => {
       periodStart: dashboard.periodStart,
       periodEnd: dashboard.periodEnd,
       invoiceCount: dashboard.totalInvoiceCount,
-      unpaidCount: dashboard.unpaidCount,
-      outstanding: dashboard.outstandingBalance,
     };
   }, [dashboard, rangePreset]);
 
@@ -345,6 +498,50 @@ export const InvoicesPage: React.FC = () => {
 
   usePageHeaderSlot(headerSearch);
 
+  const summaryBlock = (
+    <section className="invoices-summary" aria-label="Invoice summary">
+      <div className="invoices-summary__kpis">
+        <div className="invoices-summary__kpi">
+          <span className="invoices-summary__kpi-icon" aria-hidden>
+            <FileText size={18} strokeWidth={2.4} />
+          </span>
+          <span className="invoices-summary__kpi-label">Total Invoices</span>
+          <strong className="invoices-summary__kpi-value">
+            {kpiLoading ? '…' : kpiSummary.invoiceCount.toLocaleString('en-IN')}
+          </strong>
+          <span className="invoices-summary__kpi-sub">Invoices</span>
+        </div>
+        <div className="invoices-summary__divider" aria-hidden />
+        <div className="invoices-summary__kpi">
+          <span className="invoices-summary__kpi-icon" aria-hidden>
+            <IndianRupee size={18} strokeWidth={2.4} />
+          </span>
+          <span className="invoices-summary__kpi-label">Total Amount</span>
+          <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+            {kpiLoading ? '…' : formatCurrency(kpiSummary.totalSales)}
+          </strong>
+          <span className="invoices-summary__kpi-sub">Amount</span>
+        </div>
+      </div>
+
+      <div className="invoices-summary__controls">
+        <InvoiceDateRangeControl
+          value={rangePreset}
+          onChange={setRangePreset}
+          rangeLabel={kpiDateRange}
+        />
+        <button
+          type="button"
+          className="invoices-summary__filter-btn"
+          onClick={() => setFilterOpen(true)}
+        >
+          <SlidersHorizontal size={15} aria-hidden />
+          Filter
+        </button>
+      </div>
+    </section>
+  );
+
   return (
     <div className="page-content fade-in invoices-page">
       {error && (
@@ -354,73 +551,7 @@ export const InvoicesPage: React.FC = () => {
         </div>
       )}
 
-      <section className="dealer-dash__kpis-layout admin-invoices-kpis invoices-page-kpis" aria-label="Invoice summary">
-        <div className="dealer-dash-kpi dealer-dash-kpi--blue dealer-dash-kpi--featured admin-invoices-kpi--featured">
-          <div className="dealer-dash-kpi__featured-main">
-            <div className="dealer-dash-kpi__icon dealer-dash-kpi__icon--featured">
-              <IndianRupee strokeWidth={2.5} />
-            </div>
-            <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
-              <span className="dealer-dash-kpi__label">Total sales</span>
-              <SalesRangeSelect value={rangePreset} onChange={setRangePreset} />
-              <span className="admin-invoices-kpi__range text-muted text-sm">{kpiDateRange}</span>
-            </div>
-          </div>
-          <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
-            {kpiLoading ? '…' : formatCurrency(kpiSummary.totalSales)}
-          </strong>
-        </div>
-
-        <div className="dealer-dash__kpis-grid admin-invoices-kpis__grid">
-          <div className="dealer-dash-kpi dealer-dash-kpi--blue admin-invoices-kpi--static">
-            <div className="dealer-dash-kpi__icon"><FileText size={22} strokeWidth={2.5} /></div>
-            <div className="dealer-dash-kpi__body">
-              <span className="dealer-dash-kpi__label">Invoices</span>
-              <strong className="dealer-dash-kpi__value">
-                {kpiLoading ? '…' : kpiSummary.invoiceCount.toLocaleString('en-IN')}
-              </strong>
-              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">In selected period</span>
-            </div>
-          </div>
-          <div className="dealer-dash-kpi dealer-dash-kpi--orange admin-invoices-kpi--static">
-            <div className="dealer-dash-kpi__icon"><FileText size={22} strokeWidth={2.5} /></div>
-            <div className="dealer-dash-kpi__body">
-              <span className="dealer-dash-kpi__label">Unpaid</span>
-              <strong className="dealer-dash-kpi__value">
-                {kpiLoading ? '…' : kpiSummary.unpaidCount.toLocaleString('en-IN')}
-              </strong>
-              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">All invoices</span>
-            </div>
-          </div>
-          <div className="dealer-dash-kpi dealer-dash-kpi--green admin-invoices-kpi--static">
-            <div className="dealer-dash-kpi__icon"><IndianRupee size={22} strokeWidth={2.5} /></div>
-            <div className="dealer-dash-kpi__body">
-              <span className="dealer-dash-kpi__label">Outstanding</span>
-              <strong className="dealer-dash-kpi__value">
-                {kpiLoading ? '…' : formatCurrency(kpiSummary.outstanding)}
-              </strong>
-              <span className="dealer-dash-kpi__trend dealer-dash-kpi__trend--up">Balance due</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <header className="invoices-toolbar invoices-toolbar--sticky">
-        <div className="invoices-toolbar__filters">
-          <span className="invoices-toolbar__count" aria-live="polite">
-            {loading && invoices.length === 0
-              ? 'Loading…'
-              : total > 0
-                ? `${total.toLocaleString('en-IN')} invoices`
-                : 'No invoices'}
-          </span>
-          {lastSyncedAt && (
-            <span className="invoices-toolbar__sync text-muted text-sm">
-              Updated {formatInvoiceRelativeTime(lastSyncedAt)}
-            </span>
-          )}
-        </div>
-      </header>
+      {summaryBlock}
 
       <div className="invoices-page__body">
         {showInitialLoader ? (
@@ -521,9 +652,14 @@ export const InvoicesPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="invoices-cards invoices-cards--mobile">
+              <div className="invoices-mobile-list">
+                <div className="invoices-mobile-list__head" aria-hidden>
+                  <span>Invoice No.</span>
+                  <span>Date</span>
+                  <span>Total Amount</span>
+                </div>
                 {invoices.map(invoice => (
-                  <InvoiceMobileCard key={invoice.id} invoice={invoice} onOpen={openInvoice} />
+                  <InvoiceMobileRow key={invoice.id} invoice={invoice} onOpen={openInvoice} />
                 ))}
               </div>
             </div>
@@ -542,6 +678,17 @@ export const InvoicesPage: React.FC = () => {
           sticky
         />
       )}
+
+      <InvoiceFilterSheet
+        open={filterOpen}
+        sortField={sortField}
+        sortDir={sortDir}
+        onClose={() => setFilterOpen(false)}
+        onSortChange={(field, dir) => {
+          setSortField(field);
+          setSortDir(dir);
+        }}
+      />
     </div>
   );
 };
