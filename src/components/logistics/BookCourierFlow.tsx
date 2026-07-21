@@ -666,12 +666,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     user.loginId,
   ]);
 
-  const handlePrintShippingLabels = useCallback(async (
-    mode: 'bitmap' | 'tspl_to' = 'bitmap',
-  ) => {
+  const handlePrintShippingLabels = useCallback(async () => {
     try {
       try {
-        const thermal = await tryPrintShippingLabelsThermal(shippingLabels, { mode });
+        const thermal = await tryPrintShippingLabelsThermal(shippingLabels);
         if (thermal.usedThermal) {
           updateDraft('labelGenerated', true);
           return;
@@ -681,12 +679,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           `${err instanceof Error ? err.message : 'Thermal print failed.'}\n\nPrint with the system dialog instead?`,
         );
         if (!fallback) return;
-      }
-      if (mode === 'tspl_to') {
-        window.alert(
-          'TSPL TO-address print needs the YesWeigh Android APK and logistics printer IP.',
-        );
-        return;
       }
       printShippingLabelCanvases(shippingLabelCanvasRefs.current, 'Shipping label');
       updateDraft('labelGenerated', true);
@@ -1292,19 +1284,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
-                        onClick={() => void handlePrintShippingLabels('bitmap')}
+                        onClick={() => void handlePrintShippingLabels()}
                       >
                         <Printer size={14} aria-hidden />
                         {shippingLabelCount > 1 ? 'Print all' : 'Print'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        title="Bitmap label with sharper TSPL text for the TO address only"
-                        onClick={() => void handlePrintShippingLabels('tspl_to')}
-                      >
-                        <Printer size={14} aria-hidden />
-                        with TSPL
                       </button>
                     </div>
                   </header>

@@ -40,7 +40,7 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
     [booking],
   );
 
-  const handlePrint = useCallback(async (mode: 'bitmap' | 'tspl_to' = 'bitmap') => {
+  const handlePrint = useCallback(async () => {
     if (!labels.length) {
       setError('No shipping label to print.');
       return;
@@ -50,32 +50,20 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
     setSuccess('');
     try {
       try {
-        const thermal = await tryPrintShippingLabelsThermal(labels, { mode });
+        const thermal = await tryPrintShippingLabelsThermal(labels);
         if (thermal.usedThermal) {
           setSuccess(
-            mode === 'tspl_to'
-              ? `Sent ${labels.length} label${labels.length === 1 ? '' : 's'} `
-                + `(bitmap + TSPL TO text, ${thermal.bytesSent} bytes).`
-              : `Sent ${labels.length} label${labels.length === 1 ? '' : 's'} to the logistics printer `
-                + `(${thermal.bytesSent} bytes).`,
+            `Sent ${labels.length} label${labels.length === 1 ? '' : 's'} to the logistics printer `
+              + `(${thermal.bytesSent} bytes).`,
           );
           onPrinted?.();
           return;
         }
       } catch (err) {
-        if (mode === 'tspl_to') {
-          setError(err instanceof Error ? err.message : 'TSPL print failed.');
-          return;
-        }
         const fallback = window.confirm(
           `${err instanceof Error ? err.message : 'Thermal print failed.'}\n\nPrint with the system dialog instead?`,
         );
         if (!fallback) return;
-      }
-
-      if (mode === 'tspl_to') {
-        setError('TSPL TO-address print needs the YesWeigh Android APK and logistics printer IP.');
-        return;
       }
 
       printShippingLabelCanvases(
@@ -147,7 +135,6 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
         {native && (
           <p className="text-muted text-sm shipping-label-print-dialog__hint">
             Preview matches the 203 DPI bitmap sent to the logistics printer (same pixels as print).
-            If you see TSPL text/hex on the label, power-cycle the printer to leave dump mode, then print again.
           </p>
         )}
 
@@ -162,18 +149,8 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            className="btn btn-secondary"
-            title="Bitmap label with sharper TSPL text for the TO address only"
-            onClick={() => void handlePrint('tspl_to')}
-            disabled={printing || labels.length === 0 || !native}
-          >
-            <Printer size={16} aria-hidden />
-            {printing ? 'Printing…' : 'Reprint with TSPL'}
-          </button>
-          <button
-            type="button"
             className="btn btn-primary"
-            onClick={() => void handlePrint('bitmap')}
+            onClick={() => void handlePrint()}
             disabled={printing || labels.length === 0}
           >
             <Printer size={16} aria-hidden />
