@@ -1,9 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import * as pdfjs from 'pdfjs-dist';
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { FetchingLoader } from '../FetchingLoader';
-
-pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+import { pdfjs } from '../../lib/pdfjsSetup';
 
 export const InvoicePdfCanvas: React.FC<{ data: Uint8Array }> = ({ data }) => {
   const containerRef = useRef<HTMLDivElement>(null);

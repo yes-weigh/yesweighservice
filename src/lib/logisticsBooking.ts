@@ -255,6 +255,9 @@ export function shippingLabelFileName(booking: LogisticsBooking): string {
 }
 
 export function courierSlipFileName(booking: LogisticsBooking): string {
+  if (booking.partnerId === 'st_courier') {
+    return `courier-slip-${booking.orderRef || booking.consignmentNo}.pdf`;
+  }
   return `courier-slip-${booking.orderRef}.png`;
 }
 

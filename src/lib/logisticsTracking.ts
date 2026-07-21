@@ -17,7 +17,8 @@ export function logisticsTrackingUrl(
     case 'trackon':
       return `https://trackon.in/Tracking/t1.jsp?txtAction=track&txtAWBNo=${encoded}`;
     case 'st_courier':
-      return `https://stcourier.com/track/shipment?AwbNo=${encoded}`;
+      // Marketing site (?AwbNo=) does not auto-search; ERP page does (same as label QR).
+      return `http://www.erpstcourier.com/awb_tracking2.php?keyword=${encoded}`;
     default:
       return null;
   }

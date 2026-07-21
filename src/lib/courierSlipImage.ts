@@ -1,28 +1,57 @@
 import { Capacitor } from '@capacitor/core';
 import { WhatsAppShare } from 'whatsapp-share';
 import { FIRM_NAME } from '../constants/brand';
+import { DEFAULT_SUPPORT_COURIER } from '../constants/supportCourier';
 import { logisticsPartnerLabel } from '../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
-import type { LogisticsBooking, LogisticsBookingDraft, LogisticsDealerSnapshot } from '../types/logistics-dispatch';
+import type {
+  LogisticsBooking,
+  LogisticsBookingDraft,
+  LogisticsDealerSnapshot,
+  ShipmentMode,
+} from '../types/logistics-dispatch';
+import { STAFF_LOGISTICS_SITE_LABELS } from '../types/staff-logistics';
 import { chargeableWeight, shipmentModeLabel } from './logisticsBooking';
+import { resolveReceiverPhoneFromSnapshot } from './logisticsDealers';
+import { pdfjs } from './pdfjsSetup';
+import { SHIPPING_LABEL_CONTENTS } from './shippingLabel';
+import {
+  buildCourierSlipPdfBlob,
+  courierSlipPdfFileName,
+} from './courierSlipPdf';
 import { openWhatsAppWithText, uploadWhatsAppShareCard } from './whatsappShareCard';
 
 export type CourierSlipViewModel = {
+  partnerId: LogisticsPartnerId | string;
   partnerLabel: string;
   consignmentNo: string;
   orderRef: string;
   dealerName: string;
   dealerCode: string;
+  contactPerson: string;
   contactLine: string;
   deliveryAddress: string;
+  toMobile: string;
+  fromName: string;
+  fromAddress: string;
+  fromMobile: string;
   serviceType: string;
   branch: string;
   shipmentType: string;
+  shipmentMode: ShipmentMode;
   pieces: string;
   weightLabel: string;
   bookingDate: string;
+  contents: string;
+  isDox: boolean;
+  isAir: boolean;
+  /** @deprecated use fromAddress */
   shipFrom: string;
 };
+
+function isAirService(serviceType: string): boolean {
+  return /\bair\b/i.test(serviceType.trim());
+}
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -30,13 +59,13 @@ function blobToBase64(blob: Blob): Promise<string> {
     reader.onload = () => {
       const result = reader.result;
       if (typeof result !== 'string') {
-        reject(new Error('Could not encode image.'));
+        reject(new Error('Could not encode file.'));
         return;
       }
       const comma = result.indexOf(',');
       resolve(comma >= 0 ? result.slice(comma + 1) : result);
     };
-    reader.onerror = () => reject(new Error('Could not encode image.'));
+    reader.onerror = () => reject(new Error('Could not encode file.'));
     reader.readAsDataURL(blob);
   });
 }
@@ -101,25 +130,46 @@ function barcodeBars(seed: string): number[] {
   return bars;
 }
 
+function buildContents(pieces: string, _shipmentType: string): string {
+  // Narrow "Contents & Quantity" cell on the ST form — keep it short.
+  const short = SHIPPING_LABEL_CONTENTS.replace(/^Genuine\s+/i, '').trim();
+  const parts = [short || SHIPPING_LABEL_CONTENTS, pieces].filter(v => v && v !== '—');
+  return parts.join(' · ') || short;
+}
+
 export function buildCourierSlipFromBooking(booking: LogisticsBooking): CourierSlipViewModel {
   const isEnvelope = booking.shipmentMode === 'envelope';
   const weight = isEnvelope
     ? '—'
     : `${chargeableWeight(booking).toFixed(2)} kg`;
+  const pieces = isEnvelope
+    ? '1 envelope'
+    : `${booking.numberOfBoxes || booking.boxes.length || 1} box(es)`;
+  const fromName = STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || FIRM_NAME;
   return {
+    partnerId: booking.partnerId,
     partnerLabel: logisticsPartnerLabel(booking.partnerId),
     consignmentNo: booking.consignmentNo.trim() || '—',
     orderRef: booking.orderRef.trim() || '—',
     dealerName: booking.dealer.name,
     dealerCode: booking.dealer.code,
+    contactPerson: booking.dealer.contactPerson || '',
     contactLine: [booking.dealer.contactPerson, booking.dealer.mobile].filter(Boolean).join(' · '),
     deliveryAddress: booking.deliveryAddress,
+    toMobile: resolveReceiverPhoneFromSnapshot(booking.dealer),
+    fromName,
+    fromAddress: booking.shipFromAddress || FIRM_NAME,
+    fromMobile: DEFAULT_SUPPORT_COURIER.phone,
     serviceType: booking.serviceType || '—',
     branch: booking.branch || '—',
     shipmentType: shipmentModeLabel(booking.shipmentMode),
-    pieces: isEnvelope ? '1 envelope' : `${booking.numberOfBoxes || booking.boxes.length || 1} box(es)`,
+    shipmentMode: booking.shipmentMode,
+    pieces,
     weightLabel: weight,
     bookingDate: booking.bookingDate || '—',
+    contents: buildContents(pieces, shipmentModeLabel(booking.shipmentMode)),
+    isDox: isEnvelope,
+    isAir: isAirService(booking.serviceType),
     shipFrom: booking.shipFromAddress || '—',
   };
 }
@@ -131,33 +181,51 @@ export function buildCourierSlipFromDraft(input: {
   deliveryAddress: string;
   piecesLabel: string;
   weightKg: number;
+  fromName?: string;
+  fromAddress?: string;
+  fromMobile?: string;
 }): CourierSlipViewModel {
   const isEnvelope = input.draft.shipmentMode === 'envelope';
+  const fromName = (input.fromName || STAFF_LOGISTICS_SITE_LABELS[input.draft.shipFromSite] || FIRM_NAME).trim();
+  const fromAddress = (input.fromAddress || FIRM_NAME).trim();
   return {
+    partnerId: input.partnerId,
     partnerLabel: logisticsPartnerLabel(input.partnerId),
     consignmentNo: input.draft.consignmentNo.trim() || '—',
     orderRef: input.draft.consignmentNo.trim() || '—',
     dealerName: input.dealer.name,
     dealerCode: input.dealer.code,
+    contactPerson: input.dealer.contactPerson || '',
     contactLine: [input.dealer.contactPerson, input.dealer.mobile].filter(Boolean).join(' · '),
     deliveryAddress: input.deliveryAddress,
+    toMobile: resolveReceiverPhoneFromSnapshot(input.dealer),
+    fromName,
+    fromAddress,
+    fromMobile: (input.fromMobile || DEFAULT_SUPPORT_COURIER.phone).trim(),
     serviceType: input.draft.serviceType || '—',
     branch: input.draft.branch || '—',
     shipmentType: shipmentModeLabel(input.draft.shipmentMode),
+    shipmentMode: input.draft.shipmentMode,
     pieces: input.piecesLabel,
     weightLabel: isEnvelope ? '—' : `${input.weightKg.toFixed(2)} kg`,
     bookingDate: input.draft.bookingDate || '—',
-    shipFrom: '—',
+    contents: buildContents(input.piecesLabel, shipmentModeLabel(input.draft.shipmentMode)),
+    isDox: isEnvelope,
+    isAir: isAirService(input.draft.serviceType),
+    shipFrom: fromAddress || '—',
   };
 }
 
-/** Renders a shareable courier-slip PNG (not a thermal label). */
-export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promise<Blob> {
+export function usesStCourierSlipTemplate(slip: CourierSlipViewModel): boolean {
+  return slip.partnerId === 'st_courier';
+}
+
+/** Generic shareable PNG for non–ST Courier partners. */
+async function buildGenericCourierSlipPngBlob(slip: CourierSlipViewModel): Promise<Blob> {
   const W = 900;
   const pad = 36;
   const contentW = W - pad * 2;
 
-  // Measure height dynamically via a throwaway pass.
   const canvas = document.createElement('canvas');
   canvas.width = W;
   const ctx = canvas.getContext('2d');
@@ -181,27 +249,24 @@ export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
   const H = Math.max(
     980,
     pad
-      + 56 // partner
-      + 28 // title
+      + 56
       + 28
-      + 150 // track block
       + 28
-      + 36 // consign label + name
-      + 28 // contact
+      + 150
+      + 28
+      + 36
+      + 28
       + addressLines.length * 34
       + 28
       + metaRows.length * 42
       + (slip.shipFrom && slip.shipFrom !== '—' ? 90 : 0)
-      + 56 // footer
+      + 56
       + pad,
   );
   canvas.height = H;
 
-  // Card background
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, W, H);
-
-  // Orange accent bar
   ctx.fillStyle = '#f97316';
   ctx.fillRect(0, 0, 12, H);
 
@@ -217,7 +282,6 @@ export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
   ctx.fillText('COURIER SLIP', pad, y + 18);
   y += 40;
 
-  // Consignment / barcode block
   drawRoundedRect(ctx, pad, y, contentW, 140, 14);
   ctx.strokeStyle = '#111827';
   ctx.lineWidth = 2;
@@ -233,7 +297,6 @@ export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
   ctx.font = '800 36px Arial, Helvetica, sans-serif';
   ctx.fillText(slip.consignmentNo, pad + 24, y + 68);
 
-  // Decorative bars
   const bars = barcodeBars(`${slip.partnerLabel}-${slip.consignmentNo}`);
   let bx = pad + 24;
   const barY = y + 86;
@@ -246,7 +309,6 @@ export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
   }
   y += 164;
 
-  // Consignee
   ctx.fillStyle = '#64748b';
   ctx.font = '700 14px Arial, Helvetica, sans-serif';
   ctx.fillText('CONSIGN TO', pad, y + 14);
@@ -277,7 +339,6 @@ export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
   }
   y += 16;
 
-  // Divider
   ctx.strokeStyle = '#e2e8f0';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -293,7 +354,7 @@ export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
     ctx.fillStyle = '#111827';
     ctx.font = '700 22px Arial, Helvetica, sans-serif';
     const valueLines = wrapText(ctx, value, contentW * 0.55, 2);
-    let vx = pad + contentW * 0.42;
+    const vx = pad + contentW * 0.42;
     for (let i = 0; i < valueLines.length; i += 1) {
       ctx.fillText(valueLines[i]!, vx, y + 20 + i * 26);
     }
@@ -314,7 +375,6 @@ export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
     }
   }
 
-  // Footer
   y = H - pad - 8;
   ctx.fillStyle = '#94a3b8';
   ctx.font = '600 18px Arial, Helvetica, sans-serif';
@@ -331,6 +391,91 @@ export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
   });
 }
 
+/** Render the filled ST Courier PDF page to a PNG for on-screen preview. */
+async function renderPdfBlobToPng(pdfBlob: Blob): Promise<Blob> {
+  const data = new Uint8Array(await pdfBlob.arrayBuffer());
+  const pdf = await pdfjs.getDocument({ data: data.slice() }).promise;
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 1.35 });
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not render courier slip preview.');
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  await page.render({ canvasContext: context, viewport, canvas }).promise;
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (!blob) reject(new Error('Could not create courier slip preview.'));
+      else resolve(blob);
+    }, 'image/png');
+  });
+}
+
+function buildPdfReadyPlaceholderPng(slip: CourierSlipViewModel): Promise<Blob> {
+  const canvas = document.createElement('canvas');
+  canvas.width = 720;
+  canvas.height = 420;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return Promise.reject(new Error('Could not create courier slip preview.'));
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#f97316';
+  ctx.fillRect(0, 0, 10, canvas.height);
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 28px Arial, Helvetica, sans-serif';
+  ctx.fillText('ST Courier POD PDF ready', 36, 80);
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '500 18px Arial, Helvetica, sans-serif';
+  ctx.fillText(`Consignment: ${slip.consignmentNo}`, 36, 130);
+  ctx.fillText('Preview unavailable on this device.', 36, 170);
+  ctx.fillText('Tap Share to send the filled PDF.', 36, 200);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (!blob) reject(new Error('Could not create courier slip preview.'));
+      else resolve(blob);
+    }, 'image/png');
+  });
+}
+
+/**
+ * Preview blob for the Label step UI (always an image so `<img>` works).
+ * ST Courier → filled OG.pdf rendered to PNG; others → generic PNG slip.
+ */
+export async function buildCourierSlipPngBlob(slip: CourierSlipViewModel): Promise<Blob> {
+  if (usesStCourierSlipTemplate(slip)) {
+    const pdfBlob = await buildCourierSlipPdfBlob(slip);
+    try {
+      return await renderPdfBlobToPng(pdfBlob);
+    } catch {
+      // WebView may still choke on pdf.js; PDF share path does not need a preview.
+      return buildPdfReadyPlaceholderPng(slip);
+    }
+  }
+  return buildGenericCourierSlipPngBlob(slip);
+}
+
+/** Shareable document blob (PDF for ST Courier, PNG otherwise). */
+export async function buildCourierSlipShareBlob(slip: CourierSlipViewModel): Promise<{
+  blob: Blob;
+  fileName: string;
+  mimeType: string;
+}> {
+  if (usesStCourierSlipTemplate(slip)) {
+    const blob = await buildCourierSlipPdfBlob(slip);
+    return {
+      blob,
+      fileName: courierSlipPdfFileName(slip),
+      mimeType: 'application/pdf',
+    };
+  }
+  const blob = await buildGenericCourierSlipPngBlob(slip);
+  return {
+    blob,
+    fileName: courierSlipImageFileName(slip),
+    mimeType: 'image/png',
+  };
+}
+
 export function courierSlipImageFileName(slip: CourierSlipViewModel): string {
   const safe = (slip.consignmentNo || slip.orderRef || 'slip')
     .replace(/[^\w\-]+/g, '-')
@@ -338,22 +483,21 @@ export function courierSlipImageFileName(slip: CourierSlipViewModel): string {
   return `courier-slip-${safe}.png`;
 }
 
-/** Share the courier slip as an image (system share / WhatsApp). Never sends to label printer. */
+/** Share the courier slip (ST Courier PDF / other partners PNG). Never sends to label printer. */
 export async function shareCourierSlipImage(slip: CourierSlipViewModel): Promise<void> {
-  const blob = await buildCourierSlipPngBlob(slip);
-  const fileName = courierSlipImageFileName(slip);
+  const { blob, fileName, mimeType } = await buildCourierSlipShareBlob(slip);
 
   if (Capacitor.isNativePlatform()) {
     const dataBase64 = await blobToBase64(blob);
     await WhatsAppShare.shareImage({
       dataBase64,
       fileName,
-      mimeType: 'image/png',
+      mimeType,
     });
     return;
   }
 
-  const file = new File([blob], fileName, { type: 'image/png' });
+  const file = new File([blob], fileName, { type: mimeType });
   const shareData: ShareData = {
     files: [file],
     title: `Courier slip · ${slip.consignmentNo}`,
@@ -364,28 +508,30 @@ export async function shareCourierSlipImage(slip: CourierSlipViewModel): Promise
       return;
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
-      // Fall through to WhatsApp / download if the system share sheet fails.
     }
   }
 
-  try {
-    const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
-    const shareText = [
-      `Courier slip · ${slip.partnerLabel}`,
-      `Consignment: ${slip.consignmentNo}`,
-      `${slip.dealerName}${slip.dealerCode ? ` (${slip.dealerCode})` : ''}`,
-      imageUrl,
-      FIRM_NAME,
-    ].filter(Boolean).join('\n');
-    openWhatsAppWithText(shareText);
-    return;
-  } catch {
-    // Storage upload often blocked (rules / auth). Still give the user the PNG.
-    downloadCourierSlipPng(blob, fileName);
+  if (mimeType.startsWith('image/')) {
+    try {
+      const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
+      const shareText = [
+        `Courier slip · ${slip.partnerLabel}`,
+        `Consignment: ${slip.consignmentNo}`,
+        `${slip.dealerName}${slip.dealerCode ? ` (${slip.dealerCode})` : ''}`,
+        imageUrl,
+        FIRM_NAME,
+      ].filter(Boolean).join('\n');
+      openWhatsAppWithText(shareText);
+      return;
+    } catch {
+      // fall through
+    }
   }
+
+  downloadBlob(blob, fileName);
 }
 
-function downloadCourierSlipPng(blob: Blob, fileName: string): void {
+function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;

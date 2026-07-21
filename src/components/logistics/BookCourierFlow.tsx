@@ -697,6 +697,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const courierSlip = useMemo(() => {
     if (!selectedDealer) return null;
+    const fromName = STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite];
+    const fromAddress = (fromAddresses[draft.shipFromSite] || FIRM_NAME).trim();
     return buildCourierSlipFromDraft({
       partnerId,
       draft,
@@ -704,6 +706,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       deliveryAddress: resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind),
       piecesLabel: isEnvelope ? '1 envelope' : `${draft.boxes.length} box(es)`,
       weightKg: totalChargeableWeight || totalActualWeight,
+      fromName,
+      fromAddress,
     });
   }, [
     selectedDealer,
@@ -712,6 +716,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     isEnvelope,
     totalChargeableWeight,
     totalActualWeight,
+    fromAddresses,
   ]);
 
   useEffect(() => {
@@ -1269,7 +1274,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 Print <span className="accent">Labels</span>
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                Print the shipping label on the logistics printer. The courier slip is a shareable image only — it is not sent to the label printer.
+                Print the shipping label on the logistics printer. The courier slip is share-only
+                {partnerId === 'st_courier'
+                  ? ' (filled ST Courier POD PDF)'
+                  : ''}
+                {' '}— it is not sent to the label printer.
               </p>
 
               <div className="book-courier__label-grid">
@@ -1321,7 +1330,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      disabled={!courierSlip || sharingCourierSlip || !courierSlipPreviewUrl}
+                      disabled={!courierSlip || sharingCourierSlip}
                       onClick={() => void handleShareCourierSlip()}
                     >
                       <Share2 size={14} aria-hidden />
@@ -1343,7 +1352,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     )}
                   </div>
                   <p className="book-courier__hint text-muted text-sm">
-                    Share via WhatsApp or any app — not printed from the label printer.
+                    {partnerId === 'st_courier'
+                      ? 'Share the filled ST Courier POD PDF via WhatsApp or any app — not printed from the label printer.'
+                      : 'Share via WhatsApp or any app — not printed from the label printer.'}
                   </p>
                 </article>
               </div>

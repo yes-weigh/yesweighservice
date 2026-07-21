@@ -15,6 +15,7 @@ import {
   boxDimensionsLabel,
   chargeableWeight,
 } from './logisticsBooking';
+import { logisticsTrackingUrl } from './logisticsTracking';
 import { resolveReceiverPhoneFromSnapshot } from './logisticsDealers';
 
 export const SHIPPING_LABEL_CONTENTS = 'Genuine Spare Part';
@@ -470,8 +471,7 @@ export function shippingLabelBarcodeBars(value: string): number[] {
 
 /** ST Courier public AWB tracking page (keyword = consignment / AWB). */
 export function stCourierTrackingUrl(consignmentNo: string): string {
-  const keyword = consignmentNo.trim();
-  return `http://www.erpstcourier.com/awb_tracking2.php?keyword=${encodeURIComponent(keyword || '0')}`;
+  return logisticsTrackingUrl('st_courier', consignmentNo.trim() || '0')!;
 }
 
 /**
