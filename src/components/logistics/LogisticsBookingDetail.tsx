@@ -257,20 +257,22 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         <section className="logistics-booking__photos">
           <h4>Package photos</h4>
           <div className="book-courier__gallery">
-            {booking.boxes.flatMap((box, boxIndex) => box.photos.map((photo, photoIndex) => (
-              photo.url && (
+            {booking.boxes.flatMap((box, boxIndex) => box.photos.map((photo, photoIndex) => {
+              const photoUrl = photo.url?.trim();
+              if (!photoUrl) return null;
+              return (
                 <div key={photo.storagePath || `${box.id}-${photoIndex}`} className="book-courier__thumb">
                   <button
                     type="button"
-                    onClick={() => setPreviewPhoto(photo.url)}
+                    onClick={() => setPreviewPhoto(photoUrl)}
                     aria-label={`Preview ${isEnvelope ? 'envelope' : `box ${boxIndex + 1}`}${photoIndex === 0 ? ' inside' : ''} photo`}
                   >
-                    <img src={photo.url} alt={`Box ${boxIndex + 1}`} />
+                    <img src={photoUrl} alt={`Box ${boxIndex + 1}`} />
                   </button>
                   <span>{isEnvelope ? 'Envelope' : `Box ${boxIndex + 1}`}{photoIndex === 0 ? ' · inside' : ''}</span>
                 </div>
-              )
-            )))}
+              );
+            }))}
             {booking.finalPackagePhoto && (
               <div className="book-courier__thumb">
                 <button

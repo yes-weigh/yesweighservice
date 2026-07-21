@@ -125,7 +125,11 @@ function InvoiceDateRangeControl({
       if (e.key === 'Escape') setOpen(false);
     };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
   }, [open]);
 
   return (
@@ -133,8 +137,8 @@ function InvoiceDateRangeControl({
       <button
         type="button"
         className="invoices-date-range__trigger"
-        onClick={() => setOpen(v => !v)}
-        aria-haspopup="listbox"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Date range"
       >
@@ -146,36 +150,46 @@ function InvoiceDateRangeControl({
         <ChevronDown size={16} className="invoices-date-range__chevron" aria-hidden />
       </button>
 
-      {open && (
-        <>
+      {open && createPortal(
+        <div className="invoices-filter-sheet" role="dialog" aria-modal="true" aria-label="Date range">
           <button
             type="button"
-            className="invoices-date-range__backdrop"
+            className="invoices-filter-sheet__backdrop"
             aria-label="Close date range"
             onClick={() => setOpen(false)}
           />
-          <ul className="invoices-date-range__menu panel glass" role="listbox" aria-label="Date range options">
-            {SALES_RANGE_OPTIONS.map(option => {
-              const isActive = option.value === value;
-              return (
-                <li key={String(option.value)} role="presentation">
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={isActive}
-                    className={`invoices-date-range__option${isActive ? ' is-active' : ''}`}
-                    onClick={() => {
-                      onChange(option.value);
-                      setOpen(false);
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </>
+          <div className="invoices-filter-sheet__panel panel glass">
+            <header className="invoices-filter-sheet__header">
+              <h3 className="invoices-filter-sheet__title">Date Range</h3>
+              <button type="button" className="invoices-filter-sheet__close" onClick={() => setOpen(false)} aria-label="Close">
+                <X size={18} />
+              </button>
+            </header>
+            <section className="invoices-filter-sheet__section">
+              <div className="invoices-filter-sheet__options" role="listbox" aria-label="Date range options">
+                {SALES_RANGE_OPTIONS.map(option => {
+                  const isActive = option.value === value;
+                  return (
+                    <button
+                      key={String(option.value)}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      className={`invoices-filter-sheet__option${isActive ? ' is-active' : ''}`}
+                      onClick={() => {
+                        onChange(option.value);
+                        setOpen(false);
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -259,16 +273,18 @@ function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen:
       <span className="invoices-mobile-row__icon" aria-hidden>
         <FileText size={16} strokeWidth={2.25} />
       </span>
-      <span className="invoices-mobile-row__invoice">
-        <strong>{invoice.invoiceNumber || '—'}</strong>
-        {invoice.referenceNumber && (
-          <span className="invoices-mobile-row__so">{invoice.referenceNumber}</span>
-        )}
-      </span>
-      <span className="invoices-mobile-row__date">{formatInvoiceDate(invoice.date)}</span>
-      <span className="invoices-mobile-row__amount">
-        <strong>{formatCurrency(invoice.total)}</strong>
-        <InvoiceDeliveryBadge date={invoice.date} />
+      <span className="invoices-mobile-row__body">
+        <span className="invoices-mobile-row__invoice">
+          <strong>{invoice.invoiceNumber || '—'}</strong>
+          {invoice.referenceNumber && (
+            <span className="invoices-mobile-row__so">{invoice.referenceNumber}</span>
+          )}
+          <span className="invoices-mobile-row__meta">{formatInvoiceDate(invoice.date)}</span>
+        </span>
+        <span className="invoices-mobile-row__amount">
+          <strong>{formatCurrency(invoice.total)}</strong>
+          <InvoiceDeliveryBadge date={invoice.date} />
+        </span>
       </span>
       <span className="invoices-mobile-row__chevron" aria-hidden>
         <ChevronRight size={18} />
@@ -654,9 +670,8 @@ export const InvoicesPage: React.FC = () => {
 
               <div className="invoices-mobile-list">
                 <div className="invoices-mobile-list__head" aria-hidden>
-                  <span>Invoice No.</span>
-                  <span>Date</span>
-                  <span>Total Amount</span>
+                  <span>Invoice</span>
+                  <span>Amount</span>
                 </div>
                 {invoices.map(invoice => (
                   <InvoiceMobileRow key={invoice.id} invoice={invoice} onOpen={openInvoice} />
