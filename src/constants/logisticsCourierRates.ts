@@ -30,6 +30,7 @@ export function defaultStCourierOriginRates(): StCourierOriginRates {
   return {
     volumetricDivisor: DEFAULT_ST_COURIER_VOLUMETRIC_DIVISOR,
     useChargeableWeight: true,
+    minimumChargeableWeightKg: 0,
     fuelSurchargePercent: 0,
     zones: defaultStCourierZoneTable(),
   };

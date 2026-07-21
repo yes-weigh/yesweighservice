@@ -100,6 +100,10 @@ function parseOriginRates(raw: unknown): StCourierOriginRates {
   return {
     volumetricDivisor: finiteNonNeg(data.volumetricDivisor, DEFAULT_ST_COURIER_VOLUMETRIC_DIVISOR) || DEFAULT_ST_COURIER_VOLUMETRIC_DIVISOR,
     useChargeableWeight: data.useChargeableWeight !== false,
+    minimumChargeableWeightKg: finiteNonNeg(
+      data.minimumChargeableWeightKg,
+      defaults.minimumChargeableWeightKg,
+    ),
     fuelSurchargePercent: finiteNonNeg(data.fuelSurchargePercent, defaults.fuelSurchargePercent),
     zones: parseZoneTable(data),
   };

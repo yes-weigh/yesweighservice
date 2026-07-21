@@ -55,8 +55,9 @@ export function stCourierVolumetricKg(
 /**
  * Chargeable kg for ST Courier quoting.
  * Envelope: not used for pricing (fixed zone charge).
- * Box + LBH on: max(actual, volumetric).
- * Box + LBH off: actual only.
+ * Box + LBH on: max(actual, volumetric, minimumChargeableWeightKg).
+ * Box + LBH off: max(actual, minimumChargeableWeightKg).
+ * minimumChargeableWeightKg of 0 means no floor.
  */
 export function stCourierChargeableKg(input: {
   mode: ShipmentMode;
@@ -65,6 +66,7 @@ export function stCourierChargeableKg(input: {
   rates: StCourierOriginRates;
 }): { volumetricKg: number; chargeableKg: number } {
   const actualKg = nonNeg(input.actualKg);
+  const minKg = nonNeg(input.rates.minimumChargeableWeightKg);
   const volumetricKg = input.mode === 'box'
     ? stCourierVolumetricKg(input.dims, input.rates.volumetricDivisor)
     : 0;
@@ -73,11 +75,11 @@ export function stCourierChargeableKg(input: {
     return { volumetricKg: 0, chargeableKg: 0 };
   }
 
-  if (input.rates.useChargeableWeight) {
-    return { volumetricKg, chargeableKg: Math.max(actualKg, volumetricKg) };
-  }
+  const baseKg = input.rates.useChargeableWeight
+    ? Math.max(actualKg, volumetricKg)
+    : actualKg;
 
-  return { volumetricKg, chargeableKg: actualKg };
+  return { volumetricKg, chargeableKg: Math.max(baseKg, minKg) };
 }
 
 /**

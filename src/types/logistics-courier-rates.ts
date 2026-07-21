@@ -52,6 +52,11 @@ export interface StCourierOriginRates {
   volumetricDivisor: number;
   /** When true, box pricing uses chargeable weight (LBH/variable). */
   useChargeableWeight: boolean;
+  /**
+   * Floor for box chargeable weight (kg). If the parcel is lighter than this,
+   * billing uses this weight instead. 0 = no minimum.
+   */
+  minimumChargeableWeightKg: number;
   fuelSurchargePercent: number;
   /** Destination zone rate table. */
   zones: Record<StCourierZone, StCourierZoneRates>;

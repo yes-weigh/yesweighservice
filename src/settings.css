@@ -1012,6 +1012,21 @@
   cursor: not-allowed;
 }
 
+.settings-courier-rates__section-label {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.settings-courier-rates__section-label > span {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.settings-courier-rates__section-label p {
+  margin: 0;
+}
+
 .settings-courier-rates__origins {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1047,9 +1062,50 @@
   color: #fbbf24;
 }
 
-.settings-courier-rates__placeholder,
-.settings-courier-rates__formula {
+.settings-courier-rates__placeholder {
   margin: 0;
+}
+
+.settings-courier-rates__card-intro {
+  margin: 0 0 0.85rem;
+}
+
+.settings-courier-rates__hint {
+  margin: -0.35rem 0 0.85rem;
+  line-height: 1.45;
+}
+
+.settings-courier-rates__hint:last-child {
+  margin-bottom: 0;
+}
+
+.settings-courier-rates__howto {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid #262626;
+  border-radius: 14px;
+  background: #101010;
+}
+
+.settings-courier-rates__howto > strong {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.8125rem;
+  color: #f8fafc;
+}
+
+.settings-courier-rates__howto ol {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 0.4rem;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.settings-courier-rates__howto li strong {
+  color: #e2e8f0;
 }
 
 .settings-courier-rates__loading {
@@ -1086,16 +1142,30 @@
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.85rem;
   font-size: 0.8125rem;
   font-weight: 600;
   color: #e2e8f0;
   cursor: pointer;
 }
 
+.settings-courier-rates__toggle span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.settings-courier-rates__toggle em {
+  font-style: normal;
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
 .settings-courier-rates__toggle input {
   margin-top: 0.15rem;
   accent-color: #ff7a00;
+  flex-shrink: 0;
 }
 
 .settings-courier-rates__field {
@@ -1108,6 +1178,14 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #94a3b8;
+}
+
+.settings-courier-rates__field--plain {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+  color: #e2e8f0;
 }
 
 .settings-courier-rates__field:last-child {
@@ -1162,6 +1240,16 @@
 
 .settings-courier-rates__zone-hint {
   margin: 0 0 0.75rem;
+}
+
+.settings-courier-rates__th-sub {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: #64748b;
 }
 
 .settings-courier-rates__zone-table-wrap {
