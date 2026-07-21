@@ -16184,6 +16184,183 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.85rem;
 }
 
+.courier-slip-view-dialog__backdrop {
+  z-index: 5000;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+}
+
+.courier-slip-view-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 52rem);
+  max-width: 100%;
+  height: min(100dvh, 100%);
+  max-height: 100dvh;
+  margin: 0 auto;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.courier-slip-view-dialog__header {
+  flex-shrink: 0;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.courier-slip-view-dialog__title-block {
+  min-width: 0;
+  flex: 1;
+}
+
+.courier-slip-view-dialog__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.courier-slip-view-dialog__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0b1220;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.courier-slip-view-dialog__status {
+  margin: auto;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.courier-slip-pdf {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.courier-slip-pdf__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.courier-slip-pdf__zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.courier-slip-pdf__zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.courier-slip-pdf__zoom-fit {
+  min-width: 3.25rem;
+}
+
+.courier-slip-pdf__zoom-label {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+.courier-slip-pdf__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  cursor: grab;
+  -webkit-overflow-scrolling: touch;
+  background: #0b1220;
+}
+
+.courier-slip-pdf__viewport.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.courier-slip-pdf__stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0 auto;
+  padding: 0.5rem 0 1rem;
+  min-height: 100%;
+}
+
+.courier-slip-pdf__page {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.courier-slip-pdf__image {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  background: #fff;
+}
+
+.courier-slip-pdf__loading,
+.courier-slip-pdf__error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  text-align: center;
+  pointer-events: none;
+}
+
+.courier-slip-pdf__error {
+  color: #fca5a5;
+}
+
+@media (min-width: 768px) {
+  .courier-slip-view-dialog__backdrop {
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+  }
+
+  .courier-slip-view-dialog {
+    height: min(92dvh, 56rem);
+    max-height: 92dvh;
+    border-radius: 16px;
+  }
+}
+
 .logistics-booking__slip-hint {
   margin: 0.35rem 0 0;
   font-style: italic;

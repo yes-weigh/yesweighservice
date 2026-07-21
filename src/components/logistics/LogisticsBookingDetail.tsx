@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Check, ExternalLink, MapPin, Package, Printer, Share2, Truck, X } from 'lucide-react';
+import { Check, ExternalLink, Eye, MapPin, Package, Truck, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
@@ -21,16 +21,13 @@ import {
   shippingLabelFileName,
 } from '../../lib/logisticsBooking';
 import { canDeleteLogisticsBooking, generateLogisticsDocument } from '../../lib/logisticsBookings';
-import {
-  buildCourierSlipFromBooking,
-  shareCourierSlipImage,
-} from '../../lib/courierSlipImage';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import type {
   LogisticsBooking,
   LogisticsBookingStatus,
   LogisticsDocumentType,
 } from '../../types/logistics-dispatch';
+import { CourierSlipViewDialog } from './CourierSlipViewDialog';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
 
 interface LogisticsBookingDetailProps {
@@ -54,8 +51,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 }) => {
   const { user } = useAuth();
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
-  const [shareError, setShareError] = useState('');
   const [shippingLabelOpen, setShippingLabelOpen] = useState(false);
+  const [courierSlipOpen, setCourierSlipOpen] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
@@ -75,40 +72,27 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const trackUrl = logisticsTrackingUrl(booking.partnerId, booking.trackingNo || booking.consignmentNo);
 
-  const handleGenerateDocument = async (document: LogisticsDocumentType) => {
-    if (document === 'courier_slip') {
-      setShareError('');
-      setGenerating('courier_slip');
-      try {
-        await shareCourierSlipImage(buildCourierSlipFromBooking(booking));
-        if (user) {
-          const updated = await generateLogisticsDocument(booking, document, user);
-          onUpdate(updated);
-        }
-      } catch (err) {
-        if (err instanceof Error && err.name === 'AbortError') return;
-        setShareError(err instanceof Error ? err.message : 'Could not share courier slip.');
-      } finally {
-        setGenerating(null);
-      }
-      return;
-    }
-
-    setShippingLabelOpen(true);
-  };
-
-  const handleShippingLabelPrinted = async () => {
+  const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user) return;
-    setGenerating('shipping_label');
+    setGenerating(document);
     try {
-      const updated = await generateLogisticsDocument(booking, 'shipping_label', user);
+      const updated = await generateLogisticsDocument(booking, document, user);
       onUpdate(updated);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not update shipping label status.');
+      window.alert(err instanceof Error ? err.message : 'Could not update document status.');
     } finally {
       setGenerating(null);
     }
-  };
+  }, [booking, onUpdate, user]);
+
+  const handleCourierSlipViewed = useCallback(() => {
+    if (booking.courierSlipGenerated) return;
+    void markDocumentGenerated('courier_slip');
+  }, [booking.courierSlipGenerated, markDocumentGenerated]);
+
+  const handleShippingLabelPrinted = useCallback(() => {
+    void markDocumentGenerated('shipping_label');
+  }, [markDocumentGenerated]);
 
   useEffect(() => {
     if (!previewPhoto) return;
@@ -311,31 +295,22 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             <button
               type="button"
               className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
-              onClick={() => void handleGenerateDocument('courier_slip')}
+              onClick={() => setCourierSlipOpen(true)}
               disabled={generating !== null}
             >
-              <Share2 size={14} aria-hidden />
-              {generating === 'courier_slip'
-                ? 'Sharing…'
-                : booking.courierSlipGenerated
-                  ? 'Share courier slip again'
-                  : 'Share courier slip'}
+              <Eye size={14} aria-hidden />
+              View courier slip
             </button>
             <button
               type="button"
               className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
-              onClick={() => void handleGenerateDocument('shipping_label')}
+              onClick={() => setShippingLabelOpen(true)}
               disabled={generating !== null}
             >
-              <Printer size={14} aria-hidden />
-              {booking.shippingLabelGenerated
-                ? 'Reprint shipping label'
-                : generating === 'shipping_label' ? 'Generating…' : 'Generate shipping label'}
+              <Eye size={14} aria-hidden />
+              View shipping label
             </button>
           </div>
-          {shareError && (
-            <p className="text-sm logistics-booking__share-error" role="alert">{shareError}</p>
-          )}
           {(booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
             <p className="text-muted text-sm logistics-booking__slip-names">
               {booking.courierSlipGenerated && courierSlipFileName(booking)}
@@ -345,7 +320,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           )}
           {!booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
             <p className="text-muted text-sm logistics-booking__slip-hint">
-              Generate the shipping label to confirm this shipment.
+              Open and print the shipping label to confirm this shipment.
             </p>
           )}
         </section>
@@ -383,11 +358,20 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </dl>
       </details>
 
+      {courierSlipOpen && (
+        <CourierSlipViewDialog
+          booking={booking}
+          onClose={() => setCourierSlipOpen(false)}
+          onViewed={handleCourierSlipViewed}
+        />
+      )}
+
       {shippingLabelOpen && (
         <ShippingLabelPrintDialog
           booking={booking}
+          alreadyPrinted={booking.shippingLabelGenerated}
           onClose={() => setShippingLabelOpen(false)}
-          onPrinted={() => void handleShippingLabelPrinted()}
+          onPrinted={handleShippingLabelPrinted}
         />
       )}
 

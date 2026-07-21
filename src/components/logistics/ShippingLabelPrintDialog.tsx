@@ -19,12 +19,15 @@ type Props = {
   onClose: () => void;
   /** Called after a successful print (thermal or browser). */
   onPrinted?: () => void;
+  /** When true, primary action is labeled Reprint. */
+  alreadyPrinted?: boolean;
 };
 
 export const ShippingLabelPrintDialog: React.FC<Props> = ({
   booking,
   onClose,
   onPrinted,
+  alreadyPrinted = false,
 }) => {
   const [printing, setPrinting] = useState(false);
   const [error, setError] = useState('');
@@ -104,7 +107,8 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
           <div>
             <h2 id="shipping-label-print-title">Shipping label</h2>
             <p className="text-muted text-sm">
-              {booking.consignmentNo || booking.trackingNo || booking.orderRef}
+              Preview first, then print when ready
+              {` · ${booking.consignmentNo || booking.trackingNo || booking.orderRef}`}
               {` · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm · 203 DPI`}
               {labels.length > 1 ? ` · ${labels.length} labels` : ''}
             </p>
@@ -154,7 +158,7 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
             onClick={onClose}
             disabled={printing}
           >
-            Cancel
+            Close
           </button>
           <button
             type="button"
@@ -164,7 +168,7 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
             disabled={printing || labels.length === 0 || !native}
           >
             <Printer size={16} aria-hidden />
-            {printing ? 'Printing…' : 'with TSPL'}
+            {printing ? 'Printing…' : 'Reprint with TSPL'}
           </button>
           <button
             type="button"
@@ -173,7 +177,11 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
             disabled={printing || labels.length === 0}
           >
             <Printer size={16} aria-hidden />
-            {printing ? 'Printing…' : 'Print'}
+            {printing
+              ? 'Printing…'
+              : alreadyPrinted
+                ? (labels.length > 1 ? 'Reprint all' : 'Reprint')
+                : (labels.length > 1 ? 'Print all' : 'Print')}
           </button>
         </div>
       </div>
