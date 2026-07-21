@@ -30,7 +30,7 @@ import {
 import {
   dataUrlToFile,
   deleteLogisticsPhoto,
-  resolveLogisticsPhotoUrl,
+  resolveLogisticsPhotoUrls,
   uploadLogisticsPhoto,
 } from './logisticsPhotos';
 import { loadLogisticsSettings } from './logisticsSettings';
@@ -111,21 +111,40 @@ function mapShipmentBox(data: DocumentData): ShipmentBox {
 }
 
 async function hydrateBookingPhotos(booking: LogisticsBooking): Promise<LogisticsBooking> {
-  const boxes = await Promise.all(booking.boxes.map(async box => ({
+  const paths: string[] = [];
+  for (const box of booking.boxes) {
+    for (const photo of box.photos) {
+      if (photo.storagePath) paths.push(photo.storagePath);
+    }
+  }
+  if (booking.finalPackagePhotoStoragePath) {
+    paths.push(booking.finalPackagePhotoStoragePath);
+  }
+
+  const urls = await resolveLogisticsPhotoUrls(paths);
+
+  const boxes = booking.boxes.map(box => ({
     ...box,
-    photos: await Promise.all(box.photos.map(async photo => ({
+    photos: box.photos.map(photo => ({
       ...photo,
-      url: photo.storagePath ? await resolveLogisticsPhotoUrl(photo.storagePath) : null,
-    }))),
-  })));
+      url: photo.storagePath ? (urls.get(photo.storagePath) ?? null) : null,
+    })),
+  }));
   const finalPhotoUrl = booking.finalPackagePhotoStoragePath
-    ? await resolveLogisticsPhotoUrl(booking.finalPackagePhotoStoragePath)
+    ? (urls.get(booking.finalPackagePhotoStoragePath) ?? null)
     : null;
   return {
     ...booking,
     boxes,
     finalPackagePhoto: finalPhotoUrl,
   };
+}
+
+/** Resolve photo URLs for an already-mapped booking (no extra Firestore getDoc). */
+export async function hydrateLogisticsBookingPhotos(
+  booking: LogisticsBooking,
+): Promise<LogisticsBooking> {
+  return hydrateBookingPhotos(booking);
 }
 
 export function mapLogisticsBookingDoc(id: string, data: DocumentData): LogisticsBooking {
@@ -782,6 +801,7 @@ export function bookingToWizardState(booking: LogisticsBooking): {
           })),
       })),
       finalPackagePhoto: booking.finalPackagePhoto,
+      finalPackagePhotoStoragePath: booking.finalPackagePhotoStoragePath,
       labelGenerated: booking.labelGenerated,
     },
   };

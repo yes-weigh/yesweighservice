@@ -100,6 +100,8 @@ export interface LogisticsBookingDraft {
   boxes: ShipmentBoxDraft[];
   /** Transient data URL until uploaded on confirm. */
   finalPackagePhoto: string | null;
+  /** Set when resuming a saved booking; wizard resolves this to a display URL. */
+  finalPackagePhotoStoragePath?: string | null;
   labelGenerated: boolean;
 }
 

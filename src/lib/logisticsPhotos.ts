@@ -116,6 +116,28 @@ async function uploadLogisticsPhotoViaClient(
   return { storagePath, url: null };
 }
 
+/** Capture defaults: small JPEG, no GPS/time overlay — keeps Next/upload snappy. */
+export const LOGISTICS_PHOTO_COMPRESS = {
+  maxWidth: 960,
+  maxHeight: 960,
+  quality: 0.7,
+  maxBytes: 280_000,
+} as const;
+
+/** Resize camera capture to a compact data URL (no stamp / GPS wait). */
+export async function logisticsCaptureToDataUrl(file: File): Promise<string> {
+  const compressed = await compressImageForUpload(file, { ...LOGISTICS_PHOTO_COMPRESS });
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('Could not read photo.'));
+    };
+    reader.onerror = () => reject(new Error('Could not read photo.'));
+    reader.readAsDataURL(compressed);
+  });
+}
+
 export async function uploadLogisticsPhoto(
   bookingId: string,
   slot: string,
@@ -125,7 +147,7 @@ export async function uploadLogisticsPhoto(
     throw new Error('Image must be under 12 MB.');
   }
   await ensureSignedIn();
-  const compressed = await compressImageForUpload(file, { maxBytes: 900_000 });
+  const compressed = await compressImageForUpload(file, { ...LOGISTICS_PHOTO_COMPRESS });
 
   try {
     const uploaded = await uploadLogisticsPhotoViaFunction(bookingId, slot, compressed);
@@ -162,17 +184,7 @@ async function resolveViaFunction(storagePath: string): Promise<string> {
   return url;
 }
 
-export async function resolveLogisticsPhotoUrl(storagePath: string | null | undefined): Promise<string | null> {
-  const path = storagePath?.trim();
-  if (!path) return null;
-
-  const cached = resolvedUrlCache.get(path);
-  if (cached && Date.now() - cached.at < RESOLVED_URL_CACHE_MS) {
-    return cached.url;
-  }
-
-  await ensureSignedIn().catch(() => undefined);
-
+async function resolveLogisticsPhotoUrlUncached(path: string): Promise<string | null> {
   try {
     const url = await resolveViaFunction(path);
     resolvedUrlCache.set(path, { url, at: Date.now() });
@@ -189,6 +201,53 @@ export async function resolveLogisticsPhotoUrl(storagePath: string | null | unde
       return null;
     }
   }
+}
+
+export async function resolveLogisticsPhotoUrl(storagePath: string | null | undefined): Promise<string | null> {
+  const path = storagePath?.trim();
+  if (!path) return null;
+
+  const cached = resolvedUrlCache.get(path);
+  if (cached && Date.now() - cached.at < RESOLVED_URL_CACHE_MS) {
+    return cached.url;
+  }
+
+  await ensureSignedIn().catch(() => undefined);
+  return resolveLogisticsPhotoUrlUncached(path);
+}
+
+/** Resolve many storage paths with one auth check; results keyed by path. */
+export async function resolveLogisticsPhotoUrls(
+  storagePaths: ReadonlyArray<string | null | undefined>,
+): Promise<Map<string, string | null>> {
+  const unique = Array.from(new Set(
+    storagePaths
+      .map(path => path?.trim() ?? '')
+      .filter(Boolean),
+  ));
+  const result = new Map<string, string | null>();
+  if (!unique.length) return result;
+
+  const missing: string[] = [];
+  for (const path of unique) {
+    const cached = resolvedUrlCache.get(path);
+    if (cached && Date.now() - cached.at < RESOLVED_URL_CACHE_MS) {
+      result.set(path, cached.url);
+    } else {
+      missing.push(path);
+    }
+  }
+
+  if (!missing.length) return result;
+
+  await ensureSignedIn().catch(() => undefined);
+  const resolved = await Promise.all(
+    missing.map(async path => [path, await resolveLogisticsPhotoUrlUncached(path)] as const),
+  );
+  for (const [path, url] of resolved) {
+    result.set(path, url);
+  }
+  return result;
 }
 
 export async function deleteLogisticsPhoto(storagePath: string | null | undefined): Promise<void> {

@@ -323,36 +323,42 @@ export const LogisticsPage: React.FC = () => {
     setResumeDealerQuery(undefined);
   }, []);
 
-  const openResumeDraft = useCallback(async (booking: LogisticsBooking) => {
+  const handleUpdateBooking = useCallback((next: LogisticsBooking) => {
+    setBookings(prev => prev.map(item => (item.id === next.id ? next : item)));
+  }, []);
+
+  const openResumeDraft = useCallback((booking: LogisticsBooking) => {
     if (!canCreate) return;
     setError('');
-    try {
-      const hydrated = await fetchLogisticsBooking(booking.id) ?? booking;
-      const wizard = bookingToWizardState(hydrated);
-      const draft: Partial<LogisticsBookingDraft> = {
-        ...wizard.draft,
-        boxes: wizard.draft.boxes.length ? wizard.draft.boxes : [emptyShipmentBoxDraft()],
-      };
-      const rawStep = needsFinalPackagePhoto(hydrated)
-        ? 'final_photo' as BookCourierStep
-        : (
-          ['scan', 'address', 'box', 'review', 'label', 'final_photo'] as BookCourierStep[]
-        ).includes(wizard.step as BookCourierStep)
-          ? wizard.step as BookCourierStep
-          : 'box';
-      const step = clampWizardStepForDraftPhotos(rawStep, draft.boxes ?? []);
-      setResumeBookingId(hydrated.id);
-      setResumeDraft(draft);
-      setResumeStep(step);
-      setResumeDealerQuery(wizard.dealerQuery);
-      setSelectedPartnerId(hydrated.partnerId);
-      setPendingEntry(null);
-      setActiveBookingId(null);
-      setFlowStep('book');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not open draft.');
-    }
-  }, [canCreate]);
+    // Open immediately with list data — photo URLs hydrate inside the wizard.
+    const wizard = bookingToWizardState(booking);
+    const draft: Partial<LogisticsBookingDraft> = {
+      ...wizard.draft,
+      boxes: wizard.draft.boxes.length ? wizard.draft.boxes : [emptyShipmentBoxDraft()],
+    };
+    const rawStep = needsFinalPackagePhoto(booking)
+      ? 'final_photo' as BookCourierStep
+      : (
+        ['scan', 'address', 'box', 'review', 'label', 'final_photo'] as BookCourierStep[]
+      ).includes(wizard.step as BookCourierStep)
+        ? wizard.step as BookCourierStep
+        : 'box';
+    const step = clampWizardStepForDraftPhotos(rawStep, draft.boxes ?? []);
+    setResumeBookingId(booking.id);
+    setResumeDraft(draft);
+    setResumeStep(step);
+    setResumeDealerQuery(wizard.dealerQuery);
+    setSelectedPartnerId(booking.partnerId);
+    setPendingEntry(null);
+    setActiveBookingId(null);
+    setFlowStep('book');
+
+    void fetchLogisticsBooking(booking.id)
+      .then(hydrated => {
+        if (hydrated) handleUpdateBooking(hydrated);
+      })
+      .catch(() => undefined);
+  }, [canCreate, handleUpdateBooking]);
 
   const handlePartnerSelect = useCallback((methodId: string) => {
     if (!isLogisticsPartnerId(methodId)) return;
@@ -387,10 +393,6 @@ export const LogisticsPage: React.FC = () => {
     setActiveBookingId(booking.id);
     closeFlow();
   }, [closeFlow]);
-
-  const handleUpdateBooking = useCallback((next: LogisticsBooking) => {
-    setBookings(prev => prev.map(item => (item.id === next.id ? next : item)));
-  }, []);
 
   const handleAdvanceStatus = useCallback(async (
     booking: LogisticsBooking,

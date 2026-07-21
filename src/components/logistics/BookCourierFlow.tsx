@@ -31,10 +31,6 @@ import {
   subscribeDealerCache,
 } from '../../lib/dealer-cache';
 import {
-  prefetchLogisticsGeoFix,
-  stampLogisticsPhotoDataUrl,
-} from '../../lib/logisticsPhotoStamp';
-import {
   BOOK_COURIER_STEPS,
   SHIPMENT_MODES,
   bookStepProgressIndex,
@@ -54,6 +50,10 @@ import {
   persistLogisticsBooking,
   persistLogisticsBookingDraft,
 } from '../../lib/logisticsBookings';
+import {
+  logisticsCaptureToDataUrl,
+  resolveLogisticsPhotoUrls,
+} from '../../lib/logisticsPhotos';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
   buildShippingLabelViewModel,
@@ -247,6 +247,56 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     return () => { cancelled = true; };
   }, [initialDraft?.zohoCustomerId]);
 
+  // Resume opens with storage paths only — resolve display URLs in the background.
+  useEffect(() => {
+    let cancelled = false;
+    const paths: string[] = [];
+    for (const box of draftRef.current.boxes) {
+      for (const photo of box.photos) {
+        if (photo.storagePath?.trim() && !photo.url?.trim()) {
+          paths.push(photo.storagePath);
+        }
+      }
+    }
+    const finalPath = draftRef.current.finalPackagePhotoStoragePath?.trim();
+    if (finalPath && !draftRef.current.finalPackagePhoto?.trim()) {
+      paths.push(finalPath);
+    }
+    if (!paths.length) return undefined;
+
+    void resolveLogisticsPhotoUrls(paths)
+      .then(urls => {
+        if (cancelled) return;
+        setDraft(prev => {
+          let changed = false;
+          const boxes = prev.boxes.map(box => ({
+            ...box,
+            photos: box.photos.map(photo => {
+              const path = photo.storagePath?.trim();
+              if (!path || photo.url?.trim()) return photo;
+              const url = urls.get(path);
+              if (!url) return photo;
+              changed = true;
+              return { ...photo, url };
+            }),
+          }));
+          let finalPackagePhoto = prev.finalPackagePhoto;
+          const storedFinal = prev.finalPackagePhotoStoragePath?.trim();
+          if (storedFinal && !finalPackagePhoto?.trim()) {
+            const url = urls.get(storedFinal);
+            if (url) {
+              finalPackagePhoto = url;
+              changed = true;
+            }
+          }
+          return changed ? { ...prev, boxes, finalPackagePhoto } : prev;
+        });
+      })
+      .catch(() => undefined);
+
+    return () => { cancelled = true; };
+  }, [existingBookingId]);
+
   useEffect(() => {
     if (step !== 'address') return;
     let cancelled = false;
@@ -305,12 +355,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   useEffect(() => {
     if (step !== 'box') setShipFromOpen(false);
-  }, [step]);
-
-  useEffect(() => {
-    if (step === 'box' || step === 'final_photo') {
-      prefetchLogisticsGeoFix();
-    }
   }, [step]);
 
   const updateDraft = useCallback(<K extends keyof LogisticsBookingDraft>(
@@ -389,7 +433,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const addBoxPhoto = useCallback(async (boxId: string, file: File | undefined) => {
     if (!file) return;
     const photoId = newPhotoId();
-    const dataUrl = await stampLogisticsPhotoDataUrl(file);
+    const dataUrl = await logisticsCaptureToDataUrl(file);
     setDraft(prev => ({
       ...prev,
       boxes: prev.boxes.map(box => (box.id === boxId
@@ -409,7 +453,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const handleFinalPhotoChange = useCallback(async (file: File | undefined) => {
     if (!file) return;
-    const dataUrl = await stampLogisticsPhotoDataUrl(file);
+    const dataUrl = await logisticsCaptureToDataUrl(file);
     updateDraft('finalPackagePhoto', dataUrl);
   }, [updateDraft]);
 
