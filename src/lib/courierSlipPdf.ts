@@ -34,23 +34,25 @@ const INK = rgb(0.05, 0.05, 0.05);
 
 /** Field layout measured from the rendered OG.pdf template (points from slip top-left). */
 const LAYOUT = {
-  branch: { x: 82, y: 38, size: 10, maxWidth: 168 },
-  date: { x: 262, y: 38, size: 9, maxWidth: 72 },
-  kg: { x: 262, y: 66, size: 10, maxWidth: 72 },
-  dox: { x: 369.5, y: 77.5 },
-  nonDox: { x: 473.5, y: 77.5 },
-  air: { x: 81.5, y: 113 },
-  surface: { x: 81.5, y: 132.5 },
+  // Intentionally unused for now — BRANCH / CUSTOMER CODE is left blank for manual fill.
+  branch: { x: 86, y: 48, size: 10, maxWidth: 160 },
+  date: { x: 274, y: 40, size: 9, maxWidth: 60 },
+  kg: { x: 274, y: 68, size: 10, maxWidth: 60 },
+  dox: { x: 366, y: 70 },
+  nonDox: { x: 468, y: 70 },
+  air: { x: 80.5, y: 113 },
+  surface: { x: 80.5, y: 133.5 },
   cash: { x: 168, y: 118 },
   credit: { x: 226, y: 118 },
-  contents: { x: 272, y: 105, size: 8, maxWidth: 70, maxLines: 4 },
+  contents: { x: 274, y: 112, size: 8, maxWidth: 68, maxLines: 4 },
   barcode: { x: 350, y: 99, w: 142, h: 34 },
   awb: { x: 350, y: 138, size: 10, maxWidth: 142 },
-  fromName: { x: 82, y: 160, size: 8, maxWidth: 198 },
-  fromAddr: { x: 82, y: 170, size: 7, maxWidth: 198, maxLines: 3 },
+  // Start after printed "From" / "To" labels so stamped text does not collide.
+  fromName: { x: 122, y: 160, size: 8, maxWidth: 158 },
+  fromAddr: { x: 122, y: 170, size: 7, maxWidth: 158, maxLines: 3 },
   fromMobile: { x: 118, y: 203, size: 8, maxWidth: 155 },
-  toName: { x: 294, y: 160, size: 8, maxWidth: 210 },
-  toAddr: { x: 294, y: 170, size: 7, maxWidth: 210, maxLines: 3 },
+  toName: { x: 332, y: 160, size: 8, maxWidth: 172 },
+  toAddr: { x: 332, y: 170, size: 7, maxWidth: 172, maxLines: 3 },
   toMobile: { x: 330, y: 203, size: 8, maxWidth: 170 },
 } as const;
 
@@ -191,8 +193,7 @@ function drawBarcode(
 }
 
 function fillSlip(page: PDFPage, font: PDFFont, bold: PDFFont, slip: CourierSlipPdfInput, slipIndex: number): void {
-  const branchText = [slip.branch, slip.dealerCode].filter(v => v && v !== '—').join(' / ') || slip.branch;
-  drawText(page, bold, branchText, slipIndex, LAYOUT.branch.x, LAYOUT.branch.y, LAYOUT.branch.size);
+  // BRANCH / CUSTOMER CODE left blank for manual fill (LAYOUT.branch kept for later).
 
   drawText(page, font, slip.bookingDate, slipIndex, LAYOUT.date.x, LAYOUT.date.y, LAYOUT.date.size);
 
@@ -267,9 +268,7 @@ function fillSlip(page: PDFPage, font: PDFFont, bold: PDFFont, slip: CourierSlip
   );
   drawText(page, font, slip.fromMobile, slipIndex, LAYOUT.fromMobile.x, LAYOUT.fromMobile.y, LAYOUT.fromMobile.size);
 
-  const toName = slip.dealerCode
-    ? `${slip.dealerName} (${slip.dealerCode})`
-    : slip.dealerName;
+  const toName = slip.dealerName.trim() || '—';
   y = drawWrapped(
     page,
     bold,

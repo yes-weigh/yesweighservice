@@ -19,7 +19,7 @@ function normalizeRole(role) {
   return role;
 }
 
-async function requireOpsUser(uid) {
+async function loadActiveUser(uid) {
   if (!uid) {
     throw new HttpsError('unauthenticated', 'Sign in required.');
   }
@@ -35,11 +35,56 @@ async function requireOpsUser(uid) {
   }
 
   const role = normalizeRole(String(data?.role ?? ''));
-  if (role !== 'super_admin' && role !== 'staff') {
+  return { role, data };
+}
+
+async function requireOpsUser(uid) {
+  const user = await loadActiveUser(uid);
+  if (user.role !== 'super_admin' && user.role !== 'staff') {
     throw new HttpsError('permission-denied', 'Only staff can upload logistics photos.');
   }
+  return user;
+}
 
-  return { role, data };
+function resolvedDealerIdForUser(uid, role, data) {
+  if (role === 'dealer' || role === 'director') return uid;
+  if (role === 'dealer_staff' || role === 'director_staff') {
+    const linked = data?.dealerId != null ? data.dealerId : data?.directorId;
+    return linked != null ? String(linked) : uid;
+  }
+  return null;
+}
+
+/** Ops, or the dealer (staff) that owns the booking for this storage path. */
+async function requireLogisticsPhotoReadAccess(uid, storagePath) {
+  const user = await loadActiveUser(uid);
+  if (user.role === 'super_admin' || user.role === 'staff') {
+    return user;
+  }
+
+  const match = String(storagePath).match(/^logistics\/([^/]+)\//);
+  const bookingId = match?.[1];
+  if (!bookingId) {
+    throw new HttpsError('permission-denied', 'You do not have access to this photo.');
+  }
+
+  const bookingSnap = await getFirestore().doc(`logisticsBookings/${bookingId}`).get();
+  if (!bookingSnap.exists) {
+    throw new HttpsError('not-found', 'Shipment not found.');
+  }
+  const booking = bookingSnap.data() || {};
+  const dealerId = resolvedDealerIdForUser(uid, user.role, user.data);
+  const zohoCustomerId = String(user.data?.zohoCustomerId ?? '').trim();
+  const bookingDealerId = String(booking.dealerId ?? '').trim();
+  const bookingZohoId = String(booking.zohoCustomerId ?? '').trim();
+
+  const allowed = (dealerId && bookingDealerId && dealerId === bookingDealerId)
+    || (zohoCustomerId && bookingZohoId && zohoCustomerId === bookingZohoId);
+
+  if (!allowed) {
+    throw new HttpsError('permission-denied', 'You do not have access to this photo.');
+  }
+  return user;
 }
 
 function assertSafeSegment(value, label) {
@@ -179,8 +224,8 @@ export async function uploadLogisticsPhoto(callerUid, input) {
 
 /** Durable token URL for logistics photos — bypasses client Storage read rules. */
 export async function getLogisticsPhotoUrl(callerUid, input) {
-  await requireOpsUser(callerUid);
   const storagePath = assertLogisticsStoragePath(input?.storagePath);
+  await requireLogisticsPhotoReadAccess(callerUid, storagePath);
   const url = await durableReadUrl(storagePath);
   return { url };
 }

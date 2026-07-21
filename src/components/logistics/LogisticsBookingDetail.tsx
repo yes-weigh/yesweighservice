@@ -20,7 +20,11 @@ import {
   shipmentModeLabel,
   shippingLabelFileName,
 } from '../../lib/logisticsBooking';
-import { canDeleteLogisticsBooking, generateLogisticsDocument } from '../../lib/logisticsBookings';
+import {
+  canDeleteLogisticsBooking,
+  generateLogisticsDocument,
+  hydrateLogisticsBookingPhotos,
+} from '../../lib/logisticsBookings';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import type {
   LogisticsBooking,
@@ -41,6 +45,22 @@ interface LogisticsBookingDetailProps {
 
 const PROGRESS_STATUSES = LOGISTICS_PIPELINE_STATUSES;
 
+function bookingNeedsPhotoHydration(booking: LogisticsBooking): boolean {
+  const missingBoxUrl = booking.boxes.some(box =>
+    box.photos.some(photo => Boolean(photo.storagePath?.trim()) && !photo.url?.trim()),
+  );
+  const missingFinal = Boolean(
+    booking.finalPackagePhotoStoragePath?.trim() && !booking.finalPackagePhoto?.trim(),
+  );
+  return missingBoxUrl || missingFinal;
+}
+
+function bookingHasPhotos(booking: LogisticsBooking): boolean {
+  return booking.boxes.some(box => box.photos.some(photo =>
+    Boolean(photo.url?.trim() || photo.storagePath?.trim()),
+  )) || Boolean(booking.finalPackagePhoto?.trim() || booking.finalPackagePhotoStoragePath?.trim());
+}
+
 export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   booking,
   isOps = false,
@@ -54,6 +74,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [shippingLabelOpen, setShippingLabelOpen] = useState(false);
   const [courierSlipOpen, setCourierSlipOpen] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [photosLoading, setPhotosLoading] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const currentIndex = isIncompleteLogisticsBooking(booking)
@@ -73,7 +94,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const trackUrl = logisticsTrackingUrl(booking.partnerId, booking.trackingNo || booking.consignmentNo);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
-    if (!user) return;
+    if (!user || !isOps) return;
     setGenerating(document);
     try {
       const updated = await generateLogisticsDocument(booking, document, user);
@@ -83,16 +104,38 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     } finally {
       setGenerating(null);
     }
-  }, [booking, onUpdate, user]);
+  }, [booking, isOps, onUpdate, user]);
 
   const handleCourierSlipViewed = useCallback(() => {
-    if (booking.courierSlipGenerated) return;
+    if (!isOps || booking.courierSlipGenerated) return;
     void markDocumentGenerated('courier_slip');
-  }, [booking.courierSlipGenerated, markDocumentGenerated]);
+  }, [booking.courierSlipGenerated, isOps, markDocumentGenerated]);
 
   const handleShippingLabelPrinted = useCallback(() => {
+    if (!isOps) return;
     void markDocumentGenerated('shipping_label');
-  }, [markDocumentGenerated]);
+  }, [isOps, markDocumentGenerated]);
+
+  const needsPhotoHydration = bookingNeedsPhotoHydration(booking);
+
+  useEffect(() => {
+    if (!needsPhotoHydration) return;
+    let cancelled = false;
+    setPhotosLoading(true);
+    void hydrateLogisticsBookingPhotos(booking)
+      .then(hydrated => {
+        if (cancelled) return;
+        // Avoid update loops when resolution fails (URLs still missing).
+        if (bookingNeedsPhotoHydration(hydrated)) return;
+        onUpdate(hydrated);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setPhotosLoading(false);
+      });
+    return () => { cancelled = true; };
+    // Re-run when list refresh wipes URLs (needsPhotoHydration flips back to true).
+  }, [booking, needsPhotoHydration, onUpdate]);
 
   useEffect(() => {
     if (!previewPhoto) return;
@@ -252,9 +295,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </div>
       </section>
 
-      {(booking.boxes.some(box => box.photos.length) || booking.finalPackagePhoto) && (
+      {bookingHasPhotos(booking) && (
         <section className="logistics-booking__photos">
           <h4>Package photos</h4>
+          {photosLoading
+            && !booking.boxes.some(box => box.photos.some(p => p.url?.trim()))
+            && !booking.finalPackagePhoto && (
+            <p className="text-muted text-sm">Loading photos…</p>
+          )}
           <div className="book-courier__gallery">
             {booking.boxes.flatMap((box, boxIndex) => box.photos.map((photo, photoIndex) => {
               const photoUrl = photo.url?.trim();
@@ -288,43 +336,41 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </section>
       )}
 
-      {isOps && (
-        <section className="logistics-booking__slips">
-          <h4>Documents</h4>
-          <div className="logistics-booking__slip-actions">
-            <button
-              type="button"
-              className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
-              onClick={() => setCourierSlipOpen(true)}
-              disabled={generating !== null}
-            >
-              <Eye size={14} aria-hidden />
-              View courier slip
-            </button>
-            <button
-              type="button"
-              className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
-              onClick={() => setShippingLabelOpen(true)}
-              disabled={generating !== null}
-            >
-              <Eye size={14} aria-hidden />
-              View shipping label
-            </button>
-          </div>
-          {(booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
-            <p className="text-muted text-sm logistics-booking__slip-names">
-              {booking.courierSlipGenerated && courierSlipFileName(booking)}
-              {booking.courierSlipGenerated && booking.shippingLabelGenerated && ' · '}
-              {booking.shippingLabelGenerated && shippingLabelFileName(booking)}
-            </p>
-          )}
-          {!booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
-            <p className="text-muted text-sm logistics-booking__slip-hint">
-              Open and print the shipping label to confirm this shipment.
-            </p>
-          )}
-        </section>
-      )}
+      <section className="logistics-booking__slips">
+        <h4>Documents</h4>
+        <div className="logistics-booking__slip-actions">
+          <button
+            type="button"
+            className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
+            onClick={() => setCourierSlipOpen(true)}
+            disabled={generating !== null}
+          >
+            <Eye size={14} aria-hidden />
+            View courier slip
+          </button>
+          <button
+            type="button"
+            className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
+            onClick={() => setShippingLabelOpen(true)}
+            disabled={generating !== null}
+          >
+            <Eye size={14} aria-hidden />
+            View shipping label
+          </button>
+        </div>
+        {(booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
+          <p className="text-muted text-sm logistics-booking__slip-names">
+            {booking.courierSlipGenerated && courierSlipFileName(booking)}
+            {booking.courierSlipGenerated && booking.shippingLabelGenerated && ' · '}
+            {booking.shippingLabelGenerated && shippingLabelFileName(booking)}
+          </p>
+        )}
+        {isOps && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
+          <p className="text-muted text-sm logistics-booking__slip-hint">
+            Open and print the shipping label to confirm this shipment.
+          </p>
+        )}
+      </section>
 
       {isOps && booking.status !== 'cancelled' && booking.status !== 'delivered' && onCancel && (
         <div className="logistics-booking__ops-actions">
