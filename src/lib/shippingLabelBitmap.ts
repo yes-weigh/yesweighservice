@@ -237,12 +237,15 @@ export async function renderShippingLabelCanvasDetailed(
     }
   };
 
-  // FROM: public Firebase Storage URL for this box's inside photo.
-  let insidePhotoUrl = publicInsidePhotoUrl(label.insidePhotoUrl);
-  if (!insidePhotoUrl && label.insidePhotoStoragePath) {
-    insidePhotoUrl = await resolveLogisticsPhotoUrl(label.insidePhotoStoragePath);
+  // FROM: short /lp/{bookingId}/{box} link (dense Storage token URLs scan poorly on thermal).
+  let packageContentsQrUrl = label.packageContentsUrl?.trim() || null;
+  if (!packageContentsQrUrl) {
+    packageContentsQrUrl = publicInsidePhotoUrl(label.insidePhotoUrl);
+    if (!packageContentsQrUrl && label.insidePhotoStoragePath) {
+      packageContentsQrUrl = await resolveLogisticsPhotoUrl(label.insidePhotoStoragePath);
+    }
   }
-  const insideQr = await makeQrImage(insidePhotoUrl);
+  const insideQr = await makeQrImage(packageContentsQrUrl);
 
   // TO: ST Courier tracking URL (dynamic AWB in keyword=).
   const trackingQr = await makeQrImage(buildShippingLabelTrackingUrl(label));

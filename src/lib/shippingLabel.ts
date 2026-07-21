@@ -1,4 +1,4 @@
-import { FIRM_NAME } from '../constants/brand';
+import { FIRM_NAME, PUBLIC_APP_ORIGIN } from '../constants/brand';
 import { DELIVERY_METHODS } from '../constants/deliveryMethods';
 import { logisticsPartnerLabel } from '../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
@@ -341,12 +341,17 @@ export interface ShippingLabelViewModel {
   shipmentMode: ShipmentMode;
   firmName: string;
   /**
-   * Public HTTPS URL for this box's inside photo (QR under FROM).
-   * Prefer a durable Firebase Storage token URL when available.
+   * Public HTTPS URL for this box's inside photo (legacy / display).
+   * QR prefers `packageContentsUrl` (short link) when set.
    */
   insidePhotoUrl: string | null;
   /** Storage path for resolving a durable public URL at print time. */
   insidePhotoStoragePath: string | null;
+  /**
+   * Short public redirect for the VIEW PACKAGE CONTENTS QR
+   * (`/lp/{bookingId}/{boxIndex}` → Storage photo).
+   */
+  packageContentsUrl: string | null;
 }
 
 /** Prefer an https URL suitable for a scannable QR (skip data:/blob: previews). */
@@ -355,6 +360,17 @@ export function publicInsidePhotoUrl(url: string | null | undefined): string | n
   if (!trimmed) return null;
   if (!/^https?:\/\//i.test(trimmed)) return null;
   return trimmed;
+}
+
+/** Short package-contents link encoded in the shipping-label QR (keeps modules large). */
+export function buildPublicPackageContentsUrl(
+  bookingId: string | null | undefined,
+  boxIndex: number,
+): string | null {
+  const id = bookingId?.trim();
+  if (!id) return null;
+  const index = Math.max(1, Math.floor(boxIndex) || 1);
+  return `${PUBLIC_APP_ORIGIN}/lp/${encodeURIComponent(id)}/${index}`;
 }
 
 /** Inside photo (`photos[0]`) fields for a shipping-label view model. */
@@ -494,6 +510,7 @@ export function buildShippingLabelViewModel(input: {
   bookingTime?: string;
   bookedBy?: string;
   shipmentMode: ShipmentMode;
+  bookingId?: string | null;
   insidePhotoUrl?: string | null;
   insidePhotoStoragePath?: string | null;
 }): ShippingLabelViewModel {
@@ -505,6 +522,7 @@ export function buildShippingLabelViewModel(input: {
     || fromBoxPhoto.insidePhotoStoragePath
     || null
   );
+  const packageContentsUrl = buildPublicPackageContentsUrl(input.bookingId, input.boxIndex);
   const transport = (input.serviceType || 'SURFACE').trim().toUpperCase() || 'SURFACE';
   const resolvedPhone = resolveReceiverPhoneFromSnapshot(input.dealer);
   const toPhone = resolvedPhone === '—' ? '' : resolvedPhone;
@@ -573,6 +591,7 @@ export function buildShippingLabelViewModel(input: {
     firmName: SHIPPING_LABEL_FIRM,
     insidePhotoUrl,
     insidePhotoStoragePath,
+    packageContentsUrl,
   };
 }
 
@@ -605,6 +624,7 @@ export function buildShippingLabelsFromBooking(booking: LogisticsBooking): Shipp
       bookingDate: booking.bookingDate,
       bookingTime: formatShippingBookingTime(timeSource),
       shipmentMode: booking.shipmentMode,
+      bookingId: booking.id,
     });
   });
 }

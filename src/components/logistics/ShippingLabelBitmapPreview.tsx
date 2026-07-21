@@ -37,6 +37,7 @@ function labelPreviewKey(label: ShippingLabelViewModel): string {
     label.firmName,
     label.insidePhotoUrl ?? '',
     label.insidePhotoStoragePath ?? '',
+    label.packageContentsUrl ?? '',
   ].join('\u0001');
 }
 

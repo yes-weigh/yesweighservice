@@ -640,6 +640,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         bookingTime,
         bookedBy: user.displayName?.trim() || user.loginId?.trim() || 'YESWEIGH',
         shipmentMode: draft.shipmentMode,
+        bookingId: draftBookingId,
         insidePhotoUrl: inside?.url,
         insidePhotoStoragePath: inside?.storagePath,
       });
@@ -654,6 +655,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     draft.serviceType,
     draft.shipmentMode,
     draft.boxes,
+    draftBookingId,
     fromAddresses,
     shippingLabelCount,
     totalActualWeight,

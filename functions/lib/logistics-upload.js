@@ -184,3 +184,33 @@ export async function getLogisticsPhotoUrl(callerUid, input) {
   const url = await durableReadUrl(storagePath);
   return { url };
 }
+
+/**
+ * Public package-contents lookup for shipping-label QR short links.
+ * Resolves logisticsBookings/{bookingId}.boxes[boxIndex-1].photos[0].
+ */
+export async function getPublicLogisticsInsidePhotoUrl(bookingIdRaw, boxIndexRaw) {
+  const bookingId = assertSafeSegment(bookingIdRaw, 'bookingId');
+  const boxIndex = Math.max(1, Math.floor(Number(boxIndexRaw) || 1));
+
+  const snap = await getFirestore().doc(`logisticsBookings/${bookingId}`).get();
+  if (!snap.exists) {
+    throw new HttpsError('not-found', 'Shipment not found.');
+  }
+
+  const data = snap.data() || {};
+  const boxes = Array.isArray(data.boxes) ? data.boxes : [];
+  const box = boxes[boxIndex - 1] || boxes[0];
+  if (!box) {
+    throw new HttpsError('not-found', 'Box not found.');
+  }
+
+  const photos = Array.isArray(box.photos) ? box.photos : [];
+  const storagePath = String(photos[0]?.storagePath ?? '').trim();
+  if (!storagePath) {
+    throw new HttpsError('not-found', 'Package photo not found.');
+  }
+
+  const url = await durableReadUrl(assertLogisticsStoragePath(storagePath));
+  return { url, bookingId, boxIndex };
+}

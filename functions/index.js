@@ -96,7 +96,11 @@ import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
-import { uploadLogisticsPhoto as storeLogisticsPhoto, getLogisticsPhotoUrl } from './lib/logistics-upload.js';
+import {
+  uploadLogisticsPhoto as storeLogisticsPhoto,
+  getLogisticsPhotoUrl,
+  getPublicLogisticsInsidePhotoUrl,
+} from './lib/logistics-upload.js';
 import {
   uploadApprovalNumberPdf as storeApprovalNumberPdf,
   removeApprovalNumberPdf as clearApprovalNumberPdf,
@@ -2414,6 +2418,48 @@ export const getLogisticsPhotoUrlFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load logistics photo.');
+    }
+  },
+);
+
+/**
+ * Public short link for shipping-label “VIEW PACKAGE CONTENTS” QR.
+ * Hosting rewrite: GET /lp/{bookingId}/{boxIndex} → 302 to Storage token URL.
+ */
+export const redirectLogisticsPackagePhoto = onRequest(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+
+    try {
+      const path = String(req.path || req.url || '');
+      const match = path.match(/\/lp\/([^/]+)\/([^/?#]+)/i)
+        || path.match(/\/([^/]+)\/([^/?#]+)/);
+      if (!match) {
+        res.status(404).type('html').send(
+          '<!doctype html><title>Not found</title><p>Package photo link is invalid.</p>',
+        );
+        return;
+      }
+
+      const { url } = await getPublicLogisticsInsidePhotoUrl(match[1], match[2]);
+      res.set('Cache-Control', 'public, max-age=300');
+      res.redirect(302, url);
+    } catch (err) {
+      const code = err instanceof HttpsError ? err.code : 'internal';
+      const status = code === 'not-found' || code === 'invalid-argument' ? 404 : 500;
+      console.error('redirectLogisticsPackagePhoto failed:', err);
+      res.status(status).type('html').send(
+        '<!doctype html><title>Photo unavailable</title><p>Package photo is not available.</p>',
+      );
     }
   },
 );
