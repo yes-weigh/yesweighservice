@@ -339,15 +339,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       <section className="logistics-booking__slips">
         <h4>Documents</h4>
         <div className="logistics-booking__slip-actions">
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
-            onClick={() => setCourierSlipOpen(true)}
-            disabled={generating !== null}
-          >
-            <Eye size={14} aria-hidden />
-            View courier slip
-          </button>
+          {isOps && (
+            <button
+              type="button"
+              className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
+              onClick={() => setCourierSlipOpen(true)}
+              disabled={generating !== null}
+            >
+              <Eye size={14} aria-hidden />
+              View courier slip
+            </button>
+          )}
           <button
             type="button"
             className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
@@ -358,7 +360,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             View shipping label
           </button>
         </div>
-        {(booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
+        {isOps && (booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
           <p className="text-muted text-sm logistics-booking__slip-names">
             {booking.courierSlipGenerated && courierSlipFileName(booking)}
             {booking.courierSlipGenerated && booking.shippingLabelGenerated && ' · '}
