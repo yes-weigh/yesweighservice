@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Check, ExternalLink, MapPin, Package, Printer, Share2, Truck, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -108,6 +109,20 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setGenerating(null);
     }
   };
+
+  useEffect(() => {
+    if (!previewPhoto) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPreviewPhoto(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [previewPhoto]);
 
   return (
     <article className="logistics-booking panel glass">
@@ -376,7 +391,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         />
       )}
 
-      {previewPhoto && (
+      {previewPhoto && createPortal(
         <div
           className="book-courier__lightbox"
           role="dialog"
@@ -384,11 +399,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           aria-label="Photo preview"
           onClick={() => setPreviewPhoto(null)}
         >
-          <button type="button" className="book-courier__lightbox-close" aria-label="Close preview">
+          <button
+            type="button"
+            className="book-courier__lightbox-close"
+            aria-label="Close preview"
+            onClick={() => setPreviewPhoto(null)}
+          >
             <X size={20} aria-hidden />
           </button>
           <img src={previewPhoto} alt="Preview" onClick={event => event.stopPropagation()} />
-        </div>
+        </div>,
+        document.body,
       )}
     </article>
   );
