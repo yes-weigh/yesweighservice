@@ -176,6 +176,7 @@ export type StaffNavFeature =
   | 'ai-assistant'
   | 'notifications'
   | 'training'
+  | 'reports'
   | 'staff';
 
 const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'always'> = {
@@ -194,6 +195,7 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   'ai-assistant': 'always',
   notifications: 'always',
   training: 'always',
+  reports: 'always',
   staff: ['staff.manage', 'hr.view', 'hr.manage'],
 };
 

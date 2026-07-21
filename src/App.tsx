@@ -34,6 +34,7 @@ import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
 import { SettingsLayout } from './pages/admin/SettingsLayout';
+import { ReportsLayout } from './pages/admin/ReportsLayout';
 import { SettingsProfileTab } from './pages/admin/settings/SettingsProfileTab';
 import { WarehouseLocationsTab } from './pages/admin/settings/WarehouseLocationsTab';
 import { StoreRoomTab } from './pages/admin/settings/StoreRoomTab';
@@ -185,12 +186,18 @@ const App: React.FC = () => (
               </Route>
               <Route path="invoices/sync" element={<AdminInvoiceSyncPage />} />
               {superAdminOpsRoutes}
+              <Route path="reports" element={<ReportsLayout basePath="/super-admin" />}>
+                <Route path="audit-report" element={<AuditReportTab />} />
+              </Route>
               <Route path="settings" element={<SettingsLayout />}>
                 <Route path="profile" element={<SettingsProfileTab />} />
                 <Route path="warehouse" element={<WarehouseLocationsTab />} />
                 <Route path="store-room" element={<StoreRoomTab />} />
                 <Route path="audit-cycles" element={<AuditCyclesTab />} />
-                <Route path="audit-report" element={<AuditReportTab />} />
+                <Route
+                  path="audit-report"
+                  element={<Navigate to="/super-admin/reports/audit-report" replace />}
+                />
                 <Route path="product" element={<ProductSettingsTab />} />
                 <Route path="sku-correction" element={<SkuCorrectionTab />} />
                 <Route path="logistics" element={<LogisticsSettingsTab />} />
@@ -207,6 +214,9 @@ const App: React.FC = () => (
               {portalMenuRoutes}
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
+              <Route path="reports" element={<ReportsLayout basePath="/staff" />}>
+                <Route path="audit-report" element={<AuditReportTab />} />
+              </Route>
               <Route path="hr" element={<HrLayout basePath="/staff" />}>
                 <Route path="staff" element={<HrStaffListPage basePath="/staff" />} />
                 <Route path="staff/new" element={<HrStaffFormPage basePath="/staff" />} />

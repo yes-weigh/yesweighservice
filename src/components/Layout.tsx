@@ -33,6 +33,7 @@ import {
   ListTodo,
   Truck,
   Gift,
+  BarChart3,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
@@ -160,6 +161,7 @@ function staffPathToFeature(path: string): StaffNavFeature {
     notifications: 'notifications',
     training: 'training',
     hr: 'staff',
+    reports: 'reports',
   };
   return map[suffix] ?? 'dashboard';
 }
@@ -245,6 +247,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
+          { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
           ...operationsNavItems('/super-admin', cartBadgeCount),
         ];
       case 'staff': {
@@ -253,6 +256,7 @@ const LayoutShell: React.FC = () => {
           { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
+          { path: '/staff/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
           ...portalNavItems('/staff', cartBadgeCount, 'staff'),
         ];
         if (canViewHr(user)) {
