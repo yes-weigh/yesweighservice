@@ -3,8 +3,6 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
-  CalendarDays,
-  ChevronDown,
   ChevronRight,
   FileText,
   IndianRupee,
@@ -13,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   buildAdminSalesEntries,
   fetchAdminCustomerLocations,
@@ -35,6 +34,9 @@ import type { SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const PAGE_SIZE = 500;
+const LIST_PAGE_SIZE = 25;
+const DEFAULT_RANGE: SalesRangePreset = 'current_month';
+const DEFAULT_SORT: AdminInvoiceSort = 'date';
 
 const SORT_OPTIONS: Array<{ value: AdminInvoiceSort; label: string }> = [
   { value: 'date', label: 'Invoice date' },
@@ -46,153 +48,144 @@ function invoiceStatusClass(status: string): string {
   return `invoices-status invoices-status--${key}`;
 }
 
-function AdminDateRangeControl({
-  value,
-  onChange,
-  rangeLabel,
+function AdminFilterSheet({
+  open,
+  rangePreset,
+  sort,
+  onClose,
+  onApply,
 }: {
-  value: SalesRangePreset;
-  onChange: (value: SalesRangePreset) => void;
-  rangeLabel: string;
+  open: boolean;
+  rangePreset: SalesRangePreset;
+  sort: AdminInvoiceSort;
+  onClose: () => void;
+  onApply: (next: { rangePreset: SalesRangePreset; sort: AdminInvoiceSort }) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [draftRange, setDraftRange] = useState(rangePreset);
+  const [draftSort, setDraftSort] = useState(sort);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
-  }, [open]);
+    setDraftRange(rangePreset);
+    setDraftSort(sort);
+  }, [open, rangePreset, sort]);
 
-  return (
-    <div className={`invoices-date-range${open ? ' is-open' : ''}`}>
-      <button
-        type="button"
-        className="invoices-date-range__trigger"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label="Date range"
-      >
-        <CalendarDays size={16} aria-hidden />
-        <span className="invoices-date-range__copy">
-          <span className="invoices-date-range__label">Date Range</span>
-          <span className="invoices-date-range__value">{rangeLabel}</span>
-        </span>
-        <ChevronDown size={16} className="invoices-date-range__chevron" aria-hidden />
-      </button>
-
-      {open && createPortal(
-        <div className="invoices-filter-sheet" role="dialog" aria-modal="true" aria-label="Date range">
-          <button
-            type="button"
-            className="invoices-filter-sheet__backdrop"
-            aria-label="Close date range"
-            onClick={() => setOpen(false)}
-          />
-          <div className="invoices-filter-sheet__panel panel glass">
-            <header className="invoices-filter-sheet__header">
-              <h3 className="invoices-filter-sheet__title">Date Range</h3>
-              <button type="button" className="invoices-filter-sheet__close" onClick={() => setOpen(false)} aria-label="Close">
-                <X size={18} />
-              </button>
-            </header>
-            <section className="invoices-filter-sheet__section">
-              <div className="invoices-filter-sheet__options" role="listbox" aria-label="Date range options">
-                {SALES_RANGE_OPTIONS.map(option => {
-                  const isActive = option.value === value;
-                  return (
-                    <button
-                      key={String(option.value)}
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      className={`invoices-filter-sheet__option${isActive ? ' is-active' : ''}`}
-                      onClick={() => {
-                        onChange(option.value);
-                        setOpen(false);
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </div>
-  );
-}
-
-function AdminFilterSheet({
-  open,
-  sort,
-  onClose,
-  onSortChange,
-}: {
-  open: boolean;
-  sort: AdminInvoiceSort;
-  onClose: () => void;
-  onSortChange: (value: AdminInvoiceSort) => void;
-}) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
   if (!open) return null;
 
+  const draftDirty = draftRange !== DEFAULT_RANGE || draftSort !== DEFAULT_SORT;
+
   return createPortal(
-    <div className="invoices-filter-sheet" role="dialog" aria-modal="true" aria-label="Filter invoices">
-      <button type="button" className="invoices-filter-sheet__backdrop" aria-label="Close filters" onClick={onClose} />
-      <div className="invoices-filter-sheet__panel panel glass">
-        <header className="invoices-filter-sheet__header">
-          <h3 className="invoices-filter-sheet__title">Filter</h3>
-          <button type="button" className="invoices-filter-sheet__close" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
-        </header>
-
-        <section className="invoices-filter-sheet__section">
-          <h4 className="invoices-filter-sheet__section-title">Sort by</h4>
-          <div className="invoices-filter-sheet__options">
-            {SORT_OPTIONS.map(option => (
+    <>
+      <button
+        type="button"
+        className="catalog-filter-dropdown__backdrop"
+        aria-label="Close filters"
+        onClick={onClose}
+      />
+      <div
+        className="catalog-filter-dropdown panel glass"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Filter invoices"
+      >
+        <div className="catalog-spares-multi-filters catalog-spares-multi-filters--dropdown">
+          <div className="catalog-spares-multi-filters__header">
+            <span className="catalog-spares-multi-filters__title">Filters</span>
+            <div className="catalog-spares-multi-filters__header-actions">
               <button
-                key={option.value}
                 type="button"
-                className={`invoices-filter-sheet__option${sort === option.value ? ' is-active' : ''}`}
-                onClick={() => onSortChange(option.value)}
+                className="catalog-spares-multi-filters__close"
+                onClick={onClose}
+                aria-label="Close"
               >
-                {option.label}
+                <X size={18} />
               </button>
-            ))}
+            </div>
           </div>
-        </section>
 
-        <footer className="invoices-filter-sheet__footer">
-          <button type="button" className="btn btn-primary" onClick={onClose}>
-            Done
-          </button>
-        </footer>
+          <div className="catalog-spares-multi-filters__body">
+            <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Date range</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Date range">
+                {SALES_RANGE_OPTIONS.map(option => {
+                  const checked = draftRange === option.value;
+                  const id = `admin-invoice-range-${String(option.value)}`;
+                  return (
+                    <label key={String(option.value)} className="catalog-spares-multi-filters__option" htmlFor={id}>
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="admin-invoice-date-range"
+                        checked={checked}
+                        onChange={() => setDraftRange(option.value)}
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Sort by</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
+                {SORT_OPTIONS.map(option => {
+                  const checked = draftSort === option.value;
+                  const id = `admin-invoice-sort-${option.value}`;
+                  return (
+                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="admin-invoice-sort"
+                        checked={checked}
+                        onChange={() => setDraftSort(option.value)}
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="catalog-spares-multi-filters__footer">
+            <button
+              type="button"
+              className="catalog-spares-multi-filters__apply"
+              onClick={() => {
+                onApply({ rangePreset: draftRange, sort: draftSort });
+                onClose();
+              }}
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              className="catalog-spares-multi-filters__clear-btn"
+              disabled={!draftDirty}
+              onClick={() => {
+                setDraftRange(DEFAULT_RANGE);
+                setDraftSort(DEFAULT_SORT);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
       </div>
-    </div>,
+    </>,
     document.body,
   );
 }
@@ -203,9 +196,10 @@ export const AdminInvoicesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<AdminInvoiceSort>('date');
-  const [rangePreset, setRangePreset] = useState<SalesRangePreset>('current_month');
+  const [sort, setSort] = useState<AdminInvoiceSort>(DEFAULT_SORT);
+  const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
@@ -239,7 +233,21 @@ export const AdminInvoicesPage: React.FC = () => {
   );
 
   useEffect(() => {
-    const customerIds = filtered.map(invoice => invoice.customerId);
+    setPage(1);
+  }, [search, rangePreset, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
+  const pageRows = useMemo(() => {
+    const start = (page - 1) * LIST_PAGE_SIZE;
+    return filtered.slice(start, start + LIST_PAGE_SIZE);
+  }, [filtered, page]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    const customerIds = pageRows.map(invoice => invoice.customerId);
     if (!customerIds.length) {
       setCustomerLocations(new Map());
       return;
@@ -253,7 +261,7 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [filtered]);
+  }, [pageRows]);
 
   const openInvoice = (invoice: AdminFirestoreInvoice) => {
     navigate(`/super-admin/invoices/${invoice.customerId}/${invoice.id}/invoice`);
@@ -271,18 +279,56 @@ export const AdminInvoicesPage: React.FC = () => {
   }, [filtered, rangePreset]);
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
+  const hasActiveFilters = rangePreset !== DEFAULT_RANGE || sort !== DEFAULT_SORT;
+
+  const headerTools = useMemo(
+    () => (
+      <div className="invoices-header-tools">
+        <div className="catalog-search invoices-header-search">
+          <Search size={15} aria-hidden />
+          <input
+            type="search"
+            placeholder="Search invoice #, customer…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            aria-label="Search invoices"
+          />
+          {search && (
+            <button
+              type="button"
+              className="invoices-header-search__clear"
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          className={[
+            'catalog-header-filter-btn',
+            filterOpen ? 'catalog-header-filter-btn--open' : '',
+            hasActiveFilters ? 'catalog-header-filter-btn--active' : '',
+          ].filter(Boolean).join(' ')}
+          onClick={() => setFilterOpen(open => !open)}
+          aria-expanded={filterOpen}
+          aria-haspopup="dialog"
+          aria-label="Filter invoices"
+          title="Filters"
+        >
+          <SlidersHorizontal size={20} strokeWidth={2.25} />
+        </button>
+      </div>
+    ),
+    [search, filterOpen, hasActiveFilters],
+  );
+
+  useCatalogPageHeader({ mobileCompactHeader: true }, true);
+  usePageHeaderSlot(headerTools);
 
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page">
-      <div className="admin-invoices-head admin-invoices-head--desktop">
-        <div>
-          <h1>Invoices</h1>
-          <p className="text-muted mt-2">
-            Browse and search invoices across all dealers.
-          </p>
-        </div>
-      </div>
-
       <section className="invoices-summary" aria-label="Invoice summary">
         <div className="invoices-summary__kpis">
           <div className="invoices-summary__kpi">
@@ -293,7 +339,9 @@ export const AdminInvoicesPage: React.FC = () => {
             <strong className="invoices-summary__kpi-value">
               {loading ? '…' : summary.invoiceCount.toLocaleString('en-IN')}
             </strong>
-            <span className="invoices-summary__kpi-sub">Invoices</span>
+            <span className="invoices-summary__kpi-sub">
+              {loading ? '—' : dateRange}
+            </span>
           </div>
           <div className="invoices-summary__divider" aria-hidden />
           <div className="invoices-summary__kpi">
@@ -307,22 +355,6 @@ export const AdminInvoicesPage: React.FC = () => {
             <span className="invoices-summary__kpi-sub">Amount</span>
           </div>
         </div>
-
-        <div className="invoices-summary__controls">
-          <AdminDateRangeControl
-            value={rangePreset}
-            onChange={setRangePreset}
-            rangeLabel={dateRange}
-          />
-          <button
-            type="button"
-            className="invoices-summary__filter-btn"
-            onClick={() => setFilterOpen(true)}
-          >
-            <SlidersHorizontal size={15} aria-hidden />
-            Filter
-          </button>
-        </div>
       </section>
 
       {error && (
@@ -332,44 +364,6 @@ export const AdminInvoicesPage: React.FC = () => {
         </div>
       )}
 
-      <div className="panel glass admin-invoices-toolbar admin-invoices-toolbar--desktop">
-        <div className="admin-invoices-search">
-          <Search size={18} className="admin-invoices-search__icon" aria-hidden />
-          <input
-            type="search"
-            className="admin-invoices-search__input"
-            placeholder="Search invoice #, customer, reference…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            aria-label="Search invoices"
-          />
-        </div>
-        <div className="admin-invoices-sort">
-          <label htmlFor="admin-invoice-sort" className="text-muted text-sm">Sort by</label>
-          <select
-            id="admin-invoice-sort"
-            className="admin-invoices-sort__select catalog-select"
-            value={sort}
-            onChange={e => setSort(e.target.value as AdminInvoiceSort)}
-          >
-            <option value="date">Invoice date</option>
-            <option value="syncedAt">Most recently updated</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="admin-invoices-mobile-search">
-        <Search size={16} className="admin-invoices-search__icon" aria-hidden />
-        <input
-          type="search"
-          className="admin-invoices-search__input"
-          placeholder="Search invoice #, customer…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          aria-label="Search invoices"
-        />
-      </div>
-
       {loading && rows.length === 0 ? (
         <FetchingLoader label="Loading invoices…" />
       ) : filtered.length === 0 ? (
@@ -378,6 +372,35 @@ export const AdminInvoicesPage: React.FC = () => {
           <p>No invoices found for this period.</p>
         </div>
       ) : (
+        <>
+          {totalPages > 1 && (
+            <div className="invoices-pagination invoices-pagination--top" role="navigation" aria-label="Invoice list pagination">
+              <span className="invoices-pagination__info text-muted text-sm">
+                {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, filtered.length)} of {filtered.length.toLocaleString('en-IN')}
+              </span>
+              <div className="invoices-pagination__btns">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage(p => p - 1)}
+                >
+                  Prev
+                </button>
+                <span className="invoices-pagination__page text-sm">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={page >= totalPages || loading}
+                  onClick={() => setPage(p => p + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         <div className="panel glass invoices-table-panel admin-invoices-table-panel">
           <div className="invoices-table-wrap invoices-table-wrap--desktop">
             <table className="invoices-table">
@@ -392,7 +415,7 @@ export const AdminInvoicesPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(invoice => {
+                {pageRows.map(invoice => {
                   const locationLabel = formatAdminCustomerLocation(
                     customerLocations.get(invoice.customerId),
                   );
@@ -445,7 +468,7 @@ export const AdminInvoicesPage: React.FC = () => {
               <span>Invoice</span>
               <span>Amount</span>
             </div>
-            {filtered.map(invoice => {
+            {pageRows.map(invoice => {
               const locationLabel = formatAdminCustomerLocation(
                 customerLocations.get(invoice.customerId),
               );
@@ -487,15 +510,45 @@ export const AdminInvoicesPage: React.FC = () => {
             })}
           </div>
         </div>
+          {totalPages > 1 && (
+            <footer className="invoices-pagination invoices-pagination--sticky">
+              <span className="invoices-pagination__info text-muted text-sm">
+                {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, filtered.length)} of {filtered.length.toLocaleString('en-IN')}
+              </span>
+              <div className="invoices-pagination__btns">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage(p => p - 1)}
+                >
+                  Prev
+                </button>
+                <span className="invoices-pagination__page text-sm">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={page >= totalPages || loading}
+                  onClick={() => setPage(p => p + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </footer>
+          )}
+        </>
       )}
 
       <AdminFilterSheet
         open={filterOpen}
+        rangePreset={rangePreset}
         sort={sort}
         onClose={() => setFilterOpen(false)}
-        onSortChange={value => {
-          setSort(value);
-          setFilterOpen(false);
+        onApply={next => {
+          setRangePreset(next.rangePreset);
+          setSort(next.sort);
         }}
       />
     </div>

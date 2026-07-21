@@ -3,8 +3,6 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
-  CalendarDays,
-  ChevronDown,
   ChevronRight,
   FileText,
   IndianRupee,
@@ -16,7 +14,7 @@ import {
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
-import { usePageHeaderSlot } from '../../context/PageHeaderContext';
+import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import { formatCurrency } from '../../lib/catalog';
 import { homePathForRole } from '../../types';
 import {
@@ -37,6 +35,10 @@ import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 type InvoiceSortField = NonNullable<InvoiceListParams['sortField']>;
 
+const DEFAULT_RANGE: SalesRangePreset = 'current_month';
+const DEFAULT_SORT_FIELD: InvoiceSortField = 'date';
+const DEFAULT_SORT_DIR: 'asc' | 'desc' = 'desc';
+
 const SORT_OPTIONS: Array<{ value: InvoiceSortField; label: string }> = [
   { value: 'date', label: 'Invoice date' },
   { value: 'invoiceNumber', label: 'Invoice number' },
@@ -44,16 +46,6 @@ const SORT_OPTIONS: Array<{ value: InvoiceSortField; label: string }> = [
   { value: 'dueDate', label: 'Due date' },
   { value: 'balance', label: 'Balance' },
 ];
-
-function useIsMobile(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= breakpoint);
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= breakpoint);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [breakpoint]);
-  return isMobile;
-}
 
 function InvoiceSearch({
   value,
@@ -108,156 +100,175 @@ function InvoiceDeliveryBadge({ date }: { date: string | null | undefined }) {
   );
 }
 
-function InvoiceDateRangeControl({
-  value,
-  onChange,
-  rangeLabel,
-}: {
-  value: SalesRangePreset;
-  onChange: (value: SalesRangePreset) => void;
-  rangeLabel: string;
-}) {
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
-  }, [open]);
-
-  return (
-    <div className={`invoices-date-range${open ? ' is-open' : ''}`}>
-      <button
-        type="button"
-        className="invoices-date-range__trigger"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label="Date range"
-      >
-        <CalendarDays size={16} aria-hidden />
-        <span className="invoices-date-range__copy">
-          <span className="invoices-date-range__label">Date Range</span>
-          <span className="invoices-date-range__value">{rangeLabel}</span>
-        </span>
-        <ChevronDown size={16} className="invoices-date-range__chevron" aria-hidden />
-      </button>
-
-      {open && createPortal(
-        <div className="invoices-filter-sheet" role="dialog" aria-modal="true" aria-label="Date range">
-          <button
-            type="button"
-            className="invoices-filter-sheet__backdrop"
-            aria-label="Close date range"
-            onClick={() => setOpen(false)}
-          />
-          <div className="invoices-filter-sheet__panel panel glass">
-            <header className="invoices-filter-sheet__header">
-              <h3 className="invoices-filter-sheet__title">Date Range</h3>
-              <button type="button" className="invoices-filter-sheet__close" onClick={() => setOpen(false)} aria-label="Close">
-                <X size={18} />
-              </button>
-            </header>
-            <section className="invoices-filter-sheet__section">
-              <div className="invoices-filter-sheet__options" role="listbox" aria-label="Date range options">
-                {SALES_RANGE_OPTIONS.map(option => {
-                  const isActive = option.value === value;
-                  return (
-                    <button
-                      key={String(option.value)}
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      className={`invoices-filter-sheet__option${isActive ? ' is-active' : ''}`}
-                      onClick={() => {
-                        onChange(option.value);
-                        setOpen(false);
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </div>
-  );
-}
-
 function InvoiceFilterSheet({
   open,
+  rangePreset,
   sortField,
   sortDir,
   onClose,
-  onSortChange,
+  onApply,
 }: {
   open: boolean;
+  rangePreset: SalesRangePreset;
   sortField: InvoiceSortField;
   sortDir: 'asc' | 'desc';
   onClose: () => void;
-  onSortChange: (field: InvoiceSortField, dir: 'asc' | 'desc') => void;
+  onApply: (next: {
+    rangePreset: SalesRangePreset;
+    sortField: InvoiceSortField;
+    sortDir: 'asc' | 'desc';
+  }) => void;
 }) {
+  const [draftRange, setDraftRange] = useState(rangePreset);
+  const [draftSortField, setDraftSortField] = useState(sortField);
+  const [draftSortDir, setDraftSortDir] = useState(sortDir);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftRange(rangePreset);
+    setDraftSortField(sortField);
+    setDraftSortDir(sortDir);
+  }, [open, rangePreset, sortField, sortDir]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
   if (!open) return null;
 
+  const draftDirty = draftRange !== DEFAULT_RANGE
+    || draftSortField !== DEFAULT_SORT_FIELD
+    || draftSortDir !== DEFAULT_SORT_DIR;
+
   return createPortal(
-    <div className="invoices-filter-sheet" role="dialog" aria-modal="true" aria-label="Filter invoices">
-      <button type="button" className="invoices-filter-sheet__backdrop" aria-label="Close filters" onClick={onClose} />
-      <div className="invoices-filter-sheet__panel panel glass">
-        <header className="invoices-filter-sheet__header">
-          <h3 className="invoices-filter-sheet__title">Filter</h3>
-          <button type="button" className="invoices-filter-sheet__close" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
-        </header>
-
-        <section className="invoices-filter-sheet__section">
-          <h4 className="invoices-filter-sheet__section-title">Sort by</h4>
-          <div className="invoices-filter-sheet__options">
-            {SORT_OPTIONS.map(option => (
+    <>
+      <button
+        type="button"
+        className="catalog-filter-dropdown__backdrop"
+        aria-label="Close filters"
+        onClick={onClose}
+      />
+      <div
+        className="catalog-filter-dropdown panel glass"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Filter invoices"
+      >
+        <div className="catalog-spares-multi-filters catalog-spares-multi-filters--dropdown">
+          <div className="catalog-spares-multi-filters__header">
+            <span className="catalog-spares-multi-filters__title">Filters</span>
+            <div className="catalog-spares-multi-filters__header-actions">
               <button
-                key={option.value}
                 type="button"
-                className={`invoices-filter-sheet__option${sortField === option.value ? ' is-active' : ''}`}
-                onClick={() => onSortChange(option.value, sortField === option.value && sortDir === 'desc' ? 'asc' : 'desc')}
+                className="catalog-spares-multi-filters__close"
+                onClick={onClose}
+                aria-label="Close"
               >
-                {option.label}
-                {sortField === option.value ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                <X size={18} />
               </button>
-            ))}
+            </div>
           </div>
-        </section>
 
-        <footer className="invoices-filter-sheet__footer">
-          <button type="button" className="btn btn-primary" onClick={onClose}>
-            Done
-          </button>
-        </footer>
+          <div className="catalog-spares-multi-filters__body">
+            <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Date range</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Date range">
+                {SALES_RANGE_OPTIONS.map(option => {
+                  const checked = draftRange === option.value;
+                  const id = `invoice-range-${String(option.value)}`;
+                  return (
+                    <label key={String(option.value)} className="catalog-spares-multi-filters__option" htmlFor={id}>
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="invoice-date-range"
+                        checked={checked}
+                        onChange={() => setDraftRange(option.value)}
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Sort by</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
+                {SORT_OPTIONS.map(option => {
+                  const checked = draftSortField === option.value;
+                  const id = `invoice-sort-${option.value}`;
+                  return (
+                    <label
+                      key={option.value}
+                      className="catalog-spares-multi-filters__option"
+                      htmlFor={id}
+                      onClick={event => {
+                        event.preventDefault();
+                        if (checked) {
+                          setDraftSortDir(prev => (prev === 'desc' ? 'asc' : 'desc'));
+                        } else {
+                          setDraftSortField(option.value);
+                          setDraftSortDir(DEFAULT_SORT_DIR);
+                        }
+                      }}
+                    >
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="invoice-sort"
+                        checked={checked}
+                        readOnly
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">
+                        {option.label}
+                        {checked ? (draftSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="catalog-spares-multi-filters__footer">
+            <button
+              type="button"
+              className="catalog-spares-multi-filters__apply"
+              onClick={() => {
+                onApply({
+                  rangePreset: draftRange,
+                  sortField: draftSortField,
+                  sortDir: draftSortDir,
+                });
+                onClose();
+              }}
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              className="catalog-spares-multi-filters__clear-btn"
+              disabled={!draftDirty}
+              onClick={() => {
+                setDraftRange(DEFAULT_RANGE);
+                setDraftSortField(DEFAULT_SORT_FIELD);
+                setDraftSortDir(DEFAULT_SORT_DIR);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
       </div>
-    </div>,
+    </>,
     document.body,
   );
 }
@@ -310,7 +321,7 @@ function InvoicePagination({
   onPageChange: (updater: (current: number) => number) => void;
   sticky?: boolean;
 }) {
-  const className = `invoices-pagination panel glass${sticky ? ' invoices-pagination--sticky' : ' invoices-pagination--top'}`;
+  const className = `invoices-pagination${sticky ? ' invoices-pagination--sticky' : ' invoices-pagination--top'}`;
   const content = (
     <>
       <span className="invoices-pagination__info text-muted text-sm">
@@ -350,12 +361,11 @@ function InvoicePagination({
 export const InvoicesPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isMobile = useIsMobile();
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 400);
-  const [sortField, setSortField] = useState<InvoiceSortField>('date');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortField, setSortField] = useState<InvoiceSortField>(DEFAULT_SORT_FIELD);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(DEFAULT_SORT_DIR);
   const [page, setPage] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
   const limit = 25;
@@ -366,7 +376,7 @@ export const InvoicesPage: React.FC = () => {
   const [error, setError] = useState('');
   const [dashboard, setDashboard] = useState<InvoiceDashboardSummary | null>(null);
   const [kpiLoading, setKpiLoading] = useState(true);
-  const [rangePreset, setRangePreset] = useState<SalesRangePreset>('current_month');
+  const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
 
   const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}/invoice`);
 
@@ -500,18 +510,39 @@ export const InvoicesPage: React.FC = () => {
   }, [dashboard, rangePreset]);
 
   const kpiDateRange = formatKpiPeriodRange(kpiSummary.periodStart, kpiSummary.periodEnd);
+  const hasActiveFilters = rangePreset !== DEFAULT_RANGE
+    || sortField !== DEFAULT_SORT_FIELD
+    || sortDir !== DEFAULT_SORT_DIR;
 
   const headerSearch = useMemo(
     () => (
-      <InvoiceSearch
-        value={searchTerm}
-        onChange={setSearchTerm}
-        compactPlaceholder={isMobile}
-      />
+      <div className="invoices-header-tools">
+        <InvoiceSearch
+          value={searchTerm}
+          onChange={setSearchTerm}
+          compactPlaceholder
+        />
+        <button
+          type="button"
+          className={[
+            'catalog-header-filter-btn',
+            filterOpen ? 'catalog-header-filter-btn--open' : '',
+            hasActiveFilters ? 'catalog-header-filter-btn--active' : '',
+          ].filter(Boolean).join(' ')}
+          onClick={() => setFilterOpen(open => !open)}
+          aria-expanded={filterOpen}
+          aria-haspopup="dialog"
+          aria-label="Filter invoices"
+          title="Filters"
+        >
+          <SlidersHorizontal size={20} strokeWidth={2.25} />
+        </button>
+      </div>
     ),
-    [searchTerm, isMobile],
+    [searchTerm, filterOpen, hasActiveFilters],
   );
 
+  useCatalogPageHeader({ mobileCompactHeader: true }, true);
   usePageHeaderSlot(headerSearch);
 
   const summaryBlock = (
@@ -525,7 +556,9 @@ export const InvoicesPage: React.FC = () => {
           <strong className="invoices-summary__kpi-value">
             {kpiLoading ? '…' : kpiSummary.invoiceCount.toLocaleString('en-IN')}
           </strong>
-          <span className="invoices-summary__kpi-sub">Invoices</span>
+          <span className="invoices-summary__kpi-sub">
+            {kpiLoading ? '—' : kpiDateRange}
+          </span>
         </div>
         <div className="invoices-summary__divider" aria-hidden />
         <div className="invoices-summary__kpi">
@@ -538,22 +571,6 @@ export const InvoicesPage: React.FC = () => {
           </strong>
           <span className="invoices-summary__kpi-sub">Amount</span>
         </div>
-      </div>
-
-      <div className="invoices-summary__controls">
-        <InvoiceDateRangeControl
-          value={rangePreset}
-          onChange={setRangePreset}
-          rangeLabel={kpiDateRange}
-        />
-        <button
-          type="button"
-          className="invoices-summary__filter-btn"
-          onClick={() => setFilterOpen(true)}
-        >
-          <SlidersHorizontal size={15} aria-hidden />
-          Filter
-        </button>
       </div>
     </section>
   );
@@ -696,12 +713,14 @@ export const InvoicesPage: React.FC = () => {
 
       <InvoiceFilterSheet
         open={filterOpen}
+        rangePreset={rangePreset}
         sortField={sortField}
         sortDir={sortDir}
         onClose={() => setFilterOpen(false)}
-        onSortChange={(field, dir) => {
-          setSortField(field);
-          setSortDir(dir);
+        onApply={next => {
+          setRangePreset(next.rangePreset);
+          setSortField(next.sortField);
+          setSortDir(next.sortDir);
         }}
       />
     </div>
