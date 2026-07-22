@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { holidaysInMonth } from './hrHolidays';
+import { fetchPayrollEmployees, payrollEmployeeSalaryKey } from './hrPayrollEmployees';
 import { readHrProfileFromDoc } from './hrStaff';
 import type { HrHoliday } from '../types/hr-holiday';
 import type {
@@ -25,12 +26,15 @@ import type { StaffDepartment } from '../types/staff-access';
 const COLLECTION = 'hrSalaryMonths';
 
 export type HrSalaryStaffRow = {
+  /** Portal user uid, or `ext_{payrollEmployeeId}` for non-user employees. */
   staffUid: string;
   displayName: string;
   department: StaffDepartment;
   designation: string | null;
   employeeId: string | null;
   active: boolean;
+  /** Portal staff vs payroll-only employee (no login). */
+  source: 'user' | 'external';
   monthlySalary: number;
   leaveDates: string[];
   calc: HrSalaryCalc;
@@ -212,17 +216,18 @@ async function fetchStaffRecords(): Promise<UserRecord[]> {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-/** Load staff rows with salary/leave for the period and holiday-aware calcs. */
+/** Load portal staff + payroll-only employees with salary/leave for the period. */
 export async function buildSalaryCalculationRows(
   period: HrSalaryPeriod,
   holidays: HrHoliday[],
 ): Promise<HrSalaryStaffRow[]> {
-  const [staff, salaryByUid] = await Promise.all([
+  const [staff, payrollEmployees, salaryByUid] = await Promise.all([
     fetchStaffRecords(),
+    fetchPayrollEmployees(),
     fetchSalaryMonthsForPeriod(period),
   ]);
 
-  return staff.map(record => {
+  const userRows: HrSalaryStaffRow[] = staff.map(record => {
     const hr = readHrProfileFromDoc(record);
     const saved = salaryByUid.get(record.uid);
     const monthlySalary = saved?.monthlySalary ?? 0;
@@ -234,11 +239,35 @@ export async function buildSalaryCalculationRows(
       designation: hr.hrDesignation ?? null,
       employeeId: hr.hrEmployeeId ?? null,
       active: record.active !== false,
+      source: 'user',
       monthlySalary,
       leaveDates,
       calc: computeSalaryCalc(monthlySalary, period, holidays, leaveDates),
     };
   });
+
+  const externalRows: HrSalaryStaffRow[] = payrollEmployees.map(emp => {
+    const key = payrollEmployeeSalaryKey(emp.id);
+    const saved = salaryByUid.get(key);
+    const monthlySalary = saved?.monthlySalary ?? emp.defaultMonthlySalary ?? 0;
+    const leaveDates = saved?.leaveDates ?? [];
+    return {
+      staffUid: key,
+      displayName: emp.displayName,
+      department: emp.department,
+      designation: emp.designation,
+      employeeId: emp.employeeId,
+      active: emp.active,
+      source: 'external',
+      monthlySalary,
+      leaveDates,
+      calc: computeSalaryCalc(monthlySalary, period, holidays, leaveDates),
+    };
+  });
+
+  return [...userRows, ...externalRows].sort((a, b) =>
+    a.displayName.localeCompare(b.displayName),
+  );
 }
 
 export function formatInr(amount: number): string {

@@ -578,6 +578,7 @@
 .hr-work-report__intro {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 0.65rem;
   padding: 0.85rem 1rem;
 }
@@ -762,6 +763,39 @@
 
 .hr-salary__math {
   margin: 0.65rem 0 0;
+}
+
+.hr-salary__badge {
+  display: inline-flex;
+  margin-left: 0.45rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+}
+
+.hr-salary__add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hr-salary__add-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.hr-salary__add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .hr-holiday {

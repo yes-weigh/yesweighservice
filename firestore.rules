@@ -284,6 +284,11 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    match /hrPayrollEmployees/{employeeId} {
+      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
+      allow create, update, delete: if isSuperAdmin() || staffHasHrManage();
+    }
+
     match /dealerSettings/{docId} {
       allow read: if isOpsUser();
       allow write: if false;
