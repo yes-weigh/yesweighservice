@@ -4,8 +4,8 @@ import { AlertCircle, Activity, FileText, Play, RefreshCw, RotateCcw, Tags } fro
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import {
-  backfillInvoiceCategoriesToProduct,
   countOrgInvoicesInRange,
+  reclassifyInvoiceCategoriesFromCatalog,
   fetchOrgInvoiceSyncStatus,
   fetchZohoApiUsage,
   orgSyncStatusLabel,
@@ -119,18 +119,27 @@ export const AdminInvoiceSyncPage: React.FC = () => {
   const handleCategoryBackfill = async () => {
     setBusy('category');
     showActionFeedback(
-      'Marking existing invoices as Product… this only updates Firestore (no Zoho calls).',
+      'Classifying invoices from line item → catalog (HSN/category)… no Zoho calls.',
     );
     try {
-      const result = await backfillInvoiceCategoriesToProduct({ onlyMissing: true });
+      const result = await reclassifyInvoiceCategoriesFromCatalog({ onlyMissing: false });
+      const counts = result.byCategory;
+      const breakdown = counts
+        ? [
+          counts.product ? `${counts.product.toLocaleString()} product` : null,
+          counts.spare ? `${counts.spare.toLocaleString()} spare` : null,
+          counts.service ? `${counts.service.toLocaleString()} service` : null,
+          counts.software_key ? `${counts.software_key.toLocaleString()} software key` : null,
+        ].filter(Boolean).join(', ')
+        : '';
       showActionFeedback(
-        `Categories updated — scanned ${result.scanned.toLocaleString()}, `
-        + `set ${result.updated.toLocaleString()} to Product, `
-        + `skipped ${result.skipped.toLocaleString()} already categorised. `
-        + 'New invoices from Pull will use HSN/catalog rules.',
+        `Classification finished — scanned ${result.scanned.toLocaleString()}, `
+        + `updated ${result.updated.toLocaleString()}, `
+        + `unchanged ${(result.unchanged ?? 0).toLocaleString()}`
+        + (breakdown ? ` (${breakdown}).` : '.'),
       );
     } catch (err) {
-      showActionFeedback('', err instanceof Error ? err.message : 'Category backfill failed.');
+      showActionFeedback('', err instanceof Error ? err.message : 'Category classify failed.');
     } finally {
       setBusy(null);
     }
@@ -406,8 +415,8 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           (manual — no 30% reserve; up to 60 minutes per run).
           With <strong>Remaining: 0</strong>, Pull mostly skips already-cached invoices.
           {' '}
-          <strong>Mark existing as Product</strong> stamps all invoices that lack a category as Product;
-          brand-new invoices from Pull use the HSN / spare / service / software-key rules.
+          <strong>Classify from catalog</strong> sets each invoice category from its highest-value
+          line item’s product id → catalog HSN/category (no Zoho). Pull also classifies when details are saved.
         </p>
         <div ref={actionFeedbackRef}>
           {error && (
@@ -452,7 +461,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             onClick={() => { void handleCategoryBackfill(); }}
           >
             {busy === 'category' ? <RotateCcw size={16} className="spin" /> : <Tags size={16} />}
-            {busy === 'category' ? 'Updating…' : 'Mark existing as Product'}
+            {busy === 'category' ? 'Classifying…' : 'Classify from catalog'}
           </button>
         </div>
       </div>

@@ -142,21 +142,26 @@ export interface InvoiceCategoryBackfillResult {
   scanned: number;
   updated: number;
   skipped: number;
-  category: string;
+  unchanged?: number;
+  byCategory?: Partial<Record<'product' | 'spare' | 'service' | 'software_key', number>>;
+  category?: string;
 }
 
-/** Mark existing Firestore invoices as product (new Zoho invoices still use guidelines). */
-export async function backfillInvoiceCategoriesToProduct(
+/**
+ * Reclassify existing Firestore invoices from lineItems.itemId → catalogProducts.
+ * No Zoho API calls.
+ */
+export async function reclassifyInvoiceCategoriesFromCatalog(
   options?: { onlyMissing?: boolean },
 ): Promise<InvoiceCategoryBackfillResult> {
   const callable = httpsCallable<{ onlyMissing?: boolean }, InvoiceCategoryBackfillResult>(
     functions,
-    'backfillInvoiceCategoriesToProductFn',
+    'reclassifyInvoiceCategoriesFromCatalogFn',
     { timeout: LONG_TIMEOUT_MS },
   );
   try {
     const result = await callable({
-      onlyMissing: options?.onlyMissing !== false,
+      onlyMissing: options?.onlyMissing === true,
     });
     return result.data;
   } catch (err) {

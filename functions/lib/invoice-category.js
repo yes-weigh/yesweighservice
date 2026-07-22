@@ -72,20 +72,50 @@ export function parseInvoiceCategory(value) {
   return INVOICE_CATEGORIES.includes(key) ? key : null;
 }
 
+async function loadCatalogMetaForItemIds(itemIds) {
+  const unique = [...new Set(itemIds.filter(Boolean).map(String))];
+  const map = new Map();
+  if (!unique.length) return map;
+
+  const db = getFirestore();
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    const refs = chunk.map(id => db.collection('catalogProducts').doc(id));
+    const snaps = await db.getAll(...refs);
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      const data = snap.data() || {};
+      map.set(snap.id, {
+        hsn: data.hsn != null ? String(data.hsn) : null,
+        categoryId: data.categoryId != null ? String(data.categoryId) : null,
+        categoryName: data.categoryName != null ? String(data.categoryName) : null,
+      });
+    }
+  }
+  return map;
+}
+
 /**
- * Stamp existing Firestore invoices as `product`.
- * New Zoho invoices keep guideline classification at sync time.
+ * Reclassify invoices already in Firestore using lineItems[].itemId → catalogProducts (HSN/category).
+ * No Zoho API calls.
  *
  * @param {{ onlyMissing?: boolean, pageSize?: number }} [options]
  */
-export async function backfillInvoiceCategoriesToProduct(options = {}) {
-  const onlyMissing = options.onlyMissing !== false;
-  const pageSize = Math.min(Math.max(Number(options.pageSize) || 300, 50), 500);
+export async function reclassifyInvoiceCategoriesFromCatalog(options = {}) {
+  const onlyMissing = options.onlyMissing === true;
+  const pageSize = Math.min(Math.max(Number(options.pageSize) || 200, 50), 400);
   const db = getFirestore();
 
   let scanned = 0;
   let updated = 0;
   let skipped = 0;
+  let unchanged = 0;
+  const byCategory = {
+    product: 0,
+    spare: 0,
+    service: 0,
+    software_key: 0,
+  };
   let lastDoc = null;
 
   while (true) {
@@ -94,21 +124,38 @@ export async function backfillInvoiceCategoriesToProduct(options = {}) {
     const snap = await query.get();
     if (snap.empty) break;
 
+    const pageDocs = snap.docs;
+    const itemIds = [];
+    for (const docSnap of pageDocs) {
+      const lineItems = Array.isArray(docSnap.data()?.lineItems) ? docSnap.data().lineItems : [];
+      for (const item of lineItems) {
+        if (item?.itemId) itemIds.push(String(item.itemId));
+      }
+    }
+    const catalogMap = await loadCatalogMetaForItemIds(itemIds);
+
     let batch = db.batch();
     let batchCount = 0;
 
-    for (const docSnap of snap.docs) {
+    for (const docSnap of pageDocs) {
       scanned += 1;
-      const current = parseInvoiceCategory(docSnap.data()?.invoiceCategory);
+      const data = docSnap.data() || {};
+      const current = parseInvoiceCategory(data.invoiceCategory);
       if (onlyMissing && current) {
         skipped += 1;
         continue;
       }
-      if (current === 'product') {
-        skipped += 1;
+
+      const lineItems = Array.isArray(data.lineItems) ? data.lineItems : [];
+      const next = classifyInvoiceFromLineItems(lineItems, catalogMap);
+      byCategory[next] = (byCategory[next] || 0) + 1;
+
+      if (current === next) {
+        unchanged += 1;
         continue;
       }
-      batch.update(docSnap.ref, { invoiceCategory: 'product' });
+
+      batch.update(docSnap.ref, { invoiceCategory: next });
       batchCount += 1;
       updated += 1;
       if (batchCount >= 400) {
@@ -119,9 +166,17 @@ export async function backfillInvoiceCategoriesToProduct(options = {}) {
     }
 
     if (batchCount > 0) await batch.commit();
-    lastDoc = snap.docs[snap.docs.length - 1];
+    lastDoc = pageDocs[pageDocs.length - 1];
     if (snap.size < pageSize) break;
   }
 
-  return { scanned, updated, skipped, category: 'product' };
+  return { scanned, updated, skipped, unchanged, byCategory };
+}
+
+/** @deprecated Use reclassifyInvoiceCategoriesFromCatalog */
+export async function backfillInvoiceCategoriesToProduct(options = {}) {
+  return reclassifyInvoiceCategoriesFromCatalog({
+    onlyMissing: options.onlyMissing === true,
+    pageSize: options.pageSize,
+  });
 }

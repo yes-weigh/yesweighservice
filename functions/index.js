@@ -82,7 +82,10 @@ import {
   countOrgInvoicesInRange,
   syncOrgInvoicesToFirestore,
 } from './lib/org-invoice-sync.js';
-import { backfillInvoiceCategoriesToProduct } from './lib/invoice-category.js';
+import {
+  backfillInvoiceCategoriesToProduct,
+  reclassifyInvoiceCategoriesFromCatalog,
+} from './lib/invoice-category.js';
 import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
@@ -1816,7 +1819,30 @@ export const countOrgInvoicesInRangeCallable = onCall(
   },
 );
 
-/** Stamp existing invoices as product; new syncs use guideline classification. */
+/**
+ * Reclassify existing invoices from lineItems.itemId → catalogProducts (HSN/category).
+ * No Zoho calls. Alias kept for older clients.
+ */
+export const reclassifyInvoiceCategoriesFromCatalogFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await reclassifyInvoiceCategoriesFromCatalog({
+        onlyMissing: request.data?.onlyMissing === true,
+      });
+    } catch (err) {
+      console.error('reclassifyInvoiceCategoriesFromCatalog failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice category reclassify failed.');
+    }
+  },
+);
+
+/** @deprecated Prefer reclassifyInvoiceCategoriesFromCatalogFn */
 export const backfillInvoiceCategoriesToProductFn = onCall(
   {
     region: 'asia-south1',
@@ -1827,7 +1853,7 @@ export const backfillInvoiceCategoriesToProductFn = onCall(
     await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
     try {
       return await backfillInvoiceCategoriesToProduct({
-        onlyMissing: request.data?.onlyMissing !== false,
+        onlyMissing: request.data?.onlyMissing === true,
       });
     } catch (err) {
       console.error('backfillInvoiceCategoriesToProduct failed:', err);

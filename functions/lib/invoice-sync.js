@@ -332,24 +332,18 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
       options.skipImages ? null : (meta?.imageUrl ?? null),
     );
   });
-  // Brand-new invoices use HSN/catalog rules; existing docs keep their category
-  // (legacy backfill stamps them as "product").
-  let invoiceCategory = parseInvoiceCategory(options.existingInvoiceCategory);
-  if (options.isNewInvoice) {
-    const classifyInput = lineItemsRaw.map(item => {
-      const itemId = item.item_id ? String(item.item_id) : null;
-      return {
-        total: Number(item.item_total ?? item.total ?? 0),
-        name: String(item.name ?? item.item_name ?? ''),
-        sku: item.sku ? String(item.sku) : null,
-        itemId,
-        hsn: item.hsn_or_sac ?? item.hsnOrSac ?? item.hsn ?? null,
-      };
-    });
-    invoiceCategory = classifyInvoiceFromLineItems(classifyInput, catalogMap);
-  } else if (!invoiceCategory) {
-    invoiceCategory = 'product';
-  }
+  // Highest-value line → catalogProducts (HSN / category) via itemId.
+  const classifyInput = lineItemsRaw.map(item => {
+    const itemId = item.item_id ? String(item.item_id) : null;
+    return {
+      total: Number(item.item_total ?? item.total ?? 0),
+      name: String(item.name ?? item.item_name ?? ''),
+      sku: item.sku ? String(item.sku) : null,
+      itemId,
+      hsn: item.hsn_or_sac ?? item.hsnOrSac ?? item.hsn ?? null,
+    };
+  });
+  const invoiceCategory = classifyInvoiceFromLineItems(classifyInput, catalogMap);
   const salesOrder = options.skipSalesOrder
     ? null
     : await resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw);
@@ -468,11 +462,7 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     if (!fullRaw) {
       return { skipped: true, reason: 'not found in zoho' };
     }
-    doc = await buildFirestoreInvoiceDoc(accessToken, orgId, fullRaw, {
-      ...options,
-      isNewInvoice: !existing,
-      existingInvoiceCategory: existing?.invoiceCategory ?? null,
-    });
+    doc = await buildFirestoreInvoiceDoc(accessToken, orgId, fullRaw, options);
     if (!options.skipSalesOrder && doc.salesOrderId) {
       salesOrder = { id: doc.salesOrderId, number: doc.salesOrderNumber };
     }
