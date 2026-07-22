@@ -550,26 +550,30 @@ export const InvoicesPage: React.FC = () => {
       <div className="invoices-summary__kpis">
         <div className="invoices-summary__kpi">
           <span className="invoices-summary__kpi-icon" aria-hidden>
-            <FileText size={18} strokeWidth={2.4} />
+            <FileText size={16} strokeWidth={2.4} />
           </span>
-          <span className="invoices-summary__kpi-label">Total Invoices</span>
-          <strong className="invoices-summary__kpi-value">
-            {kpiLoading ? '…' : kpiSummary.invoiceCount.toLocaleString('en-IN')}
-          </strong>
-          <span className="invoices-summary__kpi-sub">
-            {kpiLoading ? '—' : kpiDateRange}
-          </span>
+          <div className="invoices-summary__kpi-body">
+            <span className="invoices-summary__kpi-label">Total Invoices</span>
+            <strong className="invoices-summary__kpi-value">
+              {kpiLoading ? '…' : kpiSummary.invoiceCount.toLocaleString('en-IN')}
+            </strong>
+            <span className="invoices-summary__kpi-sub">
+              {kpiLoading ? '—' : kpiDateRange}
+            </span>
+          </div>
         </div>
         <div className="invoices-summary__divider" aria-hidden />
         <div className="invoices-summary__kpi">
           <span className="invoices-summary__kpi-icon" aria-hidden>
-            <IndianRupee size={18} strokeWidth={2.4} />
+            <IndianRupee size={16} strokeWidth={2.4} />
           </span>
-          <span className="invoices-summary__kpi-label">Total Amount</span>
-          <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-            {kpiLoading ? '…' : formatCurrency(kpiSummary.totalSales)}
-          </strong>
-          <span className="invoices-summary__kpi-sub">Amount</span>
+          <div className="invoices-summary__kpi-body">
+            <span className="invoices-summary__kpi-label">Total Amount</span>
+            <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+              {kpiLoading ? '…' : formatCurrency(kpiSummary.totalSales)}
+            </strong>
+            <span className="invoices-summary__kpi-sub">Amount</span>
+          </div>
         </div>
       </div>
     </section>
@@ -577,6 +581,9 @@ export const InvoicesPage: React.FC = () => {
 
   return (
     <div className="page-content fade-in invoices-page">
+      {summaryBlock}
+
+      <div className="invoices-page__scroll invoices-page__body">
       {error && (
         <div className="products-inline-error panel glass invoices-page__error">
           <AlertCircle size={18} />
@@ -584,9 +591,6 @@ export const InvoicesPage: React.FC = () => {
         </div>
       )}
 
-      {summaryBlock}
-
-      <div className="invoices-page__body">
         {showInitialLoader ? (
           <FetchingLoader label="Loading invoices…" />
         ) : invoices.length === 0 ? (
