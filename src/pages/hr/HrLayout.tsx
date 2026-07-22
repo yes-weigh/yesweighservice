@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { CalendarDays, ClipboardList, Image as ImageIcon, KeyRound, Shield, Users, Warehouse } from 'lucide-react';
+import { CalendarDays, Calculator, ClipboardList, Image as ImageIcon, KeyRound, Shield, Users, Warehouse } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
   canManageHr,
@@ -37,6 +37,12 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
         label: 'Holiday calendar',
         path: `${basePath}/hr/holidays`,
         icon: <CalendarDays size={16} />,
+      },
+      {
+        id: 'salary',
+        label: 'Salary calculation',
+        path: `${basePath}/hr/salary`,
+        icon: <Calculator size={16} />,
       },
     ];
     if (showRoles) {
@@ -98,7 +104,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
       <header className="hr-hub__header panel glass">
         <div>
           <h2>Human Resources</h2>
-          <p className="text-muted text-sm">Staff records, work reports, holidays, warehouse and media users, roles, and super admins.</p>
+          <p className="text-muted text-sm">Staff records, work reports, holidays, salary, warehouse and media users, roles, and super admins.</p>
         </div>
         {canManageHr(user) && isTabActive(`${basePath}/hr/staff`) && (
           <Link to={`${basePath}/hr/staff/new`} className="btn btn-primary btn-sm">

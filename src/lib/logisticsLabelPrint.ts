@@ -462,7 +462,8 @@ export function printShippingLabelElements(
   }, 250);
 }
 
-/** Browser print fallback using the same 203 DPI canvases as thermal / on-screen preview. */
+/** Browser print fallback using the same 203 DPI canvases as thermal / on-screen preview.
+ *  Each canvas becomes one physical page at 100×150 mm (one label per box). */
 export function printShippingLabelCanvases(
   canvases: Array<HTMLCanvasElement | null>,
   title = 'Shipping label',
@@ -477,23 +478,41 @@ export function printShippingLabelCanvases(
   if (!win) {
     throw new Error('Pop-up blocked. Allow pop-ups to print the shipping label.');
   }
+  const w = LOGISTICS_LABEL_WIDTH_MM;
+  const h = LOGISTICS_LABEL_HEIGHT_MM;
   const styles = `
-    @page { margin: 0; size: ${LOGISTICS_LABEL_WIDTH_MM}mm ${LOGISTICS_LABEL_HEIGHT_MM}mm; }
+    @page { margin: 0; size: ${w}mm ${h}mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { margin: 0; background: #fff; }
-    img {
-      display: block;
-      width: ${LOGISTICS_LABEL_WIDTH_MM}mm;
-      height: ${LOGISTICS_LABEL_HEIGHT_MM}mm;
+    html, body { margin: 0; padding: 0; background: #fff; }
+    .label-page {
+      width: ${w}mm;
+      height: ${h}mm;
+      overflow: hidden;
       page-break-after: always;
       break-after: page;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
-    img:last-child { page-break-after: auto; break-after: auto; }
+    .label-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+    .label-page img {
+      display: block;
+      width: ${w}mm;
+      height: ${h}mm;
+      max-width: none;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
   `;
   const body = ready
-    .map(canvas => (
-      `<img src="${canvas.toDataURL('image/png')}" `
-      + `width="${canvas.width}" height="${canvas.height}" alt="" />`
+    .map((canvas, index) => (
+      `<div class="label-page">`
+      + `<img src="${canvas.toDataURL('image/png')}" `
+      + `width="${canvas.width}" height="${canvas.height}" `
+      + `alt="Shipping label ${index + 1} of ${ready.length}" />`
+      + `</div>`
     ))
     .join('');
   win.document.open();
@@ -503,10 +522,31 @@ export function printShippingLabelCanvases(
   );
   win.document.close();
   win.focus();
-  win.onload = () => {
-    win.print();
-  };
-  window.setTimeout(() => {
+
+  let printed = false;
+  const triggerPrint = () => {
+    if (printed) return;
+    printed = true;
     try { win.print(); } catch { /* ignore */ }
-  }, 250);
+  };
+
+  const imgs = Array.from(win.document.images);
+  if (!imgs.length) {
+    window.setTimeout(triggerPrint, 250);
+    return;
+  }
+  let pending = imgs.length;
+  const onReady = () => {
+    pending -= 1;
+    if (pending <= 0) triggerPrint();
+  };
+  for (const img of imgs) {
+    if (img.complete) onReady();
+    else {
+      img.addEventListener('load', onReady, { once: true });
+      img.addEventListener('error', onReady, { once: true });
+    }
+  }
+  // Safety net if load events never fire
+  window.setTimeout(triggerPrint, 1500);
 }

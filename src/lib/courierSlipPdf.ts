@@ -2,8 +2,10 @@
  * Fills the ST Courier multi-copy POD form (OG.pdf) with booking details.
  * Coordinates are PDF points relative to the top-left of each slip copy.
  */
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
-import { shippingLabelBarcodeBars } from './shippingLabel';
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import QRCode from 'qrcode';
+import { FIRM_NAME } from '../constants/brand';
+import { shippingLabelBarcodeBars, stCourierTrackingUrl } from './shippingLabel';
 
 export const ST_COURIER_SLIP_TEMPLATE_URL = '/logistics/st-courier-slip.pdf';
 
@@ -14,11 +16,19 @@ export type CourierSlipPdfInput = {
   dealerCode: string;
   contactPerson: string;
   deliveryAddress: string;
+  /** Optimised multiline To address for the POD form. */
+  toAddress: string;
   toMobile: string;
   fromName: string;
   fromAddress: string;
   fromMobile: string;
+  /** Staff user who generated / is booking the slip (drawn above Consignor's Signature). */
+  generatedBy: string;
   branch: string;
+  /** Always "Cochin" in the BRANCH / CUSTOMER CODE cell. */
+  branchCustomerCode: string;
+  /** Box L×B×H for bottom-right of BRANCH / CUSTOMER CODE (empty for envelope). */
+  boxDimensions: string;
   weightLabel: string;
   bookingDate: string;
   contents: string;
@@ -30,14 +40,18 @@ const PAGE_W = 589.44;
 const PAGE_H = 835.92;
 const SLIP_COUNT = 3;
 const SLIP_H = PAGE_H / SLIP_COUNT;
+/** Extra downward shift per slip copy (PDF points): top / middle / bottom. */
+const SLIP_Y_OFFSETS = [0, 3, 3] as const;
 const INK = rgb(0.05, 0.05, 0.05);
 
 /** Field layout measured from the rendered OG.pdf template (points from slip top-left). */
 const LAYOUT = {
-  // Intentionally unused for now — BRANCH / CUSTOMER CODE is left blank for manual fill.
-  branch: { x: 86, y: 48, size: 10, maxWidth: 160 },
-  date: { x: 274, y: 40, size: 9, maxWidth: 60 },
-  kg: { x: 274, y: 68, size: 10, maxWidth: 60 },
+  // BRANCH / CUSTOMER CODE box (~x 78–256, y 18–78 from slip top).
+  branch: { x: 82, y: 34, size: 11, maxWidth: 160 },
+  // Box lines sit on the bottom of BRANCH / CUSTOMER CODE (bottomY = last line baseline).
+  branchLbh: { x: 82, bottomY: 74, size: 8, maxWidth: 168, maxLines: 4, lineGap: 1.2 },
+  date: { centerX: 298, y: 44, size: 9 },
+  kg: { centerX: 298, y: 72, size: 10 },
   dox: { x: 366, y: 70 },
   nonDox: { x: 468, y: 70 },
   air: { x: 80.5, y: 113 },
@@ -45,15 +59,20 @@ const LAYOUT = {
   cash: { x: 168, y: 118 },
   credit: { x: 226, y: 118 },
   contents: { x: 274, y: 112, size: 8, maxWidth: 68, maxLines: 4 },
-  barcode: { x: 350, y: 99, w: 142, h: 34 },
-  awb: { x: 350, y: 138, size: 10, maxWidth: 142 },
-  // Start after printed "From" / "To" labels so stamped text does not collide.
-  fromName: { x: 122, y: 160, size: 8, maxWidth: 158 },
-  fromAddr: { x: 122, y: 170, size: 7, maxWidth: 158, maxLines: 3 },
-  fromMobile: { x: 118, y: 203, size: 8, maxWidth: 155 },
-  toName: { x: 332, y: 160, size: 8, maxWidth: 172 },
-  toAddr: { x: 332, y: 170, size: 7, maxWidth: 172, maxLines: 3 },
-  toMobile: { x: 330, y: 203, size: 8, maxWidth: 170 },
+  // CONSIGNMENT NUMBER white cell — barcode + AWB vertically centered as a unit.
+  consign: { x: 350, top: 97, bottom: 148, w: 142 },
+  barcode: { h: 28 },
+  /** Clear space between barcode bottom and AWB digit tops. */
+  awb: { size: 9, gapAbove: 3 },
+  // From / To: company + address as one block (shared left edge, normal line gap).
+  fromAddr: { x: 101, y: 156, size: 7, maxWidth: 177, maxLines: 4 },
+  fromMobile: { x: 106, y: 200, size: 8, maxWidth: 172 },
+  toAddr: { x: 308, y: 156, size: 7, maxWidth: 178, maxLines: 5 },
+  toMobile: { x: 318, y: 200, size: 8, maxWidth: 178 },
+  // TRACK HERE square to the right of the vertical label.
+  trackQr: { x: 468, y: 210, size: 40 },
+  // Middle-left column — centered just above printed "Consignor's Signature".
+  consignorSign: { centerX: 242, y: 240, size: 9, maxWidth: 88 },
 } as const;
 
 let templateBytesPromise: Promise<ArrayBuffer> | null = null;
@@ -79,10 +98,17 @@ function slipTopY(slipIndex: number): number {
 
 /** Convert slip-top-relative Y (downward) to PDF Y (upward from page bottom). */
 function pdfY(slipIndex: number, yFromTop: number): number {
-  return slipTopY(slipIndex) - yFromTop;
+  const offset = SLIP_Y_OFFSETS[slipIndex] ?? 0;
+  return slipTopY(slipIndex) - yFromTop - offset;
 }
 
-function wrapLines(font: PDFFont, text: string, size: number, maxWidth: number, maxLines: number): string[] {
+function wrapParagraph(
+  font: PDFFont,
+  text: string,
+  size: number,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const lines: string[] = [];
@@ -107,6 +133,19 @@ function wrapLines(font: PDFFont, text: string, size: number, maxWidth: number, 
     }
   }
   return lines;
+}
+
+function wrapLines(font: PDFFont, text: string, size: number, maxWidth: number, maxLines: number): string[] {
+  const paragraphs = text.replace(/\r\n/g, '\n').split('\n');
+  const lines: string[] = [];
+  for (const paragraph of paragraphs) {
+    if (lines.length >= maxLines) break;
+    const remaining = maxLines - lines.length;
+    const wrapped = wrapParagraph(font, paragraph, size, maxWidth, remaining);
+    if (!wrapped.length && paragraph.trim() === '') continue;
+    lines.push(...(wrapped.length ? wrapped : [paragraph.trim()]));
+  }
+  return lines.slice(0, maxLines);
 }
 
 function drawText(
@@ -151,16 +190,56 @@ function drawWrapped(
 }
 
 function drawCheck(page: PDFPage, slipIndex: number, x: number, yFromTop: number): void {
-  const size = 7;
-  const y = pdfY(slipIndex, yFromTop) - size;
-  // Solid mark inside the printed checkbox square
-  page.drawRectangle({
-    x: x + 1.5,
-    y: y + 1.5,
-    width: size - 1,
-    height: size - 1,
+  // Tick mark inside the printed checkbox (short stem + longer rising stroke).
+  const box = 11;
+  const bottom = pdfY(slipIndex, yFromTop) - box + 1.5;
+  const left = x - 0.5;
+  const thickness = 1.6;
+  const midX = left + box * 0.36;
+  const midY = bottom + box * 0.22;
+  const startX = left + box * 0.08;
+  const startY = bottom + box * 0.55;
+  const endX = left + box * 0.95;
+  const endY = bottom + box * 0.88;
+  page.drawLine({
+    start: { x: startX, y: startY },
+    end: { x: midX, y: midY },
+    thickness,
     color: INK,
   });
+  page.drawLine({
+    start: { x: midX, y: midY },
+    end: { x: endX, y: endY },
+    thickness,
+    color: INK,
+  });
+}
+
+function drawSpacedText(
+  page: PDFPage,
+  font: PDFFont,
+  text: string,
+  slipIndex: number,
+  x: number,
+  yFromTop: number,
+  size: number,
+  targetWidth: number,
+): void {
+  const chars = [...text.trim()];
+  if (!chars.length) return;
+  if (chars.length === 1) {
+    const w = font.widthOfTextAtSize(chars[0]!, size);
+    drawText(page, font, chars[0]!, slipIndex, x + (targetWidth - w) / 2, yFromTop, size);
+    return;
+  }
+  const widths = chars.map(ch => font.widthOfTextAtSize(ch, size));
+  const glyphs = widths.reduce((sum, w) => sum + w, 0);
+  const gap = Math.max(0, (targetWidth - glyphs) / (chars.length - 1));
+  let cx = x;
+  for (let i = 0; i < chars.length; i += 1) {
+    drawText(page, font, chars[i]!, slipIndex, cx, yFromTop, size);
+    cx += widths[i]! + gap;
+  }
 }
 
 function drawBarcode(
@@ -192,22 +271,128 @@ function drawBarcode(
   }
 }
 
-function fillSlip(page: PDFPage, font: PDFFont, bold: PDFFont, slip: CourierSlipPdfInput, slipIndex: number): void {
-  // BRANCH / CUSTOMER CODE left blank for manual fill (LAYOUT.branch kept for later).
+function formatSlipDate(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '—') return '';
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+  if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
+  const already = /^(\d{2})-(\d{2})-(\d{4})$/.exec(trimmed);
+  if (already) return trimmed;
+  return trimmed;
+}
 
-  drawText(page, font, slip.bookingDate, slipIndex, LAYOUT.date.x, LAYOUT.date.y, LAYOUT.date.size);
+function dataUrlToUint8Array(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(',');
+  const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function buildTrackingQrPng(consignmentNo: string): Promise<Uint8Array | null> {
+  const awb = consignmentNo.trim();
+  if (!awb || awb === '—') return null;
+  try {
+    const dataUrl = await QRCode.toDataURL(stCourierTrackingUrl(awb), {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 256,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    return dataUrlToUint8Array(dataUrl);
+  } catch {
+    return null;
+  }
+}
+
+function drawTrackingQr(
+  page: PDFPage,
+  qrImage: PDFImage,
+  slipIndex: number,
+): void {
+  const { x, y, size } = LAYOUT.trackQr;
+  page.drawImage(qrImage, {
+    x,
+    y: pdfY(slipIndex, y + size),
+    width: size,
+    height: size,
+  });
+}
+
+function fillSlip(
+  page: PDFPage,
+  font: PDFFont,
+  bold: PDFFont,
+  slip: CourierSlipPdfInput,
+  slipIndex: number,
+  trackingQr: PDFImage | null,
+): void {
+  drawText(
+    page,
+    bold,
+    slip.branchCustomerCode || 'Cochin',
+    slipIndex,
+    LAYOUT.branch.x,
+    LAYOUT.branch.y,
+    LAYOUT.branch.size,
+  );
+
+  if (slip.boxDimensions.trim()) {
+    const lbh = LAYOUT.branchLbh;
+    const lines = wrapLines(
+      bold,
+      slip.boxDimensions,
+      lbh.size,
+      lbh.maxWidth,
+      lbh.maxLines,
+    );
+    if (lines.length) {
+      const lineStep = lbh.size * lbh.lineGap;
+      const startY = lbh.bottomY - (lines.length - 1) * lineStep;
+      let y = startY;
+      for (const line of lines) {
+        drawText(page, bold, line, slipIndex, lbh.x, y, lbh.size);
+        y += lineStep;
+      }
+    }
+  }
+
+  const dateText = formatSlipDate(slip.bookingDate);
+  if (dateText) {
+    const dateW = font.widthOfTextAtSize(dateText, LAYOUT.date.size);
+    drawText(
+      page,
+      font,
+      dateText,
+      slipIndex,
+      LAYOUT.date.centerX - dateW / 2,
+      LAYOUT.date.y,
+      LAYOUT.date.size,
+    );
+  }
 
   const kg = slip.weightLabel === '—' ? '' : slip.weightLabel.replace(/\s*kg$/i, '').trim();
-  drawText(page, bold, kg, slipIndex, LAYOUT.kg.x, LAYOUT.kg.y, LAYOUT.kg.size);
+  if (kg) {
+    const kgW = bold.widthOfTextAtSize(kg, LAYOUT.kg.size);
+    drawText(
+      page,
+      bold,
+      kg,
+      slipIndex,
+      LAYOUT.kg.centerX - kgW / 2,
+      LAYOUT.kg.y,
+      LAYOUT.kg.size,
+    );
+  }
 
   if (slip.isDox) drawCheck(page, slipIndex, LAYOUT.dox.x, LAYOUT.dox.y);
   else drawCheck(page, slipIndex, LAYOUT.nonDox.x, LAYOUT.nonDox.y);
 
   if (slip.isAir) drawCheck(page, slipIndex, LAYOUT.air.x, LAYOUT.air.y);
   else drawCheck(page, slipIndex, LAYOUT.surface.x, LAYOUT.surface.y);
-
-  // Dealer / account shipments are credit by default.
-  drawCheck(page, slipIndex, LAYOUT.credit.x, LAYOUT.credit.y);
 
   drawWrapped(
     page,
@@ -223,79 +408,83 @@ function fillSlip(page: PDFPage, font: PDFFont, bold: PDFFont, slip: CourierSlip
 
   const awb = slip.consignmentNo.trim();
   if (awb && awb !== '—') {
-    // Keep barcode modules scannable; center within the consignment box.
-    const bars = shippingLabelBarcodeBars(awb);
-    const modules = bars.reduce((sum, w) => sum + w, 0) || 1;
-    const targetModule = 0.85;
-    const barWidth = Math.min(LAYOUT.barcode.w, modules * targetModule);
-    const barX = LAYOUT.barcode.x + (LAYOUT.barcode.w - barWidth) / 2;
-    drawBarcode(
-      page,
-      awb,
-      slipIndex,
-      barX,
-      LAYOUT.barcode.y,
-      barWidth,
-      LAYOUT.barcode.h,
-    );
-    const awbWidth = bold.widthOfTextAtSize(awb, LAYOUT.awb.size);
-    const awbX = LAYOUT.awb.x + Math.max(0, (LAYOUT.awb.maxWidth - awbWidth) / 2);
-    drawText(page, bold, awb, slipIndex, awbX, LAYOUT.awb.y, LAYOUT.awb.size);
+    const box = LAYOUT.consign;
+    const barH = LAYOUT.barcode.h;
+    const awbSize = LAYOUT.awb.size;
+    const gap = LAYOUT.awb.gapAbove;
+    const contentH = barH + gap + awbSize;
+    const pad = Math.max(0, (box.bottom - box.top - contentH) / 2);
+    const barY = box.top + pad;
+    // drawText y ≈ baseline; place baseline below gap so digit tops clear the bars.
+    const awbY = barY + barH + gap + awbSize * 0.78;
+
+    drawBarcode(page, awb, slipIndex, box.x, barY, box.w, barH);
+    drawSpacedText(page, bold, awb, slipIndex, box.x, awbY, awbSize, box.w);
   }
 
-  const fromName = slip.fromName.trim() || '—';
-  let y = drawWrapped(
-    page,
-    bold,
-    fromName,
-    slipIndex,
-    LAYOUT.fromName.x,
-    LAYOUT.fromName.y,
-    LAYOUT.fromName.size,
-    LAYOUT.fromName.maxWidth,
-    2,
-  );
+  // From: company + address as one tight block (regular weight).
+  const fromCompany = (slip.fromName.trim() && slip.fromName !== '—'
+    ? slip.fromName
+    : FIRM_NAME).trim();
+  const fromBlock = [fromCompany, slip.fromAddress.trim()]
+    .filter(line => line && line !== '—')
+    .join('\n');
   drawWrapped(
     page,
     font,
-    slip.fromAddress,
+    fromBlock,
     slipIndex,
     LAYOUT.fromAddr.x,
-    Math.max(y + 1, LAYOUT.fromAddr.y),
+    LAYOUT.fromAddr.y,
     LAYOUT.fromAddr.size,
     LAYOUT.fromAddr.maxWidth,
     LAYOUT.fromAddr.maxLines,
+    1.05,
   );
   drawText(page, font, slip.fromMobile, slipIndex, LAYOUT.fromMobile.x, LAYOUT.fromMobile.y, LAYOUT.fromMobile.size);
 
-  const toName = slip.dealerName.trim() || '—';
-  y = drawWrapped(
-    page,
-    bold,
-    toName,
-    slipIndex,
-    LAYOUT.toName.x,
-    LAYOUT.toName.y,
-    LAYOUT.toName.size,
-    LAYOUT.toName.maxWidth,
-    2,
-  );
-  const toBody = [slip.contactPerson, slip.deliveryAddress]
-    .map(v => v.trim())
-    .filter(v => v && v !== '—')
-    .join(', ');
+  // To: company + contact/address as one tight block (regular weight).
+  const toCompany = (slip.dealerName.trim() || '—');
+  const toBlock = [toCompany, slip.toAddress.trim()]
+    .filter(line => line && line !== '—')
+    .join('\n');
   drawWrapped(
     page,
     font,
-    toBody,
+    toBlock,
     slipIndex,
     LAYOUT.toAddr.x,
-    Math.max(y + 1, LAYOUT.toAddr.y),
+    LAYOUT.toAddr.y,
     LAYOUT.toAddr.size,
     LAYOUT.toAddr.maxWidth,
     LAYOUT.toAddr.maxLines,
+    1.05,
   );
   drawText(page, font, slip.toMobile, slipIndex, LAYOUT.toMobile.x, LAYOUT.toMobile.y, LAYOUT.toMobile.size);
+
+  // Name of staff generating the slip — blank area above Consignor's Signature.
+  const generatedBy = slip.generatedBy.trim();
+  if (generatedBy && generatedBy !== '—') {
+    const sign = LAYOUT.consignorSign;
+    let label = generatedBy;
+    while (label.length > 1 && font.widthOfTextAtSize(label, sign.size) > sign.maxWidth) {
+      label = `${label.slice(0, -2).trimEnd()}…`;
+    }
+    const w = font.widthOfTextAtSize(label, sign.size);
+    drawText(
+      page,
+      font,
+      label,
+      slipIndex,
+      sign.centerX - w / 2,
+      sign.y,
+      sign.size,
+    );
+  }
+
+  if (trackingQr) {
+    drawTrackingQr(page, trackingQr, slipIndex);
+  }
 }
 
 /** Build a filled ST Courier POD PDF (all three copies on the page). */
@@ -312,9 +501,11 @@ export async function buildCourierSlipPdfBytes(slip: CourierSlipPdfInput): Promi
 
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const qrBytes = await buildTrackingQrPng(slip.consignmentNo);
+  const trackingQr = qrBytes ? await doc.embedPng(qrBytes) : null;
 
   for (let i = 0; i < SLIP_COUNT; i += 1) {
-    fillSlip(page, font, bold, slip, i);
+    fillSlip(page, font, bold, slip, i, trackingQr);
   }
 
   return doc.save();

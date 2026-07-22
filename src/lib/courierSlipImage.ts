@@ -8,13 +8,21 @@ import type {
   LogisticsBooking,
   LogisticsBookingDraft,
   LogisticsDealerSnapshot,
+  ShipmentBox,
+  ShipmentBoxDraft,
   ShipmentMode,
 } from '../types/logistics-dispatch';
 import { STAFF_LOGISTICS_SITE_LABELS } from '../types/staff-logistics';
 import { chargeableWeight, shipmentModeLabel } from './logisticsBooking';
 import { resolveReceiverPhoneFromSnapshot } from './logisticsDealers';
 import { pdfjs } from './pdfjsSetup';
-import { SHIPPING_LABEL_CONTENTS } from './shippingLabel';
+import {
+  collapseRepeatedAddressPhrases,
+  formatShippingAddressLines,
+  SHIPPING_LABEL_CONTENTS,
+  SHIPPING_LABEL_FIRM,
+  stripDuplicateAddressPhrases,
+} from './shippingLabel';
 import {
   buildCourierSlipPdfBlob,
   courierSlipPdfFileName,
@@ -31,12 +39,20 @@ export type CourierSlipViewModel = {
   contactPerson: string;
   contactLine: string;
   deliveryAddress: string;
+  /** Optimised multiline To address (shipping-label style). */
+  toAddress: string;
   toMobile: string;
   fromName: string;
   fromAddress: string;
   fromMobile: string;
+  /** Staff who generated the slip (shown above Consignor's Signature). */
+  generatedBy: string;
   serviceType: string;
   branch: string;
+  /** Always "Cochin" in BRANCH / CUSTOMER CODE. */
+  branchCustomerCode: string;
+  /** Box L×B×H shown bottom-right in BRANCH / CUSTOMER CODE (empty for envelope). */
+  boxDimensions: string;
   shipmentType: string;
   shipmentMode: ShipmentMode;
   pieces: string;
@@ -48,6 +64,94 @@ export type CourierSlipViewModel = {
   /** @deprecated use fromAddress */
   shipFrom: string;
 };
+
+/** Format as L×B×H cm (breadth = width). */
+function formatLbh(lengthCm: number, breadthCm: number, heightCm: number): string {
+  if (!lengthCm || !breadthCm || !heightCm) return '';
+  const l = Number.isInteger(lengthCm) ? String(lengthCm) : lengthCm.toFixed(1);
+  const b = Number.isInteger(breadthCm) ? String(breadthCm) : breadthCm.toFixed(1);
+  const h = Number.isInteger(heightCm) ? String(heightCm) : heightCm.toFixed(1);
+  return `${l}×${b}×${h} cm`;
+}
+
+function boxLbhLinesFromDraftBoxes(boxes: ShipmentBoxDraft[]): string {
+  const total = Math.max(1, boxes.length);
+  return boxes
+    .map((box, index) => {
+      const l = Number.parseFloat(box.lengthCm);
+      const b = Number.parseFloat(box.widthCm);
+      const h = Number.parseFloat(box.heightCm);
+      const dims = formatLbh(l, b, h);
+      const label = `box ${index + 1}/${total}`;
+      return dims ? `${label}  ${dims}` : label;
+    })
+    .join('\n');
+}
+
+function boxLbhLinesFromBoxes(boxes: ShipmentBox[]): string {
+  const total = Math.max(1, boxes.length);
+  return boxes
+    .map((box, index) => {
+      const dims = box.lengthCm && box.widthCm && box.heightCm
+        ? formatLbh(box.lengthCm, box.widthCm, box.heightCm)
+        : '';
+      const label = `box ${index + 1}/${total}`;
+      return dims ? `${label}  ${dims}` : label;
+    })
+    .join('\n');
+}
+
+/** BRANCH / CUSTOMER CODE label is always Cochin (box lines drawn separately). */
+function buildBranchCustomerCode(): string {
+  return 'Cochin';
+}
+
+/** Same cleanup as shipping labels — drop repeats / phone, then line-wrap on commas. */
+function optimizeCourierFromAddress(address: string, fromName: string): string {
+  return formatShippingAddressLines(
+    collapseRepeatedAddressPhrases(
+      stripDuplicateAddressPhrases(address.trim() || '—', [
+        fromName,
+        SHIPPING_LABEL_FIRM,
+        FIRM_NAME,
+        'Interweighing',
+        'YesWeigh',
+        'YESWEIGH',
+        'Cochin',
+        'Head Office',
+      ]),
+    ),
+    4,
+  );
+}
+
+function optimizeCourierToAddress(input: {
+  deliveryAddress: string;
+  dealerName: string;
+  contactPerson: string;
+  toMobile: string;
+}): string {
+  let delivery = input.deliveryAddress.replace(/\r\n/g, '\n').trim() || '—';
+  const phone = input.toMobile.trim();
+  if (phone && phone !== '—') {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length >= 8) {
+      delivery = delivery
+        .replace(new RegExp(digits.split('').join('\\D*'), 'g'), ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{2,}/g, '\n')
+        .replace(/\s{2,}/g, ' ')
+        .trim() || '—';
+    }
+  }
+  delivery = stripDuplicateAddressPhrases(delivery, [
+    input.dealerName,
+    input.contactPerson,
+  ]);
+  delivery = collapseRepeatedAddressPhrases(delivery);
+  // Street/city only — contact person is not printed in the To address block.
+  return formatShippingAddressLines(delivery, 4);
+}
 
 function isAirService(serviceType: string): boolean {
   return /\bair\b/i.test(serviceType.trim());
@@ -130,11 +234,14 @@ function barcodeBars(seed: string): number[] {
   return bars;
 }
 
-function buildContents(pieces: string, _shipmentType: string): string {
+function buildContents(input: {
+  pieces: string;
+  shipmentMode: ShipmentMode;
+}): string {
   // Narrow "Contents & Quantity" cell on the ST form — keep it short.
   const short = SHIPPING_LABEL_CONTENTS.replace(/^Genuine\s+/i, '').trim();
-  const parts = [short || SHIPPING_LABEL_CONTENTS, pieces].filter(v => v && v !== '—');
-  return parts.join(' · ') || short;
+  const parts = [short || SHIPPING_LABEL_CONTENTS, input.pieces].filter(v => v && v !== '—');
+  return parts.join('\n') || short;
 }
 
 export function buildCourierSlipFromBooking(booking: LogisticsBooking): CourierSlipViewModel {
@@ -145,7 +252,19 @@ export function buildCourierSlipFromBooking(booking: LogisticsBooking): CourierS
   const pieces = isEnvelope
     ? '1 envelope'
     : `${booking.numberOfBoxes || booking.boxes.length || 1} box(es)`;
-  const fromName = STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || FIRM_NAME;
+  const siteLabel = STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || FIRM_NAME;
+  const boxDimensions = booking.shipmentMode === 'box' ? boxLbhLinesFromBoxes(booking.boxes) : '';
+  const toMobile = resolveReceiverPhoneFromSnapshot(booking.dealer);
+  const fromAddress = optimizeCourierFromAddress(
+    booking.shipFromAddress || FIRM_NAME,
+    siteLabel,
+  );
+  const toAddress = optimizeCourierToAddress({
+    deliveryAddress: booking.deliveryAddress,
+    dealerName: booking.dealer.name,
+    contactPerson: booking.dealer.contactPerson || '',
+    toMobile,
+  });
   return {
     partnerId: booking.partnerId,
     partnerLabel: logisticsPartnerLabel(booking.partnerId),
@@ -156,21 +275,28 @@ export function buildCourierSlipFromBooking(booking: LogisticsBooking): CourierS
     contactPerson: booking.dealer.contactPerson || '',
     contactLine: [booking.dealer.contactPerson, booking.dealer.mobile].filter(Boolean).join(' · '),
     deliveryAddress: booking.deliveryAddress,
-    toMobile: resolveReceiverPhoneFromSnapshot(booking.dealer),
-    fromName,
-    fromAddress: booking.shipFromAddress || FIRM_NAME,
+    toAddress,
+    toMobile,
+    fromName: FIRM_NAME,
+    fromAddress,
     fromMobile: DEFAULT_SUPPORT_COURIER.phone,
+    generatedBy: (booking.createdByName || '').trim() || '—',
     serviceType: booking.serviceType || '—',
     branch: booking.branch || '—',
+    branchCustomerCode: buildBranchCustomerCode(),
+    boxDimensions,
     shipmentType: shipmentModeLabel(booking.shipmentMode),
     shipmentMode: booking.shipmentMode,
     pieces,
     weightLabel: weight,
     bookingDate: booking.bookingDate || '—',
-    contents: buildContents(pieces, shipmentModeLabel(booking.shipmentMode)),
+    contents: buildContents({
+      pieces,
+      shipmentMode: booking.shipmentMode,
+    }),
     isDox: isEnvelope,
     isAir: isAirService(booking.serviceType),
-    shipFrom: booking.shipFromAddress || '—',
+    shipFrom: fromAddress || '—',
   };
 }
 
@@ -184,10 +310,27 @@ export function buildCourierSlipFromDraft(input: {
   fromName?: string;
   fromAddress?: string;
   fromMobile?: string;
+  /** Display name of the staff user generating the slip. */
+  generatedBy?: string;
 }): CourierSlipViewModel {
   const isEnvelope = input.draft.shipmentMode === 'envelope';
-  const fromName = (input.fromName || STAFF_LOGISTICS_SITE_LABELS[input.draft.shipFromSite] || FIRM_NAME).trim();
-  const fromAddress = (input.fromAddress || FIRM_NAME).trim();
+  const siteLabel = (
+    input.fromName
+    || STAFF_LOGISTICS_SITE_LABELS[input.draft.shipFromSite]
+    || FIRM_NAME
+  ).trim();
+  const rawFromAddress = (input.fromAddress || FIRM_NAME).trim();
+  const boxDimensions = input.draft.shipmentMode === 'box'
+    ? boxLbhLinesFromDraftBoxes(input.draft.boxes)
+    : '';
+  const toMobile = resolveReceiverPhoneFromSnapshot(input.dealer);
+  const fromAddress = optimizeCourierFromAddress(rawFromAddress, siteLabel);
+  const toAddress = optimizeCourierToAddress({
+    deliveryAddress: input.deliveryAddress,
+    dealerName: input.dealer.name,
+    contactPerson: input.dealer.contactPerson || '',
+    toMobile,
+  });
   return {
     partnerId: input.partnerId,
     partnerLabel: logisticsPartnerLabel(input.partnerId),
@@ -198,18 +341,25 @@ export function buildCourierSlipFromDraft(input: {
     contactPerson: input.dealer.contactPerson || '',
     contactLine: [input.dealer.contactPerson, input.dealer.mobile].filter(Boolean).join(' · '),
     deliveryAddress: input.deliveryAddress,
-    toMobile: resolveReceiverPhoneFromSnapshot(input.dealer),
-    fromName,
+    toAddress,
+    toMobile,
+    fromName: FIRM_NAME,
     fromAddress,
     fromMobile: (input.fromMobile || DEFAULT_SUPPORT_COURIER.phone).trim(),
+    generatedBy: (input.generatedBy || '').trim() || '—',
     serviceType: input.draft.serviceType || '—',
     branch: input.draft.branch || '—',
+    branchCustomerCode: buildBranchCustomerCode(),
+    boxDimensions,
     shipmentType: shipmentModeLabel(input.draft.shipmentMode),
     shipmentMode: input.draft.shipmentMode,
     pieces: input.piecesLabel,
     weightLabel: isEnvelope ? '—' : `${input.weightKg.toFixed(2)} kg`,
     bookingDate: input.draft.bookingDate || '—',
-    contents: buildContents(input.piecesLabel, shipmentModeLabel(input.draft.shipmentMode)),
+    contents: buildContents({
+      pieces: input.piecesLabel,
+      shipmentMode: input.draft.shipmentMode,
+    }),
     isDox: isEnvelope,
     isAir: isAirService(input.draft.serviceType),
     shipFrom: fromAddress || '—',
@@ -233,7 +383,7 @@ async function buildGenericCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
 
   const addressLines = (() => {
     ctx.font = '28px Arial, Helvetica, sans-serif';
-    return wrapText(ctx, slip.deliveryAddress, contentW, 5);
+    return wrapText(ctx, slip.toAddress || slip.deliveryAddress, contentW, 5);
   })();
 
   const metaRows: Array<[string, string]> = [

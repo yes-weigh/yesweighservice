@@ -653,6 +653,117 @@
   font-weight: 600;
 }
 
+.hr-salary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hr-salary__holiday-note {
+  margin: 0.35rem 0 0;
+}
+
+.hr-salary__dept {
+  max-width: 11rem;
+}
+
+.hr-salary__error,
+.hr-salary__row-error {
+  color: #f87171;
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.hr-salary__salary-input {
+  width: 7.5rem;
+  min-width: 6rem;
+}
+
+.hr-salary__table td {
+  vertical-align: middle;
+}
+
+.hr-salary__expand-row td {
+  background: rgba(15, 23, 42, 0.45);
+  padding-top: 0.75rem;
+  padding-bottom: 0.9rem;
+}
+
+.hr-salary__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-bottom: 0.65rem;
+}
+
+.hr-salary__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.hr-salary__swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.hr-salary__swatch.is-working { background: #1e293b; }
+.hr-salary__swatch.is-leave { background: #f97316; }
+.hr-salary__swatch.is-sunday { background: #334155; }
+.hr-salary__swatch.is-holiday { background: #6366f1; }
+
+.hr-salary__days {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2.1rem, 1fr));
+  gap: 0.35rem;
+  max-width: 36rem;
+}
+
+.hr-salary__day {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  height: 2.1rem;
+  cursor: pointer;
+}
+
+.hr-salary__day:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.hr-salary__day.is-leave {
+  background: rgba(249, 115, 22, 0.35);
+  border-color: rgba(249, 115, 22, 0.55);
+  color: #fdba74;
+}
+
+.hr-salary__day.is-sunday {
+  background: #0f172a;
+  color: #64748b;
+}
+
+.hr-salary__day.is-holiday {
+  background: rgba(99, 102, 241, 0.28);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #c7d2fe;
+}
+
+.hr-salary__day.is-working:not(:disabled):hover {
+  border-color: rgba(249, 115, 22, 0.5);
+}
+
+.hr-salary__math {
+  margin: 0.65rem 0 0;
+}
+
 .hr-holiday {
   display: flex;
   flex-direction: column;

@@ -45,21 +45,30 @@ type NavItem = {
   badge?: number;
 };
 
-const OPS_PATH_SUFFIXES = [
+const OPS_PRIORITY_SUFFIXES = [
   '/orders',
+  '/logistics',
   '/warranty-support',
+] as const;
+
+const OPS_REST_SUFFIXES = [
   '/verification',
   '/advertisements',
-  '/logistics',
   '/loyalty',
   '/training',
   '/notifications',
   '/ai-assistant',
 ] as const;
 
-function operationsNavItems(home: string, itemCount: number): NavItem[] {
+const OPS_PATH_SUFFIXES = [...OPS_PRIORITY_SUFFIXES, ...OPS_REST_SUFFIXES] as const;
+
+function operationsNavItems(
+  home: string,
+  itemCount: number,
+  suffixes: readonly string[] = OPS_PATH_SUFFIXES,
+): NavItem[] {
   return portalNavItems(home, itemCount, 'dealer').filter(item =>
-    OPS_PATH_SUFFIXES.some(suffix => item.path === `${home}${suffix}`),
+    suffixes.some(suffix => item.path === `${home}${suffix}`),
   );
 }
 
@@ -97,13 +106,13 @@ function portalNavItems(
   const sequence =
     order === 'staff'
       ? [
-          'orders',
           'catalog',
+          'orders',
+          'logistics',
           'warrantySupport',
           'verification',
           'advertisements',
           'invoices',
-          'logistics',
           'loyalty',
           'aiAssistant',
           'notifications',
@@ -111,13 +120,13 @@ function portalNavItems(
         ]
       : order === 'dealer_staff'
         ? [
-            'warrantySupport',
             'catalog',
             'orders',
+            'logistics',
+            'warrantySupport',
             'invoices',
             'verification',
             'advertisements',
-            'logistics',
             'loyalty',
             'aiAssistant',
             'training',
@@ -126,9 +135,9 @@ function portalNavItems(
         : [
           'catalog',
           'orders',
-          'invoices',
-          'warrantySupport',
           'logistics',
+          'warrantySupport',
+          'invoices',
           'verification',
           'advertisements',
           'loyalty',
@@ -244,23 +253,25 @@ const LayoutShell: React.FC = () => {
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
+          ...operationsNavItems('/super-admin', cartBadgeCount, OPS_PRIORITY_SUFFIXES),
           { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
-          ...operationsNavItems('/super-admin', cartBadgeCount),
+          ...operationsNavItems('/super-admin', cartBadgeCount, OPS_REST_SUFFIXES),
         ];
       case 'staff': {
+        const portal = portalNavItems('/staff', cartBadgeCount, 'staff');
         const items: NavItem[] = [
           { path: '/staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          ...portal,
           { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
           { path: '/staff/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
-          ...portalNavItems('/staff', cartBadgeCount, 'staff'),
         ];
         if (canViewHr(user)) {
-          items.splice(1, 0, { path: '/staff/hr', icon: <Users size={20} />, label: 'HR' });
+          items.splice(1 + portal.length, 0, { path: '/staff/hr', icon: <Users size={20} />, label: 'HR' });
         }
         return filterStaffNavItems(user, items);
       }

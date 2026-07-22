@@ -67,8 +67,10 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
       }
 
       printShippingLabelCanvases(
-        canvasRefs.current,
-        `Shipping Label ${booking.consignmentNo || booking.trackingNo}`,
+        canvasRefs.current.slice(0, labels.length),
+        labels.length > 1
+          ? `Shipping Labels ${booking.consignmentNo || booking.trackingNo} (${labels.length} × ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm)`
+          : `Shipping Label ${booking.consignmentNo || booking.trackingNo}`,
       );
       setSuccess('Opened system print dialog.');
       onPrinted?.();
@@ -116,25 +118,38 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
 
         <div className="shipping-label-print-dialog__preview book-courier__label-preview book-courier__label-preview--stack">
           {labels.map((label, index) => (
-            <ShippingLabelBitmapPreview
+            <div
               key={`${label.consignmentNo}-${label.boxIndex}`}
-              label={label}
-              ref={el => {
-                canvasRefs.current[index] = el;
-              }}
-            />
+              className="book-courier__label-sheet"
+            >
+              {labels.length > 1 && (
+                <p className="book-courier__label-sheet-caption">
+                  {`Label ${label.boxIndex} of ${labels.length} · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm`}
+                </p>
+              )}
+              <ShippingLabelBitmapPreview
+                label={label}
+                ref={el => {
+                  canvasRefs.current[index] = el;
+                }}
+              />
+            </div>
           ))}
         </div>
 
         {!native && (
           <p className="text-muted text-sm shipping-label-print-dialog__hint">
             Preview is the exact 203 DPI bitmap. Thermal print uses the YesWeigh Android APK on the same Wi‑Fi as the logistics printer.
-            On web, Print opens the system dialog for {LOGISTICS_LABEL_WIDTH_MM}×{LOGISTICS_LABEL_HEIGHT_MM} mm stock.
+            On web, Print opens the system dialog — {labels.length > 1
+              ? `${labels.length} pages at ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm (one label per box).`
+              : `${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm stock.`}
           </p>
         )}
         {native && (
           <p className="text-muted text-sm shipping-label-print-dialog__hint">
-            Preview matches the 203 DPI bitmap sent to the logistics printer (same pixels as print).
+            {labels.length > 1
+              ? `Preview matches the 203 DPI bitmap. Print all sends ${labels.length} separate ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm jobs to the logistics printer.`
+              : 'Preview matches the 203 DPI bitmap sent to the logistics printer (same pixels as print).'}
           </p>
         )}
 

@@ -19,6 +19,7 @@ import { HrSuperAdminsPage } from './pages/hr/HrSuperAdminsPage';
 import { HrRolesPage } from './pages/hr/HrRolesPage';
 import { HrWorkReportPage } from './pages/hr/HrWorkReportPage';
 import { HrHolidayCalendarPage } from './pages/hr/HrHolidayCalendarPage';
+import { HrSalaryCalculationPage } from './pages/hr/HrSalaryCalculationPage';
 import { HrWarehousePage } from './pages/hr/HrWarehousePage';
 import { HrMediaPage } from './pages/hr/HrMediaPage';
 import { MediaHomePage } from './pages/media/MediaHomePage';
@@ -169,6 +170,7 @@ const App: React.FC = () => (
                 <Route path="staff/:uid/edit" element={<HrStaffFormPage basePath="/super-admin" />} />
                 <Route path="report" element={<HrWorkReportPage basePath="/super-admin" />} />
                 <Route path="holidays" element={<HrHolidayCalendarPage />} />
+                <Route path="salary" element={<HrSalaryCalculationPage basePath="/super-admin" />} />
                 <Route path="super-admins" element={<HrSuperAdminsPage basePath="/super-admin" />} />
                 <Route path="roles" element={<HrRolesPage />} />
                 <Route path="warehouse" element={<HrWarehousePage basePath="/super-admin" />} />
@@ -224,6 +226,7 @@ const App: React.FC = () => (
                 <Route path="staff/:uid/edit" element={<HrStaffFormPage basePath="/staff" />} />
                 <Route path="report" element={<HrWorkReportPage basePath="/staff" />} />
                 <Route path="holidays" element={<HrHolidayCalendarPage />} />
+                <Route path="salary" element={<HrSalaryCalculationPage basePath="/staff" />} />
                 <Route path="warehouse" element={<HrWarehousePage basePath="/staff" />} />
                 <Route path="media" element={<HrMediaPage basePath="/staff" />} />
                 <Route path="me" element={<HrMyProfilePage />} />

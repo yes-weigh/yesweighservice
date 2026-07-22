@@ -278,6 +278,12 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin() || staffHasHrManage();
     }
 
+    match /hrSalaryMonths/{docId} {
+      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
+      allow create, update: if isSuperAdmin() || staffHasHrManage();
+      allow delete: if isSuperAdmin();
+    }
+
     match /dealerSettings/{docId} {
       allow read: if isOpsUser();
       allow write: if false;

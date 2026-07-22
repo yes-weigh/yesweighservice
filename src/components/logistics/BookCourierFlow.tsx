@@ -61,13 +61,15 @@ import {
 } from '../../lib/shippingLabel';
 import {
   buildCourierSlipFromDraft,
-  buildCourierSlipPngBlob,
+  buildCourierSlipShareBlob,
   shareCourierSlipImage,
 } from '../../lib/courierSlipImage';
 import {
   printShippingLabelCanvases,
   tryPrintShippingLabelsThermal,
 } from '../../lib/logisticsLabelPrint';
+import { ZoomableImagePreview } from './ZoomableImagePreview';
+import { ZoomablePdfPreview } from './ZoomablePdfPreview';
 import type { User } from '../../types';
 import type { ZohoDealer } from '../../types/dealers';
 import type {
@@ -205,6 +207,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const shipFromRef = useRef<HTMLDivElement>(null);
   const shippingLabelCanvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
   const finalPhotoCaptureInputRef = useRef<HTMLInputElement>(null);
+  const [courierSlipPdfBytes, setCourierSlipPdfBytes] = useState<Uint8Array | null>(null);
   const [courierSlipPreviewUrl, setCourierSlipPreviewUrl] = useState<string | null>(null);
   const [sharingCourierSlip, setSharingCourierSlip] = useState(false);
   const [courierSlipError, setCourierSlipError] = useState('');
@@ -668,6 +671,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const handlePrintShippingLabels = useCallback(async () => {
     try {
+      // Drop stale canvas slots if box count shrank since last render.
+      shippingLabelCanvasRefs.current.length = shippingLabels.length;
       try {
         const thermal = await tryPrintShippingLabelsThermal(shippingLabels);
         if (thermal.usedThermal) {
@@ -680,7 +685,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         );
         if (!fallback) return;
       }
-      printShippingLabelCanvases(shippingLabelCanvasRefs.current, 'Shipping label');
+      printShippingLabelCanvases(
+        shippingLabelCanvasRefs.current.slice(0, shippingLabels.length),
+        shippingLabels.length > 1
+          ? `Shipping labels (${shippingLabels.length} × 100×150 mm)`
+          : 'Shipping label',
+      );
       updateDraft('labelGenerated', true);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Print failed.');
@@ -700,6 +710,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       weightKg: totalChargeableWeight || totalActualWeight,
       fromName,
       fromAddress,
+      generatedBy: user.displayName?.trim() || user.loginId?.trim() || 'YESWEIGH',
     });
   }, [
     selectedDealer,
@@ -709,21 +720,32 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     totalChargeableWeight,
     totalActualWeight,
     fromAddresses,
+    user.displayName,
+    user.loginId,
   ]);
 
   useEffect(() => {
     if (!courierSlip || step !== 'label') {
+      setCourierSlipPdfBytes(null);
       setCourierSlipPreviewUrl(null);
       return;
     }
     let active = true;
     let objectUrl: string | null = null;
     setCourierSlipError('');
-    void buildCourierSlipPngBlob(courierSlip)
-      .then(blob => {
+    setCourierSlipPdfBytes(null);
+    setCourierSlipPreviewUrl(null);
+    void buildCourierSlipShareBlob(courierSlip)
+      .then(async ({ blob, mimeType }) => {
         if (!active) return;
-        objectUrl = URL.createObjectURL(blob);
-        setCourierSlipPreviewUrl(objectUrl);
+        if (mimeType === 'application/pdf') {
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          if (!active) return;
+          setCourierSlipPdfBytes(bytes);
+        } else {
+          objectUrl = URL.createObjectURL(blob);
+          setCourierSlipPreviewUrl(objectUrl);
+        }
       })
       .catch(err => {
         if (active) {
@@ -1293,17 +1315,28 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   </header>
                   <div className="book-courier__label-preview book-courier__label-preview--stack">
                     {shippingLabels.map((label, index) => (
-                      <ShippingLabelBitmapPreview
+                      <div
                         key={`ship-${label.boxIndex}`}
-                        label={label}
-                        ref={el => {
-                          shippingLabelCanvasRefs.current[index] = el;
-                        }}
-                      />
+                        className="book-courier__label-sheet"
+                      >
+                        {shippingLabelCount > 1 && (
+                          <p className="book-courier__label-sheet-caption">
+                            {`Label ${label.boxIndex} of ${shippingLabelCount} · 100 × 150 mm`}
+                          </p>
+                        )}
+                        <ShippingLabelBitmapPreview
+                          label={label}
+                          ref={el => {
+                            shippingLabelCanvasRefs.current[index] = el;
+                          }}
+                        />
+                      </div>
                     ))}
                   </div>
                   <p className="book-courier__hint text-muted text-sm">
-                    Exact 203 DPI print preview — what you see is what the logistics printer receives.
+                    {shippingLabelCount > 1
+                      ? `Exact 203 DPI preview — ${shippingLabelCount} separate 100×150 mm labels (one per box). Print all sends each as its own page.`
+                      : 'Exact 203 DPI print preview — what you see is what the logistics printer receives.'}
                   </p>
                 </article>
 
@@ -1324,20 +1357,20 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     {courierSlipError && (
                       <p className="book-courier__slip-error">{courierSlipError}</p>
                     )}
-                    {courierSlipPreviewUrl ? (
-                      <img
-                        src={courierSlipPreviewUrl}
-                        alt="Courier slip"
-                        className="book-courier__slip-image"
-                      />
+                    {courierSlipPdfBytes ? (
+                      <ZoomablePdfPreview data={courierSlipPdfBytes} />
+                    ) : courierSlipPreviewUrl ? (
+                      <ZoomableImagePreview src={courierSlipPreviewUrl} alt="Courier slip" />
                     ) : (
-                      <p className="text-muted text-sm">Preparing courier slip…</p>
+                      <p className="text-muted text-sm book-courier__slip-preparing">
+                        Preparing courier slip…
+                      </p>
                     )}
                   </div>
                   <p className="book-courier__hint text-muted text-sm">
                     {partnerId === 'st_courier'
-                      ? 'Share the filled ST Courier POD PDF via WhatsApp or any app — not printed from the label printer.'
-                      : 'Share via WhatsApp or any app — not printed from the label printer.'}
+                      ? 'Pinch or use + / − to zoom · drag to pan · Share sends the filled POD PDF.'
+                      : 'Pinch or use + / − to zoom · drag to pan · Share via WhatsApp or any app.'}
                   </p>
                 </article>
               </div>

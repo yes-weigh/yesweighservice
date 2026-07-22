@@ -49,7 +49,6 @@ import {
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
 import { extractCityState, resolveDestinationPlace } from '../../lib/shippingLabel';
-import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { LogisticsBooking, LogisticsBookingDraft, LogisticsBookingStatus } from '../../types/logistics-dispatch';
 import {
@@ -777,7 +776,6 @@ export const LogisticsPage: React.FC = () => {
                   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
                   const tone = cardToneForStatus(booking);
                   const waybill = booking.trackingNo || booking.consignmentNo || '—';
-                  const trackUrl = logisticsTrackingUrl(booking.partnerId, waybill);
                   return (
                     <li key={booking.id}>
                       <article
@@ -802,20 +800,7 @@ export const LogisticsPage: React.FC = () => {
                           </span>
 
                           <div className="logistics-shipment__body">
-                            <strong className="logistics-shipment__tracking">
-                              {trackUrl ? (
-                                <a
-                                  href={trackUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={event => event.stopPropagation()}
-                                >
-                                  {waybill}
-                                </a>
-                              ) : (
-                                waybill
-                              )}
-                            </strong>
+                            <strong className="logistics-shipment__tracking">{waybill}</strong>
 
                             <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
 

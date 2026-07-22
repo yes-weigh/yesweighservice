@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Maximize2, Minus, Plus, Share2, X } from 'lucide-react';
+import { Share2, X } from 'lucide-react';
 import {
   buildCourierSlipFromBooking,
   buildCourierSlipShareBlob,
   shareCourierSlipImage,
 } from '../../lib/courierSlipImage';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
+import { ZoomableImagePreview } from './ZoomableImagePreview';
 import { ZoomablePdfPreview } from './ZoomablePdfPreview';
 
 type Props = {
@@ -123,25 +124,14 @@ export const CourierSlipViewDialog: React.FC<Props> = ({
               {fileName ? ` · ${fileName}` : ''}
             </p>
           </div>
-          <div className="courier-slip-view-dialog__header-actions">
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => void handleShare()}
-              disabled={sharing || loading || Boolean(error)}
-            >
-              <Share2 size={14} aria-hidden />
-              {sharing ? 'Sharing…' : 'Share'}
-            </button>
-            <button
-              type="button"
-              className="dealers-modal__close"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
-          </div>
+          <button
+            type="button"
+            className="dealers-modal__close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {error && <p className="dealers-modal__error">{error}</p>}
@@ -157,70 +147,28 @@ export const CourierSlipViewDialog: React.FC<Props> = ({
             <ZoomableImagePreview src={previewUrl} alt="Courier slip" />
           )}
         </div>
+
+        <div className="dealers-modal__actions courier-slip-view-dialog__actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onClose}
+            disabled={sharing}
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleShare()}
+            disabled={sharing || loading || Boolean(error)}
+          >
+            <Share2 size={16} aria-hidden />
+            {sharing ? 'Sharing…' : 'Share'}
+          </button>
+        </div>
       </div>
     </div>,
     document.body,
   );
 };
-
-const IMAGE_MIN = 0.5;
-const IMAGE_MAX = 4;
-const IMAGE_STEP = 0.25;
-
-function ZoomableImagePreview({ src, alt }: { src: string; alt: string }) {
-  const viewportRef = React.useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(1);
-
-  const clamp = (value: number) => Math.min(IMAGE_MAX, Math.max(IMAGE_MIN, value));
-
-  return (
-    <div className="courier-slip-pdf">
-      <div className="courier-slip-pdf__toolbar" role="toolbar" aria-label="Image zoom">
-        <button
-          type="button"
-          className="courier-slip-pdf__zoom-btn"
-          onClick={() => setZoom(z => clamp(z - IMAGE_STEP))}
-          disabled={zoom <= IMAGE_MIN}
-          aria-label="Zoom out"
-        >
-          <Minus size={16} />
-        </button>
-        <button
-          type="button"
-          className="courier-slip-pdf__zoom-btn courier-slip-pdf__zoom-fit"
-          onClick={() => {
-            setZoom(1);
-            const viewport = viewportRef.current;
-            if (viewport) {
-              viewport.scrollLeft = 0;
-              viewport.scrollTop = 0;
-            }
-          }}
-          aria-label="Fit width"
-        >
-          <Maximize2 size={14} aria-hidden />
-          Fit
-        </button>
-        <button
-          type="button"
-          className="courier-slip-pdf__zoom-btn"
-          onClick={() => setZoom(z => clamp(z + IMAGE_STEP))}
-          disabled={zoom >= IMAGE_MAX}
-          aria-label="Zoom in"
-        >
-          <Plus size={16} />
-        </button>
-        <span className="courier-slip-pdf__zoom-label">{Math.round(zoom * 100)}%</span>
-      </div>
-      <div ref={viewportRef} className="courier-slip-pdf__viewport">
-        <img
-          src={src}
-          alt={alt}
-          className="courier-slip-pdf__image"
-          style={{ width: `${zoom * 100}%` }}
-          draggable={false}
-        />
-      </div>
-    </div>
-  );
-}
