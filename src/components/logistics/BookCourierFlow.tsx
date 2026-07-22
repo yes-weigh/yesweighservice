@@ -1421,7 +1421,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
               {draft.finalPackagePhoto ? (
                 <div className="book-courier__final-photo">
-                  <img src={draft.finalPackagePhoto} alt="Final package" onClick={() => openPreview(draft.finalPackagePhoto)} />
+                  <img
+                    src={draft.finalPackagePhoto}
+                    alt="Final package"
+                    onClick={() => openPreview(draft.finalPackagePhoto!)}
+                  />
                   <div className="book-courier__final-photo-actions">
                     <button
                       type="button"

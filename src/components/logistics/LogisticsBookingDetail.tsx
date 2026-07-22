@@ -325,7 +325,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               <div className="book-courier__thumb">
                 <button
                   type="button"
-                  onClick={() => openPreview(booking.finalPackagePhoto)}
+                  onClick={() => openPreview(booking.finalPackagePhoto!)}
                   aria-label="Preview label pasted photo"
                 >
                   <img src={booking.finalPackagePhoto} alt="Final package" />
