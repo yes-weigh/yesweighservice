@@ -16221,6 +16221,24 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   height: auto;
   object-fit: contain;
   border-radius: 12px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.book-courier__lightbox-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: calc(100dvh - 5.5rem);
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.book-courier__lightbox-stage:active {
+  cursor: grabbing;
 }
 
 .book-courier__lightbox-close {
@@ -16238,6 +16256,53 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
   cursor: pointer;
+}
+
+.book-courier__lightbox-nav {
+  position: fixed;
+  top: 50%;
+  z-index: 5001;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-top: -1.375rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.book-courier__lightbox-nav:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.book-courier__lightbox-nav--prev {
+  left: max(0.65rem, env(safe-area-inset-left, 0px));
+}
+
+.book-courier__lightbox-nav--next {
+  right: max(0.65rem, env(safe-area-inset-right, 0px));
+}
+
+.book-courier__lightbox-count {
+  position: fixed;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  z-index: 5001;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #e2e8f0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
 }
 
 .logistics-booking__photos h4 {

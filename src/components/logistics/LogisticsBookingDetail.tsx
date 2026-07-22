@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ExternalLink, Eye, MapPin, Package, Truck, X } from 'lucide-react';
+import { Check, ExternalLink, Eye, MapPin, Package, Truck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
@@ -32,6 +31,7 @@ import type {
   LogisticsDocumentType,
 } from '../../types/logistics-dispatch';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
+import { PhotoLightbox } from './PhotoLightbox';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
 
 interface LogisticsBookingDetailProps {
@@ -73,10 +73,20 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
   const [shippingLabelOpen, setShippingLabelOpen] = useState(false);
   const [courierSlipOpen, setCourierSlipOpen] = useState(false);
-  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [photosLoading, setPhotosLoading] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
+  const galleryUrls = useMemo(() => {
+    const urls = booking.boxes.flatMap(box =>
+      box.photos
+        .map(photo => photo.url?.trim())
+        .filter((url): url is string => Boolean(url)),
+    );
+    const finalUrl = booking.finalPackagePhoto?.trim();
+    if (finalUrl) urls.push(finalUrl);
+    return urls;
+  }, [booking.boxes, booking.finalPackagePhoto]);
   const currentIndex = isIncompleteLogisticsBooking(booking)
     ? -1
     : bookingStatusIndex(booking.status);
@@ -137,19 +147,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     // Re-run when list refresh wipes URLs (needsPhotoHydration flips back to true).
   }, [booking, needsPhotoHydration, onUpdate]);
 
-  useEffect(() => {
-    if (!previewPhoto) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPreviewPhoto(null);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [previewPhoto]);
+  const openPreview = useCallback((url: string) => {
+    const index = galleryUrls.indexOf(url);
+    if (index >= 0) setPreviewIndex(index);
+  }, [galleryUrls]);
 
   return (
     <article className="logistics-booking panel glass">
@@ -311,7 +312,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 <div key={photo.storagePath || `${box.id}-${photoIndex}`} className="book-courier__thumb">
                   <button
                     type="button"
-                    onClick={() => setPreviewPhoto(photoUrl)}
+                    onClick={() => openPreview(photoUrl)}
                     aria-label={`Preview ${isEnvelope ? 'envelope' : `box ${boxIndex + 1}`}${photoIndex === 0 ? ' inside' : ''} photo`}
                   >
                     <img src={photoUrl} alt={`Box ${boxIndex + 1}`} />
@@ -324,7 +325,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               <div className="book-courier__thumb">
                 <button
                   type="button"
-                  onClick={() => setPreviewPhoto(booking.finalPackagePhoto)}
+                  onClick={() => openPreview(booking.finalPackagePhoto)}
                   aria-label="Preview label pasted photo"
                 >
                   <img src={booking.finalPackagePhoto} alt="Final package" />
@@ -423,25 +424,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         />
       )}
 
-      {previewPhoto && createPortal(
-        <div
-          className="book-courier__lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Photo preview"
-          onClick={() => setPreviewPhoto(null)}
-        >
-          <button
-            type="button"
-            className="book-courier__lightbox-close"
-            aria-label="Close preview"
-            onClick={() => setPreviewPhoto(null)}
-          >
-            <X size={20} aria-hidden />
-          </button>
-          <img src={previewPhoto} alt="Preview" onClick={event => event.stopPropagation()} />
-        </div>,
-        document.body,
+      {previewIndex != null && galleryUrls[previewIndex] && (
+        <PhotoLightbox
+          urls={galleryUrls}
+          index={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+          onIndexChange={setPreviewIndex}
+        />
       )}
     </article>
   );

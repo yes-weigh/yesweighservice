@@ -70,6 +70,7 @@ import {
 } from '../../lib/logisticsLabelPrint';
 import { ZoomableImagePreview } from './ZoomableImagePreview';
 import { ZoomablePdfPreview } from './ZoomablePdfPreview';
+import { PhotoLightbox } from './PhotoLightbox';
 import type { User } from '../../types';
 import type { ZohoDealer } from '../../types/dealers';
 import type {
@@ -198,7 +199,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [editingCourier, setEditingCourier] = useState(false);
-  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [shipFromOpen, setShipFromOpen] = useState(false);
   const [fromAddresses, setFromAddresses] = useState<Record<StaffLogisticsSite, string>>({
     cochin: '',
@@ -235,6 +236,22 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     if (billing && billing !== shipping) tiles.push({ kind: 'billing', address: billing });
     return tiles;
   }, [selectedDealer]);
+
+  const galleryUrls = useMemo(() => {
+    const urls = draft.boxes.flatMap(box =>
+      box.photos
+        .map(photo => photo.url?.trim())
+        .filter((url): url is string => Boolean(url)),
+    );
+    const finalUrl = draft.finalPackagePhoto?.trim();
+    if (finalUrl) urls.push(finalUrl);
+    return urls;
+  }, [draft.boxes, draft.finalPackagePhoto]);
+
+  const openPreview = useCallback((url: string) => {
+    const index = galleryUrls.indexOf(url);
+    if (index >= 0) setPreviewIndex(index);
+  }, [galleryUrls]);
 
   useEffect(() => {
     const zohoId = initialDraft?.zohoCustomerId?.trim();
@@ -1129,7 +1146,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     onField={(key, value) => updateBoxField(box.id, key, value)}
                     onAddPhoto={file => void addBoxPhoto(box.id, file)}
                     onRemovePhoto={photoId => removeBoxPhoto(box.id, photoId)}
-                    onPreview={setPreviewPhoto}
+                    onPreview={openPreview}
                     onRemoveBox={() => removeBox(box.id)}
                   />
                 ))}
@@ -1249,7 +1266,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <div className="book-courier__gallery">
                   {draft.boxes.flatMap((box, boxIndex) => box.photos.map(photo => (
                     <div key={photo.id} className="book-courier__thumb">
-                      <button type="button" onClick={() => setPreviewPhoto(photo.url)} aria-label={`Preview ${isEnvelope ? 'envelope' : `box ${boxIndex + 1}`} photo`}>
+                      <button type="button" onClick={() => openPreview(photo.url)} aria-label={`Preview ${isEnvelope ? 'envelope' : `box ${boxIndex + 1}`} photo`}>
                         <img src={photo.url} alt={isEnvelope ? 'Envelope' : `Box ${boxIndex + 1}`} />
                       </button>
                       <span>{isEnvelope ? 'Envelope' : `Box ${boxIndex + 1}`}</span>
@@ -1404,7 +1421,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
               {draft.finalPackagePhoto ? (
                 <div className="book-courier__final-photo">
-                  <img src={draft.finalPackagePhoto} alt="Final package" onClick={() => setPreviewPhoto(draft.finalPackagePhoto)} />
+                  <img src={draft.finalPackagePhoto} alt="Final package" onClick={() => openPreview(draft.finalPackagePhoto)} />
                   <div className="book-courier__final-photo-actions">
                     <button
                       type="button"
@@ -1475,13 +1492,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           )}
         </div>
 
-        {previewPhoto && (
-          <div className="book-courier__lightbox" role="dialog" aria-modal="true" onClick={() => setPreviewPhoto(null)}>
-            <button type="button" className="book-courier__lightbox-close" aria-label="Close preview">
-              <X size={20} aria-hidden />
-            </button>
-            <img src={previewPhoto} alt="Preview" onClick={event => event.stopPropagation()} />
-          </div>
+        {previewIndex != null && galleryUrls[previewIndex] && (
+          <PhotoLightbox
+            urls={galleryUrls}
+            index={previewIndex}
+            onClose={() => setPreviewIndex(null)}
+            onIndexChange={setPreviewIndex}
+          />
         )}
       </div>
     </div>,
