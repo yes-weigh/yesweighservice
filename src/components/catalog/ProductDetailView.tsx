@@ -1828,6 +1828,17 @@ export const ProductDetailView: React.FC<{
                     <span>{formatCurrencyWhole(product.rate).replace('₹', '').trim()}</span>
                   </div>
                   <span className="product-detail-page__title-price-gst">+GST</span>
+                  {product.mrpOverride != null && Number(product.mrpOverride) > 0 && (
+                    <span className="product-detail-page__title-price-mrp">
+                      <span className="product-detail-page__title-price-mrp-label">MRP</span>
+                      <span className="product-detail-page__title-price-mrp-amount">
+                        <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                        {Number(product.mrpOverride).toLocaleString('en-IN', {
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -1996,11 +2007,6 @@ export const ProductDetailView: React.FC<{
 
             {!productEditMode && (
               <div className="product-detail-page__meta-chips">
-                {product.mrpOverride != null && Number(product.mrpOverride) > 0 && (
-                  <p className="product-detail-page__sku">
-                    MRP: ₹ {Number(product.mrpOverride).toFixed(2)}
-                  </p>
-                )}
                 {isCategorizedProduct && product.modelNumber && (
                   <p className="product-detail-page__sku">Model: {product.modelNumber}</p>
                 )}

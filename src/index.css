@@ -8758,6 +8758,43 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex-shrink: 0;
 }
 
+.product-detail-page__title-price-mrp {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin-top: 0.1rem;
+}
+
+.product-detail-page__title-price-mrp-label {
+  font-size: 0.6875rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #334155;
+  line-height: 1;
+}
+
+.product-detail-page__title-price-mrp-amount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12rem;
+  font-size: 0.9375rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.product-detail-page__title-price-mrp-amount svg {
+  color: var(--accent-primary);
+  width: 0.85rem;
+  height: 0.85rem;
+  transform: translateY(0.06em);
+  flex-shrink: 0;
+}
+
 .product-detail-page__title-price-gst {
   padding: 0.1rem 0.35rem;
   border-radius: 999px;
