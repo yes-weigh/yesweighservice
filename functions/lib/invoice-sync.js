@@ -15,6 +15,7 @@ import {
   firestoreDocToListInvoice,
   firestoreDocToDetail,
 } from './invoice-mappers.js';
+import { classifyInvoiceFromLineItems } from './invoice-category.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const INVOICES_SUBCOLLECTION = 'invoices';
@@ -260,7 +261,8 @@ async function resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw) {
   };
 }
 
-async function getCatalogImagesForItems(itemIds) {
+/** @returns {Map<string, { imageUrl: string|null, hsn: string|null, categoryId: string|null, categoryName: string|null }>} */
+async function getCatalogMetaForItems(itemIds) {
   const unique = [...new Set(itemIds.filter(Boolean))];
   const map = new Map();
   if (!unique.length) return map;
@@ -269,9 +271,14 @@ async function getCatalogImagesForItems(itemIds) {
   const refs = unique.map(id => db.collection('catalogProducts').doc(id));
   const snaps = await db.getAll(...refs);
   for (const snap of snaps) {
-    if (snap.exists) {
-      map.set(snap.id, snap.data()?.imageUrl ?? null);
-    }
+    if (!snap.exists) continue;
+    const data = snap.data() || {};
+    map.set(snap.id, {
+      imageUrl: data.imageUrl ?? null,
+      hsn: data.hsn != null ? String(data.hsn) : null,
+      categoryId: data.categoryId != null ? String(data.categoryId) : null,
+      categoryName: data.categoryName != null ? String(data.categoryName) : null,
+    });
   }
   return map;
 }
@@ -312,12 +319,27 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
   const invoiceId = String(invoiceRaw.invoice_id);
   const lineItemsRaw = invoiceRaw.line_items ?? [];
   const itemIds = lineItemsRaw.map(item => (item.item_id ? String(item.item_id) : null));
-  const imageMap = options.skipImages
-    ? new Map()
-    : await getCatalogImagesForItems(itemIds);
-  const lineItems = lineItemsRaw.map(item =>
-    mapInvoiceLineItem(item, item.item_id ? imageMap.get(String(item.item_id)) ?? null : null),
-  );
+  // Always load catalog meta for HSN/category classification (and optional images).
+  const catalogMap = await getCatalogMetaForItems(itemIds);
+  const lineItems = lineItemsRaw.map(item => {
+    const itemId = item.item_id ? String(item.item_id) : null;
+    const meta = itemId ? catalogMap.get(itemId) : null;
+    return mapInvoiceLineItem(
+      item,
+      options.skipImages ? null : (meta?.imageUrl ?? null),
+    );
+  });
+  const classifyInput = lineItemsRaw.map(item => {
+    const itemId = item.item_id ? String(item.item_id) : null;
+    return {
+      total: Number(item.item_total ?? item.total ?? 0),
+      name: String(item.name ?? item.item_name ?? ''),
+      sku: item.sku ? String(item.sku) : null,
+      itemId,
+      hsn: item.hsn_or_sac ?? item.hsnOrSac ?? item.hsn ?? null,
+    };
+  });
+  const invoiceCategory = classifyInvoiceFromLineItems(classifyInput, catalogMap);
   const salesOrder = options.skipSalesOrder
     ? null
     : await resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw);
@@ -339,6 +361,7 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
     taxTotal: Number(invoiceRaw.tax_total ?? 0),
     notes: invoiceRaw.notes ? String(invoiceRaw.notes) : null,
     lineItems,
+    invoiceCategory,
     zohoLastModified: invoiceRaw.last_modified_time
       ? String(invoiceRaw.last_modified_time)
       : null,
@@ -732,12 +755,13 @@ export async function readInvoiceDetailFromFirestore(customerId, invoiceId) {
   if (!needsImages) return detail;
 
   const itemIds = detail.lineItems.map(item => item.itemId).filter(Boolean);
-  const imageMap = await getCatalogImagesForItems(itemIds);
+  const catalogMap = await getCatalogMetaForItems(itemIds);
   return {
     ...detail,
     lineItems: detail.lineItems.map(item => ({
       ...item,
-      imageUrl: item.imageUrl || (item.itemId ? imageMap.get(String(item.itemId)) ?? null : null),
+      imageUrl: item.imageUrl
+        || (item.itemId ? catalogMap.get(String(item.itemId))?.imageUrl ?? null : null),
     })),
   };
 }

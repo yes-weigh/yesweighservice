@@ -1,16 +1,18 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
-import type {
-  DealerInvoice,
-  DealerInvoiceDetail,
-  DealerInvoiceLineItem,
-  InvoiceDashboardSummary,
-  InvoiceDocumentDownload,
-  InvoiceDocumentType,
-  InvoiceListParams,
-  InvoiceListResponse,
-  InvoiceSalesEntry,
-  KpiPeriod,
+import {
+  INVOICE_CATEGORIES,
+  type DealerInvoice,
+  type DealerInvoiceDetail,
+  type DealerInvoiceLineItem,
+  type InvoiceCategory,
+  type InvoiceDashboardSummary,
+  type InvoiceDocumentDownload,
+  type InvoiceDocumentType,
+  type InvoiceListParams,
+  type InvoiceListResponse,
+  type InvoiceSalesEntry,
+  type KpiPeriod,
 } from '../types/invoices';
 import {
   getCachedAllInvoices,
@@ -625,6 +627,33 @@ export function sumInvoiceProductQuantity(lineItems: DealerInvoiceLineItem[]): n
 export function formatInvoiceItemQuantity(quantity: number | null): string {
   if (quantity === null) return '—';
   return quantity.toLocaleString('en-IN');
+}
+
+export function parseInvoiceCategory(value: unknown): InvoiceCategory | null {
+  const key = String(value ?? '').trim();
+  return (INVOICE_CATEGORIES as readonly string[]).includes(key)
+    ? (key as InvoiceCategory)
+    : null;
+}
+
+export function invoiceCategoryLabel(category: InvoiceCategory | null | undefined): string {
+  switch (category) {
+    case 'product':
+      return 'Product';
+    case 'spare':
+      return 'Spare';
+    case 'service':
+      return 'Service';
+    case 'software_key':
+      return 'Software key';
+    default:
+      return '';
+  }
+}
+
+export function invoiceCategoryClassName(category: InvoiceCategory | null | undefined): string {
+  if (!category) return 'invoices-category';
+  return `invoices-category invoices-category--${category}`;
 }
 
 export function normalizeInvoiceSearchNeedle(text: string): string {

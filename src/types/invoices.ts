@@ -8,6 +8,16 @@ export type InvoiceStatus =
   | 'partially_paid'
   | 'viewed';
 
+/** Derived from the highest-value non-freight line item at Zoho sync. */
+export type InvoiceCategory = 'product' | 'spare' | 'service' | 'software_key';
+
+export const INVOICE_CATEGORIES: readonly InvoiceCategory[] = [
+  'product',
+  'spare',
+  'service',
+  'software_key',
+] as const;
+
 export interface DealerInvoice {
   id: string;
   invoiceNumber: string;
@@ -21,6 +31,8 @@ export interface DealerInvoice {
   currencyCode: string;
   customerName: string | null;
   invoiceUrl: string | null;
+  /** Present after sync with category classifier; null for older docs. */
+  invoiceCategory?: InvoiceCategory | null;
 }
 
 export interface DealerInvoiceLineItem {

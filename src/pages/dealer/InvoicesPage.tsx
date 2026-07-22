@@ -23,6 +23,8 @@ import {
   fetchDealerInvoiceDashboardWithCache,
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
+  invoiceCategoryClassName,
+  invoiceCategoryLabel,
   invoiceDeliveryLabel,
   getInvoiceDeliveryStage,
   invoiceErrorMessage,
@@ -275,6 +277,7 @@ function InvoiceFilterSheet({
 }
 
 function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen: (id: string) => void }) {
+  const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
   return (
     <button
       type="button"
@@ -292,6 +295,11 @@ function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen:
             <span className="invoices-mobile-row__so">{invoice.referenceNumber}</span>
           )}
           <span className="invoices-mobile-row__meta">{formatInvoiceDate(invoice.date)}</span>
+          {categoryLabel && (
+            <span className={invoiceCategoryClassName(invoice.invoiceCategory)}>
+              {categoryLabel}
+            </span>
+          )}
         </span>
         <span className="invoices-mobile-row__amount">
           <strong>{formatCurrency(invoice.total)}</strong>
@@ -642,6 +650,7 @@ export const InvoicesPage: React.FC = () => {
                             Due <SortMark field="dueDate" />
                           </button>
                         </th>
+                        <th>Category</th>
                         <th>Delivery</th>
                         <th className="invoices-table__num">
                           <button type="button" onClick={() => handleSort('total')}>
@@ -656,7 +665,9 @@ export const InvoicesPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {invoices.map(invoice => (
+                      {invoices.map(invoice => {
+                        const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
+                        return (
                         <tr
                           key={invoice.id}
                           className="invoices-table__row--clickable"
@@ -681,11 +692,21 @@ export const InvoicesPage: React.FC = () => {
                           </td>
                           <td>{formatInvoiceDate(invoice.date)}</td>
                           <td>{formatInvoiceDate(invoice.dueDate)}</td>
+                          <td>
+                            {categoryLabel ? (
+                              <span className={invoiceCategoryClassName(invoice.invoiceCategory)}>
+                                {categoryLabel}
+                              </span>
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
                           <td><InvoiceDeliveryBadge date={invoice.date} /></td>
                           <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
                           <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

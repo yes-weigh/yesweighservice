@@ -325,6 +325,10 @@ export function filterInvoicesBySearch(invoices, searchText, searchBlobById = ne
 }
 
 export function firestoreDocToListInvoice(data) {
+  const invoiceCategory = data.invoiceCategory
+    && ['product', 'spare', 'service', 'software_key'].includes(String(data.invoiceCategory))
+    ? String(data.invoiceCategory)
+    : null;
   return {
     id: String(data.id ?? ''),
     invoiceNumber: String(data.invoiceNumber ?? ''),
@@ -338,6 +342,7 @@ export function firestoreDocToListInvoice(data) {
     currencyCode: data.currencyCode ? String(data.currencyCode) : 'INR',
     customerName: data.customerName ?? null,
     invoiceUrl: data.invoiceUrl ?? null,
+    invoiceCategory,
   };
 }
 

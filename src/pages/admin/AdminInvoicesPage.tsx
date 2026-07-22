@@ -28,11 +28,13 @@ import {
   formatInvoiceDate,
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
+  invoiceCategoryClassName,
+  invoiceCategoryLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { SalesRangePreset } from '../../types/invoices';
-import { SALES_RANGE_OPTIONS } from '../../types/invoices';';
+import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
@@ -418,6 +420,7 @@ export const AdminInvoicesPage: React.FC = () => {
                   <th>Date</th>
                   <th className="invoices-table__num">Qty</th>
                   <th className="invoices-table__num">Total</th>
+                  <th>Category</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -426,6 +429,7 @@ export const AdminInvoicesPage: React.FC = () => {
                   const locationLabel = formatAdminCustomerLocation(
                     customerLocations.get(invoice.customerId),
                   );
+                  const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
                   return (
                     <tr
                       key={`${invoice.customerId}-${invoice.id}`}
@@ -459,6 +463,15 @@ export const AdminInvoicesPage: React.FC = () => {
                       <td className="invoices-table__num">{formatInvoiceItemQuantity(invoice.itemQuantity)}</td>
                       <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
                       <td>
+                        {categoryLabel ? (
+                          <span className={invoiceCategoryClassName(invoice.invoiceCategory)}>
+                            {categoryLabel}
+                          </span>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                      <td>
                         <span className={invoiceStatusClass(invoice.status)}>
                           {invoiceStatusLabel(invoice.status)}
                         </span>
@@ -479,6 +492,7 @@ export const AdminInvoicesPage: React.FC = () => {
               const locationLabel = formatAdminCustomerLocation(
                 customerLocations.get(invoice.customerId),
               );
+              const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
               return (
                 <button
                   key={`${invoice.customerId}-${invoice.id}`}
@@ -501,6 +515,11 @@ export const AdminInvoicesPage: React.FC = () => {
                         {' · '}
                         Qty {formatInvoiceItemQuantity(invoice.itemQuantity)}
                       </span>
+                      {categoryLabel && (
+                        <span className={invoiceCategoryClassName(invoice.invoiceCategory)}>
+                          {categoryLabel}
+                        </span>
+                      )}
                     </span>
                     <span className="invoices-mobile-row__amount">
                       <strong>{formatCurrency(invoice.total)}</strong>

@@ -20788,6 +20788,40 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #fcd34d;
 }
 
+.invoices-category {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.14rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.invoices-category--product {
+  background: rgba(245, 130, 32, 0.16);
+  color: #fdba74;
+}
+
+.invoices-category--spare {
+  background: rgba(148, 163, 184, 0.16);
+  color: #e2e8f0;
+}
+
+.invoices-category--service {
+  background: rgba(167, 139, 250, 0.16);
+  color: #c4b5fd;
+}
+
+.invoices-category--software_key {
+  background: rgba(56, 189, 248, 0.16);
+  color: #7dd3fc;
+}
+
 .invoices-mobile-list {
   display: none;
   flex-direction: column;
@@ -20851,9 +20885,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .invoices-mobile-row__invoice {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  align-items: flex-start;
+  gap: 0.2rem;
   min-width: 0;
   flex: 1 1 auto;
+}
+
+.invoices-mobile-row__invoice .invoices-category {
+  margin-top: 0.1rem;
 }
 
 .invoices-mobile-row__invoice strong {

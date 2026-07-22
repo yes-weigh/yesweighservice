@@ -16,11 +16,13 @@ import { db } from '../firebase';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
+  parseInvoiceCategory,
   sumInvoiceProductQuantity,
 } from './invoices';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
+  InvoiceCategory,
   InvoiceChartPoint,
   InvoiceSalesEntry,
   KpiPeriod,
@@ -40,6 +42,7 @@ export interface AdminFirestoreInvoice {
   referenceNumber: string | null;
   syncedAt: string | null;
   itemQuantity: number | null;
+  invoiceCategory: InvoiceCategory | null;
 }
 
 function timestampToIso(value: unknown): string | null {
@@ -72,6 +75,7 @@ export function mapAdminInvoiceDoc(
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
     itemQuantity: lineItems.length ? sumInvoiceProductQuantity(lineItems) : null,
+    invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
   };
 }
 
@@ -274,6 +278,7 @@ export function mapAdminInvoiceDetail(
     currencyCode: data.currencyCode ? String(data.currencyCode) : 'INR',
     customerName: data.customerName ? String(data.customerName) : null,
     invoiceUrl: data.invoiceUrl ? String(data.invoiceUrl) : null,
+    invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     salesOrderId: data.salesOrderId ? String(data.salesOrderId) : null,
     salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
     subtotal: Number(data.subtotal ?? 0),
