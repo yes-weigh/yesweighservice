@@ -30,6 +30,7 @@ import {
   readCachedDealerInvoiceDashboard,
   readCachedDealerInvoices,
 } from '../../lib/invoices';
+import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { DealerInvoice, InvoiceDashboardSummary, InvoiceListParams, SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
@@ -362,6 +363,7 @@ export const InvoicesPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const basePath = user ? homePathForRole(user.role) : '/dealer';
+  const scrollRef = useRevealScrollbarOnScroll();
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 400);
   const [sortField, setSortField] = useState<InvoiceSortField>(DEFAULT_SORT_FIELD);
@@ -583,7 +585,7 @@ export const InvoicesPage: React.FC = () => {
     <div className="page-content fade-in invoices-page">
       {summaryBlock}
 
-      <div className="invoices-page__scroll invoices-page__body">
+      <div ref={scrollRef} className="invoices-page__scroll invoices-page__body">
       {error && (
         <div className="products-inline-error panel glass invoices-page__error">
           <AlertCircle size={18} />

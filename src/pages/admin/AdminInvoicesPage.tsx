@@ -30,8 +30,9 @@ import {
   formatKpiPeriodRange,
   invoiceStatusLabel,
 } from '../../lib/invoices';
+import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { SalesRangePreset } from '../../types/invoices';
-import { SALES_RANGE_OPTIONS } from '../../types/invoices';
+import { SALES_RANGE_OPTIONS } from '../../types/invoices';';
 
 const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
@@ -192,6 +193,7 @@ function AdminFilterSheet({
 
 export const AdminInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
+  const scrollRef = useRevealScrollbarOnScroll();
   const [rows, setRows] = useState<AdminFirestoreInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -361,7 +363,7 @@ export const AdminInvoicesPage: React.FC = () => {
         </div>
       </section>
 
-      <div className="invoices-page__scroll">
+      <div ref={scrollRef} className="invoices-page__scroll">
       {error && (
         <div className="products-inline-error panel glass admin-invoices-error" role="alert">
           <AlertCircle size={18} />
