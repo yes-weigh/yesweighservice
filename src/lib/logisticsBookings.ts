@@ -270,12 +270,21 @@ async function uploadDraftBoxPhotos(
   return { boxes, finalPackagePhotoStoragePath };
 }
 
+function firestoreStringField(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
 async function buildBookingPayload(input: PersistLogisticsBookingInput & {
   bookingId: string;
   status: LogisticsBookingStatus;
   createdAt: string;
   existingFinalPackagePhotoStoragePath?: string | null;
   existingOrderRef?: string | null;
+  /** Preserve on update — Firestore rules lock these for ops writes. */
+  existingCreatedByUid?: string | null;
+  existingCreatedByName?: string | null;
+  existingDealerId?: string | null;
+  existingZohoCustomerId?: string | null;
 }): Promise<Record<string, unknown>> {
   const {
     draft,
@@ -287,6 +296,10 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     wizardStep,
     existingFinalPackagePhotoStoragePath = null,
     existingOrderRef = null,
+    existingCreatedByUid = null,
+    existingCreatedByName = null,
+    existingDealerId = null,
+    existingZohoCustomerId = null,
   } = input;
   const settings = await loadLogisticsSettings();
   const shipFromAddress = settings.fromAddresses[draft.shipFromSite]?.trim() || '';
@@ -307,12 +320,11 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     (total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0),
     0,
   );
-  const createdByName = (
-    createdBy.displayName?.trim()
+  const createdByName = existingCreatedByName
+    || createdBy.displayName?.trim()
     || createdBy.loginId?.trim()
     || createdBy.email?.trim()
-    || 'YESWEIGH'
-  );
+    || 'YESWEIGH';
 
   return {
     orderRef,
@@ -327,8 +339,9 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     branch: draft.branch.trim(),
     serviceType: draft.serviceType.trim(),
     bookingDate: draft.bookingDate || new Date().toISOString().slice(0, 10),
-    zohoCustomerId: draft.zohoCustomerId,
-    dealerId: draft.dealerId,
+    // Top-level dealer keys are immutable in Firestore update rules — keep the stored values.
+    zohoCustomerId: existingZohoCustomerId || draft.zohoCustomerId,
+    dealerId: existingDealerId || draft.dealerId,
     dealerSnapshot: {
       zohoCustomerId: dealer.zohoCustomerId,
       dealerId: dealer.dealerId,
@@ -369,7 +382,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     wizardStep: wizardStep ?? null,
     createdAt,
     updatedAt: now,
-    createdByUid: createdBy.uid,
+    createdByUid: existingCreatedByUid || createdBy.uid,
     createdByName,
   };
 }
@@ -720,16 +733,21 @@ export async function persistLogisticsBooking(
   let createdAt = now;
   let existingFinalPackagePhotoStoragePath: string | null = null;
   let existingOrderRef: string | null = null;
+  let existingCreatedByUid: string | null = null;
+  let existingCreatedByName: string | null = null;
+  let existingDealerId: string | null = null;
+  let existingZohoCustomerId: string | null = null;
   if (existingBookingId) {
     const existing = await getDoc(bookingRef);
     if (!existing.exists()) throw new Error('Booking not found.');
-    createdAt = String(existing.data()?.createdAt ?? now);
-    existingFinalPackagePhotoStoragePath = typeof existing.data()?.finalPackagePhotoStoragePath === 'string'
-      ? existing.data()?.finalPackagePhotoStoragePath
-      : null;
-    existingOrderRef = typeof existing.data()?.orderRef === 'string'
-      ? existing.data()?.orderRef
-      : null;
+    const data = existing.data() ?? {};
+    createdAt = firestoreStringField(data.createdAt) || now;
+    existingFinalPackagePhotoStoragePath = firestoreStringField(data.finalPackagePhotoStoragePath);
+    existingOrderRef = firestoreStringField(data.orderRef);
+    existingCreatedByUid = firestoreStringField(data.createdByUid);
+    existingCreatedByName = firestoreStringField(data.createdByName);
+    existingDealerId = firestoreStringField(data.dealerId);
+    existingZohoCustomerId = firestoreStringField(data.zohoCustomerId);
   }
 
   try {
@@ -747,6 +765,10 @@ export async function persistLogisticsBooking(
       wizardStep: null,
       existingFinalPackagePhotoStoragePath,
       existingOrderRef,
+      existingCreatedByUid,
+      existingCreatedByName,
+      existingDealerId,
+      existingZohoCustomerId,
     });
 
     await setDoc(bookingRef, payload);

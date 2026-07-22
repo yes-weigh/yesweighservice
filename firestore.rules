@@ -727,9 +727,10 @@ service cloud.firestore {
     }
 
     function validLogisticsBookingOpsUpdate() {
+      // Ops may complete/resume bookings started by another staff member.
+      // Keep provenance (createdAt / createdByUid) immutable; dealer keys may be
+      // re-synced from Zoho when portal linking changes between draft and confirm.
       return isOpsUser()
-        && request.resource.data.dealerId == resource.data.dealerId
-        && request.resource.data.zohoCustomerId == resource.data.zohoCustomerId
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.createdByUid == resource.data.createdByUid;
     }

@@ -1397,9 +1397,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 className="btn btn-primary book-courier__next"
                 disabled={savingDraft}
                 onClick={() => {
-                  void persistDraft('final_photo', {
-                    close: true,
-                    draftOverride: { ...draftRef.current, labelGenerated: true },
+                  void advanceTo('final_photo', {
+                    ...draftRef.current,
+                    labelGenerated: true,
                   });
                 }}
               >
