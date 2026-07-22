@@ -138,6 +138,32 @@ export async function runOrgInvoiceSync(): Promise<OrgInvoiceSyncRunResult> {
   }
 }
 
+export interface InvoiceCategoryBackfillResult {
+  scanned: number;
+  updated: number;
+  skipped: number;
+  category: string;
+}
+
+/** Mark existing Firestore invoices as product (new Zoho invoices still use guidelines). */
+export async function backfillInvoiceCategoriesToProduct(
+  options?: { onlyMissing?: boolean },
+): Promise<InvoiceCategoryBackfillResult> {
+  const callable = httpsCallable<{ onlyMissing?: boolean }, InvoiceCategoryBackfillResult>(
+    functions,
+    'backfillInvoiceCategoriesToProductFn',
+    { timeout: LONG_TIMEOUT_MS },
+  );
+  try {
+    const result = await callable({
+      onlyMissing: options?.onlyMissing !== false,
+    });
+    return result.data;
+  } catch (err) {
+    throw new Error(syncErrorMessage(err));
+  }
+}
+
 export function orgSyncStatusLabel(status: OrgInvoiceSyncStatus['status']): string {
   switch (status) {
     case 'running':

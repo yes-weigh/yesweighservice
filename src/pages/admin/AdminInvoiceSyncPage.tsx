@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Activity, FileText, Play, RefreshCw, RotateCcw } from 'lucide-react';
+import { AlertCircle, Activity, FileText, Play, RefreshCw, RotateCcw, Tags } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import {
+  backfillInvoiceCategoriesToProduct,
   countOrgInvoicesInRange,
   fetchOrgInvoiceSyncStatus,
   fetchZohoApiUsage,
@@ -39,9 +41,20 @@ export const AdminInvoiceSyncPage: React.FC = () => {
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<'count' | 'sync' | null>(null);
+  const [busy, setBusy] = useState<'count' | 'sync' | 'category' | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const actionFeedbackRef = useRef<HTMLDivElement | null>(null);
+
+  useCatalogPageHeader({ title: 'Invoice sync' }, true);
+
+  const showActionFeedback = useCallback((nextNotice: string, nextError = '') => {
+    setNotice(nextNotice);
+    setError(nextError);
+    window.requestAnimationFrame(() => {
+      actionFeedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }, []);
 
   const loadStatus = useCallback(async () => {
     setError('');
@@ -82,25 +95,49 @@ export const AdminInvoiceSyncPage: React.FC = () => {
 
   const handleCount = async () => {
     setBusy('count');
-    setError('');
-    setNotice('');
+    showActionFeedback(
+      'Counting invoices in Zoho… this can take several minutes for a full org (~20k invoices). Keep this tab open.',
+    );
     try {
       const result = await countOrgInvoicesInRange();
-      setNotice(
-        `Found ${result.totalInRange.toLocaleString()} invoices in Zoho; `
-        + `${result.pulledCount.toLocaleString()} already in Firestore.`,
-      );
       await loadStatus();
+      const remaining = Math.max(0, result.totalInRange - result.pulledCount);
+      showActionFeedback(
+        `Count finished — ${result.totalInRange.toLocaleString()} in Zoho, `
+        + `${result.pulledCount.toLocaleString()} in Firestore`
+        + (remaining === 0
+          ? ' (all pulled; Count only refreshes totals, it does not re-download invoices).'
+          : ` (${remaining.toLocaleString()} remaining — use Pull now).`),
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Count failed.');
+      showActionFeedback('', err instanceof Error ? err.message : 'Count failed.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleCategoryBackfill = async () => {
+    setBusy('category');
+    showActionFeedback(
+      'Marking existing invoices as Product… this only updates Firestore (no Zoho calls).',
+    );
+    try {
+      const result = await backfillInvoiceCategoriesToProduct({ onlyMissing: true });
+      showActionFeedback(
+        `Categories updated — scanned ${result.scanned.toLocaleString()}, `
+        + `set ${result.updated.toLocaleString()} to Product, `
+        + `skipped ${result.skipped.toLocaleString()} already categorised. `
+        + 'New invoices from Pull will use HSN/catalog rules.',
+      );
+    } catch (err) {
+      showActionFeedback('', err instanceof Error ? err.message : 'Category backfill failed.');
     } finally {
       setBusy(null);
     }
   };
 
   const handleSync = () => {
-    setError('');
-    setNotice(
+    showActionFeedback(
       'Sync started on the server (Cloud Functions). You can close this tab — '
       + 'status refreshes automatically.',
     );
@@ -114,7 +151,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         if (result.failedCount) parts.push(`${result.failedCount} failed`);
         if (result.rateLimited) parts.push('stopped — Zoho rate limit');
         if (result.quotaReserved) parts.push('stopped — 30% quota reserved for daytime');
-        setNotice(
+        showActionFeedback(
           result.message
           ?? (result.completed
             ? `Complete — ${parts.join(', ')}. All ${result.pulledCount.toLocaleString()} invoices are in Firestore.`
@@ -123,7 +160,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
         void loadStatus();
       })
       .catch(err => {
-        setError(err instanceof Error ? err.message : 'Sync failed.');
+        showActionFeedback('', err instanceof Error ? err.message : 'Sync failed.');
         void loadStatus();
       });
   };
@@ -167,19 +204,6 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           Refresh status
         </button>
       </div>
-
-      {error && (
-        <div className="products-inline-error panel glass mb-4" role="alert">
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {notice && (
-        <div className="panel glass mb-4" role="status">
-          <span>{notice}</span>
-        </div>
-      )}
 
       <div className="panel glass mb-6 admin-zoho-usage">
         <div className="admin-zoho-usage__head">
@@ -375,9 +399,33 @@ export const AdminInvoiceSyncPage: React.FC = () => {
       <div className="panel glass">
         <h2 className="mb-4">Actions</h2>
         <p className="text-muted mb-4">
-          <strong> Count invoices</strong> scans Zoho and Firestore to refresh totals (run after a long Pull).
-          <strong> Pull now</strong> resumes from the saved checkpoint (manual — no 30% reserve; up to 60 minutes per run).
+          <strong>Count invoices</strong> only refreshes the totals above (can take several minutes).
+          It does not re-download invoices.
+          {' '}
+          <strong>Pull now</strong> downloads missing/changed invoices from the checkpoint
+          (manual — no 30% reserve; up to 60 minutes per run).
+          With <strong>Remaining: 0</strong>, Pull mostly skips already-cached invoices.
+          {' '}
+          <strong>Mark existing as Product</strong> stamps all invoices that lack a category as Product;
+          brand-new invoices from Pull use the HSN / spare / service / software-key rules.
         </p>
+        <div ref={actionFeedbackRef}>
+          {error && (
+            <div className="products-inline-error panel glass mb-4" role="alert">
+              <AlertCircle size={18} />
+              <span>{error}</span>
+            </div>
+          )}
+          {(notice || busy === 'count') && (
+            <div className="panel glass mb-4" role="status">
+              <span>
+                {busy === 'count' && !notice.includes('finished')
+                  ? (notice || 'Counting invoices…')
+                  : notice}
+              </span>
+            </div>
+          )}
+        </div>
         <div className="flex gap-3 flex-wrap">
           <button
             type="button"
@@ -386,7 +434,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
             onClick={() => { void handleCount(); }}
           >
             {busy === 'count' ? <RotateCcw size={16} className="spin" /> : <RefreshCw size={16} />}
-            Count invoices
+            {busy === 'count' ? 'Counting…' : 'Count invoices'}
           </button>
           <button
             type="button"
@@ -396,6 +444,15 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           >
             {busy === 'sync' ? <RotateCcw size={16} className="spin" /> : <Play size={16} />}
             Pull now
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={busy !== null}
+            onClick={() => { void handleCategoryBackfill(); }}
+          >
+            {busy === 'category' ? <RotateCcw size={16} className="spin" /> : <Tags size={16} />}
+            {busy === 'category' ? 'Updating…' : 'Mark existing as Product'}
           </button>
         </div>
       </div>

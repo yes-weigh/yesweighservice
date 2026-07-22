@@ -82,6 +82,7 @@ import {
   countOrgInvoicesInRange,
   syncOrgInvoicesToFirestore,
 } from './lib/org-invoice-sync.js';
+import { backfillInvoiceCategoriesToProduct } from './lib/invoice-category.js';
 import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
@@ -1811,6 +1812,26 @@ export const countOrgInvoicesInRangeCallable = onCall(
     } catch (err) {
       console.error('countOrgInvoicesInRange failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice count failed.');
+    }
+  },
+);
+
+/** Stamp existing invoices as product; new syncs use guideline classification. */
+export const backfillInvoiceCategoriesToProductFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillInvoiceCategoriesToProduct({
+        onlyMissing: request.data?.onlyMissing !== false,
+      });
+    } catch (err) {
+      console.error('backfillInvoiceCategoriesToProduct failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice category backfill failed.');
     }
   },
 );

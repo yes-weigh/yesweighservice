@@ -15,7 +15,10 @@ import {
   firestoreDocToListInvoice,
   firestoreDocToDetail,
 } from './invoice-mappers.js';
-import { classifyInvoiceFromLineItems } from './invoice-category.js';
+import {
+  classifyInvoiceFromLineItems,
+  parseInvoiceCategory,
+} from './invoice-category.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const INVOICES_SUBCOLLECTION = 'invoices';
@@ -329,17 +332,24 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
       options.skipImages ? null : (meta?.imageUrl ?? null),
     );
   });
-  const classifyInput = lineItemsRaw.map(item => {
-    const itemId = item.item_id ? String(item.item_id) : null;
-    return {
-      total: Number(item.item_total ?? item.total ?? 0),
-      name: String(item.name ?? item.item_name ?? ''),
-      sku: item.sku ? String(item.sku) : null,
-      itemId,
-      hsn: item.hsn_or_sac ?? item.hsnOrSac ?? item.hsn ?? null,
-    };
-  });
-  const invoiceCategory = classifyInvoiceFromLineItems(classifyInput, catalogMap);
+  // Brand-new invoices use HSN/catalog rules; existing docs keep their category
+  // (legacy backfill stamps them as "product").
+  let invoiceCategory = parseInvoiceCategory(options.existingInvoiceCategory);
+  if (options.isNewInvoice) {
+    const classifyInput = lineItemsRaw.map(item => {
+      const itemId = item.item_id ? String(item.item_id) : null;
+      return {
+        total: Number(item.item_total ?? item.total ?? 0),
+        name: String(item.name ?? item.item_name ?? ''),
+        sku: item.sku ? String(item.sku) : null,
+        itemId,
+        hsn: item.hsn_or_sac ?? item.hsnOrSac ?? item.hsn ?? null,
+      };
+    });
+    invoiceCategory = classifyInvoiceFromLineItems(classifyInput, catalogMap);
+  } else if (!invoiceCategory) {
+    invoiceCategory = 'product';
+  }
   const salesOrder = options.skipSalesOrder
     ? null
     : await resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw);
@@ -448,6 +458,7 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       ...firestoreDocToDetail(existing),
       ...mapInvoice(invoiceRaw),
       customerId,
+      invoiceCategory: parseInvoiceCategory(existing.invoiceCategory) || 'product',
       syncedAt: FieldValue.serverTimestamp(),
     };
   } else if (needsDetail || options.forceDetail) {
@@ -457,7 +468,11 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     if (!fullRaw) {
       return { skipped: true, reason: 'not found in zoho' };
     }
-    doc = await buildFirestoreInvoiceDoc(accessToken, orgId, fullRaw, options);
+    doc = await buildFirestoreInvoiceDoc(accessToken, orgId, fullRaw, {
+      ...options,
+      isNewInvoice: !existing,
+      existingInvoiceCategory: existing?.invoiceCategory ?? null,
+    });
     if (!options.skipSalesOrder && doc.salesOrderId) {
       salesOrder = { id: doc.salesOrderId, number: doc.salesOrderNumber };
     }
@@ -468,6 +483,7 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       customerId,
       searchBlob: buildInvoiceSearchBlob(invoiceRaw),
       contentFingerprint: fingerprint,
+      invoiceCategory: parseInvoiceCategory(existing.invoiceCategory) || 'product',
       syncedAt: FieldValue.serverTimestamp(),
     };
     if (!options.skipSalesOrder && existing.salesOrderId) {

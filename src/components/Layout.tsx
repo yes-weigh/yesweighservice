@@ -325,7 +325,10 @@ const LayoutShell: React.FC = () => {
   const dealerListPath = isDealerDetail
     ? location.pathname.replace(/\/[^/]+$/, '')
     : null;
-  const isInvoiceDetail = /\/invoices\/[^/]+(\/(invoice(\/view)?|payments|logistic|qc))?$/.test(location.pathname);
+  // Exclude list helpers like /invoices/sync from "invoice detail" title handling.
+  const isInvoiceDetail = /\/invoices\/(?!sync(?:\/|$))[^/]+(\/(invoice(\/view)?|payments|logistic|qc))?$/.test(
+    location.pathname,
+  );
   const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname)
     && !location.pathname.endsWith('/complaint-guidelines');
   const pageTitle = isFooterNavActive

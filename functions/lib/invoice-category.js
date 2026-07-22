@@ -1,3 +1,5 @@
+import { getFirestore } from 'firebase-admin/firestore';
+
 /** HSN / SAC codes used to classify invoices from the highest-value line item. */
 export const INVOICE_CATEGORY_HSN = {
   service: '998717',
@@ -68,4 +70,58 @@ export function classifyInvoiceFromLineItems(lineItems, catalogByItemId = new Ma
 export function parseInvoiceCategory(value) {
   const key = String(value ?? '').trim();
   return INVOICE_CATEGORIES.includes(key) ? key : null;
+}
+
+/**
+ * Stamp existing Firestore invoices as `product`.
+ * New Zoho invoices keep guideline classification at sync time.
+ *
+ * @param {{ onlyMissing?: boolean, pageSize?: number }} [options]
+ */
+export async function backfillInvoiceCategoriesToProduct(options = {}) {
+  const onlyMissing = options.onlyMissing !== false;
+  const pageSize = Math.min(Math.max(Number(options.pageSize) || 300, 50), 500);
+  const db = getFirestore();
+
+  let scanned = 0;
+  let updated = 0;
+  let skipped = 0;
+  let lastDoc = null;
+
+  while (true) {
+    let query = db.collectionGroup('invoices').limit(pageSize);
+    if (lastDoc) query = query.startAfter(lastDoc);
+    const snap = await query.get();
+    if (snap.empty) break;
+
+    let batch = db.batch();
+    let batchCount = 0;
+
+    for (const docSnap of snap.docs) {
+      scanned += 1;
+      const current = parseInvoiceCategory(docSnap.data()?.invoiceCategory);
+      if (onlyMissing && current) {
+        skipped += 1;
+        continue;
+      }
+      if (current === 'product') {
+        skipped += 1;
+        continue;
+      }
+      batch.update(docSnap.ref, { invoiceCategory: 'product' });
+      batchCount += 1;
+      updated += 1;
+      if (batchCount >= 400) {
+        await batch.commit();
+        batch = db.batch();
+        batchCount = 0;
+      }
+    }
+
+    if (batchCount > 0) await batch.commit();
+    lastDoc = snap.docs[snap.docs.length - 1];
+    if (snap.size < pageSize) break;
+  }
+
+  return { scanned, updated, skipped, category: 'product' };
 }
