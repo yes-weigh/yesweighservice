@@ -34,6 +34,8 @@ export interface CatalogSparesMultiFiltersProps {
   ncStatusFilters?: ReadonlySet<NcStatusFilter>;
   onToggleNcStatusFilter?: (key: NcStatusFilter) => void;
   ncStatusFilterCounts?: Record<NcStatusFilter, number>;
+  /** Hide Cochin / Head Office when rack label-update filters are active. */
+  hideLocationFilters?: boolean;
   onClearAll: () => void;
   onClose?: () => void;
   onApply?: () => void;
@@ -118,6 +120,7 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
   ncStatusFilters,
   onToggleNcStatusFilter,
   ncStatusFilterCounts,
+  hideLocationFilters = false,
   onClearAll,
   onClose,
   onApply,
@@ -130,7 +133,7 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
 }) => {
   const catalogFilterOptions = variant === 'products' ? CATEGORIZED_PRODUCT_FILTERS : SPARE_CATALOG_FILTERS;
   const catalogFilterGroupLabel = variant === 'products' ? 'Spare mapping' : 'Product status';
-  const showLocationFilters = variant === 'spares';
+  const showLocationFilters = variant === 'spares' && !hideLocationFilters;
   const showNcFilters = variant === 'products'
     && ncStatusFilters != null
     && onToggleNcStatusFilter != null

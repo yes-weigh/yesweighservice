@@ -221,8 +221,9 @@ export const BinLabelPrintDialog: React.FC<Props> = ({
         fields: { ...fieldDraft, printedOn: new Date() },
       });
       const printedSku = fieldDraft.sku.trim();
+      const printedName = fieldDraft.itemName.trim();
       if (productId?.trim() && printedSku && fieldDraft.rack?.trim()) {
-        await recordCatalogBinLabelPrint(productId.trim(), printedSku);
+        await recordCatalogBinLabelPrint(productId.trim(), printedSku, printedName);
         onPrinted?.();
         window.dispatchEvent(new CustomEvent('yes-catalog-bin-label-printed', {
           detail: { productId: productId.trim() },

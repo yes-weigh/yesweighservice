@@ -18,6 +18,7 @@ export interface SpareListFiltersSnapshot {
   stockStatus: string[];
   location: string[];
   auditStatus: string[];
+  labelUpdate?: string[];
 }
 
 export interface CatalogNavState {

@@ -68,8 +68,12 @@ export interface CatalogProduct {
   spareGroupId?: string | null;
   /** Set when SKU changes on Zoho — drives spare-rack yellow/green label status. Firestore only. */
   skuChangedAt?: string | null;
+  /** Set when name changes on Zoho — drives spare-rack yellow/green label status. Firestore only. */
+  nameChangedAt?: string | null;
   /** SKU on the last printed bin label. Firestore only. */
   binLabelPrintedSku?: string | null;
+  /** Name on the last printed bin label. Firestore only. */
+  binLabelPrintedName?: string | null;
   binLabelPrintedAt?: string | null;
   /** Super admin — excluded from dealer/public catalogue browse. Firestore only. */
   hiddenFromCatalog?: boolean;

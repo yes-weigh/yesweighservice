@@ -35,6 +35,8 @@ export interface CatalogSparesFilterSheetProps {
   spareLocationFilterCounts: Record<SpareWarehouseLocationFilter, number>;
   spareAuditStatusFilterCounts: Record<SpareAuditStatusFilter, number>;
   ncStatusFilterCounts?: Record<NcStatusFilter, number>;
+  /** When true, hide Cochin / Head Office location filters (label-update mode). */
+  hideLocationFilters?: boolean;
 }
 
 export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> = ({
@@ -52,6 +54,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
   spareLocationFilterCounts,
   spareAuditStatusFilterCounts,
   ncStatusFilterCounts = EMPTY_NC_STATUS_COUNTS,
+  hideLocationFilters = false,
 }) => {
   const [draftCatalogFilters, setDraftCatalogFilters] = useState<Set<SpareCatalogFilter | CategorizedProductFilter>>(
     () => new Set(spareCatalogFilters),
@@ -147,7 +150,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
     onApplyFilters(
       draftCatalogFilters,
       draftStockStatusFilters,
-      draftLocationFilters,
+      hideLocationFilters ? new Set() : draftLocationFilters,
       draftAuditStatusFilters,
       draftNcStatusFilters,
     );
@@ -158,6 +161,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
     draftLocationFilters,
     draftAuditStatusFilters,
     draftNcStatusFilters,
+    hideLocationFilters,
     onApplyFilters,
     onClose,
   ]);
@@ -195,6 +199,7 @@ export const CatalogSparesFilterSheet: React.FC<CatalogSparesFilterSheetProps> =
           ncStatusFilters={variant === 'products' ? draftNcStatusFilters : undefined}
           onToggleNcStatusFilter={variant === 'products' ? toggleDraftNcStatusFilter : undefined}
           ncStatusFilterCounts={variant === 'products' ? ncStatusFilterCounts : undefined}
+          hideLocationFilters={hideLocationFilters}
           onClearAll={clearDraftFilters}
           onClose={onClose}
           onApply={handleApply}

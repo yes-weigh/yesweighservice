@@ -334,8 +334,14 @@ export const getCatalogProductDetail = onCall(
       if (typeof cachedData.skuChangedAt === 'string' && cachedData.skuChangedAt.trim()) {
         detail.skuChangedAt = cachedData.skuChangedAt.trim();
       }
+      if (typeof cachedData.nameChangedAt === 'string' && cachedData.nameChangedAt.trim()) {
+        detail.nameChangedAt = cachedData.nameChangedAt.trim();
+      }
       if (typeof cachedData.binLabelPrintedSku === 'string' && cachedData.binLabelPrintedSku.trim()) {
         detail.binLabelPrintedSku = cachedData.binLabelPrintedSku.trim();
+      }
+      if (typeof cachedData.binLabelPrintedName === 'string' && cachedData.binLabelPrintedName.trim()) {
+        detail.binLabelPrintedName = cachedData.binLabelPrintedName.trim();
       }
       if (typeof cachedData.binLabelPrintedAt === 'string' && cachedData.binLabelPrintedAt.trim()) {
         detail.binLabelPrintedAt = cachedData.binLabelPrintedAt.trim();
@@ -758,6 +764,7 @@ export const recordCatalogBinLabelPrintFn = onCall(
 
     const productId = String(request.data?.productId ?? '').trim();
     const sku = String(request.data?.sku ?? '').trim();
+    const name = String(request.data?.name ?? '').trim();
     if (!productId) {
       throw new HttpsError('invalid-argument', 'productId is required.');
     }
@@ -766,8 +773,8 @@ export const recordCatalogBinLabelPrintFn = onCall(
     }
 
     try {
-      await recordCatalogBinLabelPrint(productId, sku);
-      return { ok: true, productId, sku };
+      await recordCatalogBinLabelPrint(productId, sku, name);
+      return { ok: true, productId, sku, name: name || null };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not record bin label print.');
     }

@@ -2398,10 +2398,11 @@ export const ProductDetailView: React.FC<{
         />
       )}
 
-      {printLabelFields && (
+      {printLabelFields && product && (
         <BinLabelPrintDialog
           fields={printLabelFields}
           layoutId={isCategorizedProduct ? 'catalog-product' : 'genuine-spare-product'}
+          productId={product.id}
           onClose={() => setPrintLabelFields(null)}
         />
       )}

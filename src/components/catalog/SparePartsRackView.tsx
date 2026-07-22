@@ -3,7 +3,12 @@ import { Box, ChevronRight, Rows3 } from 'lucide-react';
 import { YesStorePhotoImg } from '../yesStore/YesStorePhotoImg';
 import type { YesStoreItemDoc, YesStorePhoto } from '../../types/yes-store';
 import { BIN_NUMBERS, ROW_NUMBERS, VALID_RACK_LETTERS, readItemQuantity } from '../../types/yes-store';
-import type { SkuLabelRackStatus } from '../../lib/catalog';
+import {
+  SPARE_LABEL_UPDATE_FILTERS,
+  type SkuLabelRackStatus,
+  type SpareLabelUpdateFilter,
+} from '../../lib/catalog';
+import { SpareLabelUpdateBinList, buildSpareLabelUpdateBinRows } from './SpareLabelUpdateBinList';
 
 export interface SpareRackSkuChip {
   productId: string;
@@ -58,6 +63,9 @@ interface SparePartsRackViewProps {
   initialRackId?: string | null;
   onSkuClick: (productId: string, rackId: string) => void;
   onUnlinkedClick: (itemId: string, rackId: string) => void;
+  /** Label-update filter chips in the rack title bar. */
+  labelUpdateFilters?: ReadonlySet<SpareLabelUpdateFilter>;
+  onToggleLabelUpdateFilter?: (key: SpareLabelUpdateFilter) => void;
 }
 
 const ROW_ACCENTS = ['blue', 'green', 'amber', 'cyan'] as const;
@@ -448,7 +456,27 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
   initialRackId = null,
   onSkuClick,
   onUnlinkedClick,
+  labelUpdateFilters,
+  onToggleLabelUpdateFilter,
 }) => {
+  const showLabelFilters = Boolean(labelUpdateFilters && onToggleLabelUpdateFilter);
+  const labelFilterActive = Boolean(labelUpdateFilters && labelUpdateFilters.size > 0);
+
+  const labelUpdateBinStatuses = useMemo(() => {
+    const statuses = new Set<'changed' | 'relabel_printed'>();
+    if (!labelUpdateFilters) return statuses;
+    if (labelUpdateFilters.has('labelNeedsPrint')) statuses.add('changed');
+    if (labelUpdateFilters.has('labelPrinted')) statuses.add('relabel_printed');
+    return statuses;
+  }, [labelUpdateFilters]);
+
+  const labelUpdateBinCounts = useMemo(() => {
+    const catalog = catalogByProductId ?? new Map();
+    const needsPrint = buildSpareLabelUpdateBinRows(items, catalog, new Set(['changed'])).length;
+    const printed = buildSpareLabelUpdateBinRows(items, catalog, new Set(['relabel_printed'])).length;
+    return { labelNeedsPrint: needsPrint, labelPrinted: printed };
+  }, [items, catalogByProductId]);
+
   const rackItems = useMemo(() => {
     return items.filter(item => {
       const rack = normalizeRackId(item.rackId);
@@ -571,10 +599,56 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
   const activePage = rackPages.find(p => p.letter === rackFilter) ?? rackPages[0] ?? null;
   const canScrollRacks = rackLetters.length > 4;
 
+  const labelFilterBar = showLabelFilters && labelUpdateFilters && onToggleLabelUpdateFilter ? (
+    <div className="spare-rack-label-filter" role="group" aria-label="Label updates">
+      <span className="spare-rack-selector__label">UPDATES</span>
+      <div className="spare-rack-label-filter__chips">
+        {SPARE_LABEL_UPDATE_FILTERS.map(option => {
+          const active = labelUpdateFilters.has(option.key);
+          const count = labelUpdateBinCounts[option.key];
+          return (
+            <button
+              key={option.key}
+              type="button"
+              className={[
+                'spare-rack-label-filter__chip',
+                option.key === 'labelNeedsPrint'
+                  ? 'spare-rack-label-filter__chip--needs'
+                  : 'spare-rack-label-filter__chip--printed',
+                active ? 'is-active' : '',
+              ].filter(Boolean).join(' ')}
+              aria-pressed={active}
+              onClick={() => onToggleLabelUpdateFilter(option.key)}
+            >
+              <span>{option.label}</span>
+              <span className="spare-rack-label-filter__count">{count}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
+
   if (loading && rackItems.length === 0) {
     return (
       <div className="spare-parts-rack-view">
+        {labelFilterBar}
         <p className="text-muted spare-parts-rack-view__empty">Loading rack locations…</p>
+      </div>
+    );
+  }
+
+  if (labelFilterActive) {
+    return (
+      <div className="spare-parts-rack-view">
+        {labelFilterBar}
+        <SpareLabelUpdateBinList
+          items={items}
+          catalogByProductId={catalogByProductId ?? new Map()}
+          statuses={labelUpdateBinStatuses}
+          loading={loading}
+          onRowClick={onSkuClick}
+        />
       </div>
     );
   }
@@ -582,6 +656,7 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
   if (rackPages.length === 0) {
     return (
       <div className="spare-parts-rack-view">
+        {labelFilterBar}
         <p className="text-muted spare-parts-rack-view__empty">
           No audited spare SKUs or unlinked items in warehouse locations yet.
         </p>
@@ -591,6 +666,7 @@ export const SparePartsRackView: React.FC<SparePartsRackViewProps> = ({
 
   return (
     <div className="spare-parts-rack-view">
+      {labelFilterBar}
       <div className="spare-rack-selector">
         <span className="spare-rack-selector__label">RACK</span>
         <div

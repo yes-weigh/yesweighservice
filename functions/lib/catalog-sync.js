@@ -685,14 +685,20 @@ export async function patchProductDetails(productId, input) {
   const ref = db.collection(PRODUCTS_COLLECTION).doc(id);
   const existing = await ref.get();
   const prevSku = existing.exists ? String(existing.data()?.sku ?? '').trim() : '';
+  const prevName = existing.exists ? String(existing.data()?.name ?? '').trim() : '';
   const skuChanged = Boolean(prevSku && prevSku !== sku);
+  const nameChanged = Boolean(prevName && prevName !== name);
+  const now = new Date().toISOString();
   if (skuChanged) {
-    payload.skuChangedAt = new Date().toISOString();
+    payload.skuChangedAt = now;
+  }
+  if (nameChanged) {
+    payload.nameChangedAt = now;
   }
 
   await ref.set(payload, { merge: true });
 
-  if (skuChanged) {
+  if (skuChanged || nameChanged) {
     await mirrorYesStoreCatalogSkuSnapshot(id, name, sku);
   }
 }
@@ -719,16 +725,18 @@ async function mirrorYesStoreCatalogSkuSnapshot(productId, name, sku) {
   await batch.commit();
 }
 
-/** Record that a bin label was printed with the current SKU (Firestore only). */
-export async function recordCatalogBinLabelPrint(productId, sku) {
+/** Record that a bin label was printed with the current SKU/name (Firestore only). */
+export async function recordCatalogBinLabelPrint(productId, sku, name) {
   const id = String(productId ?? '').trim();
   const printedSku = String(sku ?? '').trim();
+  const printedName = String(name ?? '').trim();
   if (!id) throw new Error('productId is required.');
   if (!printedSku) throw new Error('sku is required.');
 
   const db = getFirestore();
   await db.collection(PRODUCTS_COLLECTION).doc(id).set({
     binLabelPrintedSku: printedSku,
+    ...(printedName ? { binLabelPrintedName: printedName } : {}),
     binLabelPrintedAt: new Date().toISOString(),
   }, { merge: true });
 }

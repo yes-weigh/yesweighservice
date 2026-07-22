@@ -51,6 +51,7 @@ import {
   type CategorizedProductFilter,
   type MediaProductFilter,
   type SpareAuditStatusFilter,
+  type SpareLabelUpdateFilter,
   type SpareStockStatusFilter,
   type SpareWarehouseLocationFilter,
   type NcStatusFilter,
@@ -196,6 +197,7 @@ export const CatalogPage: React.FC = () => {
   const [spareStockStatusFilters, setSpareStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
   const [spareLocationFilters, setSpareLocationFilters] = useState<Set<SpareWarehouseLocationFilter>>(() => new Set());
   const [spareAuditStatusFilters, setSpareAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
+  const [spareLabelUpdateFilters, setSpareLabelUpdateFilters] = useState<Set<SpareLabelUpdateFilter>>(() => new Set());
   const [sparesFiltersOpen, setSparesFiltersOpen] = useState(false);
   const [spareViewMode, setSpareViewMode] = useState<SpareCatalogViewMode>('items');
   const [spareQrScannerOpen, setSpareQrScannerOpen] = useState(false);
@@ -224,11 +226,24 @@ export const CatalogPage: React.FC = () => {
     ) => {
       setSpareCatalogFilters(new Set([...catalogFilters] as SpareCatalogFilter[]));
       setSpareStockStatusFilters(new Set(stockStatusFilters));
-      setSpareLocationFilters(new Set(locationFilters));
+      setSpareLocationFilters(
+        spareLabelUpdateFilters.size > 0 ? new Set() : new Set(locationFilters),
+      );
       setSpareAuditStatusFilters(new Set(auditStatusFilters));
     },
-    [],
+    [spareLabelUpdateFilters],
   );
+
+  const toggleSpareLabelUpdateFilter = useCallback((key: SpareLabelUpdateFilter) => {
+    setSpareLabelUpdateFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setSpareLocationFilters(new Set());
+    setSpareViewMode('rack');
+  }, []);
 
   const applyProductFilters = useCallback(
     (
@@ -1063,19 +1078,28 @@ export const CatalogPage: React.FC = () => {
     stockStatus: [...spareStockStatusFilters],
     location: [...spareLocationFilters],
     auditStatus: [...spareAuditStatusFilters],
+    labelUpdate: [...spareLabelUpdateFilters],
   }), [
     spareCatalogFilters,
     spareStockStatusFilters,
     spareLocationFilters,
     spareAuditStatusFilters,
+    spareLabelUpdateFilters,
   ]);
 
   const restoreSpareListFilters = useCallback((snapshot?: SpareListFiltersSnapshot | null) => {
     if (!snapshot) return;
+    const labelUpdate = new Set((snapshot.labelUpdate ?? []) as SpareLabelUpdateFilter[]);
     setSpareCatalogFilters(new Set(snapshot.catalog as SpareCatalogFilter[]));
     setSpareStockStatusFilters(new Set(snapshot.stockStatus as SpareStockStatusFilter[]));
-    setSpareLocationFilters(new Set(snapshot.location as SpareWarehouseLocationFilter[]));
+    setSpareLocationFilters(
+      labelUpdate.size > 0
+        ? new Set()
+        : new Set(snapshot.location as SpareWarehouseLocationFilter[]),
+    );
     setSpareAuditStatusFilters(new Set(snapshot.auditStatus as SpareAuditStatusFilter[]));
+    setSpareLabelUpdateFilters(labelUpdate);
+    if (labelUpdate.size > 0) setSpareViewMode('rack');
   }, []);
 
   // Restore spare list/rack context + highlight after returning from detail.
@@ -1335,7 +1359,13 @@ export const CatalogPage: React.FC = () => {
           'catalog-header-filter-btn',
           spareViewMode === 'rack' ? 'catalog-header-filter-btn--pressed' : '',
         ].filter(Boolean).join(' ')}
-        onClick={() => setSpareViewMode(mode => (mode === 'rack' ? 'items' : 'rack'))}
+        onClick={() => setSpareViewMode(mode => {
+          if (mode === 'rack') {
+            setSpareLabelUpdateFilters(new Set());
+            return 'items';
+          }
+          return 'rack';
+        })}
         aria-label={spareViewMode === 'rack' ? 'Show spare items grid' : 'Show rack view'}
         aria-pressed={spareViewMode === 'rack'}
         title={spareViewMode === 'rack' ? 'Item view' : 'Rack view'}
@@ -1781,6 +1811,7 @@ export const CatalogPage: React.FC = () => {
           spareStockStatusFilterCounts={spareStockStatusFilterCounts}
           spareLocationFilterCounts={spareLocationFilterCounts}
           spareAuditStatusFilterCounts={spareAuditStatusFilterCounts}
+          hideLocationFilters={spareLabelUpdateFilters.size > 0}
         />
       )}
 
@@ -1978,6 +2009,8 @@ export const CatalogPage: React.FC = () => {
               initialRackId={highlightRackId}
               onSkuClick={openSpareFromRack}
               onUnlinkedClick={openUnlinkedFromRack}
+              labelUpdateFilters={spareLabelUpdateFilters}
+              onToggleLabelUpdateFilter={toggleSpareLabelUpdateFilter}
             />
           ) : (
             <CatalogBrowse

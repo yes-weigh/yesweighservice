@@ -749,8 +749,14 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     ...(typeof data.skuChangedAt === 'string' && data.skuChangedAt.trim()
       ? { skuChangedAt: data.skuChangedAt.trim() }
       : {}),
+    ...(typeof data.nameChangedAt === 'string' && data.nameChangedAt.trim()
+      ? { nameChangedAt: data.nameChangedAt.trim() }
+      : {}),
     ...(typeof data.binLabelPrintedSku === 'string' && data.binLabelPrintedSku.trim()
       ? { binLabelPrintedSku: data.binLabelPrintedSku.trim() }
+      : {}),
+    ...(typeof data.binLabelPrintedName === 'string' && data.binLabelPrintedName.trim()
+      ? { binLabelPrintedName: data.binLabelPrintedName.trim() }
       : {}),
     ...(typeof data.binLabelPrintedAt === 'string' && data.binLabelPrintedAt.trim()
       ? { binLabelPrintedAt: data.binLabelPrintedAt.trim() }
@@ -763,13 +769,47 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
 export type SkuLabelRackStatus = 'unchanged' | 'changed' | 'relabel_printed';
 
 export function resolveSkuLabelRackStatus(
-  product: Pick<CatalogProduct, 'sku' | 'skuChangedAt' | 'binLabelPrintedSku'>,
+  product: Pick<
+    CatalogProduct,
+    'sku' | 'name' | 'skuChangedAt' | 'nameChangedAt' | 'binLabelPrintedSku' | 'binLabelPrintedName'
+  >,
 ): SkuLabelRackStatus {
-  if (!product.skuChangedAt?.trim()) return 'unchanged';
+  const skuChanged = Boolean(product.skuChangedAt?.trim());
+  const nameChanged = Boolean(product.nameChangedAt?.trim());
+  if (!skuChanged && !nameChanged) return 'unchanged';
+
   const currentSku = (product.sku ?? '').trim();
   const printedSku = (product.binLabelPrintedSku ?? '').trim();
-  if (printedSku && printedSku === currentSku) return 'relabel_printed';
+  if (!printedSku || printedSku !== currentSku) return 'changed';
+
+  // Legacy: SKU-only change tracking — green when printed SKU matches.
+  if (!nameChanged) return 'relabel_printed';
+
+  const currentName = (product.name ?? '').trim();
+  const printedName = (product.binLabelPrintedName ?? '').trim();
+  if (printedName && printedName === currentName) return 'relabel_printed';
   return 'changed';
+}
+
+export const SPARE_LABEL_UPDATE_FILTERS = [
+  { key: 'labelNeedsPrint', label: 'Updated · not printed' },
+  { key: 'labelPrinted', label: 'Updated · printed' },
+] as const;
+
+export type SpareLabelUpdateFilter = typeof SPARE_LABEL_UPDATE_FILTERS[number]['key'];
+
+export function matchesSpareLabelUpdateFilters(
+  product: Pick<
+    CatalogProduct,
+    'sku' | 'name' | 'skuChangedAt' | 'nameChangedAt' | 'binLabelPrintedSku' | 'binLabelPrintedName'
+  >,
+  filters: ReadonlySet<SpareLabelUpdateFilter>,
+): boolean {
+  if (filters.size === 0) return true;
+  const status = resolveSkuLabelRackStatus(product);
+  if (filters.has('labelNeedsPrint') && status === 'changed') return true;
+  if (filters.has('labelPrinted') && status === 'relabel_printed') return true;
+  return false;
 }
 
 /** Sort products within a category — custom order first, then name. */
@@ -1101,17 +1141,26 @@ export function newSkusWithDuplicatesInBatch(newSkus: string[]): Set<string> {
   return dupes;
 }
 
-/** Record that a bin label was printed with the given SKU (drives spare-rack green status). */
+/** Record that a bin label was printed with the given SKU/name (drives spare-rack green status). */
 export async function recordCatalogBinLabelPrint(
   productId: string,
   sku: string,
+  name?: string,
 ): Promise<void> {
-  const callable = httpsCallable<{ productId: string; sku: string }, { ok: boolean }>(
+  const callable = httpsCallable<
+    { productId: string; sku: string; name?: string },
+    { ok: boolean }
+  >(
     functions,
     'recordCatalogBinLabelPrintFn',
   );
   try {
-    await callable({ productId: productId.trim(), sku: sku.trim() });
+    const trimmedName = name?.trim() ?? '';
+    await callable({
+      productId: productId.trim(),
+      sku: sku.trim(),
+      ...(trimmedName ? { name: trimmedName } : {}),
+    });
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
