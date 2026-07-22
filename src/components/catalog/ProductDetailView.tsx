@@ -213,6 +213,7 @@ export const ProductDetailView: React.FC<{
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorPool, setEditorPool] = useState<CatalogProduct[]>([]);
   const [editorSaving, setEditorSaving] = useState(false);
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageDeleting, setImageDeleting] = useState(false);
@@ -853,6 +854,36 @@ export const ProductDetailView: React.FC<{
       setLinkError(err instanceof Error ? err.message : 'Could not save mapping.');
     } finally {
       setEditorSaving(false);
+    }
+  };
+
+  const handleUnlinkRelated = async (item: CatalogProduct) => {
+    if (!product || !manageSpareLinks || unlinkingId) return;
+    const ok = await confirm({
+      title: relatedKind === 'spares' ? 'Unlink spare?' : 'Unlink product?',
+      message:
+        relatedKind === 'spares'
+          ? `Remove “${item.name}” from this product’s spare map? This updates Firebase on both sides.`
+          : `Remove “${item.name}” from this spare’s product map? This updates Firebase on both sides.`,
+      confirmLabel: 'Unlink',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    const nextIds = relatedItems.map(related => related.id).filter(id => id !== item.id);
+    setUnlinkingId(item.id);
+    setLinkError(null);
+    try {
+      if (isCategorizedProduct) {
+        await saveCatalogProductSpareLinks(product.id, nextIds);
+      } else {
+        await saveCatalogSpareProductLinks(product.id, nextIds);
+      }
+      await loadRelatedLinks();
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Could not unlink item.');
+    } finally {
+      setUnlinkingId(null);
     }
   };
 
@@ -2337,6 +2368,8 @@ export const ProductDetailView: React.FC<{
               productsBasePath={productsBasePath ?? backPath}
               sparesBasePath={sparesBasePath ?? `${backPath}/spare`}
               onOpenLinkEditor={() => void openLinkEditor()}
+              onUnlinkRelated={manageSpareLinks ? item => void handleUnlinkRelated(item) : undefined}
+              unlinkingId={unlinkingId}
               relatedLinkState={relatedLinkState}
               livePhysicalQty={livePhysicalQty}
               canEditProductDetails={canEditProductDetails}

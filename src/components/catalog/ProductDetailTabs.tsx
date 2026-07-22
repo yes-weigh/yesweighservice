@@ -117,6 +117,8 @@ export const ProductDetailTabs: React.FC<{
   productsBasePath: string;
   sparesBasePath: string;
   onOpenLinkEditor: () => void;
+  onUnlinkRelated?: (item: CatalogProduct) => void;
+  unlinkingId?: string | null;
   relatedLinkState: (item: CatalogProduct) => CatalogNavState;
   livePhysicalQty: number | null;
   canEditProductDetails: boolean;
@@ -152,6 +154,8 @@ export const ProductDetailTabs: React.FC<{
   productsBasePath,
   sparesBasePath,
   onOpenLinkEditor,
+  onUnlinkRelated,
+  unlinkingId = null,
   relatedLinkState,
   livePhysicalQty,
   canEditProductDetails,
@@ -255,6 +259,8 @@ export const ProductDetailTabs: React.FC<{
                 enableCart={showCartActions && relatedKind === 'spares'}
                 getLinkState={relatedLinkState}
                 embedded
+                onUnlink={manageSpareLinks ? onUnlinkRelated : undefined}
+                unlinkingId={unlinkingId}
                 headerAction={
                   manageSpareLinks ? (
                     <button

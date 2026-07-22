@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { IndianRupee, Minus, Package, Plus, ShoppingCart } from 'lucide-react';
+import { IndianRupee, Link2Off, Minus, Package, Plus, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct } from '../../types/catalog';
@@ -117,6 +117,9 @@ export const RelatedCatalogItems: React.FC<{
   getLinkState?: (item: CatalogProduct) => CatalogNavState;
   /** Hide section heading when rendered inside product detail tabs. */
   embedded?: boolean;
+  /** When set, show Unlink on each tile (staff mapping). */
+  onUnlink?: (item: CatalogProduct) => void;
+  unlinkingId?: string | null;
 }> = ({
   items,
   title,
@@ -128,8 +131,51 @@ export const RelatedCatalogItems: React.FC<{
   enableCart = false,
   getLinkState,
   embedded = false,
+  onUnlink,
+  unlinkingId = null,
 }) => {
   const navigate = useNavigate();
+  const [unlinkMode, setUnlinkMode] = useState(false);
+  const canUnlink = Boolean(onUnlink);
+  const showUnlinkButtons = canUnlink && unlinkMode;
+
+  const toggleUnlinkMode = () => setUnlinkMode(prev => !prev);
+
+  const unlinkModeSwitch = canUnlink ? (
+    <div className="related-catalog__unlink-mode">
+      <button
+        type="button"
+        className="related-catalog__unlink-mode-label"
+        id="related-catalog-unlink-mode-label"
+        onClick={toggleUnlinkMode}
+      >
+        Unlink mode
+      </button>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={unlinkMode}
+        aria-labelledby="related-catalog-unlink-mode-label"
+        className={[
+          'related-catalog__unlink-mode-switch',
+          unlinkMode ? 'related-catalog__unlink-mode-switch--on' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        onClick={toggleUnlinkMode}
+      >
+        <span className="related-catalog__unlink-mode-knob" />
+      </button>
+    </div>
+  ) : null;
+
+  const headerControls =
+    headerAction || unlinkModeSwitch ? (
+      <div className="related-catalog__header-actions">
+        {headerAction}
+        {unlinkModeSwitch}
+      </div>
+    ) : null;
 
   if (loading) {
     return (
@@ -137,7 +183,12 @@ export const RelatedCatalogItems: React.FC<{
         {!embedded && (
           <div className="related-catalog__header">
             <h2>{title}</h2>
-            {headerAction}
+            {headerControls}
+          </div>
+        )}
+        {embedded && headerControls && (
+          <div className="related-catalog__header related-catalog__header--embedded">
+            {headerControls}
           </div>
         )}
         <p className="text-muted text-sm">Loading…</p>
@@ -150,65 +201,80 @@ export const RelatedCatalogItems: React.FC<{
       {!embedded && (
         <div className="related-catalog__header">
           <h2>{title}</h2>
-          {headerAction}
+          {headerControls}
         </div>
       )}
-      {embedded && headerAction && (
+      {embedded && headerControls && (
         <div className="related-catalog__header related-catalog__header--embedded">
-          {headerAction}
+          {headerControls}
         </div>
       )}
       {items.length === 0 ? (
         <p className="related-catalog__empty text-muted text-sm">{emptyMessage}</p>
       ) : (
         <ul className="related-catalog__list">
-          {items.map(item => (
-            <li key={item.id}>
-              <div className={`related-catalog__item ${enableCart ? 'related-catalog__item--cart' : ''}`}>
-                <button
-                  type="button"
-                  className="related-catalog__main"
-                  onClick={() =>
-                    navigate(`${detailBasePath}/${item.id}`, {
-                      state: getLinkState?.(item) ?? { preview: item },
-                    })
-                  }
-                >
-                  <div className="related-catalog__media">
-                    {item.imageUrl ? (
-                      <div className="related-catalog__visual" aria-hidden>
-                        <CategoryThumbnail src={item.imageUrl} knockout={false} />
-                      </div>
-                    ) : (
-                      <Package size={24} aria-hidden />
-                    )}
-                  </div>
-                  <div className="related-catalog__info">
-                    {item.sku && <span className="related-catalog__sku">{item.sku}</span>}
-                    <span className="related-catalog__name">{formatProductTitle(item.name)}</span>
-                    {item.categoryName && (
-                      <span className="related-catalog__category text-muted text-sm">
-                        {item.categoryName}
-                      </span>
-                    )}
-                    {showStockQuantity && (
-                      <StockQuantity
-                        stock={item.stock}
-                        unit={item.unit}
-                        status={item.stockStatus}
-                        compact
-                      />
-                    )}
-                  </div>
-                  <div className="related-catalog__price">
-                    <IndianRupee size={13} strokeWidth={2.5} aria-hidden />
-                    <span>{item.rate.toLocaleString('en-IN')}</span>
-                  </div>
-                </button>
-                <RelatedCatalogCartControls item={item} enableCart={enableCart} />
-              </div>
-            </li>
-          ))}
+          {items.map(item => {
+            const unlinking = unlinkingId === item.id;
+            return (
+              <li key={item.id}>
+                <div className={`related-catalog__item ${enableCart ? 'related-catalog__item--cart' : ''}`}>
+                  <button
+                    type="button"
+                    className="related-catalog__main"
+                    onClick={() =>
+                      navigate(`${detailBasePath}/${item.id}`, {
+                        state: getLinkState?.(item) ?? { preview: item },
+                      })
+                    }
+                  >
+                    <div className="related-catalog__media">
+                      {item.imageUrl ? (
+                        <div className="related-catalog__visual" aria-hidden>
+                          <CategoryThumbnail src={item.imageUrl} knockout={false} />
+                        </div>
+                      ) : (
+                        <Package size={24} aria-hidden />
+                      )}
+                    </div>
+                    <div className="related-catalog__info">
+                      {item.sku && <span className="related-catalog__sku">{item.sku}</span>}
+                      <span className="related-catalog__name">{formatProductTitle(item.name)}</span>
+                      {item.categoryName && (
+                        <span className="related-catalog__category text-muted text-sm">
+                          {item.categoryName}
+                        </span>
+                      )}
+                      {showStockQuantity && (
+                        <StockQuantity
+                          stock={item.stock}
+                          unit={item.unit}
+                          status={item.stockStatus}
+                          compact
+                        />
+                      )}
+                    </div>
+                    <div className="related-catalog__price">
+                      <IndianRupee size={13} strokeWidth={2.5} aria-hidden />
+                      <span>{item.rate.toLocaleString('en-IN')}</span>
+                    </div>
+                  </button>
+                  {showUnlinkButtons && onUnlink && (
+                    <button
+                      type="button"
+                      className="related-catalog__unlink"
+                      disabled={unlinking || Boolean(unlinkingId)}
+                      onClick={() => onUnlink(item)}
+                      aria-label={`Unlink ${item.name}`}
+                    >
+                      <Link2Off size={13} aria-hidden />
+                      {unlinking ? 'Unlinking…' : 'Unlink'}
+                    </button>
+                  )}
+                  <RelatedCatalogCartControls item={item} enableCart={enableCart} />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
