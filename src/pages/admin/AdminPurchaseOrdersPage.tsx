@@ -537,19 +537,34 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                   <button
                     key={po.id}
                     type="button"
-                    className="invoices-mobile-row"
+                    className="invoices-mobile-row invoices-mobile-row--po-stack"
                     onClick={() => openPo(po)}
                     aria-label={`View purchase order ${po.purchaseOrderNumber || po.id}`}
                   >
                     <InvoiceCategoryIcon category={po.purchaseOrderCategory} />
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
-                        <span className="invoices-mobile-row__title">
-                          <InvoiceCategoryBadge category={po.purchaseOrderCategory} />
-                          <strong>{po.purchaseOrderNumber || po.id}</strong>
+                        <span className="invoices-mobile-row__company-row">
+                          <strong className="invoices-mobile-row__company">
+                            {po.vendorName ?? '—'}
+                          </strong>
+                          <span className="invoices-mobile-row__chevron" aria-hidden>
+                            <ChevronRight size={18} />
+                          </span>
                         </span>
-                        <span className="invoices-mobile-row__so">
-                          {po.vendorName ?? '—'}
+                        <span className="invoices-mobile-row__pair">
+                          <InvoiceCategoryBadge category={po.purchaseOrderCategory} />
+                          <span className={poStatusClass(po.status)}>
+                            {invoiceStatusLabel(po.status)}
+                          </span>
+                        </span>
+                        <span className="invoices-mobile-row__pair">
+                          <span className="invoices-mobile-row__po-num">
+                            {po.purchaseOrderNumber || po.id}
+                          </span>
+                          <strong className="invoices-mobile-row__amount-value">
+                            {formatCurrency(po.total, po.currencyCode)}
+                          </strong>
                         </span>
                         <span className="invoices-mobile-row__meta">
                           {formatInvoiceDate(po.date)}
@@ -557,15 +572,6 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                           Qty {formatInvoiceItemQuantity(po.itemQuantity)}
                         </span>
                       </span>
-                      <span className="invoices-mobile-row__amount">
-                        <strong>{formatCurrency(po.total, po.currencyCode)}</strong>
-                        <span className={poStatusClass(po.status)}>
-                          {invoiceStatusLabel(po.status)}
-                        </span>
-                      </span>
-                    </span>
-                    <span className="invoices-mobile-row__chevron" aria-hidden>
-                      <ChevronRight size={18} />
                     </span>
                   </button>
                 ))}
