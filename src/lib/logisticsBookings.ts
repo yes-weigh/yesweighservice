@@ -30,6 +30,7 @@ import {
 import {
   dataUrlToFile,
   deleteLogisticsPhoto,
+  logisticsCaptureToDataUrl,
   resolveLogisticsPhotoUrls,
   uploadLogisticsPhoto,
 } from './logisticsPhotos';
@@ -723,7 +724,6 @@ export async function persistLogisticsBooking(
   if (draft.boxes.some(box => box.photos.length === 0)) {
     throw new Error('Each box needs at least the inside photo.');
   }
-  if (!draft.finalPackagePhoto) throw new Error('Final package photo is required.');
 
   const now = new Date().toISOString();
   const bookingRef = existingBookingId
@@ -965,6 +965,35 @@ export async function updateLogisticsBookingStatus(
   const updatedAt = new Date().toISOString();
   await updateDoc(doc(db, COLLECTION, booking.id), { status, updatedAt });
   return { ...booking, status, updatedAt };
+}
+
+/** Upload or replace the outer package (label-pasted) photo on any booking stage. */
+export async function uploadLogisticsBookingFinalPackagePhoto(
+  booking: LogisticsBooking,
+  file: File,
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to update shipment photos.');
+  }
+  const dataUrl = await logisticsCaptureToDataUrl(file);
+  const stamped = await dataUrlToFile(dataUrl, 'final-package.jpg');
+  const storagePath = await uploadLogisticsPhoto(booking.id, 'final-package', stamped);
+  const updatedAt = new Date().toISOString();
+  const previousPath = booking.finalPackagePhotoStoragePath?.trim() || null;
+  await updateDoc(doc(db, COLLECTION, booking.id), {
+    finalPackagePhotoStoragePath: storagePath,
+    updatedAt,
+  });
+  if (previousPath && previousPath !== storagePath) {
+    void deleteLogisticsPhoto(previousPath).catch(() => undefined);
+  }
+  return hydrateLogisticsBookingPhotos({
+    ...booking,
+    finalPackagePhotoStoragePath: storagePath,
+    finalPackagePhoto: dataUrl,
+    updatedAt,
+  });
 }
 
 export async function cancelLogisticsBooking(

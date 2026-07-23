@@ -49,6 +49,7 @@ import {
 import {
   persistLogisticsBooking,
   persistLogisticsBookingDraft,
+  uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
 import {
   logisticsCaptureToDataUrl,
@@ -1415,8 +1416,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 Capture <span className="accent">Outer</span> Package Photo
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                Use the camera to capture proof that the shipping label is pasted correctly on the package.
-                GPS and time are stamped on the photo automatically.
+                Optional — capture proof that the shipping label is pasted correctly.
+                You can skip this and add the photo later from the shipment details.
               </p>
 
               {draft.finalPackagePhoto ? (
@@ -1463,7 +1464,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                disabled={saving || !draft.finalPackagePhoto}
+                disabled={saving}
                 onClick={() => void handleConfirmShipment()}
               >
                 <CheckCircle2 size={16} aria-hidden /> {saving ? 'Saving…' : 'Confirm & Mark Shipped'}
@@ -1488,6 +1489,50 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <div><dt>Boxes</dt><dd>{booking.numberOfBoxes}</dd></div>
                 <div><dt>Weight</dt><dd>{booking.actualWeightKg.toFixed(2)} kg</dd></div>
               </dl>
+              {!booking.finalPackagePhoto && !booking.finalPackagePhotoStoragePath && (
+                <div className="book-courier__success-photo">
+                  <p className="book-courier__hint text-muted text-sm">
+                    Outer package photo still missing — add it now or later from shipment details.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={saving}
+                    onClick={() => finalPhotoCaptureInputRef.current?.click()}
+                  >
+                    <Camera size={14} aria-hidden />
+                    {saving ? 'Uploading…' : 'Add outer package photo'}
+                  </button>
+                  <input
+                    ref={finalPhotoCaptureInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    hidden
+                    onChange={event => {
+                      const file = event.target.files?.[0];
+                      event.target.value = '';
+                      if (!file) return;
+                      void (async () => {
+                        setSaving(true);
+                        try {
+                          const updated = await uploadLogisticsBookingFinalPackagePhoto(
+                            booking,
+                            file,
+                            user,
+                          );
+                          setBooking(updated);
+                          onDraftUpdated?.(updated);
+                        } catch (err) {
+                          window.alert(err instanceof Error ? err.message : 'Could not upload photo.');
+                        } finally {
+                          setSaving(false);
+                        }
+                      })();
+                    }}
+                  />
+                </div>
+              )}
               <div className="book-courier__success-actions">
                 <button type="button" className="btn btn-secondary" onClick={onClose}>Done</button>
                 <button type="button" className="btn btn-primary" onClick={handleFinish}>View Shipment</button>

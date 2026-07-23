@@ -16335,6 +16335,35 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #cbd5e1;
 }
 
+.logistics-booking__final-photo-add {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.logistics-booking__final-photo-add .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.book-courier__success-photo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.75rem 0 0.25rem;
+  text-align: center;
+}
+
+.book-courier__success-photo .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .book-courier__review {
   display: grid;
   gap: 0.45rem;

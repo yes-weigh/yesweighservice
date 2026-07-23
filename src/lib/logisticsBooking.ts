@@ -64,13 +64,24 @@ export function isIncompleteLogisticsBooking(
   return true;
 }
 
-/** Label Generated entry still needs the outer package photo before Shipped. */
+/**
+ * Label-generated booking still open on the photo step (or missing photo).
+ * Outer package photo is optional for Confirm & Mark Shipped — this only
+ * decides whether list click should resume the wizard.
+ */
 export function needsFinalPackagePhoto(
   booking: Pick<LogisticsBooking, 'status' | 'wizardStep' | 'finalPackagePhotoStoragePath'>,
 ): boolean {
   if (booking.status !== 'label_generated') return false;
   if (booking.wizardStep === 'final_photo') return true;
   return !booking.finalPackagePhotoStoragePath?.trim();
+}
+
+/** True when the outer / label-pasted package photo has not been stored yet. */
+export function missingFinalPackagePhoto(
+  booking: Pick<LogisticsBooking, 'finalPackagePhoto' | 'finalPackagePhotoStoragePath'>,
+): boolean {
+  return !booking.finalPackagePhotoStoragePath?.trim() && !booking.finalPackagePhoto?.trim();
 }
 
 export const SHIPMENT_MODES: ReadonlyArray<{ id: ShipmentMode; label: string }> = [

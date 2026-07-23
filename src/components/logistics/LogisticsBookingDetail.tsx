@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ExternalLink, Eye, MapPin, Package, Truck } from 'lucide-react';
+import { Camera, Check, ExternalLink, Eye, MapPin, Package, Truck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
@@ -15,7 +15,7 @@ import {
   chargeableWeight,
   courierSlipFileName,
   isIncompleteLogisticsBooking,
-  needsFinalPackagePhoto,
+  missingFinalPackagePhoto,
   shipmentModeLabel,
   shippingLabelFileName,
 } from '../../lib/logisticsBooking';
@@ -23,6 +23,7 @@ import {
   canDeleteLogisticsBooking,
   generateLogisticsDocument,
   hydrateLogisticsBookingPhotos,
+  uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import type {
@@ -70,13 +71,16 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   onDelete,
 }) => {
   const { user } = useAuth();
+  const finalPhotoInputRef = useRef<HTMLInputElement>(null);
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
   const [shippingLabelOpen, setShippingLabelOpen] = useState(false);
   const [courierSlipOpen, setCourierSlipOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [photosLoading, setPhotosLoading] = useState(false);
+  const [uploadingFinalPhoto, setUploadingFinalPhoto] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
+  const needsOuterPhoto = missingFinalPackagePhoto(booking);
   const galleryUrls = useMemo(() => {
     const urls = booking.boxes.flatMap(box =>
       box.photos
@@ -93,7 +97,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   // Advance only along the public pipeline (Label → Shipped → Transit → Delivered).
   const nextStatus = (
     isIncompleteLogisticsBooking(booking)
-    || needsFinalPackagePhoto(booking)
     || booking.status === 'cancelled'
     || booking.status === 'delivered'
     || (booking.status === 'label_generated' && !booking.shippingLabelGenerated)
@@ -151,6 +154,19 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     const index = galleryUrls.indexOf(url);
     if (index >= 0) setPreviewIndex(index);
   }, [galleryUrls]);
+
+  const handleFinalPhotoSelected = useCallback(async (file: File | undefined) => {
+    if (!file || !user || !isOps) return;
+    setUploadingFinalPhoto(true);
+    try {
+      const updated = await uploadLogisticsBookingFinalPackagePhoto(booking, file, user);
+      onUpdate(updated);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not upload outer package photo.');
+    } finally {
+      setUploadingFinalPhoto(false);
+    }
+  }, [booking, isOps, onUpdate, user]);
 
   return (
     <article className="logistics-booking panel glass">
@@ -296,7 +312,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </div>
       </section>
 
-      {bookingHasPhotos(booking) && (
+      {(bookingHasPhotos(booking) || (isOps && booking.status !== 'cancelled')) && (
         <section className="logistics-booking__photos">
           <h4>Package photos</h4>
           {photosLoading
@@ -331,9 +347,47 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                   <img src={booking.finalPackagePhoto} alt="Final package" />
                 </button>
                 <span>Label pasted</span>
+                {isOps && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={uploadingFinalPhoto}
+                    onClick={() => finalPhotoInputRef.current?.click()}
+                  >
+                    <Camera size={14} aria-hidden />
+                    {uploadingFinalPhoto ? 'Uploading…' : 'Retake'}
+                  </button>
+                )}
               </div>
             )}
           </div>
+          {isOps && needsOuterPhoto && booking.status !== 'cancelled' && (
+            <div className="logistics-booking__final-photo-add">
+              <p className="text-muted text-sm">
+                Outer package photo not added yet. You can capture it now at any stage.
+              </p>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={uploadingFinalPhoto}
+                onClick={() => finalPhotoInputRef.current?.click()}
+              >
+                <Camera size={14} aria-hidden />
+                {uploadingFinalPhoto ? 'Uploading…' : 'Add outer package photo'}
+              </button>
+            </div>
+          )}
+          <input
+            ref={finalPhotoInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={event => {
+              void handleFinalPhotoSelected(event.target.files?.[0]);
+              event.target.value = '';
+            }}
+          />
         </section>
       )}
 
