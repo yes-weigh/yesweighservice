@@ -239,9 +239,9 @@ function PurchaseOrderFilterSheet({
 export const AdminPurchaseOrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { role } = useAuth();
+  const { user } = useAuth();
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
-  const canSync = role === 'super_admin';
+  const canSync = user?.role === 'super_admin';
   const scrollRef = useRevealScrollbarOnScroll();
   const [rows, setRows] = useState<AdminFirestorePurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);

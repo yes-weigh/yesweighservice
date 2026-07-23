@@ -19,13 +19,22 @@ import {
 
 const COLLECTION = 'purchaseOrders';
 const META_DOC = 'purchaseOrderMeta/orgSync';
-const STALE_RUN_MS = 30 * 60 * 1000;
+/** Same pacing knobs as org-invoice-sync. */
+const ORG_SYNC_CONCURRENCY = 2;
+const ORG_SYNC_MAX_LIST_PAGES = 150;
+const STALE_RUN_MS = 75 * 60 * 1000;
+const LIST_PAGE_DELAY_MS = 400;
+const DETAIL_PULL_DELAY_MS = 250;
+const RATE_LIMIT_RETRIES = 6;
+const RATE_LIMIT_BASE_MS = 30_000;
+const LIST_SORT = { sortColumn: 'date', sortOrder: 'D' };
+/** Nightly scheduled sync stops before consuming this share of the daily Zoho quota. */
+export const SCHEDULED_API_QUOTA_RESERVE_RATIO = 0.30;
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-/** Keep 30% of daily Zoho quota for daytime (same as invoice scheduled sync). */
 function scheduledQuotaReserveRemaining(dailyLimit) {
-  const limit = Number(dailyLimit) || 0;
-  return Math.ceil(limit * 0.30);
+  return Math.ceil(Number(dailyLimit) * SCHEDULED_API_QUOTA_RESERVE_RATIO);
 }
 
 function resolveStorageBucketName() {
@@ -93,21 +102,42 @@ async function zohoJsonRequest(accessToken, orgId, path) {
 }
 
 async function zohoCallWithRetry(fn, label) {
-  let attempt = 0;
-  while (attempt < 4) {
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRIES; attempt += 1) {
     try {
       return await fn();
     } catch (err) {
-      const rateLimited = err?.code === 'RATE_LIMITED'
-        || err?.status === 429
-        || String(err?.message ?? '').toLowerCase().includes('rate');
-      if (!rateLimited || attempt >= 3) throw err;
-      attempt += 1;
-      console.warn(`Retry ${attempt} for ${label}: ${err.message}`);
-      await sleep(1500 * attempt);
+      if (err?.code !== 'RATE_LIMITED' || attempt >= RATE_LIMIT_RETRIES) {
+        await recordZohoApiFailure(err, { operation: label, source: 'purchase-order-sync' }).catch(() => {});
+        throw err;
+      }
+      const waitMs = RATE_LIMIT_BASE_MS * (attempt + 1);
+      console.warn(
+        `Zoho rate limit on ${label}, waiting ${waitMs / 1000}s `
+        + `(retry ${attempt + 1}/${RATE_LIMIT_RETRIES})`,
+      );
+      await sleep(waitMs);
     }
   }
-  throw new Error(`Retries exhausted for ${label}`);
+  return null;
+}
+
+async function mapConcurrent(items, concurrency, fn) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await fn(items[current], current);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+  return results;
 }
 
 async function fetchPurchaseOrdersListPage(accessToken, orgId, page, options = {}) {
@@ -329,25 +359,31 @@ export async function countOrgPurchaseOrdersInRange(secrets, orgId) {
   let pulledCount = 0;
   let hasMore = true;
 
-  while (hasMore) {
+  while (hasMore && page <= ORG_SYNC_MAX_LIST_PAGES) {
     const list = await zohoCallWithRetry(
-      () => fetchPurchaseOrdersListPage(accessToken, organizationId, page, {
-        sortColumn: 'date',
-        sortOrder: 'D',
-      }),
-      `PO list page ${page}`,
+      () => fetchPurchaseOrdersListPage(accessToken, organizationId, page, LIST_SORT),
+      `PO count list page ${page}`,
     );
     totalInRange += list.purchaseOrders.length;
     pulledCount += await batchHasStoredDetail(list.purchaseOrders);
     hasMore = list.hasMore;
     page += 1;
+    if (hasMore) await sleep(LIST_PAGE_DELAY_MS);
   }
 
+  const now = FieldValue.serverTimestamp();
+  const priorMeta = await readOrgSyncMeta();
+  const scopeChanged = priorMeta.totalInRange != null && priorMeta.totalInRange !== totalInRange;
   await writeOrgSyncMeta({
     totalInRange,
     pulledCount,
-    totalCountedAt: FieldValue.serverTimestamp(),
-    status: 'idle',
+    totalCountedAt: now,
+    status: priorMeta.status === 'running'
+      ? 'running'
+      : (pulledCount >= totalInRange && totalInRange > 0 ? 'complete' : 'idle'),
+    completedAt: pulledCount >= totalInRange && totalInRange > 0 ? now : priorMeta.completedAt ?? null,
+    checkpointPage: scopeChanged ? 1 : (priorMeta.checkpointPage ?? 1),
+    checkpointIndex: scopeChanged ? 0 : (priorMeta.checkpointIndex ?? 0),
   });
 
   return {
@@ -367,6 +403,12 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
     throw err;
   }
 
+  console.log(
+    `Org PO sync started (${source}): checkpoint page ${priorMeta.checkpointPage ?? 1} `
+    + `index ${priorMeta.checkpointIndex ?? 0}, `
+    + `pulled ${priorMeta.pulledCount ?? 0}/${priorMeta.totalInRange ?? '?'}.`,
+  );
+
   let page = Number(priorMeta.checkpointPage ?? 1);
   let index = Number(priorMeta.checkpointIndex ?? 0);
   const baselinePulled = Number(priorMeta.pulledCount ?? 0);
@@ -375,6 +417,7 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
 
   let synced = 0;
   let failed = 0;
+  let skipped = 0;
   let unchanged = 0;
   let newlyPulled = 0;
   let completed = false;
@@ -384,10 +427,36 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
   const quotaReserveRatio = Number(options.quotaReserveRatio ?? 0);
   let apiCallsThisRun = 0;
   let apiBudget = null;
+
   const shouldStopForQuota = () => apiBudget != null && apiCallsThisRun >= apiBudget;
+
   const trackZohoCall = () => {
     apiCallsThisRun += 1;
     if (shouldStopForQuota()) quotaReserved = true;
+  };
+
+  const computePulledCount = () => Math.max(
+    Number(priorMeta.pulledCount ?? 0),
+    baselinePulled + newlyPulled + unchanged,
+  );
+
+  const publishProgress = async (force = false) => {
+    if (!force && newlyPulled > 0 && newlyPulled % 25 !== 0) return;
+    await writeOrgSyncMeta({
+      pulledCount: computePulledCount(),
+      checkpointPage: page,
+      checkpointIndex: index,
+      lastRunSummary: {
+        synced,
+        failed,
+        skipped,
+        unchanged,
+        newlyPulled,
+        rateLimited: false,
+        quotaReserved: false,
+        inProgress: true,
+      },
+    });
   };
 
   try {
@@ -399,132 +468,195 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
       apiCallsThisRun = 1;
       const reserveRemaining = scheduledQuotaReserveRemaining(usage.dailyLimit);
       apiBudget = Math.max(0, usage.remaining - reserveRemaining);
-      if (apiBudget <= 0) quotaReserved = true;
+      console.log(
+        `Scheduled PO sync API budget: ${apiBudget.toLocaleString()} calls `
+        + `(keeping ${Math.round(quotaReserveRatio * 100)}% / `
+        + `${reserveRemaining.toLocaleString()} of ${usage.dailyLimit.toLocaleString()} daily quota).`,
+      );
+      if (apiBudget <= 0) {
+        quotaReserved = true;
+        console.log('Scheduled PO sync skipped — daily quota already at or below the 30% reserve.');
+      }
     }
 
-    while (!completed && !rateLimited && !quotaReserved) {
-      const list = await zohoCallWithRetry(
-        () => fetchPurchaseOrdersListPage(accessToken, organizationId, page, {
-          sortColumn: 'last_modified_time',
-          sortOrder: 'D',
-        }),
-        `PO list page ${page}`,
-      );
-      trackZohoCall();
-
-      const rows = list.purchaseOrders;
-      for (; index < rows.length; index += 1) {
-        if (shouldStopForQuota()) {
-          quotaReserved = true;
-          break;
-        }
-        const summary = rows[index];
-        const poId = String(summary.purchaseorder_id ?? '');
-        if (!poId) continue;
-
-        try {
-          const existingSnap = await poCollection().doc(poId).get();
-          const existing = existingSnap.exists ? existingSnap.data() : null;
-          if (detailStillValid(existing, summary)) {
-            unchanged += 1;
-            synced += 1;
-            continue;
-          }
-          const fullRaw = await zohoCallWithRetry(
-            () => fetchPurchaseOrderRaw(accessToken, organizationId, poId),
-            `PO ${poId}`,
-          );
-          trackZohoCall();
-          if (!fullRaw) {
-            failed += 1;
-            continue;
-          }
-          await upsertPurchaseOrderFromRaw(fullRaw);
-          newlyPulled += 1;
-          synced += 1;
-        } catch (err) {
-          if (err?.code === 'RATE_LIMITED' || err?.status === 429) {
-            rateLimited = true;
-            break;
-          }
-          failed += 1;
-          console.warn('PO sync item failed:', err?.message ?? err);
-        }
-
-        if (newlyPulled > 0 && newlyPulled % 25 === 0) {
-          pulledCount = Math.max(baselinePulled, baselinePulled + newlyPulled + unchanged);
-          await writeOrgSyncMeta({
-            pulledCount,
-            checkpointPage: page,
-            checkpointIndex: index + 1,
-            lastRunSummary: {
-              synced, failed, unchanged, newlyPulled, rateLimited: false, quotaReserved: false, inProgress: true,
-            },
-          });
-        }
+    const processSummary = async summary => {
+      if (shouldStopForQuota()) {
+        quotaReserved = true;
+        return { synced: 0, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 0, rateLimited: false, stopQuota: true };
       }
 
-      if (rateLimited || quotaReserved) break;
+      const poId = String(summary.purchaseorder_id ?? '');
+      if (!poId) {
+        return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0, rateLimited: false };
+      }
 
+      const existingSnap = await poCollection().doc(poId).get();
+      const existing = existingSnap.exists ? existingSnap.data() : null;
+      if (detailStillValid(existing, summary)) {
+        return { synced: 1, unchanged: 1, failed: 0, skipped: 0, newlyPulled: 0, rateLimited: false };
+      }
+
+      let fullRaw;
+      try {
+        fullRaw = await zohoCallWithRetry(
+          () => fetchPurchaseOrderRaw(accessToken, organizationId, poId),
+          `PO ${poId}`,
+        );
+        trackZohoCall();
+      } catch (err) {
+        if (err?.code === 'RATE_LIMITED') {
+          return { synced: 0, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 0, rateLimited: true };
+        }
+        return { synced: 0, unchanged: 0, failed: 1, skipped: 0, newlyPulled: 0, rateLimited: false };
+      }
+
+      if (!fullRaw) {
+        return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0, rateLimited: false };
+      }
+
+      try {
+        await upsertPurchaseOrderFromRaw(fullRaw);
+        await sleep(DETAIL_PULL_DELAY_MS);
+        return { synced: 1, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 1, rateLimited: false };
+      } catch (err) {
+        console.warn('Org PO sync item failed:', err?.message ?? err);
+        return { synced: 0, unchanged: 0, failed: 1, skipped: 0, newlyPulled: 0, rateLimited: false };
+      }
+    };
+
+    while (!completed && !rateLimited && !quotaReserved) {
+      if (shouldStopForQuota()) {
+        quotaReserved = true;
+        break;
+      }
+
+      let list;
+      try {
+        list = await zohoCallWithRetry(
+          () => fetchPurchaseOrdersListPage(accessToken, organizationId, page, LIST_SORT),
+          `PO list page ${page}`,
+        );
+        trackZohoCall();
+      } catch (err) {
+        if (err?.code === 'RATE_LIMITED') {
+          rateLimited = true;
+          break;
+        }
+        throw err;
+      }
+
+      const slice = list.purchaseOrders.slice(index);
+      const results = await mapConcurrent(slice, ORG_SYNC_CONCURRENCY, processSummary);
+      for (let i = 0; i < results.length; i += 1) {
+        const result = results[i];
+        if (result.stopQuota) {
+          quotaReserved = true;
+          index += i;
+          break;
+        }
+        if (result.rateLimited) {
+          rateLimited = true;
+          index += i;
+          break;
+        }
+        synced += result.synced;
+        unchanged += result.unchanged;
+        failed += result.failed;
+        skipped += result.skipped;
+        newlyPulled += result.newlyPulled;
+      }
+
+      await publishProgress(true);
+
+      if (newlyPulled > 0 && newlyPulled % 100 === 0) {
+        console.log(`Org PO sync progress: ${newlyPulled} newly pulled this run.`);
+      }
+
+      if (rateLimited || quotaReserved) {
+        await writeOrgSyncMeta({ checkpointPage: page, checkpointIndex: index });
+        break;
+      }
+
+      index = 0;
       if (!list.hasMore) {
         completed = true;
+        page = 1;
         break;
       }
       page += 1;
-      index = 0;
+      await writeOrgSyncMeta({ checkpointPage: page, checkpointIndex: 0 });
+      await sleep(LIST_PAGE_DELAY_MS);
     }
-
-    pulledCount = Math.max(baselinePulled, baselinePulled + newlyPulled + unchanged);
-    const finalStatus = completed ? 'complete' : 'idle';
-    await writeOrgSyncMeta({
-      status: finalStatus,
-      pulledCount,
-      checkpointPage: completed ? 1 : page,
-      checkpointIndex: completed ? 0 : index,
-      lastRunAt: FieldValue.serverTimestamp(),
-      lastRunSource: source,
-      lastRunSummary: {
-        synced, failed, unchanged, newlyPulled, rateLimited, quotaReserved, inProgress: false,
-      },
-      ...(completed ? { completedAt: FieldValue.serverTimestamp() } : {}),
-    });
-
-    const remaining = totalInRange == null ? null : Math.max(0, totalInRange - pulledCount);
-    const message = rateLimited
-      ? 'Zoho rate limit reached. Progress saved — wait, then Pull again.'
-      : quotaReserved
-        ? 'Stopped to preserve Zoho API quota. Resume with Pull now.'
-        : completed
-          ? 'All purchase orders are synced.'
-          : 'Purchase order sync paused.';
-
-    return {
-      status: finalStatus,
-      syncedCount: synced,
-      failedCount: failed,
-      skippedCount: 0,
-      unchangedCount: unchanged,
-      newlyPulled,
-      totalInRange,
-      pulledCount,
-      remaining,
-      completed,
-      rateLimited,
-      quotaReserved,
-      message,
-    };
   } catch (err) {
     await writeOrgSyncMeta({
       status: 'idle',
+      checkpointPage: page,
+      checkpointIndex: index,
+    }).catch(() => {});
+    console.error('Org PO sync failed:', err?.message ?? err);
+    throw err;
+  } finally {
+    const priorPulled = Number(priorMeta.pulledCount ?? 0);
+    const runEstimate = baselinePulled + newlyPulled + unchanged;
+    pulledCount = Math.max(priorPulled, runEstimate);
+    if (completed && totalInRange != null) {
+      pulledCount = Math.min(totalInRange, Math.max(pulledCount, runEstimate));
+    }
+    const allDone = completed && (totalInRange == null || pulledCount >= totalInRange);
+    const status = allDone ? 'complete' : 'idle';
+
+    await writeOrgSyncMeta({
+      status,
+      totalInRange: totalInRange ?? priorMeta.totalInRange ?? null,
+      pulledCount,
+      checkpointPage: completed ? 1 : page,
+      checkpointIndex: completed ? 0 : (rateLimited || quotaReserved ? index : 0),
       lastRunAt: FieldValue.serverTimestamp(),
       lastRunSource: source,
       lastRunSummary: {
-        synced, failed, unchanged, newlyPulled, rateLimited: true, quotaReserved: false, inProgress: false,
-        error: err?.message ?? String(err),
+        synced,
+        failed,
+        skipped,
+        unchanged,
+        newlyPulled,
+        rateLimited,
+        quotaReserved,
+        inProgress: false,
       },
-    }).catch(() => {});
-    throw err;
+      ...(allDone ? { completedAt: FieldValue.serverTimestamp() } : {}),
+    });
   }
+
+  const remaining = totalInRange == null ? null : Math.max(0, totalInRange - pulledCount);
+  const message = rateLimited
+    ? 'Zoho API rate limit reached. Progress is saved at the current checkpoint — wait for quota to recover, then click Pull now again.'
+    : quotaReserved
+      ? `Scheduled sync stopped to preserve ${Math.round((quotaReserveRatio || SCHEDULED_API_QUOTA_RESERVE_RATIO) * 100)}% of today's Zoho API quota for daytime use. Resume with Pull now or wait for the next 3 AM run.`
+      : completed
+        ? 'All purchase orders are synced.'
+        : 'Purchase order sync paused.';
+
+  console.log(
+    `Org PO sync finished (${source}): status=${completed ? 'complete' : 'idle'}, `
+    + `newlyPulled=${newlyPulled}, unchanged=${unchanged}, failed=${failed}, rateLimited=${rateLimited}, `
+    + `quotaReserved=${quotaReserved}, pulled=${pulledCount}/${totalInRange ?? '?'}.`,
+  );
+
+  return {
+    status: completed && (totalInRange == null || pulledCount >= totalInRange) ? 'complete' : 'idle',
+    syncedCount: synced,
+    failedCount: failed,
+    skippedCount: skipped,
+    unchangedCount: unchanged,
+    newlyPulled,
+    totalInRange,
+    pulledCount,
+    remaining,
+    completed,
+    rateLimited,
+    quotaReserved,
+    message,
+  };
 }
 
 export async function reclassifyPurchaseOrderCategoriesFromCatalog(options = {}) {
