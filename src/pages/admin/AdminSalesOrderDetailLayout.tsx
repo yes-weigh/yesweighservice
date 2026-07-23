@@ -8,7 +8,7 @@ import {
   type AdminSalesOrderDetail,
 } from '../../lib/admin-sales-orders';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
-import { navigateBack } from '../../lib/navigation';
+import { canNavigateBackInApp } from '../../lib/navigation';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 
 export const AdminSalesOrderDetailLayout: React.FC = () => {
@@ -26,10 +26,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
-      navigate(summaryPath);
+      if (canNavigateBackInApp()) {
+        navigate(-1);
+      } else {
+        navigate(summaryPath, { replace: true });
+      }
       return;
     }
-    navigateBack(navigate, listPath);
+    navigate(listPath);
   }, [isPdfView, navigate, summaryPath, listPath]);
 
   useCatalogPageHeader({

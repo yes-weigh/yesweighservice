@@ -13,6 +13,8 @@ interface InvoiceDocumentBodyProps {
   /** When set, matching line items are omitted (e.g. freight/stamping fees for service requests). */
   hideLineItem?: (item: DealerInvoiceLineItem) => boolean;
   hideTotals?: boolean;
+  /** ISO currency (e.g. USD) — defaults to INR. */
+  currencyCode?: string;
 }
 
 export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
@@ -23,11 +25,13 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   itemClassName = '',
   hideLineItem,
   hideTotals = false,
+  currencyCode = 'INR',
 }) => {
   const selectable = Boolean(onSelectLineItem);
   const visibleItems = hideLineItem
     ? invoice.lineItems.filter(item => !hideLineItem(item))
     : invoice.lineItems;
+  const money = (value: number) => formatCurrency(value, currencyCode);
 
   return (
     <>
@@ -35,15 +39,15 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
         <section className="invoice-detail-footer panel glass">
           <div className="invoice-detail-footer__row">
             <span>Sub Total</span>
-            <span>{formatCurrency(invoice.subtotal)}</span>
+            <span>{money(invoice.subtotal)}</span>
           </div>
           <div className="invoice-detail-footer__row">
             <span>GST</span>
-            <span>{formatCurrency(invoice.taxTotal)}</span>
+            <span>{money(invoice.taxTotal)}</span>
           </div>
           <div className="invoice-detail-footer__row invoice-detail-footer__row--total">
             <span>Grand Total</span>
-            <strong>{formatCurrency(invoice.total)}</strong>
+            <strong>{money(invoice.total)}</strong>
           </div>
         </section>
       )}
@@ -85,6 +89,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                     >
                       <ItemContent
                         item={item}
+                        currencyCode={currencyCode}
                         showNext={isSelected && Boolean(onConfirmLineItem)}
                         onNext={onConfirmLineItem}
                       />
@@ -93,7 +98,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                       )}
                     </div>
                   ) : (
-                    <ItemContent item={item} />
+                    <ItemContent item={item} currencyCode={currencyCode} />
                   )}
                 </li>
               );
@@ -109,10 +114,12 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
 
 function ItemContent({
   item,
+  currencyCode = 'INR',
   showNext = false,
   onNext,
 }: {
   item: DealerInvoiceLineItem;
+  currencyCode?: string;
   showNext?: boolean;
   onNext?: () => void;
 }) {
@@ -134,8 +141,8 @@ function ItemContent({
           <p className="invoice-detail-item__desc">{item.description}</p>
         )}
         <div className="invoice-detail-item__pricing">
-          <span>{formatCurrency(item.rate)} × {item.quantity}</span>
-          <strong>{formatCurrency(item.total)}</strong>
+          <span>{formatCurrency(item.rate, currencyCode)} × {item.quantity}</span>
+          <strong>{formatCurrency(item.total, currencyCode)}</strong>
         </div>
         {showNext && onNext && (
           <button

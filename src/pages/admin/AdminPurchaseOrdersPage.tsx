@@ -42,7 +42,7 @@ import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../type
 
 const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
-const DEFAULT_RANGE: SalesRangePreset = 'current_month';
+const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminPurchaseOrderSort = 'date';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 
@@ -304,9 +304,11 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   const summary = useMemo(() => {
     const salesEntries = buildAdminPurchaseOrderSalesEntries(filtered);
     const sales = salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null;
+    const currencies = [...new Set(filtered.map(row => row.currencyCode || 'INR'))];
     return {
       count: filtered.length,
       totalAmount: sales?.totalSales ?? 0,
+      currencyCode: currencies.length === 1 ? currencies[0] : null,
       periodStart: sales?.periodStart ?? null,
       periodEnd: sales?.periodEnd ?? new Date().toISOString(),
     };
@@ -399,7 +401,13 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
             <div className="invoices-summary__kpi-body">
               <span className="invoices-summary__kpi-label">Total Amount</span>
               <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                {loading ? '…' : formatCurrency(summary.totalAmount)}
+                {loading
+                  ? '…'
+                  : summary.currencyCode
+                    ? formatCurrency(summary.totalAmount, summary.currencyCode)
+                    : filtered.length
+                      ? 'Mixed currencies'
+                      : formatCurrency(0)}
               </strong>
               <span className="invoices-summary__kpi-sub">Amount</span>
             </div>
@@ -500,7 +508,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                           <td>{po.vendorName ?? '—'}</td>
                           <td>{formatInvoiceDate(po.date)}</td>
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
-                          <td className="invoices-table__num">{formatCurrency(po.total)}</td>
+                          <td className="invoices-table__num">{formatCurrency(po.total, po.currencyCode)}</td>
                           <td>
                             {categoryLabel ? (
                               <InvoiceCategoryBadge category={po.purchaseOrderCategory} />
@@ -550,7 +558,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                         </span>
                       </span>
                       <span className="invoices-mobile-row__amount">
-                        <strong>{formatCurrency(po.total)}</strong>
+                        <strong>{formatCurrency(po.total, po.currencyCode)}</strong>
                         <span className={poStatusClass(po.status)}>
                           {invoiceStatusLabel(po.status)}
                         </span>

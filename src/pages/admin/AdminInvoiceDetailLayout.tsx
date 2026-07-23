@@ -8,7 +8,7 @@ import {
 } from '../../lib/admin-invoices';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
 import type { DealerInvoiceDetail } from '../../types/invoices';
-import { navigateBack } from '../../lib/navigation';
+import { canNavigateBackInApp } from '../../lib/navigation';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
 
 export const AdminInvoiceDetailLayout: React.FC = () => {
@@ -28,10 +28,14 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
-      navigate(invoiceSummaryPath);
+      if (canNavigateBackInApp()) {
+        navigate(-1);
+      } else {
+        navigate(invoiceSummaryPath, { replace: true });
+      }
       return;
     }
-    navigateBack(navigate, invoicesPath);
+    navigate(invoicesPath);
   }, [isPdfView, navigate, invoiceSummaryPath, invoicesPath]);
 
   useCatalogPageHeader({

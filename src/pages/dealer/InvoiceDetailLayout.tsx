@@ -13,7 +13,7 @@ import {
   readCachedDealerInvoiceDetail,
 } from '../../lib/invoices';
 import type { DealerInvoiceDetail } from '../../types/invoices';
-import { navigateBack } from '../../lib/navigation';
+import { canNavigateBackInApp } from '../../lib/navigation';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
 
 export const InvoiceDetailLayout: React.FC = () => {
@@ -32,10 +32,14 @@ export const InvoiceDetailLayout: React.FC = () => {
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
-      navigate(invoiceSummaryPath);
+      if (canNavigateBackInApp()) {
+        navigate(-1);
+      } else {
+        navigate(invoiceSummaryPath, { replace: true });
+      }
       return;
     }
-    navigateBack(navigate, invoicesPath);
+    navigate(invoicesPath);
   }, [isPdfView, navigate, invoiceSummaryPath, invoicesPath]);
 
   useCatalogPageHeader({

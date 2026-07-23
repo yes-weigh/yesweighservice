@@ -8,7 +8,7 @@ import {
   type AdminPurchaseOrderDetail,
 } from '../../lib/admin-purchase-orders';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
-import { navigateBack } from '../../lib/navigation';
+import { canNavigateBackInApp } from '../../lib/navigation';
 import type { AdminPurchaseOrderDetailOutletContext } from './adminPurchaseOrderDetailContext';
 
 export const AdminPurchaseOrderDetailLayout: React.FC = () => {
@@ -26,10 +26,15 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
-      navigate(summaryPath);
+      // Pop PDF off the stack so the next Back from details goes to the list, not PDF again.
+      if (canNavigateBackInApp()) {
+        navigate(-1);
+      } else {
+        navigate(summaryPath, { replace: true });
+      }
       return;
     }
-    navigateBack(navigate, listPath);
+    navigate(listPath);
   }, [isPdfView, navigate, summaryPath, listPath]);
 
   useCatalogPageHeader({

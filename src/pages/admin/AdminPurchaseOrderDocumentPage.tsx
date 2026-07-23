@@ -52,6 +52,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
       </section>
       <InvoiceDocumentBody
         invoice={purchaseOrder}
+        currencyCode={purchaseOrder.currencyCode}
         itemClassName="admin-invoice-detail-item"
       />
     </>
