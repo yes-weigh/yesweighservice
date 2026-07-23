@@ -86,6 +86,13 @@ import {
   backfillInvoiceCategoriesToProduct,
   reclassifyInvoiceCategoriesFromCatalog,
 } from './lib/invoice-category.js';
+import {
+  getOrgPurchaseOrderSyncStatus,
+  countOrgPurchaseOrdersInRange,
+  syncOrgPurchaseOrdersToFirestore,
+  reclassifyPurchaseOrderCategoriesFromCatalog,
+  ensurePurchaseOrderPdf,
+} from './lib/purchase-order-sync.js';
 import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
@@ -1906,6 +1913,152 @@ export const runOrgInvoiceSync = onCall(
       }
       console.error('runOrgInvoiceSync failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Org invoice sync failed.');
+    }
+  },
+);
+
+/** Org-wide purchase order sync status — super admin. */
+export const getOrgPurchaseOrderSyncStatusCallable = onCall(
+  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    return getOrgPurchaseOrderSyncStatus();
+  },
+);
+
+/** Count every org purchase order in Zoho — super admin. */
+export const countOrgPurchaseOrdersInRangeCallable = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 3600,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await countOrgPurchaseOrdersInRange(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      console.error('countOrgPurchaseOrdersInRange failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Purchase order count failed.');
+    }
+  },
+);
+
+/** Reclassify existing purchase orders from lineItems.itemId → catalogProducts. */
+export const reclassifyPurchaseOrderCategoriesFromCatalogFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const result = await reclassifyPurchaseOrderCategoriesFromCatalog();
+      return {
+        scanned: result.scanned,
+        updated: result.updated,
+        unchanged: result.unchanged,
+        skipped: 0,
+        byCategory: result.counts,
+      };
+    } catch (err) {
+      console.error('reclassifyPurchaseOrderCategoriesFromCatalog failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Purchase order category reclassify failed.');
+    }
+  },
+);
+
+/** Pull all org purchase order details into Firestore — super admin. */
+export const runOrgPurchaseOrderSync = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 3600,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await syncOrgPurchaseOrdersToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { source: 'manual' },
+      );
+    } catch (err) {
+      if (err?.code === 'ALREADY_RUNNING') {
+        throw new HttpsError('failed-precondition', err.message);
+      }
+      if (err?.code === 'RATE_LIMITED') {
+        throw new HttpsError(
+          'resource-exhausted',
+          'Zoho API rate limit reached. Wait a few minutes and click Pull now again.',
+        );
+      }
+      console.error('runOrgPurchaseOrderSync failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Org purchase order sync failed.');
+    }
+  },
+);
+
+/** Nightly purchase order backfill — 3 AM IST; 70% of daily Zoho quota max. */
+export const syncZohoPurchaseOrdersScheduled = onSchedule(
+  {
+    schedule: '0 3 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 1800,
+    memory: '2GiB',
+  },
+  async () => {
+    try {
+      const result = await syncOrgPurchaseOrdersToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          source: 'scheduled',
+          quotaReserveRatio: 0.30,
+        },
+      );
+      console.log(
+        `Scheduled org PO sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
+        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
+        + `quotaReserved=${result.quotaReserved}.`,
+      );
+    } catch (err) {
+      console.error('Scheduled org PO sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+/** Download purchase order PDF (lazy cache) — staff / super admin. */
+export const downloadPurchaseOrderDocument = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const poId = String(request.data?.purchaseOrderId ?? '').trim();
+    if (!poId) {
+      throw new HttpsError('invalid-argument', 'purchaseOrderId is required.');
+    }
+    try {
+      return await ensurePurchaseOrderPdf(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        poId,
+      );
+    } catch (err) {
+      console.error('downloadPurchaseOrderDocument failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not download purchase order PDF.');
     }
   },
 );

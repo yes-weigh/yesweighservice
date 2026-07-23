@@ -34,6 +34,8 @@ import {
   Truck,
   Gift,
   BarChart3,
+  ClipboardList,
+  ShoppingBag,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
@@ -51,13 +53,23 @@ const OPS_PRIORITY_SUFFIXES = [
   '/warranty-support',
 ] as const;
 
-const OPS_REST_SUFFIXES = [
+/** Shown after Invoices, before Reports. */
+const OPS_BEFORE_REPORTS_SUFFIXES = [
   '/verification',
   '/advertisements',
   '/loyalty',
   '/training',
   '/notifications',
+] as const;
+
+/** Shown after Reports. */
+const OPS_AFTER_REPORTS_SUFFIXES = [
   '/ai-assistant',
+] as const;
+
+const OPS_REST_SUFFIXES = [
+  ...OPS_BEFORE_REPORTS_SUFFIXES,
+  ...OPS_AFTER_REPORTS_SUFFIXES,
 ] as const;
 
 const OPS_PATH_SUFFIXES = [...OPS_PRIORITY_SUFFIXES, ...OPS_REST_SUFFIXES] as const;
@@ -164,6 +176,8 @@ function staffPathToFeature(path: string): StaffNavFeature {
     verification: 'verification',
     advertisements: 'advertisements',
     invoices: 'invoices',
+    'sales-orders': 'sales-orders',
+    'purchase-orders': 'purchase-orders',
     logistics: 'logistics',
     loyalty: 'loyalty',
     'ai-assistant': 'ai-assistant',
@@ -257,21 +271,39 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
+          { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales order' },
+          { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
+          ...operationsNavItems('/super-admin', cartBadgeCount, OPS_BEFORE_REPORTS_SUFFIXES),
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
-          ...operationsNavItems('/super-admin', cartBadgeCount, OPS_REST_SUFFIXES),
+          ...operationsNavItems('/super-admin', cartBadgeCount, OPS_AFTER_REPORTS_SUFFIXES),
         ];
       case 'staff': {
         const portal = portalNavItems('/staff', cartBadgeCount, 'staff');
+        const withExtras = [...portal];
+        const invoicesIndex = withExtras.findIndex(item => item.path.endsWith('/invoices'));
+        const insertAt = invoicesIndex >= 0 ? invoicesIndex + 1 : withExtras.length;
+        withExtras.splice(
+          insertAt,
+          0,
+          { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales order' },
+          { path: '/staff/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
+        );
+        const notificationsIndex = withExtras.findIndex(item => item.path.endsWith('/notifications'));
+        const reportsItem = { path: '/staff/reports', icon: <BarChart3 size={20} />, label: 'Reports' };
+        if (notificationsIndex >= 0) {
+          withExtras.splice(notificationsIndex + 1, 0, reportsItem);
+        } else {
+          withExtras.push(reportsItem);
+        }
         const items: NavItem[] = [
           { path: '/staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          ...portal,
+          ...withExtras,
           { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
-          { path: '/staff/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
         ];
         if (canViewHr(user)) {
-          items.splice(1 + portal.length, 0, { path: '/staff/hr', icon: <Users size={20} />, label: 'HR' });
+          items.splice(1 + withExtras.length, 0, { path: '/staff/hr', icon: <Users size={20} />, label: 'HR' });
         }
         return filterStaffNavItems(user, items);
       }
@@ -329,6 +361,9 @@ const LayoutShell: React.FC = () => {
   const isInvoiceDetail = /\/invoices\/(?!sync(?:\/|$))[^/]+(\/(invoice(\/view)?|payments|logistic|qc))?$/.test(
     location.pathname,
   );
+  const isPurchaseOrderDetail = /\/purchase-orders\/(?!sync(?:\/|$))[^/]+(\/view)?$/.test(
+    location.pathname,
+  );
   const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname)
     && !location.pathname.endsWith('/complaint-guidelines');
   const pageTitle = isFooterNavActive
@@ -337,6 +372,8 @@ const LayoutShell: React.FC = () => {
       ? 'Dealer'
     : isInvoiceDetail
       ? 'Invoice'
+    : isPurchaseOrderDetail
+      ? 'Purchase order'
     : isSupportDetail
       ? 'Support'
     : isSpareMapDetail

@@ -88,6 +88,22 @@
         { "fieldPath": "invoiceCategory", "order": "ASCENDING" },
         { "fieldPath": "syncedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "purchaseOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "purchaseOrderCategory", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "purchaseOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "purchaseOrderCategory", "order": "ASCENDING" },
+        { "fieldPath": "syncedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -105,6 +121,22 @@
       "ttl": false,
       "indexes": [
         { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "purchaseOrders",
+      "fieldPath": "syncedAt",
+      "ttl": false,
+      "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" }
+      ]
+    },
+    {
+      "collectionGroup": "purchaseOrders",
+      "fieldPath": "date",
+      "ttl": false,
+      "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" }
       ]
     }
   ]

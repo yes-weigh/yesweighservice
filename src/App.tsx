@@ -31,6 +31,11 @@ import { AdminInvoiceSyncPage } from './pages/admin/AdminInvoiceSyncPage';
 import { AdminInvoiceDetailLayout } from './pages/admin/AdminInvoiceDetailLayout';
 import { AdminInvoiceDocumentPage } from './pages/admin/AdminInvoiceDocumentPage';
 import { AdminInvoicePdfViewerPage } from './pages/admin/AdminInvoicePdfViewerPage';
+import { AdminPurchaseOrdersPage } from './pages/admin/AdminPurchaseOrdersPage';
+import { AdminPurchaseOrderSyncPage } from './pages/admin/AdminPurchaseOrderSyncPage';
+import { AdminPurchaseOrderDetailLayout } from './pages/admin/AdminPurchaseOrderDetailLayout';
+import { AdminPurchaseOrderDocumentPage } from './pages/admin/AdminPurchaseOrderDocumentPage';
+import { AdminPurchaseOrderPdfViewerPage } from './pages/admin/AdminPurchaseOrderPdfViewerPage';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
@@ -191,6 +196,13 @@ const App: React.FC = () => (
                 </Route>
               </Route>
               <Route path="invoices/sync" element={<AdminInvoiceSyncPage />} />
+              <Route path="sales-orders" element={<DealerMenuPages.SalesOrders />} />
+              <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
+              <Route path="purchase-orders/sync" element={<AdminPurchaseOrderSyncPage />} />
+              <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
+                <Route index element={<AdminPurchaseOrderDocumentPage />} />
+                <Route path="view" element={<AdminPurchaseOrderPdfViewerPage />} />
+              </Route>
               {superAdminOpsRoutes}
               <Route path="reports" element={<ReportsLayout basePath="/super-admin" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
@@ -220,6 +232,12 @@ const App: React.FC = () => (
               {portalMenuRoutes}
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
+              <Route path="sales-orders" element={<DealerMenuPages.SalesOrders />} />
+              <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
+              <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
+                <Route index element={<AdminPurchaseOrderDocumentPage />} />
+                <Route path="view" element={<AdminPurchaseOrderPdfViewerPage />} />
+              </Route>
               <Route path="reports" element={<ReportsLayout basePath="/staff" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
               </Route>
