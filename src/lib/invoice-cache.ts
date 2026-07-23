@@ -55,6 +55,7 @@ function stableListParams(params: InvoiceListParams): string {
     limit: params.limit ?? 25,
     q: params.q ?? '',
     status: params.status ?? 'all',
+    category: params.category ?? 'all',
     sortField: params.sortField ?? 'date',
     sortDir: params.sortDir ?? 'desc',
   });

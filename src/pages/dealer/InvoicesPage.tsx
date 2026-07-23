@@ -36,14 +36,21 @@ import {
   readCachedDealerInvoices,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
-import type { DealerInvoice, InvoiceDashboardSummary, InvoiceListParams, SalesRangePreset } from '../../types/invoices';
-import { SALES_RANGE_OPTIONS } from '../../types/invoices';
+import type {
+  DealerInvoice,
+  InvoiceCategory,
+  InvoiceDashboardSummary,
+  InvoiceListParams,
+  SalesRangePreset,
+} from '../../types/invoices';
+import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 type InvoiceSortField = NonNullable<InvoiceListParams['sortField']>;
 
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
 const DEFAULT_SORT_FIELD: InvoiceSortField = 'date';
 const DEFAULT_SORT_DIR: 'asc' | 'desc' = 'desc';
+const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 
 const SORT_OPTIONS: Array<{ value: InvoiceSortField; label: string }> = [
   { value: 'date', label: 'Invoice date' },
@@ -109,6 +116,7 @@ function InvoiceDeliveryBadge({ date }: { date: string | null | undefined }) {
 function InvoiceFilterSheet({
   open,
   rangePreset,
+  category,
   sortField,
   sortDir,
   onClose,
@@ -116,25 +124,29 @@ function InvoiceFilterSheet({
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
+  category: InvoiceCategory | 'all';
   sortField: InvoiceSortField;
   sortDir: 'asc' | 'desc';
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
+    category: InvoiceCategory | 'all';
     sortField: InvoiceSortField;
     sortDir: 'asc' | 'desc';
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
+  const [draftCategory, setDraftCategory] = useState(category);
   const [draftSortField, setDraftSortField] = useState(sortField);
   const [draftSortDir, setDraftSortDir] = useState(sortDir);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
+    setDraftCategory(category);
     setDraftSortField(sortField);
     setDraftSortDir(sortDir);
-  }, [open, rangePreset, sortField, sortDir]);
+  }, [open, rangePreset, category, sortField, sortDir]);
 
   useEffect(() => {
     if (!open) return;
@@ -148,6 +160,7 @@ function InvoiceFilterSheet({
   if (!open) return null;
 
   const draftDirty = draftRange !== DEFAULT_RANGE
+    || draftCategory !== DEFAULT_CATEGORY
     || draftSortField !== DEFAULT_SORT_FIELD
     || draftSortDir !== DEFAULT_SORT_DIR;
 
@@ -205,6 +218,29 @@ function InvoiceFilterSheet({
             </div>
 
             <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Category</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Category">
+                {INVOICE_CATEGORY_FILTER_OPTIONS.map(option => {
+                  const checked = draftCategory === option.value;
+                  const id = `invoice-category-${option.value}`;
+                  return (
+                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="invoice-category"
+                        checked={checked}
+                        onChange={() => setDraftCategory(option.value)}
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Sort by</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
                 {SORT_OPTIONS.map(option => {
@@ -251,6 +287,7 @@ function InvoiceFilterSheet({
               onClick={() => {
                 onApply({
                   rangePreset: draftRange,
+                  category: draftCategory,
                   sortField: draftSortField,
                   sortDir: draftSortDir,
                 });
@@ -265,6 +302,7 @@ function InvoiceFilterSheet({
               disabled={!draftDirty}
               onClick={() => {
                 setDraftRange(DEFAULT_RANGE);
+                setDraftCategory(DEFAULT_CATEGORY);
                 setDraftSortField(DEFAULT_SORT_FIELD);
                 setDraftSortDir(DEFAULT_SORT_DIR);
               }}
@@ -374,6 +412,7 @@ export const InvoicesPage: React.FC = () => {
   const debouncedSearch = useDebounce(searchTerm, 400);
   const [sortField, setSortField] = useState<InvoiceSortField>(DEFAULT_SORT_FIELD);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(DEFAULT_SORT_DIR);
+  const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
   const [page, setPage] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
   const limit = 25;
@@ -393,8 +432,9 @@ export const InvoicesPage: React.FC = () => {
     limit,
     sortField,
     sortDir,
+    ...(category !== 'all' ? { category } : {}),
     ...(debouncedSearch.trim() ? { q: debouncedSearch.trim() } : {}),
-  }), [page, debouncedSearch, sortField, sortDir]);
+  }), [page, debouncedSearch, category, sortField, sortDir]);
 
   const loadInvoices = useCallback(async () => {
     const uid = user?.uid;
@@ -470,7 +510,7 @@ export const InvoicesPage: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, sortField, sortDir]);
+  }, [debouncedSearch, category, sortField, sortDir]);
 
   const handleSort = (field: InvoiceSortField) => {
     if (sortField === field) {
@@ -519,6 +559,7 @@ export const InvoicesPage: React.FC = () => {
 
   const kpiDateRange = formatKpiPeriodRange(kpiSummary.periodStart, kpiSummary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
+    || category !== DEFAULT_CATEGORY
     || sortField !== DEFAULT_SORT_FIELD
     || sortDir !== DEFAULT_SORT_DIR;
 
@@ -737,11 +778,13 @@ export const InvoicesPage: React.FC = () => {
       <InvoiceFilterSheet
         open={filterOpen}
         rangePreset={rangePreset}
+        category={category}
         sortField={sortField}
         sortDir={sortDir}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
+          setCategory(next.category);
           setSortField(next.sortField);
           setSortDir(next.sortDir);
         }}

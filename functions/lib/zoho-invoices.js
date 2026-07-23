@@ -111,6 +111,7 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
   }
 
   const status = String(query.status ?? 'all').trim().toLowerCase();
+  const category = String(query.category ?? 'all').trim().toLowerCase();
   const searchText = String(query.q ?? '').trim();
   const sortField = String(query.sortField ?? 'date').trim();
   const sortDir = query.sortDir === 'asc' ? 'asc' : 'desc';
@@ -119,7 +120,7 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
 
   const { invoices, searchBlobById, lastSyncedAt } = await readCustomerInvoicesFromFirestore(customerId);
 
-  let filtered = filterInvoices(invoices, { status });
+  let filtered = filterInvoices(invoices, { status, category });
 
   if (searchText) {
     filtered = filterInvoicesBySearch(filtered, searchText, searchBlobById);

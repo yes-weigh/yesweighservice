@@ -36,13 +36,14 @@ import {
   invoiceStatusLabel,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
-import type { SalesRangePreset } from '../../types/invoices';
-import { SALES_RANGE_OPTIONS } from '../../types/invoices';
+import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
+import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
 const DEFAULT_SORT: AdminInvoiceSort = 'date';
+const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 
 const SORT_OPTIONS: Array<{ value: AdminInvoiceSort; label: string }> = [
   { value: 'date', label: 'Invoice date' },
@@ -57,24 +58,32 @@ function invoiceStatusClass(status: string): string {
 function AdminFilterSheet({
   open,
   rangePreset,
+  category,
   sort,
   onClose,
   onApply,
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
+  category: InvoiceCategory | 'all';
   sort: AdminInvoiceSort;
   onClose: () => void;
-  onApply: (next: { rangePreset: SalesRangePreset; sort: AdminInvoiceSort }) => void;
+  onApply: (next: {
+    rangePreset: SalesRangePreset;
+    category: InvoiceCategory | 'all';
+    sort: AdminInvoiceSort;
+  }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
+  const [draftCategory, setDraftCategory] = useState(category);
   const [draftSort, setDraftSort] = useState(sort);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
+    setDraftCategory(category);
     setDraftSort(sort);
-  }, [open, rangePreset, sort]);
+  }, [open, rangePreset, category, sort]);
 
   useEffect(() => {
     if (!open) return;
@@ -87,7 +96,9 @@ function AdminFilterSheet({
 
   if (!open) return null;
 
-  const draftDirty = draftRange !== DEFAULT_RANGE || draftSort !== DEFAULT_SORT;
+  const draftDirty = draftRange !== DEFAULT_RANGE
+    || draftCategory !== DEFAULT_CATEGORY
+    || draftSort !== DEFAULT_SORT;
 
   return createPortal(
     <>
@@ -143,6 +154,29 @@ function AdminFilterSheet({
             </div>
 
             <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Category</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Category">
+                {INVOICE_CATEGORY_FILTER_OPTIONS.map(option => {
+                  const checked = draftCategory === option.value;
+                  const id = `admin-invoice-category-${option.value}`;
+                  return (
+                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="admin-invoice-category"
+                        checked={checked}
+                        onChange={() => setDraftCategory(option.value)}
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Sort by</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
                 {SORT_OPTIONS.map(option => {
@@ -171,7 +205,11 @@ function AdminFilterSheet({
               type="button"
               className="catalog-spares-multi-filters__apply"
               onClick={() => {
-                onApply({ rangePreset: draftRange, sort: draftSort });
+                onApply({
+                  rangePreset: draftRange,
+                  category: draftCategory,
+                  sort: draftSort,
+                });
                 onClose();
               }}
             >
@@ -183,6 +221,7 @@ function AdminFilterSheet({
               disabled={!draftDirty}
               onClick={() => {
                 setDraftRange(DEFAULT_RANGE);
+                setDraftCategory(DEFAULT_CATEGORY);
                 setDraftSort(DEFAULT_SORT);
               }}
             >
@@ -205,6 +244,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<AdminInvoiceSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
+  const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [customerLocations, setCustomerLocations] = useState(
@@ -235,13 +275,13 @@ export const AdminInvoicesPage: React.FC = () => {
   );
 
   const filtered = useMemo(
-    () => filterAdminInvoices(periodRows, search),
-    [periodRows, search],
+    () => filterAdminInvoices(periodRows, search, category),
+    [periodRows, search, category],
   );
 
   useEffect(() => {
     setPage(1);
-  }, [search, rangePreset, sort]);
+  }, [search, rangePreset, category, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -286,7 +326,9 @@ export const AdminInvoicesPage: React.FC = () => {
   }, [filtered, rangePreset]);
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
-  const hasActiveFilters = rangePreset !== DEFAULT_RANGE || sort !== DEFAULT_SORT;
+  const hasActiveFilters = rangePreset !== DEFAULT_RANGE
+    || category !== DEFAULT_CATEGORY
+    || sort !== DEFAULT_SORT;
 
   const headerTools = useMemo(
     () => (
@@ -567,10 +609,12 @@ export const AdminInvoicesPage: React.FC = () => {
       <AdminFilterSheet
         open={filterOpen}
         rangePreset={rangePreset}
+        category={category}
         sort={sort}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
+          setCategory(next.category);
           setSort(next.sort);
         }}
       />

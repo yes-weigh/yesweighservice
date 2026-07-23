@@ -120,10 +120,15 @@ export async function fetchAdminInvoicesPage(
 export function filterAdminInvoices(
   rows: AdminFirestoreInvoice[],
   searchText: string,
+  category: InvoiceCategory | 'all' = 'all',
 ): AdminFirestoreInvoice[] {
+  let next = rows;
+  if (category && category !== 'all') {
+    next = next.filter(row => row.invoiceCategory === category);
+  }
   const needle = searchText.trim().toLowerCase();
-  if (!needle) return rows;
-  return rows.filter(row => {
+  if (!needle) return next;
+  return next.filter(row => {
     const haystack = [
       row.invoiceNumber,
       row.customerName,
@@ -131,6 +136,7 @@ export function filterAdminInvoices(
       row.referenceNumber,
       row.id,
       row.status,
+      row.invoiceCategory,
     ]
       .filter(Boolean)
       .join(' ')

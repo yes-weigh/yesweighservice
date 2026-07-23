@@ -70,11 +70,23 @@ export interface InvoiceListParams {
   limit?: number;
   q?: string;
   status?: InvoiceStatus | 'all' | '';
+  category?: InvoiceCategory | 'all' | '';
   sortField?: 'invoiceNumber' | 'date' | 'dueDate' | 'total' | 'balance' | 'status';
   sortDir?: 'asc' | 'desc';
   /** Ops only — load invoices for a specific Zoho customer. */
   customerId?: string;
 }
+
+export const INVOICE_CATEGORY_FILTER_OPTIONS: Array<{
+  value: InvoiceCategory | 'all';
+  label: string;
+}> = [
+  { value: 'all', label: 'All categories' },
+  { value: 'product', label: 'Product' },
+  { value: 'spare', label: 'Spares' },
+  { value: 'software_key', label: 'Software key' },
+  { value: 'service', label: 'Service charges' },
+];
 
 export interface InvoiceListResponse {
   data: DealerInvoice[];

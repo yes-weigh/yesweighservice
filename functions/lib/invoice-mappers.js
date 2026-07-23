@@ -106,10 +106,21 @@ export function buildInvoiceSearchBlob(invoiceRaw) {
     .toLowerCase();
 }
 
-export function filterInvoices(invoices, { status } = {}) {
-  if (!status || status === 'all') return invoices;
-  const normalized = String(status).toLowerCase();
-  return invoices.filter(inv => String(inv.status).toLowerCase() === normalized);
+const INVOICE_CATEGORIES = new Set(['product', 'spare', 'service', 'software_key']);
+
+export function filterInvoices(invoices, { status, category } = {}) {
+  let next = invoices;
+  if (status && status !== 'all') {
+    const normalized = String(status).toLowerCase();
+    next = next.filter(inv => String(inv.status).toLowerCase() === normalized);
+  }
+  if (category && category !== 'all') {
+    const normalized = String(category).toLowerCase();
+    if (INVOICE_CATEGORIES.has(normalized)) {
+      next = next.filter(inv => String(inv.invoiceCategory ?? '').toLowerCase() === normalized);
+    }
+  }
+  return next;
 }
 
 export function sortInvoices(invoices, sortField = 'date', sortDir = 'desc') {
