@@ -11,6 +11,10 @@ import {
   X,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import {
+  InvoiceCategoryBadge,
+  InvoiceCategoryIcon,
+} from '../../components/invoices/InvoiceCategoryVisual';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   buildAdminSalesEntries,
@@ -28,7 +32,6 @@ import {
   formatInvoiceDate,
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
-  invoiceCategoryClassName,
   invoiceCategoryLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
@@ -464,9 +467,7 @@ export const AdminInvoicesPage: React.FC = () => {
                       <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
                       <td>
                         {categoryLabel ? (
-                          <span className={invoiceCategoryClassName(invoice.invoiceCategory)}>
-                            {categoryLabel}
-                          </span>
+                          <InvoiceCategoryBadge category={invoice.invoiceCategory} />
                         ) : (
                           <span className="text-muted">—</span>
                         )}
@@ -492,7 +493,6 @@ export const AdminInvoicesPage: React.FC = () => {
               const locationLabel = formatAdminCustomerLocation(
                 customerLocations.get(invoice.customerId),
               );
-              const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
               return (
                 <button
                   key={`${invoice.customerId}-${invoice.id}`}
@@ -501,25 +501,21 @@ export const AdminInvoicesPage: React.FC = () => {
                   onClick={() => openInvoice(invoice)}
                   aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
                 >
-                  <span className="invoices-mobile-row__icon" aria-hidden>
-                    <FileText size={16} strokeWidth={2.25} />
-                  </span>
+                  <InvoiceCategoryIcon category={invoice.invoiceCategory} />
                   <span className="invoices-mobile-row__body">
                     <span className="invoices-mobile-row__invoice">
-                      <strong>{invoice.invoiceNumber || invoice.id}</strong>
+                      <span className="invoices-mobile-row__title">
+                        <InvoiceCategoryBadge category={invoice.invoiceCategory} />
+                        <strong>{invoice.invoiceNumber || invoice.id}</strong>
+                      </span>
                       <span className="invoices-mobile-row__so">
                         {invoice.customerName ?? locationLabel ?? '—'}
                       </span>
                       <span className="invoices-mobile-row__meta">
                         {formatInvoiceDate(invoice.date)}
-                        {' · '}
+                        {' • '}
                         Qty {formatInvoiceItemQuantity(invoice.itemQuantity)}
                       </span>
-                      {categoryLabel && (
-                        <span className={invoiceCategoryClassName(invoice.invoiceCategory)}>
-                          {categoryLabel}
-                        </span>
-                      )}
                     </span>
                     <span className="invoices-mobile-row__amount">
                       <strong>{formatCurrency(invoice.total)}</strong>

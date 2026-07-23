@@ -13,6 +13,10 @@ import {
   X,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import {
+  InvoiceCategoryBadge,
+  InvoiceCategoryIcon,
+} from '../../components/invoices/InvoiceCategoryVisual';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import { formatCurrency } from '../../lib/catalog';
@@ -23,7 +27,6 @@ import {
   fetchDealerInvoiceDashboardWithCache,
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
-  invoiceCategoryClassName,
   invoiceCategoryLabel,
   invoiceDeliveryLabel,
   getInvoiceDeliveryStage,
@@ -277,7 +280,6 @@ function InvoiceFilterSheet({
 }
 
 function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen: (id: string) => void }) {
-  const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
   return (
     <button
       type="button"
@@ -285,21 +287,17 @@ function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen:
       onClick={() => onOpen(invoice.id)}
       aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
     >
-      <span className="invoices-mobile-row__icon" aria-hidden>
-        <FileText size={16} strokeWidth={2.25} />
-      </span>
+      <InvoiceCategoryIcon category={invoice.invoiceCategory} />
       <span className="invoices-mobile-row__body">
         <span className="invoices-mobile-row__invoice">
-          <strong>{invoice.invoiceNumber || '—'}</strong>
-          {invoice.referenceNumber && (
-            <span className="invoices-mobile-row__so">{invoice.referenceNumber}</span>
-          )}
+          <span className="invoices-mobile-row__title">
+            <InvoiceCategoryBadge category={invoice.invoiceCategory} />
+            <strong>{invoice.invoiceNumber || '—'}</strong>
+          </span>
+          <span className="invoices-mobile-row__so">
+            {invoice.customerName || invoice.referenceNumber || '—'}
+          </span>
           <span className="invoices-mobile-row__meta">{formatInvoiceDate(invoice.date)}</span>
-          {categoryLabel && (
-            <span className={invoiceCategoryClassName(invoice.invoiceCategory)}>
-              {categoryLabel}
-            </span>
-          )}
         </span>
         <span className="invoices-mobile-row__amount">
           <strong>{formatCurrency(invoice.total)}</strong>
@@ -694,9 +692,7 @@ export const InvoicesPage: React.FC = () => {
                           <td>{formatInvoiceDate(invoice.dueDate)}</td>
                           <td>
                             {categoryLabel ? (
-                              <span className={invoiceCategoryClassName(invoice.invoiceCategory)}>
-                                {categoryLabel}
-                              </span>
+                              <InvoiceCategoryBadge category={invoice.invoiceCategory} />
                             ) : (
                               <span className="text-muted">—</span>
                             )}

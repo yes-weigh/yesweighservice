@@ -641,9 +641,9 @@ export function invoiceCategoryLabel(category: InvoiceCategory | null | undefine
     case 'product':
       return 'Product';
     case 'spare':
-      return 'Spare';
+      return 'Spares';
     case 'service':
-      return 'Service';
+      return 'Service charges';
     case 'software_key':
       return 'Software key';
     default:
