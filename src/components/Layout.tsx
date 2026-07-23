@@ -364,6 +364,9 @@ const LayoutShell: React.FC = () => {
   const isPurchaseOrderDetail = /\/purchase-orders\/(?!sync(?:\/|$))[^/]+(\/view)?$/.test(
     location.pathname,
   );
+  const isSalesOrderDetail = /\/sales-orders\/(?!sync(?:\/|$))[^/]+(\/view)?$/.test(
+    location.pathname,
+  );
   const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname)
     && !location.pathname.endsWith('/complaint-guidelines');
   const pageTitle = isFooterNavActive
@@ -372,6 +375,8 @@ const LayoutShell: React.FC = () => {
       ? 'Dealer'
     : isInvoiceDetail
       ? 'Invoice'
+    : isSalesOrderDetail
+      ? 'Sales order'
     : isPurchaseOrderDetail
       ? 'Purchase order'
     : isSupportDetail

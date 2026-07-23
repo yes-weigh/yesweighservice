@@ -146,10 +146,4 @@ export const DealerMenuPages = {
       description="Assign, track, and complete daily work items across your team."
     />
   ),
-  SalesOrders: () => (
-    <PagePlaceholder
-      title="Sales order"
-      description="Sales orders will appear here. This section is coming soon."
-    />
-  ),
 };

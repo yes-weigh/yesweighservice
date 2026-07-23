@@ -151,6 +151,10 @@ service firebase.storage {
       allow read, write: if false;
     }
 
+    match /salesorders/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     match /support/{requestId}/{messageId}/{fileName} {
       allow read: if canAccessSupportRequest(requestId);
       allow write: if canAccessSupportRequest(requestId) && validSupportMedia();

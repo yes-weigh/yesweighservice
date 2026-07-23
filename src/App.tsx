@@ -36,6 +36,11 @@ import { AdminPurchaseOrderSyncPage } from './pages/admin/AdminPurchaseOrderSync
 import { AdminPurchaseOrderDetailLayout } from './pages/admin/AdminPurchaseOrderDetailLayout';
 import { AdminPurchaseOrderDocumentPage } from './pages/admin/AdminPurchaseOrderDocumentPage';
 import { AdminPurchaseOrderPdfViewerPage } from './pages/admin/AdminPurchaseOrderPdfViewerPage';
+import { AdminSalesOrdersPage } from './pages/admin/AdminSalesOrdersPage';
+import { AdminSalesOrderSyncPage } from './pages/admin/AdminSalesOrderSyncPage';
+import { AdminSalesOrderDetailLayout } from './pages/admin/AdminSalesOrderDetailLayout';
+import { AdminSalesOrderDocumentPage } from './pages/admin/AdminSalesOrderDocumentPage';
+import { AdminSalesOrderPdfViewerPage } from './pages/admin/AdminSalesOrderPdfViewerPage';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
@@ -196,7 +201,12 @@ const App: React.FC = () => (
                 </Route>
               </Route>
               <Route path="invoices/sync" element={<AdminInvoiceSyncPage />} />
-              <Route path="sales-orders" element={<DealerMenuPages.SalesOrders />} />
+              <Route path="sales-orders" element={<AdminSalesOrdersPage />} />
+              <Route path="sales-orders/sync" element={<AdminSalesOrderSyncPage />} />
+              <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>
+                <Route index element={<AdminSalesOrderDocumentPage />} />
+                <Route path="view" element={<AdminSalesOrderPdfViewerPage />} />
+              </Route>
               <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
               <Route path="purchase-orders/sync" element={<AdminPurchaseOrderSyncPage />} />
               <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
@@ -232,7 +242,11 @@ const App: React.FC = () => (
               {portalMenuRoutes}
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
-              <Route path="sales-orders" element={<DealerMenuPages.SalesOrders />} />
+              <Route path="sales-orders" element={<AdminSalesOrdersPage />} />
+              <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>
+                <Route index element={<AdminSalesOrderDocumentPage />} />
+                <Route path="view" element={<AdminSalesOrderPdfViewerPage />} />
+              </Route>
               <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
               <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
                 <Route index element={<AdminPurchaseOrderDocumentPage />} />

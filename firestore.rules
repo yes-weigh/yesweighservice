@@ -273,6 +273,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Org-wide Zoho sales orders (customer-scoped fields on each doc).
+    match /salesOrders/{soId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
+    match /salesOrderMeta/{docId} {
+      allow read, write: if false;
+    }
+
     match /kams/{kamId} {
       allow read: if isOpsUser();
       allow write: if false;

@@ -93,6 +93,13 @@ import {
   reclassifyPurchaseOrderCategoriesFromCatalog,
   ensurePurchaseOrderPdf,
 } from './lib/purchase-order-sync.js';
+import {
+  getOrgSalesOrderSyncStatus,
+  countOrgSalesOrdersInRange,
+  syncOrgSalesOrdersToFirestore,
+  reclassifySalesOrderCategoriesFromCatalog,
+  ensureSalesOrderPdf,
+} from './lib/sales-order-sync.js';
 import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
@@ -2059,6 +2066,152 @@ export const downloadPurchaseOrderDocument = onCall(
     } catch (err) {
       console.error('downloadPurchaseOrderDocument failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not download purchase order PDF.');
+    }
+  },
+);
+
+/** Org-wide sales order sync status — super admin. */
+export const getOrgSalesOrderSyncStatusCallable = onCall(
+  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    return getOrgSalesOrderSyncStatus();
+  },
+);
+
+/** Count every org sales order in Zoho — super admin. */
+export const countOrgSalesOrdersInRangeCallable = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 3600,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await countOrgSalesOrdersInRange(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      console.error('countOrgSalesOrdersInRange failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Sales order count failed.');
+    }
+  },
+);
+
+/** Reclassify existing sales orders from lineItems.itemId → catalogProducts. */
+export const reclassifySalesOrderCategoriesFromCatalogFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const result = await reclassifySalesOrderCategoriesFromCatalog();
+      return {
+        scanned: result.scanned,
+        updated: result.updated,
+        unchanged: result.unchanged,
+        skipped: 0,
+        byCategory: result.counts,
+      };
+    } catch (err) {
+      console.error('reclassifySalesOrderCategoriesFromCatalog failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Sales order category reclassify failed.');
+    }
+  },
+);
+
+/** Pull all org sales order details into Firestore — super admin. */
+export const runOrgSalesOrderSync = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 3600,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await syncOrgSalesOrdersToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { source: 'manual' },
+      );
+    } catch (err) {
+      if (err?.code === 'ALREADY_RUNNING') {
+        throw new HttpsError('failed-precondition', err.message);
+      }
+      if (err?.code === 'RATE_LIMITED') {
+        throw new HttpsError(
+          'resource-exhausted',
+          'Zoho API rate limit reached. Wait a few minutes and click Pull now again.',
+        );
+      }
+      console.error('runOrgSalesOrderSync failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Org sales order sync failed.');
+    }
+  },
+);
+
+/** Nightly sales order backfill — 4 AM IST; 70% of daily Zoho quota max. */
+export const syncZohoSalesOrdersScheduled = onSchedule(
+  {
+    schedule: '0 4 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 1800,
+    memory: '2GiB',
+  },
+  async () => {
+    try {
+      const result = await syncOrgSalesOrdersToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          source: 'scheduled',
+          quotaReserveRatio: 0.30,
+        },
+      );
+      console.log(
+        `Scheduled org SO sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
+        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
+        + `quotaReserved=${result.quotaReserved}.`,
+      );
+    } catch (err) {
+      console.error('Scheduled org SO sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+/** Download sales order PDF (lazy cache) — staff / super admin. */
+export const downloadSalesOrderDocument = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const soId = String(request.data?.salesOrderId ?? '').trim();
+    if (!soId) {
+      throw new HttpsError('invalid-argument', 'salesOrderId is required.');
+    }
+    try {
+      return await ensureSalesOrderPdf(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        soId,
+      );
+    } catch (err) {
+      console.error('downloadSalesOrderDocument failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not download sales order PDF.');
     }
   },
 );
