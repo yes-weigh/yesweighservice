@@ -35,6 +35,7 @@ import {
   readCachedAllDealerInvoices,
   readCachedDealerInvoiceDashboard,
 } from '../../lib/invoices';
+import { listDealerOrders } from '../../lib/dealerOrders';
 import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, SalesRangePreset } from '../../types/invoices';
 
 type Trend = 'up' | 'down';
@@ -84,7 +85,7 @@ function invoiceActivityTone(status: string): ActivityItem['tone'] {
   return 'blue';
 }
 
-function buildSecondaryKpis(base: string): KpiCard[] {
+function buildSecondaryKpis(base: string, openOrders: number | null): KpiCard[] {
   return [
     {
       id: 'support',
@@ -96,9 +97,9 @@ function buildSecondaryKpis(base: string): KpiCard[] {
     },
     {
       id: 'orders',
-      label: 'Pending Orders',
-      value: '',
-      path: `${base}/orders`,
+      label: 'Open Orders',
+      value: openOrders == null ? '' : String(openOrders),
+      path: `${base}/orders/history`,
       tone: 'orange',
       icon: <ShoppingCart size={22} strokeWidth={2.5} />,
     },
@@ -195,6 +196,7 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(30);
+  const [openOrders, setOpenOrders] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -256,13 +258,28 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
 
     void load();
 
+    void listDealerOrders({ limit: 100 })
+      .then(rows => {
+        if (cancelled) return;
+        const open = rows.filter(order => (
+          order.status === 'pending_review'
+          || order.status === 'waiting_for_payment'
+          || order.status === 'payment_submitted'
+          || order.status === 'processing'
+        )).length;
+        setOpenOrders(open);
+      })
+      .catch(() => {
+        if (!cancelled) setOpenOrders(null);
+      });
+
     return () => {
       cancelled = true;
     };
   }, [user?.uid]);
 
   const invoicesPath = `${basePath}/invoices`;
-  const secondaryKpis = buildSecondaryKpis(basePath);
+  const secondaryKpis = buildSecondaryKpis(basePath, openOrders);
   const quickActions = buildQuickActions(basePath, isDealerStaff);
   const activities = summary ? buildActivitiesFromInvoices(summary.recentInvoices, invoicesPath) : [];
   const miniStats = buildMiniStats(basePath);

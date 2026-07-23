@@ -58,6 +58,22 @@
       ]
     },
     {
+      "collectionGroup": "dealerOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dealerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "dealerOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "invoices",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

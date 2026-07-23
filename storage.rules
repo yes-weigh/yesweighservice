@@ -217,6 +217,23 @@ service firebase.storage {
       allow delete: if isOpsUser();
     }
 
+    function canAccessDealerOrder(orderId) {
+      let path = /databases/(default)/documents/dealerOrders/$(orderId);
+      return firestore.exists(path)
+        && isActivePortalUser()
+        && (
+          isOpsUser()
+          || firestore.get(path).data.dealerId == resolvedDealerIdForUser()
+        );
+    }
+
+    // Payment screenshots — prefer Admin SDK upload callable; rules allow ops/dealer read.
+    match /dealer-orders/{orderId}/{fileName} {
+      allow read: if isOpsUser() || canAccessDealerOrder(orderId);
+      allow create, update: if false;
+      allow delete: if isOpsUser();
+    }
+
     // Flat legacy paths: logistics/{bookingId}/{fileName}
     match /logistics/{bookingId}/{fileName} {
       allow read: if isOpsUser() || canAccessLogisticsBooking(bookingId);

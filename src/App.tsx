@@ -83,6 +83,8 @@ const catalogRoutes = (
 const superAdminOpsRoutes = (
   <>
     <Route path="orders" element={<DealerMenuPages.Orders />} />
+    <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
+    <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
     <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
     <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
     <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
@@ -113,6 +115,8 @@ const portalMenuRoutes = (
       <Route path="qc" element={<DealerMenuPages.InvoiceQc />} />
     </Route>
     <Route path="orders" element={<DealerMenuPages.Orders />} />
+    <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
+    <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
     {catalogRoutes}
     <Route path="verification" element={<DealerMenuPages.Verification />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
@@ -275,6 +279,8 @@ const App: React.FC = () => (
               </Route>
               {catalogRoutes}
               <Route path="orders" element={<DealerMenuPages.Orders />} />
+              <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
+              <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
               <Route path="verification" element={<DealerMenuPages.Verification />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
               <Route path="logistics" element={<DealerMenuPages.Logistics />} />

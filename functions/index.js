@@ -106,6 +106,22 @@ import {
   getPublicLogisticsInsidePhotoUrl,
 } from './lib/logistics-upload.js';
 import {
+  submitDealerOrder as submitDealerOrderRecord,
+  getDealerOrder as fetchDealerOrderRecord,
+  listDealerOrders as listDealerOrderRecords,
+  updateDealerOrderLines as updateDealerOrderLinesRecord,
+  approveDealerOrder as approveDealerOrderRecord,
+  rejectDealerOrder as rejectDealerOrderRecord,
+  cancelDealerOrder as cancelDealerOrderRecord,
+  submitDealerOrderPayment as submitDealerOrderPaymentRecord,
+  verifyDealerOrderPayment as verifyDealerOrderPaymentRecord,
+  countPendingDealerOrders,
+} from './lib/dealer-orders.js';
+import {
+  uploadDealerOrderPaymentScreenshot,
+  getDealerOrderPaymentUrl,
+} from './lib/dealer-order-upload.js';
+import {
   uploadApprovalNumberPdf as storeApprovalNumberPdf,
   removeApprovalNumberPdf as clearApprovalNumberPdf,
   deleteApprovalPdfObject,
@@ -2472,6 +2488,199 @@ export const getLogisticsPhotoUrlFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load logistics photo.');
+    }
+  },
+);
+
+const DEALER_ORDER_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
+
+export const submitDealerOrder = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      return await submitDealerOrderRecord(uid, role, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not submit order.');
+    }
+  },
+);
+
+export const getDealerOrder = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_ORDER_ROLES);
+    try {
+      return await fetchDealerOrderRecord(uid, role, request.data?.orderId);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load order.');
+    }
+  },
+);
+
+export const listDealerOrders = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_ORDER_ROLES);
+    try {
+      return await listDealerOrderRecords(uid, role, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load orders.');
+    }
+  },
+);
+
+export const updateDealerOrderLines = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await updateDealerOrderLinesRecord(uid, role, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update order lines.');
+    }
+  },
+);
+
+export const approveDealerOrder = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await approveDealerOrderRecord(uid, role, request.data?.orderId);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not approve order.');
+    }
+  },
+);
+
+export const rejectDealerOrder = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await rejectDealerOrderRecord(
+        uid,
+        role,
+        request.data?.orderId,
+        request.data?.reason,
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not reject order.');
+    }
+  },
+);
+
+export const cancelDealerOrder = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_ORDER_ROLES);
+    try {
+      return await cancelDealerOrderRecord(uid, role, request.data?.orderId);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not cancel order.');
+    }
+  },
+);
+
+export const submitDealerOrderPayment = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      return await submitDealerOrderPaymentRecord(uid, role, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not submit payment proof.');
+    }
+  },
+);
+
+export const verifyDealerOrderPayment = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    try {
+      return await verifyDealerOrderPaymentRecord(
+        uid,
+        role,
+        request.data?.orderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not verify payment.');
+    }
+  },
+);
+
+export const uploadDealerOrderPaymentScreenshotFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await uploadDealerOrderPaymentScreenshot(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload payment screenshot.');
+    }
+  },
+);
+
+export const getDealerOrderPaymentUrlFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      const url = await getDealerOrderPaymentUrl(
+        request.auth.uid,
+        request.data?.storagePath,
+      );
+      return { url };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load payment screenshot.');
+    }
+  },
+);
+
+export const getPendingDealerOrderCount = onCall(
+  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      const count = await countPendingDealerOrders();
+      return { count };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not count pending orders.');
     }
   },
 );

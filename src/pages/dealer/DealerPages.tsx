@@ -4,6 +4,9 @@ import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
 import { DealerDashboard } from './DealerDashboard';
 import { OrdersPage } from './OrdersPage';
+import { DealerOrderHistoryPage } from './DealerOrderHistoryPage';
+import { DealerOrderDetailPage } from './DealerOrderDetailPage';
+import { StaffOrderDetailPage } from '../staff/StaffOrderDetailPage';
 import { CatalogPage } from './CatalogPage';
 import { InvoicesPage } from './InvoicesPage';
 import { InvoiceDetailLayout } from './InvoiceDetailLayout';
@@ -41,6 +44,22 @@ function DealerInvoiceDetailRoute() {
   );
 }
 
+function OrderDetailRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
+    return <DealerOrderDetailPage />;
+  }
+  return <StaffOrderDetailPage />;
+}
+
+function OrderHistoryRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
+    return <DealerOrderHistoryPage />;
+  }
+  return <OrdersPage />;
+}
+
 export const RoleDashboard: React.FC = () => {
   const { user } = useAuth();
 
@@ -76,6 +95,8 @@ export const DealerMenuPages = {
   Spares: CatalogPage,
   Catalog: CatalogPage,
   Orders: OrdersPage,
+  OrderHistory: OrderHistoryRoute,
+  OrderDetail: OrderDetailRoute,
   Verification: () => (
     <PagePlaceholder
       title="Verification"

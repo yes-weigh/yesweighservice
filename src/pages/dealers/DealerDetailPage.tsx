@@ -7,7 +7,9 @@ import {
   RotateCcw,
   Save,
 } from 'lucide-react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { homePathForRole } from '../../types';
 import { DealerStatusIndicator } from '../../components/dealers/DealerStatusIndicator';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
@@ -340,6 +342,8 @@ const PULL_REFRESH_MAX = 96;
 export const DealerDetailPage: React.FC = () => {
   const { dealerId } = useParams<{ dealerId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const preview = (location.state as { dealer?: ZohoDealer } | null)?.dealer;
 
   const [dealer, setDealer] = useState<ZohoDealer | null>(
@@ -815,6 +819,25 @@ export const DealerDetailPage: React.FC = () => {
             disabled={saving}
             onChange={v => setDraft(d => d ? { ...d, orderPayOnline: v } : d)}
           />
+          <label className="dealers-detail__field">
+            <FieldLabel label="Max order limit (₹)" source="local" />
+            <input
+              className="input-field"
+              type="number"
+              min={0}
+              step={1}
+              disabled={saving}
+              value={draft.maxOrderLimit ?? ''}
+              placeholder="No limit"
+              onChange={e => {
+                const raw = e.target.value.trim();
+                setDraft(d => d ? {
+                  ...d,
+                  maxOrderLimit: raw === '' ? null : Number(raw),
+                } : d);
+              }}
+            />
+          </label>
 
           <div className="dealers-detail__field dealers-detail__field--full dealers-detail__actions-row">
             <button
@@ -829,8 +852,10 @@ export const DealerDetailPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary"
-              disabled
-              title="Order history per dealer coming soon"
+              onClick={() => {
+                const base = user ? homePathForRole(user.role) : '/super-admin';
+                navigate(`${base}/orders?dealerId=${encodeURIComponent(dealer.id)}`);
+              }}
             >
               View orders
             </button>

@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { IndianRupee, Minus, Package, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/useCart';
 import { formatCurrency } from '../../lib/catalog';
+import { dealerOrderErrorMessage, submitDealerOrder } from '../../lib/dealerOrders';
+import { canAccessNavFeature, hasStaffPermission, isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
+import { StaffOrdersPage } from '../staff/StaffOrdersPage';
 
 function formatProductTitle(name: string): string {
   return name
@@ -17,39 +20,56 @@ function formatProductTitle(name: string): string {
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
+
+  // Staff / super-admin see the review queue, not the dealer cart.
+  if (isInternalOpsUser(user) && (
+    user?.role === 'super_admin'
+    || hasStaffPermission(user, 'orders.view')
+    || canAccessNavFeature(user, 'orders')
+  )) {
+    return <StaffOrdersPage />;
+  }
+
+  return <DealerCartPage />;
+};
+
+const DealerCartPage: React.FC = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const { items, itemCount, subtotal, setQuantity, removeItem, clearCart } = useCart();
-  const [orderPlaced, setOrderPlaced] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/catalog`;
 
-  const handlePlaceOrder = () => {
-    if (items.length === 0) return;
-    setOrderPlaced(true);
-    clearCart();
+  const handlePlaceOrder = async () => {
+    if (items.length === 0 || submitting) return;
+    setSubmitting(true);
+    try {
+      const order = await submitDealerOrder(
+        items.map(item => ({ productId: item.productId, quantity: item.quantity })),
+      );
+      clearCart();
+      navigate(`${base}/orders/${order.id}`, { replace: true });
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
   };
-
-  if (orderPlaced) {
-    return (
-      <div className="page-content fade-in orders-page">
-        <div className="orders-page__success panel glass">
-          <ShoppingCart size={48} />
-          <h2>Order submitted</h2>
-          <p className="text-muted">
-            Your cart has been submitted for processing. Our team will confirm availability and
-            follow up shortly.
-          </p>
-          <Link to={productsPath} className="btn btn-primary">
-            Continue shopping
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   if (items.length === 0) {
     return (
       <div className="page-content fade-in orders-page">
+        <div className="dealer-orders-page__header">
+          <div>
+            <h2 className="orders-page__title">Your cart</h2>
+            <p className="text-muted text-sm">Add products, then place an order for review.</p>
+          </div>
+          <Link to={`${base}/orders/history`} className="btn btn-secondary btn-sm">
+            My orders
+          </Link>
+        </div>
         <div className="orders-page__empty panel glass">
           <ShoppingCart size={48} />
           <h2>Your cart is empty</h2>
@@ -66,14 +86,19 @@ export const OrdersPage: React.FC = () => {
     <div className="page-content fade-in orders-page">
       <div className="orders-page__header">
         <div>
-          <h2 className="orders-page__title">Your order</h2>
+          <h2 className="orders-page__title">Your cart</h2>
           <p className="text-muted text-sm">
-            {itemCount} {itemCount === 1 ? 'item' : 'items'} in cart
+            {itemCount} {itemCount === 1 ? 'item' : 'items'} · submitted orders go for staff review
           </p>
         </div>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={clearCart}>
-          Clear cart
-        </button>
+        <div className="orders-page__header-actions">
+          <Link to={`${base}/orders/history`} className="btn btn-secondary btn-sm">
+            My orders
+          </Link>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={clearCart}>
+            Clear cart
+          </button>
+        </div>
       </div>
 
       <div className="orders-page__layout">
@@ -107,7 +132,7 @@ export const OrdersPage: React.FC = () => {
                     <span className="text-muted text-sm">/ {item.unit}</span>
                   </div>
                   {unavailable && (
-                    <p className="orders-page__item-warning">Currently out of stock — may delay fulfilment</p>
+                    <p className="orders-page__item-warning">Currently out of stock — remove before placing order</p>
                   )}
                 </div>
 
@@ -158,10 +183,15 @@ export const OrdersPage: React.FC = () => {
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
           <p className="orders-page__summary-note text-muted text-sm">
-            Taxes and shipping will be confirmed when your order is processed.
+            Staff will review quantities and confirm the final amount before payment.
           </p>
-          <button type="button" className="btn btn-primary orders-page__submit" onClick={handlePlaceOrder}>
-            Place order
+          <button
+            type="button"
+            className="btn btn-primary orders-page__submit"
+            disabled={submitting || items.some(i => i.stockStatus === 'out_of_stock')}
+            onClick={() => void handlePlaceOrder()}
+          >
+            {submitting ? 'Submitting…' : 'Place order'}
           </button>
           <Link to={productsPath} className="btn btn-secondary orders-page__continue">
             Add more products
