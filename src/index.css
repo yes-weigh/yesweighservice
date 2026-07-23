@@ -20819,6 +20819,31 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   overflow-wrap: anywhere;
 }
 
+.invoices-summary__currency-totals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.invoices-summary__currency-totals li {
+  min-width: 0;
+}
+
+.invoices-summary__currency-totals strong {
+  display: block;
+  font-size: clamp(0.78rem, 3vw, 1rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
 .invoices-summary__kpi-sub {
   font-size: 0.625rem;
   font-weight: 600;
@@ -21363,21 +21388,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.3rem;
 }
 
-.invoices-mobile-row--po-stack .invoices-mobile-row__company-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.35rem;
-  width: 100%;
-}
-
 .invoices-mobile-row--po-stack .invoices-mobile-row__company {
-  flex: 1 1 auto;
-  width: auto;
+  display: block;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
-}
-
-.invoices-mobile-row--po-stack .invoices-mobile-row__company-row .invoices-mobile-row__chevron {
-  margin-top: 0.1rem;
+  flex: none;
 }
 
 .invoices-mobile-row--po-stack .invoices-mobile-row__pair {
@@ -21386,6 +21402,33 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   justify-content: space-between;
   gap: 0.75rem;
   width: 100%;
+}
+
+.invoices-mobile-row--po-stack .invoices-mobile-row__pair--mid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.invoices-mobile-row--po-stack .invoices-mobile-row__pair--mid > :first-child {
+  justify-self: start;
+}
+
+.invoices-mobile-row--po-stack .invoices-mobile-row__date {
+  display: block;
+  justify-self: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-align: center;
+}
+
+.invoices-mobile-row--po-stack .invoices-mobile-row__pair--mid > :last-child {
+  justify-self: end;
 }
 
 .invoices-mobile-row--po-stack .invoices-mobile-row__pair .invoices-mobile-row__po-num {
@@ -21401,7 +21444,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   text-align: right;
 }
 
-.invoices-mobile-row--po-stack .invoices-mobile-row__pair .invoices-status {
+.invoices-mobile-row--po-stack .invoices-mobile-row__pair:not(.invoices-mobile-row__pair--mid) .invoices-status {
   flex: 0 0 auto;
   margin-left: auto;
 }

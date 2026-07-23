@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
-  ChevronRight,
   FileText,
   IndianRupee,
   RefreshCw,
@@ -304,11 +303,21 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   const summary = useMemo(() => {
     const salesEntries = buildAdminPurchaseOrderSalesEntries(filtered);
     const sales = salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null;
-    const currencies = [...new Set(filtered.map(row => row.currencyCode || 'INR'))];
+    const totalsByCurrencyMap = new Map<string, number>();
+    for (const row of filtered) {
+      const code = (row.currencyCode || 'INR').toUpperCase();
+      totalsByCurrencyMap.set(code, (totalsByCurrencyMap.get(code) ?? 0) + (Number(row.total) || 0));
+    }
+    const totalsByCurrency = [...totalsByCurrencyMap.entries()]
+      .map(([currencyCode, total]) => ({ currencyCode, total }))
+      .sort((a, b) => {
+        if (a.currencyCode === 'INR') return -1;
+        if (b.currencyCode === 'INR') return 1;
+        return a.currencyCode.localeCompare(b.currencyCode);
+      });
     return {
       count: filtered.length,
-      totalAmount: sales?.totalSales ?? 0,
-      currencyCode: currencies.length === 1 ? currencies[0] : null,
+      totalsByCurrency,
       periodStart: sales?.periodStart ?? null,
       periodEnd: sales?.periodEnd ?? new Date().toISOString(),
     };
@@ -400,16 +409,33 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
             </span>
             <div className="invoices-summary__kpi-body">
               <span className="invoices-summary__kpi-label">Total Amount</span>
-              <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                {loading
-                  ? '…'
-                  : summary.currencyCode
-                    ? formatCurrency(summary.totalAmount, summary.currencyCode)
-                    : filtered.length
-                      ? 'Mixed currencies'
-                      : formatCurrency(0)}
-              </strong>
-              <span className="invoices-summary__kpi-sub">Amount</span>
+              {loading ? (
+                <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">…</strong>
+              ) : summary.totalsByCurrency.length === 0 ? (
+                <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+                  {formatCurrency(0)}
+                </strong>
+              ) : summary.totalsByCurrency.length === 1 ? (
+                <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+                  {formatCurrency(
+                    summary.totalsByCurrency[0].total,
+                    summary.totalsByCurrency[0].currencyCode,
+                  )}
+                </strong>
+              ) : (
+                <ul className="invoices-summary__currency-totals" aria-label="Totals by currency">
+                  {summary.totalsByCurrency.map(row => (
+                    <li key={row.currencyCode}>
+                      <strong>{formatCurrency(row.total, row.currencyCode)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <span className="invoices-summary__kpi-sub">
+                {summary.totalsByCurrency.length > 1
+                  ? `${summary.totalsByCurrency.length} currencies`
+                  : 'Amount'}
+              </span>
             </div>
           </div>
         </div>
@@ -544,16 +570,14 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                     <InvoiceCategoryIcon category={po.purchaseOrderCategory} />
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
-                        <span className="invoices-mobile-row__company-row">
-                          <strong className="invoices-mobile-row__company">
-                            {po.vendorName ?? '—'}
-                          </strong>
-                          <span className="invoices-mobile-row__chevron" aria-hidden>
-                            <ChevronRight size={18} />
-                          </span>
-                        </span>
-                        <span className="invoices-mobile-row__pair">
+                        <strong className="invoices-mobile-row__company">
+                          {po.vendorName ?? '—'}
+                        </strong>
+                        <span className="invoices-mobile-row__pair invoices-mobile-row__pair--mid">
                           <InvoiceCategoryBadge category={po.purchaseOrderCategory} />
+                          <span className="invoices-mobile-row__date">
+                            {formatInvoiceDate(po.date)}
+                          </span>
                           <span className={poStatusClass(po.status)}>
                             {invoiceStatusLabel(po.status)}
                           </span>
@@ -561,15 +585,12 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                         <span className="invoices-mobile-row__pair">
                           <span className="invoices-mobile-row__po-num">
                             {po.purchaseOrderNumber || po.id}
+                            {' • '}
+                            Qty {formatInvoiceItemQuantity(po.itemQuantity)}
                           </span>
                           <strong className="invoices-mobile-row__amount-value">
                             {formatCurrency(po.total, po.currencyCode)}
                           </strong>
-                        </span>
-                        <span className="invoices-mobile-row__meta">
-                          {formatInvoiceDate(po.date)}
-                          {' • '}
-                          Qty {formatInvoiceItemQuantity(po.itemQuantity)}
                         </span>
                       </span>
                     </span>
