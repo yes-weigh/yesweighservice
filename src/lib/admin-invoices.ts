@@ -8,6 +8,7 @@ import {
   orderBy,
   query,
   startAfter,
+  where,
   type DocumentData,
   type QueryConstraint,
   type QueryDocumentSnapshot,
@@ -83,9 +84,14 @@ export function buildAdminInvoicesQuery(
   sort: AdminInvoiceSort,
   pageSize: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
+  category: InvoiceCategory | 'all' = 'all',
 ) {
   const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
-  const constraints: QueryConstraint[] = [orderBy(field, 'desc'), limit(pageSize)];
+  const constraints: QueryConstraint[] = [];
+  if (category && category !== 'all') {
+    constraints.push(where('invoiceCategory', '==', category));
+  }
+  constraints.push(orderBy(field, 'desc'), limit(pageSize));
   if (cursor) constraints.push(startAfter(cursor));
   return query(collectionGroup(db, 'invoices'), ...constraints);
 }
@@ -95,8 +101,9 @@ export function subscribeAdminInvoices(
   pageSize: number,
   onData: (rows: AdminFirestoreInvoice[]) => void,
   onError: (message: string) => void,
+  category: InvoiceCategory | 'all' = 'all',
 ) {
-  const q = buildAdminInvoicesQuery(sort, pageSize);
+  const q = buildAdminInvoicesQuery(sort, pageSize, null, category);
   return onSnapshot(
     q,
     snap => {
@@ -112,8 +119,9 @@ export async function fetchAdminInvoicesPage(
   sort: AdminInvoiceSort,
   pageSize: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
+  category: InvoiceCategory | 'all' = 'all',
 ): Promise<AdminFirestoreInvoice[]> {
-  const snap = await getDocs(buildAdminInvoicesQuery(sort, pageSize, cursor));
+  const snap = await getDocs(buildAdminInvoicesQuery(sort, pageSize, cursor, category));
   return snap.docs.map(mapAdminInvoiceDoc);
 }
 

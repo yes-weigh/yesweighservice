@@ -254,6 +254,7 @@ export const AdminInvoicesPage: React.FC = () => {
   useEffect(() => {
     setLoading(true);
     setError('');
+    setRows([]);
     const unsubscribe = subscribeAdminInvoices(
       sort,
       PAGE_SIZE,
@@ -265,9 +266,10 @@ export const AdminInvoicesPage: React.FC = () => {
         setError(message);
         setLoading(false);
       },
+      category,
     );
     return () => unsubscribe();
-  }, [sort]);
+  }, [sort, category]);
 
   const periodRows = useMemo(
     () => filterAdminInvoicesByPeriod(rows, rangePreset),
