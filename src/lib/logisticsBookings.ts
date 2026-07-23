@@ -43,6 +43,7 @@ import type {
   LogisticsDocumentType,
   ShipmentBox,
   ShipmentBoxDraft,
+  ShipmentBoxPhoto,
 } from '../types/logistics-dispatch';
 import { isStaffLogisticsSite } from '../types/staff-logistics';
 
@@ -94,12 +95,26 @@ function normalizeBookingStatus(raw: string): LogisticsBookingStatus {
 }
 
 function mapShipmentBox(data: DocumentData): ShipmentBox {
-  const photos = Array.isArray(data.photos)
-    ? data.photos
-        .map((photo: unknown) => (typeof photo === 'string' ? photo : (photo as DocumentData)?.storagePath))
-        .filter((path: unknown): path is string => typeof path === 'string' && path.length > 0)
-        .map((storagePath: string) => ({ storagePath, url: null as string | null }))
-    : [];
+  const photos: ShipmentBoxPhoto[] = [];
+  if (Array.isArray(data.photos)) {
+    for (const photo of data.photos) {
+      if (typeof photo === 'string' && photo.trim()) {
+        photos.push({ storagePath: photo.trim(), url: null });
+        continue;
+      }
+      const row = photo as DocumentData | null;
+      const storagePath = typeof row?.storagePath === 'string' ? row.storagePath.trim() : '';
+      if (!storagePath) continue;
+      const clientPhotoId = typeof row?.clientPhotoId === 'string' && row.clientPhotoId.trim()
+        ? row.clientPhotoId.trim()
+        : undefined;
+      photos.push({
+        storagePath,
+        url: null,
+        ...(clientPhotoId ? { clientPhotoId } : {}),
+      });
+    }
+  }
   return {
     id: String(data.id ?? ''),
     lengthCm: data.lengthCm == null ? null : Number(data.lengthCm),
@@ -240,19 +255,55 @@ async function uploadDraftBoxPhotos(
   bookingId: string,
   draft: LogisticsBookingDraft,
   existingFinalPackagePhotoStoragePath: string | null = null,
+  existingBoxes: ShipmentBox[] = [],
 ): Promise<{
   boxes: ShipmentBox[];
   finalPackagePhotoStoragePath: string | null;
 }> {
   const isEnvelope = draft.shipmentMode === 'envelope';
   const boxes = await Promise.all(draft.boxes.map(async (box, boxIndex) => {
-    const photos = await Promise.all(box.photos.map(async (photo, photoIndex) => {
-      if (photo.storagePath) return { storagePath: photo.storagePath, url: photo.url ?? null };
-      if (!photo.url || !photo.url.startsWith('data:')) return null;
+    const existingBox = existingBoxes.find(item => item.id === box.id);
+    const uploaded: Array<ShipmentBoxPhoto | null> = await Promise.all(box.photos.map(async (photo, photoIndex) => {
+      if (photo.storagePath?.trim()) {
+        return {
+          storagePath: photo.storagePath.trim(),
+          url: photo.url ?? null,
+          clientPhotoId: photo.id,
+        };
+      }
+      if (!photo.url || !photo.url.startsWith('data:')) {
+        // Keep already-linked server photos when draft preview URL is https/empty.
+        const existingById = existingBox?.photos.find(item => item.clientPhotoId === photo.id);
+        if (existingById?.storagePath) {
+          return {
+            storagePath: existingById.storagePath,
+            url: photo.url || existingById.url || null,
+            clientPhotoId: photo.id,
+          };
+        }
+        return null;
+      }
       const file = await dataUrlToFile(photo.url, `box-${boxIndex + 1}-${photoIndex + 1}.jpg`);
       const storagePath = await uploadLogisticsPhoto(bookingId, `box-${box.id}-${photo.id}`, file);
-      return { storagePath, url: photo.url };
+      return {
+        storagePath,
+        url: photo.url,
+        clientPhotoId: photo.id,
+      };
     }));
+
+    const photos: ShipmentBoxPhoto[] = uploaded.filter((photo): photo is ShipmentBoxPhoto => photo != null);
+    // Never drop server photos that are missing from a stale local draft snapshot.
+    for (const existingPhoto of existingBox?.photos ?? []) {
+      if (!existingPhoto.storagePath) continue;
+      if (photos.some(photo => photo.storagePath === existingPhoto.storagePath)) continue;
+      photos.push({
+        storagePath: existingPhoto.storagePath,
+        url: existingPhoto.url ?? null,
+        ...(existingPhoto.clientPhotoId ? { clientPhotoId: existingPhoto.clientPhotoId } : {}),
+      });
+    }
+
     const length = !isEnvelope && box.lengthCm ? Number.parseFloat(box.lengthCm) : null;
     const width = !isEnvelope && box.widthCm ? Number.parseFloat(box.widthCm) : null;
     const height = !isEnvelope && box.heightCm ? Number.parseFloat(box.heightCm) : null;
@@ -263,7 +314,7 @@ async function uploadDraftBoxPhotos(
       heightCm: height,
       weightKg: isEnvelope ? 0 : (Number.parseFloat(box.weightKg) || 0),
       volumetricWeightKg: isEnvelope ? 0 : computeVolumetricWeight(length, width, height),
-      photos: photos.filter((photo): photo is NonNullable<typeof photo> => Boolean(photo)),
+      photos,
     } satisfies ShipmentBox;
   }));
 
@@ -315,10 +366,16 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     || draft.supportRequestNumber
     || `ORD-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
 
+  const existingSnap = await getDoc(doc(db, COLLECTION, bookingId)).catch(() => null);
+  const existingBoxes = existingSnap?.exists() && Array.isArray(existingSnap.data()?.boxes)
+    ? existingSnap.data()!.boxes.map((box: DocumentData) => mapShipmentBox(box))
+    : [];
+
   const { boxes, finalPackagePhotoStoragePath } = await uploadDraftBoxPhotos(
     bookingId,
     draft,
     existingFinalPackagePhotoStoragePath,
+    existingBoxes,
   );
   const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
   const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
@@ -377,7 +434,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
       heightCm: box.heightCm,
       weightKg: box.weightKg,
       volumetricWeightKg: box.volumetricWeightKg,
-      photos: box.photos.map(photo => ({ storagePath: photo.storagePath })),
+      photos: firestoreBoxPhotos(box.photos),
     })),
     finalPackagePhotoStoragePath: finalPackagePhotoStoragePath ?? null,
     labelGenerated: Boolean(draft.labelGenerated),
@@ -391,6 +448,18 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     createdByUid: existingCreatedByUid || createdBy.uid,
     createdByName,
   };
+}
+
+function firestoreBoxPhotos(photos: ShipmentBoxPhoto[]): Array<{
+  storagePath: string;
+  clientPhotoId?: string;
+}> {
+  return photos
+    .filter(photo => Boolean(photo.storagePath?.trim()))
+    .map(photo => ({
+      storagePath: photo.storagePath.trim(),
+      ...(photo.clientPhotoId?.trim() ? { clientPhotoId: photo.clientPhotoId.trim() } : {}),
+    }));
 }
 
 function formatLogisticsPersistError(err: unknown, fallback: string): Error {
@@ -509,7 +578,16 @@ async function ensureDraftBookingStub(input: {
       heightCm: null,
       weightKg: 0,
       volumetricWeightKg: 0,
-      photos: [],
+      // Keep already-uploaded paths — never wipe with [] on stub create/merge.
+      photos: firestoreBoxPhotos(
+        box.photos
+          .filter(photo => Boolean(photo.storagePath?.trim()))
+          .map(photo => ({
+            storagePath: photo.storagePath as string,
+            clientPhotoId: photo.id,
+            url: photo.url ?? null,
+          })),
+      ),
     })),
     finalPackagePhotoStoragePath: null,
     labelGenerated: false,
@@ -523,6 +601,85 @@ async function ensureDraftBookingStub(input: {
     createdByUid: input.existingCreatedByUid || input.createdBy.uid,
     createdByName,
   }, { merge: true });
+}
+
+/**
+ * Immediately link one uploaded box photo onto the booking document.
+ * Used right after capture so the inside photo is tied to the logistics
+ * booking id even if the user leaves before the next full draft save.
+ */
+export async function attachLogisticsBoxPhoto(input: {
+  bookingId: string;
+  boxId: string;
+  storagePath: string;
+  clientPhotoId: string;
+}): Promise<void> {
+  const bookingId = input.bookingId.trim();
+  const boxId = input.boxId.trim();
+  const storagePath = input.storagePath.trim();
+  const clientPhotoId = input.clientPhotoId.trim();
+  if (!bookingId || !boxId || !storagePath) return;
+
+  const bookingRef = doc(db, COLLECTION, bookingId);
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) return;
+  const data = snap.data() ?? {};
+  const boxes = Array.isArray(data.boxes) ? [...data.boxes] : [];
+  let found = false;
+  const nextBoxes = boxes.map((raw: DocumentData) => {
+    if (String(raw?.id ?? '') !== boxId) return raw;
+    found = true;
+    const photos = Array.isArray(raw.photos) ? [...raw.photos] : [];
+    const already = photos.some((photo: DocumentData) => {
+      const path = typeof photo?.storagePath === 'string' ? photo.storagePath : '';
+      const id = typeof photo?.clientPhotoId === 'string' ? photo.clientPhotoId : '';
+      return path === storagePath || (clientPhotoId && id === clientPhotoId);
+    });
+    if (already) {
+      return {
+        ...raw,
+        photos: photos.map((photo: DocumentData) => {
+          const id = typeof photo?.clientPhotoId === 'string' ? photo.clientPhotoId : '';
+          if (clientPhotoId && id === clientPhotoId) {
+            return { storagePath, clientPhotoId };
+          }
+          return photo;
+        }),
+      };
+    }
+    return {
+      ...raw,
+      photos: [...photos, { storagePath, clientPhotoId }],
+    };
+  });
+  if (!found) {
+    nextBoxes.push({
+      id: boxId,
+      lengthCm: null,
+      widthCm: null,
+      heightCm: null,
+      weightKg: 0,
+      volumetricWeightKg: 0,
+      photos: [{ storagePath, clientPhotoId }],
+    });
+  }
+  await updateDoc(bookingRef, {
+    boxes: nextBoxes,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function attachLogisticsFinalPackagePhoto(input: {
+  bookingId: string;
+  storagePath: string;
+}): Promise<void> {
+  const bookingId = input.bookingId.trim();
+  const storagePath = input.storagePath.trim();
+  if (!bookingId || !storagePath) return;
+  await updateDoc(doc(db, COLLECTION, bookingId), {
+    finalPackagePhotoStoragePath: storagePath,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function persistLogisticsBookingDraft(
@@ -596,6 +753,7 @@ export async function persistLogisticsBookingDraft(
         bookingRef.id,
         draft,
         existingFinalPackagePhotoStoragePath,
+        existingBoxes,
       );
     } catch (photoErr) {
       // Never wipe newly captured data-URL photos by saving an empty photo list.
@@ -691,7 +849,7 @@ export async function persistLogisticsBookingDraft(
         heightCm: box.heightCm,
         weightKg: box.weightKg,
         volumetricWeightKg: box.volumetricWeightKg,
-        photos: box.photos.map(photo => ({ storagePath: photo.storagePath })),
+        photos: firestoreBoxPhotos(box.photos),
       })),
       finalPackagePhotoStoragePath: finalPackagePhotoStoragePath ?? null,
       labelGenerated: labelsPrinted,
@@ -822,7 +980,7 @@ export function bookingToWizardState(booking: LogisticsBooking): {
         photos: box.photos
           .filter(photo => Boolean(photo.storagePath || photo.url))
           .map((photo, index) => ({
-            id: `saved-${box.id}-${index}`,
+            id: photo.clientPhotoId?.trim() || `saved-${box.id}-${index}`,
             url: photo.url || '',
             storagePath: photo.storagePath,
           })),

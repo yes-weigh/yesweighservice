@@ -49,6 +49,8 @@ export interface ShipmentBoxPhoto {
   storagePath: string;
   /** Resolved download URL or transient preview. */
   url?: string | null;
+  /** Draft-side id used to keep local captures linked across save/resume. */
+  clientPhotoId?: string | null;
 }
 
 /** A persisted box in a shipment. */

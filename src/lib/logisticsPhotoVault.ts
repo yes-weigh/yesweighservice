@@ -1,0 +1,175 @@
+/**
+ * Durable local cache for logistics package photos.
+ * Captures are written here immediately so a refresh / failed upload
+ * never forces reopening a sealed package to retake the inside photo.
+ */
+
+const DB_NAME = 'yesweigh-logistics-photos';
+const DB_VERSION = 1;
+const STORE = 'photos';
+
+export type LogisticsVaultPhotoKind = 'box' | 'final';
+
+export interface LogisticsVaultPhoto {
+  /** Primary key — draft photo id (or `final-${sessionKey}`). */
+  photoId: string;
+  /** Stable wizard session key (temp-* until booking id exists). */
+  sessionKey: string;
+  bookingId: string | null;
+  boxId: string | null;
+  kind: LogisticsVaultPhotoKind;
+  dataUrl: string;
+  storagePath: string | null;
+  consignmentNo: string;
+  createdAt: number;
+}
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB unavailable.'));
+      return;
+    }
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error ?? new Error('Could not open photo vault.'));
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: 'photoId' });
+        store.createIndex('sessionKey', 'sessionKey', { unique: false });
+        store.createIndex('bookingId', 'bookingId', { unique: false });
+      }
+    };
+  });
+}
+
+function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed.'));
+  });
+}
+
+export async function putLogisticsVaultPhoto(photo: LogisticsVaultPhoto): Promise<void> {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, 'readwrite');
+    await requestToPromise(tx.objectStore(STORE).put(photo));
+    db.close();
+  } catch {
+    // Best-effort — in-memory draft remains the live preview.
+  }
+}
+
+export async function patchLogisticsVaultPhoto(
+  photoId: string,
+  patch: Partial<Pick<LogisticsVaultPhoto, 'bookingId' | 'storagePath' | 'dataUrl' | 'consignmentNo' | 'sessionKey'>>,
+): Promise<void> {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const existing = await requestToPromise(store.get(photoId)) as LogisticsVaultPhoto | undefined;
+    if (!existing) {
+      db.close();
+      return;
+    }
+    await requestToPromise(store.put({ ...existing, ...patch }));
+    db.close();
+  } catch {
+    // ignore
+  }
+}
+
+export async function deleteLogisticsVaultPhoto(photoId: string): Promise<void> {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, 'readwrite');
+    await requestToPromise(tx.objectStore(STORE).delete(photoId));
+    db.close();
+  } catch {
+    // ignore
+  }
+}
+
+async function getAllByIndex(
+  indexName: 'sessionKey' | 'bookingId',
+  value: string,
+): Promise<LogisticsVaultPhoto[]> {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, 'readonly');
+    const index = tx.objectStore(STORE).index(indexName);
+    const rows = await requestToPromise(index.getAll(value)) as LogisticsVaultPhoto[];
+    db.close();
+    return rows ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Load vault photos for a booking and/or wizard session. */
+export async function listLogisticsVaultPhotos(options: {
+  bookingId?: string | null;
+  sessionKey?: string | null;
+}): Promise<LogisticsVaultPhoto[]> {
+  const byId = new Map<string, LogisticsVaultPhoto>();
+  if (options.bookingId?.trim()) {
+    for (const row of await getAllByIndex('bookingId', options.bookingId.trim())) {
+      byId.set(row.photoId, row);
+    }
+  }
+  if (options.sessionKey?.trim()) {
+    for (const row of await getAllByIndex('sessionKey', options.sessionKey.trim())) {
+      byId.set(row.photoId, row);
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** Point all session photos at the real booking id once the draft is created. */
+export async function bindLogisticsVaultSessionToBooking(
+  sessionKey: string,
+  bookingId: string,
+): Promise<void> {
+  const rows = await listLogisticsVaultPhotos({ sessionKey });
+  await Promise.all(rows.map(row => patchLogisticsVaultPhoto(row.photoId, {
+    bookingId,
+    sessionKey: bookingId,
+  })));
+}
+
+/** Drop vault rows that are already linked in Storage (keep unuploaded captures). */
+export async function clearUploadedLogisticsVaultPhotos(options: {
+  bookingId?: string | null;
+  sessionKey?: string | null;
+}): Promise<void> {
+  const rows = await listLogisticsVaultPhotos(options);
+  await Promise.all(
+    rows
+      .filter(row => row.storagePath?.trim())
+      .map(row => deleteLogisticsVaultPhoto(row.photoId)),
+  );
+}
+
+export function logisticsPhotoSessionKey(
+  existingBookingId: string | null | undefined,
+  partnerId: string,
+): string {
+  if (existingBookingId?.trim()) return existingBookingId.trim();
+  if (typeof sessionStorage === 'undefined') {
+    return `temp-${partnerId}-${Date.now()}`;
+  }
+  const storageKey = `logistics-photo-session:${partnerId}`;
+  const existing = sessionStorage.getItem(storageKey)?.trim();
+  if (existing) return existing;
+  const created = `temp-${partnerId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  sessionStorage.setItem(storageKey, created);
+  return created;
+}
+
+export function rememberLogisticsPhotoSessionKey(partnerId: string, sessionKey: string): void {
+  if (typeof sessionStorage === 'undefined') return;
+  sessionStorage.setItem(`logistics-photo-session:${partnerId}`, sessionKey);
+}

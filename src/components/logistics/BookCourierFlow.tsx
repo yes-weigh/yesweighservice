@@ -52,14 +52,28 @@ import {
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
 import {
+  attachLogisticsBoxPhoto,
+  attachLogisticsFinalPackagePhoto,
   persistLogisticsBooking,
   persistLogisticsBookingDraft,
   uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
 import {
+  dataUrlToFile,
   logisticsCaptureToDataUrl,
   resolveLogisticsPhotoUrls,
+  uploadLogisticsPhoto,
 } from '../../lib/logisticsPhotos';
+import {
+  bindLogisticsVaultSessionToBooking,
+  clearUploadedLogisticsVaultPhotos,
+  deleteLogisticsVaultPhoto,
+  listLogisticsVaultPhotos,
+  logisticsPhotoSessionKey,
+  patchLogisticsVaultPhoto,
+  putLogisticsVaultPhoto,
+  rememberLogisticsPhotoSessionKey,
+} from '../../lib/logisticsPhotoVault';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
   buildShippingLabelViewModel,
@@ -85,6 +99,7 @@ import type {
   LogisticsBookingDraft,
   LogisticsDealerSnapshot,
   ShipmentBoxDraft,
+  ShipmentBoxPhotoDraft,
   ShipmentMode,
 } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
@@ -96,6 +111,72 @@ type BoxNumberField = 'lengthCm' | 'widthCm' | 'heightCm' | 'weightKg';
 
 function newPhotoId(): string {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function mergeLocalAndSavedPhotos(
+  localPhotos: ShipmentBoxPhotoDraft[],
+  savedPhotos: Array<{ storagePath: string; url?: string | null; clientPhotoId?: string | null }>,
+  boxId: string,
+): ShipmentBoxPhotoDraft[] {
+  const usedPaths = new Set<string>();
+  const savedByClientId = new Map(
+    savedPhotos
+      .filter(photo => photo.clientPhotoId?.trim())
+      .map(photo => [photo.clientPhotoId!.trim(), photo]),
+  );
+  const savedByPath = new Map(
+    savedPhotos
+      .filter(photo => photo.storagePath?.trim())
+      .map(photo => [photo.storagePath.trim(), photo]),
+  );
+
+  const merged = localPhotos.map((local, index) => {
+    const byId = savedByClientId.get(local.id);
+    if (byId?.storagePath) {
+      usedPaths.add(byId.storagePath);
+      return {
+        ...local,
+        storagePath: byId.storagePath,
+        url: local.url || byId.url || '',
+      };
+    }
+    if (local.storagePath && savedByPath.has(local.storagePath)) {
+      const saved = savedByPath.get(local.storagePath)!;
+      usedPaths.add(local.storagePath);
+      return {
+        ...local,
+        storagePath: saved.storagePath,
+        url: local.url || saved.url || '',
+      };
+    }
+    const savedAtIndex = savedPhotos[index];
+    if (
+      !local.storagePath
+      && savedAtIndex?.storagePath
+      && !usedPaths.has(savedAtIndex.storagePath)
+      && local.url.startsWith('data:')
+    ) {
+      usedPaths.add(savedAtIndex.storagePath);
+      return {
+        ...local,
+        storagePath: savedAtIndex.storagePath,
+        url: local.url || savedAtIndex.url || '',
+      };
+    }
+    // Always keep local captures (data URLs) even if save returned fewer photos.
+    return local;
+  });
+
+  for (const saved of savedPhotos) {
+    if (!saved.storagePath || usedPaths.has(saved.storagePath)) continue;
+    if (merged.some(photo => photo.storagePath === saved.storagePath)) continue;
+    merged.push({
+      id: saved.clientPhotoId?.trim() || `saved-${boxId}-${saved.storagePath.slice(-10)}`,
+      url: saved.url || '',
+      storagePath: saved.storagePath,
+    });
+  }
+  return merged;
 }
 
 function boxVolumetric(box: ShipmentBoxDraft): number {
@@ -196,7 +277,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [draftBookingId, setDraftBookingId] = useState<string | null>(existingBookingId);
   const draftBookingIdRef = useRef<string | null>(existingBookingId);
   draftBookingIdRef.current = draftBookingId;
+  const photoSessionKeyRef = useRef(
+    logisticsPhotoSessionKey(existingBookingId, partnerId),
+  );
   const draftSaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const photoUploadChainRef = useRef<Promise<unknown>>(Promise.resolve());
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [dealerQuery, setDealerQuery] = useState(initialDealerQuery ?? '');
@@ -287,53 +372,116 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per selected Zoho id
   }, [initialDraft?.zohoCustomerId, draft.zohoCustomerId]);
 
-  // Resume opens with storage paths only — resolve display URLs in the background.
+  // Resume opens with storage paths only — resolve display URLs + restore local vault captures.
   useEffect(() => {
     let cancelled = false;
-    const paths: string[] = [];
-    for (const box of draftRef.current.boxes) {
-      for (const photo of box.photos) {
-        if (photo.storagePath?.trim() && !photo.url?.trim()) {
-          paths.push(photo.storagePath);
-        }
-      }
-    }
-    const finalPath = draftRef.current.finalPackagePhotoStoragePath?.trim();
-    if (finalPath && !draftRef.current.finalPackagePhoto?.trim()) {
-      paths.push(finalPath);
-    }
-    if (!paths.length) return undefined;
 
-    void resolveLogisticsPhotoUrls(paths)
-      .then(urls => {
-        if (cancelled) return;
+    const restore = async () => {
+      const vaultPhotos = await listLogisticsVaultPhotos({
+        bookingId: draftBookingIdRef.current,
+        sessionKey: photoSessionKeyRef.current,
+      });
+
+      if (!cancelled && vaultPhotos.length) {
         setDraft(prev => {
           let changed = false;
-          const boxes = prev.boxes.map(box => ({
-            ...box,
-            photos: box.photos.map(photo => {
-              const path = photo.storagePath?.trim();
-              if (!path || photo.url?.trim()) return photo;
-              const url = urls.get(path);
-              if (!url) return photo;
-              changed = true;
-              return { ...photo, url };
-            }),
-          }));
+          const boxes = prev.boxes.map(box => {
+            const vaultForBox = vaultPhotos.filter(
+              photo => photo.kind === 'box' && photo.boxId === box.id,
+            );
+            if (!vaultForBox.length) return box;
+            const photos = [...box.photos];
+            for (const vault of vaultForBox) {
+              const idx = photos.findIndex(photo => photo.id === vault.photoId);
+              if (idx >= 0) {
+                const current = photos[idx];
+                const nextUrl = current.url?.startsWith('data:')
+                  ? current.url
+                  : (vault.dataUrl || current.url);
+                const nextPath = current.storagePath || vault.storagePath || null;
+                if (nextUrl !== current.url || nextPath !== current.storagePath) {
+                  photos[idx] = { ...current, url: nextUrl, storagePath: nextPath };
+                  changed = true;
+                }
+              } else if (vault.dataUrl || vault.storagePath) {
+                photos.push({
+                  id: vault.photoId,
+                  url: vault.dataUrl || '',
+                  storagePath: vault.storagePath,
+                });
+                changed = true;
+              }
+            }
+            return photos === box.photos ? box : { ...box, photos };
+          });
+
+          const vaultFinal = vaultPhotos.find(photo => photo.kind === 'final');
           let finalPackagePhoto = prev.finalPackagePhoto;
-          const storedFinal = prev.finalPackagePhotoStoragePath?.trim();
-          if (storedFinal && !finalPackagePhoto?.trim()) {
-            const url = urls.get(storedFinal);
-            if (url) {
-              finalPackagePhoto = url;
+          let finalPackagePhotoStoragePath = prev.finalPackagePhotoStoragePath;
+          if (vaultFinal) {
+            if (!finalPackagePhoto?.trim() && vaultFinal.dataUrl) {
+              finalPackagePhoto = vaultFinal.dataUrl;
+              changed = true;
+            }
+            if (!finalPackagePhotoStoragePath?.trim() && vaultFinal.storagePath) {
+              finalPackagePhotoStoragePath = vaultFinal.storagePath;
               changed = true;
             }
           }
-          return changed ? { ...prev, boxes, finalPackagePhoto } : prev;
-        });
-      })
-      .catch(() => undefined);
 
+          if (!changed) return prev;
+          const next = { ...prev, boxes, finalPackagePhoto, finalPackagePhotoStoragePath };
+          draftRef.current = next;
+          return next;
+        });
+      }
+
+      const paths: string[] = [];
+      for (const box of draftRef.current.boxes) {
+        for (const photo of box.photos) {
+          if (photo.storagePath?.trim() && !photo.url?.trim()) {
+            paths.push(photo.storagePath);
+          }
+        }
+      }
+      const finalPath = draftRef.current.finalPackagePhotoStoragePath?.trim();
+      if (finalPath && !draftRef.current.finalPackagePhoto?.trim()) {
+        paths.push(finalPath);
+      }
+      if (!paths.length) return;
+
+      const urls = await resolveLogisticsPhotoUrls(paths);
+      if (cancelled) return;
+      setDraft(prev => {
+        let changed = false;
+        const boxes = prev.boxes.map(box => ({
+          ...box,
+          photos: box.photos.map(photo => {
+            const path = photo.storagePath?.trim();
+            if (!path || photo.url?.trim()) return photo;
+            const url = urls.get(path);
+            if (!url) return photo;
+            changed = true;
+            return { ...photo, url };
+          }),
+        }));
+        let finalPackagePhoto = prev.finalPackagePhoto;
+        const storedFinal = prev.finalPackagePhotoStoragePath?.trim();
+        if (storedFinal && !finalPackagePhoto?.trim()) {
+          const url = urls.get(storedFinal);
+          if (url) {
+            finalPackagePhoto = url;
+            changed = true;
+          }
+        }
+        if (!changed) return prev;
+        const next = { ...prev, boxes, finalPackagePhoto };
+        draftRef.current = next;
+        return next;
+      });
+    };
+
+    void restore().catch(() => undefined);
     return () => { cancelled = true; };
   }, [existingBookingId]);
 
@@ -401,7 +549,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     key: K,
     value: LogisticsBookingDraft[K],
   ) => {
-    setDraft(prev => ({ ...prev, [key]: value }));
+    setDraft(prev => {
+      const next = { ...prev, [key]: value };
+      draftRef.current = next;
+      return next;
+    });
   }, []);
 
   const applyScannedCode = useCallback((raw: string) => {
@@ -501,32 +653,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       : { ...prev, boxes: prev.boxes.filter(box => box.id !== boxId) }));
   }, []);
 
-  const addBoxPhoto = useCallback(async (boxId: string, file: File | undefined) => {
-    if (!file) return;
-    const photoId = newPhotoId();
-    const dataUrl = await logisticsCaptureToDataUrl(file);
-    setDraft(prev => ({
-      ...prev,
-      boxes: prev.boxes.map(box => (box.id === boxId
-        ? { ...box, photos: [...box.photos, { id: photoId, url: dataUrl }] }
-        : box)),
-    }));
+  const applyDraft = useCallback((updater: (prev: LogisticsBookingDraft) => LogisticsBookingDraft) => {
+    setDraft(prev => {
+      const next = updater(prev);
+      draftRef.current = next;
+      return next;
+    });
   }, []);
-
-  const removeBoxPhoto = useCallback((boxId: string, photoId: string) => {
-    setDraft(prev => ({
-      ...prev,
-      boxes: prev.boxes.map(box => (box.id === boxId
-        ? { ...box, photos: box.photos.filter(photo => photo.id !== photoId) }
-        : box)),
-    }));
-  }, []);
-
-  const handleFinalPhotoChange = useCallback(async (file: File | undefined) => {
-    if (!file) return;
-    const dataUrl = await logisticsCaptureToDataUrl(file);
-    updateDraft('finalPackagePhoto', dataUrl);
-  }, [updateDraft]);
 
   const ensureDealerAddressHydrated = useCallback(async (): Promise<LogisticsDealerSnapshot | null> => {
     const zohoId = draftRef.current.zohoCustomerId?.trim();
@@ -592,7 +725,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     wizardStep: BookCourierStep,
     options?: { close?: boolean; draftOverride?: LogisticsBookingDraft },
   ): Promise<LogisticsBooking | null> => {
-    const draftToSave = options?.draftOverride ?? draftRef.current;
     const hydratedDealer = await ensureDealerAddressHydrated();
     const dealerToSave = hydratedDealer ?? selectedDealer;
     if (!dealerToSave) {
@@ -603,8 +735,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const run = async (): Promise<LogisticsBooking | null> => {
       setSavingDraft(true);
       try {
+        // Always persist the latest draft at execution time so photos captured
+        // while a previous save was in-flight are never dropped.
+        const draftToPersist = options?.draftOverride ?? draftRef.current;
         const saved = await persistLogisticsBookingDraft({
-          draft: draftToSave,
+          draft: draftToPersist,
           dealer: dealerToSave,
           createdBy: user,
           existingBookingId: draftBookingIdRef.current,
@@ -612,39 +747,35 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         });
         draftBookingIdRef.current = saved.id;
         setDraftBookingId(saved.id);
-        // Keep local photos in sync with uploaded storage paths + download URLs.
-        setDraft(prev => ({
+        const previousSession = photoSessionKeyRef.current;
+        photoSessionKeyRef.current = saved.id;
+        rememberLogisticsPhotoSessionKey(partnerId, saved.id);
+        if (previousSession !== saved.id) {
+          void bindLogisticsVaultSessionToBooking(previousSession, saved.id);
+        }
+
+        applyDraft(prev => ({
           ...prev,
           boxes: prev.boxes.map(box => {
             const savedBox = saved.boxes.find(item => item.id === box.id);
-            if (!savedBox?.photos.length) return box;
-            if (savedBox.photos.length >= box.photos.length || box.photos.every(p => !p.storagePath)) {
-              return {
-                ...box,
-                photos: savedBox.photos.map((photo, index) => ({
-                  id: box.photos[index]?.id ?? `saved-${box.id}-${index}`,
-                  url: photo.url || box.photos[index]?.url || '',
-                  storagePath: photo.storagePath,
-                })),
-              };
-            }
+            if (!savedBox) return box;
             return {
               ...box,
-              photos: box.photos.map((photo, index) => {
-                const savedPhoto = savedBox.photos[index]
-                  ?? savedBox.photos.find(item => item.storagePath && item.storagePath === photo.storagePath);
-                if (!savedPhoto) return photo;
-                return {
-                  ...photo,
-                  storagePath: savedPhoto.storagePath || photo.storagePath,
-                  url: savedPhoto.url || photo.url || '',
-                };
-              }),
+              photos: mergeLocalAndSavedPhotos(box.photos, savedBox.photos, box.id),
             };
           }),
-          finalPackagePhoto: saved.finalPackagePhoto
-            ?? (prev.finalPackagePhoto?.startsWith('data:') ? prev.finalPackagePhoto : prev.finalPackagePhoto),
+          finalPackagePhoto: prev.finalPackagePhoto?.startsWith('data:')
+            ? prev.finalPackagePhoto
+            : (saved.finalPackagePhoto || prev.finalPackagePhoto),
+          finalPackagePhotoStoragePath: saved.finalPackagePhotoStoragePath
+            || prev.finalPackagePhotoStoragePath,
         }));
+
+        void clearUploadedLogisticsVaultPhotos({
+          bookingId: saved.id,
+          sessionKey: photoSessionKeyRef.current,
+        });
+
         if (options?.close) {
           onDraftSaved?.(saved);
         } else {
@@ -669,7 +800,176 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const queued = draftSaveChainRef.current.then(run, run);
     draftSaveChainRef.current = queued.then(() => undefined, () => undefined);
     return queued;
-  }, [ensureDealerAddressHydrated, selectedDealer, user, onClose, onDraftSaved, onDraftUpdated]);
+  }, [
+    applyDraft,
+    ensureDealerAddressHydrated,
+    onClose,
+    onDraftSaved,
+    onDraftUpdated,
+    partnerId,
+    selectedDealer,
+    user,
+  ]);
+
+  const queuePhotoUpload = useCallback((task: () => Promise<void>) => {
+    const queued = photoUploadChainRef.current.then(task, task);
+    photoUploadChainRef.current = queued.then(() => undefined, () => undefined);
+    return queued;
+  }, []);
+
+  const addBoxPhoto = useCallback(async (boxId: string, file: File | undefined) => {
+    if (!file) return;
+    const photoId = newPhotoId();
+    const dataUrl = await logisticsCaptureToDataUrl(file);
+    const sessionKey = photoSessionKeyRef.current;
+    const bookingId = draftBookingIdRef.current;
+
+    // 1) Durable local copy first — survives refresh before upload finishes.
+    await putLogisticsVaultPhoto({
+      photoId,
+      sessionKey,
+      bookingId,
+      boxId,
+      kind: 'box',
+      dataUrl,
+      storagePath: null,
+      consignmentNo: draftRef.current.consignmentNo.trim(),
+      createdAt: Date.now(),
+    });
+
+    // 2) Show in UI immediately (and sync draftRef for in-flight saves).
+    applyDraft(prev => ({
+      ...prev,
+      boxes: prev.boxes.map(box => (box.id === boxId
+        ? { ...box, photos: [...box.photos, { id: photoId, url: dataUrl }] }
+        : box)),
+    }));
+
+    // 3) Upload + link to booking as soon as a dealer/booking exists.
+    void queuePhotoUpload(async () => {
+      try {
+        let linkedBookingId = draftBookingIdRef.current;
+        if (!linkedBookingId && selectedDealer) {
+          const saved = await persistDraft('box');
+          linkedBookingId = saved?.id ?? draftBookingIdRef.current;
+        }
+        if (!linkedBookingId) return;
+
+        // Draft save may have uploaded this photo already — don't double-upload.
+        const alreadyLinked = draftRef.current.boxes
+          .find(box => box.id === boxId)
+          ?.photos.find(photo => photo.id === photoId)
+          ?.storagePath
+          ?.trim();
+        if (alreadyLinked) {
+          await patchLogisticsVaultPhoto(photoId, {
+            bookingId: linkedBookingId,
+            sessionKey: linkedBookingId,
+            storagePath: alreadyLinked,
+          });
+          return;
+        }
+
+        const fileForUpload = await dataUrlToFile(dataUrl, `${photoId}.jpg`);
+        const storagePath = await uploadLogisticsPhoto(
+          linkedBookingId,
+          `box-${boxId}-${photoId}`,
+          fileForUpload,
+        );
+        await attachLogisticsBoxPhoto({
+          bookingId: linkedBookingId,
+          boxId,
+          storagePath,
+          clientPhotoId: photoId,
+        });
+        await patchLogisticsVaultPhoto(photoId, {
+          bookingId: linkedBookingId,
+          sessionKey: linkedBookingId,
+          storagePath,
+        });
+        applyDraft(prev => ({
+          ...prev,
+          boxes: prev.boxes.map(box => (box.id === boxId
+            ? {
+              ...box,
+              photos: box.photos.map(photo => (photo.id === photoId
+                ? { ...photo, storagePath, url: photo.url || dataUrl }
+                : photo)),
+            }
+            : box)),
+        }));
+      } catch {
+        // Vault + draft data URL remain — next draft save will retry upload.
+      }
+    });
+  }, [applyDraft, persistDraft, queuePhotoUpload, selectedDealer]);
+
+  const removeBoxPhoto = useCallback((boxId: string, photoId: string) => {
+    void deleteLogisticsVaultPhoto(photoId);
+    applyDraft(prev => ({
+      ...prev,
+      boxes: prev.boxes.map(box => (box.id === boxId
+        ? { ...box, photos: box.photos.filter(photo => photo.id !== photoId) }
+        : box)),
+    }));
+  }, [applyDraft]);
+
+  const handleFinalPhotoChange = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    const dataUrl = await logisticsCaptureToDataUrl(file);
+    const photoId = `final-${photoSessionKeyRef.current}`;
+    await putLogisticsVaultPhoto({
+      photoId,
+      sessionKey: photoSessionKeyRef.current,
+      bookingId: draftBookingIdRef.current,
+      boxId: null,
+      kind: 'final',
+      dataUrl,
+      storagePath: null,
+      consignmentNo: draftRef.current.consignmentNo.trim(),
+      createdAt: Date.now(),
+    });
+    applyDraft(prev => ({
+      ...prev,
+      finalPackagePhoto: dataUrl,
+      finalPackagePhotoStoragePath: null,
+    }));
+
+    void queuePhotoUpload(async () => {
+      try {
+        let linkedBookingId = draftBookingIdRef.current;
+        if (!linkedBookingId && selectedDealer) {
+          const saved = await persistDraft('final_photo');
+          linkedBookingId = saved?.id ?? draftBookingIdRef.current;
+        }
+        if (!linkedBookingId) return;
+        const fileForUpload = await dataUrlToFile(dataUrl, 'final-package.jpg');
+        const storagePath = await uploadLogisticsPhoto(
+          linkedBookingId,
+          'final-package',
+          fileForUpload,
+        );
+        await attachLogisticsFinalPackagePhoto({
+          bookingId: linkedBookingId,
+          storagePath,
+        });
+        await patchLogisticsVaultPhoto(photoId, {
+          bookingId: linkedBookingId,
+          sessionKey: linkedBookingId,
+          storagePath,
+        });
+        applyDraft(prev => ({
+          ...prev,
+          finalPackagePhoto: prev.finalPackagePhoto?.startsWith('data:')
+            ? prev.finalPackagePhoto
+            : dataUrl,
+          finalPackagePhotoStoragePath: storagePath,
+        }));
+      } catch {
+        // Keep local vault/data URL until a later save retries.
+      }
+    });
+  }, [applyDraft, persistDraft, queuePhotoUpload, selectedDealer]);
 
   const requestClose = useCallback(() => {
     if (step === 'complete' || saving) {
