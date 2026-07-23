@@ -66,13 +66,19 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
       const next = await fetchOrgPurchaseOrderSyncStatus();
       setStatus(next);
       if (fromButton) {
-        setNotice('Status refreshed.');
+        setNotice(
+          next.totalInRange == null
+            ? 'Status refreshed — Zoho total not counted yet. Use Count purchase orders below.'
+            : 'Status refreshed.',
+        );
         setError('');
       }
+      return next;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not load sync status.';
       setError(message);
       if (fromButton) setNotice('');
+      return null;
     } finally {
       setLoading(false);
       if (fromButton) setRefreshing(false);
@@ -104,7 +110,7 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [status?.status, loadStatus]);
 
-  const handleCount = async () => {
+  const handleCount = useCallback(async () => {
     setBusy('count');
     showActionFeedback(
       'Counting purchase orders in Zoho… this can take a few minutes. Keep this tab open.',
@@ -125,7 +131,15 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
     } finally {
       setBusy(null);
     }
-  };
+  }, [loadStatus, showActionFeedback]);
+
+  const handleRefreshStatus = useCallback(async () => {
+    const next = await loadStatus({ fromButton: true });
+    // First visit: Refresh alone cannot invent a Zoho total — run Count automatically.
+    if (next && next.totalInRange == null && busy === null) {
+      await handleCount();
+    }
+  }, [busy, handleCount, loadStatus]);
 
   const handleCategoryBackfill = async () => {
     setBusy('category');
@@ -218,10 +232,16 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
           type="button"
           className="btn btn-secondary mt-4"
           disabled={busy !== null || refreshing}
-          onClick={() => { void loadStatus({ fromButton: true }); }}
+          onClick={() => { void handleRefreshStatus(); }}
         >
-          {refreshing ? <RotateCcw size={16} className="spin" /> : <RefreshCw size={16} />}
-          {refreshing ? 'Refreshing…' : 'Refresh status'}
+          {refreshing || busy === 'count'
+            ? <RotateCcw size={16} className="spin" />
+            : <RefreshCw size={16} />}
+          {busy === 'count'
+            ? 'Counting Zoho…'
+            : refreshing
+              ? 'Refreshing…'
+              : 'Refresh status'}
         </button>
         {error && (
           <div className="products-inline-error panel glass mt-4" role="alert">
@@ -229,7 +249,7 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
             <span>{error}</span>
           </div>
         )}
-        {!error && notice === 'Status refreshed.' && (
+        {!error && notice && (
           <p className="text-muted text-sm mt-3 mb-0" role="status">{notice}</p>
         )}
       </div>
@@ -320,6 +340,11 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
             <div className="stat-value">
               {total == null ? '—' : total.toLocaleString()}
             </div>
+            {total == null && (
+              <p className="text-muted text-sm mt-1 mb-0">
+                Not counted yet — Refresh status or Count purchase orders
+              </p>
+            )}
           </div>
         </div>
         <div className="stat-card glass">
@@ -339,6 +364,11 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
             <div className="stat-value">
               {remaining == null ? '—' : remaining.toLocaleString()}
             </div>
+            {remaining == null && (
+              <p className="text-muted text-sm mt-1 mb-0">
+                Needs Zoho total first
+              </p>
+            )}
           </div>
         </div>
       </div>
