@@ -43,6 +43,11 @@ import {
 } from '../../lib/logisticsBooking';
 import {
   dealerMatchesLogisticsQuery,
+  isPlaceholderLogisticsAddress,
+  logisticsDealerHasDeliveryAddress,
+  mergeZohoDealerLists,
+  preferRicherZohoDealer,
+  preferredDeliveryAddressKind,
   resolveDeliveryAddress,
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
@@ -255,18 +260,32 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }, [galleryUrls]);
 
   useEffect(() => {
-    const zohoId = initialDraft?.zohoCustomerId?.trim();
+    const zohoId = (initialDraft?.zohoCustomerId || draft.zohoCustomerId)?.trim();
     if (!zohoId) return;
     let cancelled = false;
     void fetchDealerById(zohoId)
       .then(dealer => {
-        if (!cancelled) {
-          setDealers(prev => (prev.some(item => item.id === dealer.id) ? prev : [dealer, ...prev]));
-        }
+        if (cancelled) return;
+        setDealers(prev => {
+          const idx = prev.findIndex(item => item.id === dealer.id);
+          if (idx < 0) return [dealer, ...prev];
+          const next = [...prev];
+          next[idx] = preferRicherZohoDealer(prev[idx], dealer);
+          return next;
+        });
+        const snapshot = zohoDealerToSnapshot(dealer);
+        setDraft(prev => {
+          if (prev.zohoCustomerId !== dealer.id) return prev;
+          const kind = preferredDeliveryAddressKind(snapshot, prev.deliveryAddressKind);
+          return kind === prev.deliveryAddressKind
+            ? prev
+            : { ...prev, deliveryAddressKind: kind };
+        });
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [initialDraft?.zohoCustomerId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per selected Zoho id
+  }, [initialDraft?.zohoCustomerId, draft.zohoCustomerId]);
 
   // Resume opens with storage paths only — resolve display URLs in the background.
   useEffect(() => {
@@ -323,7 +342,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     let cancelled = false;
     const cached = peekCachedDealers();
     if (cached?.length) {
-      setDealers(cached);
+      setDealers(prev => mergeZohoDealerLists(prev, cached));
       setDealersLoading(false);
     } else {
       setDealersLoading(true);
@@ -331,14 +350,14 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
     const unsubscribe = subscribeDealerCache((list, complete) => {
       if (cancelled) return;
-      setDealers(list);
+      setDealers(prev => mergeZohoDealerLists(prev, list));
       if (complete || list.length > 0) setDealersLoading(false);
     });
 
     void ensureDealersCached()
       .then(list => {
         if (!cancelled) {
-          setDealers(list);
+          setDealers(prev => mergeZohoDealerLists(prev, list));
           setDealersLoading(false);
         }
       })
@@ -409,14 +428,45 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const selectDealer = useCallback((dealer: ZohoDealer) => {
     const snapshot = zohoDealerToSnapshot(dealer);
-    setDealers(prev => (prev.some(item => item.id === dealer.id) ? prev : [dealer, ...prev]));
+    setDealers(prev => {
+      const idx = prev.findIndex(item => item.id === dealer.id);
+      if (idx < 0) return [dealer, ...prev];
+      const next = [...prev];
+      next[idx] = preferRicherZohoDealer(prev[idx], dealer);
+      return next;
+    });
     setDraft(prev => ({
       ...prev,
       zohoCustomerId: dealer.id,
       dealerId: dealer.portalUserId?.trim() || dealer.id,
-      deliveryAddressKind: snapshot.shippingAddress?.trim() ? 'shipping' : 'billing',
+      deliveryAddressKind: preferredDeliveryAddressKind(snapshot, 'shipping'),
     }));
     setDealerQuery('');
+    // List-cache rows often lack Zoho street addresses — refresh detail immediately.
+    if (!logisticsDealerHasDeliveryAddress(snapshot)) {
+      void fetchDealerById(dealer.id)
+        .then(detailed => {
+          setDealers(prev => {
+            const idx = prev.findIndex(item => item.id === detailed.id);
+            if (idx < 0) return [detailed, ...prev];
+            const next = [...prev];
+            next[idx] = preferRicherZohoDealer(prev[idx], detailed);
+            return next;
+          });
+          const detailedSnap = zohoDealerToSnapshot(detailed);
+          setDraft(prev => {
+            if (prev.zohoCustomerId !== detailed.id) return prev;
+            return {
+              ...prev,
+              deliveryAddressKind: preferredDeliveryAddressKind(
+                detailedSnap,
+                prev.deliveryAddressKind,
+              ),
+            };
+          });
+        })
+        .catch(() => undefined);
+    }
   }, []);
 
   const clearDealer = useCallback(() => {
@@ -478,13 +528,54 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     updateDraft('finalPackagePhoto', dataUrl);
   }, [updateDraft]);
 
+  const ensureDealerAddressHydrated = useCallback(async (): Promise<LogisticsDealerSnapshot | null> => {
+    const zohoId = draftRef.current.zohoCustomerId?.trim();
+    if (!zohoId) return selectedDealer;
+
+    const kind = draftRef.current.deliveryAddressKind;
+    if (
+      selectedDealer
+      && logisticsDealerHasDeliveryAddress(selectedDealer, kind)
+    ) {
+      return selectedDealer;
+    }
+
+    try {
+      const detailed = await fetchDealerById(zohoId);
+      setDealers(prev => {
+        const idx = prev.findIndex(item => item.id === detailed.id);
+        if (idx < 0) return [detailed, ...prev];
+        const next = [...prev];
+        next[idx] = preferRicherZohoDealer(prev[idx], detailed);
+        return next;
+      });
+      const snapshot = zohoDealerToSnapshot(detailed);
+      const nextKind = preferredDeliveryAddressKind(snapshot, kind);
+      if (nextKind !== kind) {
+        setDraft(prev => (
+          prev.zohoCustomerId === detailed.id
+            ? { ...prev, deliveryAddressKind: nextKind }
+            : prev
+        ));
+        draftRef.current = {
+          ...draftRef.current,
+          deliveryAddressKind: nextKind,
+        };
+      }
+      return snapshot;
+    } catch {
+      return selectedDealer;
+    }
+  }, [selectedDealer]);
+
   const handleConfirmShipment = useCallback(async () => {
-    if (!selectedDealer) return;
+    const dealer = await ensureDealerAddressHydrated();
+    if (!dealer) return;
     setSaving(true);
     try {
       const created = await persistLogisticsBooking({
-        draft,
-        dealer: selectedDealer,
+        draft: draftRef.current,
+        dealer,
         createdBy: user,
         existingBookingId: draftBookingId,
       });
@@ -495,14 +586,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [draft, selectedDealer, user, draftBookingId]);
+  }, [ensureDealerAddressHydrated, user, draftBookingId]);
 
   const persistDraft = useCallback(async (
     wizardStep: BookCourierStep,
     options?: { close?: boolean; draftOverride?: LogisticsBookingDraft },
   ): Promise<LogisticsBooking | null> => {
     const draftToSave = options?.draftOverride ?? draftRef.current;
-    if (!selectedDealer) {
+    const hydratedDealer = await ensureDealerAddressHydrated();
+    const dealerToSave = hydratedDealer ?? selectedDealer;
+    if (!dealerToSave) {
       if (options?.close) onClose();
       return null;
     }
@@ -512,7 +605,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       try {
         const saved = await persistLogisticsBookingDraft({
           draft: draftToSave,
-          dealer: selectedDealer,
+          dealer: dealerToSave,
           createdBy: user,
           existingBookingId: draftBookingIdRef.current,
           wizardStep,
@@ -576,7 +669,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const queued = draftSaveChainRef.current.then(run, run);
     draftSaveChainRef.current = queued.then(() => undefined, () => undefined);
     return queued;
-  }, [selectedDealer, user, onClose, onDraftSaved, onDraftUpdated]);
+  }, [ensureDealerAddressHydrated, selectedDealer, user, onClose, onDraftSaved, onDraftUpdated]);
 
   const requestClose = useCallback(() => {
     if (step === 'complete' || saving) {
@@ -628,9 +721,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     return sum + Math.max(actual, boxVolumetric(box));
   }, 0);
   const shippingLabelCount = isEnvelope ? 1 : Math.max(1, draft.boxes.length);
-  const shippingLabels = useMemo(() => {
-    if (!selectedDealer) return [];
-    const deliveryAddress = resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind);
+  const buildShippingLabelsForDealer = useCallback((
+    dealer: LogisticsDealerSnapshot,
+    addressKind: DeliveryAddressKind = draft.deliveryAddressKind,
+  ) => {
+    const deliveryAddress = resolveDeliveryAddress(dealer, addressKind);
     const fromName = STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite];
     const fromAddress = (fromAddresses[draft.shipFromSite] || FIRM_NAME).trim();
     const bookingTime = formatShippingBookingTime();
@@ -644,7 +739,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       return buildShippingLabelViewModel({
         fromName,
         fromAddress,
-        dealer: selectedDealer,
+        dealer,
         deliveryAddress,
         numberOfBoxes: shippingLabelCount,
         boxIndex: index + 1,
@@ -667,7 +762,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       });
     });
   }, [
-    selectedDealer,
     draft.deliveryAddressKind,
     draft.shipFromSite,
     draft.consignmentNo,
@@ -687,12 +781,32 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     user.loginId,
   ]);
 
+  const shippingLabels = useMemo(
+    () => (selectedDealer ? buildShippingLabelsForDealer(selectedDealer) : []),
+    [selectedDealer, buildShippingLabelsForDealer],
+  );
+
   const handlePrintShippingLabels = useCallback(async () => {
     try {
+      const dealer = await ensureDealerAddressHydrated();
+      if (!dealer) {
+        window.alert('Select a dealer before printing the shipping label.');
+        return;
+      }
+      const kind = preferredDeliveryAddressKind(dealer, draftRef.current.deliveryAddressKind);
+      const deliveryAddress = resolveDeliveryAddress(dealer, kind);
+      if (isPlaceholderLogisticsAddress(deliveryAddress)) {
+        window.alert(
+          'Dealer delivery address is missing in Zoho. Open the dealer record, refresh from Zoho, then print again.',
+        );
+        return;
+      }
+
+      const labels = buildShippingLabelsForDealer(dealer, kind);
       // Drop stale canvas slots if box count shrank since last render.
-      shippingLabelCanvasRefs.current.length = shippingLabels.length;
+      shippingLabelCanvasRefs.current.length = labels.length;
       try {
-        const thermal = await tryPrintShippingLabelsThermal(shippingLabels);
+        const thermal = await tryPrintShippingLabelsThermal(labels);
         if (thermal.usedThermal) {
           updateDraft('labelGenerated', true);
           return;
@@ -704,16 +818,21 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         if (!fallback) return;
       }
       printShippingLabelCanvases(
-        shippingLabelCanvasRefs.current.slice(0, shippingLabels.length),
-        shippingLabels.length > 1
-          ? `Shipping labels (${shippingLabels.length} × 100×150 mm)`
+        shippingLabelCanvasRefs.current.slice(0, labels.length),
+        labels.length > 1
+          ? `Shipping labels (${labels.length} × 100×150 mm)`
           : 'Shipping label',
       );
       updateDraft('labelGenerated', true);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Print failed.');
     }
-  }, [shippingLabels, updateDraft]);
+  }, [buildShippingLabelsForDealer, ensureDealerAddressHydrated, updateDraft]);
+
+  useEffect(() => {
+    if (step !== 'label') return;
+    void ensureDealerAddressHydrated();
+  }, [step, ensureDealerAddressHydrated]);
 
   const courierSlip = useMemo(() => {
     if (!selectedDealer) return null;

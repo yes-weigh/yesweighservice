@@ -15,8 +15,12 @@ import {
   boxDimensionsLabel,
   chargeableWeight,
 } from './logisticsBooking';
+import {
+  isPlaceholderLogisticsAddress,
+  resolveDeliveryAddress,
+  resolveReceiverPhoneFromSnapshot,
+} from './logisticsDealers';
 import { logisticsTrackingUrl } from './logisticsTracking';
-import { resolveReceiverPhoneFromSnapshot } from './logisticsDealers';
 
 export const SHIPPING_LABEL_CONTENTS = 'Genuine Spare Part';
 export const SHIPPING_LABEL_PAYMENT_MODE = 'PREPAID';
@@ -595,6 +599,14 @@ export function buildShippingLabelViewModel(input: {
   };
 }
 
+/** Prefer persisted deliveryAddress; fall back to dealer snapshot shipping/billing. */
+export function resolveBookingDeliveryAddress(booking: LogisticsBooking): string {
+  if (!isPlaceholderLogisticsAddress(booking.deliveryAddress)) {
+    return booking.deliveryAddress.trim();
+  }
+  return resolveDeliveryAddress(booking.dealer, booking.deliveryAddressKind);
+}
+
 /** Build one 100×150 mm shipping-label view model per box (or one for envelope). */
 export function buildShippingLabelsFromBooking(booking: LogisticsBooking): ShippingLabelViewModel[] {
   const count = booking.shipmentMode === 'envelope'
@@ -602,6 +614,7 @@ export function buildShippingLabelsFromBooking(booking: LogisticsBooking): Shipp
     : Math.max(1, booking.numberOfBoxes || booking.boxes.length || 1);
   const timeSource = booking.createdAt ? new Date(booking.createdAt) : new Date();
   const chargeable = chargeableWeight(booking);
+  const deliveryAddress = resolveBookingDeliveryAddress(booking);
 
   return Array.from({ length: count }, (_, index) => {
     const box = booking.boxes[index];
@@ -611,7 +624,7 @@ export function buildShippingLabelsFromBooking(booking: LogisticsBooking): Shipp
       fromName: STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'YESWEIGH',
       fromAddress: booking.shipFromAddress || '—',
       dealer: booking.dealer,
-      deliveryAddress: booking.deliveryAddress,
+      deliveryAddress,
       numberOfBoxes: count,
       boxIndex: index + 1,
       box,

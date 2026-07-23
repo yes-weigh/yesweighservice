@@ -41,6 +41,7 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<'count' | 'sync' | 'category' | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -56,15 +57,25 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
     });
   }, []);
 
-  const loadStatus = useCallback(async () => {
-    setError('');
+  const loadStatus = useCallback(async (options?: { quiet?: boolean; fromButton?: boolean }) => {
+    const quiet = options?.quiet === true;
+    const fromButton = options?.fromButton === true;
+    if (fromButton) setRefreshing(true);
+    if (!quiet) setError('');
     try {
       const next = await fetchOrgPurchaseOrderSyncStatus();
       setStatus(next);
+      if (fromButton) {
+        setNotice('Status refreshed.');
+        setError('');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load sync status.');
+      const message = err instanceof Error ? err.message : 'Could not load sync status.';
+      setError(message);
+      if (fromButton) setNotice('');
     } finally {
       setLoading(false);
+      if (fromButton) setRefreshing(false);
     }
   }, []);
 
@@ -88,7 +99,7 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
   useEffect(() => {
     if (status?.status !== 'running') return undefined;
     const timer = window.setInterval(() => {
-      void loadStatus();
+      void loadStatus({ quiet: true });
     }, 5_000);
     return () => window.clearInterval(timer);
   }, [status?.status, loadStatus]);
@@ -206,12 +217,21 @@ export const AdminPurchaseOrderSyncPage: React.FC = () => {
         <button
           type="button"
           className="btn btn-secondary mt-4"
-          disabled={busy !== null}
-          onClick={() => { void loadStatus(); }}
+          disabled={busy !== null || refreshing}
+          onClick={() => { void loadStatus({ fromButton: true }); }}
         >
-          <RefreshCw size={16} />
-          Refresh status
+          {refreshing ? <RotateCcw size={16} className="spin" /> : <RefreshCw size={16} />}
+          {refreshing ? 'Refreshing…' : 'Refresh status'}
         </button>
+        {error && (
+          <div className="products-inline-error panel glass mt-4" role="alert">
+            <AlertCircle size={18} />
+            <span>{error}</span>
+          </div>
+        )}
+        {!error && notice === 'Status refreshed.' && (
+          <p className="text-muted text-sm mt-3 mb-0" role="status">{notice}</p>
+        )}
       </div>
 
       <div className="panel glass mb-6 admin-zoho-usage">

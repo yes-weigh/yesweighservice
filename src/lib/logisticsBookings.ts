@@ -20,7 +20,7 @@ import { isLogisticsPartnerId, logisticsPartnerLabel } from '../constants/logist
 import type { User } from '../types';
 import { normalizeRole } from '../types';
 import { isInternalOpsUser } from './staffAccess';
-import { resolveDeliveryAddress } from './logisticsDealers';
+import { isPlaceholderLogisticsAddress, resolveDeliveryAddress } from './logisticsDealers';
 import {
   computeVolumetricWeight,
   draftBoxesHaveRequiredPhotos,
@@ -187,7 +187,12 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     bookingDate: String(data.bookingDate ?? ''),
     dealer,
     deliveryAddressKind: data.deliveryAddressKind === 'billing' ? 'billing' : 'shipping',
-    deliveryAddress: String(data.deliveryAddress ?? resolveDeliveryAddress(dealer, 'shipping')),
+    deliveryAddress: (() => {
+      const kind = data.deliveryAddressKind === 'billing' ? 'billing' : 'shipping';
+      const stored = String(data.deliveryAddress ?? '').trim();
+      if (!isPlaceholderLogisticsAddress(stored)) return stored;
+      return resolveDeliveryAddress(dealer, kind);
+    })(),
     shipFromSite: isStaffLogisticsSite(data.shipFromSite) ? data.shipFromSite : 'head_office',
     shipFromAddress: String(data.shipFromAddress ?? ''),
     shipmentMode,

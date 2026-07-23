@@ -25,6 +25,12 @@ function syncErrorMessage(err: unknown): string {
     if (code === 'functions/resource-exhausted') {
       return message || 'Zoho API rate limit reached. Wait a few minutes and try again.';
     }
+    if (code === 'functions/not-found' || code === 'functions/unavailable') {
+      return 'Purchase order sync is not deployed yet. Deploy Cloud Functions, then refresh again.';
+    }
+    if (code === 'functions/permission-denied') {
+      return message || 'You do not have permission to view purchase order sync status.';
+    }
     if (message) return message;
   }
   return 'Org purchase order sync failed.';
@@ -36,8 +42,12 @@ export async function fetchOrgPurchaseOrderSyncStatus(): Promise<OrgPurchaseOrde
     'getOrgPurchaseOrderSyncStatusCallable',
     { timeout: 30_000 },
   );
-  const result = await callable();
-  return result.data;
+  try {
+    const result = await callable();
+    return result.data;
+  } catch (err) {
+    throw new Error(syncErrorMessage(err));
+  }
 }
 
 export async function countOrgPurchaseOrdersInRange(): Promise<OrgPurchaseOrderCountResult> {

@@ -1,6 +1,12 @@
 import type { ZohoAddressRaw, ZohoDealer } from '../types/dealers';
 import type { DeliveryAddressKind, LogisticsDealerSnapshot } from '../types/logistics-dispatch';
 
+/** True when an address string is empty or a placeholder dash. */
+export function isPlaceholderLogisticsAddress(value: string | null | undefined): boolean {
+  const trimmed = value?.replace(/\s+/g, ' ').trim() ?? '';
+  return !trimmed || trimmed === '—' || trimmed === '-' || trimmed === '–';
+}
+
 export function formatZohoAddressMultiline(
   formatted: string | null | undefined,
   raw: ZohoAddressRaw | null | undefined,
@@ -134,7 +140,81 @@ export function resolveDeliveryAddress(
   dealer: LogisticsDealerSnapshot,
   kind: DeliveryAddressKind,
 ): string {
-  return kind === 'billing' ? dealer.billingAddress : dealer.shippingAddress;
+  const preferred = kind === 'billing' ? dealer.billingAddress : dealer.shippingAddress;
+  if (!isPlaceholderLogisticsAddress(preferred)) return preferred.trim();
+  const fallback = kind === 'billing' ? dealer.shippingAddress : dealer.billingAddress;
+  if (!isPlaceholderLogisticsAddress(fallback)) return fallback.trim();
+  return preferred?.trim() || fallback?.trim() || '—';
+}
+
+export function logisticsDealerHasDeliveryAddress(
+  dealer: LogisticsDealerSnapshot,
+  kind?: DeliveryAddressKind,
+): boolean {
+  if (kind) return !isPlaceholderLogisticsAddress(resolveDeliveryAddress(dealer, kind));
+  return !isPlaceholderLogisticsAddress(dealer.shippingAddress)
+    || !isPlaceholderLogisticsAddress(dealer.billingAddress);
+}
+
+export function zohoDealerHasLogisticsAddress(dealer: ZohoDealer): boolean {
+  return logisticsDealerHasDeliveryAddress(zohoDealerToSnapshot(dealer));
+}
+
+/** Prefer the dealer record that actually has Zoho address detail. */
+export function preferRicherZohoDealer(existing: ZohoDealer, incoming: ZohoDealer): ZohoDealer {
+  const existingHas = zohoDealerHasLogisticsAddress(existing);
+  const incomingHas = zohoDealerHasLogisticsAddress(incoming);
+  if (incomingHas && !existingHas) return incoming;
+  if (existingHas && !incomingHas) return existing;
+  const existingDetail = Boolean(
+    existing.zohoShippingAddressRaw
+    || existing.zohoBillingAddressRaw
+    || existing.zohoDetailSyncedAt
+    || existing.zohoShippingAddress
+    || existing.zohoBillingAddress,
+  );
+  const incomingDetail = Boolean(
+    incoming.zohoShippingAddressRaw
+    || incoming.zohoBillingAddressRaw
+    || incoming.zohoDetailSyncedAt
+    || incoming.zohoShippingAddress
+    || incoming.zohoBillingAddress,
+  );
+  if (incomingDetail && !existingDetail) return incoming;
+  if (existingDetail && !incomingDetail) return existing;
+  return incoming;
+}
+
+/** Merge dealer lists without letting thin list-cache rows wipe address detail. */
+export function mergeZohoDealerLists(current: ZohoDealer[], incoming: ZohoDealer[]): ZohoDealer[] {
+  const byId = new Map(current.map(dealer => [dealer.id, dealer]));
+  for (const dealer of incoming) {
+    const prev = byId.get(dealer.id);
+    byId.set(dealer.id, prev ? preferRicherZohoDealer(prev, dealer) : dealer);
+  }
+  const seen = new Set<string>();
+  const out: ZohoDealer[] = [];
+  for (const dealer of incoming) {
+    const merged = byId.get(dealer.id);
+    if (!merged || seen.has(dealer.id)) continue;
+    out.push(merged);
+    seen.add(dealer.id);
+  }
+  for (const dealer of current) {
+    if (seen.has(dealer.id)) continue;
+    out.push(dealer);
+    seen.add(dealer.id);
+  }
+  return out;
+}
+
+export function preferredDeliveryAddressKind(
+  dealer: LogisticsDealerSnapshot,
+  current: DeliveryAddressKind = 'shipping',
+): DeliveryAddressKind {
+  if (!isPlaceholderLogisticsAddress(dealer.shippingAddress)) return 'shipping';
+  if (!isPlaceholderLogisticsAddress(dealer.billingAddress)) return 'billing';
+  return current;
 }
 
 export function dealerMatchesLogisticsQuery(dealer: ZohoDealer, query: string): boolean {

@@ -475,6 +475,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           alreadyPrinted={booking.shippingLabelGenerated}
           onClose={() => setShippingLabelOpen(false)}
           onPrinted={handleShippingLabelPrinted}
+          onBookingRepair={onUpdate}
         />
       )}
 

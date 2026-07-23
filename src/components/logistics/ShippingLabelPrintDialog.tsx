@@ -1,16 +1,26 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Printer, X } from 'lucide-react';
 import {
   LOGISTICS_LABEL_HEIGHT_MM,
   LOGISTICS_LABEL_WIDTH_MM,
 } from '../../constants/localPrinterSettings';
+import { fetchDealerById } from '../../lib/dealers';
 import { isNativePrintAvailable } from '../../lib/localPrinterPrint';
+import {
+  isPlaceholderLogisticsAddress,
+  preferredDeliveryAddressKind,
+  resolveDeliveryAddress,
+  zohoDealerToSnapshot,
+} from '../../lib/logisticsDealers';
 import {
   printShippingLabelCanvases,
   tryPrintShippingLabelsThermal,
 } from '../../lib/logisticsLabelPrint';
-import { buildShippingLabelsFromBooking } from '../../lib/shippingLabel';
+import {
+  buildShippingLabelsFromBooking,
+  resolveBookingDeliveryAddress,
+} from '../../lib/shippingLabel';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
 
@@ -19,6 +29,8 @@ type Props = {
   onClose: () => void;
   /** Called after a successful print (thermal or browser). */
   onPrinted?: () => void;
+  /** Called when dealer address was repaired for a correct first/reprint. */
+  onBookingRepair?: (booking: LogisticsBooking) => void;
   /** When true, primary action is labeled Reprint. */
   alreadyPrinted?: boolean;
 };
@@ -27,22 +39,74 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
   booking,
   onClose,
   onPrinted,
+  onBookingRepair,
   alreadyPrinted = false,
 }) => {
   const [printing, setPrinting] = useState(false);
+  const [hydrating, setHydrating] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [effectiveBooking, setEffectiveBooking] = useState(booking);
   const canvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
   const native = isNativePrintAvailable();
 
+  useEffect(() => {
+    setEffectiveBooking(booking);
+  }, [booking]);
+
+  useEffect(() => {
+    const delivery = resolveBookingDeliveryAddress(booking);
+    if (!isPlaceholderLogisticsAddress(delivery)) return;
+
+    const zohoId = booking.dealer.zohoCustomerId?.trim();
+    if (!zohoId) return;
+
+    let cancelled = false;
+    setHydrating(true);
+    void fetchDealerById(zohoId)
+      .then(dealer => {
+        if (cancelled) return;
+        const snapshot = zohoDealerToSnapshot(dealer);
+        const kind = preferredDeliveryAddressKind(snapshot, booking.deliveryAddressKind);
+        const deliveryAddress = resolveDeliveryAddress(snapshot, kind);
+        if (isPlaceholderLogisticsAddress(deliveryAddress)) return;
+
+        const repaired: LogisticsBooking = {
+          ...booking,
+          dealer: {
+            ...booking.dealer,
+            ...snapshot,
+          },
+          deliveryAddressKind: kind,
+          deliveryAddress,
+        };
+        setEffectiveBooking(repaired);
+        onBookingRepair?.(repaired);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setHydrating(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [booking, onBookingRepair]);
+
   const labels = useMemo(
-    () => buildShippingLabelsFromBooking(booking),
-    [booking],
+    () => buildShippingLabelsFromBooking(effectiveBooking),
+    [effectiveBooking],
   );
+
+  const toAddressMissing = labels.some(label => isPlaceholderLogisticsAddress(label.toAddress));
 
   const handlePrint = useCallback(async () => {
     if (!labels.length) {
       setError('No shipping label to print.');
+      return;
+    }
+    if (toAddressMissing) {
+      setError('Dealer delivery address is missing. Refresh the dealer from Zoho, then print again.');
       return;
     }
     setPrinting(true);
@@ -79,7 +143,7 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
     } finally {
       setPrinting(false);
     }
-  }, [labels, booking.consignmentNo, booking.trackingNo, onPrinted]);
+  }, [labels, booking.consignmentNo, booking.trackingNo, onPrinted, toAddressMissing]);
 
   return createPortal(
     <div
@@ -101,6 +165,7 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
               {` · ${booking.consignmentNo || booking.trackingNo || booking.orderRef}`}
               {` · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm · 203 DPI`}
               {labels.length > 1 ? ` · ${labels.length} labels` : ''}
+              {hydrating ? ' · Loading address…' : ''}
             </p>
           </div>
           <button
@@ -166,14 +231,16 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
             type="button"
             className="btn btn-primary"
             onClick={() => void handlePrint()}
-            disabled={printing || labels.length === 0}
+            disabled={printing || hydrating || labels.length === 0 || toAddressMissing}
           >
             <Printer size={16} aria-hidden />
             {printing
               ? 'Printing…'
-              : alreadyPrinted
-                ? (labels.length > 1 ? 'Reprint all' : 'Reprint')
-                : (labels.length > 1 ? 'Print all' : 'Print')}
+              : hydrating
+                ? 'Loading address…'
+                : alreadyPrinted
+                  ? (labels.length > 1 ? 'Reprint all' : 'Reprint')
+                  : (labels.length > 1 ? 'Print all' : 'Print')}
           </button>
         </div>
       </div>
