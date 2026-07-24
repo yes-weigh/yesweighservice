@@ -129,7 +129,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           counts.product ? `${counts.product.toLocaleString()} product` : null,
           counts.spare ? `${counts.spare.toLocaleString()} spare` : null,
           counts.service ? `${counts.service.toLocaleString()} service` : null,
-          counts.software_key ? `${counts.software_key.toLocaleString()} software only` : null,
+          counts.software_key ? `${counts.software_key.toLocaleString()} software` : null,
           counts.gatc ? `${counts.gatc.toLocaleString()} GATC` : null,
         ].filter(Boolean).join(', ')
         : '';
