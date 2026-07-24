@@ -46,6 +46,8 @@ export interface DealerInvoiceLineItem {
   rate: number;
   total: number;
   imageUrl: string | null;
+  /** HSN / SAC from Zoho line or catalog (used to exclude freight SAC). */
+  hsn?: string | null;
   serialNumbers?: string[];
 }
 

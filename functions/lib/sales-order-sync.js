@@ -15,6 +15,7 @@ import {
 import {
   classifyInvoiceFromLineItems,
   parseInvoiceCategory,
+  sumNonFreightQuantity,
 } from './invoice-category.js';
 
 const COLLECTION = 'salesOrders';
@@ -249,7 +250,7 @@ async function upsertSalesOrderFromRaw(raw, options = {}) {
     ...mapped,
     searchBlob: buildSearchBlob(mapped),
     salesOrderCategory,
-    itemQuantity: mapped.lineItems.reduce((sum, line) => sum + Number(line.quantity || 0), 0),
+    itemQuantity: sumNonFreightQuantity(mapped.lineItems),
     syncedAt: now,
     contentFingerprint: `${mapped.zohoLastModified}|${mapped.lineItems.length}|${mapped.total}`,
   };

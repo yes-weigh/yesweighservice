@@ -125,6 +125,7 @@ function mapLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
     rate: Number(raw.rate ?? 0),
     total: Number(raw.total ?? 0),
     imageUrl: raw.imageUrl ? String(raw.imageUrl) : null,
+    hsn: raw.hsn != null && String(raw.hsn).trim() ? String(raw.hsn) : null,
   };
 }
 
@@ -148,9 +149,9 @@ export function mapAdminSalesOrderDoc(
     currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
-    itemQuantity: data.itemQuantity != null
-      ? Number(data.itemQuantity)
-      : (lineItems.length ? sumInvoiceProductQuantity(lineItems) : null),
+    itemQuantity: lineItems.length
+      ? sumInvoiceProductQuantity(lineItems)
+      : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
   };
 }

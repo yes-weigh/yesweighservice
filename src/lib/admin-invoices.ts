@@ -272,6 +272,7 @@ function mapAdminInvoiceLineItem(raw: Record<string, unknown>): DealerInvoiceLin
     rate: Number(raw.rate ?? 0),
     total: Number(raw.total ?? 0),
     imageUrl: raw.imageUrl ? String(raw.imageUrl) : null,
+    hsn: raw.hsn != null && String(raw.hsn).trim() ? String(raw.hsn) : null,
   };
 }
 

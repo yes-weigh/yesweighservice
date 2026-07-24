@@ -74,6 +74,7 @@ export function extractLineItemSerialNumbers(raw) {
 }
 
 export function mapInvoiceLineItem(raw, imageUrl = null) {
+  const hsnRaw = raw.hsn_or_sac ?? raw.hsnOrSac ?? raw.hsn ?? null;
   return {
     id: String(raw.line_item_id ?? raw.item_id ?? raw.id ?? ''),
     itemId: raw.item_id ?? raw.itemId ? String(raw.item_id ?? raw.itemId) : null,
@@ -84,6 +85,7 @@ export function mapInvoiceLineItem(raw, imageUrl = null) {
     rate: Number(raw.rate ?? 0),
     total: Number(raw.item_total ?? raw.total ?? 0),
     imageUrl,
+    hsn: hsnRaw != null && String(hsnRaw).trim() ? String(hsnRaw) : null,
     serialNumbers: extractLineItemSerialNumbers(raw),
   };
 }

@@ -594,24 +594,26 @@ export function formatKpiPeriodRange(periodStart: string | null, periodEnd: stri
   return `${fmt(new Date(periodStart))} – ${fmt(new Date(periodEnd))}`;
 }
 
-export function isFreightInvoiceLineItem(
-  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'>,
-): boolean {
-  const name = item.name.trim().toLowerCase();
-  if (name === 'freight' || name.includes('freight')) return true;
-  const sku = item.sku?.trim().toLowerCase() ?? '';
-  return sku === 'freight' || sku.includes('freight');
-}
-
 /** HSN / SAC codes used to classify docs from the highest-value line item (same as Zoho sync). */
 export const INVOICE_CATEGORY_HSN = {
   service: '998717',
   software_key: '85238020',
   gatc: '998346',
+  freight: '996812',
 } as const;
 
 function normalizeCategoryHsn(value: string | null | undefined): string {
   return String(value ?? '').replace(/\s+/g, '').trim();
+}
+
+export function isFreightInvoiceLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & { hsn?: string | null },
+): boolean {
+  if (normalizeCategoryHsn(item.hsn) === INVOICE_CATEGORY_HSN.freight) return true;
+  const name = item.name.trim().toLowerCase();
+  if (name === 'freight' || name.includes('freight')) return true;
+  const sku = item.sku?.trim().toLowerCase() ?? '';
+  return sku === 'freight' || sku.includes('freight');
 }
 
 export function isGenericSpareCategoryName(name: string | null | undefined): boolean {
@@ -662,6 +664,7 @@ export function classifyInvoiceFromLineItems(
   const candidates = items.filter(item => !isFreightInvoiceLineItem({
     name: String(item?.name ?? ''),
     sku: item?.sku ?? null,
+    hsn: item?.hsn ?? null,
   }));
   if (!candidates.length) return 'spare';
 

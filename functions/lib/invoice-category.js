@@ -5,6 +5,7 @@ export const INVOICE_CATEGORY_HSN = {
   service: '998717',
   software_key: '85238020',
   gatc: '998346',
+  freight: '996812',
 };
 
 export const INVOICE_CATEGORIES = ['product', 'spare', 'service', 'software_key', 'gatc'];
@@ -23,11 +24,21 @@ export function isGenericSpareCategoryName(name) {
   );
 }
 
-export function isFreightLineItem(name, sku) {
+export function isFreightLineItem(name, sku, hsn) {
+  if (normalizeHsn(hsn) === INVOICE_CATEGORY_HSN.freight) return true;
   const itemName = String(name ?? '').trim().toLowerCase();
   if (itemName === 'freight' || itemName.includes('freight')) return true;
   const itemSku = String(sku ?? '').trim().toLowerCase();
   return itemSku === 'freight' || itemSku.includes('freight');
+}
+
+/** Sum line quantities excluding freight (name/sku or SAC 996812). */
+export function sumNonFreightQuantity(lineItems) {
+  const items = Array.isArray(lineItems) ? lineItems : [];
+  return items.reduce((sum, item) => {
+    if (isFreightLineItem(item?.name, item?.sku, item?.hsn)) return sum;
+    return sum + Number(item?.quantity || 0);
+  }, 0);
 }
 
 /** Uncategorized, missing catalog, or Generic spare parts → spare. */
@@ -49,7 +60,7 @@ export function isSpareCatalogItem(catalog) {
  */
 export function classifyInvoiceFromLineItems(lineItems, catalogByItemId = new Map()) {
   const items = Array.isArray(lineItems) ? lineItems : [];
-  const candidates = items.filter(item => !isFreightLineItem(item?.name, item?.sku));
+  const candidates = items.filter(item => !isFreightLineItem(item?.name, item?.sku, item?.hsn));
   if (!candidates.length) return 'spare';
 
   let top = candidates[0];
