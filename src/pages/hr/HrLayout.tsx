@@ -53,10 +53,12 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
         icon: <KeyRound size={16} />,
       });
     }
+    // Route/role id stays `warehouse` (legacy YesStore warehouse user role).
+    // UI label is "Stock auditor" — do not rename code ids to match the label.
     if (showWarehouse) {
       items.push({
         id: 'warehouse',
-        label: 'Warehouse',
+        label: 'Stock auditor',
         path: `${basePath}/hr/warehouse`,
         icon: <Warehouse size={16} />,
       });
@@ -104,7 +106,8 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
       <header className="hr-hub__header panel glass">
         <div>
           <h2>Human Resources</h2>
-          <p className="text-muted text-sm">Staff records, work reports, holidays, salary, warehouse and media users, roles, and super admins.</p>
+          {/* "warehouse" role/users in code = Stock auditor in the UI */}
+          <p className="text-muted text-sm">Staff records, work reports, holidays, salary, stock auditor and media users, roles, and super admins.</p>
         </div>
         {canManageHr(user) && isTabActive(`${basePath}/hr/staff`) && (
           <Link to={`${basePath}/hr/staff/new`} className="btn btn-primary btn-sm">

@@ -129,6 +129,7 @@ import {
   cancelDealerOrder as cancelDealerOrderRecord,
   submitDealerOrderPayment as submitDealerOrderPaymentRecord,
   verifyDealerOrderPayment as verifyDealerOrderPaymentRecord,
+  downloadDealerOrderSalesOrder as downloadDealerOrderSalesOrderRecord,
   countPendingDealerOrders,
 } from './lib/dealer-orders.js';
 import {
@@ -2857,12 +2858,23 @@ export const updateDealerOrderLines = onCall(
 );
 
 export const approveDealerOrder = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
   async request => {
     const uid = request.auth?.uid;
     const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
     try {
-      return await approveDealerOrderRecord(uid, role, request.data?.orderId);
+      return await approveDealerOrderRecord(
+        uid,
+        role,
+        request.data?.orderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not approve order.');
@@ -2938,6 +2950,34 @@ export const verifyDealerOrderPayment = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not verify payment.');
+    }
+  },
+);
+
+export const downloadDealerOrderSalesOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(
+      uid,
+      new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']),
+    );
+    try {
+      return await downloadDealerOrderSalesOrderRecord(
+        uid,
+        role,
+        request.data?.orderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not download sales order.');
     }
   },
 );

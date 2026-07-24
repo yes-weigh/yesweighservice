@@ -45,7 +45,7 @@ type UserManagementProps = {
   /** When set, only list/create users under this dealer (dealer portal). */
   scopedDealerId?: string;
   showDealerPicker?: boolean;
-  /** Warehouse users use short User IDs instead of email/phone/Aadhaar. */
+  /** Prefer short User IDs for warehouse/media roles (UI: Stock auditor / Media). */
   preferUsernameLogin?: boolean;
 };
 
@@ -310,6 +310,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     className="input-field"
                     placeholder={
                       preferUsernameLogin
+                        // role id remains `warehouse`; login ids often still use warehouse1, …
                         ? (role === 'media' ? 'User ID (e.g. media1)' : 'User ID (e.g. warehouse1)')
                         : 'Email, phone, or Aadhaar'
                     }

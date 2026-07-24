@@ -44,6 +44,7 @@ export interface AdminFirestoreSalesOrder {
   status: string;
   total: number;
   balance: number;
+  currencyCode: string;
   referenceNumber: string | null;
   syncedAt: string | null;
   itemQuantity: number | null;
@@ -110,6 +111,7 @@ export function mapAdminSalesOrderDoc(
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),
     balance: Number(data.balance ?? 0),
+    currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
     itemQuantity: lineItems.length ? sumInvoiceProductQuantity(lineItems) : null,

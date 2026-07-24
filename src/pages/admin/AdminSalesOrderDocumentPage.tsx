@@ -1,16 +1,35 @@
-import React from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useOutletContext } from 'react-router-dom';
+import { ExternalLink } from 'lucide-react';
 import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
+import { findDealerOrderIdByOrderNumber } from '../../lib/dealerOrders';
 import { formatInvoiceDate, invoiceCategoryLabel, invoiceStatusLabel } from '../../lib/invoices';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 
 export const AdminSalesOrderDocumentPage: React.FC = () => {
-  const { salesOrder } = useOutletContext<AdminSalesOrderDetailOutletContext>();
+  const { salesOrder, listPath } = useOutletContext<AdminSalesOrderDetailOutletContext>();
+  const [portalOrderId, setPortalOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ref = salesOrder?.referenceNumber?.trim() ?? '';
+    if (!ref) {
+      setPortalOrderId(null);
+      return;
+    }
+    let cancelled = false;
+    void findDealerOrderIdByOrderNumber(ref).then(id => {
+      if (!cancelled) setPortalOrderId(id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [salesOrder?.referenceNumber]);
 
   if (!salesOrder) return null;
 
   const categoryLabel = invoiceCategoryLabel(salesOrder.salesOrderCategory);
+  const portalHref = portalOrderId ? `${listPath}/portal/${portalOrderId}` : null;
 
   return (
     <>
@@ -45,6 +64,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         </div>
         {salesOrder.referenceNumber && (
           <p className="text-muted text-sm mt-3 mb-0">Ref {salesOrder.referenceNumber}</p>
+        )}
+        {portalHref && (
+          <p className="mt-3 mb-0">
+            <Link to={portalHref} className="btn btn-secondary btn-sm">
+              <ExternalLink size={14} aria-hidden /> Open portal order
+            </Link>
+          </p>
         )}
         {salesOrder.notes && (
           <p className="text-muted text-sm mt-2 mb-0">{salesOrder.notes}</p>

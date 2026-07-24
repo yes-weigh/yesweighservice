@@ -48,7 +48,6 @@ type NavItem = {
 };
 
 const OPS_PRIORITY_SUFFIXES = [
-  '/orders',
   '/logistics',
   '/warranty-support',
 ] as const;
@@ -119,7 +118,6 @@ function portalNavItems(
     order === 'staff'
       ? [
           'catalog',
-          'orders',
           'logistics',
           'warrantySupport',
           'verification',
@@ -271,7 +269,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
-          { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales order' },
+          { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
           ...operationsNavItems('/super-admin', cartBadgeCount, OPS_BEFORE_REPORTS_SUFFIXES),
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
@@ -285,7 +283,7 @@ const LayoutShell: React.FC = () => {
         withExtras.splice(
           insertAt,
           0,
-          { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales order' },
+          { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/staff/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
         );
         const notificationsIndex = withExtras.findIndex(item => item.path.endsWith('/notifications'));
@@ -364,7 +362,7 @@ const LayoutShell: React.FC = () => {
   const isPurchaseOrderDetail = /\/purchase-orders\/(?!sync(?:\/|$))[^/]+(\/view)?$/.test(
     location.pathname,
   );
-  const isSalesOrderDetail = /\/sales-orders\/(?!sync(?:\/|$))[^/]+(\/view)?$/.test(
+  const isSalesOrderDetail = /\/sales-orders\/(?!sync(?:\/|$)|portal(?:\/|$))[^/]+(\/view)?$/.test(
     location.pathname,
   );
   const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname)

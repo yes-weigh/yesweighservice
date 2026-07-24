@@ -5,6 +5,7 @@ import {
   Camera,
   CheckCircle2,
   ChevronLeft,
+  Download,
   Package,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
@@ -16,7 +17,9 @@ import {
   buildOrderLineDiff,
   cancelDealerOrder,
   dealerOrderErrorMessage,
+  downloadDealerOrderSalesOrder,
   fetchDealerOrder,
+  saveDealerOrderSalesOrderPdf,
   submitDealerOrderPayment,
   summarizeOrderChanges,
   uploadDealerOrderPaymentScreenshot,
@@ -37,6 +40,7 @@ export const DealerOrderDetailPage: React.FC = () => {
   const [error, setError] = useState('');
   const [utr, setUtr] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [downloadingSo, setDownloadingSo] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [storagePath, setStoragePath] = useState<string | null>(null);
 
@@ -66,6 +70,20 @@ export const DealerOrderDetailPage: React.FC = () => {
   const changeSummary = useMemo(() => (order ? summarizeOrderChanges(order) : null), [order]);
   const canPay = order?.status === 'waiting_for_payment' || order?.status === 'payment_submitted';
   const canCancel = order?.status === 'pending_review' || order?.status === 'waiting_for_payment';
+  const canDownloadSo = Boolean(order?.zohoSalesOrderId);
+
+  const handleDownloadSalesOrder = async () => {
+    if (!order?.zohoSalesOrderId) return;
+    setDownloadingSo(true);
+    try {
+      const doc = await downloadDealerOrderSalesOrder(order.id);
+      saveDealerOrderSalesOrderPdf(doc);
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setDownloadingSo(false);
+    }
+  };
 
   const handleFile = async (file: File | undefined) => {
     if (!file || !order) return;
@@ -154,7 +172,29 @@ export const DealerOrderDetailPage: React.FC = () => {
           Submitted {formatInvoiceDate(order.createdAt)} · {order.itemCount} items ·{' '}
           {formatCurrency(order.subtotal)}
         </p>
+        {canDownloadSo && (
+          <div className="dealer-order-detail__crosslink">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={downloadingSo}
+              onClick={() => void handleDownloadSalesOrder()}
+            >
+              <Download size={14} aria-hidden />
+              {downloadingSo
+                ? 'Downloading…'
+                : `Download sales order${order.zohoSalesOrderNumber ? ` (${order.zohoSalesOrderNumber})` : ''}`}
+            </button>
+          </div>
+        )}
       </header>
+
+      {order.zohoSyncError && (
+        <div className="products-inline-error panel glass" role="alert">
+          <AlertCircle size={18} />
+          <span>Zoho: {order.zohoSyncError}</span>
+        </div>
+      )}
 
       {order.rejectionReason && (
         <div className="products-inline-error panel glass" role="alert">
@@ -217,6 +257,9 @@ export const DealerOrderDetailPage: React.FC = () => {
           <p className="text-muted text-sm">
             Amount due: <strong>{formatCurrency(order.paymentAmount ?? order.subtotal)}</strong>
             {' '}(auto-filled from approved total). Screenshot is required; reference is optional.
+            {canDownloadSo && (
+              <> Download the sales order above before paying if you need it for your records.</>
+            )}
           </p>
 
           {previewUrl ? (

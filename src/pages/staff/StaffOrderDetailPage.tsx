@@ -4,6 +4,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronLeft,
+  ExternalLink,
   Minus,
   Package,
   Plus,
@@ -245,7 +246,7 @@ export const StaffOrderDetailPage: React.FC = () => {
   return (
     <div className="page-content fade-in dealer-order-detail">
       <header className="dealer-order-detail__header">
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate(`${base}/orders`)}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate(`${base}/sales-orders`)}>
           <ChevronLeft size={16} /> Queue
         </button>
         <div className="dealer-order-detail__title">
@@ -256,6 +257,26 @@ export const StaffOrderDetailPage: React.FC = () => {
           {order.dealerName || 'Dealer'} · {formatInvoiceDate(order.createdAt)} ·{' '}
           {formatCurrency(editable ? draftSubtotal : order.subtotal)}
         </p>
+        {order.zohoSalesOrderId && (
+          <div className="dealer-order-detail__crosslink">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => navigate(`${base}/sales-orders/${order.zohoSalesOrderId}`)}
+            >
+              <ExternalLink size={14} aria-hidden /> Open Zoho SO
+            </button>
+          </div>
+        )}
+        {(order.status === 'waiting_for_payment'
+          || order.status === 'payment_submitted'
+          || order.status === 'processing'
+          || order.status === 'completed')
+          && !order.zohoSalesOrderId && (
+          <div className="dealer-order-detail__crosslink">
+            <span className="text-muted text-sm">Pending sync</span>
+          </div>
+        )}
       </header>
 
       {order.zohoSyncError && (
@@ -369,7 +390,7 @@ export const StaffOrderDetailPage: React.FC = () => {
               {saving ? 'Saving…' : 'Save changes'}
             </button>
             <button type="button" className="btn btn-primary" disabled={saving || draftLines.length === 0} onClick={() => void handleApprove()}>
-              <CheckCircle2 size={16} /> Approve
+              <CheckCircle2 size={16} /> {saving ? 'Approving…' : 'Approve & create SO'}
             </button>
             <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setRejectOpen(true)}>
               Reject

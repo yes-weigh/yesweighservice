@@ -192,7 +192,7 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   verification: ['verification.view'],
   advertisements: ['advertisements.view'],
   invoices: ['invoices.view'],
-  'sales-orders': ['orders.view', 'invoices.view'],
+  'sales-orders': ['orders.view', 'orders.manage', 'invoices.view'],
   'purchase-orders': ['orders.view', 'invoices.view'],
   logistics: ['logistics.view'],
   loyalty: ['loyalty.view'],

@@ -137,7 +137,7 @@ export const StaffOrdersPage: React.FC = () => {
               <button
                 type="button"
                 className="dealer-orders-list__row panel glass"
-                onClick={() => navigate(`${base}/orders/${order.id}`)}
+                onClick={() => navigate(`${base}/sales-orders/portal/${order.id}`)}
               >
                 <div className="dealer-orders-list__main">
                   <strong>{order.orderNumber}</strong>

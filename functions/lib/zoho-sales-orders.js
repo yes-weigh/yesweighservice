@@ -92,6 +92,49 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   };
 }
 
+/** Fetch a sales order PDF from Zoho (no Firestore mirror required). */
+export async function downloadSalesOrderPdf(secrets, configuredOrgId, {
+  salesOrderId,
+  salesOrderNumber,
+}) {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const url = new URL(`${ZOHO_API_BASE}/salesorders/${soId}`);
+  url.searchParams.set('organization_id', orgId);
+
+  let res;
+  try {
+    res = await fetch(url.toString(), {
+      headers: {
+        ...authHeaders(accessToken, orgId),
+        Accept: 'application/pdf',
+      },
+    });
+  } catch (err) {
+    recordZohoApiFailure(err);
+    throw err;
+  }
+
+  recordZohoApiResponse(res, { operation: `salesorders/${soId}/pdf`, source: 'dealer-orders' });
+  if (!res.ok) {
+    const classified = classifyZohoHttpError(res.status, {});
+    throw new Error(classified?.message || `Could not download sales order PDF (${res.status}).`);
+  }
+
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (!buffer.length) throw new Error('PDF file is empty.');
+
+  const number = String(salesOrderNumber || soId).replace(/[^\w.-]+/g, '_');
+  return {
+    contentBase64: buffer.toString('base64'),
+    filename: `${number}.pdf`,
+    mimeType: 'application/pdf',
+  };
+}
+
 /**
  * Create an invoice linked to an existing sales order.
  * Tries convert-from-SO first, then falls back to invoice with salesorder_id.

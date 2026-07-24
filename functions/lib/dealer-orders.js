@@ -1,5 +1,5 @@
 /**
- * Dealer portal product orders: submit → staff review → payment → Zoho.
+ * Dealer portal product orders: submit → staff review → Zoho SO → payment → invoice.
  */
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
@@ -7,6 +7,7 @@ import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import {
   createSalesOrderFromDealerOrder,
   createInvoiceFromSalesOrder,
+  downloadSalesOrderPdf,
 } from './zoho-sales-orders.js';
 import { getDealerOrderPaymentUrl } from './dealer-order-upload.js';
 
@@ -509,7 +510,7 @@ export async function updateDealerOrderLines(uid, role, payload = {}) {
   return mapOrderDoc(snap.id, snap.data());
 }
 
-export async function approveDealerOrder(uid, role, orderId) {
+export async function approveDealerOrder(uid, role, orderId, secrets, orgId) {
   const user = await loadUser(uid);
   requireOrdersManage(user);
 
@@ -525,18 +526,43 @@ export async function approveDealerOrder(uid, role, orderId) {
   const status = 'waiting_for_payment';
   const subtotal = sumSubtotal(data.lines);
 
-  await ref.update({
-    status,
-    statusHistory: FieldValue.arrayUnion(statusEvent(status, user)),
-    approvedAt: updatedAt,
-    approvedByUid: uid,
-    approvedByName: displayName(user),
-    paymentAmount: subtotal,
-    subtotal,
-    itemCount: sumItemCount(data.lines),
-    rejectionReason: null,
-    updatedAt,
-  });
+  let salesOrderId = data.zohoSalesOrderId || null;
+  let salesOrderNumber = data.zohoSalesOrderNumber || null;
+
+  try {
+    if (!salesOrderId) {
+      const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
+        ...data,
+        id: ref.id,
+        subtotal,
+      });
+      salesOrderId = so.salesOrderId;
+      salesOrderNumber = so.salesOrderNumber;
+    }
+
+    await ref.update({
+      status,
+      statusHistory: FieldValue.arrayUnion(statusEvent(status, user)),
+      approvedAt: updatedAt,
+      approvedByUid: uid,
+      approvedByName: displayName(user),
+      paymentAmount: subtotal,
+      subtotal,
+      itemCount: sumItemCount(data.lines),
+      rejectionReason: null,
+      zohoSalesOrderId: salesOrderId,
+      zohoSalesOrderNumber: salesOrderNumber,
+      zohoSyncError: null,
+      updatedAt,
+    });
+  } catch (err) {
+    const message = err?.message || 'Could not create Zoho sales order.';
+    await ref.update({
+      zohoSyncError: message,
+      updatedAt: nowIso(),
+    });
+    throw new HttpsError('internal', message);
+  }
 
   const snap = await ref.get();
   return mapOrderDoc(snap.id, snap.data());
@@ -667,6 +693,7 @@ export async function verifyDealerOrderPayment(uid, role, orderId, secrets, orgI
   });
 
   try {
+    // Prefer SO created at approval; create here only for legacy orders approved before that change.
     let salesOrderId = data.zohoSalesOrderId || null;
     let salesOrderNumber = data.zohoSalesOrderNumber || null;
 
@@ -710,7 +737,7 @@ export async function verifyDealerOrderPayment(uid, role, orderId, secrets, orgI
       updatedAt: completedAt,
     });
   } catch (err) {
-    const message = err?.message || 'Could not create Zoho sales order / invoice.';
+    const message = err?.message || 'Could not create Zoho invoice.';
     await ref.update({
       status: 'payment_submitted',
       zohoSyncError: message,
@@ -732,6 +759,29 @@ export async function verifyDealerOrderPayment(uid, role, orderId, secrets, orgI
     }
   }
   return mapOrderDoc(snap.id, snap.data(), paymentScreenshotUrl);
+}
+
+export async function downloadDealerOrderSalesOrder(uid, role, orderId, secrets, orgId) {
+  const user = await loadUser(uid);
+  const { data } = await getOrderOrThrow(orderId);
+  assertDealerOrderAccess(user, data);
+
+  const salesOrderId = data.zohoSalesOrderId ? String(data.zohoSalesOrderId) : '';
+  if (!salesOrderId) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Sales order is not available yet. It is created when the order is approved.',
+    );
+  }
+
+  try {
+    return await downloadSalesOrderPdf(secrets, orgId, {
+      salesOrderId,
+      salesOrderNumber: data.zohoSalesOrderNumber || data.orderNumber || salesOrderId,
+    });
+  } catch (err) {
+    throw new HttpsError('internal', err?.message || 'Could not download sales order PDF.');
+  }
 }
 
 export async function countPendingDealerOrders() {

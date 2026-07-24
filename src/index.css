@@ -12169,6 +12169,253 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.45rem;
 }
 
+.dealer-order-detail__crosslink {
+  margin-top: 0.35rem;
+}
+
+.dealer-order-detail__crosslink .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Unified Sales Orders — source badge + mobile tile extras */
+.unified-so-source {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.4rem;
+  border-radius: 0.3rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.unified-so-source--portal {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.unified-so-source--zoho {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.32);
+}
+
+.unified-so-mobile-row__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.unified-so-mobile-row__progress {
+  display: block;
+  width: 100%;
+  margin: 0.15rem 0 0.1rem;
+}
+
+.unified-so-tabs {
+  margin-top: 0.25rem;
+}
+
+.unified-sales-orders-page .invoices-table td .unified-so-source {
+  vertical-align: middle;
+}
+
+.unified-sales-orders-page .invoices-table td .so-progress {
+  margin-top: 0.45rem;
+}
+
+/* Modern stage chain — Review → SO → Pay → Verify → Done */
+.so-progress {
+  --so-progress-done: #34d399;
+  --so-progress-current: #fb923c;
+  --so-progress-upcoming: rgba(255, 255, 255, 0.18);
+  --so-progress-failed: #f87171;
+  --so-progress-label: rgba(255, 255, 255, 0.45);
+  --so-progress-label-current: #fdba74;
+  --so-progress-label-done: rgba(167, 243, 208, 0.9);
+
+  list-style: none;
+  margin: 0;
+  padding: 0.15rem 0 0;
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+}
+
+.so-progress--zoho {
+  --so-progress-done: #4ade80;
+  --so-progress-current: #60a5fa;
+  --so-progress-label-current: #93c5fd;
+}
+
+.so-progress--failed {
+  --so-progress-current: var(--so-progress-failed);
+  --so-progress-label-current: #fca5a5;
+}
+
+.so-progress__step {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.28rem;
+  text-align: center;
+}
+
+.so-progress__rail {
+  position: absolute;
+  top: 0.34rem;
+  right: calc(50% + 0.42rem);
+  left: calc(-50% + 0.42rem);
+  height: 2px;
+  border-radius: 999px;
+  background: var(--so-progress-upcoming);
+  pointer-events: none;
+}
+
+.so-progress__step--done .so-progress__rail,
+.so-progress__step--current .so-progress__rail {
+  background: linear-gradient(
+    90deg,
+    var(--so-progress-done),
+    color-mix(in srgb, var(--so-progress-done) 55%, var(--so-progress-current))
+  );
+}
+
+.so-progress__step--failed .so-progress__rail {
+  background: linear-gradient(90deg, var(--so-progress-done), var(--so-progress-failed));
+}
+
+.so-progress__node {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.so-progress__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: transparent;
+  border: 1.5px solid var(--so-progress-upcoming);
+  box-shadow: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.so-progress__step--done .so-progress__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--so-progress-done);
+  border-color: var(--so-progress-done);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.12);
+}
+
+.so-progress__step--current .so-progress__dot {
+  width: 0.62rem;
+  height: 0.62rem;
+  background: var(--so-progress-current);
+  border-color: var(--so-progress-current);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--so-progress-current) 28%, transparent),
+    0 0 12px color-mix(in srgb, var(--so-progress-current) 45%, transparent);
+  animation: so-progress-pulse 1.6s ease-in-out infinite;
+}
+
+.so-progress__step--failed .so-progress__dot {
+  width: 0.62rem;
+  height: 0.62rem;
+  background: var(--so-progress-failed);
+  border-color: var(--so-progress-failed);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.22);
+  animation: none;
+}
+
+.so-progress__step--skipped .so-progress__rail {
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.12) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+.so-progress__step--skipped .so-progress__dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  background: transparent;
+  border: 1.5px dashed rgba(255, 255, 255, 0.22);
+  box-shadow: none;
+}
+
+.so-progress__step--skipped .so-progress__label {
+  color: rgba(255, 255, 255, 0.28);
+  font-weight: 600;
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 255, 255, 0.2);
+}
+
+.so-progress__label {
+  display: block;
+  width: 100%;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  color: var(--so-progress-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.so-progress__step--done .so-progress__label {
+  color: var(--so-progress-label-done);
+}
+
+.so-progress__step--current .so-progress__label,
+.so-progress__step--failed .so-progress__label {
+  color: var(--so-progress-label-current);
+  font-weight: 800;
+}
+
+.so-progress--compact {
+  padding-top: 0.05rem;
+  max-width: 14rem;
+}
+
+.so-progress--compact .so-progress__label {
+  font-size: 0.5rem;
+}
+
+@keyframes so-progress-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.92;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .so-progress__step--current .so-progress__dot {
+    animation: none;
+  }
+}
+
 .dealer-order-detail__title {
   display: flex;
   flex-wrap: wrap;

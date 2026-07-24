@@ -1,4 +1,4 @@
-/** Portal dealer product orders (cart → staff review → payment → Zoho). */
+/** Portal dealer product orders (cart → staff review → Zoho SO → payment → invoice). */
 
 export type DealerOrderStatus =
   | 'pending_review'

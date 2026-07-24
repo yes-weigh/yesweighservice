@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartProvider';
 import { CartFlyProvider } from './context/CartFlyProvider';
@@ -36,11 +36,12 @@ import { AdminPurchaseOrderSyncPage } from './pages/admin/AdminPurchaseOrderSync
 import { AdminPurchaseOrderDetailLayout } from './pages/admin/AdminPurchaseOrderDetailLayout';
 import { AdminPurchaseOrderDocumentPage } from './pages/admin/AdminPurchaseOrderDocumentPage';
 import { AdminPurchaseOrderPdfViewerPage } from './pages/admin/AdminPurchaseOrderPdfViewerPage';
-import { AdminSalesOrdersPage } from './pages/admin/AdminSalesOrdersPage';
+import { AdminUnifiedSalesOrdersPage } from './pages/admin/AdminUnifiedSalesOrdersPage';
 import { AdminSalesOrderSyncPage } from './pages/admin/AdminSalesOrderSyncPage';
 import { AdminSalesOrderDetailLayout } from './pages/admin/AdminSalesOrderDetailLayout';
 import { AdminSalesOrderDocumentPage } from './pages/admin/AdminSalesOrderDocumentPage';
 import { AdminSalesOrderPdfViewerPage } from './pages/admin/AdminSalesOrderPdfViewerPage';
+import { StaffOrderDetailPage } from './pages/staff/StaffOrderDetailPage';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
@@ -74,6 +75,19 @@ const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }
   return <Navigate to={pathname.replace(from, to)} replace />;
 };
 
+const OpsOrderDetailRedirect: React.FC = () => {
+  const { orderId = '' } = useParams<{ orderId: string }>();
+  const { pathname } = useLocation();
+  const base = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  return <Navigate to={`${base}/sales-orders/portal/${orderId}`} replace />;
+};
+
+const OpsOrdersListRedirect: React.FC = () => {
+  const { pathname } = useLocation();
+  const base = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  return <Navigate to={`${base}/sales-orders`} replace />;
+};
+
 const catalogRoutes = (
   <>
     <Route path="catalog" element={<DealerMenuPages.Catalog />} />
@@ -92,9 +106,6 @@ const catalogRoutes = (
 
 const superAdminOpsRoutes = (
   <>
-    <Route path="orders" element={<DealerMenuPages.Orders />} />
-    <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
-    <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
     <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
     <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
     <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
@@ -124,9 +135,6 @@ const portalMenuRoutes = (
       <Route path="logistic" element={<DealerMenuPages.InvoiceLogistic />} />
       <Route path="qc" element={<DealerMenuPages.InvoiceQc />} />
     </Route>
-    <Route path="orders" element={<DealerMenuPages.Orders />} />
-    <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
-    <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
     {catalogRoutes}
     <Route path="verification" element={<DealerMenuPages.Verification />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
@@ -142,6 +150,9 @@ const dealerRoutes = (
   <>
     <Route index element={<RoleDashboard />} />
     {portalMenuRoutes}
+    <Route path="orders" element={<DealerMenuPages.Orders />} />
+    <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
+    <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
     <Route path="team" element={<DealerTeamPage />} />
     <Route path="profile" element={<ProfilePage />} />
   </>
@@ -201,12 +212,16 @@ const App: React.FC = () => (
                 </Route>
               </Route>
               <Route path="invoices/sync" element={<AdminInvoiceSyncPage />} />
-              <Route path="sales-orders" element={<AdminSalesOrdersPage />} />
+              <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />
               <Route path="sales-orders/sync" element={<AdminSalesOrderSyncPage />} />
+              <Route path="sales-orders/portal/:orderId" element={<StaffOrderDetailPage />} />
               <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>
                 <Route index element={<AdminSalesOrderDocumentPage />} />
                 <Route path="view" element={<AdminSalesOrderPdfViewerPage />} />
               </Route>
+              <Route path="orders" element={<OpsOrdersListRedirect />} />
+              <Route path="orders/history" element={<OpsOrdersListRedirect />} />
+              <Route path="orders/:orderId" element={<OpsOrderDetailRedirect />} />
               <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
               <Route path="purchase-orders/sync" element={<AdminPurchaseOrderSyncPage />} />
               <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
@@ -242,11 +257,15 @@ const App: React.FC = () => (
               {portalMenuRoutes}
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
-              <Route path="sales-orders" element={<AdminSalesOrdersPage />} />
+              <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />
+              <Route path="sales-orders/portal/:orderId" element={<StaffOrderDetailPage />} />
               <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>
                 <Route index element={<AdminSalesOrderDocumentPage />} />
                 <Route path="view" element={<AdminSalesOrderPdfViewerPage />} />
               </Route>
+              <Route path="orders" element={<OpsOrdersListRedirect />} />
+              <Route path="orders/history" element={<OpsOrdersListRedirect />} />
+              <Route path="orders/:orderId" element={<OpsOrderDetailRedirect />} />
               <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
               <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
                 <Route index element={<AdminPurchaseOrderDocumentPage />} />

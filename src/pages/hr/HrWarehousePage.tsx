@@ -16,10 +16,12 @@ export const HrWarehousePage: React.FC<HrWarehousePageProps> = ({ basePath }) =>
   }
 
   return (
+    // role="warehouse" is the persisted Firestore/auth role id — keep it.
+    // UI copy uses "Stock auditor" (formerly labeled Warehouse in HR).
     <UserManagement
       role="warehouse"
-      title="Warehouse users"
-      description="YesStore warehouse staff who photograph racks, bins, and items on the floor."
+      title="Stock auditor users"
+      description="YesStore stock auditors who photograph racks, bins, and items on the floor (warehouse role in code)."
       preferUsernameLogin
     />
   );

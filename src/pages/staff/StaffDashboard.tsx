@@ -114,7 +114,7 @@ function buildKpis(
       value: pendingOrders == null ? '—' : String(pendingOrders),
       trend: 'up',
       trendLabel: 'Awaiting staff review',
-      path: `${BASE}/orders`,
+      path: `${BASE}/sales-orders`,
       tone: 'orange',
       icon: <ShoppingCart size={22} strokeWidth={2.5} />,
     },
@@ -123,7 +123,7 @@ function buildKpis(
   const featureById: Record<string, import('../../lib/staffAccess').StaffNavFeature> = {
     dealers: 'dealers',
     support: 'warranty-support',
-    orders: 'orders',
+    orders: 'sales-orders',
   };
 
   return cards.filter(card => canAccessNavFeature(user, featureById[card.id] ?? 'dashboard'));

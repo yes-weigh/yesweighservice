@@ -1,5 +1,6 @@
+import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app } from '../firebase';
+import { app, db } from '../firebase';
 import type {
   DealerOrder,
   DealerOrderLine,
@@ -68,7 +69,7 @@ export async function updateDealerOrderLines(
 
 export async function approveDealerOrder(orderId: string): Promise<DealerOrder> {
   try {
-    return await call('approveDealerOrder', { orderId });
+    return await call('approveDealerOrder', { orderId }, 180_000);
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }
@@ -128,6 +129,49 @@ export async function verifyDealerOrderPayment(orderId: string): Promise<DealerO
     return await call('verifyDealerOrderPayment', { orderId }, 180_000);
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function downloadDealerOrderSalesOrder(orderId: string): Promise<{
+  contentBase64: string;
+  filename: string;
+  mimeType: string;
+}> {
+  try {
+    return await call('downloadDealerOrderSalesOrder', { orderId }, 120_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export function saveDealerOrderSalesOrderPdf(doc: {
+  contentBase64: string;
+  filename: string;
+  mimeType: string;
+}): void {
+  const binary = atob(doc.contentBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: doc.mimeType || 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = doc.filename || 'sales-order.pdf';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function findDealerOrderIdByOrderNumber(orderNumber: string): Promise<string | null> {
+  const trimmed = orderNumber.trim();
+  if (!trimmed) return null;
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'dealerOrders'), where('orderNumber', '==', trimmed), limit(1)),
+    );
+    if (snap.empty) return null;
+    return snap.docs[0].id;
+  } catch {
+    return null;
   }
 }
 
