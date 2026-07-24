@@ -1,5 +1,6 @@
 import type { AdminFirestoreSalesOrder } from './admin-sales-orders';
 import {
+  classifyDealerOrderCategory,
   getInvoicePeriodBounds,
   invoiceStatusLabel,
 } from './invoices';
@@ -65,7 +66,7 @@ export function mapPortalOrderToUnified(
     statusRaw: order.status,
     statusLabel: dealerOrderStatusLabel(order.status),
     statusClass: dealerOrderStatusClass(order.status),
-    category: null,
+    category: classifyDealerOrderCategory(order),
     qty: order.itemCount ?? null,
     portalOrderNumber: order.orderNumber,
     zohoSalesOrderId: order.zohoSalesOrderId,

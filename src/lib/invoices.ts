@@ -603,6 +603,122 @@ export function isFreightInvoiceLineItem(
   return sku === 'freight' || sku.includes('freight');
 }
 
+/** HSN / SAC codes used to classify docs from the highest-value line item (same as Zoho sync). */
+export const INVOICE_CATEGORY_HSN = {
+  service: '998717',
+  software_key: '85238020',
+} as const;
+
+function normalizeCategoryHsn(value: string | null | undefined): string {
+  return String(value ?? '').replace(/\s+/g, '').trim();
+}
+
+export function isGenericSpareCategoryName(name: string | null | undefined): boolean {
+  const normalized = String(name ?? '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized === 'generic spare parts'
+    || normalized === 'generic spares'
+    || normalized.includes('generic spare')
+  );
+}
+
+/** Uncategorized, missing catalog, or Generic spare parts → spare. */
+export function isSpareCatalogItem(catalog: {
+  categoryId?: string | null;
+  categoryName?: string | null;
+} | null | undefined): boolean {
+  if (!catalog) return true;
+  const categoryId = String(catalog.categoryId ?? '').trim();
+  if (!categoryId || categoryId === '-1') return true;
+  if (isGenericSpareCategoryName(catalog.categoryName)) return true;
+  return false;
+}
+
+export type InvoiceCategoryLineInput = {
+  total?: number;
+  name?: string;
+  sku?: string | null;
+  itemId?: string | null;
+  hsn?: string | null;
+};
+
+export type InvoiceCategoryCatalogMeta = {
+  hsn?: string | null;
+  categoryId?: string | null;
+  categoryName?: string | null;
+};
+
+/**
+ * Same rules as Zoho SO/invoice sync: highest-value non-freight line,
+ * then HSN service/software_key, else spare vs product from catalog.
+ */
+export function classifyInvoiceFromLineItems(
+  lineItems: InvoiceCategoryLineInput[],
+  catalogByItemId: Map<string, InvoiceCategoryCatalogMeta> = new Map(),
+): InvoiceCategory {
+  const items = Array.isArray(lineItems) ? lineItems : [];
+  const candidates = items.filter(item => !isFreightInvoiceLineItem({
+    name: String(item?.name ?? ''),
+    sku: item?.sku ?? null,
+  }));
+  if (!candidates.length) return 'spare';
+
+  let top = candidates[0];
+  for (let i = 1; i < candidates.length; i += 1) {
+    const item = candidates[i];
+    if (Number(item.total ?? 0) > Number(top.total ?? 0)) top = item;
+  }
+
+  const itemId = top.itemId ? String(top.itemId) : '';
+  const catalog = itemId ? catalogByItemId.get(itemId) : null;
+  const hsn = normalizeCategoryHsn(top.hsn || catalog?.hsn);
+
+  if (hsn === INVOICE_CATEGORY_HSN.service) return 'service';
+  if (hsn === INVOICE_CATEGORY_HSN.software_key) return 'software_key';
+  if (isSpareCatalogItem(catalog)) return 'spare';
+  return 'product';
+}
+
+/** Classify a portal dealer order from its lines (mirrors Zoho SO categorisation). */
+export function classifyDealerOrderCategory(
+  order: {
+    lines?: Array<{
+      productId: string;
+      itemId: string | null;
+      name: string;
+      sku: string | null;
+      lineTotal: number;
+      categoryName: string | null;
+      hsn?: string | null;
+    }>;
+  },
+): InvoiceCategory {
+  const lines = Array.isArray(order.lines) ? order.lines : [];
+  const catalogByItemId = new Map<string, InvoiceCategoryCatalogMeta>();
+  const lineItems: InvoiceCategoryLineInput[] = lines.map(line => {
+    const itemId = String(line.itemId || line.productId || '');
+    if (itemId) {
+      const named = Boolean(line.categoryName?.trim())
+        && !isGenericSpareCategoryName(line.categoryName);
+      catalogByItemId.set(itemId, {
+        hsn: line.hsn ?? null,
+        // Portal lines often omit categoryId; a real category name means shop product.
+        categoryId: named ? 'portal' : null,
+        categoryName: line.categoryName,
+      });
+    }
+    return {
+      total: line.lineTotal,
+      name: line.name,
+      sku: line.sku,
+      itemId,
+      hsn: line.hsn ?? null,
+    };
+  });
+  return classifyInvoiceFromLineItems(lineItems, catalogByItemId);
+}
+
 export function isStampingInvoiceLineItem(
   item: Pick<DealerInvoiceLineItem, 'name' | 'sku'>,
 ): boolean {

@@ -12213,10 +12213,146 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   min-width: 0;
 }
 
+.unified-so-mobile-row {
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.unified-so-mobile-row__lead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  flex: 0 0 auto;
+  width: 2.6rem;
+}
+
+.unified-so-mobile-row__lead .invoices-mobile-row__icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-top: 0;
+}
+
+.unified-so-mobile-row__lead .invoices-mobile-row__icon svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.unified-so-mobile-row__badges {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.14rem;
+  width: 100%;
+}
+
+.unified-so-mobile-row__badges .unified-so-source,
+.unified-so-mobile-row__badges .invoices-category {
+  max-width: 100%;
+  padding: 0.05rem 0.22rem;
+  font-size: 0.4375rem;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.unified-so-mobile-row .invoices-mobile-row__body {
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.unified-so-mobile-row .invoices-mobile-row__invoice {
+  gap: 0.12rem;
+}
+
+.unified-so-mobile-row .invoices-mobile-row__company {
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.15;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .unified-so-mobile-row__progress {
   display: block;
   width: 100%;
-  margin: 0.15rem 0 0.1rem;
+  margin: 0.02rem 0 0;
+}
+
+.unified-so-mobile-row .so-progress {
+  padding-top: 0;
+  max-width: none;
+}
+
+.unified-so-mobile-row .so-progress__step {
+  gap: 0.12rem;
+}
+
+.unified-so-mobile-row .so-progress__node {
+  width: 0.55rem;
+  height: 0.55rem;
+}
+
+.unified-so-mobile-row .so-progress__dot {
+  width: 0.38rem;
+  height: 0.38rem;
+}
+
+.unified-so-mobile-row .so-progress__step--current .so-progress__dot,
+.unified-so-mobile-row .so-progress__step--failed .so-progress__dot {
+  width: 0.48rem;
+  height: 0.48rem;
+}
+
+.unified-so-mobile-row .so-progress__rail {
+  top: 0.26rem;
+  height: 1.5px;
+  right: calc(50% + 0.32rem);
+  left: calc(-50% + 0.32rem);
+}
+
+.unified-so-mobile-row .so-progress__label {
+  font-size: 0.5rem;
+  line-height: 1.05;
+}
+
+.unified-so-mobile-row__footer {
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.02rem;
+}
+
+.unified-so-mobile-row__meta {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  min-width: 0;
+  font-size: 0.625rem;
+  line-height: 1.15;
+  color: var(--text-muted);
+}
+
+.unified-so-mobile-row__meta .invoices-mobile-row__po-num {
+  font-size: inherit;
+  font-weight: 700;
+  color: var(--text-muted);
+  max-width: 9.5rem;
+}
+
+.unified-so-mobile-row__sep {
+  opacity: 0.55;
+}
+
+.unified-so-mobile-row .invoices-mobile-row__amount-value {
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.15;
 }
 
 .unified-so-tabs {

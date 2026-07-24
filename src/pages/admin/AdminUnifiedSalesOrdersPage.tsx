@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
-  ChevronRight,
   ClipboardList,
   IndianRupee,
   RefreshCw,
@@ -647,42 +646,30 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                     onClick={() => openRow(row)}
                     aria-label={`View ${row.primaryNumber}`}
                   >
-                    {row.source === 'zoho' ? (
+                    <span className="unified-so-mobile-row__lead">
                       <InvoiceCategoryIcon category={row.category} />
-                    ) : (
-                      <span className="invoices-mobile-row__icon invoices-mobile-row__icon--unknown" aria-hidden>
-                        <ClipboardList size={18} />
+                      <span className="unified-so-mobile-row__badges">
+                        <SourceBadge source={row.source} />
+                        {row.category && <InvoiceCategoryBadge category={row.category} />}
                       </span>
-                    )}
+                    </span>
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
-                        <span className="invoices-mobile-row__company-row">
-                          <strong className="invoices-mobile-row__company">
-                            {row.partyName}
-                          </strong>
-                          <span className="invoices-mobile-row__chevron" aria-hidden>
-                            <ChevronRight size={18} />
-                          </span>
-                        </span>
-                        <span className="invoices-mobile-row__pair">
-                          <span className="unified-so-mobile-row__left">
-                            <SourceBadge source={row.source} />
-                            {row.category && <InvoiceCategoryBadge category={row.category} />}
-                          </span>
-                        </span>
+                        <strong className="invoices-mobile-row__company">
+                          {row.partyName}
+                        </strong>
                         <span className="unified-so-mobile-row__progress">
-                          <SalesOrderProgressChain row={row} />
+                          <SalesOrderProgressChain row={row} compact />
                         </span>
-                        <span className="invoices-mobile-row__pair">
-                          <span className="invoices-mobile-row__po-num">{row.primaryNumber}</span>
+                        <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
+                          <span className="unified-so-mobile-row__meta">
+                            <span className="invoices-mobile-row__po-num">{row.primaryNumber}</span>
+                            <span className="unified-so-mobile-row__sep" aria-hidden>·</span>
+                            <span>{formatInvoiceDate(row.date)}</span>
+                          </span>
                           <strong className="invoices-mobile-row__amount-value">
                             {formatCurrency(row.amount, row.currencyCode)}
                           </strong>
-                        </span>
-                        <span className="invoices-mobile-row__meta">
-                          {formatInvoiceDate(row.date)}
-                          {' • '}
-                          Qty {formatInvoiceItemQuantity(row.qty)}
                         </span>
                       </span>
                     </span>
