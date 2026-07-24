@@ -616,6 +616,14 @@ export function isFreightInvoiceLineItem(
   return sku === 'freight' || sku.includes('freight');
 }
 
+/** Lines omitted from qty totals: freight (SAC 996812) and GATC (SAC 998346). */
+export function isQuantityExcludedInvoiceLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & { hsn?: string | null },
+): boolean {
+  if (normalizeCategoryHsn(item.hsn) === INVOICE_CATEGORY_HSN.gatc) return true;
+  return isFreightInvoiceLineItem(item);
+}
+
 export function isGenericSpareCategoryName(name: string | null | undefined): boolean {
   const normalized = String(name ?? '').trim().toLowerCase();
   if (!normalized) return false;
@@ -740,7 +748,7 @@ export function isServiceExcludedLineItem(
 
 export function sumInvoiceProductQuantity(lineItems: DealerInvoiceLineItem[]): number {
   return lineItems.reduce((sum, item) => {
-    if (isFreightInvoiceLineItem(item)) return sum;
+    if (isQuantityExcludedInvoiceLineItem(item)) return sum;
     return sum + item.quantity;
   }, 0);
 }

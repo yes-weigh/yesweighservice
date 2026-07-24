@@ -10,7 +10,7 @@ import {
   downloadSalesOrderPdf,
 } from './zoho-sales-orders.js';
 import { getDealerOrderPaymentUrl } from './dealer-order-upload.js';
-import { isFreightLineItem } from './invoice-category.js';
+import { isQuantityExcludedLineItem } from './invoice-category.js';
 
 const COLLECTION = 'dealerOrders';
 const PRODUCTS = 'catalogProducts';
@@ -140,7 +140,7 @@ function sumSubtotal(lines) {
 
 function sumItemCount(lines) {
   return (Array.isArray(lines) ? lines : []).reduce((sum, line) => {
-    if (isFreightLineItem(line?.name, line?.sku, line?.hsn)) return sum;
+    if (isQuantityExcludedLineItem(line?.name, line?.sku, line?.hsn)) return sum;
     return sum + Number(line?.quantity || 0);
   }, 0);
 }
