@@ -763,7 +763,7 @@ export function invoiceCategoryLabel(category: InvoiceCategory | null | undefine
     case 'service':
       return 'Service charges';
     case 'software_key':
-      return 'Software key';
+      return 'Software only';
     case 'gatc':
       return 'GATC';
     default:

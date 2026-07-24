@@ -12387,6 +12387,29 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.3rem;
 }
 
+.unified-sales-orders-page .unified-so-mobile-row .invoices-mobile-row__company {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+}
+
+.unified-sales-orders-page .unified-so-mobile-row__date {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.unified-sales-orders-page .unified-so-mobile-row__footer .invoices-mobile-row__meta {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.unified-sales-orders-page .unified-so-mobile-row__footer .invoices-status,
+.unified-sales-orders-page .unified-so-mobile-row__footer .dealer-order-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .unified-sales-orders-page .invoices-table td .unified-so-source {
   vertical-align: middle;
 }

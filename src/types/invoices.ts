@@ -85,7 +85,7 @@ export const INVOICE_CATEGORY_FILTER_OPTIONS: Array<{
   { value: 'all', label: 'All categories' },
   { value: 'product', label: 'Product' },
   { value: 'spare', label: 'Spares' },
-  { value: 'software_key', label: 'Software key' },
+  { value: 'software_key', label: 'Software only' },
   { value: 'service', label: 'Service charges' },
   { value: 'gatc', label: 'GATC' },
 ];

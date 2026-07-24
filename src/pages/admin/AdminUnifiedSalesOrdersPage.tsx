@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
+  ChevronRight,
   ClipboardList,
   IndianRupee,
   RefreshCw,
@@ -893,6 +894,10 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
               </div>
 
               <div className="invoices-mobile-list admin-invoices-mobile-list">
+                <div className="invoices-mobile-list__head" aria-hidden>
+                  <span>Order</span>
+                  <span>Amount</span>
+                </div>
                 {pageRows.map(row => {
                   const locationLabel = formatAdminCustomerLocation(
                     row.customerId ? customerLocations.get(row.customerId) : undefined,
@@ -905,41 +910,46 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                     onClick={() => openRow(row)}
                     aria-label={`View ${row.primaryNumber}`}
                   >
-                    <span className="unified-so-mobile-row__lead">
-                      <InvoiceCategoryIcon category={row.category} />
-                      <span className="unified-so-mobile-row__badges">
-                        <SourceBadge source={row.source} />
-                        {row.category && <InvoiceCategoryBadge category={row.category} />}
-                      </span>
-                    </span>
+                    <InvoiceCategoryIcon category={row.category} />
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
+                        <span className="invoices-mobile-row__pair">
+                          <span className="invoices-mobile-row__title">
+                            {row.category ? (
+                              <InvoiceCategoryBadge category={row.category} />
+                            ) : null}
+                            <strong>{row.primaryNumber}</strong>
+                            <span className="invoices-mobile-row__meta unified-so-mobile-row__date">
+                              {formatInvoiceDate(row.date)}
+                            </span>
+                          </span>
+                          <strong className="invoices-mobile-row__amount-value">
+                            {formatCurrency(row.amount, row.currencyCode)}
+                          </strong>
+                        </span>
                         <strong className="invoices-mobile-row__company">
                           {row.partyName}
                         </strong>
-                        {locationLabel ? (
-                          <span className="invoices-table__ref text-muted text-sm">
-                            {locationLabel}
+                        <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
+                          <span className="invoices-mobile-row__meta">
+                            {locationLabel ? (
+                              <>
+                                {locationLabel}
+                                {' • '}
+                              </>
+                            ) : null}
+                            Qty {formatInvoiceItemQuantity(row.qty)}
                           </span>
-                        ) : null}
-                        <span className="unified-so-mobile-row__status">
                           {row.source === 'portal' ? (
                             <OrderStatusBadge status={row.statusRaw} />
                           ) : (
                             <span className={row.statusClass}>{row.statusLabel}</span>
                           )}
                         </span>
-                        <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
-                          <span className="unified-so-mobile-row__meta">
-                            <span className="invoices-mobile-row__po-num">{row.primaryNumber}</span>
-                            <span className="unified-so-mobile-row__sep" aria-hidden>·</span>
-                            <span>{formatInvoiceDate(row.date)}</span>
-                          </span>
-                          <strong className="invoices-mobile-row__amount-value">
-                            {formatCurrency(row.amount, row.currencyCode)}
-                          </strong>
-                        </span>
                       </span>
+                    </span>
+                    <span className="invoices-mobile-row__chevron" aria-hidden>
+                      <ChevronRight size={18} />
                     </span>
                   </button>
                   );

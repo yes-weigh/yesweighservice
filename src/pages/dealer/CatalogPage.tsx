@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Boxes, ClipboardList, LayoutGrid, Layers, QrCode, RefreshCw, Rows3, Search, SlidersHorizontal, X } from 'lucide-react';
+import { AlertCircle, Boxes, LayoutGrid, Layers, QrCode, RefreshCw, Rows3, Search, SlidersHorizontal, X } from 'lucide-react';
 import { CatalogSparesFilterSheet } from '../../components/catalog/CatalogSparesFilterSheet';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
@@ -111,14 +111,13 @@ type CatalogFocus =
   | 'inventory-audit'
   | 'spare-grouping';
 
-type AdminCatalogSection = 'categories' | 'spares' | 'inventory-audit' | 'spare-grouping';
+type AdminCatalogSection = 'categories' | 'spares' | 'spare-grouping';
 
 function parseCatalogFocus(
   section: string | null,
   query: string,
   canSync: boolean,
 ): CatalogFocus {
-  if (section === 'inventory-audit') return 'inventory-audit';
   if (section === 'spare-grouping') return 'spare-grouping';
   if (section === 'spares') return 'all-spares';
   if (section === 'unlinked' && canSync) return 'unlinked';
@@ -132,7 +131,6 @@ function parseAdminSection(
   query: string,
 ): AdminCatalogSection | 'search' {
   if (section === 'spares') return 'spares';
-  if (section === 'inventory-audit') return 'inventory-audit';
   if (section === 'spare-grouping') return 'spare-grouping';
   if (query.trim()) return 'search';
   return 'categories';
@@ -141,7 +139,6 @@ function parseAdminSection(
 function adminSectionToFocus(section: AdminCatalogSection | 'search'): CatalogFocus {
   if (section === 'search') return 'search';
   if (section === 'spares') return 'all-spares';
-  if (section === 'inventory-audit') return 'inventory-audit';
   if (section === 'spare-grouping') return 'spare-grouping';
   return 'browse';
 }
@@ -280,6 +277,15 @@ export const CatalogPage: React.FC = () => {
   const focus = isSuperAdmin && adminSection
     ? adminSectionToFocus(adminSection)
     : parseCatalogFocus(sectionParam, committedSearchQuery, canSync);
+
+  useEffect(() => {
+    if (sectionParam !== 'inventory-audit') return;
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev);
+      params.delete('section');
+      return params;
+    }, { replace: true });
+  }, [sectionParam, setSearchParams]);
   const isFlatList = focus === 'all-spares' || focus === 'unlinked';
   const isMapBrowse = focus === 'map';
 
@@ -866,7 +872,6 @@ export const CatalogPage: React.FC = () => {
       if (next === 'categories') params.delete('section');
       else if (next === 'spares') params.set('section', 'spares');
       else if (next === 'spare-grouping') params.set('section', 'spare-grouping');
-      else params.set('section', 'inventory-audit');
       return params;
     }, { replace: true });
     setSearchQuery('');
@@ -876,12 +881,10 @@ export const CatalogPage: React.FC = () => {
   const setFocus = useCallback((next: CatalogFocus) => {
     setSearchParams(prev => {
       const params = new URLSearchParams(prev);
-      if (next === 'browse' || next === 'search') {
+      if (next === 'browse' || next === 'search' || next === 'inventory-audit') {
         params.delete('section');
       } else if (next === 'all-spares') {
         params.set('section', 'spares');
-      } else if (next === 'inventory-audit') {
-        params.set('section', 'inventory-audit');
       } else if (next === 'spare-grouping') {
         params.set('section', 'spare-grouping');
       } else if (next === 'unlinked') {
@@ -892,7 +895,7 @@ export const CatalogPage: React.FC = () => {
       if (next !== 'map') params.delete('category');
       return params;
     }, { replace: true });
-    if (next === 'browse') setSearchQuery('');
+    if (next === 'browse' || next === 'inventory-audit') setSearchQuery('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [setSearchParams]);
 
@@ -1510,16 +1513,6 @@ export const CatalogPage: React.FC = () => {
             >
               <Boxes size={16} aria-hidden />
               <span className="spares-mode-toggle__label">Spare parts</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeAdminTab === 'inventory-audit'}
-              className={`spares-mode-toggle__btn ${activeAdminTab === 'inventory-audit' ? 'spares-mode-toggle__btn--active' : ''}`}
-              onClick={() => setAdminSection('inventory-audit')}
-            >
-              <ClipboardList size={16} aria-hidden />
-              <span className="spares-mode-toggle__label">Inventory audit</span>
             </button>
             <button
               type="button"
