@@ -3690,6 +3690,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.875rem;
 }
 
+/* Hide native clear control — custom clear button is used instead. */
+.catalog-search input[type="search"]::-webkit-search-cancel-button,
+.catalog-search input[type="search"]::-webkit-search-decoration,
+.invoices-header-search input[type="search"]::-webkit-search-cancel-button,
+.invoices-header-search input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .sku-scan-btn {
   flex-shrink: 0;
   display: inline-flex;

@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -154,7 +155,9 @@ export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) 
     return () => setHeaderSlot(null);
   }, [setHeaderSlot]);
 
-  useEffect(() => {
+  // Layout effect so controlled header inputs (e.g. catalog search) paint
+  // the latest value in the same frame instead of one effect tick behind.
+  useLayoutEffect(() => {
     if (!setHeaderSlot) return;
     setHeaderSlot(enabled ? slotRef.current : null);
   }, [setHeaderSlot, enabled, slot]);
@@ -171,7 +174,7 @@ export function useTopBarAction(slot: React.ReactNode | null, enabled = true) {
     return () => setTopBarAction(null);
   }, [setTopBarAction]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!setTopBarAction) return;
     setTopBarAction(enabled ? slotRef.current : null);
   }, [setTopBarAction, enabled, slot]);

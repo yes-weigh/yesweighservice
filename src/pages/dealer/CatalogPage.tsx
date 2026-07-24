@@ -93,6 +93,15 @@ import {
   type SpareListFiltersSnapshot,
 } from '../../lib/catalogNav';
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
 type CatalogFocus =
   | 'browse'
   | 'search'
@@ -264,10 +273,13 @@ export const CatalogPage: React.FC = () => {
   const sectionParam = searchParams.get('section');
   const categoryFromUrl = searchParams.get('category') ?? '';
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') ?? '');
-  const adminSection = isSuperAdmin ? parseAdminSection(sectionParam, searchQuery) : null;
+  // Keep the input snappy; only commit URL / focus / filtering after typing pauses.
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  const committedSearchQuery = searchQuery.trim() ? debouncedSearchQuery : '';
+  const adminSection = isSuperAdmin ? parseAdminSection(sectionParam, committedSearchQuery) : null;
   const focus = isSuperAdmin && adminSection
     ? adminSectionToFocus(adminSection)
-    : parseCatalogFocus(sectionParam, searchQuery, canSync);
+    : parseCatalogFocus(sectionParam, committedSearchQuery, canSync);
   const isFlatList = focus === 'all-spares' || focus === 'unlinked';
   const isMapBrowse = focus === 'map';
 
@@ -792,14 +804,28 @@ export const CatalogPage: React.FC = () => {
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
+    // Clear URL immediately so focus returns to browse without waiting for debounce.
+    if (!value.trim()) {
+      setSearchParams(prev => {
+        if (!prev.get('q')) return prev;
+        const params = new URLSearchParams(prev);
+        params.delete('q');
+        return params;
+      }, { replace: true });
+    }
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    const trimmed = debouncedSearchQuery.trim();
     setSearchParams(prev => {
+      const current = prev.get('q') ?? '';
+      if (trimmed === current) return prev;
       const params = new URLSearchParams(prev);
-      const trimmed = value.trim();
       if (trimmed) params.set('q', trimmed);
       else params.delete('q');
       return params;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, [debouncedSearchQuery, setSearchParams]);
 
   const setCategoryId = useCallback((id: string) => {
     setSearchParams(prev => {
@@ -1744,7 +1770,7 @@ export const CatalogPage: React.FC = () => {
     };
   }, [isMobile, showBrowseCategoryChips, categoryId]);
 
-  const flatListSearch = isFlatList ? searchQuery : '';
+  const flatListSearch = isFlatList ? committedSearchQuery : '';
 
   if (loading && !catalog) {
     return (
@@ -1835,7 +1861,7 @@ export const CatalogPage: React.FC = () => {
 
       {focus === 'search' && (
         <CatalogUnifiedResults
-          query={searchQuery}
+          query={committedSearchQuery}
           products={catalogShopProducts}
           spares={catalogSpareParts}
           productsBasePath={pathname}
@@ -1958,7 +1984,7 @@ export const CatalogPage: React.FC = () => {
           showStockQuantity={showStockQuantity}
           spareLinkCountByProductId={spareCountByProductId ?? undefined}
           hideFilterBar
-          searchQuery={searchQuery}
+          searchQuery={committedSearchQuery}
           onSearchChange={handleSearchChange}
           simpleCategoryTiles
           activeCategoryId={categoryId}

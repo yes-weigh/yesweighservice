@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
   limit,
@@ -33,6 +34,33 @@ import type {
 const functions = getFunctions(app, 'asia-south1');
 
 export type AdminSalesOrderSort = 'syncedAt' | 'date';
+
+export type AdminSalesOrderListQuery = {
+  sort?: AdminSalesOrderSort;
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  category?: InvoiceCategory | 'all';
+  /** Inclusive YYYY-MM-DD */
+  dateStart?: string | null;
+  /** Inclusive YYYY-MM-DD */
+  dateEnd?: string | null;
+  statusIn?: readonly string[] | null;
+};
+
+/** Zoho SO statuses treated as finished in the unified pipeline. */
+export const ZOHO_DONE_STATUSES = ['fulfilled', 'closed', 'invoiced', 'shipped'] as const;
+/** Zoho SO statuses treated as rejected/void. */
+export const ZOHO_REJECTED_STATUSES = ['void', 'cancelled', 'canceled'] as const;
+/** Active / open Zoho SO statuses (unified "SO" stage). */
+export const ZOHO_OPEN_STATUSES = [
+  'draft',
+  'open',
+  'confirmed',
+  'approved',
+  'partially_invoiced',
+  'overdue',
+  'pending',
+] as const;
 
 export interface AdminFirestoreSalesOrder {
   id: string;
@@ -68,6 +96,12 @@ export interface AdminSalesOrderDetail {
   taxTotal: number;
   notes: string | null;
   lineItems: DealerInvoiceLineItem[];
+}
+
+export interface AdminSalesOrdersPageResult {
+  rows: AdminFirestoreSalesOrder[];
+  docs: QueryDocumentSnapshot<DocumentData>[];
+  lastDoc: QueryDocumentSnapshot<DocumentData> | null;
 }
 
 function timestampToIso(value: unknown): string | null {
@@ -114,25 +148,61 @@ export function mapAdminSalesOrderDoc(
     currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
-    itemQuantity: lineItems.length ? sumInvoiceProductQuantity(lineItems) : null,
+    itemQuantity: data.itemQuantity != null
+      ? Number(data.itemQuantity)
+      : (lineItems.length ? sumInvoiceProductQuantity(lineItems) : null),
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
   };
 }
 
-export function buildAdminSalesOrdersQuery(
+/** Format a Date as local YYYY-MM-DD for Firestore string date fields. */
+export function toSalesOrderDateKey(value: Date): string {
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
+  const sort = options.sort ?? 'date';
+  const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 100));
+  const category = options.category ?? 'all';
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const statusIn = options.statusIn?.length ? [...options.statusIn] : null;
+  const constraints: QueryConstraint[] = [];
+
+  if (category && category !== 'all') {
+    constraints.push(where('salesOrderCategory', '==', category));
+  }
+  if (statusIn) {
+    constraints.push(where('status', 'in', statusIn.slice(0, 10)));
+  }
+
+  // Date range forces orderBy('date') so inequality + orderBy stay on the same field.
+  if (dateStart || dateEnd) {
+    if (dateStart) constraints.push(where('date', '>=', dateStart));
+    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+    constraints.push(orderBy('date', 'desc'));
+  } else {
+    const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
+    constraints.push(orderBy(field, 'desc'));
+  }
+
+  if (options.cursor) constraints.push(startAfter(options.cursor));
+  constraints.push(limit(pageSize));
+
+  return query(collection(db, 'salesOrders'), ...constraints);
+}
+
+/** @deprecated Prefer buildAdminSalesOrdersQuery(options). */
+export function buildAdminSalesOrdersQueryLegacy(
   sort: AdminSalesOrderSort,
   pageSize: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
   category: InvoiceCategory | 'all' = 'all',
 ) {
-  const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
-  const constraints: QueryConstraint[] = [];
-  if (category && category !== 'all') {
-    constraints.push(where('salesOrderCategory', '==', category));
-  }
-  constraints.push(orderBy(field, 'desc'), limit(pageSize));
-  if (cursor) constraints.push(startAfter(cursor));
-  return query(collection(db, 'salesOrders'), ...constraints);
+  return buildAdminSalesOrdersQuery({ sort, pageSize, cursor, category });
 }
 
 export function subscribeAdminSalesOrders(
@@ -142,7 +212,7 @@ export function subscribeAdminSalesOrders(
   onError: (message: string) => void,
   category: InvoiceCategory | 'all' = 'all',
 ) {
-  const q = buildAdminSalesOrdersQuery(sort, pageSize, null, category);
+  const q = buildAdminSalesOrdersQuery({ sort, pageSize, cursor: null, category });
   return onSnapshot(
     q,
     snap => {
@@ -155,14 +225,81 @@ export function subscribeAdminSalesOrders(
 }
 
 export async function fetchAdminSalesOrdersPage(
-  sort: AdminSalesOrderSort,
-  pageSize: number,
+  sortOrOptions: AdminSalesOrderSort | AdminSalesOrderListQuery,
+  pageSize?: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
   category: InvoiceCategory | 'all' = 'all',
 ): Promise<AdminFirestoreSalesOrder[]> {
-  const snap = await getDocs(buildAdminSalesOrdersQuery(sort, pageSize, cursor, category));
-  return snap.docs.map(mapAdminSalesOrderDoc);
+  const options: AdminSalesOrderListQuery = typeof sortOrOptions === 'string'
+    ? { sort: sortOrOptions, pageSize, cursor, category }
+    : sortOrOptions;
+  const result = await fetchAdminSalesOrdersPageDetailed(options);
+  return result.rows;
 }
+
+export async function fetchAdminSalesOrdersPageDetailed(
+  options: AdminSalesOrderListQuery,
+): Promise<AdminSalesOrdersPageResult> {
+  const snap = await getDocs(buildAdminSalesOrdersQuery(options));
+  return {
+    rows: snap.docs.map(mapAdminSalesOrderDoc),
+    docs: snap.docs,
+    lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
+  };
+}
+
+export async function countAdminSalesOrders(
+  options: Omit<AdminSalesOrderListQuery, 'pageSize' | 'cursor'>,
+): Promise<number> {
+  const sort = options.sort ?? 'date';
+  const category = options.category ?? 'all';
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const statusIn = options.statusIn?.length ? [...options.statusIn] : null;
+  const constraints: QueryConstraint[] = [];
+
+  if (category && category !== 'all') {
+    constraints.push(where('salesOrderCategory', '==', category));
+  }
+  if (statusIn) {
+    constraints.push(where('status', 'in', statusIn.slice(0, 10)));
+  }
+  if (dateStart || dateEnd) {
+    if (dateStart) constraints.push(where('date', '>=', dateStart));
+    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+    constraints.push(orderBy('date', 'desc'));
+  } else if (sort === 'syncedAt') {
+    constraints.push(orderBy('syncedAt', 'desc'));
+  } else {
+    constraints.push(orderBy('date', 'desc'));
+  }
+
+  const countQuery = query(collection(db, 'salesOrders'), ...constraints);
+  const snap = await getCountFromServer(countQuery);
+  return snap.data().count;
+}
+
+export async function countAdminSalesOrdersByUnifiedStages(options: {
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<{ all: number; so: number; done: number; rejected: number }> {
+  const base = {
+    category: options.category ?? 'all',
+    dateStart: options.dateStart ?? null,
+    dateEnd: options.dateEnd ?? null,
+  } as const;
+
+  const [all, so, done, rejected] = await Promise.all([
+    countAdminSalesOrders(base),
+    countAdminSalesOrders({ ...base, statusIn: ZOHO_OPEN_STATUSES }),
+    countAdminSalesOrders({ ...base, statusIn: ZOHO_DONE_STATUSES }),
+    countAdminSalesOrders({ ...base, statusIn: ZOHO_REJECTED_STATUSES }),
+  ]);
+
+  return { all, so, done, rejected };
+}
+
 
 export function filterAdminSalesOrders(
   rows: AdminFirestoreSalesOrder[],

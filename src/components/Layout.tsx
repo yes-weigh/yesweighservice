@@ -265,11 +265,11 @@ const LayoutShell: React.FC = () => {
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
+          { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           ...operationsNavItems('/super-admin', cartBadgeCount, OPS_PRIORITY_SUFFIXES),
           { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
-          { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
           ...operationsNavItems('/super-admin', cartBadgeCount, OPS_BEFORE_REPORTS_SUFFIXES),
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
@@ -278,12 +278,18 @@ const LayoutShell: React.FC = () => {
       case 'staff': {
         const portal = portalNavItems('/staff', cartBadgeCount, 'staff');
         const withExtras = [...portal];
-        const invoicesIndex = withExtras.findIndex(item => item.path.endsWith('/invoices'));
-        const insertAt = invoicesIndex >= 0 ? invoicesIndex + 1 : withExtras.length;
+        const catalogIndex = withExtras.findIndex(item => item.path.endsWith('/catalog'));
+        const insertAt = catalogIndex >= 0 ? catalogIndex + 1 : 0;
         withExtras.splice(
           insertAt,
           0,
           { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
+        );
+        const invoicesIndex = withExtras.findIndex(item => item.path.endsWith('/invoices'));
+        const poInsertAt = invoicesIndex >= 0 ? invoicesIndex + 1 : withExtras.length;
+        withExtras.splice(
+          poInsertAt,
+          0,
           { path: '/staff/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
         );
         const notificationsIndex = withExtras.findIndex(item => item.path.endsWith('/notifications'));
