@@ -12293,6 +12293,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0.02rem 0 0;
 }
 
+.unified-so-mobile-row__status {
+  display: flex;
+  margin: 0.15rem 0 0;
+}
+
 .unified-so-mobile-row .so-progress {
   padding-top: 0;
   max-width: none;
@@ -12366,6 +12371,20 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .unified-so-tabs {
   margin-top: 0.25rem;
+}
+
+.unified-so-order-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+
+.unified-so-order-cell__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .unified-sales-orders-page .invoices-table td .unified-so-source {
@@ -21635,6 +21654,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #fff;
 }
 
+.invoices-category--gatc {
+  background: #0d9488;
+  color: #fff;
+}
+
 .invoices-mobile-list {
   display: none;
   flex-direction: column;
@@ -21704,6 +21728,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .invoices-mobile-row__icon--service {
   background: rgba(245, 158, 11, 0.16);
   color: #fbbf24;
+}
+
+.invoices-mobile-row__icon--gatc {
+  background: rgba(13, 148, 136, 0.16);
+  color: #2dd4bf;
 }
 
 .invoices-mobile-row__icon--unknown {

@@ -106,7 +106,7 @@ export function buildInvoiceSearchBlob(invoiceRaw) {
     .toLowerCase();
 }
 
-const INVOICE_CATEGORIES = new Set(['product', 'spare', 'service', 'software_key']);
+const INVOICE_CATEGORIES = new Set(['product', 'spare', 'service', 'software_key', 'gatc']);
 
 export function filterInvoices(invoices, { status, category } = {}) {
   let next = invoices;
@@ -337,7 +337,7 @@ export function filterInvoicesBySearch(invoices, searchText, searchBlobById = ne
 
 export function firestoreDocToListInvoice(data) {
   const invoiceCategory = data.invoiceCategory
-    && ['product', 'spare', 'service', 'software_key'].includes(String(data.invoiceCategory))
+    && ['product', 'spare', 'service', 'software_key', 'gatc'].includes(String(data.invoiceCategory))
     ? String(data.invoiceCategory)
     : null;
   return {

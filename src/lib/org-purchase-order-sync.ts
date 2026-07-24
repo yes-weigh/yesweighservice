@@ -83,7 +83,7 @@ export interface PurchaseOrderCategoryBackfillResult {
   updated: number;
   skipped: number;
   unchanged?: number;
-  byCategory?: Partial<Record<'product' | 'spare' | 'service' | 'software_key', number>>;
+  byCategory?: Partial<Record<'product' | 'spare' | 'service' | 'software_key' | 'gatc', number>>;
 }
 
 export async function reclassifyPurchaseOrderCategoriesFromCatalog(): Promise<PurchaseOrderCategoryBackfillResult> {

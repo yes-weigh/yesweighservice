@@ -22,6 +22,8 @@ export interface UnifiedSalesOrderRow {
   href: string;
   primaryNumber: string;
   partyName: string;
+  /** Zoho customer id for location lookup (portal uses zohoCustomerId). */
+  customerId: string | null;
   date: string | null;
   sortAt: number;
   amount: number;
@@ -59,6 +61,7 @@ export function mapPortalOrderToUnified(
     href: `${basePath}/sales-orders/portal/${order.id}`,
     primaryNumber: order.orderNumber,
     partyName: order.dealerName || order.dealerCode || order.zohoCustomerId || '—',
+    customerId: order.zohoCustomerId || null,
     date,
     sortAt: parseDayTs(date) || Date.parse(order.updatedAt || order.createdAt) || 0,
     amount: Number(order.subtotal ?? 0),
@@ -85,6 +88,7 @@ export function mapZohoOrderToUnified(
     href: `${basePath}/sales-orders/${so.id}`,
     primaryNumber: so.salesOrderNumber || so.id,
     partyName: so.customerName || so.customerId || '—',
+    customerId: so.customerId || null,
     date: so.date,
     sortAt: parseDayTs(so.date) || parseDayTs(so.syncedAt),
     amount: Number(so.total ?? 0),

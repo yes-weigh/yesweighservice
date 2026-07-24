@@ -4,9 +4,10 @@ import { getFirestore } from 'firebase-admin/firestore';
 export const INVOICE_CATEGORY_HSN = {
   service: '998717',
   software_key: '85238020',
+  gatc: '998346',
 };
 
-export const INVOICE_CATEGORIES = ['product', 'spare', 'service', 'software_key'];
+export const INVOICE_CATEGORIES = ['product', 'spare', 'service', 'software_key', 'gatc'];
 
 export function normalizeHsn(value) {
   return String(value ?? '').replace(/\s+/g, '').trim();
@@ -44,7 +45,7 @@ export function isSpareCatalogItem(catalog) {
  *
  * @param {Array<{ total?: number, name?: string, sku?: string|null, itemId?: string|null, hsn?: string|null }>} lineItems
  * @param {Map<string, { hsn?: string|null, categoryId?: string|null, categoryName?: string|null }>} catalogByItemId
- * @returns {'product'|'spare'|'service'|'software_key'}
+ * @returns {'product'|'spare'|'service'|'software_key'|'gatc'}
  */
 export function classifyInvoiceFromLineItems(lineItems, catalogByItemId = new Map()) {
   const items = Array.isArray(lineItems) ? lineItems : [];
@@ -61,6 +62,7 @@ export function classifyInvoiceFromLineItems(lineItems, catalogByItemId = new Ma
   const catalog = itemId ? catalogByItemId.get(itemId) : null;
   const hsn = normalizeHsn(top.hsn || catalog?.hsn);
 
+  if (hsn === INVOICE_CATEGORY_HSN.gatc) return 'gatc';
   if (hsn === INVOICE_CATEGORY_HSN.service) return 'service';
   if (hsn === INVOICE_CATEGORY_HSN.software_key) return 'software_key';
   if (isSpareCatalogItem(catalog)) return 'spare';
@@ -115,6 +117,7 @@ export async function reclassifyInvoiceCategoriesFromCatalog(options = {}) {
     spare: 0,
     service: 0,
     software_key: 0,
+    gatc: 0,
   };
   let lastDoc = null;
 

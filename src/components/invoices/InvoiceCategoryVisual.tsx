@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Cog, KeyRound, Wrench } from 'lucide-react';
+import { BadgeCheck, Box, Cog, KeyRound, Wrench } from 'lucide-react';
 import {
   invoiceCategoryClassName,
   invoiceCategoryLabel,
@@ -11,6 +11,7 @@ const CATEGORY_ICONS: Record<InvoiceCategory, React.ReactNode> = {
   spare: <Cog size={18} strokeWidth={2} />,
   software_key: <KeyRound size={18} strokeWidth={2} />,
   service: <Wrench size={18} strokeWidth={2} />,
+  gatc: <BadgeCheck size={18} strokeWidth={2} />,
 };
 
 export function InvoiceCategoryIcon({

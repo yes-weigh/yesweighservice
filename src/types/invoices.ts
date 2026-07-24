@@ -9,13 +9,14 @@ export type InvoiceStatus =
   | 'viewed';
 
 /** Derived from the highest-value non-freight line item at Zoho sync. */
-export type InvoiceCategory = 'product' | 'spare' | 'service' | 'software_key';
+export type InvoiceCategory = 'product' | 'spare' | 'service' | 'software_key' | 'gatc';
 
 export const INVOICE_CATEGORIES: readonly InvoiceCategory[] = [
   'product',
   'spare',
   'service',
   'software_key',
+  'gatc',
 ] as const;
 
 export interface DealerInvoice {
@@ -86,6 +87,7 @@ export const INVOICE_CATEGORY_FILTER_OPTIONS: Array<{
   { value: 'spare', label: 'Spares' },
   { value: 'software_key', label: 'Software key' },
   { value: 'service', label: 'Service charges' },
+  { value: 'gatc', label: 'GATC' },
 ];
 
 export interface InvoiceListResponse {

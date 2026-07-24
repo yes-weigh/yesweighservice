@@ -143,7 +143,7 @@ export interface InvoiceCategoryBackfillResult {
   updated: number;
   skipped: number;
   unchanged?: number;
-  byCategory?: Partial<Record<'product' | 'spare' | 'service' | 'software_key', number>>;
+  byCategory?: Partial<Record<'product' | 'spare' | 'service' | 'software_key' | 'gatc', number>>;
   category?: string;
 }
 

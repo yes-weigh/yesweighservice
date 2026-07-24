@@ -607,6 +607,7 @@ export function isFreightInvoiceLineItem(
 export const INVOICE_CATEGORY_HSN = {
   service: '998717',
   software_key: '85238020',
+  gatc: '998346',
 } as const;
 
 function normalizeCategoryHsn(value: string | null | undefined): string {
@@ -651,7 +652,7 @@ export type InvoiceCategoryCatalogMeta = {
 
 /**
  * Same rules as Zoho SO/invoice sync: highest-value non-freight line,
- * then HSN service/software_key, else spare vs product from catalog.
+ * then HSN/SAC service/software_key/gatc, else spare vs product from catalog.
  */
 export function classifyInvoiceFromLineItems(
   lineItems: InvoiceCategoryLineInput[],
@@ -674,6 +675,7 @@ export function classifyInvoiceFromLineItems(
   const catalog = itemId ? catalogByItemId.get(itemId) : null;
   const hsn = normalizeCategoryHsn(top.hsn || catalog?.hsn);
 
+  if (hsn === INVOICE_CATEGORY_HSN.gatc) return 'gatc';
   if (hsn === INVOICE_CATEGORY_HSN.service) return 'service';
   if (hsn === INVOICE_CATEGORY_HSN.software_key) return 'software_key';
   if (isSpareCatalogItem(catalog)) return 'spare';
@@ -762,6 +764,8 @@ export function invoiceCategoryLabel(category: InvoiceCategory | null | undefine
       return 'Service charges';
     case 'software_key':
       return 'Software key';
+    case 'gatc':
+      return 'GATC';
     default:
       return '';
   }

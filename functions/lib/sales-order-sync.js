@@ -664,7 +664,7 @@ export async function reclassifySalesOrderCategoriesFromCatalog(options = {}) {
   let scanned = 0;
   let updated = 0;
   let unchanged = 0;
-  const counts = { product: 0, spare: 0, service: 0, software_key: 0 };
+  const counts = { product: 0, spare: 0, service: 0, software_key: 0, gatc: 0 };
 
   let lastDoc = null;
   // eslint-disable-next-line no-constant-condition

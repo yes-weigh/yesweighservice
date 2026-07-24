@@ -17,7 +17,6 @@ import {
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { OrderStatusBadge } from '../../components/orders/OrderStatusBadge';
-import { SalesOrderProgressChain } from '../../components/orders/SalesOrderProgressChain';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
@@ -30,6 +29,10 @@ import {
   type AdminFirestoreSalesOrder,
   type AdminSalesOrderSort,
 } from '../../lib/admin-sales-orders';
+import {
+  fetchAdminCustomerLocations,
+  formatAdminCustomerLocation,
+} from '../../lib/admin-invoices';
 import { formatCurrency } from '../../lib/catalog';
 import { dealerOrderErrorMessage, listDealerOrders } from '../../lib/dealerOrders';
 import {
@@ -339,6 +342,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     done: 0,
     rejected: 0,
   });
+  const [customerLocations, setCustomerLocations] = useState(
+    () => new Map<string, { district: string | null; state: string | null }>(),
+  );
   const pageStartCursors = useRef<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
   const [pageCursorVersion, setPageCursorVersion] = useState(0);
 
@@ -526,6 +532,25 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  useEffect(() => {
+    const customerIds = pageRows
+      .map(row => row.customerId)
+      .filter((id): id is string => Boolean(id));
+    if (!customerIds.length) {
+      setCustomerLocations(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    void fetchAdminCustomerLocations(customerIds).then(map => {
+      if (!cancelled) setCustomerLocations(map);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pageRows]);
 
   const stageCounts = useMemo(() => {
     const portalByStage: Record<string, number> = {
@@ -805,16 +830,16 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                     <tr>
                       <th>Order</th>
                       <th>Party</th>
-                      <th>Source</th>
-                      <th>Date</th>
                       <th className="invoices-table__num">Qty</th>
                       <th className="invoices-table__num">Total</th>
-                      <th>Category</th>
-                      <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pageRows.map(row => (
+                    {pageRows.map(row => {
+                      const locationLabel = formatAdminCustomerLocation(
+                        row.customerId ? customerLocations.get(row.customerId) : undefined,
+                      );
+                      return (
                       <tr
                         key={row.key}
                         className="invoices-table__row--clickable"
@@ -830,36 +855,49 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                         aria-label={`View ${row.primaryNumber}`}
                       >
                         <td>
-                          <strong>{row.primaryNumber}</strong>
+                          <div className="unified-so-order-cell">
+                            <strong>{row.primaryNumber}</strong>
+                            <span className="invoices-table__ref text-muted text-sm">
+                              {formatInvoiceDate(row.date)}
+                            </span>
+                            <span className="unified-so-order-cell__badges">
+                              <SourceBadge source={row.source} />
+                              {row.category ? (
+                                <InvoiceCategoryBadge category={row.category} />
+                              ) : null}
+                              {row.source === 'portal' ? (
+                                <OrderStatusBadge status={row.statusRaw} />
+                              ) : (
+                                <span className={row.statusClass}>{row.statusLabel}</span>
+                              )}
+                            </span>
+                          </div>
                         </td>
-                        <td>{row.partyName}</td>
-                        <td><SourceBadge source={row.source} /></td>
-                        <td>{formatInvoiceDate(row.date)}</td>
+                        <td>
+                          <div className="unified-so-order-cell">
+                            <span>{row.partyName}</span>
+                            {locationLabel ? (
+                              <span className="invoices-table__ref text-muted text-sm">
+                                {locationLabel}
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
                         <td className="invoices-table__num">{formatInvoiceItemQuantity(row.qty)}</td>
                         <td className="invoices-table__num">{formatCurrency(row.amount, row.currencyCode)}</td>
-                        <td>
-                          {row.category ? (
-                            <InvoiceCategoryBadge category={row.category} />
-                          ) : (
-                            <span className="text-muted">—</span>
-                          )}
-                        </td>
-                        <td>
-                          {row.source === 'portal' ? (
-                            <OrderStatusBadge status={row.statusRaw} />
-                          ) : (
-                            <span className={row.statusClass}>{row.statusLabel}</span>
-                          )}
-                          <SalesOrderProgressChain row={row} compact />
-                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               <div className="invoices-mobile-list admin-invoices-mobile-list">
-                {pageRows.map(row => (
+                {pageRows.map(row => {
+                  const locationLabel = formatAdminCustomerLocation(
+                    row.customerId ? customerLocations.get(row.customerId) : undefined,
+                  );
+                  return (
                   <button
                     key={row.key}
                     type="button"
@@ -879,8 +917,17 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                         <strong className="invoices-mobile-row__company">
                           {row.partyName}
                         </strong>
-                        <span className="unified-so-mobile-row__progress">
-                          <SalesOrderProgressChain row={row} compact />
+                        {locationLabel ? (
+                          <span className="invoices-table__ref text-muted text-sm">
+                            {locationLabel}
+                          </span>
+                        ) : null}
+                        <span className="unified-so-mobile-row__status">
+                          {row.source === 'portal' ? (
+                            <OrderStatusBadge status={row.statusRaw} />
+                          ) : (
+                            <span className={row.statusClass}>{row.statusLabel}</span>
+                          )}
                         </span>
                         <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
                           <span className="unified-so-mobile-row__meta">
@@ -895,7 +942,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                       </span>
                     </span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
