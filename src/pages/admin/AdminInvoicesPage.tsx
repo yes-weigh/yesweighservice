@@ -22,6 +22,7 @@ import {
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
+  aggregateAdminInvoicesByDealer,
   buildAdminSalesEntries,
   countAdminInvoicesByCategory,
   countInvoiceRowsByCategory,
@@ -91,6 +92,7 @@ function AdminFilterSheet({
   rangePreset,
   sort,
   dealers,
+  aggregate,
   onClose,
   onApply,
 }: {
@@ -98,23 +100,27 @@ function AdminFilterSheet({
   rangePreset: SalesRangePreset;
   sort: AdminInvoiceSort;
   dealers: DealerFilterSelection[];
+  aggregate: boolean;
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
     sort: AdminInvoiceSort;
     dealers: DealerFilterSelection[];
+    aggregate: boolean;
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
   const [draftSort, setDraftSort] = useState(sort);
   const [draftDealers, setDraftDealers] = useState<DealerFilterSelection[]>(dealers);
+  const [draftAggregate, setDraftAggregate] = useState(aggregate);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
     setDraftSort(sort);
     setDraftDealers(dealers);
-  }, [open, rangePreset, sort, dealers]);
+    setDraftAggregate(aggregate);
+  }, [open, rangePreset, sort, dealers, aggregate]);
 
   useEffect(() => {
     if (!open) return;
@@ -129,7 +135,8 @@ function AdminFilterSheet({
 
   const draftDirty = draftRange !== DEFAULT_RANGE
     || draftSort !== DEFAULT_SORT
-    || draftDealers.length > 0;
+    || draftDealers.length > 0
+    || draftAggregate;
 
   return createPortal(
     <>
@@ -165,6 +172,26 @@ function AdminFilterSheet({
               <span className="catalog-spares-multi-filters__label">Dealers</span>
               <DealerMultiFilterPicker value={draftDealers} onChange={setDraftDealers} />
             </div>
+
+            <label className="logistics-filter-supermode">
+              <span className="logistics-filter-supermode__copy">
+                <strong>Aggregate</strong>
+                <em>Club all invoices into one row per dealer</em>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={draftAggregate}
+                aria-label="Aggregate invoices by dealer"
+                className={[
+                  'logistics-filter-supermode__switch',
+                  draftAggregate ? 'logistics-filter-supermode__switch--on' : '',
+                ].filter(Boolean).join(' ')}
+                onClick={() => setDraftAggregate(prev => !prev)}
+              >
+                <span className="logistics-filter-supermode__knob" />
+              </button>
+            </label>
 
             <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Date range</span>
@@ -222,6 +249,7 @@ function AdminFilterSheet({
                   rangePreset: draftRange,
                   sort: draftSort,
                   dealers: draftDealers,
+                  aggregate: draftAggregate,
                 });
                 onClose();
               }}
@@ -236,6 +264,7 @@ function AdminFilterSheet({
                 setDraftRange(DEFAULT_RANGE);
                 setDraftSort(DEFAULT_SORT);
                 setDraftDealers([]);
+                setDraftAggregate(false);
               }}
             >
               Clear
@@ -259,6 +288,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const [sort, setSort] = useState<AdminInvoiceSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
+  const [aggregate, setAggregate] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
@@ -410,15 +440,20 @@ export const AdminInvoicesPage: React.FC = () => {
     [periodRows, search, category],
   );
 
+  const displayRows = useMemo(
+    () => (aggregate ? aggregateAdminInvoicesByDealer(filtered, sort) : filtered),
+    [aggregate, filtered, sort],
+  );
+
   useEffect(() => {
     setPage(1);
-  }, [search, rangePreset, category, sort, selectedCustomerKey]);
+  }, [search, rangePreset, category, sort, selectedCustomerKey, aggregate]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / LIST_PAGE_SIZE));
   const pageRows = useMemo(() => {
     const start = (page - 1) * LIST_PAGE_SIZE;
-    return filtered.slice(start, start + LIST_PAGE_SIZE);
-  }, [filtered, page]);
+    return displayRows.slice(start, start + LIST_PAGE_SIZE);
+  }, [displayRows, page]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -445,6 +480,26 @@ export const AdminInvoicesPage: React.FC = () => {
     navigate(`/super-admin/invoices/${invoice.customerId}/${invoice.id}/invoice`);
   };
 
+  const openAggregatedDealer = useCallback((invoice: AdminFirestoreInvoice) => {
+    if (!invoice.customerId) return;
+    const dealer: DealerFilterSelection = {
+      id: invoice.customerId,
+      label: invoice.customerName?.trim() || invoice.customerId,
+      portalUserId: null,
+    };
+    setAggregate(false);
+    setSelectedDealers([dealer]);
+    syncDealerParams([dealer]);
+  }, [syncDealerParams]);
+
+  const openRow = (invoice: AdminFirestoreInvoice) => {
+    if ((invoice.aggregateInvoiceCount ?? 0) > 1) {
+      openAggregatedDealer(invoice);
+      return;
+    }
+    openInvoice(invoice);
+  };
+
   const summary = useMemo(() => {
     const salesEntries = buildAdminSalesEntries(filtered);
     const sales = salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null;
@@ -459,7 +514,8 @@ export const AdminInvoicesPage: React.FC = () => {
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
     || sort !== DEFAULT_SORT
-    || selectedDealers.length > 0;
+    || selectedDealers.length > 0
+    || aggregate;
 
   const headerTools = useMemo(
     () => (
@@ -540,11 +596,16 @@ export const AdminInvoicesPage: React.FC = () => {
           </div>
         </div>
 
-        {selectedDealers.length > 0 && (
+        {(selectedDealers.length > 0 || aggregate) && (
           <p className="unified-so-dealer-filter-note text-muted text-sm">
-            Filtered to {selectedDealers.length === 1
-              ? selectedDealers[0].label
-              : `${selectedDealers.length} dealers`}
+            {[
+              selectedDealers.length > 0
+                ? `Filtered to ${selectedDealers.length === 1
+                  ? selectedDealers[0].label
+                  : `${selectedDealers.length} dealers`}`
+                : null,
+              aggregate ? 'Showing one row per dealer' : null,
+            ].filter(Boolean).join(' · ')}
             .
           </p>
         )}
@@ -595,7 +656,7 @@ export const AdminInvoicesPage: React.FC = () => {
 
       {loading && rows.length === 0 ? (
         <FetchingLoader label="Loading invoices…" />
-      ) : filtered.length === 0 ? (
+      ) : displayRows.length === 0 ? (
         <div className="invoices-empty panel glass">
           <FileText size={40} className="text-muted" aria-hidden />
           <p>No invoices found for this period.</p>
@@ -605,7 +666,7 @@ export const AdminInvoicesPage: React.FC = () => {
           {totalPages > 1 && (
             <div className="invoices-pagination invoices-pagination--top" role="navigation" aria-label="Invoice list pagination">
               <span className="invoices-pagination__info text-muted text-sm">
-                {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, filtered.length)} of {filtered.length.toLocaleString('en-IN')}
+                {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, displayRows.length)} of {displayRows.length.toLocaleString('en-IN')}
               </span>
               <div className="invoices-pagination__btns">
                 <button
@@ -650,28 +711,37 @@ export const AdminInvoicesPage: React.FC = () => {
                     customerLocations.get(invoice.customerId),
                   );
                   const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
+                  const isAggregateRow = (invoice.aggregateInvoiceCount ?? 0) > 1;
                   return (
                     <tr
                       key={`${invoice.customerId}-${invoice.id}`}
                       className="invoices-table__row--clickable"
-                      onClick={() => openInvoice(invoice)}
+                      onClick={() => openRow(invoice)}
                       onKeyDown={e => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          openInvoice(invoice);
+                          openRow(invoice);
                         }
                       }}
                       role="button"
                       tabIndex={0}
-                      aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
+                      aria-label={
+                        isAggregateRow
+                          ? `View invoices for ${invoice.customerName ?? 'dealer'}`
+                          : `View invoice ${invoice.invoiceNumber || invoice.id}`
+                      }
                     >
                       <td>
                         <strong>{invoice.invoiceNumber || invoice.id}</strong>
-                        {invoice.referenceNumber && (
+                        {isAggregateRow ? (
+                          <div className="invoices-table__ref text-muted text-sm">
+                            {invoice.customerName ?? 'Dealer total'}
+                          </div>
+                        ) : invoice.referenceNumber ? (
                           <div className="invoices-table__ref text-muted text-sm">
                             Order {invoice.referenceNumber}
                           </div>
-                        )}
+                        ) : null}
                       </td>
                       <td>
                         <div>{invoice.customerName ?? '—'}</div>
@@ -686,13 +756,19 @@ export const AdminInvoicesPage: React.FC = () => {
                         {categoryLabel ? (
                           <InvoiceCategoryBadge category={invoice.invoiceCategory} />
                         ) : (
-                          <span className="text-muted">—</span>
+                          <span className="text-muted">{isAggregateRow ? 'Mixed' : '—'}</span>
                         )}
                       </td>
                       <td>
-                        <span className={invoiceStatusClass(invoice.status)}>
-                          {invoiceStatusLabel(invoice.status)}
-                        </span>
+                        {isAggregateRow ? (
+                          <span className="text-muted text-sm">
+                            {invoice.aggregateInvoiceCount} invoices
+                          </span>
+                        ) : (
+                          <span className={invoiceStatusClass(invoice.status)}>
+                            {invoiceStatusLabel(invoice.status)}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -710,23 +786,36 @@ export const AdminInvoicesPage: React.FC = () => {
               const locationLabel = formatAdminCustomerLocation(
                 customerLocations.get(invoice.customerId),
               );
+              const isAggregateRow = (invoice.aggregateInvoiceCount ?? 0) > 1;
               return (
                 <button
                   key={`${invoice.customerId}-${invoice.id}`}
                   type="button"
                   className="invoices-mobile-row"
-                  onClick={() => openInvoice(invoice)}
-                  aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
+                  onClick={() => openRow(invoice)}
+                  aria-label={
+                    isAggregateRow
+                      ? `View invoices for ${invoice.customerName ?? 'dealer'}`
+                      : `View invoice ${invoice.invoiceNumber || invoice.id}`
+                  }
                 >
                   <InvoiceCategoryIcon category={invoice.invoiceCategory} />
                   <span className="invoices-mobile-row__body">
                     <span className="invoices-mobile-row__invoice">
                       <span className="invoices-mobile-row__title">
-                        <InvoiceCategoryBadge category={invoice.invoiceCategory} />
-                        <strong>{invoice.invoiceNumber || invoice.id}</strong>
+                        {invoice.invoiceCategory ? (
+                          <InvoiceCategoryBadge category={invoice.invoiceCategory} />
+                        ) : null}
+                        <strong>
+                          {isAggregateRow
+                            ? (invoice.customerName ?? 'Dealer')
+                            : (invoice.invoiceNumber || invoice.id)}
+                        </strong>
                       </span>
                       <span className="invoices-mobile-row__so">
-                        {invoice.customerName ?? locationLabel ?? '—'}
+                        {isAggregateRow
+                          ? `${invoice.aggregateInvoiceCount} invoices`
+                          : (invoice.customerName ?? locationLabel ?? '—')}
                       </span>
                       <span className="invoices-mobile-row__meta">
                         {formatInvoiceDate(invoice.date)}
@@ -736,9 +825,13 @@ export const AdminInvoicesPage: React.FC = () => {
                     </span>
                     <span className="invoices-mobile-row__amount">
                       <strong>{formatCurrency(invoiceAmountExclGst(invoice))}</strong>
-                      <span className={invoiceStatusClass(invoice.status)}>
-                        {invoiceStatusLabel(invoice.status)}
-                      </span>
+                      {isAggregateRow ? (
+                        <span className="text-muted text-sm">Aggregated</span>
+                      ) : (
+                        <span className={invoiceStatusClass(invoice.status)}>
+                          {invoiceStatusLabel(invoice.status)}
+                        </span>
+                      )}
                     </span>
                   </span>
                   <span className="invoices-mobile-row__chevron" aria-hidden>
@@ -752,7 +845,7 @@ export const AdminInvoicesPage: React.FC = () => {
           {totalPages > 1 && (
             <footer className="invoices-pagination invoices-pagination--sticky">
               <span className="invoices-pagination__info text-muted text-sm">
-                {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, filtered.length)} of {filtered.length.toLocaleString('en-IN')}
+                {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, displayRows.length)} of {displayRows.length.toLocaleString('en-IN')}
               </span>
               <div className="invoices-pagination__btns">
                 <button
@@ -786,11 +879,13 @@ export const AdminInvoicesPage: React.FC = () => {
         rangePreset={rangePreset}
         sort={sort}
         dealers={selectedDealers}
+        aggregate={aggregate}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
           setSort(next.sort);
           setSelectedDealers(next.dealers);
+          setAggregate(next.aggregate);
           syncDealerParams(next.dealers);
         }}
       />

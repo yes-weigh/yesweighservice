@@ -55,6 +55,8 @@ export interface AdminFirestoreInvoice {
   syncedAt: string | null;
   itemQuantity: number | null;
   invoiceCategory: InvoiceCategory | null;
+  /** Set when Aggregate mode clubs invoices into one row per dealer. */
+  aggregateInvoiceCount?: number;
 }
 
 function timestampToIso(value: unknown): string | null {
@@ -193,6 +195,93 @@ export function buildAdminSalesEntries(rows: AdminFirestoreInvoice[]): InvoiceSa
   return rows
     .filter(row => row.date)
     .map(row => ({ date: row.date!, total: invoiceAmountExclGst(row) }));
+}
+
+function compareInvoiceSortKey(
+  a: AdminFirestoreInvoice,
+  b: AdminFirestoreInvoice,
+  sort: AdminInvoiceSort,
+): number {
+  if (sort === 'syncedAt') {
+    const aTs = a.syncedAt ? Date.parse(a.syncedAt) : 0;
+    const bTs = b.syncedAt ? Date.parse(b.syncedAt) : 0;
+    return bTs - aTs;
+  }
+  const aTs = a.date ? parseInvoiceDay(a.date) : NaN;
+  const bTs = b.date ? parseInvoiceDay(b.date) : NaN;
+  const aSafe = Number.isNaN(aTs) ? 0 : aTs;
+  const bSafe = Number.isNaN(bTs) ? 0 : bTs;
+  return bSafe - aSafe;
+}
+
+/** Club invoices into one row per dealer (sums amounts / qty; latest date). */
+export function aggregateAdminInvoicesByDealer(
+  rows: AdminFirestoreInvoice[],
+  sort: AdminInvoiceSort = 'date',
+): AdminFirestoreInvoice[] {
+  const byCustomer = new Map<string, AdminFirestoreInvoice[]>();
+  for (const row of rows) {
+    const key = row.customerId || '__unknown__';
+    const list = byCustomer.get(key);
+    if (list) list.push(row);
+    else byCustomer.set(key, [row]);
+  }
+
+  const aggregates: AdminFirestoreInvoice[] = [];
+  for (const [customerId, invoices] of byCustomer) {
+    const ordered = [...invoices].sort((a, b) => compareInvoiceSortKey(a, b, sort));
+    const latest = ordered[0];
+
+    let total = 0;
+    let balance = 0;
+    let itemQuantity = 0;
+    let subtotalSum = 0;
+    let taxTotalSum = 0;
+    let hasSubtotal = false;
+    let hasTaxTotal = false;
+    const categories = new Set<InvoiceCategory>();
+
+    for (const inv of invoices) {
+      total += Number(inv.total ?? 0);
+      balance += Number(inv.balance ?? 0);
+      if (inv.itemQuantity != null) itemQuantity += inv.itemQuantity;
+      if (inv.subtotal != null) {
+        subtotalSum += inv.subtotal;
+        hasSubtotal = true;
+      }
+      if (inv.taxTotal != null) {
+        taxTotalSum += inv.taxTotal;
+        hasTaxTotal = true;
+      }
+      if (inv.invoiceCategory) categories.add(inv.invoiceCategory);
+    }
+
+    const count = invoices.length;
+    aggregates.push({
+      id: count === 1 ? latest.id : `agg-${customerId}`,
+      customerId: customerId === '__unknown__' ? '' : customerId,
+      invoiceNumber: count === 1 ? (latest.invoiceNumber || latest.id) : `${count} invoices`,
+      customerName: latest.customerName,
+      date: latest.date,
+      status: count === 1 ? latest.status : 'aggregated',
+      total,
+      subtotal: hasSubtotal ? subtotalSum : null,
+      taxTotal: hasTaxTotal ? taxTotalSum : null,
+      balance,
+      referenceNumber: count === 1 ? latest.referenceNumber : null,
+      syncedAt: latest.syncedAt,
+      itemQuantity: invoices.some(inv => inv.itemQuantity != null) ? itemQuantity : null,
+      invoiceCategory: categories.size === 1 ? [...categories][0]! : null,
+      aggregateInvoiceCount: count,
+    });
+  }
+
+  // Highest excl-GST amount first; break ties by latest invoice date.
+  return aggregates.sort((a, b) => {
+    const amountDiff = invoiceAmountExclGst(b) - invoiceAmountExclGst(a);
+    if (amountDiff !== 0) return amountDiff;
+    return compareInvoiceSortKey(a, b, sort);
+  });
 }
 
 export function buildAdminDailySales(
