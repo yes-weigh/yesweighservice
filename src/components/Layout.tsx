@@ -75,17 +75,15 @@ const OPS_PATH_SUFFIXES = [...OPS_PRIORITY_SUFFIXES, ...OPS_REST_SUFFIXES] as co
 
 function operationsNavItems(
   home: string,
-  itemCount: number,
   suffixes: readonly string[] = OPS_PATH_SUFFIXES,
 ): NavItem[] {
-  return portalNavItems(home, itemCount, 'dealer').filter(item =>
+  return portalNavItems(home, 'dealer').filter(item =>
     suffixes.some(suffix => item.path === `${home}${suffix}`),
   );
 }
 
 function portalNavItems(
   home: string,
-  itemCount: number,
   order: 'dealer' | 'staff' | 'dealer_staff' = 'dealer',
 ): NavItem[] {
   const items: Record<string, NavItem> = {
@@ -245,7 +243,6 @@ const LayoutShell: React.FC = () => {
   const showCartFlyTarget = canUseCart(user?.role)
     && !topBarAction
     && !/\/warranty-support(\/|$)/.test(location.pathname);
-  const cartBadgeCount = showCartFlyTarget ? itemCount : 0;
 
   useEffect(() => {
     if (showCartFlyTarget) {
@@ -265,17 +262,17 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
           { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
-          ...operationsNavItems('/super-admin', cartBadgeCount, OPS_PRIORITY_SUFFIXES),
+          ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
           { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
-          ...operationsNavItems('/super-admin', cartBadgeCount, OPS_BEFORE_REPORTS_SUFFIXES),
+          ...operationsNavItems('/super-admin', OPS_BEFORE_REPORTS_SUFFIXES),
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
-          ...operationsNavItems('/super-admin', cartBadgeCount, OPS_AFTER_REPORTS_SUFFIXES),
+          ...operationsNavItems('/super-admin', OPS_AFTER_REPORTS_SUFFIXES),
         ];
       case 'staff': {
-        const portal = portalNavItems('/staff', cartBadgeCount, 'staff');
+        const portal = portalNavItems('/staff', 'staff');
         const withExtras = [...portal];
         const catalogIndex = withExtras.findIndex(item => item.path.endsWith('/catalog'));
         const insertAt = catalogIndex >= 0 ? catalogIndex + 1 : 0;
@@ -313,13 +310,13 @@ const LayoutShell: React.FC = () => {
       case 'dealer':
         return [
           { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          ...portalNavItems('/dealer', cartBadgeCount, 'dealer'),
+          ...portalNavItems('/dealer', 'dealer'),
           { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
         ];
       case 'dealer_staff':
         return [
           { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          ...portalNavItems('/dealer-staff', cartBadgeCount, 'dealer_staff'),
+          ...portalNavItems('/dealer-staff', 'dealer_staff'),
         ];
       case 'media':
         return [
