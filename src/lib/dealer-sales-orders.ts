@@ -71,16 +71,31 @@ function mapDetail(raw: Record<string, unknown>): AdminSalesOrderDetail {
 }
 
 export async function listDealerSalesOrders(params: {
+  /** Max rows to return (server pages until this; default 2500). */
   limit?: number;
+  dateStart?: string | null;
+  dateEnd?: string | null;
 } = {}): Promise<AdminFirestoreSalesOrder[]> {
   try {
-    const callable = httpsCallable<typeof params, { data: Record<string, unknown>[] }>(
+    const callable = httpsCallable<
+      typeof params,
+      {
+        salesOrders?: Record<string, unknown>[];
+        data?: Record<string, unknown>[];
+      } | Record<string, unknown>[]
+    >(
       functions,
       'listDealerSalesOrders',
       { timeout: 180_000 },
     );
     const result = await callable(params);
-    return (result.data?.data ?? []).map(row => mapListRow(row));
+    const payload = result.data;
+    const rows = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.salesOrders)
+        ? payload.salesOrders
+        : (Array.isArray(payload?.data) ? payload.data : []));
+    return rows.map(row => mapListRow(row as Record<string, unknown>));
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
   }

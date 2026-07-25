@@ -109,6 +109,14 @@
       "collectionGroup": "salesOrders",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "customerId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "salesOrderCategory", "order": "ASCENDING" },
         { "fieldPath": "date", "order": "DESCENDING" }
       ]

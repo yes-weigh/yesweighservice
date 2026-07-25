@@ -938,12 +938,77 @@ async function loadSalesOrdersByIds(ids) {
   return rows;
 }
 
-async function queryDealerSalesOrdersFromFirestore(customerId, limit) {
-  const snap = await soCollection()
-    .where('customerId', '==', String(customerId))
-    .limit(limit)
-    .get();
-  return snap.docs.map(docSnap => mapSalesOrderListRow(docSnap.id, docSnap.data() || {}));
+/**
+ * Admin-style fetch: page through this customer's salesOrders newest-first.
+ * Avoids the old single-shot limit(400) that returned an arbitrary/old slice.
+ */
+async function queryDealerSalesOrdersFromFirestore(customerId, options = {}) {
+  const dateStart = options.dateStart ? String(options.dateStart).slice(0, 10) : '';
+  const dateEnd = options.dateEnd ? String(options.dateEnd).slice(0, 10) : '';
+  const pageSize = Math.min(Math.max(Number(options.pageSize ?? 200) || 200, 50), 300);
+  const maxRows = Math.min(Math.max(Number(options.maxRows ?? 2500) || 2500, 1), 5000);
+
+  const mapDocs = snap => snap.docs.map(
+    docSnap => mapSalesOrderListRow(docSnap.id, docSnap.data() || {}),
+  );
+
+  const pageOrdered = async () => {
+    const rows = [];
+    let lastDoc = null;
+    while (rows.length < maxRows) {
+      let q = soCollection().where('customerId', '==', String(customerId));
+      if (dateStart) q = q.where('date', '>=', dateStart);
+      if (dateEnd) q = q.where('date', '<=', dateEnd);
+      q = q.orderBy('date', 'desc').limit(pageSize);
+      if (lastDoc) q = q.startAfter(lastDoc);
+      const snap = await q.get();
+      if (snap.empty) break;
+      rows.push(...mapDocs(snap));
+      lastDoc = snap.docs[snap.docs.length - 1];
+      if (snap.size < pageSize) break;
+    }
+    return rows.slice(0, maxRows);
+  };
+
+  /** Equality-only pages (no date index) → sort/filter in memory. */
+  const pageUnordered = async () => {
+    const rows = [];
+    let lastDoc = null;
+    while (rows.length < maxRows) {
+      let q = soCollection()
+        .where('customerId', '==', String(customerId))
+        .limit(pageSize);
+      if (lastDoc) q = q.startAfter(lastDoc);
+      const snap = await q.get();
+      if (snap.empty) break;
+      rows.push(...mapDocs(snap));
+      lastDoc = snap.docs[snap.docs.length - 1];
+      if (snap.size < pageSize) break;
+    }
+    let sorted = sortSalesOrderRows(rows);
+    if (dateStart || dateEnd) {
+      sorted = sorted.filter(row => {
+        const d = String(row.date ?? '');
+        if (!d) return false;
+        if (dateStart && d < dateStart) return false;
+        if (dateEnd && d > dateEnd) return false;
+        return true;
+      });
+    }
+    return sorted.slice(0, maxRows);
+  };
+
+  try {
+    return await pageOrdered();
+  } catch (err) {
+    const msg = String(err?.message ?? err ?? '');
+    if (!/index|FAILED_PRECONDITION/i.test(msg) && err?.code !== 9) throw err;
+    console.warn(
+      `Dealer SO ordered query unavailable for ${customerId}, paging unordered fallback:`,
+      msg.slice(0, 180),
+    );
+    return pageUnordered();
+  }
 }
 
 function sortSalesOrderRows(rows) {
@@ -967,22 +1032,29 @@ function mergeSalesOrderRows(...lists) {
 
 /**
  * Dealer / dealer_staff: list Zoho sales orders for their linked customer.
- * Uses Firestore first; if empty, lazily pulls from Zoho for that customer.
+ * Mirrors admin visibility: date-ordered pagination for the customer (no 400-cap slice).
  */
 export async function listDealerSalesOrders(uid, role, query = {}, context = {}) {
   const customerId = await resolveZohoCustomerIdForUser(uid, role);
   if (!customerId) {
     throw new HttpsError('failed-precondition', 'No Zoho customer is linked to this account.');
   }
-  const limit = Math.min(Math.max(Number(query.limit ?? 200) || 200, 1), 400);
   const secrets = context.secrets;
   const orgId = context.orgId;
+  const dateStart = query.dateStart ? String(query.dateStart).slice(0, 10) : '';
+  const dateEnd = query.dateEnd ? String(query.dateEnd).slice(0, 10) : '';
+  const maxRows = Math.min(Math.max(Number(query.limit ?? query.maxRows ?? 2500) || 2500, 1), 5000);
+  const rangeOpts = {
+    dateStart: dateStart || undefined,
+    dateEnd: dateEnd || undefined,
+    maxRows,
+  };
 
-  let rows = await queryDealerSalesOrdersFromFirestore(customerId, limit);
+  let rows = await queryDealerSalesOrdersFromFirestore(customerId, rangeOpts);
+
   const portalLinkedIds = await loadPortalLinkedSalesOrderIds(uid, role);
   if (portalLinkedIds.length) {
-    const linkedRows = await loadSalesOrdersByIds(portalLinkedIds);
-    rows = mergeSalesOrderRows(rows, linkedRows);
+    rows = mergeSalesOrderRows(rows, await loadSalesOrdersByIds(portalLinkedIds));
   }
 
   const missingPortalIds = portalLinkedIds.filter(id => !rows.some(row => row.id === id));
@@ -994,10 +1066,9 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
         console.warn(`Mirror portal-linked SO ${soId} failed:`, err?.message ?? err);
       }
     }
-    const linkedRows = await loadSalesOrdersByIds(portalLinkedIds);
     rows = mergeSalesOrderRows(
-      await queryDealerSalesOrdersFromFirestore(customerId, limit),
-      linkedRows,
+      await queryDealerSalesOrdersFromFirestore(customerId, rangeOpts),
+      await loadSalesOrdersByIds(portalLinkedIds),
     );
   }
 
@@ -1010,10 +1081,10 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
       try {
         console.log(`Dealer SO lazy sync for customer ${customerId}`);
         await syncDealerSalesOrdersToFirestore(secrets, orgId, customerId, {
-          maxPages: 3,
-          maxDetails: 60,
+          maxPages: 5,
+          maxDetails: 120,
         });
-        rows = await queryDealerSalesOrdersFromFirestore(customerId, limit);
+        rows = await queryDealerSalesOrdersFromFirestore(customerId, rangeOpts);
         if (portalLinkedIds.length) {
           rows = mergeSalesOrderRows(rows, await loadSalesOrdersByIds(portalLinkedIds));
         }
@@ -1023,12 +1094,20 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
     }
   }
 
+  const payload = sortSalesOrderRows(rows).slice(0, maxRows);
   console.log(
     `listDealerSalesOrders uid=${uid} customer=${customerId} `
-    + `rows=${rows.length} portalLinked=${portalLinkedIds.length}`,
+    + `rows=${payload.length} newestDate=${payload[0]?.date ?? 'none'} `
+    + `oldestDate=${payload[payload.length - 1]?.date ?? 'none'} `
+    + `range=${dateStart || '…'}..${dateEnd || '…'} portalLinked=${portalLinkedIds.length}`,
   );
 
-  return { data: rows.slice(0, limit), customerId: String(customerId) };
+  return {
+    salesOrders: payload,
+    data: payload,
+    customerId: String(customerId),
+    truncated: rows.length > maxRows,
+  };
 }
 
 /** Dealer / dealer_staff: load one sales order if it belongs to their customer. */

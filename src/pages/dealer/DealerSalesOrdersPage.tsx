@@ -20,6 +20,7 @@ import { OrderStatusBadge } from '../../components/orders/OrderStatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import type { AdminFirestoreSalesOrder } from '../../lib/admin-sales-orders';
+import { toSalesOrderDateKey } from '../../lib/admin-sales-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
 import { dealerOrderErrorMessage, listDealerOrders } from '../../lib/dealerOrders';
@@ -261,9 +262,13 @@ export const DealerSalesOrdersPage: React.FC = () => {
   const load = useCallback(() => {
     setLoading(true);
     setError('');
+    const bounds = getInvoicePeriodBounds(rangePreset);
+    const dateStart = bounds ? toSalesOrderDateKey(bounds.start) : null;
+    const dateEnd = bounds ? toSalesOrderDateKey(bounds.end) : null;
     void Promise.allSettled([
       listDealerOrders({ limit: 200 }),
-      listDealerSalesOrders({ limit: 300 }),
+      // Match admin visibility: date-windowed, newest-first, no 400-cap slice.
+      listDealerSalesOrders({ limit: 2500, dateStart, dateEnd }),
     ])
       .then(([portalResult, zohoResult]) => {
         const messages: string[] = [];
@@ -295,7 +300,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
         setError(messages[0] ?? '');
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [rangePreset]);
 
   useEffect(() => {
     load();
@@ -488,6 +493,16 @@ export const DealerSalesOrdersPage: React.FC = () => {
           <div className="products-inline-error panel glass admin-invoices-error" role="alert">
             <AlertCircle size={18} />
             <span>{error}</span>
+          </div>
+        )}
+
+        {!loading && !error && zohoOrders.length > 0 && !filtered.some(row => row.source === 'zoho') && (
+          <div className="products-inline-error panel glass admin-invoices-error" role="status">
+            <AlertCircle size={18} />
+            <span>
+              {zohoOrders.length.toLocaleString('en-IN')} Zoho sales orders are loaded but hidden by the
+              current date filter. Open Filters and choose Lifetime (or a wider range).
+            </span>
           </div>
         )}
 
