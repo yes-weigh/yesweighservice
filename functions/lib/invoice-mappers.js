@@ -181,12 +181,26 @@ function endOfDay(date) {
   return d;
 }
 
+/** Pre-tax invoice amount (excludes GST). Prefers Zoho sub_total when present. */
+export function invoiceAmountExclGst(inv) {
+  if (inv?.subtotal != null && inv.subtotal !== '') {
+    const subtotal = Number(inv.subtotal);
+    if (Number.isFinite(subtotal)) return subtotal;
+  }
+  const total = Number(inv?.total ?? 0);
+  if (inv?.taxTotal != null && inv.taxTotal !== '') {
+    const taxTotal = Number(inv.taxTotal);
+    if (Number.isFinite(taxTotal)) return Math.max(0, total - taxTotal);
+  }
+  return total;
+}
+
 export function buildSalesEntries(invoices) {
   return invoices
     .filter(inv => inv.date)
     .map(inv => ({
       date: inv.date,
-      total: Number(inv.total ?? 0),
+      total: invoiceAmountExclGst(inv),
     }));
 }
 
@@ -204,7 +218,7 @@ export function computeDailySales(invoices, dayCount = 30) {
     for (const inv of invoices) {
       const ts = invoiceTimestamp(inv);
       if (ts >= dayStart.getTime() && ts <= dayEnd.getTime()) {
-        dayTotal += Number(inv.total ?? 0);
+        dayTotal += invoiceAmountExclGst(inv);
       }
     }
 
@@ -224,7 +238,7 @@ export function computeSalesForPeriod(invoices, periodDays = 30) {
   if (periodDays === null || periodDays === 'lifetime') {
     let totalSales = 0;
     for (const inv of invoices) {
-      totalSales += Number(inv.total ?? 0);
+      totalSales += invoiceAmountExclGst(inv);
     }
     return {
       periodStart: null,
@@ -250,7 +264,7 @@ export function computeSalesForPeriod(invoices, periodDays = 30) {
 
   for (const inv of invoices) {
     const ts = invoiceTimestamp(inv);
-    const amount = Number(inv.total ?? 0);
+    const amount = invoiceAmountExclGst(inv);
     if (ts >= periodStart.getTime() && ts <= periodEnd.getTime()) {
       totalSales += amount;
     } else if (ts >= prevPeriodStart.getTime() && ts <= prevPeriodEnd.getTime()) {
@@ -349,6 +363,8 @@ export function firestoreDocToListInvoice(data) {
     dueDate: data.dueDate ?? null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),
+    subtotal: data.subtotal != null && data.subtotal !== '' ? Number(data.subtotal) : null,
+    taxTotal: data.taxTotal != null && data.taxTotal !== '' ? Number(data.taxTotal) : null,
     balance: Number(data.balance ?? 0),
     referenceNumber: data.referenceNumber ?? null,
     lastPaymentDate: data.lastPaymentDate ?? null,
@@ -360,12 +376,13 @@ export function firestoreDocToListInvoice(data) {
 }
 
 export function firestoreDocToDetail(data) {
+  const list = firestoreDocToListInvoice(data);
   return {
-    ...firestoreDocToListInvoice(data),
+    ...list,
     salesOrderId: data.salesOrderId ?? null,
     salesOrderNumber: data.salesOrderNumber ?? null,
-    subtotal: Number(data.subtotal ?? 0),
-    taxTotal: Number(data.taxTotal ?? 0),
+    subtotal: Number(data.subtotal ?? list.subtotal ?? 0),
+    taxTotal: Number(data.taxTotal ?? list.taxTotal ?? 0),
     notes: data.notes ?? null,
     lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
   };

@@ -44,6 +44,7 @@ import {
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
   getInvoicePeriodBounds,
+  invoiceAmountExclGst,
   invoiceCategoryLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
@@ -680,7 +681,7 @@ export const AdminInvoicesPage: React.FC = () => {
                       </td>
                       <td>{formatInvoiceDate(invoice.date)}</td>
                       <td className="invoices-table__num">{formatInvoiceItemQuantity(invoice.itemQuantity)}</td>
-                      <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
+                      <td className="invoices-table__num">{formatCurrency(invoiceAmountExclGst(invoice))}</td>
                       <td>
                         {categoryLabel ? (
                           <InvoiceCategoryBadge category={invoice.invoiceCategory} />
@@ -734,7 +735,7 @@ export const AdminInvoicesPage: React.FC = () => {
                       </span>
                     </span>
                     <span className="invoices-mobile-row__amount">
-                      <strong>{formatCurrency(invoice.total)}</strong>
+                      <strong>{formatCurrency(invoiceAmountExclGst(invoice))}</strong>
                       <span className={invoiceStatusClass(invoice.status)}>
                         {invoiceStatusLabel(invoice.status)}
                       </span>

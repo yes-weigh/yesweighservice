@@ -249,12 +249,30 @@ export async function loadInvoiceDocumentObjectUrl(invoiceId: string): Promise<s
   return URL.createObjectURL(blob);
 }
 
+/** Pre-tax invoice amount (excludes GST). Prefers Zoho sub_total when present. */
+export function invoiceAmountExclGst(inv: {
+  total?: number | null;
+  subtotal?: number | null;
+  taxTotal?: number | null;
+}): number {
+  if (inv.subtotal != null) {
+    const subtotal = Number(inv.subtotal);
+    if (Number.isFinite(subtotal)) return subtotal;
+  }
+  const total = Number(inv.total ?? 0);
+  if (inv.taxTotal != null) {
+    const taxTotal = Number(inv.taxTotal);
+    if (Number.isFinite(taxTotal)) return Math.max(0, total - taxTotal);
+  }
+  return total;
+}
+
 export function buildSalesEntriesFromInvoices(invoices: DealerInvoice[]): InvoiceSalesEntry[] {
   return invoices
     .filter(inv => inv.date)
     .map(inv => ({
       date: inv.date!,
-      total: inv.total,
+      total: invoiceAmountExclGst(inv),
     }));
 }
 

@@ -6,7 +6,7 @@ import type {
   InvoiceListResponse,
 } from '../types/invoices';
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_PREFIX = `yws.invoice.${CACHE_VERSION}`;
 
 const TTL_BROWSER_MS = 30 * 60 * 1000;

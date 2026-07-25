@@ -1026,7 +1026,7 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
     `listDealerSalesOrders uid=${uid} customer=${customerId} `
     + `rows=${payload.length} newestDate=${payload[0]?.date ?? 'none'} `
     + `oldestDate=${payload[payload.length - 1]?.date ?? 'none'} `
-    + `range=${dateStart || '…'}..${dateEnd || '…'} portalLinked=${portalLinkedIds.length}`,
+    + `range=${dateStart || '…'}..${dateEnd || '…'}`,
   );
 
   return {

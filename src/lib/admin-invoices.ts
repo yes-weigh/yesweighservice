@@ -20,6 +20,7 @@ import { toSalesOrderDateKey } from './admin-sales-orders';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
+  invoiceAmountExclGst,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
 } from './invoices';
@@ -43,7 +44,12 @@ export interface AdminFirestoreInvoice {
   customerName: string | null;
   date: string | null;
   status: string;
+  /** Grand total including GST. */
   total: number;
+  /** Pre-tax amount (excludes GST). Null on older docs. */
+  subtotal: number | null;
+  /** GST / tax total. Null on older docs. */
+  taxTotal: number | null;
   balance: number;
   referenceNumber: string | null;
   syncedAt: string | null;
@@ -77,6 +83,8 @@ export function mapAdminInvoiceDoc(
     date: data.date ? String(data.date) : null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),
+    subtotal: data.subtotal != null ? Number(data.subtotal) : null,
+    taxTotal: data.taxTotal != null ? Number(data.taxTotal) : null,
     balance: Number(data.balance ?? 0),
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
@@ -184,7 +192,7 @@ function parseInvoiceDay(value: string): number {
 export function buildAdminSalesEntries(rows: AdminFirestoreInvoice[]): InvoiceSalesEntry[] {
   return rows
     .filter(row => row.date)
-    .map(row => ({ date: row.date!, total: row.total }));
+    .map(row => ({ date: row.date!, total: invoiceAmountExclGst(row) }));
 }
 
 export function buildAdminDailySales(
@@ -208,7 +216,7 @@ export function buildAdminDailySales(
       const ts = parseInvoiceDay(row.date);
       if (Number.isNaN(ts)) continue;
       if (ts >= dayStart.getTime() && ts <= dayEnd.getTime()) {
-        dayTotal += row.total;
+        dayTotal += invoiceAmountExclGst(row);
       }
     }
 

@@ -28,6 +28,7 @@ import {
   fetchDealerInvoiceDashboardWithCache,
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
+  invoiceAmountExclGst,
   invoiceCategoryLabel,
   invoiceDeliveryLabel,
   getInvoiceDeliveryStage,
@@ -335,7 +336,7 @@ function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen:
           <span className="invoices-mobile-row__meta">{formatInvoiceDate(invoice.date)}</span>
         </span>
         <span className="invoices-mobile-row__amount">
-          <strong>{formatCurrency(invoice.total)}</strong>
+          <strong>{formatCurrency(invoiceAmountExclGst(invoice))}</strong>
           <InvoiceDeliveryBadge date={invoice.date} />
         </span>
       </span>
@@ -812,7 +813,7 @@ export const InvoicesPage: React.FC = () => {
                             )}
                           </td>
                           <td><InvoiceDeliveryBadge date={invoice.date} /></td>
-                          <td className="invoices-table__num">{formatCurrency(invoice.total)}</td>
+                          <td className="invoices-table__num">{formatCurrency(invoiceAmountExclGst(invoice))}</td>
                           <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
                         </tr>
                         );

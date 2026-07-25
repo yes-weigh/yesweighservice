@@ -25,7 +25,12 @@ export interface DealerInvoice {
   date: string | null;
   dueDate: string | null;
   status: InvoiceStatus | string;
+  /** Grand total including GST. */
   total: number;
+  /** Pre-tax amount (excludes GST). Null on older docs that predate sync of this field. */
+  subtotal?: number | null;
+  /** GST / tax total. Null on older docs that predate sync of this field. */
+  taxTotal?: number | null;
   balance: number;
   referenceNumber: string | null;
   lastPaymentDate: string | null;
