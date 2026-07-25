@@ -6,8 +6,8 @@ import {
   ChevronRight,
   ClipboardList,
   IndianRupee,
+  LayoutGrid,
   Search,
-  ShoppingCart,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
@@ -16,14 +16,15 @@ import {
   InvoiceCategoryBadge,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
-import { OrderStatusBadge } from '../../components/orders/OrderStatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
-import type { AdminFirestoreSalesOrder } from '../../lib/admin-sales-orders';
+import type {
+  AdminFirestoreSalesOrder,
+  AdminSalesOrderCategoryCounts,
+} from '../../lib/admin-sales-orders';
 import { toSalesOrderDateKey } from '../../lib/admin-sales-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
-import { dealerOrderErrorMessage, listDealerOrders } from '../../lib/dealerOrders';
 import {
   formatInvoiceDate,
   formatInvoiceItemQuantity,
@@ -33,68 +34,53 @@ import {
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import {
-  countUnifiedStages,
   filterUnifiedSalesOrders,
   mergeUnifiedSalesOrders,
   summarizeUnifiedAmounts,
-  UNIFIED_STATUS_CHIPS,
   type UnifiedSalesOrderRow,
-  type UnifiedSalesOrderSource,
-  type UnifiedStatusChip,
 } from '../../lib/unified-sales-orders';
 import { homePathForRole } from '../../types';
-import type { DealerOrder } from '../../types/dealer-orders';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
-import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
+import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
-const DEFAULT_SOURCE: UnifiedSalesOrderSource | 'all' = 'all';
-
-const SOURCE_OPTIONS: Array<{ value: UnifiedSalesOrderSource | 'all'; label: string }> = [
-  { value: 'all', label: 'All sources' },
-  { value: 'portal', label: 'Portal' },
-  { value: 'zoho', label: 'Zoho' },
+const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'product', label: 'Product' },
+  { value: 'spare', label: 'Spares' },
+  { value: 'software_key', label: 'Software' },
+  { value: 'service', label: 'Service' },
+  { value: 'gatc', label: 'GATC' },
 ];
 
-function SourceBadge({ source }: { source: UnifiedSalesOrderSource }) {
-  return (
-    <span className={`unified-so-source unified-so-source--${source}`}>
-      {source === 'portal' ? 'Portal' : 'Zoho'}
-    </span>
-  );
-}
+const EMPTY_CATEGORY_COUNTS: AdminSalesOrderCategoryCounts = {
+  all: 0,
+  product: 0,
+  spare: 0,
+  software_key: 0,
+  service: 0,
+  gatc: 0,
+};
 
 function DealerFilterSheet({
   open,
   rangePreset,
-  category,
-  source,
   onClose,
   onApply,
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
-  category: InvoiceCategory | 'all';
-  source: UnifiedSalesOrderSource | 'all';
   onClose: () => void;
-  onApply: (next: {
-    rangePreset: SalesRangePreset;
-    category: InvoiceCategory | 'all';
-    source: UnifiedSalesOrderSource | 'all';
-  }) => void;
+  onApply: (next: { rangePreset: SalesRangePreset }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
-  const [draftCategory, setDraftCategory] = useState(category);
-  const [draftSource, setDraftSource] = useState(source);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
-    setDraftCategory(category);
-    setDraftSource(source);
-  }, [open, rangePreset, category, source]);
+  }, [open, rangePreset]);
 
   useEffect(() => {
     if (!open) return;
@@ -107,9 +93,7 @@ function DealerFilterSheet({
 
   if (!open) return null;
 
-  const draftDirty = draftRange !== DEFAULT_RANGE
-    || draftCategory !== DEFAULT_CATEGORY
-    || draftSource !== DEFAULT_SOURCE;
+  const draftDirty = draftRange !== DEFAULT_RANGE;
 
   return createPortal(
     <>
@@ -140,28 +124,6 @@ function DealerFilterSheet({
 
           <div className="catalog-spares-multi-filters__body">
             <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Source</span>
-              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Source">
-                {SOURCE_OPTIONS.map(option => {
-                  const id = `dealer-so-source-${option.value}`;
-                  return (
-                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
-                      <input
-                        id={id}
-                        type="radio"
-                        className="catalog-spares-multi-filters__checkbox"
-                        name="dealer-so-source"
-                        checked={draftSource === option.value}
-                        onChange={() => setDraftSource(option.value)}
-                      />
-                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Date range</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Date range">
                 {SALES_RANGE_OPTIONS.map(option => {
@@ -182,28 +144,6 @@ function DealerFilterSheet({
                 })}
               </div>
             </div>
-
-            <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Category</span>
-              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Category">
-                {INVOICE_CATEGORY_FILTER_OPTIONS.map(option => {
-                  const id = `dealer-so-category-${option.value}`;
-                  return (
-                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
-                      <input
-                        id={id}
-                        type="radio"
-                        className="catalog-spares-multi-filters__checkbox"
-                        name="dealer-so-category"
-                        checked={draftCategory === option.value}
-                        onChange={() => setDraftCategory(option.value)}
-                      />
-                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
           </div>
 
           <div className="catalog-spares-multi-filters__footer">
@@ -211,11 +151,7 @@ function DealerFilterSheet({
               type="button"
               className="catalog-spares-multi-filters__apply"
               onClick={() => {
-                onApply({
-                  rangePreset: draftRange,
-                  category: draftCategory,
-                  source: draftSource,
-                });
+                onApply({ rangePreset: draftRange });
                 onClose();
               }}
             >
@@ -225,11 +161,7 @@ function DealerFilterSheet({
               type="button"
               className="catalog-spares-multi-filters__clear-btn"
               disabled={!draftDirty}
-              onClick={() => {
-                setDraftRange(DEFAULT_RANGE);
-                setDraftCategory(DEFAULT_CATEGORY);
-                setDraftSource(DEFAULT_SOURCE);
-              }}
+              onClick={() => setDraftRange(DEFAULT_RANGE)}
             >
               Clear
             </button>
@@ -247,15 +179,12 @@ export const DealerSalesOrdersPage: React.FC = () => {
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const scrollRef = useRevealScrollbarOnScroll();
 
-  const [portalOrders, setPortalOrders] = useState<DealerOrder[]>([]);
   const [zohoOrders, setZohoOrders] = useState<AdminFirestoreSalesOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
-  const [source, setSource] = useState<UnifiedSalesOrderSource | 'all'>(DEFAULT_SOURCE);
-  const [statusChip, setStatusChip] = useState<UnifiedStatusChip>('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
 
@@ -265,39 +194,15 @@ export const DealerSalesOrdersPage: React.FC = () => {
     const bounds = getInvoicePeriodBounds(rangePreset);
     const dateStart = bounds ? toSalesOrderDateKey(bounds.start) : null;
     const dateEnd = bounds ? toSalesOrderDateKey(bounds.end) : null;
-    void Promise.allSettled([
-      listDealerOrders({ limit: 200 }),
-      // Match admin visibility: date-windowed, newest-first, no 400-cap slice.
-      listDealerSalesOrders({ limit: 2500, dateStart, dateEnd }),
-    ])
-      .then(([portalResult, zohoResult]) => {
-        const messages: string[] = [];
-        if (portalResult.status === 'fulfilled') {
-          setPortalOrders(portalResult.value);
-        } else {
-          setPortalOrders([]);
-          messages.push(
-            portalResult.reason instanceof Error
-              ? portalResult.reason.message
-              : dealerOrderErrorMessage(portalResult.reason),
-          );
-        }
-        if (zohoResult.status === 'fulfilled') {
-          setZohoOrders(zohoResult.value);
-        } else {
-          setZohoOrders([]);
-          // Missing Zoho customer link should not block portal orders.
-          const zohoMessage = zohoResult.reason instanceof Error
-            ? zohoResult.reason.message
-            : invoiceErrorMessage(zohoResult.reason);
-          const unlinked = /not linked to a zoho customer|no zoho customer is linked/i.test(
-            zohoMessage,
-          );
-          if (!unlinked) {
-            messages.push(zohoMessage);
-          }
-        }
-        setError(messages[0] ?? '');
+    // Zoho-only list — portal dealerOrders are no longer merged.
+    void listDealerSalesOrders({ limit: 2500, dateStart, dateEnd })
+      .then(rows => {
+        setZohoOrders(rows);
+        setError('');
+      })
+      .catch(err => {
+        setZohoOrders([]);
+        setError(invoiceErrorMessage(err));
       })
       .finally(() => setLoading(false));
   }, [rangePreset]);
@@ -307,37 +212,50 @@ export const DealerSalesOrdersPage: React.FC = () => {
   }, [load]);
 
   const merged = useMemo(
-    () => mergeUnifiedSalesOrders(portalOrders, zohoOrders, basePath, {
+    () => mergeUnifiedSalesOrders([], zohoOrders, basePath, {
       includePortalDuplicates: false,
     }),
-    [portalOrders, zohoOrders, basePath],
+    [zohoOrders, basePath],
   );
 
   const filtered = useMemo(
     () => filterUnifiedSalesOrders(merged, {
       search,
-      source,
-      statusChip,
-      category,
-      period: rangePreset,
-    }),
-    [merged, search, source, statusChip, category, rangePreset],
-  );
-
-  const stageCounts = useMemo(() => {
-    const inPeriod = filterUnifiedSalesOrders(merged, {
-      search: '',
-      source,
+      source: 'zoho',
       statusChip: 'all',
       category,
       period: rangePreset,
+    }),
+    [merged, search, category, rangePreset],
+  );
+
+  const categoryCounts = useMemo(() => {
+    const inPeriod = filterUnifiedSalesOrders(merged, {
+      search: '',
+      source: 'zoho',
+      statusChip: 'all',
+      category: 'all',
+      period: rangePreset,
     });
-    return countUnifiedStages(inPeriod);
-  }, [merged, source, category, rangePreset]);
+    const counts: AdminSalesOrderCategoryCounts = { ...EMPTY_CATEGORY_COUNTS, all: inPeriod.length };
+    for (const row of inPeriod) {
+      const key = row.category;
+      if (
+        key === 'product'
+        || key === 'spare'
+        || key === 'software_key'
+        || key === 'service'
+        || key === 'gatc'
+      ) {
+        counts[key] += 1;
+      }
+    }
+    return counts;
+  }, [merged, rangePreset]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, rangePreset, category, source, statusChip]);
+  }, [search, rangePreset, category]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -364,9 +282,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
     bounds ? bounds.end.toISOString() : new Date().toISOString(),
   );
 
-  const hasActiveFilters = rangePreset !== DEFAULT_RANGE
-    || category !== DEFAULT_CATEGORY
-    || source !== DEFAULT_SOURCE;
+  const hasActiveFilters = rangePreset !== DEFAULT_RANGE;
 
   const openRow = (row: UnifiedSalesOrderRow) => {
     navigate(row.href);
@@ -374,12 +290,11 @@ export const DealerSalesOrdersPage: React.FC = () => {
 
   const headerTools = useMemo(
     () => (
-      <div className="catalog-header-tools">
-        <div className="catalog-header-search">
-          <Search size={18} aria-hidden className="catalog-header-search__icon" />
+      <div className="invoices-header-tools">
+        <div className="catalog-search invoices-header-search">
+          <Search size={15} aria-hidden />
           <input
             type="search"
-            className="catalog-header-search__input"
             placeholder="Search SO #, YES-ORD #…"
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -388,7 +303,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
           {search ? (
             <button
               type="button"
-              className="catalog-header-search__clear"
+              className="invoices-header-search__clear"
               onClick={() => setSearch('')}
               aria-label="Clear search"
             >
@@ -396,16 +311,6 @@ export const DealerSalesOrdersPage: React.FC = () => {
             </button>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => navigate(`${basePath}/orders`)}
-          title="Cart"
-          aria-label="Open cart"
-        >
-          <ShoppingCart size={16} aria-hidden />
-          <span className="catalog-header-tools__label">Cart</span>
-        </button>
         <button
           type="button"
           className={[
@@ -423,10 +328,10 @@ export const DealerSalesOrdersPage: React.FC = () => {
         </button>
       </div>
     ),
-    [search, filterOpen, hasActiveFilters, basePath, navigate],
+    [search, filterOpen, hasActiveFilters],
   );
 
-  useCatalogPageHeader({ mobileCompactHeader: true, title: 'Sales orders' }, true);
+  useCatalogPageHeader({ mobileCompactHeader: true }, true);
   usePageHeaderSlot(headerTools);
 
   return (
@@ -466,27 +371,42 @@ export const DealerSalesOrdersPage: React.FC = () => {
             </div>
           </div>
         </div>
-      </section>
 
-      <div className="dealer-orders-tabs unified-so-tabs" role="tablist" aria-label="Order stage">
-        {UNIFIED_STATUS_CHIPS.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={statusChip === item.id}
-            className={`dealer-orders-tabs__btn${statusChip === item.id ? ' is-active' : ''}`}
-            onClick={() => setStatusChip(item.id)}
-          >
-            {item.label}
-            <span>
-              {item.id === 'all'
-                ? (stageCounts.all ?? 0)
-                : (stageCounts[item.id] ?? 0)}
-            </span>
-          </button>
-        ))}
-      </div>
+        <div className="unified-so-category-blocks" role="tablist" aria-label="Order category">
+          {CATEGORY_BLOCKS.map(item => {
+            const active = category === item.value;
+            const count = item.value === 'all'
+              ? categoryCounts.all
+              : categoryCounts[item.value];
+            return (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`unified-so-category-block${active ? ' is-active' : ''}${
+                  item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
+                }`}
+                onClick={() => setCategory(item.value)}
+              >
+                <span className="unified-so-category-block__icon" aria-hidden>
+                  {item.value === 'all' ? (
+                    <span className="unified-so-category-block__icon--all">
+                      <LayoutGrid size={18} strokeWidth={2.2} />
+                    </span>
+                  ) : (
+                    <InvoiceCategoryIcon category={item.value} />
+                  )}
+                </span>
+                <span className="unified-so-category-block__label">{item.label}</span>
+                <span className="unified-so-category-block__count">
+                  {loading ? '…' : count.toLocaleString('en-IN')}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       <div ref={scrollRef} className="invoices-page__scroll">
         {error && (
@@ -513,7 +433,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
             <ClipboardList size={36} aria-hidden />
             <h2>No sales orders found</h2>
             <p className="text-muted text-sm">
-              Portal orders and Zoho sales orders for your account will appear here.
+              Zoho sales orders for your account will appear here after you submit a cart.
             </p>
           </div>
         ) : (
@@ -551,15 +471,10 @@ export const DealerSalesOrdersPage: React.FC = () => {
                               {formatInvoiceDate(row.date)}
                             </span>
                             <span className="unified-so-order-cell__badges">
-                              <SourceBadge source={row.source} />
                               {row.category ? (
                                 <InvoiceCategoryBadge category={row.category} />
                               ) : null}
-                              {row.source === 'portal' ? (
-                                <OrderStatusBadge status={row.statusRaw} />
-                              ) : (
-                                <span className={row.statusClass}>{row.statusLabel}</span>
-                              )}
+                              <span className={row.statusClass}>{row.statusLabel}</span>
                             </span>
                           </div>
                         </td>
@@ -596,7 +511,6 @@ export const DealerSalesOrdersPage: React.FC = () => {
                             {row.category ? (
                               <InvoiceCategoryBadge category={row.category} />
                             ) : null}
-                            <SourceBadge source={row.source} />
                           </span>
                           <strong className="invoices-mobile-row__amount-value">
                             {formatCurrency(row.amount, row.currencyCode)}
@@ -611,11 +525,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
                             {' • '}
                             Qty {formatInvoiceItemQuantity(row.qty)}
                           </span>
-                          {row.source === 'portal' ? (
-                            <OrderStatusBadge status={row.statusRaw} />
-                          ) : (
-                            <span className={row.statusClass}>{row.statusLabel}</span>
-                          )}
+                          <span className={row.statusClass}>{row.statusLabel}</span>
                         </span>
                       </span>
                     </span>
@@ -666,13 +576,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
       <DealerFilterSheet
         open={filterOpen}
         rangePreset={rangePreset}
-        category={category}
-        source={source}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
-          setCategory(next.category);
-          setSource(next.source);
         }}
       />
     </div>

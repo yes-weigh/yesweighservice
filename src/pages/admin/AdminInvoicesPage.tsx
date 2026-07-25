@@ -1,16 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ChevronRight,
   FileText,
   IndianRupee,
+  LayoutGrid,
   Search,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import {
+  DealerMultiFilterPicker,
+  type DealerFilterSelection,
+} from '../../components/dealers/DealerMultiFilterPicker';
 import {
   InvoiceCategoryBadge,
   InvoiceCategoryIcon,
@@ -18,32 +23,57 @@ import {
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   buildAdminSalesEntries,
+  countAdminInvoicesByCategory,
+  countInvoiceRowsByCategory,
   fetchAdminCustomerLocations,
+  fetchAdminInvoicesForCustomers,
   filterAdminInvoices,
   filterAdminInvoicesByPeriod,
   formatAdminCustomerLocation,
   subscribeAdminInvoices,
+  toInvoiceDateKey,
   type AdminFirestoreInvoice,
+  type AdminInvoiceCategoryCounts,
   type AdminInvoiceSort,
 } from '../../lib/admin-invoices';
 import { formatCurrency } from '../../lib/catalog';
+import { fetchDealerById } from '../../lib/dealers';
 import {
   computeSalesForPeriod,
   formatInvoiceDate,
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
+  getInvoicePeriodBounds,
   invoiceCategoryLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
-import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
+import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
 const DEFAULT_SORT: AdminInvoiceSort = 'date';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
+
+const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'product', label: 'Product' },
+  { value: 'spare', label: 'Spares' },
+  { value: 'software_key', label: 'Software' },
+  { value: 'service', label: 'Service' },
+  { value: 'gatc', label: 'GATC' },
+];
+
+const EMPTY_CATEGORY_COUNTS: AdminInvoiceCategoryCounts = {
+  all: 0,
+  product: 0,
+  spare: 0,
+  software_key: 0,
+  service: 0,
+  gatc: 0,
+};
 
 const SORT_OPTIONS: Array<{ value: AdminInvoiceSort; label: string }> = [
   { value: 'date', label: 'Invoice date' },
@@ -58,32 +88,32 @@ function invoiceStatusClass(status: string): string {
 function AdminFilterSheet({
   open,
   rangePreset,
-  category,
   sort,
+  dealers,
   onClose,
   onApply,
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
-  category: InvoiceCategory | 'all';
   sort: AdminInvoiceSort;
+  dealers: DealerFilterSelection[];
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
-    category: InvoiceCategory | 'all';
     sort: AdminInvoiceSort;
+    dealers: DealerFilterSelection[];
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
-  const [draftCategory, setDraftCategory] = useState(category);
   const [draftSort, setDraftSort] = useState(sort);
+  const [draftDealers, setDraftDealers] = useState<DealerFilterSelection[]>(dealers);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
-    setDraftCategory(category);
     setDraftSort(sort);
-  }, [open, rangePreset, category, sort]);
+    setDraftDealers(dealers);
+  }, [open, rangePreset, sort, dealers]);
 
   useEffect(() => {
     if (!open) return;
@@ -97,8 +127,8 @@ function AdminFilterSheet({
   if (!open) return null;
 
   const draftDirty = draftRange !== DEFAULT_RANGE
-    || draftCategory !== DEFAULT_CATEGORY
-    || draftSort !== DEFAULT_SORT;
+    || draftSort !== DEFAULT_SORT
+    || draftDealers.length > 0;
 
   return createPortal(
     <>
@@ -131,6 +161,11 @@ function AdminFilterSheet({
 
           <div className="catalog-spares-multi-filters__body">
             <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Dealers</span>
+              <DealerMultiFilterPicker value={draftDealers} onChange={setDraftDealers} />
+            </div>
+
+            <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Date range</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Date range">
                 {SALES_RANGE_OPTIONS.map(option => {
@@ -145,29 +180,6 @@ function AdminFilterSheet({
                         name="admin-invoice-date-range"
                         checked={checked}
                         onChange={() => setDraftRange(option.value)}
-                      />
-                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Category</span>
-              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Category">
-                {INVOICE_CATEGORY_FILTER_OPTIONS.map(option => {
-                  const checked = draftCategory === option.value;
-                  const id = `admin-invoice-category-${option.value}`;
-                  return (
-                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
-                      <input
-                        id={id}
-                        type="radio"
-                        className="catalog-spares-multi-filters__checkbox"
-                        name="admin-invoice-category"
-                        checked={checked}
-                        onChange={() => setDraftCategory(option.value)}
                       />
                       <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
                     </label>
@@ -207,8 +219,8 @@ function AdminFilterSheet({
               onClick={() => {
                 onApply({
                   rangePreset: draftRange,
-                  category: draftCategory,
                   sort: draftSort,
+                  dealers: draftDealers,
                 });
                 onClose();
               }}
@@ -221,8 +233,8 @@ function AdminFilterSheet({
               disabled={!draftDirty}
               onClick={() => {
                 setDraftRange(DEFAULT_RANGE);
-                setDraftCategory(DEFAULT_CATEGORY);
                 setDraftSort(DEFAULT_SORT);
+                setDraftDealers([]);
               }}
             >
               Clear
@@ -237,6 +249,7 @@ function AdminFilterSheet({
 
 export const AdminInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const scrollRef = useRevealScrollbarOnScroll();
   const [rows, setRows] = useState<AdminFirestoreInvoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -247,11 +260,77 @@ export const AdminInvoicesPage: React.FC = () => {
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
+  const [categoryCounts, setCategoryCounts] = useState<AdminInvoiceCategoryCounts>(EMPTY_CATEGORY_COUNTS);
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
 
+  const dealerFilterFromUrl = searchParams.get('dealerId')?.trim() || '';
+  const dealersParam = searchParams.get('dealers') || '';
+  const dealersFromUrl = useMemo(
+    () => dealersParam.split(',').map(id => id.trim()).filter(Boolean),
+    [dealersParam],
+  );
+  const selectedCustomerIds = useMemo(
+    () => selectedDealers.map(d => d.id).filter(Boolean),
+    [selectedDealers],
+  );
+  const dealerScoped = selectedCustomerIds.length > 0;
+  const selectedCustomerKey = selectedCustomerIds.slice().sort().join(',');
+
+  const bounds = getInvoicePeriodBounds(rangePreset);
+  const dateStart = bounds ? toInvoiceDateKey(bounds.start) : null;
+  const dateEnd = bounds ? toInvoiceDateKey(bounds.end) : null;
+
   useEffect(() => {
+    const ids = dealerFilterFromUrl
+      ? [dealerFilterFromUrl]
+      : dealersFromUrl;
+    if (!ids.length) {
+      setSelectedDealers([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      ids.map(id => fetchDealerById(id).catch(() => null)),
+    ).then(rows => {
+      if (cancelled) return;
+      const next: DealerFilterSelection[] = [];
+      for (let i = 0; i < ids.length; i += 1) {
+        const dealer = rows[i];
+        next.push({
+          id: ids[i],
+          label: dealer?.companyName?.trim()
+            || dealer?.contactName?.trim()
+            || ids[i],
+          portalUserId: dealer?.portalUserId ?? null,
+        });
+      }
+      setSelectedDealers(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dealerFilterFromUrl, dealersFromUrl]);
+
+  const syncDealerParams = useCallback((dealers: DealerFilterSelection[]) => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('dealerId');
+    if (dealers.length === 0) {
+      next.delete('dealers');
+    } else if (dealers.length === 1) {
+      next.set('dealerId', dealers[0].id);
+      next.delete('dealers');
+    } else {
+      next.set('dealers', dealers.map(d => d.id).join(','));
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  // Org-wide: live subscribe (all categories). Category filter is client-side.
+  useEffect(() => {
+    if (dealerScoped) return;
     setLoading(true);
     setError('');
     setRows([]);
@@ -266,14 +345,63 @@ export const AdminInvoicesPage: React.FC = () => {
         setError(message);
         setLoading(false);
       },
-      category,
+      'all',
     );
     return () => unsubscribe();
-  }, [sort, category]);
+  }, [sort, dealerScoped]);
+
+  // Dealer-scoped: fetch invoices for selected customers in the date window.
+  useEffect(() => {
+    if (!dealerScoped) return;
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    void fetchAdminInvoicesForCustomers({
+      customerIds: selectedCustomerIds,
+      dateStart,
+      dateEnd,
+      category: 'all',
+      sort,
+    })
+      .then(next => {
+        if (cancelled) return;
+        setRows(next);
+        setCategoryCounts(countInvoiceRowsByCategory(next));
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not load invoices.');
+          setRows([]);
+          setCategoryCounts(EMPTY_CATEGORY_COUNTS);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dealerScoped, selectedCustomerKey, dateStart, dateEnd, sort, selectedCustomerIds]);
+
+  // Org-wide category counts from Firestore.
+  useEffect(() => {
+    if (dealerScoped) return;
+    let cancelled = false;
+    void countAdminInvoicesByCategory({ dateStart, dateEnd })
+      .then(counts => {
+        if (!cancelled) setCategoryCounts(counts);
+      })
+      .catch(() => {
+        if (!cancelled) setCategoryCounts(EMPTY_CATEGORY_COUNTS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dealerScoped, dateStart, dateEnd]);
 
   const periodRows = useMemo(
-    () => filterAdminInvoicesByPeriod(rows, rangePreset),
-    [rows, rangePreset],
+    () => (dealerScoped ? rows : filterAdminInvoicesByPeriod(rows, rangePreset)),
+    [rows, rangePreset, dealerScoped],
   );
 
   const filtered = useMemo(
@@ -283,7 +411,7 @@ export const AdminInvoicesPage: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [search, rangePreset, category, sort]);
+  }, [search, rangePreset, category, sort, selectedCustomerKey]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -329,8 +457,8 @@ export const AdminInvoicesPage: React.FC = () => {
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
-    || category !== DEFAULT_CATEGORY
-    || sort !== DEFAULT_SORT;
+    || sort !== DEFAULT_SORT
+    || selectedDealers.length > 0;
 
   const headerTools = useMemo(
     () => (
@@ -379,7 +507,7 @@ export const AdminInvoicesPage: React.FC = () => {
   usePageHeaderSlot(headerTools);
 
   return (
-    <div className="page-content fade-in admin-invoices-page invoices-page">
+    <div className="page-content fade-in admin-invoices-page invoices-page unified-sales-orders-page">
       <section className="invoices-summary" aria-label="Invoice summary">
         <div className="invoices-summary__kpis">
           <div className="invoices-summary__kpi">
@@ -409,6 +537,50 @@ export const AdminInvoicesPage: React.FC = () => {
               <span className="invoices-summary__kpi-sub">Amount</span>
             </div>
           </div>
+        </div>
+
+        {selectedDealers.length > 0 && (
+          <p className="unified-so-dealer-filter-note text-muted text-sm">
+            Filtered to {selectedDealers.length === 1
+              ? selectedDealers[0].label
+              : `${selectedDealers.length} dealers`}
+            .
+          </p>
+        )}
+
+        <div className="unified-so-category-blocks" role="tablist" aria-label="Invoice category">
+          {CATEGORY_BLOCKS.map(item => {
+            const active = category === item.value;
+            const count = item.value === 'all'
+              ? categoryCounts.all
+              : categoryCounts[item.value];
+            return (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`unified-so-category-block${active ? ' is-active' : ''}${
+                  item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
+                }`}
+                onClick={() => setCategory(item.value)}
+              >
+                <span className="unified-so-category-block__icon" aria-hidden>
+                  {item.value === 'all' ? (
+                    <span className="unified-so-category-block__icon--all">
+                      <LayoutGrid size={18} strokeWidth={2.2} />
+                    </span>
+                  ) : (
+                    <InvoiceCategoryIcon category={item.value} />
+                  )}
+                </span>
+                <span className="unified-so-category-block__label">{item.label}</span>
+                <span className="unified-so-category-block__count">
+                  {loading ? '…' : count.toLocaleString('en-IN')}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -611,13 +783,14 @@ export const AdminInvoicesPage: React.FC = () => {
       <AdminFilterSheet
         open={filterOpen}
         rangePreset={rangePreset}
-        category={category}
         sort={sort}
+        dealers={selectedDealers}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
-          setCategory(next.category);
           setSort(next.sort);
+          setSelectedDealers(next.dealers);
+          syncDealerParams(next.dealers);
         }}
       />
     </div>

@@ -50,7 +50,12 @@ const DealerCartPage: React.FC = () => {
         items.map(item => ({ productId: item.productId, quantity: item.quantity })),
       );
       clearCart();
-      navigate(`${base}/orders/${order.id}`, { replace: true });
+      // Zoho SO is created as Draft on submit — open the mirrored sales order.
+      const soId = order.zohoSalesOrderId?.trim();
+      navigate(
+        soId ? `${base}/sales-orders/${soId}` : `${base}/sales-orders`,
+        { replace: true },
+      );
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
     } finally {

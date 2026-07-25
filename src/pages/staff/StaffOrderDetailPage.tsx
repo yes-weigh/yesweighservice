@@ -390,7 +390,12 @@ export const StaffOrderDetailPage: React.FC = () => {
               {saving ? 'Saving…' : 'Save changes'}
             </button>
             <button type="button" className="btn btn-primary" disabled={saving || draftLines.length === 0} onClick={() => void handleApprove()}>
-              <CheckCircle2 size={16} /> {saving ? 'Approving…' : 'Approve & create SO'}
+              <CheckCircle2 size={16} />{' '}
+              {saving
+                ? 'Confirming…'
+                : order.zohoSalesOrderId
+                  ? 'Confirm in Zoho'
+                  : 'Approve & create SO'}
             </button>
             <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setRejectOpen(true)}>
               Reject

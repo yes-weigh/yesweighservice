@@ -131,6 +131,8 @@ import {
   approveDealerOrder as approveDealerOrderRecord,
   rejectDealerOrder as rejectDealerOrderRecord,
   cancelDealerOrder as cancelDealerOrderRecord,
+  confirmMirroredSalesOrder as confirmMirroredSalesOrderRecord,
+  voidMirroredSalesOrder as voidMirroredSalesOrderRecord,
   submitDealerOrderPayment as submitDealerOrderPaymentRecord,
   verifyDealerOrderPayment as verifyDealerOrderPaymentRecord,
   downloadDealerOrderSalesOrder as downloadDealerOrderSalesOrderRecord,
@@ -2883,12 +2885,23 @@ export const getLogisticsPhotoUrlFn = onCall(
 const DEALER_ORDER_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 
 export const submitDealerOrder = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
   async request => {
     const uid = request.auth?.uid;
     const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
     try {
-      return await submitDealerOrderRecord(uid, role, request.data ?? {});
+      return await submitDealerOrderRecord(
+        uid,
+        role,
+        request.data ?? {},
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not submit order.');
@@ -2964,7 +2977,12 @@ export const approveDealerOrder = onCall(
 );
 
 export const rejectDealerOrder = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
   async request => {
     const uid = request.auth?.uid;
     const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
@@ -2974,6 +2992,8 @@ export const rejectDealerOrder = onCall(
         role,
         request.data?.orderId,
         request.data?.reason,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
       );
     } catch (err) {
       if (err instanceof HttpsError) throw err;
@@ -2982,13 +3002,75 @@ export const rejectDealerOrder = onCall(
   },
 );
 
+export const confirmZohoSalesOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await confirmMirroredSalesOrderRecord(
+        uid,
+        role,
+        request.data?.salesOrderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not confirm sales order.');
+    }
+  },
+);
+
+export const voidZohoSalesOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await voidMirroredSalesOrderRecord(
+        uid,
+        role,
+        request.data?.salesOrderId,
+        request.data?.reason,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not void sales order.');
+    }
+  },
+);
+
 export const cancelDealerOrder = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
   async request => {
     const uid = request.auth?.uid;
     const role = await requireActiveUser(uid, DEALER_ORDER_ROLES);
     try {
-      return await cancelDealerOrderRecord(uid, role, request.data?.orderId);
+      return await cancelDealerOrderRecord(
+        uid,
+        role,
+        request.data?.orderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not cancel order.');

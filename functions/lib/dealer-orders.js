@@ -1,13 +1,16 @@
 /**
- * Dealer portal product orders: submit → staff review → Zoho SO → payment → invoice.
+ * Dealer portal product orders: cart submit → Zoho SO (Draft) → confirm/invoice in Zoho.
+ * Portal dealerOrders remain as a thin audit/payment link to the Zoho SO.
  */
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import {
+  confirmSalesOrder,
   createSalesOrderFromDealerOrder,
   createInvoiceFromSalesOrder,
   downloadSalesOrderPdf,
+  voidSalesOrder,
 } from './zoho-sales-orders.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { getDealerOrderPaymentUrl } from './dealer-order-upload.js';
@@ -365,14 +368,23 @@ function buildChangeLog(prevLines, nextLines, user) {
   return changes;
 }
 
-export async function submitDealerOrder(uid, role, payload = {}) {
+export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId) {
   const user = await loadUser(uid);
   if (!DEALER_ROLES.has(user.role)) {
     throw new HttpsError('permission-denied', 'Only dealers can submit orders.');
   }
+  if (!secrets) {
+    throw new HttpsError('failed-precondition', 'Zoho credentials are not configured.');
+  }
 
   const dealerId = resolveDealerId(user);
   const zohoCustomerId = await resolveZohoCustomerIdForUser(uid, user.role);
+  if (!zohoCustomerId) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Your account is not linked to a Zoho customer. Contact support.',
+    );
+  }
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
 
   const lines = await buildLinesFromInput(payload.lines, { allowOutOfStock: false });
@@ -399,7 +411,35 @@ export async function submitDealerOrder(uid, role, payload = {}) {
   const orderNumber = await nextOrderNumber();
   const createdAt = nowIso();
   const ref = getFirestore().collection(COLLECTION).doc();
-  const status = 'pending_review';
+
+  // Create Zoho Inventory SO as Draft, then mirror — portal doc is an audit/payment link.
+  let salesOrderId = null;
+  let salesOrderNumber = null;
+  try {
+    const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
+      id: ref.id,
+      orderNumber,
+      zohoCustomerId,
+      lines,
+      subtotal,
+    });
+    salesOrderId = so.salesOrderId;
+    salesOrderNumber = so.salesOrderNumber;
+    try {
+      await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+    } catch (mirrorErr) {
+      console.warn(
+        `Submit order ${ref.id}: could not mirror SO ${salesOrderId}:`,
+        mirrorErr?.message ?? mirrorErr,
+      );
+    }
+  } catch (err) {
+    const message = err?.message || 'Could not create Zoho sales order.';
+    throw new HttpsError('failed-precondition', message);
+  }
+
+  // Skip portal pending_review — SO already exists in Zoho as Draft.
+  const status = 'waiting_for_payment';
   const doc = {
     orderNumber,
     dealerId,
@@ -411,24 +451,24 @@ export async function submitDealerOrder(uid, role, payload = {}) {
     createdAt,
     updatedAt: createdAt,
     status,
-    statusHistory: [statusEvent(status, user)],
+    statusHistory: [statusEvent(status, user, 'Created as Zoho Draft')],
     rejectionReason: null,
     lines,
     submittedLines: lines.map(line => ({ ...line })),
     changes: [],
     subtotal,
     itemCount: sumItemCount(lines),
-    approvedAt: null,
+    approvedAt: createdAt,
     approvedByUid: null,
-    approvedByName: null,
-    paymentAmount: null,
+    approvedByName: 'Zoho Draft',
+    paymentAmount: subtotal,
     paymentUtr: null,
     paymentScreenshotStoragePath: null,
     paymentSubmittedAt: null,
     paymentVerifiedAt: null,
     paymentVerifiedByUid: null,
-    zohoSalesOrderId: null,
-    zohoSalesOrderNumber: null,
+    zohoSalesOrderId: salesOrderId,
+    zohoSalesOrderNumber: salesOrderNumber,
     zohoInvoiceId: null,
     zohoInvoiceNumber: null,
     zohoSyncError: null,
@@ -520,8 +560,9 @@ export async function approveDealerOrder(uid, role, orderId, secrets, orgId) {
   requireOrdersManage(user);
 
   const { ref, data } = await getOrderOrThrow(orderId);
-  if (data.status !== 'pending_review') {
-    throw new HttpsError('failed-precondition', 'Only pending orders can be approved.');
+  const approvable = new Set(['pending_review', 'waiting_for_payment']);
+  if (!approvable.has(data.status)) {
+    throw new HttpsError('failed-precondition', 'This order can no longer be confirmed.');
   }
   if (!Array.isArray(data.lines) || data.lines.length === 0) {
     throw new HttpsError('failed-precondition', 'Order has no line items.');
@@ -545,7 +586,17 @@ export async function approveDealerOrder(uid, role, orderId, secrets, orgId) {
       salesOrderNumber = so.salesOrderNumber;
     }
 
+    // Confirm in Zoho Inventory (Draft → Confirmed).
     if (salesOrderId) {
+      try {
+        await confirmSalesOrder(secrets, orgId, salesOrderId);
+      } catch (confirmErr) {
+        // Already confirmed / approvals gate — still mirror current state.
+        console.warn(
+          `Approve order ${ref.id}: confirm SO ${salesOrderId}:`,
+          confirmErr?.message ?? confirmErr,
+        );
+      }
       try {
         await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
       } catch (mirrorErr) {
@@ -558,7 +609,7 @@ export async function approveDealerOrder(uid, role, orderId, secrets, orgId) {
 
     await ref.update({
       status,
-      statusHistory: FieldValue.arrayUnion(statusEvent(status, user)),
+      statusHistory: FieldValue.arrayUnion(statusEvent(status, user, 'Confirmed in Zoho')),
       approvedAt: updatedAt,
       approvedByUid: uid,
       approvedByName: displayName(user),
@@ -572,7 +623,7 @@ export async function approveDealerOrder(uid, role, orderId, secrets, orgId) {
       updatedAt,
     });
   } catch (err) {
-    const message = err?.message || 'Could not create Zoho sales order.';
+    const message = err?.message || 'Could not confirm Zoho sales order.';
     await ref.update({
       zohoSyncError: message,
       updatedAt: nowIso(),
@@ -584,17 +635,32 @@ export async function approveDealerOrder(uid, role, orderId, secrets, orgId) {
   return mapOrderDoc(snap.id, snap.data());
 }
 
-export async function rejectDealerOrder(uid, role, orderId, reason) {
+export async function rejectDealerOrder(uid, role, orderId, reason, secrets, orgId) {
   const user = await loadUser(uid);
   requireOrdersManage(user);
 
   const { ref, data } = await getOrderOrThrow(orderId);
-  if (data.status !== 'pending_review') {
-    throw new HttpsError('failed-precondition', 'Only pending orders can be rejected.');
+  const rejectable = new Set(['pending_review', 'waiting_for_payment']);
+  if (!rejectable.has(data.status)) {
+    throw new HttpsError('failed-precondition', 'Only open orders can be rejected.');
   }
 
   const note = String(reason ?? '').trim();
   if (!note) throw new HttpsError('invalid-argument', 'Rejection reason is required.');
+
+  const soId = String(data.zohoSalesOrderId || '').trim();
+  if (soId && secrets) {
+    try {
+      await voidSalesOrder(secrets, orgId, soId, note);
+      try {
+        await mirrorSalesOrderFromZoho(secrets, orgId, soId);
+      } catch {
+        // ignore mirror failure after void
+      }
+    } catch (voidErr) {
+      console.warn(`Reject order ${ref.id}: void SO ${soId}:`, voidErr?.message ?? voidErr);
+    }
+  }
 
   const status = 'rejected';
   const updatedAt = nowIso();
@@ -609,7 +675,7 @@ export async function rejectDealerOrder(uid, role, orderId, reason) {
   return mapOrderDoc(snap.id, snap.data());
 }
 
-export async function cancelDealerOrder(uid, role, orderId) {
+export async function cancelDealerOrder(uid, role, orderId, secrets, orgId) {
   const user = await loadUser(uid);
   const { ref, data } = await getOrderOrThrow(orderId);
   assertDealerOrderAccess(user, data);
@@ -621,6 +687,20 @@ export async function cancelDealerOrder(uid, role, orderId) {
 
   if (OPS_ROLES.has(user.role)) requireOrdersManage(user);
 
+  const soId = String(data.zohoSalesOrderId || '').trim();
+  if (soId && secrets) {
+    try {
+      await voidSalesOrder(secrets, orgId, soId, 'Cancelled from portal');
+      try {
+        await mirrorSalesOrderFromZoho(secrets, orgId, soId);
+      } catch {
+        // ignore
+      }
+    } catch (voidErr) {
+      console.warn(`Cancel order ${ref.id}: void SO ${soId}:`, voidErr?.message ?? voidErr);
+    }
+  }
+
   const status = 'cancelled';
   const updatedAt = nowIso();
   await ref.update({
@@ -631,6 +711,36 @@ export async function cancelDealerOrder(uid, role, orderId) {
 
   const snap = await ref.get();
   return mapOrderDoc(snap.id, snap.data());
+}
+
+/** Confirm a mirrored Zoho SO (staff/admin). */
+export async function confirmMirroredSalesOrder(uid, role, salesOrderId, secrets, orgId) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new HttpsError('invalid-argument', 'Sales order id is required.');
+  await confirmSalesOrder(secrets, orgId, soId);
+  const mirrored = await mirrorSalesOrderFromZoho(secrets, orgId, soId);
+  return {
+    salesOrderId: soId,
+    status: mirrored?.status || 'confirmed',
+    salesOrderNumber: mirrored?.salesOrderNumber || null,
+  };
+}
+
+/** Void a mirrored Zoho SO (staff/admin). */
+export async function voidMirroredSalesOrder(uid, role, salesOrderId, reason, secrets, orgId) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new HttpsError('invalid-argument', 'Sales order id is required.');
+  await voidSalesOrder(secrets, orgId, soId, reason);
+  const mirrored = await mirrorSalesOrderFromZoho(secrets, orgId, soId);
+  return {
+    salesOrderId: soId,
+    status: mirrored?.status || 'void',
+    salesOrderNumber: mirrored?.salesOrderNumber || null,
+  };
 }
 
 export async function submitDealerOrderPayment(uid, role, payload = {}) {

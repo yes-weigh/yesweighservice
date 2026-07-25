@@ -68,12 +68,13 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   const customerId = String(order.zohoCustomerId || '').trim();
   if (!customerId) throw new Error('Dealer is not linked to a Zoho customer.');
 
+  // Zoho Inventory creates SOs as Draft by default (Save as Draft).
   const body = {
     customer_id: customerId,
     reference_number: String(order.orderNumber || order.id || ''),
     date: new Date().toISOString().slice(0, 10),
     line_items: lineItems,
-    notes: `Portal order ${order.orderNumber || order.id}`,
+    notes: `Portal cart ${order.orderNumber || order.id}`,
   };
 
   const payload = await zohoJson(accessToken, orgId, '/salesorders', {
@@ -89,7 +90,61 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   return {
     salesOrderId: String(so.salesorder_id),
     salesOrderNumber: so.salesorder_number ? String(so.salesorder_number) : null,
+    status: so.status ? String(so.status) : 'draft',
   };
+}
+
+/** Mark a Zoho Inventory sales order as Confirmed. */
+export async function confirmSalesOrder(secrets, configuredOrgId, salesOrderId) {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/confirmed`, {
+    method: 'POST',
+    body: {},
+  });
+  return { salesOrderId: soId, status: 'confirmed' };
+}
+
+/** Mark a Zoho Inventory sales order as Void. */
+export async function voidSalesOrder(secrets, configuredOrgId, salesOrderId, reason = '') {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const note = String(reason || '').trim().slice(0, 500);
+  await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/void`, {
+    method: 'POST',
+    body: note ? { reason: note } : {},
+  });
+  return { salesOrderId: soId, status: 'void' };
+}
+
+/** Submit a draft SO for Zoho approval (only when Approvals are enabled in Zoho). */
+export async function submitSalesOrderForApproval(secrets, configuredOrgId, salesOrderId) {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  await zohoJson(accessToken, orgId, `/salesorders/${soId}/submit`, {
+    method: 'POST',
+    body: {},
+  });
+  return { salesOrderId: soId };
+}
+
+/** Approve a submitted Zoho sales order (Approvals feature). */
+export async function approveSalesOrderInZoho(secrets, configuredOrgId, salesOrderId) {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  await zohoJson(accessToken, orgId, `/salesorders/${soId}/approve`, {
+    method: 'POST',
+    body: {},
+  });
+  return { salesOrderId: soId };
 }
 
 /** Fetch a sales order PDF from Zoho (no Firestore mirror required). */

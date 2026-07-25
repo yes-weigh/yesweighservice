@@ -1,6 +1,8 @@
 import {
+  collection,
   collectionGroup,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
   limit,
@@ -14,6 +16,7 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { toSalesOrderDateKey } from './admin-sales-orders';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
@@ -28,6 +31,8 @@ import type {
   InvoiceSalesEntry,
   KpiPeriod,
 } from '../types/invoices';
+
+export { toSalesOrderDateKey as toInvoiceDateKey };
 
 export type AdminInvoiceSort = 'syncedAt' | 'date';
 
@@ -225,6 +230,156 @@ export function countAdminInvoicesByStatus(
   status: string,
 ): number {
   return rows.filter(row => row.status.toLowerCase() === status.toLowerCase()).length;
+}
+
+export type AdminInvoiceCategoryCounts = {
+  all: number;
+  product: number;
+  spare: number;
+  software_key: number;
+  service: number;
+  gatc: number;
+};
+
+export async function countAdminInvoices(options: {
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<number> {
+  const category = options.category ?? 'all';
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const constraints: QueryConstraint[] = [];
+
+  if (category && category !== 'all') {
+    constraints.push(where('invoiceCategory', '==', category));
+  }
+  if (dateStart || dateEnd) {
+    if (dateStart) constraints.push(where('date', '>=', dateStart));
+    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+    constraints.push(orderBy('date', 'desc'));
+  } else {
+    constraints.push(orderBy('date', 'desc'));
+  }
+
+  const countQuery = query(collectionGroup(db, 'invoices'), ...constraints);
+  const snap = await getCountFromServer(countQuery);
+  return snap.data().count;
+}
+
+export async function countAdminInvoicesByCategory(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<AdminInvoiceCategoryCounts> {
+  const base = {
+    dateStart: options.dateStart ?? null,
+    dateEnd: options.dateEnd ?? null,
+  } as const;
+
+  const [all, product, spare, software_key, service, gatc] = await Promise.all([
+    countAdminInvoices({ ...base, category: 'all' }),
+    countAdminInvoices({ ...base, category: 'product' }),
+    countAdminInvoices({ ...base, category: 'spare' }),
+    countAdminInvoices({ ...base, category: 'software_key' }),
+    countAdminInvoices({ ...base, category: 'service' }),
+    countAdminInvoices({ ...base, category: 'gatc' }),
+  ]);
+
+  return { all, product, spare, software_key, service, gatc };
+}
+
+export function countInvoiceRowsByCategory(
+  rows: AdminFirestoreInvoice[],
+): AdminInvoiceCategoryCounts {
+  const counts: AdminInvoiceCategoryCounts = {
+    all: rows.length,
+    product: 0,
+    spare: 0,
+    software_key: 0,
+    service: 0,
+    gatc: 0,
+  };
+  for (const row of rows) {
+    const key = row.invoiceCategory;
+    if (
+      key === 'product'
+      || key === 'spare'
+      || key === 'software_key'
+      || key === 'service'
+      || key === 'gatc'
+    ) {
+      counts[key] += 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Load invoices for one or more dealers (newest-first per customer), then merge.
+ * Used when the admin filter sheet selects specific dealers.
+ */
+export async function fetchAdminInvoicesForCustomers(options: {
+  customerIds: string[];
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  category?: InvoiceCategory | 'all';
+  sort?: AdminInvoiceSort;
+  maxPerCustomer?: number;
+}): Promise<AdminFirestoreInvoice[]> {
+  const ids = [...new Set(
+    options.customerIds.map(id => String(id ?? '').trim()).filter(Boolean),
+  )];
+  if (!ids.length) return [];
+
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const sort = options.sort ?? 'date';
+  const maxPerCustomer = Math.min(Math.max(Number(options.maxPerCustomer ?? 500) || 500, 1), 2000);
+  const pageSize = 100;
+
+  const perCustomer = await Promise.all(ids.map(async customerId => {
+    const rows: AdminFirestoreInvoice[] = [];
+    let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+
+    while (rows.length < maxPerCustomer) {
+      const constraints: QueryConstraint[] = [];
+      if (dateStart) constraints.push(where('date', '>=', dateStart));
+      if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+      if (dateStart || dateEnd || sort !== 'syncedAt') {
+        constraints.push(orderBy('date', 'desc'));
+      } else {
+        constraints.push(orderBy('syncedAt', 'desc'));
+      }
+      if (cursor) constraints.push(startAfter(cursor));
+      constraints.push(limit(Math.min(pageSize, maxPerCustomer - rows.length)));
+
+      const snap = await getDocs(
+        query(collection(db, 'zohoCustomers', customerId, 'invoices'), ...constraints),
+      );
+      if (snap.empty) break;
+      rows.push(...snap.docs.map(mapAdminInvoiceDoc));
+      cursor = snap.docs[snap.docs.length - 1];
+      if (snap.size < pageSize) break;
+    }
+    return rows;
+  }));
+
+  let merged = perCustomer.flat();
+
+  if (options.category && options.category !== 'all') {
+    merged = merged.filter(row => row.invoiceCategory === options.category);
+  }
+
+  merged.sort((a, b) => {
+    if (sort === 'syncedAt') {
+      return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+    }
+    const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
+    if (byDate) return byDate;
+    return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+  });
+
+  return merged;
 }
 
 export interface AdminCustomerLocation {

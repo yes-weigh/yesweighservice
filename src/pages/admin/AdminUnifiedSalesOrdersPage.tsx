@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ChevronRight,
   ClipboardList,
   IndianRupee,
+  LayoutGrid,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -17,17 +18,19 @@ import {
   InvoiceCategoryBadge,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
-import { OrderStatusBadge } from '../../components/orders/OrderStatusBadge';
-import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
-  countAdminSalesOrdersByUnifiedStages,
+  DealerMultiFilterPicker,
+  type DealerFilterSelection,
+} from '../../components/dealers/DealerMultiFilterPicker';
+import {
+  countAdminSalesOrdersByCategory,
+  countZohoRowsByCategory,
+  fetchAdminSalesOrdersForCustomers,
   fetchAdminSalesOrdersPageDetailed,
   toSalesOrderDateKey,
-  ZOHO_DONE_STATUSES,
-  ZOHO_OPEN_STATUSES,
-  ZOHO_REJECTED_STATUSES,
   type AdminFirestoreSalesOrder,
+  type AdminSalesOrderCategoryCounts,
   type AdminSalesOrderSort,
 } from '../../lib/admin-sales-orders';
 import {
@@ -35,6 +38,7 @@ import {
   formatAdminCustomerLocation,
 } from '../../lib/admin-invoices';
 import { formatCurrency } from '../../lib/catalog';
+import { fetchDealerById } from '../../lib/dealers';
 import { dealerOrderErrorMessage, listDealerOrders } from '../../lib/dealerOrders';
 import {
   formatInvoiceDate,
@@ -46,91 +50,85 @@ import {
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import {
   filterUnifiedSalesOrders,
-  getUnifiedStage,
   mapPortalOrderToUnified,
   mapZohoOrderToUnified,
   summarizeUnifiedAmounts,
-  UNIFIED_STATUS_CHIPS,
   type UnifiedSalesOrderRow,
   type UnifiedSalesOrderSource,
-  type UnifiedStatusChip,
 } from '../../lib/unified-sales-orders';
 import type { DealerOrder } from '../../types/dealer-orders';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
-import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
+import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
 const SEARCH_FETCH_SIZE = 100;
 
-function zohoStatusesForChip(chip: UnifiedStatusChip): readonly string[] | null {
-  if (chip === 'so') return ZOHO_OPEN_STATUSES;
-  if (chip === 'done') return ZOHO_DONE_STATUSES;
-  if (chip === 'rejected') return ZOHO_REJECTED_STATUSES;
-  return null;
+function includeZohoForFilters(source: UnifiedSalesOrderSource | 'all'): boolean {
+  return source !== 'portal';
 }
 
-function includeZohoForFilters(
-  source: UnifiedSalesOrderSource | 'all',
-  chip: UnifiedStatusChip,
-): boolean {
-  if (source === 'portal') return false;
-  if (chip === 'review' || chip === 'pay' || chip === 'verify') return false;
-  return true;
+/** Portal dealerOrders are no longer merged — lists are Zoho SO only. */
+function includePortalForFilters(_source: UnifiedSalesOrderSource | 'all'): boolean {
+  return false;
 }
 
-function includePortalForFilters(source: UnifiedSalesOrderSource | 'all'): boolean {
-  return source !== 'zoho';
-}
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminSalesOrderSort = 'date';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
-const DEFAULT_SOURCE: UnifiedSalesOrderSource | 'all' = 'all';
+const DEFAULT_SOURCE: UnifiedSalesOrderSource | 'all' = 'zoho';
+
+const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'product', label: 'Product' },
+  { value: 'spare', label: 'Spares' },
+  { value: 'software_key', label: 'Software' },
+  { value: 'service', label: 'Service' },
+  { value: 'gatc', label: 'GATC' },
+];
+
+const EMPTY_CATEGORY_COUNTS: AdminSalesOrderCategoryCounts = {
+  all: 0,
+  product: 0,
+  spare: 0,
+  software_key: 0,
+  service: 0,
+  gatc: 0,
+};
 
 const SORT_OPTIONS: Array<{ value: AdminSalesOrderSort; label: string }> = [
   { value: 'date', label: 'Date' },
   { value: 'syncedAt', label: 'Most recently updated' },
 ];
 
-const SOURCE_OPTIONS: Array<{ value: UnifiedSalesOrderSource | 'all'; label: string }> = [
-  { value: 'all', label: 'All sources' },
-  { value: 'portal', label: 'Portal' },
-  { value: 'zoho', label: 'Zoho' },
-];
-
 function UnifiedFilterSheet({
   open,
   rangePreset,
-  category,
   sort,
-  source,
+  dealers,
   onClose,
   onApply,
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
-  category: InvoiceCategory | 'all';
   sort: AdminSalesOrderSort;
-  source: UnifiedSalesOrderSource | 'all';
+  dealers: DealerFilterSelection[];
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
-    category: InvoiceCategory | 'all';
     sort: AdminSalesOrderSort;
-    source: UnifiedSalesOrderSource | 'all';
+    dealers: DealerFilterSelection[];
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
-  const [draftCategory, setDraftCategory] = useState(category);
   const [draftSort, setDraftSort] = useState(sort);
-  const [draftSource, setDraftSource] = useState(source);
+  const [draftDealers, setDraftDealers] = useState<DealerFilterSelection[]>(dealers);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
-    setDraftCategory(category);
     setDraftSort(sort);
-    setDraftSource(source);
-  }, [open, rangePreset, category, sort, source]);
+    setDraftDealers(dealers);
+  }, [open, rangePreset, sort, dealers]);
 
   useEffect(() => {
     if (!open) return;
@@ -144,9 +142,8 @@ function UnifiedFilterSheet({
   if (!open) return null;
 
   const draftDirty = draftRange !== DEFAULT_RANGE
-    || draftCategory !== DEFAULT_CATEGORY
     || draftSort !== DEFAULT_SORT
-    || draftSource !== DEFAULT_SOURCE;
+    || draftDealers.length > 0;
 
   return createPortal(
     <>
@@ -179,25 +176,8 @@ function UnifiedFilterSheet({
 
           <div className="catalog-spares-multi-filters__body">
             <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Source</span>
-              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Source">
-                {SOURCE_OPTIONS.map(option => {
-                  const id = `unified-so-source-${option.value}`;
-                  return (
-                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
-                      <input
-                        id={id}
-                        type="radio"
-                        className="catalog-spares-multi-filters__checkbox"
-                        name="unified-so-source"
-                        checked={draftSource === option.value}
-                        onChange={() => setDraftSource(option.value)}
-                      />
-                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
+              <span className="catalog-spares-multi-filters__label">Dealers</span>
+              <DealerMultiFilterPicker value={draftDealers} onChange={setDraftDealers} />
             </div>
 
             <div className="catalog-spares-multi-filters__group">
@@ -214,28 +194,6 @@ function UnifiedFilterSheet({
                         name="unified-so-date-range"
                         checked={draftRange === option.value}
                         onChange={() => setDraftRange(option.value)}
-                      />
-                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Category (Zoho)</span>
-              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Category">
-                {INVOICE_CATEGORY_FILTER_OPTIONS.map(option => {
-                  const id = `unified-so-category-${option.value}`;
-                  return (
-                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
-                      <input
-                        id={id}
-                        type="radio"
-                        className="catalog-spares-multi-filters__checkbox"
-                        name="unified-so-category"
-                        checked={draftCategory === option.value}
-                        onChange={() => setDraftCategory(option.value)}
                       />
                       <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
                     </label>
@@ -274,9 +232,8 @@ function UnifiedFilterSheet({
               onClick={() => {
                 onApply({
                   rangePreset: draftRange,
-                  category: draftCategory,
                   sort: draftSort,
-                  source: draftSource,
+                  dealers: draftDealers,
                 });
                 onClose();
               }}
@@ -289,9 +246,8 @@ function UnifiedFilterSheet({
               disabled={!draftDirty}
               onClick={() => {
                 setDraftRange(DEFAULT_RANGE);
-                setDraftCategory(DEFAULT_CATEGORY);
                 setDraftSort(DEFAULT_SORT);
-                setDraftSource(DEFAULT_SOURCE);
+                setDraftDealers([]);
               }}
             >
               Clear
@@ -304,22 +260,18 @@ function UnifiedFilterSheet({
   );
 }
 
-function SourceBadge({ source }: { source: UnifiedSalesOrderSource }) {
-  return (
-    <span className={`unified-so-source unified-so-source--${source}`}>
-      {source === 'portal' ? 'Portal' : 'Zoho'}
-    </span>
-  );
-}
 
 export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const [searchParams] = useSearchParams();
-  const dealerFilter = searchParams.get('dealerId')?.trim() || '';
-  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const dealerFilterFromUrl = searchParams.get('dealerId')?.trim() || '';
+  const dealersParam = searchParams.get('dealers') || '';
+  const dealersFromUrl = useMemo(
+    () => dealersParam.split(',').map(id => id.trim()).filter(Boolean),
+    [dealersParam],
+  );
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
-  const canSync = user?.role === 'super_admin';
   const scrollRef = useRevealScrollbarOnScroll();
 
   const [portalOrders, setPortalOrders] = useState<DealerOrder[]>([]);
@@ -333,34 +285,99 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
   const [source, setSource] = useState<UnifiedSalesOrderSource | 'all'>(DEFAULT_SOURCE);
-  const [statusChip, setStatusChip] = useState<UnifiedStatusChip>('all');
+  const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [zohoTotal, setZohoTotal] = useState(0);
-  const [zohoStageCounts, setZohoStageCounts] = useState({
-    all: 0,
-    so: 0,
-    done: 0,
-    rejected: 0,
-  });
+  const [zohoCategoryCounts, setZohoCategoryCounts] = useState<AdminSalesOrderCategoryCounts>(
+    EMPTY_CATEGORY_COUNTS,
+  );
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
   const pageStartCursors = useRef<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
   const [pageCursorVersion, setPageCursorVersion] = useState(0);
+  const urlSeedDone = useRef(false);
 
   const bounds = getInvoicePeriodBounds(rangePreset);
   const dateStart = bounds ? toSalesOrderDateKey(bounds.start) : null;
   const dateEnd = bounds ? toSalesOrderDateKey(bounds.end) : null;
   const searchActive = Boolean(search.trim());
-  const wantZoho = includeZohoForFilters(source, statusChip);
+  const dealerScoped = selectedDealers.length > 0;
+  const wantZoho = includeZohoForFilters(source);
   const wantPortal = includePortalForFilters(source);
+  const selectedCustomerIds = useMemo(
+    () => selectedDealers.map(d => d.id),
+    [selectedDealers],
+  );
+  const selectedPortalUserIds = useMemo(
+    () => new Set(selectedDealers.map(d => d.portalUserId).filter((id): id is string => Boolean(id))),
+    [selectedDealers],
+  );
+  const selectedCustomerIdSet = useMemo(
+    () => new Set(selectedCustomerIds),
+    [selectedCustomerIds],
+  );
+  const selectedCustomerKey = selectedCustomerIds.join('|');
+
+  // Seed selection from ?dealerId= / ?dealers=
+  useEffect(() => {
+    if (urlSeedDone.current) return;
+    const ids = dealersFromUrl.length
+      ? dealersFromUrl
+      : (dealerFilterFromUrl ? [dealerFilterFromUrl] : []);
+    if (!ids.length) {
+      urlSeedDone.current = true;
+      return;
+    }
+    urlSeedDone.current = true;
+    let cancelled = false;
+    void Promise.all(
+      ids.map(id => fetchDealerById(id).catch(() => null)),
+    ).then(rows => {
+      if (cancelled) return;
+      const next: DealerFilterSelection[] = [];
+      for (let i = 0; i < ids.length; i += 1) {
+        const dealer = rows[i];
+        next.push({
+          id: ids[i],
+          label: dealer?.companyName?.trim()
+            || dealer?.contactName?.trim()
+            || ids[i],
+          portalUserId: dealer?.portalUserId ?? null,
+        });
+      }
+      setSelectedDealers(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dealerFilterFromUrl, dealersFromUrl]);
+
+  const syncDealerParams = useCallback((dealers: DealerFilterSelection[]) => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('dealerId');
+    if (dealers.length === 0) {
+      next.delete('dealers');
+    } else if (dealers.length === 1) {
+      next.set('dealerId', dealers[0].id);
+      next.delete('dealers');
+    } else {
+      next.set('dealers', dealers.map(d => d.id).join(','));
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const loadPortal = useCallback(() => {
     setPortalLoading(true);
+    const singlePortalDealer = selectedDealers.length === 1
+      ? (selectedDealers[0].portalUserId || selectedDealers[0].id)
+      : '';
     void listDealerOrders({
-      limit: 200,
-      ...(dealerFilter ? { dealerId: dealerFilter } : {}),
+      limit: dealerScoped ? 400 : 200,
+      ...(singlePortalDealer && selectedDealers.length === 1
+        ? { dealerId: singlePortalDealer }
+        : {}),
     })
       .then(rows => {
         setPortalOrders(rows);
@@ -368,7 +385,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       })
       .catch(err => setError(dealerOrderErrorMessage(err)))
       .finally(() => setPortalLoading(false));
-  }, [dealerFilter]);
+  }, [dealerScoped, selectedDealers]);
 
   useEffect(() => {
     loadPortal();
@@ -379,31 +396,28 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, category, sort, source, statusChip, dealerFilter]);
+  }, [search, rangePreset, category, sort, source, selectedCustomerKey]);
 
-  // Server counts for Zoho (actual Firestore totals for the date/category window).
+  // Server category counts for Zoho (org-wide). Dealer-scoped counts come from loaded rows.
   useEffect(() => {
     let cancelled = false;
-    if (!wantZoho) {
-      setZohoStageCounts({ all: 0, so: 0, done: 0, rejected: 0 });
-      setZohoTotal(0);
+    if (!wantZoho || dealerScoped) {
+      if (!wantZoho) {
+        setZohoCategoryCounts(EMPTY_CATEGORY_COUNTS);
+        setZohoTotal(0);
+      }
       setCountsLoading(false);
       return;
     }
     setCountsLoading(true);
-    void countAdminSalesOrdersByUnifiedStages({
-      category,
+    void countAdminSalesOrdersByCategory({
       dateStart,
       dateEnd,
     })
       .then(counts => {
         if (cancelled) return;
-        setZohoStageCounts(counts);
-        if (statusChip === 'all') setZohoTotal(counts.all);
-        else if (statusChip === 'so') setZohoTotal(counts.so);
-        else if (statusChip === 'done') setZohoTotal(counts.done);
-        else if (statusChip === 'rejected') setZohoTotal(counts.rejected);
-        else setZohoTotal(0);
+        setZohoCategoryCounts(counts);
+        setZohoTotal(category === 'all' ? counts.all : counts[category]);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -414,19 +428,70 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [wantZoho, category, dateStart, dateEnd, statusChip]);
+  }, [wantZoho, dealerScoped, dateStart, dateEnd, category]);
 
-  // Fetch the current Zoho page from Firestore.
+  // Dealer-scoped: load full date window for selected customers (newest-first).
+  useEffect(() => {
+    let cancelled = false;
+    if (!wantZoho || !dealerScoped) return;
+    setZohoLoading(true);
+    setError('');
+    void fetchAdminSalesOrdersForCustomers({
+      customerIds: selectedCustomerIds,
+      dateStart,
+      dateEnd,
+      category: 'all',
+      statusIn: null,
+      sort,
+    })
+      .then(rows => {
+        if (cancelled) return;
+        setZohoOrders(rows);
+        const counts = countZohoRowsByCategory(rows);
+        setZohoCategoryCounts(counts);
+        setZohoTotal(category === 'all' ? counts.all : counts[category]);
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setError(invoiceErrorMessage(err));
+          setZohoOrders([]);
+          setZohoCategoryCounts(EMPTY_CATEGORY_COUNTS);
+          setZohoTotal(0);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setZohoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    wantZoho,
+    dealerScoped,
+    selectedCustomerKey,
+    sort,
+    dateStart,
+    dateEnd,
+  ]);
+
+  useEffect(() => {
+    if (!dealerScoped || !wantZoho) return;
+    setZohoTotal(category === 'all' ? zohoCategoryCounts.all : zohoCategoryCounts[category]);
+  }, [dealerScoped, wantZoho, category, zohoCategoryCounts]);
+
+  // Org-wide: server-paged Zoho feed (unchanged admin behavior).
   useEffect(() => {
     let cancelled = false;
     if (!wantZoho) {
-      setZohoOrders([]);
-      setZohoLoading(false);
+      if (!dealerScoped) {
+        setZohoOrders([]);
+        setZohoLoading(false);
+      }
       return;
     }
+    if (dealerScoped) return;
 
     const cursor = pageStartCursors.current[page - 1] ?? null;
-    const statusIn = zohoStatusesForChip(statusChip);
     setZohoLoading(true);
     setError('');
 
@@ -437,7 +502,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       category,
       dateStart,
       dateEnd,
-      statusIn,
+      statusIn: null,
     })
       .then(result => {
         if (cancelled) return;
@@ -461,13 +526,13 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     };
   }, [
     wantZoho,
+    dealerScoped,
     page,
     pageCursorVersion,
     sort,
     category,
     dateStart,
     dateEnd,
-    statusChip,
     searchActive,
   ]);
 
@@ -475,20 +540,48 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
 
   const portalRows = useMemo(() => {
     if (!wantPortal) return [] as UnifiedSalesOrderRow[];
-    const mapped = portalOrders.map(order => mapPortalOrderToUnified(order, basePath));
+    let orders = portalOrders;
+    if (dealerScoped) {
+      orders = orders.filter(order => {
+        if (order.zohoCustomerId && selectedCustomerIdSet.has(order.zohoCustomerId)) return true;
+        if (order.dealerId && selectedPortalUserIds.has(order.dealerId)) return true;
+        // URL / picker may use zoho id as dealerId fallback
+        if (order.dealerId && selectedCustomerIdSet.has(order.dealerId)) return true;
+        return false;
+      });
+    }
+    const mapped = orders.map(order => mapPortalOrderToUnified(order, basePath));
     return filterUnifiedSalesOrders(mapped, {
       search,
       source: 'portal',
-      statusChip,
+      statusChip: 'all',
       category,
       period: rangePreset,
     });
-  }, [wantPortal, portalOrders, basePath, search, statusChip, category, rangePreset]);
+  }, [
+    wantPortal,
+    portalOrders,
+    basePath,
+    search,
+    category,
+    rangePreset,
+    dealerScoped,
+    selectedCustomerIdSet,
+    selectedPortalUserIds,
+  ]);
 
   const zohoRows = useMemo(() => {
     if (!wantZoho) return [] as UnifiedSalesOrderRow[];
     let rows = zohoOrders.map(order => mapZohoOrderToUnified(order, basePath));
-    if (searchActive) {
+    if (dealerScoped) {
+      rows = filterUnifiedSalesOrders(rows, {
+        search,
+        source: 'zoho',
+        statusChip: 'all',
+        category,
+        period: undefined,
+      });
+    } else if (searchActive) {
       rows = filterUnifiedSalesOrders(rows, {
         search,
         source: 'zoho',
@@ -498,14 +591,16 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       });
     }
     return rows;
-  }, [wantZoho, zohoOrders, basePath, search, searchActive]);
+  }, [wantZoho, zohoOrders, basePath, search, searchActive, dealerScoped, category]);
+
+  const clientPaged = searchActive || dealerScoped || !wantZoho;
 
   const pageRows = useMemo(() => {
     if (!wantZoho) {
       const start = (page - 1) * LIST_PAGE_SIZE;
       return portalRows.slice(start, start + LIST_PAGE_SIZE);
     }
-    if (searchActive) {
+    if (searchActive || dealerScoped) {
       const merged = [...portalRows, ...zohoRows].sort((a, b) => b.sortAt - a.sortAt);
       const start = (page - 1) * LIST_PAGE_SIZE;
       return merged.slice(start, start + LIST_PAGE_SIZE);
@@ -515,20 +610,21 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       return [...portalRows, ...zohoRows].sort((a, b) => b.sortAt - a.sortAt);
     }
     return zohoRows;
-  }, [wantZoho, searchActive, page, portalRows, zohoRows]);
+  }, [wantZoho, searchActive, dealerScoped, page, portalRows, zohoRows]);
 
   const filteredTotal = useMemo(() => {
     if (!wantZoho) return portalRows.length;
-    if (searchActive) return portalRows.length + zohoRows.length;
+    if (searchActive || dealerScoped) return portalRows.length + zohoRows.length;
     return portalRows.length + zohoTotal;
-  }, [wantZoho, searchActive, portalRows.length, zohoRows.length, zohoTotal]);
+  }, [wantZoho, searchActive, dealerScoped, portalRows.length, zohoRows.length, zohoTotal]);
 
   const totalPages = useMemo(() => {
-    if (!wantZoho) return Math.max(1, Math.ceil(portalRows.length / LIST_PAGE_SIZE));
-    if (searchActive) return Math.max(1, Math.ceil((portalRows.length + zohoRows.length) / LIST_PAGE_SIZE));
+    if (clientPaged) {
+      return Math.max(1, Math.ceil(filteredTotal / LIST_PAGE_SIZE));
+    }
     if (zohoTotal <= 0) return 1;
     return Math.ceil(zohoTotal / LIST_PAGE_SIZE);
-  }, [wantZoho, searchActive, portalRows.length, zohoRows.length, zohoTotal]);
+  }, [clientPaged, filteredTotal, zohoTotal]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -553,54 +649,62 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     };
   }, [pageRows]);
 
-  const stageCounts = useMemo(() => {
-    const portalByStage: Record<string, number> = {
-      all: 0,
-      review: 0,
-      so: 0,
-      pay: 0,
-      verify: 0,
-      done: 0,
-      rejected: 0,
-    };
+  const categoryCounts = useMemo(() => {
+    const counts: AdminSalesOrderCategoryCounts = { ...EMPTY_CATEGORY_COUNTS };
+
     if (wantPortal) {
-      const mapped = portalOrders.map(order => mapPortalOrderToUnified(order, basePath));
+      let orders = portalOrders;
+      if (dealerScoped) {
+        orders = orders.filter(order => {
+          if (order.zohoCustomerId && selectedCustomerIdSet.has(order.zohoCustomerId)) return true;
+          if (order.dealerId && selectedPortalUserIds.has(order.dealerId)) return true;
+          if (order.dealerId && selectedCustomerIdSet.has(order.dealerId)) return true;
+          return false;
+        });
+      }
+      const mapped = orders.map(order => mapPortalOrderToUnified(order, basePath));
       const inPeriod = filterUnifiedSalesOrders(mapped, {
         search: '',
         source: 'portal',
         statusChip: 'all',
-        category,
+        category: 'all',
         period: rangePreset,
       });
-      portalByStage.all = inPeriod.length;
+      counts.all += inPeriod.length;
       for (const row of inPeriod) {
-        const stage = getUnifiedStage(row);
-        portalByStage[stage] = (portalByStage[stage] || 0) + 1;
+        const key = row.category;
+        if (
+          key === 'product'
+          || key === 'spare'
+          || key === 'software_key'
+          || key === 'service'
+          || key === 'gatc'
+        ) {
+          counts[key] += 1;
+        }
       }
     }
 
-    const zohoAll = wantZoho ? zohoStageCounts.all : 0;
-    const zohoSo = wantZoho ? zohoStageCounts.so : 0;
-    const zohoDone = wantZoho ? zohoStageCounts.done : 0;
-    const zohoRejected = wantZoho ? zohoStageCounts.rejected : 0;
+    if (wantZoho) {
+      counts.all += zohoCategoryCounts.all;
+      counts.product += zohoCategoryCounts.product;
+      counts.spare += zohoCategoryCounts.spare;
+      counts.software_key += zohoCategoryCounts.software_key;
+      counts.service += zohoCategoryCounts.service;
+      counts.gatc += zohoCategoryCounts.gatc;
+    }
 
-    return {
-      all: portalByStage.all + zohoAll,
-      review: portalByStage.review,
-      so: portalByStage.so + zohoSo,
-      pay: portalByStage.pay,
-      verify: portalByStage.verify,
-      done: portalByStage.done + zohoDone,
-      rejected: portalByStage.rejected + zohoRejected,
-    };
+    return counts;
   }, [
     wantPortal,
     wantZoho,
     portalOrders,
     basePath,
-    category,
     rangePreset,
-    zohoStageCounts,
+    dealerScoped,
+    selectedCustomerIdSet,
+    selectedPortalUserIds,
+    zohoCategoryCounts,
   ]);
 
   const summary = useMemo(() => {
@@ -622,7 +726,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
     || category !== DEFAULT_CATEGORY
     || sort !== DEFAULT_SORT
-    || source !== DEFAULT_SOURCE;
+    || selectedDealers.length > 0;
 
   const openRow = (row: UnifiedSalesOrderRow) => {
     navigate(row.href);
@@ -637,16 +741,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const headerTools = useMemo(
     () => (
       <div className="invoices-header-tools">
-        {canSync && (
-          <Link
-            to={`${basePath}/sales-orders/sync`}
-            className="btn btn-secondary btn-sm"
-            title="Sales order sync"
-          >
-            <RefreshCw size={14} />
-            Sync
-          </Link>
-        )}
         <button
           type="button"
           className="btn btn-secondary btn-sm"
@@ -696,7 +790,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         </button>
       </div>
     ),
-    [search, filterOpen, hasActiveFilters, canSync, basePath, loadPortal, reloadZoho, loading],
+    [search, filterOpen, hasActiveFilters, loadPortal, reloadZoho, loading],
   );
 
   useCatalogPageHeader({ mobileCompactHeader: true, title: 'Sales orders' }, true);
@@ -742,31 +836,51 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {selectedDealers.length > 0 && (
+          <p className="unified-so-dealer-filter-note text-muted text-sm">
+            Filtered to {selectedDealers.length === 1
+              ? selectedDealers[0].label
+              : `${selectedDealers.length} dealers`}
+            .
+          </p>
+        )}
+
+        <div className="unified-so-category-blocks" role="tablist" aria-label="Order category">
+          {CATEGORY_BLOCKS.map(item => {
+            const active = category === item.value;
+            const count = item.value === 'all'
+              ? categoryCounts.all
+              : categoryCounts[item.value];
+            return (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`unified-so-category-block${active ? ' is-active' : ''}${
+                  item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
+                }`}
+                onClick={() => setCategory(item.value)}
+              >
+                <span className="unified-so-category-block__icon" aria-hidden>
+                  {item.value === 'all' ? (
+                    <span className="unified-so-category-block__icon--all">
+                      <LayoutGrid size={18} strokeWidth={2.2} />
+                    </span>
+                  ) : (
+                    <InvoiceCategoryIcon category={item.value} />
+                  )}
+                </span>
+                <span className="unified-so-category-block__label">{item.label}</span>
+                <span className="unified-so-category-block__count">
+                  {loading ? '…' : count.toLocaleString('en-IN')}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </section>
-
-      {dealerFilter && (
-        <p className="text-muted text-sm mb-3">Filtered to one dealer.</p>
-      )}
-
-      <div className="dealer-orders-tabs unified-so-tabs" role="tablist" aria-label="Order stage">
-        {UNIFIED_STATUS_CHIPS.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={statusChip === item.id}
-            className={`dealer-orders-tabs__btn${statusChip === item.id ? ' is-active' : ''}`}
-            onClick={() => setStatusChip(item.id)}
-          >
-            {item.label}
-            <span>
-              {item.id === 'all'
-                ? (stageCounts.all ?? 0)
-                : (stageCounts[item.id as keyof typeof stageCounts] ?? 0)}
-            </span>
-          </button>
-        ))}
-      </div>
 
       <div ref={scrollRef} className="invoices-page__scroll">
         {error && (
@@ -782,11 +896,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
           <div className="invoices-empty panel glass">
             <ClipboardList size={40} className="text-muted" aria-hidden />
             <p>No sales orders match these filters.</p>
-            {canSync && (
-              <Link to={`${basePath}/sales-orders/sync`} className="btn btn-primary mt-4">
-                Open SO sync
-              </Link>
-            )}
           </div>
         ) : (
           <>
@@ -862,15 +971,10 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                               {formatInvoiceDate(row.date)}
                             </span>
                             <span className="unified-so-order-cell__badges">
-                              <SourceBadge source={row.source} />
                               {row.category ? (
                                 <InvoiceCategoryBadge category={row.category} />
                               ) : null}
-                              {row.source === 'portal' ? (
-                                <OrderStatusBadge status={row.statusRaw} />
-                              ) : (
-                                <span className={row.statusClass}>{row.statusLabel}</span>
-                              )}
+                              <span className={row.statusClass}>{row.statusLabel}</span>
                             </span>
                           </div>
                         </td>
@@ -940,11 +1044,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                             ) : null}
                             Qty {formatInvoiceItemQuantity(row.qty)}
                           </span>
-                          {row.source === 'portal' ? (
-                            <OrderStatusBadge status={row.statusRaw} />
-                          ) : (
-                            <span className={row.statusClass}>{row.statusLabel}</span>
-                          )}
+                          <span className={row.statusClass}>{row.statusLabel}</span>
                         </span>
                       </span>
                     </span>
@@ -997,15 +1097,15 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       <UnifiedFilterSheet
         open={filterOpen}
         rangePreset={rangePreset}
-        category={category}
         sort={sort}
-        source={source}
+        dealers={selectedDealers}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
-          setCategory(next.category);
           setSort(next.sort);
-          setSource(next.source);
+          setSource('zoho');
+          setSelectedDealers(next.dealers);
+          syncDealerParams(next.dealers);
         }}
       />
     </div>

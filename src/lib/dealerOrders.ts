@@ -29,7 +29,7 @@ export async function submitDealerOrder(
   lines: SubmitDealerOrderLineInput[],
 ): Promise<DealerOrder> {
   try {
-    return await call('submitDealerOrder', { lines });
+    return await call('submitDealerOrder', { lines }, 180_000);
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }
@@ -77,7 +77,7 @@ export async function approveDealerOrder(orderId: string): Promise<DealerOrder> 
 
 export async function rejectDealerOrder(orderId: string, reason: string): Promise<DealerOrder> {
   try {
-    return await call('rejectDealerOrder', { orderId, reason });
+    return await call('rejectDealerOrder', { orderId, reason }, 180_000);
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }
@@ -85,7 +85,34 @@ export async function rejectDealerOrder(orderId: string, reason: string): Promis
 
 export async function cancelDealerOrder(orderId: string): Promise<DealerOrder> {
   try {
-    return await call('cancelDealerOrder', { orderId });
+    return await call('cancelDealerOrder', { orderId }, 120_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function confirmZohoSalesOrder(salesOrderId: string): Promise<{
+  salesOrderId: string;
+  status: string;
+  salesOrderNumber: string | null;
+}> {
+  try {
+    return await call('confirmZohoSalesOrder', { salesOrderId }, 120_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function voidZohoSalesOrder(
+  salesOrderId: string,
+  reason = '',
+): Promise<{
+  salesOrderId: string;
+  status: string;
+  salesOrderNumber: string | null;
+}> {
+  try {
+    return await call('voidZohoSalesOrder', { salesOrderId, reason }, 120_000);
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }

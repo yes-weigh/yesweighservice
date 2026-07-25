@@ -6,6 +6,7 @@ import {
   ChevronRight,
   FileText,
   IndianRupee,
+  LayoutGrid,
   PackageCheck,
   Search,
   SlidersHorizontal,
@@ -43,11 +44,38 @@ import type {
   InvoiceListParams,
   SalesRangePreset,
 } from '../../types/invoices';
-import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
+import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 type InvoiceSortField = NonNullable<InvoiceListParams['sortField']>;
 
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
+
+const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'product', label: 'Product' },
+  { value: 'spare', label: 'Spares' },
+  { value: 'software_key', label: 'Software' },
+  { value: 'service', label: 'Service' },
+  { value: 'gatc', label: 'GATC' },
+];
+
+type DealerInvoiceCategoryCounts = {
+  all: number;
+  product: number;
+  spare: number;
+  software_key: number;
+  service: number;
+  gatc: number;
+};
+
+const EMPTY_CATEGORY_COUNTS: DealerInvoiceCategoryCounts = {
+  all: 0,
+  product: 0,
+  spare: 0,
+  software_key: 0,
+  service: 0,
+  gatc: 0,
+};
 const DEFAULT_SORT_FIELD: InvoiceSortField = 'date';
 const DEFAULT_SORT_DIR: 'asc' | 'desc' = 'desc';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
@@ -116,7 +144,6 @@ function InvoiceDeliveryBadge({ date }: { date: string | null | undefined }) {
 function InvoiceFilterSheet({
   open,
   rangePreset,
-  category,
   sortField,
   sortDir,
   onClose,
@@ -124,29 +151,25 @@ function InvoiceFilterSheet({
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
-  category: InvoiceCategory | 'all';
   sortField: InvoiceSortField;
   sortDir: 'asc' | 'desc';
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
-    category: InvoiceCategory | 'all';
     sortField: InvoiceSortField;
     sortDir: 'asc' | 'desc';
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
-  const [draftCategory, setDraftCategory] = useState(category);
   const [draftSortField, setDraftSortField] = useState(sortField);
   const [draftSortDir, setDraftSortDir] = useState(sortDir);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
-    setDraftCategory(category);
     setDraftSortField(sortField);
     setDraftSortDir(sortDir);
-  }, [open, rangePreset, category, sortField, sortDir]);
+  }, [open, rangePreset, sortField, sortDir]);
 
   useEffect(() => {
     if (!open) return;
@@ -160,7 +183,6 @@ function InvoiceFilterSheet({
   if (!open) return null;
 
   const draftDirty = draftRange !== DEFAULT_RANGE
-    || draftCategory !== DEFAULT_CATEGORY
     || draftSortField !== DEFAULT_SORT_FIELD
     || draftSortDir !== DEFAULT_SORT_DIR;
 
@@ -218,29 +240,6 @@ function InvoiceFilterSheet({
             </div>
 
             <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Category</span>
-              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Category">
-                {INVOICE_CATEGORY_FILTER_OPTIONS.map(option => {
-                  const checked = draftCategory === option.value;
-                  const id = `invoice-category-${option.value}`;
-                  return (
-                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
-                      <input
-                        id={id}
-                        type="radio"
-                        className="catalog-spares-multi-filters__checkbox"
-                        name="invoice-category"
-                        checked={checked}
-                        onChange={() => setDraftCategory(option.value)}
-                      />
-                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Sort by</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
                 {SORT_OPTIONS.map(option => {
@@ -287,7 +286,6 @@ function InvoiceFilterSheet({
               onClick={() => {
                 onApply({
                   rangePreset: draftRange,
-                  category: draftCategory,
                   sortField: draftSortField,
                   sortDir: draftSortDir,
                 });
@@ -302,7 +300,6 @@ function InvoiceFilterSheet({
               disabled={!draftDirty}
               onClick={() => {
                 setDraftRange(DEFAULT_RANGE);
-                setDraftCategory(DEFAULT_CATEGORY);
                 setDraftSortField(DEFAULT_SORT_FIELD);
                 setDraftSortDir(DEFAULT_SORT_DIR);
               }}
@@ -413,6 +410,7 @@ export const InvoicesPage: React.FC = () => {
   const [sortField, setSortField] = useState<InvoiceSortField>(DEFAULT_SORT_FIELD);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(DEFAULT_SORT_DIR);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
+  const [categoryCounts, setCategoryCounts] = useState<DealerInvoiceCategoryCounts>(EMPTY_CATEGORY_COUNTS);
   const [page, setPage] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
   const limit = 25;
@@ -512,6 +510,47 @@ export const InvoicesPage: React.FC = () => {
     setPage(1);
   }, [debouncedSearch, category, sortField, sortDir]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const uid = user?.uid;
+    void Promise.all(
+      CATEGORY_BLOCKS.map(async item => {
+        const params: InvoiceListParams = {
+          page: 1,
+          limit: 1,
+          sortField: 'date',
+          sortDir: 'desc',
+          ...(item.value !== 'all' ? { category: item.value } : {}),
+          ...(debouncedSearch.trim() ? { q: debouncedSearch.trim() } : {}),
+        };
+        try {
+          const res = await fetchDealerInvoicesWithCache(uid, params);
+          return [item.value, res.pagination.total] as const;
+        } catch {
+          return [item.value, 0] as const;
+        }
+      }),
+    ).then(entries => {
+      if (cancelled) return;
+      const next: DealerInvoiceCategoryCounts = { ...EMPTY_CATEGORY_COUNTS };
+      for (const [key, count] of entries) {
+        next[key] = count;
+      }
+      setCategoryCounts(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, debouncedSearch]);
+
+  useEffect(() => {
+    if (category === 'all') {
+      setCategoryCounts(prev => (prev.all === total ? prev : { ...prev, all: total }));
+    } else {
+      setCategoryCounts(prev => (prev[category] === total ? prev : { ...prev, [category]: total }));
+    }
+  }, [category, total]);
+
   const handleSort = (field: InvoiceSortField) => {
     if (sortField === field) {
       setSortDir(dir => (dir === 'asc' ? 'desc' : 'asc'));
@@ -559,7 +598,6 @@ export const InvoicesPage: React.FC = () => {
 
   const kpiDateRange = formatKpiPeriodRange(kpiSummary.periodStart, kpiSummary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
-    || category !== DEFAULT_CATEGORY
     || sortField !== DEFAULT_SORT_FIELD
     || sortDir !== DEFAULT_SORT_DIR;
 
@@ -625,11 +663,46 @@ export const InvoicesPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <div className="unified-so-category-blocks" role="tablist" aria-label="Invoice category">
+        {CATEGORY_BLOCKS.map(item => {
+          const active = category === item.value;
+          const count = item.value === 'all'
+            ? categoryCounts.all
+            : categoryCounts[item.value];
+          return (
+            <button
+              key={item.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`unified-so-category-block${active ? ' is-active' : ''}${
+                item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
+              }`}
+              onClick={() => setCategory(item.value)}
+            >
+              <span className="unified-so-category-block__icon" aria-hidden>
+                {item.value === 'all' ? (
+                  <span className="unified-so-category-block__icon--all">
+                    <LayoutGrid size={18} strokeWidth={2.2} />
+                  </span>
+                ) : (
+                  <InvoiceCategoryIcon category={item.value} />
+                )}
+              </span>
+              <span className="unified-so-category-block__label">{item.label}</span>
+              <span className="unified-so-category-block__count">
+                {loading && invoices.length === 0 ? '…' : count.toLocaleString('en-IN')}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 
   return (
-    <div className="page-content fade-in invoices-page">
+    <div className="page-content fade-in invoices-page unified-sales-orders-page">
       {summaryBlock}
 
       <div ref={scrollRef} className="invoices-page__scroll invoices-page__body">
@@ -778,13 +851,11 @@ export const InvoicesPage: React.FC = () => {
       <InvoiceFilterSheet
         open={filterOpen}
         rangePreset={rangePreset}
-        category={category}
         sortField={sortField}
         sortDir={sortDir}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
-          setCategory(next.category);
           setSortField(next.sortField);
           setSortDir(next.sortDir);
         }}

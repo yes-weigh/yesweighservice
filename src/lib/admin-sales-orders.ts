@@ -301,6 +301,160 @@ export async function countAdminSalesOrdersByUnifiedStages(options: {
   return { all, so, done, rejected };
 }
 
+export type AdminSalesOrderCategoryCounts = {
+  all: number;
+  product: number;
+  spare: number;
+  software_key: number;
+  service: number;
+  gatc: number;
+};
+
+export async function countAdminSalesOrdersByCategory(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<AdminSalesOrderCategoryCounts> {
+  const base = {
+    dateStart: options.dateStart ?? null,
+    dateEnd: options.dateEnd ?? null,
+  } as const;
+
+  const [all, product, spare, software_key, service, gatc] = await Promise.all([
+    countAdminSalesOrders({ ...base, category: 'all' }),
+    countAdminSalesOrders({ ...base, category: 'product' }),
+    countAdminSalesOrders({ ...base, category: 'spare' }),
+    countAdminSalesOrders({ ...base, category: 'software_key' }),
+    countAdminSalesOrders({ ...base, category: 'service' }),
+    countAdminSalesOrders({ ...base, category: 'gatc' }),
+  ]);
+
+  return { all, product, spare, software_key, service, gatc };
+}
+
+export function countZohoRowsByCategory(
+  rows: AdminFirestoreSalesOrder[],
+): AdminSalesOrderCategoryCounts {
+  const counts: AdminSalesOrderCategoryCounts = {
+    all: rows.length,
+    product: 0,
+    spare: 0,
+    software_key: 0,
+    service: 0,
+    gatc: 0,
+  };
+  for (const row of rows) {
+    const key = row.salesOrderCategory;
+    if (
+      key === 'product'
+      || key === 'spare'
+      || key === 'software_key'
+      || key === 'service'
+      || key === 'gatc'
+    ) {
+      counts[key] += 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Load Zoho SOs for one or more dealers (newest-first per customer), then merge.
+ * Used when the admin filter sheet selects specific dealers — avoids org-wide
+ * pagination missing the chosen customers.
+ */
+export async function fetchAdminSalesOrdersForCustomers(options: {
+  customerIds: string[];
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  category?: InvoiceCategory | 'all';
+  statusIn?: readonly string[] | null;
+  sort?: AdminSalesOrderSort;
+  maxPerCustomer?: number;
+}): Promise<AdminFirestoreSalesOrder[]> {
+  const ids = [...new Set(
+    options.customerIds.map(id => String(id ?? '').trim()).filter(Boolean),
+  )];
+  if (!ids.length) return [];
+
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const sort = options.sort ?? 'date';
+  const maxPerCustomer = Math.min(Math.max(Number(options.maxPerCustomer ?? 500) || 500, 1), 2000);
+  const pageSize = 100;
+
+  const perCustomer = await Promise.all(ids.map(async customerId => {
+    const rows: AdminFirestoreSalesOrder[] = [];
+    let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+
+    while (rows.length < maxPerCustomer) {
+      const constraints: QueryConstraint[] = [where('customerId', '==', customerId)];
+      if (dateStart) constraints.push(where('date', '>=', dateStart));
+      if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+      if (dateStart || dateEnd || sort !== 'syncedAt') {
+        constraints.push(orderBy('date', 'desc'));
+      } else {
+        constraints.push(orderBy('syncedAt', 'desc'));
+      }
+      if (cursor) constraints.push(startAfter(cursor));
+      constraints.push(limit(Math.min(pageSize, maxPerCustomer - rows.length)));
+
+      const snap = await getDocs(query(collection(db, 'salesOrders'), ...constraints));
+      if (snap.empty) break;
+      rows.push(...snap.docs.map(mapAdminSalesOrderDoc));
+      cursor = snap.docs[snap.docs.length - 1];
+      if (snap.size < pageSize) break;
+    }
+    return rows;
+  }));
+
+  let merged = perCustomer.flat();
+
+  if (options.category && options.category !== 'all') {
+    merged = merged.filter(row => row.salesOrderCategory === options.category);
+  }
+  if (options.statusIn?.length) {
+    const allowed = new Set(options.statusIn.map(s => String(s).toLowerCase()));
+    merged = merged.filter(row => allowed.has(String(row.status || '').toLowerCase()));
+  }
+
+  merged.sort((a, b) => {
+    if (sort === 'syncedAt') {
+      return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+    }
+    const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
+    if (byDate) return byDate;
+    return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+  });
+
+  return merged;
+}
+
+/** Stage counts from an already-loaded dealer-scoped Zoho list. */
+export function countZohoRowsByUnifiedStages(
+  rows: AdminFirestoreSalesOrder[],
+): { all: number; so: number; done: number; rejected: number } {
+  const open = new Set(ZOHO_OPEN_STATUSES.map(s => s.toLowerCase()));
+  const done = new Set(ZOHO_DONE_STATUSES.map(s => s.toLowerCase()));
+  const rejected = new Set(ZOHO_REJECTED_STATUSES.map(s => s.toLowerCase()));
+  let so = 0;
+  let doneCount = 0;
+  let rejectedCount = 0;
+  for (const row of rows) {
+    const status = String(row.status || '').toLowerCase().replace(/\s+/g, '_');
+    if (rejected.has(status) || status === 'cancelled' || status === 'canceled') {
+      rejectedCount += 1;
+    } else if (done.has(status) || status.includes('invoice')) {
+      doneCount += 1;
+    } else if (open.has(status) || status === 'draft') {
+      so += 1;
+    } else {
+      so += 1;
+    }
+  }
+  return { all: rows.length, so, done: doneCount, rejected: rejectedCount };
+}
+
+
 
 export function filterAdminSalesOrders(
   rows: AdminFirestoreSalesOrder[],
