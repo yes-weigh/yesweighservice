@@ -21,6 +21,7 @@ import {
 } from '../../lib/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import {
+  deleteDraftSalesOrder,
   markSalesOrderReadyForPayment,
   verifySalesOrderPayment,
   yesOneStageLabel,
@@ -137,8 +138,16 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && (statusKey === 'draft' || statusKey === 'pending' || statusKey === 'confirmed' || statusKey === 'open')
     && (stage === 'review' || !salesOrder?.yesOneStage);
   const canVerify = canVerifyPayment && stage === 'payment_submitted';
+  const canDelete = Boolean(
+    (canManageZoho || isDealerView)
+    && (statusKey === 'draft' || statusKey === 'pending')
+    && stage !== 'payment_submitted'
+    && stage !== 'completed'
+    && stage !== 'void',
+  );
   const canVoid = Boolean(
     canManageZoho
+    && !canDelete
     && statusKey
     && statusKey !== 'void'
     && statusKey !== 'closed'
@@ -196,16 +205,48 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     }
   }, [salesOrderId, actionBusy, reload]);
 
+  const handleDelete = useCallback(async () => {
+    if (!salesOrderId || actionBusy) return;
+    const label = salesOrder?.salesOrderNumber?.trim() || 'this draft sales order';
+    if (!window.confirm(
+      `Delete ${label}? It will be permanently removed from Zoho and YesOne. This cannot be undone.`,
+    )) return;
+    setActionBusy('delete');
+    try {
+      await deleteDraftSalesOrder(salesOrderId);
+      navigate(listPath, { replace: true });
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+      setActionBusy(null);
+    }
+  }, [salesOrderId, actionBusy, salesOrder?.salesOrderNumber, navigate, listPath]);
+
   const workflowActions = useMemo<SalesOrderWorkflowActions | null>(() => {
-    if (isDealerView || isPdfView) return null;
+    if (isPdfView) return null;
+    if (isDealerView) {
+      if (!canDelete) return null;
+      return {
+        actionBusy,
+        canReady: false,
+        canVerify: false,
+        canVoid: false,
+        canDelete,
+        onReady: () => {},
+        onVerify: () => {},
+        onVoid: () => {},
+        onDelete: () => { void handleDelete(); },
+      };
+    }
     return {
       actionBusy,
       canReady,
       canVerify,
       canVoid,
+      canDelete,
       onReady: () => { void handleReady(); },
       onVerify: () => { void handleVerify(); },
       onVoid: () => { void handleVoid(); },
+      onDelete: () => { void handleDelete(); },
     };
   }, [
     isDealerView,
@@ -214,9 +255,11 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     canReady,
     canVerify,
     canVoid,
+    canDelete,
     handleReady,
     handleVerify,
     handleVoid,
+    handleDelete,
   ]);
 
   if (!salesOrderId) return null;

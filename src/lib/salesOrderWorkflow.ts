@@ -128,6 +128,17 @@ export async function verifySalesOrderPayment(
   }
 }
 
+/** Delete a Draft SO in Zoho and remove the portal mirror. */
+export async function deleteDraftSalesOrder(
+  salesOrderId: string,
+): Promise<{ salesOrderId: string; deleted: boolean }> {
+  try {
+    return await call('deleteDraftSalesOrder', { salesOrderId }, 120_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

@@ -137,6 +137,7 @@ import {
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
   voidSalesOrderWithWorkflow as voidSalesOrderWithWorkflowRecord,
+  deleteDraftSalesOrder as deleteDraftSalesOrderRecord,
 } from './lib/sales-order-workflow.js';
 import {
   listAddressesForUser as listAddressesForUserRecord,
@@ -3058,6 +3059,34 @@ export const voidZohoSalesOrder = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not void sales order.');
+    }
+  },
+);
+
+export const deleteDraftSalesOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(
+      uid,
+      new Set(['staff', 'super_admin', 'dealer', 'dealer_staff']),
+    );
+    try {
+      return await deleteDraftSalesOrderRecord(
+        uid,
+        role,
+        request.data?.salesOrderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not delete sales order.');
     }
   },
 );

@@ -33625,6 +33625,16 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.4rem;
 }
 
+.so-detail__actions .so-detail__delete-btn {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(127, 29, 29, 0.35);
+}
+
+.so-detail__actions .so-detail__delete-btn:hover:not(:disabled) {
+  background: rgba(153, 27, 27, 0.5);
+}
+
 @media (min-width: 768px) {
   .so-detail__actions {
     position: static;

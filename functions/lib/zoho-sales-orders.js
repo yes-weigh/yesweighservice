@@ -245,6 +245,18 @@ export async function voidSalesOrder(secrets, configuredOrgId, salesOrderId, rea
   return { salesOrderId: soId, status: 'void' };
 }
 
+/** Permanently delete a Zoho Inventory sales order (Draft / eligible confirmed only). */
+export async function deleteSalesOrder(secrets, configuredOrgId, salesOrderId) {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
+    method: 'DELETE',
+  });
+  return { salesOrderId: soId, deleted: true };
+}
+
 /** Submit a draft SO for Zoho approval (only when Approvals are enabled in Zoho). */
 export async function submitSalesOrderForApproval(secrets, configuredOrgId, salesOrderId) {
   const soId = String(salesOrderId || '').trim();

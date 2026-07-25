@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { Ban, Check, FileText, IndianRupee, MapPin, Pencil } from 'lucide-react';
+import { Ban, Check, FileText, IndianRupee, MapPin, Pencil, Trash2 } from 'lucide-react';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
@@ -170,7 +170,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const showWorkflowActions = Boolean(
     workflowActions
-    && (workflowActions.canReady || workflowActions.canVerify || workflowActions.canVoid),
+    && (
+      workflowActions.canReady
+      || workflowActions.canVerify
+      || workflowActions.canVoid
+      || workflowActions.canDelete
+    ),
   );
   const showPayment = canPay
     || (isOps && (stage === 'payment_submitted' || stage === 'completed' || salesOrder.paymentScreenshotUrl));
@@ -389,6 +394,17 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             >
               <Ban size={16} aria-hidden />
               {workflowActions.actionBusy === 'void' ? 'Voiding…' : 'Void'}
+            </button>
+          )}
+          {workflowActions.canDelete && (
+            <button
+              type="button"
+              className="btn btn-secondary so-detail__delete-btn"
+              disabled={Boolean(workflowActions.actionBusy)}
+              onClick={workflowActions.onDelete}
+            >
+              <Trash2 size={16} aria-hidden />
+              {workflowActions.actionBusy === 'delete' ? 'Deleting…' : 'Delete draft'}
             </button>
           )}
         </footer>

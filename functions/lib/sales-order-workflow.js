@@ -12,6 +12,7 @@ import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import {
   confirmSalesOrder,
   createInvoiceFromSalesOrder,
+  deleteSalesOrder,
   updateSalesOrderLines,
   updateSalesOrderShippingAddress,
   voidSalesOrder,
@@ -583,6 +584,51 @@ export async function voidSalesOrderWithWorkflow(uid, role, salesOrderId, reason
 
   const snap = await ref.get();
   return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
+}
+
+/**
+ * Delete a Draft Zoho SO (Zoho DELETE) and remove the Firestore mirror.
+ * Staff/super_admin with orders.manage, or the owning dealer.
+ */
+export async function deleteDraftSalesOrder(uid, role, salesOrderId, secrets, orgId) {
+  const user = await loadUser(uid);
+  const { ref, id, data } = await loadSoOrThrow(salesOrderId);
+
+  if (OPS_ROLES.has(user.role)) {
+    requireOrdersManage(user);
+  } else if (DEALER_ROLES.has(user.role)) {
+    await assertDealerOwnsSo(user, data);
+  } else {
+    throw new HttpsError('permission-denied', 'You cannot delete this sales order.');
+  }
+
+  const zohoStatus = normalizeZohoStatus(data.status);
+  if (zohoStatus !== 'draft' && zohoStatus !== 'pending') {
+    throw new HttpsError(
+      'failed-precondition',
+      'Only Draft sales orders can be deleted. Use Void for confirmed orders.',
+    );
+  }
+  const stage = yesOneStageOf(data);
+  if (stage === 'payment_submitted' || stage === 'completed' || stage === 'void') {
+    throw new HttpsError(
+      'failed-precondition',
+      'This sales order can no longer be deleted.',
+    );
+  }
+
+  try {
+    await deleteSalesOrder(secrets, orgId, id);
+  } catch (err) {
+    const message = String(err?.message || err || '');
+    // Already gone in Zoho — still clear the portal mirror.
+    if (!/not found|does not exist|invalid|404/i.test(message)) {
+      throw new HttpsError('internal', message || 'Could not delete sales order in Zoho.');
+    }
+  }
+
+  await ref.delete();
+  return { salesOrderId: id, deleted: true };
 }
 
 export async function getSalesOrderWorkflowDetail(uid, role, salesOrderId) {
