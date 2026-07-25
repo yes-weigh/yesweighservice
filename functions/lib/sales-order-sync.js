@@ -253,6 +253,11 @@ function mapSalesOrder(raw) {
     customerId: raw.customer_id != null ? String(raw.customer_id) : '',
     customerName: raw.customer_name ? String(raw.customer_name) : null,
     shippingAddress: formatZohoAddress(raw.shipping_address) ?? null,
+    shippingAddressId: raw.shipping_address_id != null
+      ? String(raw.shipping_address_id)
+      : (raw.shipping_address?.address_id != null
+        ? String(raw.shipping_address.address_id)
+        : null),
     subtotal: Number(raw.sub_total ?? raw.subtotal ?? 0),
     taxTotal: Number(raw.tax_total ?? 0),
     notes: raw.notes ? String(raw.notes) : null,
@@ -798,6 +803,7 @@ export function mapSalesOrderDoc(id, data) {
     customerId: String(data.customerId ?? ''),
     customerName: data.customerName ?? null,
     shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
+    shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ?? null,

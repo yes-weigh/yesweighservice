@@ -1,6 +1,10 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import type { SubmitDealerOrderLineInput } from '../types/dealer-orders';
+import {
+  shippingSelectionPayload,
+  type ShippingSelection,
+} from './shippingAddresses';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -35,9 +39,14 @@ export interface SubmitDealerOrderResult {
 /** Place cart as a Zoho Inventory Draft sales order. */
 export async function submitDealerOrder(
   lines: SubmitDealerOrderLineInput[],
+  shipping: ShippingSelection,
 ): Promise<SubmitDealerOrderResult> {
   try {
-    return await call('submitDealerOrder', { lines }, 180_000);
+    return await call(
+      'submitDealerOrder',
+      { lines, shipping: shippingSelectionPayload(shipping) },
+      180_000,
+    );
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }

@@ -97,6 +97,7 @@ export interface AdminSalesOrderDetail {
   customerName: string | null;
   /** Formatted shipping address from the SO or customer record. */
   shippingAddress?: string | null;
+  shippingAddressId?: string | null;
   salesOrderCategory: InvoiceCategory | null;
   subtotal: number;
   taxTotal: number;
@@ -551,6 +552,7 @@ export function mapAdminSalesOrderDetail(
     customerId: String(data.customerId ?? ''),
     customerName: data.customerName ? String(data.customerName) : null,
     shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
+    shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),

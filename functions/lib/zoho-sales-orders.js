@@ -76,6 +76,20 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     line_items: lineItems,
     notes: `YesOne cart ${order.orderNumber || order.id}`,
   };
+  if (order.shippingAddressId) {
+    body.shipping_address_id = String(order.shippingAddressId);
+  } else if (order.shippingAddressInline && typeof order.shippingAddressInline === 'object') {
+    body.shipping_address = {
+      attention: order.shippingAddressInline.attention || '',
+      address: order.shippingAddressInline.address || '',
+      street2: order.shippingAddressInline.street2 || '',
+      city: order.shippingAddressInline.city || '',
+      state: order.shippingAddressInline.state || '',
+      zip: order.shippingAddressInline.zip || '',
+      country: order.shippingAddressInline.country || 'India',
+      phone: order.shippingAddressInline.phone || '',
+    };
+  }
 
   const payload = await zohoJson(accessToken, orgId, '/salesorders', {
     method: 'POST',
@@ -127,6 +141,68 @@ export async function updateSalesOrderLines(secrets, configuredOrgId, salesOrder
     line_items: lineItems,
     notes: so.notes || '',
   };
+
+  const payload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
+    method: 'PUT',
+    body,
+  });
+  const updated = payload?.salesorder;
+  return {
+    salesOrderId: soId,
+    salesOrderNumber: updated?.salesorder_number
+      ? String(updated.salesorder_number)
+      : (so.salesorder_number ? String(so.salesorder_number) : null),
+    status: updated?.status ? String(updated.status) : status,
+  };
+}
+
+/**
+ * Update shipping address on a Draft/Pending Zoho sales order.
+ * Prefer shipping_address_id (contact address); fall back to inline shipping_address.
+ */
+export async function updateSalesOrderShippingAddress(
+  secrets,
+  configuredOrgId,
+  salesOrderId,
+  { shippingAddressId = null, shippingAddressInline = null } = {},
+) {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const existing = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+  const so = existing?.salesorder;
+  if (!so) throw new Error('Sales order not found in Zoho.');
+
+  const status = String(so.status || '').toLowerCase().replace(/\s+/g, '_');
+  if (status !== 'draft' && status !== 'pending') {
+    throw new Error('Only Draft sales orders can change shipping address.');
+  }
+
+  const body = {
+    customer_id: so.customer_id,
+    reference_number: so.reference_number || '',
+    date: so.date || new Date().toISOString().slice(0, 10),
+    line_items: Array.isArray(so.line_items) ? so.line_items : [],
+    notes: so.notes || '',
+  };
+  if (shippingAddressId) {
+    body.shipping_address_id = String(shippingAddressId);
+  } else if (shippingAddressInline && typeof shippingAddressInline === 'object') {
+    body.shipping_address = {
+      attention: shippingAddressInline.attention || '',
+      address: shippingAddressInline.address || '',
+      street2: shippingAddressInline.street2 || '',
+      city: shippingAddressInline.city || '',
+      state: shippingAddressInline.state || '',
+      zip: shippingAddressInline.zip || '',
+      country: shippingAddressInline.country || 'India',
+      phone: shippingAddressInline.phone || '',
+    };
+  } else {
+    throw new Error('shippingAddressId or shippingAddressInline is required.');
+  }
 
   const payload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
     method: 'PUT',

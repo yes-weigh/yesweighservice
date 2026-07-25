@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { Ban, Check, FileText, IndianRupee, MapPin, Pencil } from 'lucide-react';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
+import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
   SalesOrderDraftLineEditor,
   type DraftEditLine,
@@ -10,8 +11,14 @@ import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
 import {
+  listCustomerShippingAddresses,
+  type ShippingAddress,
+  type ShippingSelection,
+} from '../../lib/shippingAddresses';
+import {
   submitSalesOrderPayment,
   updateDraftSalesOrderLines,
+  updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
@@ -34,16 +41,49 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [paymentUtr, setPaymentUtr] = useState('');
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [submittingPayment, setSubmittingPayment] = useState(false);
+  const [editingShip, setEditingShip] = useState(false);
+  const [shipAddresses, setShipAddresses] = useState<ShippingAddress[]>([]);
+  const [shipLoading, setShipLoading] = useState(false);
+  const [shipError, setShipError] = useState('');
+  const [shipSelection, setShipSelection] = useState<ShippingSelection | null>(null);
+  const [savingShip, setSavingShip] = useState(false);
 
   const stage = String(salesOrder?.yesOneStage || '');
   const zohoStatus = String(salesOrder?.status || '').toLowerCase().replace(/\s+/g, '_');
-  const canEditLines = isOps
+  const canEditDraft = isOps
     && (zohoStatus === 'draft' || zohoStatus === 'pending')
     && stage !== 'payment_submitted'
     && stage !== 'completed'
     && stage !== 'void';
+  const canEditLines = canEditDraft;
+  const canEditShipping = canEditDraft && Boolean(salesOrder?.customerId?.trim());
   const canPay = isDealer && (stage === 'ready_for_payment' || stage === 'payment_submitted');
   const pdfPath = `${listPath}/${salesOrderId}/view`;
+
+  const loadShipAddresses = useCallback((customerId: string, currentAddressId?: string | null) => {
+    setShipLoading(true);
+    setShipError('');
+    void listCustomerShippingAddresses(customerId)
+      .then(rows => {
+        setShipAddresses(rows);
+        const id = currentAddressId?.trim();
+        if (id && rows.some(r => r.addressId === id)) {
+          setShipSelection({ mode: 'saved', addressId: id });
+        }
+      })
+      .catch(err => {
+        setShipAddresses([]);
+        setShipError(dealerOrderErrorMessage(err));
+      })
+      .finally(() => setShipLoading(false));
+  }, []);
+
+  const startEditShipping = () => {
+    if (!salesOrder?.customerId) return;
+    setEditingShip(true);
+    setShipSelection(null);
+    loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
+  };
 
   const startEdit = () => {
     if (!salesOrder) return;
@@ -80,6 +120,21 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       window.alert(dealerOrderErrorMessage(err));
     } finally {
       setSavingLines(false);
+    }
+  };
+
+  const saveShipping = async () => {
+    if (!salesOrderId || savingShip || !shipSelection) return;
+    setSavingShip(true);
+    try {
+      const next = await updateDraftSalesOrderShipping(salesOrderId, shipSelection);
+      setSalesOrder(next);
+      setEditingShip(false);
+      setShipSelection(null);
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setSavingShip(false);
     }
   };
 
@@ -133,11 +188,67 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           {!isDealer && (
             <h2 className="so-detail__customer">{salesOrder.customerName ?? '—'}</h2>
           )}
-          {salesOrder.shippingAddress && (
-            <p className="so-detail__ship">
-              <MapPin size={14} aria-hidden />
-              <span>{salesOrder.shippingAddress}</span>
-            </p>
+          {editingShip ? (
+            <div className="so-detail__ship-edit">
+              <ShippingAddressPicker
+                addresses={shipAddresses}
+                loading={shipLoading}
+                error={shipError}
+                disabled={savingShip}
+                value={shipSelection}
+                onChange={setShipSelection}
+                onRefresh={() => {
+                  if (salesOrder.customerId) {
+                    loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
+                  }
+                }}
+              />
+              <div className="so-detail__ship-edit-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={savingShip}
+                  onClick={() => {
+                    setEditingShip(false);
+                    setShipSelection(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={savingShip || !shipSelection || shipLoading}
+                  onClick={() => { void saveShipping(); }}
+                >
+                  {savingShip ? 'Saving…' : 'Save address'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="so-detail__ship-row">
+              {salesOrder.shippingAddress ? (
+                <p className="so-detail__ship">
+                  <MapPin size={14} aria-hidden />
+                  <span>{salesOrder.shippingAddress}</span>
+                </p>
+              ) : (
+                <p className="so-detail__ship text-muted">
+                  <MapPin size={14} aria-hidden />
+                  <span>No shipping address on this order</span>
+                </p>
+              )}
+              {canEditShipping && (
+                <button
+                  type="button"
+                  className="so-detail__edit-btn so-detail__ship-change"
+                  onClick={startEditShipping}
+                >
+                  <Pencil size={14} aria-hidden />
+                  Change address
+                </button>
+              )}
+            </div>
           )}
         </div>
       </header>

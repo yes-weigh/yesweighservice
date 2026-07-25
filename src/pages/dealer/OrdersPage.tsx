@@ -1,12 +1,18 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { IndianRupee, Package, ShoppingCart, Trash2 } from 'lucide-react';
 import { QuantityStepper } from '../../components/QuantityStepper';
+import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/useCart';
 import { formatCurrency } from '../../lib/catalog';
 import { dealerOrderErrorMessage, submitDealerOrder } from '../../lib/dealerOrders';
+import {
+  listDealerShippingAddresses,
+  type ShippingAddress,
+  type ShippingSelection,
+} from '../../lib/shippingAddresses';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
 
@@ -35,16 +41,43 @@ const DealerCartPage: React.FC = () => {
   const navigate = useNavigate();
   const { items, itemCount, subtotal, setQuantity, removeItem, clearCart } = useCart();
   const [submitting, setSubmitting] = useState(false);
+  const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
+  const [addressesLoading, setAddressesLoading] = useState(true);
+  const [addressesError, setAddressesError] = useState('');
+  const [shipping, setShipping] = useState<ShippingSelection | null>(null);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/catalog`;
 
+  const loadAddresses = useCallback(() => {
+    setAddressesLoading(true);
+    setAddressesError('');
+    void listDealerShippingAddresses()
+      .then(rows => {
+        setAddresses(rows);
+      })
+      .catch(err => {
+        setAddresses([]);
+        setAddressesError(dealerOrderErrorMessage(err));
+      })
+      .finally(() => setAddressesLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadAddresses();
+  }, [loadAddresses]);
+
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
+    if (!shipping) {
+      window.alert('Select or enter a complete shipping address before placing the order.');
+      return;
+    }
     setSubmitting(true);
     try {
       const order = await submitDealerOrder(
         items.map(item => ({ productId: item.productId, quantity: item.quantity })),
+        shipping,
       );
       clearCart();
       const soId = order.zohoSalesOrderId?.trim();
@@ -172,12 +205,26 @@ const DealerCartPage: React.FC = () => {
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
           <p className="orders-page__summary-note text-muted text-sm">
-            Your order is created in Zoho Inventory as Draft. Staff can confirm it there.
+            Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.
           </p>
+          <ShippingAddressPicker
+            addresses={addresses}
+            loading={addressesLoading}
+            error={addressesError}
+            disabled={submitting}
+            value={shipping}
+            onChange={setShipping}
+            onRefresh={loadAddresses}
+          />
           <button
             type="button"
             className="btn btn-primary orders-page__submit"
-            disabled={submitting || items.some(i => i.stockStatus === 'out_of_stock')}
+            disabled={
+              submitting
+              || !shipping
+              || addressesLoading
+              || items.some(i => i.stockStatus === 'out_of_stock')
+            }
             onClick={() => void handlePlaceOrder()}
           >
             {submitting ? 'Submitting…' : 'Place order'}

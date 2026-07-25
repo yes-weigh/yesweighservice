@@ -131,12 +131,19 @@ import {
 } from './lib/dealer-orders.js';
 import {
   updateDraftSalesOrderLines as updateDraftSalesOrderLinesRecord,
+  updateDraftSalesOrderShipping as updateDraftSalesOrderShippingRecord,
   markSalesOrderReadyForPayment as markSalesOrderReadyForPaymentRecord,
   uploadSalesOrderPaymentScreenshot as uploadSalesOrderPaymentScreenshotRecord,
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
   voidSalesOrderWithWorkflow as voidSalesOrderWithWorkflowRecord,
 } from './lib/sales-order-workflow.js';
+import {
+  listAddressesForUser as listAddressesForUserRecord,
+  addAddressForUser as addAddressForUserRecord,
+  listContactAddressesForCustomer as listContactAddressesForCustomerRecord,
+  addContactAddress as addContactAddressRecord,
+} from './lib/zoho-contact-addresses.js';
 import {
   uploadApprovalNumberPdf as storeApprovalNumberPdf,
   removeApprovalNumberPdf as clearApprovalNumberPdf,
@@ -2902,6 +2909,108 @@ export const submitDealerOrder = onCall(
   },
 );
 
+export const listDealerShippingAddresses = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      return await listAddressesForUserRecord(
+        uid,
+        role,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load shipping addresses.');
+    }
+  },
+);
+
+export const addDealerShippingAddress = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      const address = await addAddressForUserRecord(
+        uid,
+        role,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        request.data?.address ?? {},
+      );
+      return { address };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not add shipping address.');
+    }
+  },
+);
+
+export const listCustomerShippingAddresses = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      if (!customerId) throw new HttpsError('invalid-argument', 'customerId is required.');
+      return await listContactAddressesForCustomerRecord(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        customerId,
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load shipping addresses.');
+    }
+  },
+);
+
+export const addCustomerShippingAddress = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      if (!customerId) throw new HttpsError('invalid-argument', 'customerId is required.');
+      const address = await addContactAddressRecord(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        customerId,
+        request.data?.address ?? {},
+      );
+      return { address };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not add shipping address.');
+    }
+  },
+);
+
 export const confirmZohoSalesOrder = onCall(
   {
     region: 'asia-south1',
@@ -2974,6 +3083,31 @@ export const updateDraftSalesOrderLines = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not update sales order lines.');
+    }
+  },
+);
+
+export const updateDraftSalesOrderShipping = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await updateDraftSalesOrderShippingRecord(
+        uid,
+        role,
+        request.data ?? {},
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update shipping address.');
     }
   },
 );

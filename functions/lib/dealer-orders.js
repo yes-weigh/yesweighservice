@@ -12,6 +12,7 @@ import {
 } from './zoho-sales-orders.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
+import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 
 const PRODUCTS = 'catalogProducts';
@@ -273,6 +274,19 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     );
   }
 
+  const shippingSel = payload.shipping || {};
+  let shippingResolved;
+  try {
+    shippingResolved = await resolveShippingAddressId(secrets, orgId, zohoCustomerId, {
+      addressId: shippingSel.addressId || null,
+      kind: shippingSel.kind || null,
+      newAddress: shippingSel.newAddress || null,
+    });
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('invalid-argument', err?.message || 'Invalid shipping address.');
+  }
+
   const orderNumber = await nextOrderNumber();
   let salesOrderId = null;
   let salesOrderNumber = null;
@@ -285,6 +299,8 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       zohoCustomerId,
       lines,
       subtotal,
+      shippingAddressId: shippingResolved.shippingAddressId,
+      shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
     });
     salesOrderId = so.salesOrderId;
     salesOrderNumber = so.salesOrderNumber;
@@ -294,6 +310,8 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       await initYesOneSalesOrderWorkflow(salesOrderId, {
         yesOneCreatedFromCart: true,
         yesOneCartReference: orderNumber,
+        shippingAddressId: shippingResolved.shippingAddressId || null,
+        shippingAddress: shippingResolved.address?.formatted || null,
       });
     } catch (mirrorErr) {
       console.warn(
@@ -304,6 +322,8 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
         await initYesOneSalesOrderWorkflow(salesOrderId, {
           yesOneCreatedFromCart: true,
           yesOneCartReference: orderNumber,
+          shippingAddressId: shippingResolved.shippingAddressId || null,
+          shippingAddress: shippingResolved.address?.formatted || null,
         });
       } catch {
         // Mirror may have failed entirely; workflow seed best-effort.

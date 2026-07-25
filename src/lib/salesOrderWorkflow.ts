@@ -2,6 +2,10 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import type { AdminSalesOrderDetail } from './admin-sales-orders';
 import { dealerOrderErrorMessage } from './dealerOrders';
+import {
+  shippingSelectionPayload,
+  type ShippingSelection,
+} from './shippingAddresses';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -51,6 +55,21 @@ export async function updateDraftSalesOrderLines(
 ): Promise<SalesOrderWorkflowDetail> {
   try {
     return await call('updateDraftSalesOrderLines', { salesOrderId, lines }, 180_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function updateDraftSalesOrderShipping(
+  salesOrderId: string,
+  shipping: ShippingSelection,
+): Promise<SalesOrderWorkflowDetail> {
+  try {
+    return await call(
+      'updateDraftSalesOrderShipping',
+      { salesOrderId, shipping: shippingSelectionPayload(shipping) },
+      120_000,
+    );
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }

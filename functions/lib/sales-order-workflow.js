@@ -13,6 +13,7 @@ import {
   confirmSalesOrder,
   createInvoiceFromSalesOrder,
   updateSalesOrderLines,
+  updateSalesOrderShippingAddress,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
 import {
@@ -21,6 +22,7 @@ import {
   withCatalogLineImages,
   withResolvedShippingAddress,
 } from './sales-order-sync.js';
+import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 
 const SO_COLLECTION = 'salesOrders';
@@ -316,6 +318,52 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
 
   // Keep YesOne stage (review or ready_for_payment).
   await ref.set({
+    yesOneUpdatedAt: nowIso(),
+    yesOneLastEditedAt: nowIso(),
+    yesOneLastEditedByUid: uid,
+    yesOneLastEditedByName: displayName(user),
+  }, { merge: true });
+
+  const snap = await ref.get();
+  return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
+}
+
+/** Staff/super admin: change shipping address on a Draft SO (Zoho + mirror). */
+export async function updateDraftSalesOrderShipping(uid, role, payload = {}, secrets, orgId) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+
+  const { ref, id, data } = await loadSoOrThrow(payload.salesOrderId);
+  const zohoStatus = normalizeZohoStatus(data.status);
+  if (zohoStatus !== 'draft' && zohoStatus !== 'pending') {
+    throw new HttpsError('failed-precondition', 'Only Draft sales orders can change shipping address.');
+  }
+  const stage = yesOneStageOf(data);
+  if (stage === 'payment_submitted' || stage === 'completed' || stage === 'void') {
+    throw new HttpsError('failed-precondition', 'This sales order can no longer change shipping address.');
+  }
+
+  const customerId = String(data.customerId || '').trim();
+  if (!customerId) {
+    throw new HttpsError('failed-precondition', 'Sales order has no customer.');
+  }
+
+  const shippingSel = payload.shipping || {};
+  const resolved = await resolveShippingAddressId(secrets, orgId, customerId, {
+    addressId: shippingSel.addressId || null,
+    kind: shippingSel.kind || null,
+    newAddress: shippingSel.newAddress || null,
+  });
+
+  await updateSalesOrderShippingAddress(secrets, orgId, id, {
+    shippingAddressId: resolved.shippingAddressId,
+    shippingAddressInline: resolved.useInline ? resolved.address : null,
+  });
+  await mirrorSalesOrderFromZoho(secrets, orgId, id);
+
+  await ref.set({
+    shippingAddressId: resolved.shippingAddressId || null,
+    shippingAddress: resolved.address?.formatted || null,
     yesOneUpdatedAt: nowIso(),
     yesOneLastEditedAt: nowIso(),
     yesOneLastEditedByUid: uid,
