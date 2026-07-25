@@ -4,6 +4,7 @@ import {
   invoiceStatusLabel,
 } from './invoices';
 import { yesOneStageLabel } from './salesOrderWorkflow';
+import type { SalesOrderSealKind } from './salesOrderSeals';
 import type { InvoiceCategory, KpiPeriod } from '../types/invoices';
 
 export type UnifiedSalesOrderSource = 'zoho';
@@ -27,6 +28,8 @@ export interface UnifiedSalesOrderRow {
   statusClass: string;
   /** Dealer cart → Zoho Draft awaiting admin action. */
   isOrderPlaced: boolean;
+  /** Stage seal stamp for list rows (null when none). */
+  sealKind: SalesOrderSealKind | null;
   category: InvoiceCategory | null;
   qty: number | null;
   /** Zoho reference number when present. */
@@ -57,15 +60,27 @@ export function isDealerOrderPlaced(so: AdminFirestoreSalesOrder): boolean {
   return false;
 }
 
+export function sealKindForSalesOrder(so: AdminFirestoreSalesOrder): SalesOrderSealKind | null {
+  const stage = String(so.yesOneStage || '').trim();
+  if (isDealerOrderPlaced(so) || stage === 'review') return 'under_review';
+  if (stage === 'ready_for_payment') return 'awaiting_payment';
+  if (stage === 'completed') return 'invoiced';
+  const zoho = String(so.status || '').toLowerCase().replace(/\s+/g, '_');
+  if (zoho === 'invoiced') return 'invoiced';
+  return null;
+}
+
 function displayStatusForSo(so: AdminFirestoreSalesOrder): {
   statusRaw: string;
   statusLabel: string;
   statusClass: string;
   isOrderPlaced: boolean;
+  sealKind: SalesOrderSealKind | null;
 } {
   const stage = String(so.yesOneStage || '').trim();
   const orderPlaced = isDealerOrderPlaced(so);
-  // Keep Zoho status (e.g. Draft) as the status pill; "Order placed" is a separate pin.
+  const sealKind = sealKindForSalesOrder(so);
+  // Keep Zoho status (e.g. Draft) as the status pill; seal is separate.
   if (orderPlaced) {
     const zohoStatus = String(so.status || 'draft');
     return {
@@ -73,6 +88,7 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
       statusLabel: invoiceStatusLabel(zohoStatus),
       statusClass: `invoices-status invoices-status--${zohoStatus.toLowerCase().replace(/\s+/g, '_')}`,
       isOrderPlaced: true,
+      sealKind,
     };
   }
   if (stage === 'ready_for_payment') {
@@ -81,6 +97,7 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
       statusLabel: yesOneStageLabel(stage),
       statusClass: 'invoices-status invoices-status--overdue',
       isOrderPlaced: false,
+      sealKind,
     };
   }
   if (stage === 'payment_submitted') {
@@ -89,6 +106,7 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
       statusLabel: yesOneStageLabel(stage),
       statusClass: 'invoices-status invoices-status--partially_paid',
       isOrderPlaced: false,
+      sealKind,
     };
   }
   if (stage === 'completed') {
@@ -97,6 +115,7 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
       statusLabel: yesOneStageLabel(stage),
       statusClass: 'invoices-status invoices-status--paid',
       isOrderPlaced: false,
+      sealKind,
     };
   }
   if (stage === 'void') {
@@ -105,6 +124,7 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
       statusLabel: yesOneStageLabel(stage),
       statusClass: 'invoices-status invoices-status--void',
       isOrderPlaced: false,
+      sealKind,
     };
   }
   return {
@@ -112,6 +132,7 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
     statusLabel: invoiceStatusLabel(so.status),
     statusClass: `invoices-status invoices-status--${String(so.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`,
     isOrderPlaced: false,
+    sealKind,
   };
 }
 
@@ -136,6 +157,7 @@ export function mapZohoOrderToUnified(
     statusLabel: display.statusLabel,
     statusClass: display.statusClass,
     isOrderPlaced: display.isOrderPlaced,
+    sealKind: display.sealKind,
     category: so.salesOrderCategory,
     qty: so.itemQuantity,
     portalOrderNumber: so.referenceNumber,

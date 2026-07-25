@@ -18,7 +18,7 @@ import {
   InvoiceCategoryBadge,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
-import { OrderPlacedSeal } from '../../components/salesOrders/OrderPlacedSeal';
+import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   DealerMultiFilterPicker,
@@ -495,11 +495,13 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         period: undefined,
       });
     }
-    // Keep dealer "Order placed" Drafts pinned to the top for quick admin focus.
-    return [...rows].sort((a, b) => {
-      if (a.isOrderPlaced !== b.isOrderPlaced) return a.isOrderPlaced ? -1 : 1;
-      return 0;
-    });
+    // Pin actionable YesOne stages to the top (not completed/invoiced).
+    const sealPriority = (kind: typeof rows[number]['sealKind']) => {
+      if (kind === 'under_review') return 0;
+      if (kind === 'awaiting_payment') return 1;
+      return 2;
+    };
+    return [...rows].sort((a, b) => sealPriority(a.sealKind) - sealPriority(b.sealKind));
   }, [zohoOrders, basePath, search, searchActive, dealerScoped, category]);
 
   const clientPaged = searchActive || dealerScoped;
@@ -803,7 +805,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                         key={row.key}
                         className={[
                           'invoices-table__row--clickable',
-                          row.isOrderPlaced ? 'unified-so-row--order-placed' : '',
+                          row.sealKind ? 'unified-so-row--with-seal' : '',
                         ].filter(Boolean).join(' ')}
                         onClick={() => openRow(row)}
                         onKeyDown={e => {
@@ -826,8 +828,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                               {row.category ? (
                                 <InvoiceCategoryBadge category={row.category} />
                               ) : null}
-                              {row.isOrderPlaced ? (
-                                <OrderPlacedSeal size="inline" />
+                              {row.sealKind ? (
+                                <SalesOrderStageSeal kind={row.sealKind} size="inline" />
                               ) : null}
                               <span className={row.statusClass}>{row.statusLabel}</span>
                             </span>
@@ -869,10 +871,10 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                       'invoices-mobile-row',
                       'invoices-mobile-row--po-stack',
                       'unified-so-mobile-row',
-                      row.isOrderPlaced ? 'unified-so-mobile-row--order-placed' : '',
+                      row.sealKind ? 'unified-so-mobile-row--with-seal' : '',
                     ].filter(Boolean).join(' ')}
                     onClick={() => openRow(row)}
-                    aria-label={`View ${row.primaryNumber}${row.isOrderPlaced ? ', order placed' : ''}`}
+                    aria-label={`View ${row.primaryNumber}${row.sealKind ? `, ${row.sealKind.replace(/_/g, ' ')}` : ''}`}
                   >
                     <InvoiceCategoryIcon category={row.category} />
                     <span className="invoices-mobile-row__body">
@@ -908,7 +910,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                         </span>
                       </span>
                     </span>
-                    {row.isOrderPlaced ? <OrderPlacedSeal size="tile" /> : null}
+                    {row.sealKind ? (
+                      <SalesOrderStageSeal kind={row.sealKind} size="tile" />
+                    ) : null}
                     <span className="invoices-mobile-row__chevron" aria-hidden>
                       <ChevronRight size={18} />
                     </span>

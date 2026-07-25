@@ -12035,6 +12035,49 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.45rem;
 }
 
+.quantity-stepper {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.quantity-stepper__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.quantity-stepper__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.quantity-stepper__input {
+  min-width: 1.75rem;
+  width: 2.25rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: center;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+
+.quantity-stepper__input:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+.quantity-stepper__input::-webkit-outer-spin-button,
+.quantity-stepper__input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .orders-page__qty {
   display: inline-flex;
   align-items: center;
@@ -12055,11 +12098,22 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   cursor: pointer;
 }
 
-.orders-page__qty-value {
+.orders-page__qty-value,
+.orders-page__qty-input {
   min-width: 1.75rem;
+  width: 2.1rem;
   text-align: center;
   font-weight: 800;
   font-size: 0.8125rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.orders-page__qty-input:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .orders-page__line-total {
@@ -12882,32 +12936,30 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-left: auto;
 }
 
-/* Dealer cart → Draft SO: seal overlays amount / end of customer name */
-.unified-so-mobile-row--order-placed {
+/* YesOne stage seals over SO list tiles */
+.unified-so-mobile-row--with-seal {
   position: relative;
   align-items: flex-start;
 }
 
-.unified-so-mobile-row--order-placed .invoices-mobile-row__body {
+.unified-so-mobile-row--with-seal .invoices-mobile-row__body {
   flex: 1 1 auto;
   min-width: 0;
   width: 100%;
 }
 
-.unified-so-mobile-row--order-placed .invoices-mobile-row__company {
-  /* Seal may cover the last few letters — keep the full name in flow. */
+.unified-so-mobile-row--with-seal .invoices-mobile-row__company {
   padding-right: 0.25rem;
 }
 
-.unified-so-mobile-row--order-placed .invoices-mobile-row__amount-value,
-.unified-so-mobile-row--order-placed .unified-so-mobile-row__footer .invoices-status {
+.unified-so-mobile-row--with-seal .invoices-mobile-row__amount-value,
+.unified-so-mobile-row--with-seal .unified-so-mobile-row__footer .invoices-status {
   position: relative;
   z-index: 1;
-  /* Clear the seal on the right; company name may still run under it. */
   margin-right: 3.75rem;
 }
 
-.unified-so-mobile-row--order-placed .so-order-seal {
+.unified-so-mobile-row--with-seal .so-order-seal {
   position: absolute;
   top: 50%;
   right: 1.35rem;
@@ -12929,8 +12981,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   align-self: center;
   transform: rotate(-6deg);
   pointer-events: none;
-  opacity: 0.9;
-  filter: drop-shadow(0 0 8px rgba(61, 255, 154, 0.35));
+  opacity: 0.72;
 }
 
 .so-order-seal__img {
@@ -12947,11 +12998,22 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   height: 3rem;
   transform: rotate(-6deg);
   flex-shrink: 0;
-  opacity: 0.95;
-  filter: drop-shadow(0 0 5px rgba(61, 255, 154, 0.28));
+  opacity: 0.85;
 }
 
-.unified-sales-orders-page tr.unified-so-row--order-placed td:first-child {
+.so-order-seal--under_review {
+  filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.28));
+}
+
+.so-order-seal--awaiting_payment {
+  filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.28));
+}
+
+.so-order-seal--invoiced {
+  filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.28));
+}
+
+.unified-sales-orders-page tr.unified-so-row--with-seal td:first-child {
   position: relative;
 }
 
@@ -14492,12 +14554,22 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: #f1f5f9;
 }
 
-.related-catalog__qty-value {
+.related-catalog__qty-value,
+.related-catalog__qty-input {
   min-width: 1.75rem;
+  width: 2.1rem;
   text-align: center;
   font-weight: 800;
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
+  border: none;
+  background: transparent;
+  color: inherit;
+}
+
+.related-catalog__qty-input:focus {
+  outline: none;
+  background: #f1f5f9;
 }
 
 .related-catalog-section__error {
@@ -33546,6 +33618,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 650;
   font-size: 0.95rem;
   -moz-appearance: textfield;
+}
+
+.so-draft-editor__qty-input:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
 }
 
 .so-draft-editor__qty-input::-webkit-outer-spin-button,

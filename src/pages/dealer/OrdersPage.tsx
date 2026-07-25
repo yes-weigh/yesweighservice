@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { IndianRupee, Minus, Package, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { IndianRupee, Package, ShoppingCart, Trash2 } from 'lucide-react';
+import { QuantityStepper } from '../../components/QuantityStepper';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/useCart';
@@ -137,25 +138,13 @@ const DealerCartPage: React.FC = () => {
                 </div>
 
                 <div className="orders-page__item-actions">
-                  <div className="orders-page__qty" aria-label="Quantity">
-                    <button
-                      type="button"
-                      className="orders-page__qty-btn"
-                      onClick={() => setQuantity(item.productId, item.quantity - 1)}
-                      aria-label="Decrease quantity"
-                    >
-                      <Minus size={16} />
-                    </button>
-                    <span className="orders-page__qty-value">{item.quantity}</span>
-                    <button
-                      type="button"
-                      className="orders-page__qty-btn"
-                      onClick={() => setQuantity(item.productId, item.quantity + 1)}
-                      aria-label="Increase quantity"
-                    >
-                      <Plus size={16} />
-                    </button>
-                  </div>
+                  <QuantityStepper
+                    value={item.quantity}
+                    onChange={next => setQuantity(item.productId, next)}
+                    className="orders-page__qty"
+                    buttonClassName="orders-page__qty-btn"
+                    inputClassName="orders-page__qty-input"
+                  />
 
                   <div className="orders-page__line-total">
                     <IndianRupee size={14} strokeWidth={2.5} aria-hidden />

@@ -413,14 +413,18 @@ export const WarehouseItemEditor: React.FC<WarehouseItemEditorProps> = ({
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
+              enterKeyHint="done"
+              autoComplete="off"
               className="wh-qty-stepper__input"
               placeholder="Qty"
               value={quantity}
               disabled={busy}
+              aria-label="Quantity"
               onChange={e => {
                 const v = e.target.value;
                 if (v === '' || /^\d+$/.test(v)) setQuantity(v);
               }}
+              onFocus={e => e.target.select()}
             />
             <button
               type="button"

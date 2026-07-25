@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { IndianRupee, Link2Off, Minus, Package, Plus, ShoppingCart } from 'lucide-react';
+import { IndianRupee, Link2Off, Package, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
+import { QuantityStepper } from '../QuantityStepper';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { StockQuantity } from './StockBadge';
 
@@ -39,23 +40,6 @@ function RelatedCatalogCartControls({
     }
   };
 
-  const handleDecrease = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    setQuantity(item.id, cartQty - 1);
-  };
-
-  const handleIncrease = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    if (outOfStock) return;
-    if (cartQty === 0) {
-      if (addItem(item, 1)) {
-        flyToCart(event.currentTarget, { imageUrl: item.imageUrl });
-      }
-      return;
-    }
-    setQuantity(item.id, cartQty + 1);
-  };
-
   if (outOfStock) {
     return (
       <div className="related-catalog__cart related-catalog__cart--disabled" aria-label="Out of stock">
@@ -82,25 +66,14 @@ function RelatedCatalogCartControls({
 
   return (
     <div className="related-catalog__cart" aria-label={`Quantity in cart: ${cartQty}`}>
-      <div className="related-catalog__qty">
-        <button
-          type="button"
-          className="related-catalog__qty-btn"
-          onClick={handleDecrease}
-          aria-label="Decrease quantity"
-        >
-          <Minus size={14} aria-hidden />
-        </button>
-        <span className="related-catalog__qty-value">{cartQty}</span>
-        <button
-          type="button"
-          className="related-catalog__qty-btn"
-          onClick={handleIncrease}
-          aria-label="Increase quantity"
-        >
-          <Plus size={14} aria-hidden />
-        </button>
-      </div>
+      <QuantityStepper
+        value={cartQty}
+        onChange={next => setQuantity(item.id, next)}
+        className="related-catalog__qty"
+        buttonClassName="related-catalog__qty-btn"
+        inputClassName="related-catalog__qty-input"
+        stopPropagation
+      />
     </div>
   );
 }

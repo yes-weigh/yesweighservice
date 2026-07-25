@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Minus, Package, Plus, Search, Trash2 } from 'lucide-react';
+import { Loader2, Package, Search, Trash2 } from 'lucide-react';
+import { QuantityStepper } from '../QuantityStepper';
 import { CategoryThumbnail } from '../catalog/CategoryThumbnail';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import type { CatalogProduct } from '../../types/catalog';
@@ -201,36 +202,15 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                   {line.stockStatus === 'out_of_stock' ? ' · Out of stock' : ''}
                 </span>
               </div>
-              <div className="so-draft-editor__qty" aria-label={`Quantity for ${line.name}`}>
-                <button
-                  type="button"
-                  className="so-draft-editor__qty-btn"
-                  aria-label="Decrease quantity"
-                  disabled={saving}
-                  onClick={() => setQuantity(line.productId, line.quantity - 1)}
-                >
-                  <Minus size={16} />
-                </button>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  className="so-draft-editor__qty-input"
-                  value={line.quantity}
-                  disabled={saving}
-                  onChange={e => setQuantity(line.productId, Number(e.target.value))}
-                  aria-label="Quantity"
-                />
-                <button
-                  type="button"
-                  className="so-draft-editor__qty-btn"
-                  aria-label="Increase quantity"
-                  disabled={saving}
-                  onClick={() => setQuantity(line.productId, line.quantity + 1)}
-                >
-                  <Plus size={16} />
-                </button>
-              </div>
+              <QuantityStepper
+                value={line.quantity}
+                onChange={next => setQuantity(line.productId, next)}
+                disabled={saving}
+                className="so-draft-editor__qty"
+                buttonClassName="so-draft-editor__qty-btn"
+                inputClassName="so-draft-editor__qty-input"
+                aria-label={`Quantity for ${line.name}`}
+              />
               <div className="so-draft-editor__line-total">
                 {formatCurrency(line.rate * line.quantity)}
               </div>
