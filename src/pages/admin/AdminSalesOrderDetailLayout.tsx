@@ -1,30 +1,35 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
-  Ban,
-  Check,
   ClipboardList,
-  FileText,
-  IndianRupee,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
-import { useCatalogPageHeader } from '../../context/PageHeaderContext';
+import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
+import { useCatalogPageHeader, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
 import {
   fetchAdminSalesOrderDetail,
   type AdminSalesOrderDetail,
 } from '../../lib/admin-sales-orders';
 import { fetchDealerSalesOrderDetail } from '../../lib/dealer-sales-orders';
 import { dealerOrderErrorMessage, voidZohoSalesOrder } from '../../lib/dealerOrders';
-import { formatInvoiceDate, invoiceErrorMessage, invoiceStatusLabel } from '../../lib/invoices';
+import {
+  formatInvoiceDate,
+  invoiceErrorMessage,
+  invoiceStatusLabel,
+} from '../../lib/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import {
   markSalesOrderReadyForPayment,
   verifySalesOrderPayment,
   yesOneStageLabel,
 } from '../../lib/salesOrderWorkflow';
-import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
+import type {
+  AdminSalesOrderDetailOutletContext,
+  SalesOrderActionBusy,
+  SalesOrderWorkflowActions,
+} from './adminSalesOrderDetailContext';
 
 export const AdminSalesOrderDetailLayout: React.FC = () => {
   const { salesOrderId = '' } = useParams<{ salesOrderId: string }>();
@@ -47,7 +52,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const [salesOrder, setSalesOrder] = useState<AdminSalesOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [actionBusy, setActionBusy] = useState<'ready' | 'verify' | 'void' | null>(null);
+  const [actionBusy, setActionBusy] = useState<SalesOrderActionBusy>(null);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -67,6 +72,33 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     showBack: true,
     onBack: handleBack,
   });
+
+  const titleStatusLabel = salesOrder?.yesOneStage
+    ? yesOneStageLabel(salesOrder.yesOneStage)
+    : (salesOrder?.status ? invoiceStatusLabel(salesOrder.status) : '');
+  const titleStatusClass = salesOrder?.yesOneStage
+    ? (
+      salesOrder.yesOneStage === 'completed' ? 'invoices-status invoices-status--paid'
+        : salesOrder.yesOneStage === 'void' ? 'invoices-status invoices-status--void'
+          : salesOrder.yesOneStage === 'payment_submitted' ? 'invoices-status invoices-status--partially_paid'
+            : salesOrder.yesOneStage === 'ready_for_payment' ? 'invoices-status invoices-status--overdue'
+              : 'invoices-status invoices-status--draft'
+    )
+    : `invoices-status invoices-status--${String(salesOrder?.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`;
+
+  const titleMeta = useMemo(() => {
+    if (!salesOrder || isPdfView) return null;
+    return (
+      <>
+        <InvoiceCategoryBadge category={salesOrder.salesOrderCategory} />
+        {titleStatusLabel ? (
+          <span className={titleStatusClass}>{titleStatusLabel}</span>
+        ) : null}
+      </>
+    );
+  }, [salesOrder, isPdfView, titleStatusLabel, titleStatusClass]);
+
+  usePageHeaderTitleMeta(titleMeta, Boolean(titleMeta));
 
   const reload = useCallback(() => {
     if (!salesOrderId) return;
@@ -106,7 +138,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && stage !== 'completed'
     && stage !== 'void';
 
-  const handleReady = async () => {
+  const handleReady = useCallback(async () => {
     if (!salesOrderId || actionBusy) return;
     if (!window.confirm(
       'Mark this order ready for payment? The dealer will be asked to upload payment proof. You can still edit lines until they submit payment.',
@@ -120,9 +152,9 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     } finally {
       setActionBusy(null);
     }
-  };
+  }, [salesOrderId, actionBusy]);
 
-  const handleVerify = async () => {
+  const handleVerify = useCallback(async () => {
     if (!salesOrderId || actionBusy) return;
     if (!window.confirm(
       'Verify payment, confirm this sales order in Zoho, and create the invoice?',
@@ -136,9 +168,9 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     } finally {
       setActionBusy(null);
     }
-  };
+  }, [salesOrderId, actionBusy]);
 
-  const handleVoid = async () => {
+  const handleVoid = useCallback(async () => {
     if (!salesOrderId || actionBusy) return;
     const reason = window.prompt('Reason for voiding this sales order (optional):');
     if (reason === null) return;
@@ -152,7 +184,30 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     } finally {
       setActionBusy(null);
     }
-  };
+  }, [salesOrderId, actionBusy, reload]);
+
+  const workflowActions = useMemo<SalesOrderWorkflowActions | null>(() => {
+    if (isDealerView || isPdfView) return null;
+    return {
+      actionBusy,
+      canReady,
+      canVerify,
+      canVoid,
+      onReady: () => { void handleReady(); },
+      onVerify: () => { void handleVerify(); },
+      onVoid: () => { void handleVoid(); },
+    };
+  }, [
+    isDealerView,
+    isPdfView,
+    actionBusy,
+    canReady,
+    canVerify,
+    canVoid,
+    handleReady,
+    handleVerify,
+    handleVoid,
+  ]);
 
   if (!salesOrderId) return null;
 
@@ -164,6 +219,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     listPath,
     reload,
     setSalesOrder,
+    workflowActions,
   };
 
   return (
@@ -184,71 +240,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
           <p className="text-muted text-sm">This Sales order may have been removed or is unavailable.</p>
         </div>
       ) : (
-        <>
-          {!isPdfView && (
-            <div className="invoice-detail-top admin-invoice-detail-top">
-              <div className="invoice-detail-top__actions" role="tablist" aria-label="Sales order sections">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected
-                  className="invoice-detail-top__card invoice-detail-top__card--blue is-active"
-                  onClick={() => navigate(`${summaryPath}/view`)}
-                >
-                  <span className="invoice-detail-top__card-icon">
-                    <FileText size={28} strokeWidth={1.75} aria-hidden />
-                  </span>
-                  <span className="invoice-detail-top__card-label">View PDF</span>
-                </button>
-              </div>
-              <div className="invoice-detail-top__ops" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
-                <span className="text-muted text-sm" style={{ width: '100%' }}>
-                  Zoho: <strong>{invoiceStatusLabel(salesOrder.status)}</strong>
-                  {salesOrder.yesOneStage && (
-                    <>
-                      {' · '}
-                      YesOne: <strong>{yesOneStageLabel(salesOrder.yesOneStage)}</strong>
-                    </>
-                  )}
-                </span>
-                {canReady && (
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    disabled={Boolean(actionBusy)}
-                    onClick={() => { void handleReady(); }}
-                  >
-                    <IndianRupee size={14} aria-hidden />
-                    {actionBusy === 'ready' ? 'Updating…' : 'Ready for payment'}
-                  </button>
-                )}
-                {canVerify && (
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    disabled={Boolean(actionBusy)}
-                    onClick={() => { void handleVerify(); }}
-                  >
-                    <Check size={14} aria-hidden />
-                    {actionBusy === 'verify' ? 'Verifying…' : 'Verify payment & invoice'}
-                  </button>
-                )}
-                {canVoid && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    disabled={Boolean(actionBusy)}
-                    onClick={() => { void handleVoid(); }}
-                  >
-                    <Ban size={14} aria-hidden />
-                    {actionBusy === 'void' ? 'Voiding…' : 'Void in Zoho'}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          <Outlet context={outletContext} />
-        </>
+        <Outlet context={outletContext} />
       )}
     </div>
   );

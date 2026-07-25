@@ -23,9 +23,11 @@ export type PageHeaderConfig = {
 type PageHeaderContextValue = {
   config: PageHeaderConfig;
   headerSlot: React.ReactNode;
+  titleMeta: React.ReactNode;
   topBarAction: React.ReactNode;
   setPageHeader: (config: PageHeaderConfig) => void;
   setHeaderSlot: (slot: React.ReactNode) => void;
+  setTitleMeta: (slot: React.ReactNode) => void;
   setTopBarAction: (slot: React.ReactNode) => void;
   clearPageHeader: () => void;
 };
@@ -52,10 +54,15 @@ const PageHeaderContext = createContext<PageHeaderContextValue | null>(null);
 export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [config, setConfig] = useState<PageHeaderConfig>(emptyConfig);
   const [headerSlot, setHeaderSlotState] = useState<React.ReactNode>(null);
+  const [titleMeta, setTitleMetaState] = useState<React.ReactNode>(null);
   const [topBarAction, setTopBarActionState] = useState<React.ReactNode>(null);
 
   const setHeaderSlot = useCallback((slot: React.ReactNode) => {
     setHeaderSlotState(prev => (Object.is(prev, slot) ? prev : slot));
+  }, []);
+
+  const setTitleMeta = useCallback((slot: React.ReactNode) => {
+    setTitleMetaState(prev => (Object.is(prev, slot) ? prev : slot));
   }, []);
 
   const setTopBarAction = useCallback((slot: React.ReactNode) => {
@@ -74,13 +81,25 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     () => ({
       config,
       headerSlot,
+      titleMeta,
       topBarAction,
       setPageHeader,
       setHeaderSlot,
+      setTitleMeta,
       setTopBarAction,
       clearPageHeader,
     }),
-    [config, headerSlot, topBarAction, setPageHeader, setHeaderSlot, setTopBarAction, clearPageHeader],
+    [
+      config,
+      headerSlot,
+      titleMeta,
+      topBarAction,
+      setPageHeader,
+      setHeaderSlot,
+      setTitleMeta,
+      setTopBarAction,
+      clearPageHeader,
+    ],
   );
 
   return (
@@ -161,6 +180,24 @@ export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) 
     if (!setHeaderSlot) return;
     setHeaderSlot(enabled ? slotRef.current : null);
   }, [setHeaderSlot, enabled, slot]);
+}
+
+/** Compact pills/badges rendered beside the page title text. */
+export function usePageHeaderTitleMeta(slot: React.ReactNode | null, enabled = true) {
+  const ctx = useContext(PageHeaderContext);
+  const setTitleMeta = ctx?.setTitleMeta;
+  const slotRef = useRef(slot);
+  slotRef.current = slot;
+
+  useEffect(() => {
+    if (!setTitleMeta) return undefined;
+    return () => setTitleMeta(null);
+  }, [setTitleMeta]);
+
+  useLayoutEffect(() => {
+    if (!setTitleMeta) return;
+    setTitleMeta(enabled ? slotRef.current : null);
+  }, [setTitleMeta, enabled, slot]);
 }
 
 export function useTopBarAction(slot: React.ReactNode | null, enabled = true) {

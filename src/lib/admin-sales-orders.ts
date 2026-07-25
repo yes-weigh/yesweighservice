@@ -93,6 +93,8 @@ export interface AdminSalesOrderDetail {
   currencyCode: string;
   customerId: string;
   customerName: string | null;
+  /** Formatted shipping address from the SO or customer record. */
+  shippingAddress?: string | null;
   salesOrderCategory: InvoiceCategory | null;
   subtotal: number;
   taxTotal: number;
@@ -545,6 +547,7 @@ export function mapAdminSalesOrderDetail(
     currencyCode: data.currencyCode ? String(data.currencyCode) : 'INR',
     customerId: String(data.customerId ?? ''),
     customerName: data.customerName ? String(data.customerName) : null,
+    shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
@@ -568,6 +571,23 @@ export function mapAdminSalesOrderDetail(
   };
 }
 
+async function resolveShippingAddressFallback(
+  detail: AdminSalesOrderDetail,
+): Promise<string | null> {
+  if (detail.shippingAddress) return detail.shippingAddress;
+  const customerId = String(detail.customerId || '').trim();
+  if (!customerId) return null;
+  try {
+    const snap = await getDoc(doc(db, 'zohoCustomers', customerId));
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    const addr = data.zohoShippingAddress || data.shippingAddress;
+    return addr ? String(addr) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchAdminSalesOrderDetail(
   salesOrderId: string,
 ): Promise<AdminSalesOrderDetail> {
@@ -576,18 +596,22 @@ export async function fetchAdminSalesOrderDetail(
     throw new Error('Sales order not found.');
   }
   const detail = mapAdminSalesOrderDetail(salesOrderId, snap.data());
-  const withImages = await enrichInvoiceDetailImages({
-    ...detail,
-    invoiceNumber: detail.salesOrderNumber,
-    dueDate: detail.shipmentDate,
-    lastPaymentDate: null,
-    customerName: detail.customerName,
-    invoiceUrl: null,
-    salesOrderId: null,
-    salesOrderNumber: null,
-  });
+  const [withImages, shippingAddress] = await Promise.all([
+    enrichInvoiceDetailImages({
+      ...detail,
+      invoiceNumber: detail.salesOrderNumber,
+      dueDate: detail.shipmentDate,
+      lastPaymentDate: null,
+      customerName: detail.customerName,
+      invoiceUrl: null,
+      salesOrderId: null,
+      salesOrderNumber: null,
+    }),
+    resolveShippingAddressFallback(detail),
+  ]);
   return {
     ...detail,
+    shippingAddress,
     lineItems: withImages.lineItems,
   };
 }

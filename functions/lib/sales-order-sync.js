@@ -18,6 +18,7 @@ import {
   sumNonFreightQuantity,
 } from './invoice-category.js';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
+import { formatZohoAddress } from './zoho-contact-fields.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 const COLLECTION = 'salesOrders';
@@ -197,6 +198,13 @@ function buildSearchBlob(doc) {
   ].filter(Boolean).join(' ').toLowerCase();
 }
 
+function catalogImageUrlFromData(data) {
+  if (!data || typeof data !== 'object') return null;
+  if (data.imageUrl) return String(data.imageUrl);
+  if (Array.isArray(data.imageUrls) && data.imageUrls[0]) return String(data.imageUrls[0]);
+  return null;
+}
+
 async function loadCatalogMeta(itemIds) {
   const unique = [...new Set(itemIds.filter(Boolean).map(String))];
   const map = new Map();
@@ -209,6 +217,7 @@ async function loadCatalogMeta(itemIds) {
       if (!snap.exists) continue;
       const data = snap.data() || {};
       map.set(snap.id, {
+        imageUrl: catalogImageUrlFromData(data),
         hsn: data.hsn != null ? String(data.hsn) : null,
         categoryId: data.categoryId != null ? String(data.categoryId) : null,
         categoryName: data.categoryName != null ? String(data.categoryName) : null,
@@ -216,6 +225,15 @@ async function loadCatalogMeta(itemIds) {
     }
   }
   return map;
+}
+
+function attachCatalogImages(lineItems, catalog) {
+  if (!Array.isArray(lineItems) || !lineItems.length) return lineItems || [];
+  return lineItems.map(line => {
+    if (line?.imageUrl || !line?.itemId) return line;
+    const imageUrl = catalog.get(String(line.itemId))?.imageUrl ?? null;
+    return imageUrl ? { ...line, imageUrl } : line;
+  });
 }
 
 function mapSalesOrder(raw) {
@@ -234,6 +252,7 @@ function mapSalesOrder(raw) {
     currencyCode: String(raw.currency_code ?? 'INR'),
     customerId: raw.customer_id != null ? String(raw.customer_id) : '',
     customerName: raw.customer_name ? String(raw.customer_name) : null,
+    shippingAddress: formatZohoAddress(raw.shipping_address) ?? null,
     subtotal: Number(raw.sub_total ?? raw.subtotal ?? 0),
     taxTotal: Number(raw.tax_total ?? 0),
     notes: raw.notes ? String(raw.notes) : null,
@@ -247,6 +266,7 @@ async function upsertSalesOrderFromRaw(raw, options = {}) {
   if (!mapped.id) throw new Error('Missing salesorder_id.');
 
   const catalog = await loadCatalogMeta(mapped.lineItems.map(line => line.itemId).filter(Boolean));
+  mapped.lineItems = attachCatalogImages(mapped.lineItems, catalog);
   const salesOrderCategory = classifyInvoiceFromLineItems(mapped.lineItems, catalog);
   const now = Timestamp.now();
   const doc = {
@@ -777,6 +797,7 @@ export function mapSalesOrderDoc(id, data) {
     currencyCode: String(data.currencyCode ?? 'INR'),
     customerId: String(data.customerId ?? ''),
     customerName: data.customerName ?? null,
+    shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ?? null,
@@ -1046,6 +1067,37 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
   };
 }
 
+async function shippingAddressFromCustomer(customerId) {
+  const id = String(customerId ?? '').trim();
+  if (!id) return null;
+  const snap = await getFirestore().collection('zohoCustomers').doc(id).get();
+  if (!snap.exists) return null;
+  const data = snap.data() || {};
+  const formatted = data.zohoShippingAddress
+    || data.shippingAddress
+    || formatZohoAddress(data.zohoShippingAddressRaw);
+  return formatted ? String(formatted) : null;
+}
+
+/** Prefer SO shipping address; fall back to customer record. */
+export async function withResolvedShippingAddress(mapped) {
+  if (!mapped || mapped.shippingAddress) return mapped;
+  const fallback = await shippingAddressFromCustomer(mapped.customerId);
+  if (!fallback) return mapped;
+  return { ...mapped, shippingAddress: fallback };
+}
+
+/** Fill missing line-item imageUrl from catalogProducts (for live detail responses). */
+export async function withCatalogLineImages(mapped) {
+  if (!mapped || !Array.isArray(mapped.lineItems) || !mapped.lineItems.length) return mapped;
+  const missing = mapped.lineItems.filter(line => !line?.imageUrl && line?.itemId);
+  if (!missing.length) return mapped;
+  const catalog = await loadCatalogMeta(missing.map(line => line.itemId));
+  const lineItems = attachCatalogImages(mapped.lineItems, catalog);
+  if (lineItems === mapped.lineItems) return mapped;
+  return { ...mapped, lineItems };
+}
+
 /** Dealer / dealer_staff: load one sales order if it belongs to their customer. */
 export async function getDealerSalesOrderDetail(uid, role, salesOrderId) {
   const id = String(salesOrderId ?? '').trim();
@@ -1064,7 +1116,8 @@ export async function getDealerSalesOrderDetail(uid, role, salesOrderId) {
   if (String(data.customerId ?? '') !== String(customerId)) {
     throw new HttpsError('permission-denied', 'You do not have access to this sales order.');
   }
-  return mapSalesOrderDoc(snap.id, data);
+  const mapped = await withResolvedShippingAddress(mapSalesOrderDoc(snap.id, data));
+  return withCatalogLineImages(mapped);
 }
 
 /** Ensure dealer owns the SO before serving PDF. */

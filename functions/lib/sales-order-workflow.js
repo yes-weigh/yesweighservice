@@ -15,7 +15,12 @@ import {
   updateSalesOrderLines,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
-import { mapSalesOrderDoc, mirrorSalesOrderFromZoho } from './sales-order-sync.js';
+import {
+  mapSalesOrderDoc,
+  mirrorSalesOrderFromZoho,
+  withCatalogLineImages,
+  withResolvedShippingAddress,
+} from './sales-order-sync.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 
 const SO_COLLECTION = 'salesOrders';
@@ -250,7 +255,9 @@ function extFromContentType(type, fileName) {
 }
 
 async function detailPayload(id, data, { includePaymentUrl = false } = {}) {
-  const mapped = mapSalesOrderDoc(id, data);
+  const mapped = await withCatalogLineImages(
+    await withResolvedShippingAddress(mapSalesOrderDoc(id, data)),
+  );
   let paymentScreenshotUrl = null;
   if (includePaymentUrl && data.paymentScreenshotStoragePath) {
     try {

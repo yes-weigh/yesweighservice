@@ -1,16 +1,30 @@
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { withCatalogImageCacheBust } from './catalog';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
 
+function imageFromCatalogData(data: Record<string, unknown> | undefined): string | null {
+  if (!data) return null;
+  const raw = (data.imageUrl as string | null)
+    ?? (Array.isArray(data.imageUrls) ? (data.imageUrls[0] as string | null) : null)
+    ?? null;
+  return withCatalogImageCacheBust(raw, data.syncedAt as string | number | null | undefined);
+}
+
 async function catalogImageByItemId(itemId: string): Promise<string | null> {
   const snap = await getDoc(doc(db, 'catalogProducts', itemId));
   if (!snap.exists()) return null;
-  const data = snap.data();
-  return withCatalogImageCacheBust(
-    (data?.imageUrl as string | null) ?? null,
-    data?.syncedAt,
+  return imageFromCatalogData(snap.data() as Record<string, unknown>);
+}
+
+async function catalogImageBySku(sku: string): Promise<string | null> {
+  const trimmed = sku.trim();
+  if (!trimmed) return null;
+  const snap = await getDocs(
+    query(collection(db, 'catalogProducts'), where('sku', '==', trimmed), limit(1)),
   );
+  if (snap.empty) return null;
+  return imageFromCatalogData(snap.docs[0].data() as Record<string, unknown>);
 }
 
 export async function fetchCatalogImagesForItemIds(
@@ -32,27 +46,32 @@ export async function fetchCatalogImagesForItemIds(
 export async function enrichInvoiceLineItemImages(
   lineItems: DealerInvoiceLineItem[],
 ): Promise<DealerInvoiceLineItem[]> {
-  const missingIds = [
-    ...new Set(
-      lineItems
-        .filter(item => !item.imageUrl && item.itemId)
-        .map(item => item.itemId!),
-    ),
-  ];
-  if (!missingIds.length) return lineItems;
+  const missing = lineItems.filter(item => !item.imageUrl && (item.itemId || item.sku));
+  if (!missing.length) return lineItems;
 
-  const imageMap = new Map<string, string>();
-  await Promise.all(
-    missingIds.map(async id => {
+  const byItemId = new Map<string, string>();
+  const bySku = new Map<string, string>();
+  const itemIds = [...new Set(missing.map(item => item.itemId).filter(Boolean) as string[])];
+  const skus = [...new Set(missing.map(item => item.sku).filter(Boolean) as string[])];
+
+  await Promise.all([
+    ...itemIds.map(async id => {
       const imageUrl = await catalogImageByItemId(id);
-      if (imageUrl) imageMap.set(id, imageUrl);
+      if (imageUrl) byItemId.set(id, imageUrl);
     }),
-  );
-  if (!imageMap.size) return lineItems;
+    ...skus.map(async sku => {
+      const imageUrl = await catalogImageBySku(sku);
+      if (imageUrl) bySku.set(sku, imageUrl);
+    }),
+  ]);
+
+  if (!byItemId.size && !bySku.size) return lineItems;
 
   return lineItems.map(item => {
-    if (item.imageUrl || !item.itemId) return item;
-    const imageUrl = imageMap.get(item.itemId);
+    if (item.imageUrl) return item;
+    const imageUrl = (item.itemId ? byItemId.get(item.itemId) : null)
+      || (item.sku ? bySku.get(item.sku) : null)
+      || null;
     return imageUrl ? { ...item, imageUrl } : item;
   });
 }

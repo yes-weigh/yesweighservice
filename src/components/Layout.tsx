@@ -198,7 +198,7 @@ const LayoutShell: React.FC = () => {
   const { user } = useAuth();
   const { itemCount } = useCart();
   const { registerCartTarget, cartBump } = useCartFly();
-  const { config: pageHeader, headerSlot, topBarAction } = usePageHeader();
+  const { config: pageHeader, headerSlot, titleMeta, topBarAction } = usePageHeader();
   const cartBtnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -527,13 +527,21 @@ const LayoutShell: React.FC = () => {
           ) : dealerListPath ? (
             <button
               type="button"
-              className="top-bar__title-block page-title page-title--nav-back"
+              className={[
+                'top-bar__title-block',
+                'page-title',
+                'page-title--nav-back',
+                titleMeta ? 'top-bar__title-block--with-meta' : '',
+              ].filter(Boolean).join(' ')}
               onClick={() => navigateBack(navigate, dealerListPath)}
             >
-              <span className="page-title__text">{displayTitle}</span>
-              {pageHeader.subtitle && (
-                <span className="page-subtitle">{pageHeader.subtitle}</span>
-              )}
+              <span className="page-title__copy">
+                <span className="page-title__text">{displayTitle}</span>
+                {pageHeader.subtitle && (
+                  <span className="page-subtitle">{pageHeader.subtitle}</span>
+                )}
+              </span>
+              {titleMeta ? <span className="page-title__meta">{titleMeta}</span> : null}
             </button>
           ) : pageHeader.onTitleClick ? (
             <button
@@ -542,28 +550,40 @@ const LayoutShell: React.FC = () => {
                 'top-bar__title-block',
                 'top-bar__title-block--toggle',
                 'page-title',
+                titleMeta ? 'top-bar__title-block--with-meta' : '',
                 pageHeader.titleExpanded ? 'is-expanded' : '',
               ].filter(Boolean).join(' ')}
               onClick={() => pageHeader.onTitleClick?.()}
               aria-expanded={pageHeader.titleExpanded === true}
               aria-label="Toggle request details"
             >
-              <span className="top-bar__title-row">
-                <span className="page-title__text">{displayTitle}</span>
-                <ChevronDown size={18} className="top-bar__title-chevron" aria-hidden />
+              <span className="page-title__copy">
+                <span className="top-bar__title-row">
+                  <span className="page-title__text">{displayTitle}</span>
+                  <ChevronDown size={18} className="top-bar__title-chevron" aria-hidden />
+                </span>
+                {pageHeader.subtitle && (
+                  <span className="page-subtitle">{pageHeader.subtitle}</span>
+                )}
               </span>
-              {pageHeader.subtitle && (
-                <span className="page-subtitle">{pageHeader.subtitle}</span>
-              )}
+              {titleMeta ? <span className="page-title__meta">{titleMeta}</span> : null}
             </button>
           ) : (
-            <div className="top-bar__title-block">
-              <h1 className="page-title">
-                <span className="page-title__text">{displayTitle}</span>
-              </h1>
-              {pageHeader.subtitle && (
-                <p className="page-subtitle">{pageHeader.subtitle}</p>
-              )}
+            <div
+              className={[
+                'top-bar__title-block',
+                titleMeta ? 'top-bar__title-block--with-meta' : '',
+              ].filter(Boolean).join(' ')}
+            >
+              <div className="page-title__copy">
+                <h1 className="page-title">
+                  <span className="page-title__text">{displayTitle}</span>
+                </h1>
+                {pageHeader.subtitle && (
+                  <p className="page-subtitle">{pageHeader.subtitle}</p>
+                )}
+              </div>
+              {titleMeta ? <div className="page-title__meta">{titleMeta}</div> : null}
             </div>
           )}
           {headerSlot && !isMobile && (

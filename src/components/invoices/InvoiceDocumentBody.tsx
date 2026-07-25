@@ -13,6 +13,8 @@ interface InvoiceDocumentBodyProps {
   /** When set, matching line items are omitted (e.g. freight/stamping fees for service requests). */
   hideLineItem?: (item: DealerInvoiceLineItem) => boolean;
   hideTotals?: boolean;
+  /** When true, render line items first, then totals (sales-order layout). */
+  totalsAfterItems?: boolean;
   /** ISO currency (e.g. USD) — defaults to INR. */
   currencyCode?: string;
 }
@@ -25,6 +27,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   itemClassName = '',
   hideLineItem,
   hideTotals = false,
+  totalsAfterItems = false,
   currencyCode = 'INR',
 }) => {
   const selectable = Boolean(onSelectLineItem);
@@ -33,81 +36,95 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
     : invoice.lineItems;
   const money = (value: number) => formatCurrency(value, currencyCode);
 
+  const totals = !hideTotals ? (
+    <section className="invoice-detail-footer panel glass">
+      <div className="invoice-detail-footer__row">
+        <span>Sub Total</span>
+        <span>{money(invoice.subtotal)}</span>
+      </div>
+      <div className="invoice-detail-footer__row">
+        <span>GST</span>
+        <span>{money(invoice.taxTotal)}</span>
+      </div>
+      <div className="invoice-detail-footer__row invoice-detail-footer__row--total">
+        <span>Grand Total</span>
+        <strong>{money(invoice.total)}</strong>
+      </div>
+    </section>
+  ) : null;
+
+  const items = (
+    <section className="invoice-detail-items panel glass">
+      <h3 className="invoice-detail-items__title">
+        Items{visibleItems.length ? ` (${visibleItems.length})` : ''}
+      </h3>
+      {visibleItems.length ? (
+        <ul className="invoice-detail-item-list">
+          {visibleItems.map(item => {
+            const isFreight = isFreightInvoiceLineItem(item);
+            const isSelected = selectedLineItemId === item.id;
+            const canSelect = selectable && (hideLineItem ? true : !isFreight);
+
+            return (
+              <li
+                key={item.id}
+                className={[
+                  'invoice-detail-item',
+                  itemClassName,
+                  isSelected ? 'is-selected' : '',
+                  canSelect ? 'is-selectable' : '',
+                ].filter(Boolean).join(' ')}
+              >
+                {canSelect ? (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="invoice-detail-item__select"
+                    onClick={() => onSelectLineItem?.(item)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelectLineItem?.(item);
+                      }
+                    }}
+                    aria-pressed={isSelected}
+                  >
+                    <ItemContent
+                      item={item}
+                      currencyCode={currencyCode}
+                      showNext={isSelected && Boolean(onConfirmLineItem)}
+                      onNext={onConfirmLineItem}
+                    />
+                    {!isSelected && (
+                      <ChevronRight size={20} className="invoice-detail-item__chevron" aria-hidden />
+                    )}
+                  </div>
+                ) : (
+                  <ItemContent item={item} currencyCode={currencyCode} />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>
+      )}
+    </section>
+  );
+
   return (
     <>
-      {!hideTotals && (
-        <section className="invoice-detail-footer panel glass">
-          <div className="invoice-detail-footer__row">
-            <span>Sub Total</span>
-            <span>{money(invoice.subtotal)}</span>
-          </div>
-          <div className="invoice-detail-footer__row">
-            <span>GST</span>
-            <span>{money(invoice.taxTotal)}</span>
-          </div>
-          <div className="invoice-detail-footer__row invoice-detail-footer__row--total">
-            <span>Grand Total</span>
-            <strong>{money(invoice.total)}</strong>
-          </div>
-        </section>
+      {totalsAfterItems ? (
+        <>
+          {items}
+          {totals}
+        </>
+      ) : (
+        <>
+          {totals}
+          {items}
+        </>
       )}
-
-      <section className="invoice-detail-items panel glass">
-        <h3 className="invoice-detail-items__title">
-          Items{visibleItems.length ? ` (${visibleItems.length})` : ''}
-        </h3>
-        {visibleItems.length ? (
-          <ul className="invoice-detail-item-list">
-            {visibleItems.map(item => {
-              const isFreight = isFreightInvoiceLineItem(item);
-              const isSelected = selectedLineItemId === item.id;
-              const canSelect = selectable && (hideLineItem ? true : !isFreight);
-
-              return (
-                <li
-                  key={item.id}
-                  className={[
-                    'invoice-detail-item',
-                    itemClassName,
-                    isSelected ? 'is-selected' : '',
-                    canSelect ? 'is-selectable' : '',
-                  ].filter(Boolean).join(' ')}
-                >
-                  {canSelect ? (
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className="invoice-detail-item__select"
-                      onClick={() => onSelectLineItem?.(item)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          onSelectLineItem?.(item);
-                        }
-                      }}
-                      aria-pressed={isSelected}
-                    >
-                      <ItemContent
-                        item={item}
-                        currencyCode={currencyCode}
-                        showNext={isSelected && Boolean(onConfirmLineItem)}
-                        onNext={onConfirmLineItem}
-                      />
-                      {!isSelected && (
-                        <ChevronRight size={20} className="invoice-detail-item__chevron" aria-hidden />
-                      )}
-                    </div>
-                  ) : (
-                    <ItemContent item={item} currencyCode={currencyCode} />
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>
-        )}
-      </section>
     </>
   );
 };
