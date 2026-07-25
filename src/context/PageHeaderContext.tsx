@@ -20,15 +20,20 @@ export type PageHeaderConfig = {
   mobileCompactHeader?: boolean;
 };
 
+type SlotOwner = object;
+
 type PageHeaderContextValue = {
   config: PageHeaderConfig;
   headerSlot: React.ReactNode;
   titleMeta: React.ReactNode;
   topBarAction: React.ReactNode;
   setPageHeader: (config: PageHeaderConfig) => void;
-  setHeaderSlot: (slot: React.ReactNode) => void;
-  setTitleMeta: (slot: React.ReactNode) => void;
-  setTopBarAction: (slot: React.ReactNode) => void;
+  setHeaderSlot: (slot: React.ReactNode, owner: SlotOwner) => void;
+  clearHeaderSlot: (owner: SlotOwner) => void;
+  setTitleMeta: (slot: React.ReactNode, owner: SlotOwner) => void;
+  clearTitleMeta: (owner: SlotOwner) => void;
+  setTopBarAction: (slot: React.ReactNode, owner: SlotOwner) => void;
+  clearTopBarAction: (owner: SlotOwner) => void;
   clearPageHeader: () => void;
 };
 
@@ -56,17 +61,41 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [headerSlot, setHeaderSlotState] = useState<React.ReactNode>(null);
   const [titleMeta, setTitleMetaState] = useState<React.ReactNode>(null);
   const [topBarAction, setTopBarActionState] = useState<React.ReactNode>(null);
+  const headerSlotOwnerRef = useRef<SlotOwner | null>(null);
+  const titleMetaOwnerRef = useRef<SlotOwner | null>(null);
+  const topBarActionOwnerRef = useRef<SlotOwner | null>(null);
 
-  const setHeaderSlot = useCallback((slot: React.ReactNode) => {
+  const setHeaderSlot = useCallback((slot: React.ReactNode, owner: SlotOwner) => {
+    headerSlotOwnerRef.current = owner;
     setHeaderSlotState(prev => (Object.is(prev, slot) ? prev : slot));
   }, []);
 
-  const setTitleMeta = useCallback((slot: React.ReactNode) => {
+  const clearHeaderSlot = useCallback((owner: SlotOwner) => {
+    if (headerSlotOwnerRef.current !== owner) return;
+    headerSlotOwnerRef.current = null;
+    setHeaderSlotState(null);
+  }, []);
+
+  const setTitleMeta = useCallback((slot: React.ReactNode, owner: SlotOwner) => {
+    titleMetaOwnerRef.current = owner;
     setTitleMetaState(prev => (Object.is(prev, slot) ? prev : slot));
   }, []);
 
-  const setTopBarAction = useCallback((slot: React.ReactNode) => {
+  const clearTitleMeta = useCallback((owner: SlotOwner) => {
+    if (titleMetaOwnerRef.current !== owner) return;
+    titleMetaOwnerRef.current = null;
+    setTitleMetaState(null);
+  }, []);
+
+  const setTopBarAction = useCallback((slot: React.ReactNode, owner: SlotOwner) => {
+    topBarActionOwnerRef.current = owner;
     setTopBarActionState(prev => (Object.is(prev, slot) ? prev : slot));
+  }, []);
+
+  const clearTopBarAction = useCallback((owner: SlotOwner) => {
+    if (topBarActionOwnerRef.current !== owner) return;
+    topBarActionOwnerRef.current = null;
+    setTopBarActionState(null);
   }, []);
 
   const setPageHeader = useCallback((next: PageHeaderConfig) => {
@@ -85,8 +114,11 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       topBarAction,
       setPageHeader,
       setHeaderSlot,
+      clearHeaderSlot,
       setTitleMeta,
+      clearTitleMeta,
       setTopBarAction,
+      clearTopBarAction,
       clearPageHeader,
     }),
     [
@@ -96,8 +128,11 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       topBarAction,
       setPageHeader,
       setHeaderSlot,
+      clearHeaderSlot,
       setTitleMeta,
+      clearTitleMeta,
       setTopBarAction,
+      clearTopBarAction,
       clearPageHeader,
     ],
   );
@@ -163,56 +198,51 @@ export function useCatalogPageHeader(config: PageHeaderConfig, enabled = true) {
   }, [setPageHeader, enabled, title, subtitle, showBack, onTitleClick, titleExpanded, mobileCompactHeader]);
 }
 
-export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) {
-  const ctx = useContext(PageHeaderContext);
-  const setHeaderSlot = ctx?.setHeaderSlot;
+function useOwnedHeaderSlot(
+  setSlot: ((slot: React.ReactNode, owner: SlotOwner) => void) | undefined,
+  clearSlot: ((owner: SlotOwner) => void) | undefined,
+  slot: React.ReactNode | null,
+  enabled: boolean,
+) {
+  const ownerRef = useRef<SlotOwner | null>(null);
+  if (ownerRef.current === null) {
+    ownerRef.current = {};
+  }
+  const owner = ownerRef.current;
   const slotRef = useRef(slot);
   slotRef.current = slot;
 
   useEffect(() => {
-    if (!setHeaderSlot) return undefined;
-    return () => setHeaderSlot(null);
-  }, [setHeaderSlot]);
+    if (!clearSlot) return undefined;
+    return () => clearSlot(owner);
+  }, [clearSlot, owner]);
 
   // Layout effect so controlled header inputs (e.g. catalog search) paint
   // the latest value in the same frame instead of one effect tick behind.
+  // Clearing is owner-guarded so a previous page's delayed cleanup cannot
+  // wipe the slot after the next page has already claimed it.
   useLayoutEffect(() => {
-    if (!setHeaderSlot) return;
-    setHeaderSlot(enabled ? slotRef.current : null);
-  }, [setHeaderSlot, enabled, slot]);
+    if (!setSlot || !clearSlot) return;
+    if (enabled) {
+      setSlot(slotRef.current, owner);
+    } else {
+      clearSlot(owner);
+    }
+  }, [setSlot, clearSlot, enabled, slot, owner]);
+}
+
+export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) {
+  const ctx = useContext(PageHeaderContext);
+  useOwnedHeaderSlot(ctx?.setHeaderSlot, ctx?.clearHeaderSlot, slot, enabled);
 }
 
 /** Compact pills/badges rendered beside the page title text. */
 export function usePageHeaderTitleMeta(slot: React.ReactNode | null, enabled = true) {
   const ctx = useContext(PageHeaderContext);
-  const setTitleMeta = ctx?.setTitleMeta;
-  const slotRef = useRef(slot);
-  slotRef.current = slot;
-
-  useEffect(() => {
-    if (!setTitleMeta) return undefined;
-    return () => setTitleMeta(null);
-  }, [setTitleMeta]);
-
-  useLayoutEffect(() => {
-    if (!setTitleMeta) return;
-    setTitleMeta(enabled ? slotRef.current : null);
-  }, [setTitleMeta, enabled, slot]);
+  useOwnedHeaderSlot(ctx?.setTitleMeta, ctx?.clearTitleMeta, slot, enabled);
 }
 
 export function useTopBarAction(slot: React.ReactNode | null, enabled = true) {
   const ctx = useContext(PageHeaderContext);
-  const setTopBarAction = ctx?.setTopBarAction;
-  const slotRef = useRef(slot);
-  slotRef.current = slot;
-
-  useEffect(() => {
-    if (!setTopBarAction) return undefined;
-    return () => setTopBarAction(null);
-  }, [setTopBarAction]);
-
-  useLayoutEffect(() => {
-    if (!setTopBarAction) return;
-    setTopBarAction(enabled ? slotRef.current : null);
-  }, [setTopBarAction, enabled, slot]);
+  useOwnedHeaderSlot(ctx?.setTopBarAction, ctx?.clearTopBarAction, slot, enabled);
 }

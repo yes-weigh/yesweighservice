@@ -12882,6 +12882,89 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-left: auto;
 }
 
+/* Dealer cart → Draft SO: seal overlays amount / end of customer name */
+.unified-so-mobile-row--order-placed {
+  position: relative;
+  align-items: flex-start;
+}
+
+.unified-so-mobile-row--order-placed .invoices-mobile-row__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.unified-so-mobile-row--order-placed .invoices-mobile-row__company {
+  /* Seal may cover the last few letters — keep the full name in flow. */
+  padding-right: 0.25rem;
+}
+
+.unified-so-mobile-row--order-placed .invoices-mobile-row__amount-value,
+.unified-so-mobile-row--order-placed .unified-so-mobile-row__footer .invoices-status {
+  position: relative;
+  z-index: 1;
+  /* Clear the seal on the right; company name may still run under it. */
+  margin-right: 3.75rem;
+}
+
+.unified-so-mobile-row--order-placed .so-order-seal {
+  position: absolute;
+  top: 50%;
+  right: 1.35rem;
+  z-index: 0;
+  flex: none;
+  width: 4.85rem;
+  height: 4.85rem;
+  transform: translateY(-50%) rotate(-6deg);
+}
+
+.so-order-seal {
+  position: relative;
+  top: auto;
+  right: auto;
+  z-index: 0;
+  flex: 0 0 4.85rem;
+  width: 4.85rem;
+  height: 4.85rem;
+  align-self: center;
+  transform: rotate(-6deg);
+  pointer-events: none;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 8px rgba(61, 255, 154, 0.35));
+}
+
+.so-order-seal__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.so-order-seal--inline {
+  position: static;
+  width: 3rem;
+  height: 3rem;
+  transform: rotate(-6deg);
+  flex-shrink: 0;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 5px rgba(61, 255, 154, 0.28));
+}
+
+.unified-sales-orders-page tr.unified-so-row--order-placed td:first-child {
+  position: relative;
+}
+
+/* Title-bar / detail compact chip (non-seal contexts) */
+.so-status--order-placed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  background: rgba(57, 227, 138, 0.14);
+  color: #bbf7d0;
+  border: 1px solid rgba(57, 227, 138, 0.55);
+}
+
 .unified-sales-orders-page .invoices-table td .unified-so-source {
   vertical-align: middle;
 }

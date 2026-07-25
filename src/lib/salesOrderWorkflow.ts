@@ -13,7 +13,7 @@ export type YesOneSalesOrderStage =
   | 'void';
 
 export const YESONE_STAGE_LABELS: Record<YesOneSalesOrderStage, string> = {
-  review: 'Under review',
+  review: 'Order placed',
   ready_for_payment: 'Awaiting payment',
   payment_submitted: 'Payment submitted',
   completed: 'Completed',

@@ -25,6 +25,8 @@ export interface UnifiedSalesOrderRow {
   statusRaw: string;
   statusLabel: string;
   statusClass: string;
+  /** Dealer cart → Zoho Draft awaiting admin action. */
+  isOrderPlaced: boolean;
   category: InvoiceCategory | null;
   qty: number | null;
   /** Zoho reference number when present. */
@@ -43,17 +45,42 @@ function parseDayTs(value: string | null | undefined): number {
   return Number.isNaN(ts) ? 0 : ts;
 }
 
+/** Dealer cart Draft that still needs admin attention. */
+export function isDealerOrderPlaced(so: AdminFirestoreSalesOrder): boolean {
+  const stage = String(so.yesOneStage || '').trim();
+  if (stage === 'review') return true;
+  if (so.yesOneCreatedFromCart && (!stage || stage === 'review')) return true;
+  const zohoStatus = String(so.status || '').toLowerCase().replace(/\s+/g, '_');
+  const isDraft = zohoStatus === 'draft' || zohoStatus === 'pending';
+  const ref = String(so.referenceNumber || '');
+  if (isDraft && /^YES-ORD-/i.test(ref) && !stage) return true;
+  return false;
+}
+
 function displayStatusForSo(so: AdminFirestoreSalesOrder): {
   statusRaw: string;
   statusLabel: string;
   statusClass: string;
+  isOrderPlaced: boolean;
 } {
   const stage = String(so.yesOneStage || '').trim();
+  const orderPlaced = isDealerOrderPlaced(so);
+  // Keep Zoho status (e.g. Draft) as the status pill; "Order placed" is a separate pin.
+  if (orderPlaced) {
+    const zohoStatus = String(so.status || 'draft');
+    return {
+      statusRaw: stage || zohoStatus,
+      statusLabel: invoiceStatusLabel(zohoStatus),
+      statusClass: `invoices-status invoices-status--${zohoStatus.toLowerCase().replace(/\s+/g, '_')}`,
+      isOrderPlaced: true,
+    };
+  }
   if (stage === 'ready_for_payment') {
     return {
       statusRaw: stage,
       statusLabel: yesOneStageLabel(stage),
       statusClass: 'invoices-status invoices-status--overdue',
+      isOrderPlaced: false,
     };
   }
   if (stage === 'payment_submitted') {
@@ -61,6 +88,7 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
       statusRaw: stage,
       statusLabel: yesOneStageLabel(stage),
       statusClass: 'invoices-status invoices-status--partially_paid',
+      isOrderPlaced: false,
     };
   }
   if (stage === 'completed') {
@@ -68,6 +96,7 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
       statusRaw: stage,
       statusLabel: yesOneStageLabel(stage),
       statusClass: 'invoices-status invoices-status--paid',
+      isOrderPlaced: false,
     };
   }
   if (stage === 'void') {
@@ -75,19 +104,14 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
       statusRaw: stage,
       statusLabel: yesOneStageLabel(stage),
       statusClass: 'invoices-status invoices-status--void',
-    };
-  }
-  if (stage === 'review') {
-    return {
-      statusRaw: stage,
-      statusLabel: yesOneStageLabel(stage),
-      statusClass: 'invoices-status invoices-status--draft',
+      isOrderPlaced: false,
     };
   }
   return {
     statusRaw: so.status,
     statusLabel: invoiceStatusLabel(so.status),
     statusClass: `invoices-status invoices-status--${String(so.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`,
+    isOrderPlaced: false,
   };
 }
 
@@ -111,6 +135,7 @@ export function mapZohoOrderToUnified(
     statusRaw: display.statusRaw,
     statusLabel: display.statusLabel,
     statusClass: display.statusClass,
+    isOrderPlaced: display.isOrderPlaced,
     category: so.salesOrderCategory,
     qty: so.itemQuantity,
     portalOrderNumber: so.referenceNumber,
@@ -165,7 +190,7 @@ function normalizeZohoStatus(status: string): string {
 export function getUnifiedStage(row: UnifiedSalesOrderRow): UnifiedStageId {
   const raw = normalizeZohoStatus(row.statusRaw);
   if (raw === 'void' || raw === 'cancelled' || raw === 'canceled') return 'rejected';
-  if (raw === 'review') return 'review';
+  if (raw === 'review' || raw === 'order_placed' || row.isOrderPlaced) return 'review';
   if (raw === 'ready_for_payment') return 'pay';
   if (raw === 'payment_submitted') return 'verify';
   if (raw === 'completed') return 'done';

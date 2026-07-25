@@ -79,6 +79,8 @@ export interface AdminFirestoreSalesOrder {
   salesOrderCategory: InvoiceCategory | null;
   /** YesOne workflow stage on the SO mirror (null for legacy sync-only rows). */
   yesOneStage?: string | null;
+  /** True when this Draft SO was created from a dealer cart submit. */
+  yesOneCreatedFromCart?: boolean;
 }
 
 export interface AdminSalesOrderDetail {
@@ -169,6 +171,7 @@ export function mapAdminSalesOrderDoc(
       : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
     yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
+    yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
   };
 }
 
