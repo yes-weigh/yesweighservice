@@ -80,6 +80,11 @@ export function canManageSuperAdminsInHr(user: User | null | undefined): boolean
   return user?.role === 'super_admin';
 }
 
+/** Salary calculation role gate (super-admin). Tab also requires localhost / isLocalhostDev(). */
+export function canViewHrSalary(user: User | null | undefined): boolean {
+  return user?.role === 'super_admin';
+}
+
 export function canViewDealersInHr(user: User | null | undefined): boolean {
   if (!user) return false;
   if (user.role === 'super_admin') return true;

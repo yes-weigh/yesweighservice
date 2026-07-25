@@ -299,14 +299,11 @@ service cloud.firestore {
     }
 
     match /hrSalaryMonths/{docId} {
-      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
-      allow create, update: if isSuperAdmin() || staffHasHrManage();
-      allow delete: if isSuperAdmin();
+      allow read, create, update, delete: if isSuperAdmin();
     }
 
     match /hrPayrollEmployees/{employeeId} {
-      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
-      allow create, update, delete: if isSuperAdmin() || staffHasHrManage();
+      allow read, create, update, delete: if isSuperAdmin();
     }
 
     match /dealerSettings/{docId} {

@@ -2,12 +2,14 @@ import React, { useEffect, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { CalendarDays, Calculator, ClipboardList, Image as ImageIcon, KeyRound, Shield, Users, Warehouse } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { isLocalhostDev } from '../../lib/isLocalhost';
 import {
   canManageHr,
   canManageStaffRolesInHr,
   canManageSuperAdminsInHr,
   canManageWarehouseUsers,
   canViewHr,
+  canViewHrSalary,
 } from '../../lib/staffAccess';
 
 type HrLayoutProps = {
@@ -22,6 +24,8 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
   const showRoles = canManageStaffRolesInHr(user);
   const showWarehouse = canManageWarehouseUsers(user);
   const showMedia = canManageWarehouseUsers(user);
+  // Salary UI is localhost-only (dev system); data still persists to Firestore when used.
+  const showSalary = canViewHrSalary(user) && isLocalhostDev();
 
   const tabs = useMemo(() => {
     const items = [
@@ -38,13 +42,15 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
         path: `${basePath}/hr/holidays`,
         icon: <CalendarDays size={16} />,
       },
-      {
+    ];
+    if (showSalary) {
+      items.push({
         id: 'salary',
         label: 'Salary calculation',
         path: `${basePath}/hr/salary`,
         icon: <Calculator size={16} />,
-      },
-    ];
+      });
+    }
     if (showRoles) {
       items.push({
         id: 'roles',
@@ -80,7 +86,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
       });
     }
     return items;
-  }, [basePath, showMedia, showRoles, showSuperAdmins, showWarehouse]);
+  }, [basePath, showMedia, showRoles, showSalary, showSuperAdmins, showWarehouse]);
 
   useEffect(() => {
     if (location.pathname === `${basePath}/hr` || location.pathname === `${basePath}/hr/`) {
