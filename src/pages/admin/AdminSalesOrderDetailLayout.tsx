@@ -137,14 +137,16 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && (statusKey === 'draft' || statusKey === 'pending' || statusKey === 'confirmed' || statusKey === 'open')
     && (stage === 'review' || !salesOrder?.yesOneStage);
   const canVerify = canVerifyPayment && stage === 'payment_submitted';
-  const canVoid = canManageZoho
+  const canVoid = Boolean(
+    canManageZoho
     && statusKey
     && statusKey !== 'void'
     && statusKey !== 'closed'
     && statusKey !== 'cancelled'
     && statusKey !== 'canceled'
     && stage !== 'completed'
-    && stage !== 'void';
+    && stage !== 'void',
+  );
 
   const handleReady = useCallback(async () => {
     if (!salesOrderId || actionBusy) return;
