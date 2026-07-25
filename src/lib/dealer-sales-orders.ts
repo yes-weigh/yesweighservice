@@ -42,6 +42,7 @@ function mapListRow(raw: Record<string, unknown>): AdminFirestoreSalesOrder {
       ? sumInvoiceProductQuantity(lineItems)
       : (raw.itemQuantity != null ? Number(raw.itemQuantity) : null),
     salesOrderCategory: parseInvoiceCategory(raw.salesOrderCategory),
+    yesOneStage: raw.yesOneStage ? String(raw.yesOneStage) : null,
   };
 }
 
@@ -67,6 +68,19 @@ function mapDetail(raw: Record<string, unknown>): AdminSalesOrderDetail {
     taxTotal: Number(raw.taxTotal ?? 0),
     notes: raw.notes ? String(raw.notes) : null,
     lineItems,
+    yesOneStage: list.yesOneStage ?? null,
+    paymentAmount: raw.paymentAmount != null ? Number(raw.paymentAmount) : null,
+    paymentUtr: raw.paymentUtr ? String(raw.paymentUtr) : null,
+    paymentScreenshotStoragePath: raw.paymentScreenshotStoragePath
+      ? String(raw.paymentScreenshotStoragePath)
+      : null,
+    paymentScreenshotUrl: raw.paymentScreenshotUrl ? String(raw.paymentScreenshotUrl) : null,
+    paymentSubmittedAt: raw.paymentSubmittedAt ? String(raw.paymentSubmittedAt) : null,
+    paymentVerifiedAt: raw.paymentVerifiedAt ? String(raw.paymentVerifiedAt) : null,
+    readyForPaymentAt: raw.readyForPaymentAt ? String(raw.readyForPaymentAt) : null,
+    readyForPaymentByName: raw.readyForPaymentByName ? String(raw.readyForPaymentByName) : null,
+    zohoInvoiceId: raw.zohoInvoiceId ? String(raw.zohoInvoiceId) : null,
+    zohoInvoiceNumber: raw.zohoInvoiceNumber ? String(raw.zohoInvoiceNumber) : null,
   };
 }
 

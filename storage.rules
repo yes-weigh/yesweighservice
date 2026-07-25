@@ -231,6 +231,12 @@ service firebase.storage {
       allow delete: if isOpsUser();
     }
 
+    // YesOne SO payment proofs — uploaded via Admin SDK callable only.
+    match /sales-order-payments/{salesOrderId}/{fileName} {
+      allow read, create, update: if false;
+      allow delete: if isOpsUser();
+    }
+
     // Flat legacy paths: logistics/{bookingId}/{fileName}
     match /logistics/{bookingId}/{fileName} {
       allow read: if isOpsUser() || canAccessLogisticsBooking(bookingId);

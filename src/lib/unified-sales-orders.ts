@@ -3,6 +3,7 @@ import {
   getInvoicePeriodBounds,
   invoiceStatusLabel,
 } from './invoices';
+import { yesOneStageLabel } from './salesOrderWorkflow';
 import type { InvoiceCategory, KpiPeriod } from '../types/invoices';
 
 export type UnifiedSalesOrderSource = 'zoho';
@@ -42,10 +43,59 @@ function parseDayTs(value: string | null | undefined): number {
   return Number.isNaN(ts) ? 0 : ts;
 }
 
+function displayStatusForSo(so: AdminFirestoreSalesOrder): {
+  statusRaw: string;
+  statusLabel: string;
+  statusClass: string;
+} {
+  const stage = String(so.yesOneStage || '').trim();
+  if (stage === 'ready_for_payment') {
+    return {
+      statusRaw: stage,
+      statusLabel: yesOneStageLabel(stage),
+      statusClass: 'invoices-status invoices-status--overdue',
+    };
+  }
+  if (stage === 'payment_submitted') {
+    return {
+      statusRaw: stage,
+      statusLabel: yesOneStageLabel(stage),
+      statusClass: 'invoices-status invoices-status--partially_paid',
+    };
+  }
+  if (stage === 'completed') {
+    return {
+      statusRaw: stage,
+      statusLabel: yesOneStageLabel(stage),
+      statusClass: 'invoices-status invoices-status--paid',
+    };
+  }
+  if (stage === 'void') {
+    return {
+      statusRaw: stage,
+      statusLabel: yesOneStageLabel(stage),
+      statusClass: 'invoices-status invoices-status--void',
+    };
+  }
+  if (stage === 'review') {
+    return {
+      statusRaw: stage,
+      statusLabel: yesOneStageLabel(stage),
+      statusClass: 'invoices-status invoices-status--draft',
+    };
+  }
+  return {
+    statusRaw: so.status,
+    statusLabel: invoiceStatusLabel(so.status),
+    statusClass: `invoices-status invoices-status--${String(so.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`,
+  };
+}
+
 export function mapZohoOrderToUnified(
   so: AdminFirestoreSalesOrder,
   basePath: string,
 ): UnifiedSalesOrderRow {
+  const display = displayStatusForSo(so);
   return {
     key: `zoho:${so.id}`,
     source: 'zoho',
@@ -58,9 +108,9 @@ export function mapZohoOrderToUnified(
     sortAt: parseDayTs(so.date) || parseDayTs(so.syncedAt),
     amount: Number(so.total ?? 0),
     currencyCode: so.currencyCode || 'INR',
-    statusRaw: so.status,
-    statusLabel: invoiceStatusLabel(so.status),
-    statusClass: `invoices-status invoices-status--${String(so.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`,
+    statusRaw: display.statusRaw,
+    statusLabel: display.statusLabel,
+    statusClass: display.statusClass,
     category: so.salesOrderCategory,
     qty: so.itemQuantity,
     portalOrderNumber: so.referenceNumber,
@@ -115,6 +165,10 @@ function normalizeZohoStatus(status: string): string {
 export function getUnifiedStage(row: UnifiedSalesOrderRow): UnifiedStageId {
   const raw = normalizeZohoStatus(row.statusRaw);
   if (raw === 'void' || raw === 'cancelled' || raw === 'canceled') return 'rejected';
+  if (raw === 'review') return 'review';
+  if (raw === 'ready_for_payment') return 'pay';
+  if (raw === 'payment_submitted') return 'verify';
+  if (raw === 'completed') return 'done';
   if (raw === 'draft') return 'so';
   if (
     raw === 'invoiced'
@@ -269,12 +323,21 @@ export function getUnifiedOrderProgress(row: UnifiedSalesOrderRow): UnifiedOrder
     };
   }
 
-  const skippedIds = new Set(['review', 'pay', 'verify']);
+  // YesOne workflow stages use the full Review → SO → Pay → Verify → Done chain.
+  const yesOneWorkflow = ['review', 'ready_for_payment', 'payment_submitted', 'completed']
+    .includes(String(row.statusRaw || ''));
+  const skippedIds = yesOneWorkflow
+    ? undefined
+    : new Set(['review', 'pay', 'verify']);
   const allDone = stage === 'done';
   const steps = buildUnifiedSteps({ stage, skippedIds, allDone });
   const so = steps.find(step => step.id === 'so');
   if (so && so.state === 'skipped') {
     so.state = allDone ? 'done' : 'current';
+  }
+  // On Pay/Verify, SO step is already done (Draft exists).
+  if (yesOneWorkflow && (stage === 'pay' || stage === 'verify')) {
+    if (so && so.state !== 'done') so.state = 'done';
   }
 
   return {

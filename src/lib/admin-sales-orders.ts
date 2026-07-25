@@ -77,6 +77,8 @@ export interface AdminFirestoreSalesOrder {
   syncedAt: string | null;
   itemQuantity: number | null;
   salesOrderCategory: InvoiceCategory | null;
+  /** YesOne workflow stage on the SO mirror (null for legacy sync-only rows). */
+  yesOneStage?: string | null;
 }
 
 export interface AdminSalesOrderDetail {
@@ -96,6 +98,17 @@ export interface AdminSalesOrderDetail {
   taxTotal: number;
   notes: string | null;
   lineItems: DealerInvoiceLineItem[];
+  yesOneStage?: string | null;
+  paymentAmount?: number | null;
+  paymentUtr?: string | null;
+  paymentScreenshotStoragePath?: string | null;
+  paymentScreenshotUrl?: string | null;
+  paymentSubmittedAt?: string | null;
+  paymentVerifiedAt?: string | null;
+  readyForPaymentAt?: string | null;
+  readyForPaymentByName?: string | null;
+  zohoInvoiceId?: string | null;
+  zohoInvoiceNumber?: string | null;
 }
 
 export interface AdminSalesOrdersPageResult {
@@ -153,6 +166,7 @@ export function mapAdminSalesOrderDoc(
       ? sumInvoiceProductQuantity(lineItems)
       : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
+    yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
   };
 }
 
@@ -538,6 +552,19 @@ export function mapAdminSalesOrderDetail(
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapLineItem(item as Record<string, unknown>))
       : [],
+    yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
+    paymentAmount: data.paymentAmount != null ? Number(data.paymentAmount) : null,
+    paymentUtr: data.paymentUtr ? String(data.paymentUtr) : null,
+    paymentScreenshotStoragePath: data.paymentScreenshotStoragePath
+      ? String(data.paymentScreenshotStoragePath)
+      : null,
+    paymentScreenshotUrl: data.paymentScreenshotUrl ? String(data.paymentScreenshotUrl) : null,
+    paymentSubmittedAt: data.paymentSubmittedAt ? String(data.paymentSubmittedAt) : null,
+    paymentVerifiedAt: data.paymentVerifiedAt ? String(data.paymentVerifiedAt) : null,
+    readyForPaymentAt: data.readyForPaymentAt ? String(data.readyForPaymentAt) : null,
+    readyForPaymentByName: data.readyForPaymentByName ? String(data.readyForPaymentByName) : null,
+    zohoInvoiceId: data.zohoInvoiceId ? String(data.zohoInvoiceId) : null,
+    zohoInvoiceNumber: data.zohoInvoiceNumber ? String(data.zohoInvoiceNumber) : null,
   };
 }
 

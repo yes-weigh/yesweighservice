@@ -130,6 +130,14 @@ import {
   purgeAllDealerOrders as purgeAllDealerOrdersRecord,
 } from './lib/dealer-orders.js';
 import {
+  updateDraftSalesOrderLines as updateDraftSalesOrderLinesRecord,
+  markSalesOrderReadyForPayment as markSalesOrderReadyForPaymentRecord,
+  uploadSalesOrderPaymentScreenshot as uploadSalesOrderPaymentScreenshotRecord,
+  submitSalesOrderPayment as submitSalesOrderPaymentRecord,
+  verifySalesOrderPayment as verifySalesOrderPaymentRecord,
+  voidSalesOrderWithWorkflow as voidSalesOrderWithWorkflowRecord,
+} from './lib/sales-order-workflow.js';
+import {
   uploadApprovalNumberPdf as storeApprovalNumberPdf,
   removeApprovalNumberPdf as clearApprovalNumberPdf,
   deleteApprovalPdfObject,
@@ -2930,7 +2938,7 @@ export const voidZohoSalesOrder = onCall(
     const uid = request.auth?.uid;
     const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
     try {
-      return await voidMirroredSalesOrderRecord(
+      return await voidSalesOrderWithWorkflowRecord(
         uid,
         role,
         request.data?.salesOrderId,
@@ -2941,6 +2949,98 @@ export const voidZohoSalesOrder = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not void sales order.');
+    }
+  },
+);
+
+export const updateDraftSalesOrderLines = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await updateDraftSalesOrderLinesRecord(
+        uid,
+        role,
+        request.data ?? {},
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update sales order lines.');
+    }
+  },
+);
+
+export const markSalesOrderReadyForPayment = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await markSalesOrderReadyForPaymentRecord(uid, role, request.data?.salesOrderId);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not mark sales order ready for payment.');
+    }
+  },
+);
+
+export const uploadSalesOrderPaymentScreenshotFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      return await uploadSalesOrderPaymentScreenshotRecord(uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not upload payment screenshot.');
+    }
+  },
+);
+
+export const submitSalesOrderPayment = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      return await submitSalesOrderPaymentRecord(uid, role, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not submit payment proof.');
+    }
+  },
+);
+
+export const verifySalesOrderPayment = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    try {
+      return await verifySalesOrderPaymentRecord(
+        uid,
+        role,
+        request.data?.salesOrderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not verify payment.');
     }
   },
 );

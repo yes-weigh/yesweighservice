@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, Check, FileText, ClipboardList, Ban } from 'lucide-react';
+import {
+  AlertCircle,
+  Ban,
+  Check,
+  ClipboardList,
+  FileText,
+  IndianRupee,
+} from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -9,13 +16,14 @@ import {
   type AdminSalesOrderDetail,
 } from '../../lib/admin-sales-orders';
 import { fetchDealerSalesOrderDetail } from '../../lib/dealer-sales-orders';
-import {
-  confirmZohoSalesOrder,
-  dealerOrderErrorMessage,
-  voidZohoSalesOrder,
-} from '../../lib/dealerOrders';
+import { dealerOrderErrorMessage, voidZohoSalesOrder } from '../../lib/dealerOrders';
 import { formatInvoiceDate, invoiceErrorMessage, invoiceStatusLabel } from '../../lib/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
+import {
+  markSalesOrderReadyForPayment,
+  verifySalesOrderPayment,
+  yesOneStageLabel,
+} from '../../lib/salesOrderWorkflow';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 
 export const AdminSalesOrderDetailLayout: React.FC = () => {
@@ -31,6 +39,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const isDealerView = basePath === '/dealer' || basePath === '/dealer-staff';
   const canManageZoho = !isDealerView
     && (user?.role === 'staff' || user?.role === 'super_admin');
+  const canVerifyPayment = !isDealerView && user?.role === 'super_admin';
   const listPath = `${basePath}/sales-orders`;
   const summaryPath = `${listPath}/${salesOrderId}`;
   const isPdfView = pathname.endsWith('/view');
@@ -38,7 +47,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const [salesOrder, setSalesOrder] = useState<AdminSalesOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [actionBusy, setActionBusy] = useState<'confirm' | 'void' | null>(null);
+  const [actionBusy, setActionBusy] = useState<'ready' | 'verify' | 'void' | null>(null);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -83,21 +92,45 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   }, [reload]);
 
   const statusKey = String(salesOrder?.status || '').toLowerCase().replace(/\s+/g, '_');
-  const canConfirm = canManageZoho && (statusKey === 'draft' || statusKey === 'pending');
+  const stage = String(salesOrder?.yesOneStage || 'review');
+  const canReady = canManageZoho
+    && (statusKey === 'draft' || statusKey === 'pending' || statusKey === 'confirmed' || statusKey === 'open')
+    && (stage === 'review' || !salesOrder?.yesOneStage);
+  const canVerify = canVerifyPayment && stage === 'payment_submitted';
   const canVoid = canManageZoho
     && statusKey
     && statusKey !== 'void'
     && statusKey !== 'closed'
     && statusKey !== 'cancelled'
-    && statusKey !== 'canceled';
+    && statusKey !== 'canceled'
+    && stage !== 'completed'
+    && stage !== 'void';
 
-  const handleConfirm = async () => {
+  const handleReady = async () => {
     if (!salesOrderId || actionBusy) return;
-    if (!window.confirm('Mark this Zoho sales order as Confirmed?')) return;
-    setActionBusy('confirm');
+    if (!window.confirm(
+      'Mark this order ready for payment? The dealer will be asked to upload payment proof. You can still edit lines until they submit payment.',
+    )) return;
+    setActionBusy('ready');
     try {
-      await confirmZohoSalesOrder(salesOrderId);
-      reload();
+      const next = await markSalesOrderReadyForPayment(salesOrderId);
+      setSalesOrder(next);
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!salesOrderId || actionBusy) return;
+    if (!window.confirm(
+      'Verify payment, confirm this sales order in Zoho, and create the invoice?',
+    )) return;
+    setActionBusy('verify');
+    try {
+      const next = await verifySalesOrderPayment(salesOrderId);
+      setSalesOrder(next);
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
     } finally {
@@ -129,6 +162,8 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     error,
     salesOrderId,
     listPath,
+    reload,
+    setSalesOrder,
   };
 
   return (
@@ -166,35 +201,50 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
                   <span className="invoice-detail-top__card-label">View PDF</span>
                 </button>
               </div>
-              {(canConfirm || canVoid) && (
-                <div className="invoice-detail-top__ops" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
-                  <span className="text-muted text-sm" style={{ width: '100%' }}>
-                    Zoho status: <strong>{invoiceStatusLabel(salesOrder.status)}</strong>
-                  </span>
-                  {canConfirm && (
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      disabled={Boolean(actionBusy)}
-                      onClick={() => { void handleConfirm(); }}
-                    >
-                      <Check size={14} aria-hidden />
-                      {actionBusy === 'confirm' ? 'Confirming…' : 'Confirm in Zoho'}
-                    </button>
+              <div className="invoice-detail-top__ops" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+                <span className="text-muted text-sm" style={{ width: '100%' }}>
+                  Zoho: <strong>{invoiceStatusLabel(salesOrder.status)}</strong>
+                  {salesOrder.yesOneStage && (
+                    <>
+                      {' · '}
+                      YesOne: <strong>{yesOneStageLabel(salesOrder.yesOneStage)}</strong>
+                    </>
                   )}
-                  {canVoid && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={Boolean(actionBusy)}
-                      onClick={() => { void handleVoid(); }}
-                    >
-                      <Ban size={14} aria-hidden />
-                      {actionBusy === 'void' ? 'Voiding…' : 'Void in Zoho'}
-                    </button>
-                  )}
-                </div>
-              )}
+                </span>
+                {canReady && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={Boolean(actionBusy)}
+                    onClick={() => { void handleReady(); }}
+                  >
+                    <IndianRupee size={14} aria-hidden />
+                    {actionBusy === 'ready' ? 'Updating…' : 'Ready for payment'}
+                  </button>
+                )}
+                {canVerify && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={Boolean(actionBusy)}
+                    onClick={() => { void handleVerify(); }}
+                  >
+                    <Check size={14} aria-hidden />
+                    {actionBusy === 'verify' ? 'Verifying…' : 'Verify payment & invoice'}
+                  </button>
+                )}
+                {canVoid && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={Boolean(actionBusy)}
+                    onClick={() => { void handleVoid(); }}
+                  >
+                    <Ban size={14} aria-hidden />
+                    {actionBusy === 'void' ? 'Voiding…' : 'Void in Zoho'}
+                  </button>
+                )}
+              </div>
             </div>
           )}
           <Outlet context={outletContext} />

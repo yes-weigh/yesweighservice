@@ -764,6 +764,7 @@ export function mapSalesOrderDoc(id, data) {
     : (typeof dateRaw === 'string'
       ? dateRaw
       : (dateRaw?.toDate?.()?.toISOString?.()?.slice(0, 10) ?? String(dateRaw)));
+  const yesOneStage = data.yesOneStage ? String(data.yesOneStage) : null;
   return {
     id,
     salesOrderNumber: String(data.salesOrderNumber ?? ''),
@@ -788,6 +789,13 @@ export function mapSalesOrderDoc(id, data) {
       ?? (typeof data.syncedAt === 'string' ? data.syncedAt : null),
     searchBlob: data.searchBlob ?? '',
     pdfStoragePath: data.pdfStoragePath ?? null,
+    yesOneStage,
+    paymentUtr: data.paymentUtr ?? null,
+    paymentSubmittedAt: data.paymentSubmittedAt ?? null,
+    paymentVerifiedAt: data.paymentVerifiedAt ?? null,
+    readyForPaymentAt: data.readyForPaymentAt ?? null,
+    zohoInvoiceId: data.zohoInvoiceId ?? null,
+    zohoInvoiceNumber: data.zohoInvoiceNumber ?? null,
   };
 }
 
@@ -809,6 +817,7 @@ function mapSalesOrderListRow(id, data) {
     salesOrderCategory: full.salesOrderCategory,
     itemQuantity: full.itemQuantity,
     syncedAt: full.syncedAt,
+    yesOneStage: full.yesOneStage,
   };
 }
 

@@ -94,6 +94,54 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   };
 }
 
+/**
+ * Replace line items on a Draft Zoho Inventory sales order.
+ * @param {object} secrets
+ * @param {string} configuredOrgId
+ * @param {string} salesOrderId
+ * @param {Array<{ itemId: string, name?: string, rate?: number, quantity: number, unit?: string, hsn?: string|null }>} lines
+ */
+export async function updateSalesOrderLines(secrets, configuredOrgId, salesOrderId, lines) {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+  const lineItems = lineItemsFromOrder({ lines });
+  if (!lineItems.length) {
+    throw new Error('Sales order must have at least one line item.');
+  }
+
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const existing = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+  const so = existing?.salesorder;
+  if (!so) throw new Error('Sales order not found in Zoho.');
+
+  const status = String(so.status || '').toLowerCase().replace(/\s+/g, '_');
+  if (status !== 'draft' && status !== 'pending') {
+    throw new Error('Only Draft sales orders can be edited.');
+  }
+
+  const body = {
+    customer_id: so.customer_id,
+    reference_number: so.reference_number || '',
+    date: so.date || new Date().toISOString().slice(0, 10),
+    line_items: lineItems,
+    notes: so.notes || '',
+  };
+
+  const payload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
+    method: 'PUT',
+    body,
+  });
+  const updated = payload?.salesorder;
+  return {
+    salesOrderId: soId,
+    salesOrderNumber: updated?.salesorder_number
+      ? String(updated.salesorder_number)
+      : (so.salesorder_number ? String(so.salesorder_number) : null),
+    status: updated?.status ? String(updated.status) : status,
+  };
+}
+
 /** Mark a Zoho Inventory sales order as Confirmed. */
 export async function confirmSalesOrder(secrets, configuredOrgId, salesOrderId) {
   const soId = String(salesOrderId || '').trim();

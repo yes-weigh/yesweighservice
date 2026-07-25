@@ -11,6 +11,7 @@ import {
   voidSalesOrder,
 } from './zoho-sales-orders.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
+import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 
 const PRODUCTS = 'catalogProducts';
@@ -290,11 +291,23 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     status = so.status || 'draft';
     try {
       await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+      await initYesOneSalesOrderWorkflow(salesOrderId, {
+        yesOneCreatedFromCart: true,
+        yesOneCartReference: orderNumber,
+      });
     } catch (mirrorErr) {
       console.warn(
         `Submit order ${orderNumber}: could not mirror SO ${salesOrderId}:`,
         mirrorErr?.message ?? mirrorErr,
       );
+      try {
+        await initYesOneSalesOrderWorkflow(salesOrderId, {
+          yesOneCreatedFromCart: true,
+          yesOneCartReference: orderNumber,
+        });
+      } catch {
+        // Mirror may have failed entirely; workflow seed best-effort.
+      }
     }
   } catch (err) {
     const message = err?.message || 'Could not create Zoho sales order.';

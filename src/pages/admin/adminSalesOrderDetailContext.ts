@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from 'react';
 import type { AdminSalesOrderDetail } from '../../lib/admin-sales-orders';
 
 export interface AdminSalesOrderDetailOutletContext {
@@ -6,4 +7,6 @@ export interface AdminSalesOrderDetailOutletContext {
   error: string;
   salesOrderId: string;
   listPath: string;
+  reload: () => void;
+  setSalesOrder: Dispatch<SetStateAction<AdminSalesOrderDetail | null>>;
 }
