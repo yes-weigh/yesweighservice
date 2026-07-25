@@ -31,13 +31,16 @@ export function isPayrollEmployeeKey(key: string): boolean {
 }
 
 function mapEmployee(id: string, data: Record<string, unknown>): HrPayrollEmployee {
+  const defaultPerDaySalary = Number(data.defaultPerDaySalary) || 0;
+  const defaultOtPerDaySalary = Number(data.defaultOtPerDaySalary) || defaultPerDaySalary;
   return {
     id,
     displayName: String(data.displayName ?? '').trim() || '—',
     designation: data.designation != null ? String(data.designation) : null,
     employeeId: data.employeeId != null ? String(data.employeeId) : null,
     department: (data.department as StaffDepartment) || 'admin',
-    defaultMonthlySalary: Number(data.defaultMonthlySalary) || 0,
+    defaultPerDaySalary,
+    defaultOtPerDaySalary,
     active: data.active !== false,
     createdAt: String(data.createdAt ?? ''),
     createdByUid: data.createdByUid != null ? String(data.createdByUid) : null,
@@ -59,12 +62,18 @@ export async function createPayrollEmployee(
 ): Promise<HrPayrollEmployee> {
   const displayName = input.displayName.trim();
   if (!displayName) throw new Error('Employee name is required.');
+  const defaultPerDaySalary = Math.max(0, Number(input.defaultPerDaySalary) || 0);
+  const defaultOtPerDaySalary = Math.max(
+    0,
+    Number(input.defaultOtPerDaySalary) || defaultPerDaySalary,
+  );
   const ref = await addDoc(collection(db, COLLECTION), {
     displayName,
     designation: input.designation?.trim() || null,
     employeeId: input.employeeId?.trim() || null,
     department: input.department,
-    defaultMonthlySalary: Math.max(0, Number(input.defaultMonthlySalary) || 0),
+    defaultPerDaySalary,
+    defaultOtPerDaySalary,
     active: true,
     createdAt: new Date().toISOString(),
     createdByUid,
@@ -75,7 +84,8 @@ export async function createPayrollEmployee(
     designation: input.designation?.trim() || null,
     employeeId: input.employeeId?.trim() || null,
     department: input.department,
-    defaultMonthlySalary: Math.max(0, Number(input.defaultMonthlySalary) || 0),
+    defaultPerDaySalary,
+    defaultOtPerDaySalary,
     active: true,
     createdAt: new Date().toISOString(),
     createdByUid,

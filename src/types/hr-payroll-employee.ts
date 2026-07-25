@@ -7,8 +7,10 @@ export type HrPayrollEmployee = {
   designation: string | null;
   employeeId: string | null;
   department: StaffDepartment;
-  /** Default monthly salary used when no month record exists yet. */
-  defaultMonthlySalary: number;
+  /** Default regular (weekday) per-day salary when no month record exists yet. */
+  defaultPerDaySalary: number;
+  /** Default OT day rate (8 hrs) when no month record exists yet. */
+  defaultOtPerDaySalary: number;
   active: boolean;
   createdAt: string;
   createdByUid: string | null;
@@ -19,5 +21,6 @@ export type HrPayrollEmployeeInput = {
   designation?: string | null;
   employeeId?: string | null;
   department: StaffDepartment;
-  defaultMonthlySalary?: number;
+  defaultPerDaySalary?: number;
+  defaultOtPerDaySalary?: number;
 };

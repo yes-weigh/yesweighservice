@@ -5,6 +5,21 @@ export type HrSalaryPeriod = {
   month: number; // 1–12
 };
 
+/** Named project used to group regular work + OT for the month. */
+export type HrSalaryProject = {
+  id: string;
+  name: string;
+  /** Hex color for calendar dots / list markers. */
+  color: string;
+};
+
+/** Assigns a calendar day's regular work to a project. */
+export type HrWorkDayEntry = {
+  /** `yyyy-MM-dd` */
+  date: string;
+  projectId: string;
+};
+
 /** One overtime shift on a calendar day (morning / night / etc.). */
 export type HrOvertimeEntry = {
   id: string;
@@ -14,6 +29,8 @@ export type HrOvertimeEntry = {
   startTime: string;
   /** `HH:mm` 24h — may be earlier than start when the shift crosses midnight */
   endTime: string;
+  /** Owning project; null/empty = unassigned. */
+  projectId: string | null;
 };
 
 export type HrLeaveKind = 'full' | 'half';
@@ -31,9 +48,21 @@ export type HrSalaryMonthRecord = {
   month: number;
   /** `yyyy-MM` */
   period: string;
+  /** Pay for one regular (weekday) payable workday. */
+  perDaySalary: number;
+  /** Pay for one full OT day ({@link HR_SALARY_HOURS_PER_DAY} hours). Also used for Sunday hours. */
+  otPerDaySalary: number;
+  /**
+   * Legacy monthly total (pre per-day inputs). Used only to migrate old docs.
+   * @deprecated Prefer perDaySalary / otPerDaySalary.
+   */
   monthlySalary: number;
   /** Leave entries (full or half day). Weekdays only in calc. */
   leaveEntries: HrLeaveEntry[];
+  /** Projects for grouping regular work + OT in this month. */
+  projects: HrSalaryProject[];
+  /** Regular work day → project assignments. */
+  workDayEntries: HrWorkDayEntry[];
   /** Timed OT shifts (one or more per day). */
   overtimeEntries: HrOvertimeEntry[];
   updatedAt: string;
@@ -44,8 +73,11 @@ export type HrSalaryMonthInput = {
   uid: string;
   year: number;
   month: number;
-  monthlySalary: number;
+  perDaySalary: number;
+  otPerDaySalary: number;
   leaveEntries: HrLeaveEntry[];
+  projects: HrSalaryProject[];
+  workDayEntries: HrWorkDayEntry[];
   overtimeEntries: HrOvertimeEntry[];
 };
 
@@ -66,6 +98,8 @@ export type HrSalaryDayCell = {
   overtimeHours: number;
   /** Leave marked on this date (even when OT is also present). */
   leaveKind?: HrLeaveKind | null;
+  /** Distinct project colors tagged on this date (work day + OT). */
+  projectColors: string[];
 };
 
 export type HrSalaryCalc = {
@@ -89,11 +123,25 @@ export type HrSalaryCalc = {
   regularHours: number;
   /** regularHours + overtimeHours */
   totalWorkHours: number;
+  /** Regular weekday per-day rate. */
   perDaySalary: number;
+  /** Sundays that have marked work hours. */
+  sundayWorkDays: number;
+  /** Hours worked on Sundays (OT marks on Sunday = total Sunday work). */
+  sundayHours: number;
+  /** Weekday OT hours only (excludes Sunday). */
+  weekdayOvertimeHours: number;
+  /** payableDays × perDaySalary */
+  regularPay: number;
+  /** Pay for one full OT day (8 hrs); applies to weekday OT and Sunday hours. */
+  otPerDaySalary: number;
   /** perDaySalary ÷ 8 */
   hourlyRate: number;
+  /** otPerDaySalary ÷ 8 */
+  otHourlyRate: number;
+  /** overtimeHours × otHourlyRate (Sunday + weekday OT). */
   overtimePay: number;
-  /** payableDays × perDay + overtimePay */
+  /** regularPay + overtimePay */
   earnedSalary: number;
 };
 

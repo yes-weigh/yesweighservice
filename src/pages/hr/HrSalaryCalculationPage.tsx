@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calculator, Plus, RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { Camera, Plus, RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { toPng } from 'html-to-image';
 import { useAuth } from '../../context/AuthContext';
 import { fetchHrHolidays, holidaysInMonth } from '../../lib/hrHolidays';
 import {
@@ -11,12 +12,16 @@ import {
   buildSalaryCalculationRows,
   computeSalaryCalc,
   createOvertimeEntry,
+  createSalaryProject,
   formatInr,
   formatLeaveDays,
   formatOtHours,
+  formatTimeAmPm,
   leaveKindForDate,
   overtimeEntryHours,
+  projectWorkTotals,
   saveSalaryMonth,
+  workProjectIdForDate,
   type HrSalaryStaffRow,
 } from '../../lib/hrSalary';
 import { isLocalhostDev } from '../../lib/isLocalhost';
@@ -30,6 +35,8 @@ import {
   type HrLeaveKind,
   type HrOvertimeEntry,
   type HrSalaryPeriod,
+  type HrSalaryProject,
+  type HrWorkDayEntry,
 } from '../../types/hr-salary';
 import {
   STAFF_DEPARTMENTS,
@@ -44,8 +51,11 @@ type Props = {
 };
 
 type DraftRow = {
-  monthlySalary: string;
+  perDaySalary: string;
+  otPerDaySalary: string;
   leaveEntries: Array<{ date: string; kind: HrLeaveKind }>;
+  projects: HrSalaryProject[];
+  workDayEntries: HrWorkDayEntry[];
   overtimeEntries: HrOvertimeEntry[];
   dirty: boolean;
   saving: boolean;
@@ -58,7 +68,8 @@ type NewPayrollForm = {
   designation: string;
   employeeId: string;
   department: StaffDepartment;
-  monthlySalary: string;
+  perDaySalary: string;
+  otPerDaySalary: string;
 };
 
 const EMPTY_PAYROLL_FORM: NewPayrollForm = {
@@ -66,13 +77,22 @@ const EMPTY_PAYROLL_FORM: NewPayrollForm = {
   designation: '',
   employeeId: '',
   department: 'admin',
-  monthlySalary: '',
+  perDaySalary: '',
+  otPerDaySalary: '',
 };
+
+function rateInputValue(n: number): string {
+  if (!(n > 0)) return '';
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
 
 function emptyDraft(row: HrSalaryStaffRow): DraftRow {
   return {
-    monthlySalary: row.monthlySalary > 0 ? String(row.monthlySalary) : '',
+    perDaySalary: rateInputValue(row.perDaySalary),
+    otPerDaySalary: rateInputValue(row.otPerDaySalary),
     leaveEntries: row.leaveEntries.map(e => ({ ...e })),
+    projects: row.projects.map(p => ({ ...p })),
+    workDayEntries: row.workDayEntries.map(e => ({ ...e })),
     overtimeEntries: row.overtimeEntries.map(e => ({ ...e })),
     dirty: false,
     saving: false,
@@ -103,9 +123,12 @@ function DayAttendanceSheet({
   canSetLeave,
   leaveKind,
   holidayName,
+  projects,
+  dayProjectId,
   entries,
   onClose,
   onSetLeave,
+  onSetDayProject,
   onAddOt,
   onPatchOt,
   onRemoveOt,
@@ -115,11 +138,17 @@ function DayAttendanceSheet({
   canSetLeave: boolean;
   leaveKind: HrLeaveKind | null;
   holidayName: string | null;
+  projects: HrSalaryProject[];
+  dayProjectId: string | null;
   entries: HrOvertimeEntry[];
   onClose: () => void;
   onSetLeave: (kind: HrLeaveKind | null) => void;
+  onSetDayProject: (projectId: string | null) => void;
   onAddOt: () => void;
-  onPatchOt: (entryId: string, patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime'>>) => void;
+  onPatchOt: (
+    entryId: string,
+    patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
+  ) => void;
   onRemoveOt: (entryId: string) => void;
 }) {
   const dayOtHours = entries.reduce(
@@ -160,6 +189,39 @@ function DayAttendanceSheet({
       <div className="hr-salary__day-sheet-body">
         <section className="hr-salary__day-sheet-section">
           <div className="hr-salary__day-sheet-section-head">
+            <span>Project</span>
+          </div>
+          {projects.length === 0 ? (
+            <p className="text-sm text-muted">Add a project above first.</p>
+          ) : (
+            <div className="hr-salary__project-chips" role="group" aria-label="Day project">
+              <button
+                type="button"
+                className={!dayProjectId ? 'is-active' : ''}
+                disabled={!canEdit}
+                onClick={() => onSetDayProject(null)}
+              >
+                None
+              </button>
+              {projects.map(project => (
+                <button
+                  key={project.id}
+                  type="button"
+                  className={dayProjectId === project.id ? 'is-active' : ''}
+                  disabled={!canEdit}
+                  style={{ ['--proj-color' as string]: project.color }}
+                  onClick={() => onSetDayProject(project.id)}
+                >
+                  <i className="hr-salary__proj-dot" style={{ background: project.color }} />
+                  {project.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="hr-salary__day-sheet-section">
+          <div className="hr-salary__day-sheet-section-head">
             <span>Leave</span>
             {!canSetLeave ? (
               <span className="text-sm text-muted">N/A</span>
@@ -192,11 +254,7 @@ function DayAttendanceSheet({
                 Full day
               </button>
             </div>
-          ) : (
-            <p className="text-sm text-muted hr-salary__ot-empty">
-              Sundays and holidays are already non-payable.
-            </p>
-          )}
+          ) : null}
         </section>
 
         <section className="hr-salary__day-sheet-section">
@@ -204,49 +262,69 @@ function DayAttendanceSheet({
             <span>Overtime shifts</span>
             <span className="text-muted">{formatOtHours(dayOtHours)}</span>
           </div>
-          {entries.length === 0 ? (
-            <p className="text-sm text-muted hr-salary__ot-empty">
-              No OT yet. Add morning and/or night shifts.
-            </p>
-          ) : (
+          {entries.length === 0 ? null : (
             <ul className="hr-salary__ot-list">
-              {entries.map(entry => (
-                <li key={entry.id} className="hr-salary__ot-row">
-                  <label>
-                    <span>Start</span>
-                    <input
-                      type="time"
-                      className="input-field"
-                      value={entry.startTime}
-                      disabled={!canEdit}
-                      onChange={e => onPatchOt(entry.id, { startTime: e.target.value })}
-                    />
-                  </label>
-                  <label>
-                    <span>End</span>
-                    <input
-                      type="time"
-                      className="input-field"
-                      value={entry.endTime}
-                      disabled={!canEdit}
-                      onChange={e => onPatchOt(entry.id, { endTime: e.target.value })}
-                    />
-                  </label>
-                  <span className="hr-salary__ot-hours">
-                    {formatOtHours(overtimeEntryHours(entry.startTime, entry.endTime))}
-                  </span>
-                  {canEdit ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm hr-salary__ot-remove"
-                      aria-label="Remove overtime shift"
-                      onClick={() => onRemoveOt(entry.id)}
-                    >
-                      <Trash2 size={14} aria-hidden />
-                    </button>
-                  ) : null}
-                </li>
-              ))}
+              {entries.map(entry => {
+                const project = projects.find(p => p.id === entry.projectId);
+                return (
+                  <li key={entry.id} className="hr-salary__ot-row hr-salary__ot-row--project">
+                    {projects.length > 0 ? (
+                      <label className="hr-salary__ot-project-field">
+                        <span>Project</span>
+                        <select
+                          className="input-field"
+                          value={entry.projectId ?? ''}
+                          disabled={!canEdit}
+                          onChange={e => onPatchOt(entry.id, {
+                            projectId: e.target.value || null,
+                          })}
+                        >
+                          <option value="">Unassigned</option>
+                          {projects.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    <label>
+                      <span>Start</span>
+                      <input
+                        type="time"
+                        className="input-field"
+                        value={entry.startTime}
+                        disabled={!canEdit}
+                        onChange={e => onPatchOt(entry.id, { startTime: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>End</span>
+                      <input
+                        type="time"
+                        className="input-field"
+                        value={entry.endTime}
+                        disabled={!canEdit}
+                        onChange={e => onPatchOt(entry.id, { endTime: e.target.value })}
+                      />
+                    </label>
+                    <span className="hr-salary__ot-hours">
+                      {project ? (
+                        <i className="hr-salary__proj-dot" style={{ background: project.color }} />
+                      ) : null}
+                      {formatOtHours(overtimeEntryHours(entry.startTime, entry.endTime))}
+                    </span>
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm hr-salary__ot-remove"
+                        aria-label="Remove overtime shift"
+                        onClick={() => onRemoveOt(entry.id)}
+                      >
+                        <Trash2 size={14} aria-hidden />
+                      </button>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           )}
           {canEdit ? (
@@ -259,9 +337,6 @@ function DayAttendanceSheet({
               Add OT shift
             </button>
           ) : null}
-          <p className="text-sm text-muted hr-salary__ot-note">
-            End earlier than start counts as overnight.
-          </p>
         </section>
       </div>
     </div>
@@ -278,6 +353,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const [drafts, setDrafts] = useState<Record<string, DraftRow>>({});
   const [expandedUid, setExpandedUid] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState<StaffDepartment | 'all'>('all');
@@ -286,7 +362,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const [payrollForm, setPayrollForm] = useState<NewPayrollForm>(EMPTY_PAYROLL_FORM);
   const [addingPayroll, setAddingPayroll] = useState(false);
   const [addPayrollError, setAddPayrollError] = useState('');
+  const [capturingExpand, setCapturingExpand] = useState(false);
   const autosaveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const expandCaptureRef = useRef<HTMLDivElement | null>(null);
   const draftsRef = useRef(drafts);
   const periodRef = useRef(period);
   const holidaysRef = useRef(holidays);
@@ -342,16 +420,22 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
       return { ...prev, [uid]: { ...cur, saving: true, error: '' } };
     });
     try {
-      const monthlySalary = Math.max(0, Number.parseFloat(draft.monthlySalary) || 0);
+      const perDaySalary = Math.max(0, Number.parseFloat(draft.perDaySalary) || 0);
+      const otPerDaySalary = Math.max(0, Number.parseFloat(draft.otPerDaySalary) || 0);
       const leaveEntries = draft.leaveEntries.map(e => ({ ...e }));
+      const projects = draft.projects.map(p => ({ ...p }));
+      const workDayEntries = draft.workDayEntries.map(e => ({ ...e }));
       const overtimeEntries = draft.overtimeEntries.map(e => ({ ...e }));
       await saveSalaryMonth(
         {
           uid,
           year: periodNow.year,
           month: periodNow.month,
-          monthlySalary,
+          perDaySalary,
+          otPerDaySalary,
           leaveEntries,
+          projects,
+          workDayEntries,
           overtimeEntries,
         },
         user.uid,
@@ -360,11 +444,15 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
         if (row.staffUid !== uid) return row;
         return {
           ...row,
-          monthlySalary,
+          perDaySalary,
+          otPerDaySalary,
           leaveEntries,
+          projects,
+          workDayEntries,
           overtimeEntries,
           calc: computeSalaryCalc(
-            monthlySalary,
+            perDaySalary,
+            otPerDaySalary,
             periodNow,
             holidaysNow,
             leaveEntries,
@@ -378,8 +466,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
         if (!cur) return prev;
         // Another edit landed while saving — keep dirty for next autosave.
         stillDirty = (
-          cur.monthlySalary !== (monthlySalary > 0 ? String(monthlySalary) : '')
+          (Number.parseFloat(cur.perDaySalary) || 0) !== perDaySalary
+          || (Number.parseFloat(cur.otPerDaySalary) || 0) !== otPerDaySalary
           || JSON.stringify(cur.leaveEntries) !== JSON.stringify(leaveEntries)
+          || JSON.stringify(cur.projects) !== JSON.stringify(projects)
+          || JSON.stringify(cur.workDayEntries) !== JSON.stringify(workDayEntries)
           || JSON.stringify(cur.overtimeEntries) !== JSON.stringify(overtimeEntries)
         );
         return {
@@ -466,9 +557,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const liveCalc = (row: HrSalaryStaffRow) => {
     const draft = drafts[row.staffUid];
     if (!draft) return row.calc;
-    const salary = Number.parseFloat(draft.monthlySalary) || 0;
+    const perDaySalary = Number.parseFloat(draft.perDaySalary) || 0;
+    const otPerDaySalary = Number.parseFloat(draft.otPerDaySalary) || 0;
     return computeSalaryCalc(
-      salary,
+      perDaySalary,
+      otPerDaySalary,
       period,
       holidays,
       draft.leaveEntries,
@@ -492,22 +585,111 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     updateDraft(uid, { leaveEntries });
   };
 
+  const addProject = (uid: string) => {
+    if (!canEdit) return;
+    const draft = drafts[uid];
+    if (!draft) return;
+    const project = createSalaryProject(`Project ${draft.projects.length + 1}`, draft.projects);
+    const isFirst = draft.projects.length === 0;
+    updateDraft(uid, {
+      projects: [...draft.projects, project],
+      overtimeEntries: isFirst
+        ? draft.overtimeEntries.map(entry => (
+          entry.projectId ? entry : { ...entry, projectId: project.id }
+        ))
+        : draft.overtimeEntries,
+    });
+    setActiveProjectId(project.id);
+  };
+
+  const renameProject = (uid: string, projectId: string, name: string) => {
+    const draft = drafts[uid];
+    if (!draft) return;
+    updateDraft(uid, {
+      projects: draft.projects.map(p => (
+        p.id === projectId ? { ...p, name } : p
+      )),
+    });
+  };
+
+  const removeProject = (uid: string, projectId: string) => {
+    if (!canEdit) return;
+    const draft = drafts[uid];
+    if (!draft) return;
+    updateDraft(uid, {
+      projects: draft.projects.filter(p => p.id !== projectId),
+      workDayEntries: draft.workDayEntries.filter(e => e.projectId !== projectId),
+      overtimeEntries: draft.overtimeEntries.map(entry => (
+        entry.projectId === projectId ? { ...entry, projectId: null } : entry
+      )),
+    });
+    if (activeProjectId === projectId) {
+      const next = draft.projects.find(p => p.id !== projectId);
+      setActiveProjectId(next?.id ?? null);
+    }
+  };
+
+  const setDayProject = (uid: string, date: string, projectId: string | null) => {
+    if (!canEdit) return;
+    const draft = drafts[uid];
+    if (!draft) return;
+    const nextWork = draft.workDayEntries.filter(e => e.date !== date);
+    if (projectId) nextWork.push({ date, projectId });
+    if (projectId) setActiveProjectId(projectId);
+    // Also stamp OT on this date to the same project when assigning.
+    const nextOt = projectId
+      ? draft.overtimeEntries.map(entry => (
+        entry.date === date ? { ...entry, projectId } : entry
+      ))
+      : draft.overtimeEntries;
+    updateDraft(uid, {
+      workDayEntries: nextWork.sort((a, b) => a.date.localeCompare(b.date)),
+      overtimeEntries: nextOt,
+    });
+  };
+
   const addOtEntry = (uid: string, date: string) => {
     if (!canEdit) return;
     const draft = drafts[uid];
     if (!draft) return;
+    let projects = draft.projects;
+    let workDayEntries = draft.workDayEntries;
+    const dayProject = workProjectIdForDate(draft.workDayEntries, date);
+    let projectId = (
+      dayProject
+      || (activeProjectId && projects.some(p => p.id === activeProjectId) ? activeProjectId : null)
+      || projects[0]?.id
+      || null
+    );
+    if (!projectId) {
+      const project = createSalaryProject('Project 1', projects);
+      projects = [project];
+      projectId = project.id;
+    }
+    if (!dayProject && projectId) {
+      workDayEntries = [
+        ...workDayEntries.filter(e => e.date !== date),
+        { date, projectId },
+      ];
+    }
+    if (activeProjectId !== projectId) setActiveProjectId(projectId);
     const existing = draft.overtimeEntries.filter(e => e.date === date);
     const startTime = existing.length === 0 ? '18:00' : '06:00';
     const endTime = existing.length === 0 ? '20:00' : '08:00';
     updateDraft(uid, {
-      overtimeEntries: [...draft.overtimeEntries, createOvertimeEntry(date, startTime, endTime)],
+      projects,
+      workDayEntries,
+      overtimeEntries: [
+        ...draft.overtimeEntries,
+        createOvertimeEntry(date, startTime, endTime, projectId),
+      ],
     });
   };
 
   const patchOtEntry = (
     uid: string,
     entryId: string,
-    patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime'>>,
+    patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
   ) => {
     const draft = drafts[uid];
     if (!draft) return;
@@ -526,6 +708,79 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     });
   };
 
+  const captureExpandedView = async (displayName: string) => {
+    const el = expandCaptureRef.current;
+    if (!el || capturingExpand) return;
+    setCapturingExpand(true);
+    const previousDate = selectedDate;
+    setSelectedDate(null);
+    el.classList.add('is-capturing');
+    // Let the day editor close and capture layout settle before rasterizing.
+    await new Promise<void>(resolve => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => resolve());
+      });
+    });
+    try {
+      if (document.fonts?.ready) await document.fonts.ready;
+      // Measure after capture-mode CSS expands scroll areas / hides controls.
+      const rect = el.getBoundingClientRect();
+      const width = Math.ceil(Math.max(el.scrollWidth, rect.width));
+      const height = Math.ceil(Math.max(el.scrollHeight, rect.height));
+      // 4× raster keeps text sharp when zoomed; fallback if the canvas is too large.
+      const tryRatios = [4, 3, 2];
+      let dataUrl = '';
+      let lastError: unknown;
+      for (const pixelRatio of tryRatios) {
+        try {
+          dataUrl = await toPng(el, {
+            cacheBust: true,
+            pixelRatio,
+            width,
+            height,
+            canvasWidth: Math.round(width * pixelRatio),
+            canvasHeight: Math.round(height * pixelRatio),
+            backgroundColor: '#13151b',
+            // Avoid forcing height on the clone — that collapses flex/grid alignment.
+            style: {
+              transform: 'none',
+              width: `${width}px`,
+              height: 'auto',
+              maxWidth: 'none',
+              margin: '0',
+              boxSizing: 'border-box',
+            },
+            filter: node => !(
+              node instanceof HTMLElement
+              && node.dataset.captureIgnore === '1'
+            ),
+          });
+          lastError = undefined;
+          break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      if (!dataUrl) throw lastError ?? new Error('Could not capture image.');
+      const slug = displayName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || 'staff';
+      const link = document.createElement('a');
+      link.download = `${slug}-salary-${salaryPeriodKey(period)}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error(err);
+      window.alert(err instanceof Error ? err.message : 'Could not capture image.');
+    } finally {
+      el.classList.remove('is-capturing');
+      setSelectedDate(previousDate);
+      setCapturingExpand(false);
+    }
+  };
+
   const handleAddPayroll = async () => {
     if (!user || !canEdit || addingPayroll) return;
     const name = payrollForm.displayName.trim();
@@ -536,14 +791,19 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     setAddingPayroll(true);
     setAddPayrollError('');
     try {
-      const monthlySalary = Math.max(0, Number.parseFloat(payrollForm.monthlySalary) || 0);
+      const perDaySalary = Math.max(0, Number.parseFloat(payrollForm.perDaySalary) || 0);
+      const otPerDaySalary = Math.max(
+        0,
+        Number.parseFloat(payrollForm.otPerDaySalary) || perDaySalary,
+      );
       const emp = await createPayrollEmployee(
         {
           displayName: name,
           designation: payrollForm.designation.trim() || null,
           employeeId: payrollForm.employeeId.trim() || null,
           department: payrollForm.department,
-          defaultMonthlySalary: monthlySalary,
+          defaultPerDaySalary: perDaySalary,
+          defaultOtPerDaySalary: otPerDaySalary,
         },
         user.uid,
       );
@@ -553,8 +813,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           uid: staffUid,
           year: period.year,
           month: period.month,
-          monthlySalary,
+          perDaySalary,
+          otPerDaySalary,
           leaveEntries: [],
+          projects: [],
+          workDayEntries: [],
           overtimeEntries: [],
         },
         user.uid,
@@ -584,23 +847,6 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
 
   return (
     <div className="hr-salary">
-      <div className="hr-work-report__intro panel glass">
-        <Calculator size={20} aria-hidden />
-        <div>
-          <p className="text-sm">
-            Salary for {salaryPeriodLabel(period)}. Each payable workday = {HR_SALARY_HOURS_PER_DAY} hrs.
-            Changes save automatically. Full leave = 1 day, half = 0.5.
-            Total work hours = (payable days × {HR_SALARY_HOURS_PER_DAY}) + OT hours.
-          </p>
-          {monthHolidays.length > 0 && (
-            <p className="text-sm text-muted hr-salary__holiday-note">
-              Holidays this month:{' '}
-              {monthHolidays.map(h => `${h.date.slice(8)} ${h.name}`).join(' · ')}
-            </p>
-          )}
-        </div>
-      </div>
-
       <div className="hr-staff-list__toolbar panel glass">
         <label className="hr-work-report__month">
           <span className="text-sm text-muted">Month</span>
@@ -615,7 +861,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           <Search size={16} aria-hidden />
           <input
             className="input-field"
-            placeholder="Search staff…"
+            placeholder="Search…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -651,9 +897,6 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
         <div className="hr-salary__add-panel panel glass">
           <div className="hr-salary__add-head">
             <h3>Add non-portal staff</h3>
-            <p className="text-sm text-muted">
-              For people without a portal login. They appear in salary calculation only.
-            </p>
           </div>
           <div className="hr-salary__add-grid">
             <label>
@@ -697,14 +940,25 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
               </select>
             </label>
             <label>
-              <span>Monthly salary</span>
+              <span>Per day (regular)</span>
               <input
                 type="number"
                 min={0}
-                step={100}
+                step={50}
                 className="input-field"
-                value={payrollForm.monthlySalary}
-                onChange={e => setPayrollForm(f => ({ ...f, monthlySalary: e.target.value }))}
+                value={payrollForm.perDaySalary}
+                onChange={e => setPayrollForm(f => ({ ...f, perDaySalary: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span>OT per day ({HR_SALARY_HOURS_PER_DAY} hrs)</span>
+              <input
+                type="number"
+                min={0}
+                step={50}
+                className="input-field"
+                value={payrollForm.otPerDaySalary}
+                onChange={e => setPayrollForm(f => ({ ...f, otPerDaySalary: e.target.value }))}
               />
             </label>
           </div>
@@ -741,12 +995,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           <thead>
             <tr>
               <th>Staff</th>
-              <th>Monthly salary</th>
               <th>Per day</th>
+              <th>OT / day</th>
               <th>Leave</th>
               <th>OT</th>
-              <th>Holidays</th>
-              <th>Payable days</th>
+              <th>Payable</th>
               <th>Work hrs</th>
               <th>Earned</th>
             </tr>
@@ -754,12 +1007,14 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={9} className="text-muted">Loading…</td>
+                <td colSpan={8} className="text-muted">Loading…</td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="text-muted">No staff found.</td>
+                <td colSpan={8} className="text-muted">
+                  No staff.
+                </td>
               </tr>
             )}
             {!loading && filtered.map(row => {
@@ -771,9 +1026,43 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                 holidays,
                 draft.leaveEntries,
                 draft.overtimeEntries,
+                draft.projects,
+                draft.workDayEntries,
               );
               const leadingPads = new Date(period.year, period.month - 1, 1).getDay();
-              const salaryValue = Number.parseFloat(draft.monthlySalary) || 0;
+              const perDayValue = Number.parseFloat(draft.perDaySalary) || 0;
+              const otPerDayValue = Number.parseFloat(draft.otPerDaySalary) || 0;
+              const projectTotals = projectWorkTotals(
+                draft.projects,
+                draft.workDayEntries,
+                draft.leaveEntries,
+                draft.overtimeEntries,
+                period,
+                holidays,
+                Number.parseFloat(draft.perDaySalary) || 0,
+                calc.otHourlyRate,
+              );
+              const otLines = draft.overtimeEntries
+                .map(entry => {
+                  const hours = overtimeEntryHours(entry.startTime, entry.endTime);
+                  const project = draft.projects.find(p => p.id === entry.projectId) ?? null;
+                  return {
+                    ...entry,
+                    hours,
+                    pay: hours * calc.otHourlyRate,
+                    project,
+                  };
+                })
+                .filter(line => line.hours > 0)
+                .sort((a, b) => (
+                  a.date.localeCompare(b.date)
+                  || a.startTime.localeCompare(b.startTime)
+                ));
+              const currentActiveProjectId = (
+                activeProjectId && draft.projects.some(p => p.id === activeProjectId)
+                  ? activeProjectId
+                  : draft.projects[0]?.id ?? null
+              );
 
               return (
                 <React.Fragment key={row.staffUid}>
@@ -794,6 +1083,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                       } else {
                         setExpandedUid(row.staffUid);
                         setSelectedDate(null);
+                        setActiveProjectId(draft.projects[0]?.id ?? null);
                       }
                     }}
                     onKeyDown={e => {
@@ -805,6 +1095,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                         } else {
                           setExpandedUid(row.staffUid);
                           setSelectedDate(null);
+                          setActiveProjectId(draft.projects[0]?.id ?? null);
                         }
                       }
                     }}
@@ -812,13 +1103,6 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                     <td>
                       <div className="hr-work-report__name">
                         {row.displayName}
-                        {draft.saving ? (
-                          <span className="hr-salary__badge is-saving">Saving…</span>
-                        ) : draft.dirty ? (
-                          <span className="hr-salary__badge">Saving soon…</span>
-                        ) : draft.savedAt ? (
-                          <span className="hr-salary__badge is-saved">Saved</span>
-                        ) : null}
                       </div>
                       <div className="text-sm text-muted">
                         {[row.employeeId, row.designation, STAFF_DEPARTMENT_LABELS[row.department]]
@@ -826,11 +1110,10 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                           .join(' · ')}
                       </div>
                     </td>
-                    <td>{formatInr(salaryValue)}</td>
-                    <td>{formatInr(calc.perDaySalary)}</td>
+                    <td>{formatInr(perDayValue)}</td>
+                    <td>{formatInr(otPerDayValue)}</td>
                     <td>{formatLeaveDays(calc.leaveDays)}</td>
                     <td>{formatOtHours(calc.overtimeHours)}</td>
-                    <td>{calc.weekdayHolidays}</td>
                     <td>
                       {calc.payableDays}
                       <span className="text-muted text-sm"> / {calc.rateDays}</span>
@@ -842,182 +1125,413 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                   </tr>
                   {expanded && (
                     <tr className="hr-salary__expand-row">
-                      <td colSpan={9}>
-                        <div className="hr-salary__expand-layout">
-                          <div className="hr-salary__expand-cal">
-                            <div className="hr-salary__cal-head">
-                              <h4 className="hr-salary__cal-title">{salaryPeriodLabel(period)}</h4>
-                              <div className="hr-salary__legend text-sm text-muted">
-                                <span><i className="hr-salary__swatch is-working" /> Working</span>
-                                <span><i className="hr-salary__swatch is-leave-half" /> Half leave</span>
-                                <span><i className="hr-salary__swatch is-leave" /> Full leave</span>
-                                <span><i className="hr-salary__swatch is-overtime" /> Overtime</span>
-                                <span><i className="hr-salary__swatch is-sunday" /> Sunday</span>
-                                <span><i className="hr-salary__swatch is-holiday" /> Holiday</span>
-                              </div>
-                              <p className="hr-salary__cal-hint text-sm text-muted">
-                                Click a day to edit leave & overtime below the calendar.
-                              </p>
+                      <td colSpan={8}>
+                        <div className="hr-salary__expand" ref={expandCaptureRef}>
+                          <header className="hr-salary__dash-header">
+                            <div className="hr-salary__dash-header-info">
+                              <h3>{row.displayName}</h3>
+                              <span>{salaryPeriodLabel(period)}</span>
                             </div>
-                            <div
-                              className="hr-salary__cal"
-                              role="group"
-                              aria-label={`Attendance calendar for ${salaryPeriodLabel(period)}`}
-                            >
-                              <div className="hr-salary__cal-weekdays" aria-hidden>
-                                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(label => (
-                                  <span key={label} className="hr-salary__cal-weekday">{label}</span>
-                                ))}
+                            <div className="hr-salary__dash-header-right">
+                              <div className="hr-salary__dash-header-totals">
+                                <h4>{formatInr(calc.earnedSalary)}</h4>
+                                <p>
+                                  {formatOtHours(calc.overtimeHours)} OT
+                                  {' · '}
+                                  {calc.payableDays} days worked
+                                </p>
                               </div>
-                              <div className="hr-salary__days">
-                                {Array.from({ length: leadingPads }, (_, i) => (
-                                  <span key={`pad-${i}`} className="hr-salary__day-pad" />
-                                ))}
-                                {cells.map(cell => (
+                              <button
+                                type="button"
+                                className="hr-salary__capture-btn"
+                                data-capture-ignore="1"
+                                disabled={capturingExpand}
+                                onClick={() => { void captureExpandedView(row.displayName); }}
+                              >
+                                <Camera size={15} aria-hidden />
+                                {capturingExpand ? 'Capturing…' : 'Capture'}
+                              </button>
+                            </div>
+                          </header>
+
+                          <div className="hr-salary__config-row">
+                            <div className="hr-salary__rate-group">
+                              <label className="hr-salary__rate-item">
+                                <span>Per day</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={50}
+                                  className="hr-salary__rate-value-input"
+                                  value={draft.perDaySalary}
+                                  disabled={!canEdit}
+                                  onChange={e => updateDraft(row.staffUid, { perDaySalary: e.target.value })}
+                                  aria-label={`Regular per day salary for ${row.displayName}`}
+                                />
+                                <span className="hr-salary__rate-sub">
+                                  {formatInr(calc.hourlyRate)}/hr
+                                </span>
+                              </label>
+                              <label className="hr-salary__rate-item">
+                                <span>OT per day ({HR_SALARY_HOURS_PER_DAY}hrs)</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={50}
+                                  className="hr-salary__rate-value-input"
+                                  value={draft.otPerDaySalary}
+                                  disabled={!canEdit}
+                                  onChange={e => updateDraft(row.staffUid, { otPerDaySalary: e.target.value })}
+                                  aria-label={`OT per day salary for ${row.displayName}`}
+                                />
+                                <span className="hr-salary__rate-sub">
+                                  {formatInr(calc.otHourlyRate)}/hr
+                                </span>
+                              </label>
+                            </div>
+
+                            <div className="hr-salary__project-selector">
+                              <span className="hr-salary__projects-label">Projects:</span>
+                              {draft.projects.map(project => (
+                                <div
+                                  key={project.id}
+                                  className={[
+                                    'hr-salary__project-pill',
+                                    currentActiveProjectId === project.id ? 'is-active' : '',
+                                  ].filter(Boolean).join(' ')}
+                                  style={{ ['--proj-color' as string]: project.color }}
+                                >
                                   <button
-                                    key={cell.date}
                                     type="button"
-                                    title={
-                                      cell.overtimeHours > 0
-                                        ? `${formatOtHours(cell.overtimeHours)} OT`
-                                        : cell.kind === 'holiday'
-                                          ? cell.holidayName
-                                          : cell.kind === 'sunday'
-                                            ? 'Sunday'
-                                            : cell.kind === 'leave'
-                                              ? 'Full-day leave'
-                                              : cell.kind === 'leave_half'
-                                                ? 'Half-day leave'
-                                              : cell.date
-                                    }
-                                    className={[
-                                      'hr-salary__day',
-                                      `is-${cell.kind}`,
-                                      selectedDate === cell.date ? 'is-selected' : '',
-                                      cell.leaveKind === 'half' && cell.kind === 'overtime'
-                                        ? 'has-leave-half'
-                                        : '',
-                                      cell.leaveKind === 'full' && cell.kind === 'overtime'
-                                        ? 'has-leave'
-                                        : '',
-                                    ].filter(Boolean).join(' ')}
-                                    onClick={e => {
-                                      e.stopPropagation();
-                                      selectDay(row.staffUid, cell.date);
-                                    }}
+                                    className="hr-salary__project-pill-select"
+                                    onClick={() => setActiveProjectId(project.id)}
+                                    aria-label={`Select ${project.name}`}
                                   >
-                                    <span className="hr-salary__day-num">{cell.day}</span>
-                                    {cell.overtimeHours > 0 ? (
-                                      <span className="hr-salary__day-ot">
-                                        {cell.overtimeHours % 1 === 0
-                                          ? `${cell.overtimeHours}h`
-                                          : `${cell.overtimeHours.toFixed(1)}h`}
-                                      </span>
-                                    ) : null}
+                                    <i
+                                      className="hr-salary__proj-dot"
+                                      style={{ background: project.color }}
+                                    />
                                   </button>
-                                ))}
-                              </div>
+                                  <input
+                                    className="hr-salary__project-pill-name"
+                                    value={project.name}
+                                    disabled={!canEdit}
+                                    onFocus={() => setActiveProjectId(project.id)}
+                                    onChange={e => renameProject(
+                                      row.staffUid,
+                                      project.id,
+                                      e.target.value,
+                                    )}
+                                    aria-label="Project name"
+                                  />
+                                  {canEdit ? (
+                                    <button
+                                      type="button"
+                                      className="hr-salary__project-pill-remove"
+                                      aria-label={`Remove ${project.name}`}
+                                      onClick={() => removeProject(row.staffUid, project.id)}
+                                    >
+                                      <Trash2 size={13} aria-hidden />
+                                    </button>
+                                  ) : null}
+                                </div>
+                              ))}
+                              {canEdit ? (
+                                <button
+                                  type="button"
+                                  className="hr-salary__btn-add"
+                                  onClick={() => addProject(row.staffUid)}
+                                >
+                                  + Add project
+                                </button>
+                              ) : null}
                             </div>
-
-                            {selectedDate ? (
-                              <DayAttendanceSheet
-                                date={selectedDate}
-                                canEdit={canEdit}
-                                canSetLeave={
-                                  !isSundayDate(selectedDate) && !holidayDateSet.has(selectedDate)
-                                }
-                                leaveKind={leaveKindForDate(draft.leaveEntries, selectedDate)}
-                                holidayName={
-                                  monthHolidays.find(h => h.date === selectedDate)?.name ?? null
-                                }
-                                entries={draft.overtimeEntries
-                                  .filter(e => e.date === selectedDate)
-                                  .sort((a, b) => a.startTime.localeCompare(b.startTime))}
-                                onClose={() => setSelectedDate(null)}
-                                onSetLeave={kind => setLeaveForDay(row.staffUid, selectedDate, kind)}
-                                onAddOt={() => addOtEntry(row.staffUid, selectedDate)}
-                                onPatchOt={(entryId, patch) => patchOtEntry(row.staffUid, entryId, patch)}
-                                onRemoveOt={entryId => removeOtEntry(row.staffUid, entryId)}
-                              />
-                            ) : null}
-
-                            <p className="text-sm text-muted hr-salary__math">
-                              Rate days {calc.rateDays} (month {calc.daysInMonth} − {calc.sundays} Sundays)
-                              · − {calc.weekdayHolidays} holiday{calc.weekdayHolidays === 1 ? '' : 's'}
-                              · − {formatLeaveDays(calc.leaveDays)} leave
-                              = {calc.payableDays} payable × {HR_SALARY_HOURS_PER_DAY}h
-                              = {formatOtHours(calc.regularHours)} regular
-                              · + {formatOtHours(calc.overtimeHours)} OT
-                              = {formatOtHours(calc.totalWorkHours)} total
-                              · pay {formatInr(calc.earnedSalary)}
-                            </p>
+                            {draft.error ? <p className="hr-salary__row-error">{draft.error}</p> : null}
                           </div>
 
-                          <aside className="hr-salary__expand-side">
-                            <label className="hr-salary__salary-field">
-                              <span>Monthly salary</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={100}
-                                className="input-field hr-salary__salary-input"
-                                value={draft.monthlySalary}
-                                disabled={!canEdit}
-                                onChange={e => updateDraft(row.staffUid, { monthlySalary: e.target.value })}
-                                aria-label={`Monthly salary for ${row.displayName}`}
-                              />
-                            </label>
+                          <div className="hr-salary__main-grid">
+                            <div className="hr-salary__card hr-salary__expand-cal">
+                              <div className="hr-salary__cal-head">
+                                <h4>{salaryPeriodLabel(period)}</h4>
+                              </div>
+                              <div
+                                className="hr-salary__cal"
+                                role="group"
+                                aria-label={`Attendance calendar for ${salaryPeriodLabel(period)}`}
+                              >
+                                <div className="hr-salary__cal-weekdays" aria-hidden>
+                                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(label => (
+                                    <span key={label} className="hr-salary__cal-weekday">{label}</span>
+                                  ))}
+                                </div>
+                                <div className="hr-salary__days">
+                                  {Array.from({ length: leadingPads }, (_, i) => (
+                                    <span key={`pad-${i}`} className="hr-salary__day-pad" />
+                                  ))}
+                                  {cells.map(cell => {
+                                    const hasOt = cell.overtimeHours > 0;
+                                    const sunday = isSundayDate(cell.date);
+                                    const fullLeave = (
+                                      cell.kind === 'leave' || cell.leaveKind === 'full'
+                                    );
+                                    const halfLeave = (
+                                      cell.kind === 'leave_half' || cell.leaveKind === 'half'
+                                    );
+                                    const hasWork = (
+                                      hasOt
+                                      || cell.projectColors.length > 0
+                                      || cell.kind === 'working'
+                                    );
+                                    // Weekday work stays teal even with OT — badge alone marks overtime.
+                                    const showAsWorkday = (
+                                      hasWork
+                                      && !fullLeave
+                                      && !halfLeave
+                                      && !sunday
+                                    );
+                                    return (
+                                      <button
+                                        key={cell.date}
+                                        type="button"
+                                        title={
+                                          hasOt
+                                            ? `${formatOtHours(cell.overtimeHours)} OT`
+                                            : cell.kind === 'holiday'
+                                              ? cell.holidayName
+                                              : cell.kind === 'sunday'
+                                                ? 'Sunday'
+                                                : cell.kind === 'leave'
+                                                  ? 'Full-day leave'
+                                                  : cell.kind === 'leave_half'
+                                                    ? 'Half-day leave'
+                                                    : cell.date
+                                        }
+                                        className={[
+                                          'hr-salary__day',
+                                          hasWork ? 'has-work' : '',
+                                          hasOt ? 'has-ot' : '',
+                                          showAsWorkday ? 'is-regular' : '',
+                                          sunday && hasOt ? 'is-sunday-ot' : '',
+                                          `is-${cell.kind}`,
+                                          selectedDate === cell.date ? 'is-selected' : '',
+                                          halfLeave && hasOt ? 'has-leave-half' : '',
+                                          fullLeave && hasOt ? 'has-leave' : '',
+                                        ].filter(Boolean).join(' ')}
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          selectDay(row.staffUid, cell.date);
+                                        }}
+                                      >
+                                        <span className="hr-salary__day-num">{cell.day}</span>
+                                        {hasOt ? (
+                                          <span className="hr-salary__day-ot-badge">OT</span>
+                                        ) : null}
+                                        {cell.projectColors.length > 0 ? (
+                                          <span className="hr-salary__day-dots" aria-hidden>
+                                            {cell.projectColors.map(color => (
+                                              <i
+                                                key={color}
+                                                className="hr-salary__proj-dot hr-salary__proj-dot--mini"
+                                                style={{ background: color }}
+                                              />
+                                            ))}
+                                          </span>
+                                        ) : null}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
 
-                            <dl className="hr-salary__side-stats">
-                              <div>
-                                <dt>Per day</dt>
-                                <dd>{formatInr(calc.perDaySalary)}</dd>
+                              <div className="hr-salary__legend" aria-label="Calendar colour legend">
+                                <span className="hr-salary__legend-item">
+                                  <i className="hr-salary__legend-swatch is-workday" />
+                                  Workday
+                                </span>
+                                <span className="hr-salary__legend-item">
+                                  <i className="hr-salary__legend-swatch is-leave" />
+                                  Leave
+                                </span>
+                                <span className="hr-salary__legend-item">
+                                  <i className="hr-salary__legend-swatch is-leave-half" />
+                                  Half leave
+                                </span>
+                                <span className="hr-salary__legend-item">
+                                  <i className="hr-salary__legend-swatch is-holiday" />
+                                  Holiday
+                                </span>
+                                <span className="hr-salary__legend-item">
+                                  <span className="hr-salary__legend-ot-badge">OT</span>
+                                  Overtime
+                                </span>
+                                {draft.projects.map(project => (
+                                  <span key={project.id} className="hr-salary__legend-item">
+                                    <i
+                                      className="hr-salary__proj-dot hr-salary__proj-dot--mini"
+                                      style={{ background: project.color }}
+                                    />
+                                    {project.name}
+                                  </span>
+                                ))}
                               </div>
-                              <div>
-                                <dt>Hourly</dt>
-                                <dd>{formatInr(calc.hourlyRate)}</dd>
-                              </div>
-                              <div>
-                                <dt>Leave</dt>
-                                <dd>{formatLeaveDays(calc.leaveDays)}</dd>
-                              </div>
-                              <div>
-                                <dt>Payable</dt>
-                                <dd>{calc.payableDays} / {calc.rateDays}</dd>
-                              </div>
-                              <div>
-                                <dt>Regular hrs</dt>
-                                <dd>{formatOtHours(calc.regularHours)}</dd>
-                              </div>
-                              <div>
-                                <dt>OT hours</dt>
-                                <dd>{formatOtHours(calc.overtimeHours)}</dd>
-                              </div>
-                              <div>
-                                <dt>Total work hrs</dt>
-                                <dd>{formatOtHours(calc.totalWorkHours)}</dd>
-                              </div>
-                              <div>
-                                <dt>OT pay</dt>
-                                <dd>{formatInr(calc.overtimePay)}</dd>
-                              </div>
-                              <div>
-                                <dt>Earned</dt>
-                                <dd>{formatInr(calc.earnedSalary)}</dd>
-                              </div>
-                            </dl>
 
-                            <p className="hr-salary__autosave-status text-sm text-muted">
-                              {draft.saving
-                                ? 'Saving to Firestore…'
-                                : draft.dirty
-                                  ? 'Changes will save automatically…'
-                                  : draft.savedAt
-                                    ? 'All changes saved'
-                                    : 'Edits save automatically'}
-                            </p>
-                            {draft.error && <p className="hr-salary__row-error">{draft.error}</p>}
-                          </aside>
+                              {selectedDate ? (
+                                <DayAttendanceSheet
+                                  date={selectedDate}
+                                  canEdit={canEdit}
+                                  canSetLeave={
+                                    !isSundayDate(selectedDate) && !holidayDateSet.has(selectedDate)
+                                  }
+                                  leaveKind={leaveKindForDate(draft.leaveEntries, selectedDate)}
+                                  holidayName={
+                                    monthHolidays.find(h => h.date === selectedDate)?.name ?? null
+                                  }
+                                  projects={draft.projects}
+                                  dayProjectId={workProjectIdForDate(
+                                    draft.workDayEntries,
+                                    selectedDate,
+                                  )}
+                                  entries={draft.overtimeEntries
+                                    .filter(e => e.date === selectedDate)
+                                    .sort((a, b) => a.startTime.localeCompare(b.startTime))}
+                                  onClose={() => setSelectedDate(null)}
+                                  onSetLeave={kind => setLeaveForDay(row.staffUid, selectedDate, kind)}
+                                  onSetDayProject={projectId => setDayProject(
+                                    row.staffUid,
+                                    selectedDate,
+                                    projectId,
+                                  )}
+                                  onAddOt={() => addOtEntry(row.staffUid, selectedDate)}
+                                  onPatchOt={(entryId, patch) => patchOtEntry(row.staffUid, entryId, patch)}
+                                  onRemoveOt={entryId => removeOtEntry(row.staffUid, entryId)}
+                                />
+                              ) : null}
+                            </div>
+
+                            <div className="hr-salary__card hr-salary__ot-detail">
+                              <div className="hr-salary__ot-detail-head">
+                                <h5>Overtime</h5>
+                                <span>
+                                  {formatOtHours(calc.overtimeHours)}
+                                  {' · '}
+                                  {formatInr(calc.overtimePay)}
+                                </span>
+                              </div>
+                              <div className="hr-salary__legend hr-salary__legend--ot" aria-label="Overtime project legend">
+                                {draft.projects.map(project => (
+                                  <span key={project.id} className="hr-salary__legend-item">
+                                    <i
+                                      className="hr-salary__proj-dot hr-salary__proj-dot--mini"
+                                      style={{ background: project.color }}
+                                    />
+                                    {project.name}
+                                  </span>
+                                ))}
+                                <span className="hr-salary__legend-item">
+                                  <i className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty" />
+                                  Unassigned
+                                </span>
+                              </div>
+                              {otLines.length === 0 ? (
+                                <p className="hr-salary__project-empty">No overtime yet</p>
+                              ) : (
+                                <ul className="hr-salary__ot-detail-list">
+                                  {otLines.map(line => (
+                                    <li key={line.id}>
+                                      <button
+                                        type="button"
+                                        className="hr-salary__ot-detail-line"
+                                        onClick={() => {
+                                          if (line.project) setActiveProjectId(line.project.id);
+                                          selectDay(row.staffUid, line.date);
+                                        }}
+                                      >
+                                        <span className="hr-salary__ot-detail-date">
+                                          {line.project ? (
+                                            <i
+                                              className="hr-salary__proj-dot hr-salary__proj-dot--mini"
+                                              style={{ background: line.project.color }}
+                                              title={line.project.name}
+                                            />
+                                          ) : (
+                                            <i
+                                              className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty"
+                                              title="Unassigned"
+                                            />
+                                          )}
+                                          {formatDayLabel(line.date)}
+                                        </span>
+                                        <span className="hr-salary__ot-detail-time">
+                                          {formatTimeAmPm(line.startTime)} – {formatTimeAmPm(line.endTime)}
+                                        </span>
+                                        <span className="hr-salary__ot-detail-hrs">
+                                          {formatOtHours(line.hours)}
+                                        </span>
+                                        <span className="hr-salary__ot-detail-pay">
+                                          {formatInr(line.pay)}
+                                        </span>
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="hr-salary__footer-summary">
+                            <table className="hr-salary__summary-table">
+                              <thead>
+                                <tr>
+                                  <th>Project</th>
+                                  <th>Days</th>
+                                  <th>OT</th>
+                                  <th>Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {projectTotals.map(total => (
+                                  <tr key={total.projectId ?? '__unassigned'}>
+                                    <td>
+                                      <div className="hr-salary__project-cell">
+                                        <i
+                                          className={[
+                                            'hr-salary__proj-dot',
+                                            total.color ? '' : 'is-empty',
+                                          ].filter(Boolean).join(' ')}
+                                          style={total.color ? { background: total.color } : undefined}
+                                        />
+                                        {total.name}
+                                      </div>
+                                    </td>
+                                    <td>{total.regularDays}d</td>
+                                    <td>{formatOtHours(total.otHours)}</td>
+                                    <td>{formatInr(total.totalPay)}</td>
+                                  </tr>
+                                ))}
+                                <tr className="hr-salary__summary-total-row">
+                                  <td colSpan={3}>Total Earned</td>
+                                  <td>{formatInr(calc.earnedSalary)}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                            <div className="hr-salary__footer-stats">
+                              <span>
+                                <strong>Leave:</strong> {formatLeaveDays(calc.leaveDays)}
+                              </span>
+                              <span>
+                                <strong>Payable:</strong> {calc.payableDays} / {calc.rateDays}
+                              </span>
+                              <span>
+                                <strong>Regular pay:</strong> {formatInr(calc.regularPay)}
+                              </span>
+                              <span>
+                                <strong>OT hours:</strong> {formatOtHours(calc.overtimeHours)}
+                              </span>
+                              <span>
+                                <strong>OT pay:</strong> {formatInr(calc.overtimePay)}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </td>
                     </tr>
