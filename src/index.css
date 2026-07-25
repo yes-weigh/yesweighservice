@@ -12394,9 +12394,26 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   word-break: break-word;
 }
 
+.unified-sales-orders-page .unified-so-mobile-row__number {
+  display: block;
+  width: 100%;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+}
+
 .unified-sales-orders-page .unified-so-mobile-row__date {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.dealer-sales-orders-page .unified-so-mobile-row .unified-so-order-cell__badges {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .unified-sales-orders-page .unified-so-mobile-row__footer .invoices-mobile-row__meta {

@@ -285,7 +285,10 @@ export const DealerSalesOrdersPage: React.FC = () => {
           const zohoMessage = zohoResult.reason instanceof Error
             ? zohoResult.reason.message
             : invoiceErrorMessage(zohoResult.reason);
-          if (!/no zoho customer/i.test(zohoMessage)) {
+          const unlinked = /not linked to a zoho customer|no zoho customer is linked/i.test(
+            zohoMessage,
+          );
+          if (!unlinked) {
             messages.push(zohoMessage);
           }
         }
@@ -574,22 +577,22 @@ export const DealerSalesOrdersPage: React.FC = () => {
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__pair">
-                          <span className="invoices-mobile-row__title">
+                          <span className="unified-so-order-cell__badges">
                             {row.category ? (
                               <InvoiceCategoryBadge category={row.category} />
                             ) : null}
-                            <strong>{row.primaryNumber}</strong>
-                            <span className="invoices-mobile-row__meta unified-so-mobile-row__date">
-                              {formatInvoiceDate(row.date)}
-                            </span>
+                            <SourceBadge source={row.source} />
                           </span>
                           <strong className="invoices-mobile-row__amount-value">
                             {formatCurrency(row.amount, row.currencyCode)}
                           </strong>
                         </span>
+                        <strong className="invoices-mobile-row__company unified-so-mobile-row__number">
+                          {row.primaryNumber}
+                        </strong>
                         <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
                           <span className="invoices-mobile-row__meta">
-                            <SourceBadge source={row.source} />
+                            {formatInvoiceDate(row.date)}
                             {' • '}
                             Qty {formatInvoiceItemQuantity(row.qty)}
                           </span>

@@ -9,6 +9,7 @@ import {
   createInvoiceFromSalesOrder,
   downloadSalesOrderPdf,
 } from './zoho-sales-orders.js';
+import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { getDealerOrderPaymentUrl } from './dealer-order-upload.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 
@@ -544,6 +545,17 @@ export async function approveDealerOrder(uid, role, orderId, secrets, orgId) {
       salesOrderNumber = so.salesOrderNumber;
     }
 
+    if (salesOrderId) {
+      try {
+        await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+      } catch (mirrorErr) {
+        console.warn(
+          `Approved order ${ref.id}: could not mirror SO ${salesOrderId}:`,
+          mirrorErr?.message ?? mirrorErr,
+        );
+      }
+    }
+
     await ref.update({
       status,
       statusHistory: FieldValue.arrayUnion(statusEvent(status, user)),
@@ -713,6 +725,17 @@ export async function verifyDealerOrderPayment(uid, role, orderId, secrets, orgI
         zohoSalesOrderNumber: salesOrderNumber,
         updatedAt: nowIso(),
       });
+    }
+
+    if (salesOrderId) {
+      try {
+        await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+      } catch (mirrorErr) {
+        console.warn(
+          `Verify order ${ref.id}: could not mirror SO ${salesOrderId}:`,
+          mirrorErr?.message ?? mirrorErr,
+        );
+      }
     }
 
     let invoiceId = data.zohoInvoiceId || null;

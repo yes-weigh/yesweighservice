@@ -77,7 +77,7 @@ export async function listDealerSalesOrders(params: {
     const callable = httpsCallable<typeof params, { data: Record<string, unknown>[] }>(
       functions,
       'listDealerSalesOrders',
-      { timeout: 60_000 },
+      { timeout: 180_000 },
     );
     const result = await callable(params);
     return (result.data?.data ?? []).map(row => mapListRow(row));

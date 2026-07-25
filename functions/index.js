@@ -102,6 +102,7 @@ import {
   listDealerSalesOrders as listDealerSalesOrderRecords,
   getDealerSalesOrderDetail as getDealerSalesOrderDetailRecord,
   ensureDealerSalesOrderPdf,
+  syncDealerSalesOrdersToFirestore,
 } from './lib/sales-order-sync.js';
 import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
@@ -2231,17 +2232,52 @@ export const downloadSalesOrderDocument = onCall(
   },
 );
 
-/** Dealer: list own Zoho sales orders from Firestore. */
+/** Dealer: list own Zoho sales orders (Firestore + lazy customer sync). */
 export const listDealerSalesOrders = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
   async request => {
     const uid = request.auth?.uid;
     const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
     try {
-      return await listDealerSalesOrderRecords(uid, role, request.data ?? {});
+      return await listDealerSalesOrderRecords(uid, role, request.data ?? {}, {
+        secrets: zohoSecrets(),
+        orgId: zohoOrganizationId.value(),
+      });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load sales orders.');
+    }
+  },
+);
+
+/** Dealer: pull own Zoho sales orders into Firestore (like invoice sync). */
+export const syncDealerSalesOrdersFromZoho = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 300,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      const customerId = await resolveZohoCustomerIdForUser(uid, role);
+      return await syncDealerSalesOrdersToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        customerId,
+        request.data ?? {},
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      console.error('syncDealerSalesOrdersFromZoho failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Sales order sync failed.');
     }
   },
 );
