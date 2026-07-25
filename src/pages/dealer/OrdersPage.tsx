@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { IndianRupee, Minus, Package, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/useCart';
 import { formatCurrency } from '../../lib/catalog';
 import { dealerOrderErrorMessage, submitDealerOrder } from '../../lib/dealerOrders';
-import { canAccessNavFeature, hasStaffPermission, isInternalOpsUser } from '../../lib/staffAccess';
+import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
-import { StaffOrdersPage } from '../staff/StaffOrdersPage';
 
 function formatProductTitle(name: string): string {
   return name
@@ -21,13 +20,10 @@ function formatProductTitle(name: string): string {
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
 
-  // Staff / super-admin see the review queue, not the dealer cart.
-  if (isInternalOpsUser(user) && (
-    user?.role === 'super_admin'
-    || hasStaffPermission(user, 'orders.view')
-    || canAccessNavFeature(user, 'orders')
-  )) {
-    return <StaffOrdersPage />;
+  // Staff / super-admin use Zoho sales orders — cart is dealer-only.
+  if (isInternalOpsUser(user)) {
+    const base = user ? homePathForRole(user.role) : '/staff';
+    return <Navigate to={`${base}/sales-orders`} replace />;
   }
 
   return <DealerCartPage />;
@@ -50,7 +46,6 @@ const DealerCartPage: React.FC = () => {
         items.map(item => ({ productId: item.productId, quantity: item.quantity })),
       );
       clearCart();
-      // Zoho SO is created as Draft on submit — open the mirrored sales order.
       const soId = order.zohoSalesOrderId?.trim();
       navigate(
         soId ? `${base}/sales-orders/${soId}` : `${base}/sales-orders`,
@@ -69,7 +64,7 @@ const DealerCartPage: React.FC = () => {
         <div className="dealer-orders-page__header">
           <div>
             <h2 className="orders-page__title">Your cart</h2>
-            <p className="text-muted text-sm">Add products, then place an order for review.</p>
+            <p className="text-muted text-sm">Add products, then place a Zoho draft sales order.</p>
           </div>
           <Link to={`${base}/sales-orders`} className="btn btn-secondary btn-sm">
             Sales orders
@@ -93,7 +88,7 @@ const DealerCartPage: React.FC = () => {
         <div>
           <h2 className="orders-page__title">Your cart</h2>
           <p className="text-muted text-sm">
-            {itemCount} {itemCount === 1 ? 'item' : 'items'} · submitted orders go for staff review
+            {itemCount} {itemCount === 1 ? 'item' : 'items'} · creates a Zoho Draft sales order
           </p>
         </div>
         <div className="orders-page__header-actions">
@@ -188,7 +183,7 @@ const DealerCartPage: React.FC = () => {
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
           <p className="orders-page__summary-note text-muted text-sm">
-            Staff will review quantities and confirm the final amount before payment.
+            Your order is created in Zoho Inventory as Draft. Staff can confirm it there.
           </p>
           <button
             type="button"

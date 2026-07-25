@@ -1,17 +1,11 @@
 import type { AdminFirestoreSalesOrder } from './admin-sales-orders';
 import {
-  classifyDealerOrderCategory,
   getInvoicePeriodBounds,
   invoiceStatusLabel,
 } from './invoices';
-import type { DealerOrder } from '../types/dealer-orders';
-import {
-  dealerOrderStatusClass,
-  dealerOrderStatusLabel,
-} from '../types/dealer-orders';
 import type { InvoiceCategory, KpiPeriod } from '../types/invoices';
 
-export type UnifiedSalesOrderSource = 'portal' | 'zoho';
+export type UnifiedSalesOrderSource = 'zoho';
 
 export type UnifiedSalesOrderSort = 'date' | 'syncedAt';
 
@@ -22,7 +16,6 @@ export interface UnifiedSalesOrderRow {
   href: string;
   primaryNumber: string;
   partyName: string;
-  /** Zoho customer id for location lookup (portal uses zohoCustomerId). */
   customerId: string | null;
   date: string | null;
   sortAt: number;
@@ -33,7 +26,7 @@ export interface UnifiedSalesOrderRow {
   statusClass: string;
   category: InvoiceCategory | null;
   qty: number | null;
-  /** Portal order number when source is portal, or Zoho reference when zoho. */
+  /** Zoho reference number when present. */
   portalOrderNumber: string | null;
   zohoSalesOrderId: string | null;
   portalOrderId: string | null;
@@ -47,34 +40,6 @@ function parseDayTs(value: string | null | undefined): number {
   }
   const ts = Date.parse(value);
   return Number.isNaN(ts) ? 0 : ts;
-}
-
-export function mapPortalOrderToUnified(
-  order: DealerOrder,
-  basePath: string,
-): UnifiedSalesOrderRow {
-  const date = order.createdAt ?? null;
-  return {
-    key: `portal:${order.id}`,
-    source: 'portal',
-    id: order.id,
-    href: `${basePath}/sales-orders/portal/${order.id}`,
-    primaryNumber: order.orderNumber,
-    partyName: order.dealerName || order.dealerCode || order.zohoCustomerId || '—',
-    customerId: order.zohoCustomerId || null,
-    date,
-    sortAt: parseDayTs(date) || Date.parse(order.updatedAt || order.createdAt) || 0,
-    amount: Number(order.subtotal ?? 0),
-    currencyCode: 'INR',
-    statusRaw: order.status,
-    statusLabel: dealerOrderStatusLabel(order.status),
-    statusClass: dealerOrderStatusClass(order.status),
-    category: classifyDealerOrderCategory(order),
-    qty: order.itemCount ?? null,
-    portalOrderNumber: order.orderNumber,
-    zohoSalesOrderId: order.zohoSalesOrderId,
-    portalOrderId: order.id,
-  };
 }
 
 export function mapZohoOrderToUnified(
@@ -104,36 +69,22 @@ export function mapZohoOrderToUnified(
   };
 }
 
-/**
- * Merge portal + Zoho rows. When a completed portal order already has its Zoho SO
- * in the feed, drop the portal duplicate from All/Zoho views (caller passes includePortalDuplicates=false).
- */
+/** Map Zoho sales orders into unified list rows. */
 export function mergeUnifiedSalesOrders(
-  portal: DealerOrder[],
+  _portalIgnored: unknown[],
   zoho: AdminFirestoreSalesOrder[],
   basePath: string,
-  options: { includePortalDuplicates?: boolean } = {},
+  _options: { includePortalDuplicates?: boolean } = {},
 ): UnifiedSalesOrderRow[] {
-  const includeDupes = options.includePortalDuplicates === true;
-  const zohoIds = new Set(zoho.map(row => row.id));
-
-  const zohoRows = zoho.map(row => mapZohoOrderToUnified(row, basePath));
-  const portalRows = portal
-    .filter(order => {
-      if (includeDupes) return true;
-      if (!order.zohoSalesOrderId) return true;
-      return !zohoIds.has(order.zohoSalesOrderId);
-    })
-    .map(order => mapPortalOrderToUnified(order, basePath));
-
-  return [...portalRows, ...zohoRows].sort((a, b) => b.sortAt - a.sortAt);
+  return zoho
+    .map(row => mapZohoOrderToUnified(row, basePath))
+    .sort((a, b) => b.sortAt - a.sortAt);
 }
 
 export type UnifiedStageId = 'review' | 'so' | 'pay' | 'verify' | 'done' | 'rejected';
 
 export type UnifiedStatusChip = 'all' | UnifiedStageId;
 
-/** Shared pipeline for portal + Zoho rows (filters + progress chain). */
 export const UNIFIED_PIPELINE_STEPS = [
   { id: 'review', label: 'Review' },
   { id: 'so', label: 'SO' },
@@ -144,10 +95,7 @@ export const UNIFIED_PIPELINE_STEPS = [
 
 export const UNIFIED_STATUS_CHIPS: Array<{ id: UnifiedStatusChip; label: string }> = [
   { id: 'all', label: 'All' },
-  { id: 'review', label: 'Review' },
   { id: 'so', label: 'SO' },
-  { id: 'pay', label: 'Pay' },
-  { id: 'verify', label: 'Verify' },
   { id: 'done', label: 'Done' },
   { id: 'rejected', label: 'Rejected' },
 ];
@@ -164,31 +112,7 @@ function normalizeZohoStatus(status: string): string {
   return String(status || 'draft').toLowerCase().replace(/\s+/g, '_');
 }
 
-/**
- * Map any row onto the shared stage used for filtering.
- * Portal payment wait sits on Pay (SO already issued on approve).
- * Pure Zoho draft/open sit on SO; invoiced/closed sit on Done.
- */
 export function getUnifiedStage(row: UnifiedSalesOrderRow): UnifiedStageId {
-  if (row.source === 'portal') {
-    switch (row.statusRaw) {
-      case 'pending_review':
-        return 'review';
-      case 'waiting_for_payment':
-        return 'pay';
-      case 'payment_submitted':
-      case 'processing':
-        return 'verify';
-      case 'completed':
-        return 'done';
-      case 'rejected':
-      case 'cancelled':
-        return 'rejected';
-      default:
-        return 'review';
-    }
-  }
-
   const raw = normalizeZohoStatus(row.statusRaw);
   if (raw === 'void' || raw === 'cancelled' || raw === 'canceled') return 'rejected';
   if (raw === 'draft') return 'so';
@@ -201,7 +125,6 @@ export function getUnifiedStage(row: UnifiedSalesOrderRow): UnifiedStageId {
   ) {
     return 'done';
   }
-  // open / confirmed / approved / partially_* → still on SO until invoiced
   return 'so';
 }
 
@@ -279,15 +202,6 @@ export function countUnifiedStages(rows: UnifiedSalesOrderRow[]): Record<string,
   return map;
 }
 
-/** @deprecated Use countUnifiedStages on merged rows. */
-export function countUnifiedPortalStatuses(
-  portal: DealerOrder[],
-): Record<string, number> {
-  return countUnifiedStages(
-    portal.map(order => mapPortalOrderToUnified(order, '')),
-  );
-}
-
 export function summarizeUnifiedAmounts(rows: UnifiedSalesOrderRow[]): {
   count: number;
   totalAmount: number;
@@ -311,7 +225,7 @@ export interface UnifiedProgressStep {
 
 export interface UnifiedOrderProgress {
   steps: UnifiedProgressStep[];
-  tone: 'portal' | 'zoho' | 'failed';
+  tone: 'zoho' | 'failed';
   stage: UnifiedStageId;
   currentLabel: string;
 }
@@ -343,10 +257,6 @@ function buildUnifiedSteps(options: {
   });
 }
 
-/**
- * One chain for both sources: Review → SO → Pay → Verify → Done.
- * Pure Zoho rows skip Pay/Verify (no portal payment workflow).
- */
 export function getUnifiedOrderProgress(row: UnifiedSalesOrderRow): UnifiedOrderProgress {
   const stage = getUnifiedStage(row);
 
@@ -355,36 +265,13 @@ export function getUnifiedOrderProgress(row: UnifiedSalesOrderRow): UnifiedOrder
       steps: buildUnifiedSteps({ stage }),
       tone: 'failed',
       stage,
-      currentLabel: row.source === 'portal'
-        ? dealerOrderStatusLabel(row.statusRaw)
-        : row.statusLabel,
+      currentLabel: row.statusLabel,
     };
   }
 
-  if (row.source === 'portal') {
-    const allDone = stage === 'done';
-    // Approve creates SO then waits for payment → SO is done when on Pay+.
-    const steps = buildUnifiedSteps({ stage, allDone });
-    // When on Pay, also mark SO done (approve already issued it).
-    if (stage === 'pay' || stage === 'verify') {
-      const so = steps.find(step => step.id === 'so');
-      if (so && so.state !== 'done') so.state = 'done';
-    }
-    return {
-      steps,
-      tone: 'portal',
-      stage,
-      currentLabel: allDone
-        ? 'Done'
-        : UNIFIED_PIPELINE_STEPS[PIPELINE_INDEX[stage]]?.label ?? row.statusLabel,
-    };
-  }
-
-  // Zoho-only: no portal review/pay/verify.
   const skippedIds = new Set(['review', 'pay', 'verify']);
   const allDone = stage === 'done';
   const steps = buildUnifiedSteps({ stage, skippedIds, allDone });
-  // Draft/open both live on SO; ensure SO is current (not skipped).
   const so = steps.find(step => step.id === 'so');
   if (so && so.state === 'skipped') {
     so.state = allDone ? 'done' : 'current';

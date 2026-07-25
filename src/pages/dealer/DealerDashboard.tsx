@@ -35,7 +35,7 @@ import {
   readCachedAllDealerInvoices,
   readCachedDealerInvoiceDashboard,
 } from '../../lib/invoices';
-import { listDealerOrders } from '../../lib/dealerOrders';
+import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
 import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, SalesRangePreset } from '../../types/invoices';
 
 type Trend = 'up' | 'down';
@@ -258,15 +258,13 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
 
     void load();
 
-    void listDealerOrders({ limit: 100 })
+    void listDealerSalesOrders({ limit: 100 })
       .then(rows => {
         if (cancelled) return;
-        const open = rows.filter(order => (
-          order.status === 'pending_review'
-          || order.status === 'waiting_for_payment'
-          || order.status === 'payment_submitted'
-          || order.status === 'processing'
-        )).length;
+        const open = rows.filter(order => {
+          const status = String(order.status || '').toLowerCase().replace(/\s+/g, '_');
+          return status === 'draft' || status === 'open' || status === 'confirmed' || status === 'approved';
+        }).length;
         setOpenOrders(open);
       })
       .catch(() => {

@@ -23,6 +23,7 @@
     "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs",
     "migrate:support-status": "node scripts/migrate-support-status.mjs",
     "purge:support-test-data": "node scripts/purge-support-test-data.mjs",
+    "purge:dealer-orders": "node scripts/purge-dealer-orders.mjs",
     "deploy:rules": "firebase deploy --only firestore:rules,storage --project yesweigh-service",
     "deploy:ci": "bash scripts/ci-firebase-deploy.sh hosting,firestore,storage"
   },

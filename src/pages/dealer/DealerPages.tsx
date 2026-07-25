@@ -7,7 +7,6 @@ import { OrdersPage } from './OrdersPage';
 import { Navigate } from 'react-router-dom';
 import { DealerOrderDetailPage } from './DealerOrderDetailPage';
 import { DealerSalesOrdersPage } from './DealerSalesOrdersPage';
-import { StaffOrderDetailPage } from '../staff/StaffOrderDetailPage';
 import { CatalogPage } from './CatalogPage';
 import { InvoicesPage } from './InvoicesPage';
 import { InvoiceDetailLayout } from './InvoiceDetailLayout';
@@ -46,11 +45,7 @@ function DealerInvoiceDetailRoute() {
 }
 
 function OrderDetailRoute() {
-  const { user } = useAuth();
-  if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
-    return <DealerOrderDetailPage />;
-  }
-  return <StaffOrderDetailPage />;
+  return <DealerOrderDetailPage />;
 }
 
 function OrderHistoryRoute() {

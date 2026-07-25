@@ -26,7 +26,6 @@ import { useAuth } from '../../context/AuthContext';
 import { canAccessNavFeature } from '../../lib/staffAccess';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import { fetchOpsSupportRequests } from '../../lib/dealerSupport';
-import { fetchPendingDealerOrderCount } from '../../lib/dealerOrders';
 import {
   countActionableSupportRequests,
   countOpenSupportRequests,
@@ -81,7 +80,6 @@ function buildKpis(
   user: import('../../types').User | null,
   openSupport: number | null,
   actionableSupport: number | null,
-  pendingOrders: number | null,
 ): KpiCard[] {
   const cards: KpiCard[] = [
     {
@@ -110,10 +108,10 @@ function buildKpis(
     },
     {
       id: 'orders',
-      label: 'Pending Orders',
-      value: pendingOrders == null ? '—' : String(pendingOrders),
+      label: 'Sales orders',
+      value: 'Zoho',
       trend: 'up',
-      trendLabel: 'Awaiting staff review',
+      trendLabel: 'Draft → Confirmed in Zoho',
       path: `${BASE}/sales-orders`,
       tone: 'orange',
       icon: <ShoppingCart size={22} strokeWidth={2.5} />,
@@ -236,8 +234,6 @@ export const StaffDashboard: React.FC = () => {
   const [statsError, setStatsError] = useState('');
   const [openSupport, setOpenSupport] = useState<number | null>(null);
   const [actionableSupport, setActionableSupport] = useState<number | null>(null);
-  const [pendingOrders, setPendingOrders] = useState<number | null>(null);
-
   useEffect(() => {
     void fetchDealerStats()
       .then(setDealerStats)
@@ -252,13 +248,9 @@ export const StaffDashboard: React.FC = () => {
         setOpenSupport(null);
         setActionableSupport(null);
       });
-
-    void fetchPendingDealerOrderCount()
-      .then(setPendingOrders)
-      .catch(() => setPendingOrders(null));
   }, []);
 
-  const kpis = buildKpis(dealerStats, user, openSupport, actionableSupport, pendingOrders);
+  const kpis = buildKpis(dealerStats, user, openSupport, actionableSupport);
   const miniStats = buildMiniStats(dealerStats, user);
   const quickActions = QUICK_ACTIONS.filter(action => canAccessNavFeature(user, action.feature));
   const firstName = user?.displayName?.split(/\s+/)[0] ?? 'Staff';

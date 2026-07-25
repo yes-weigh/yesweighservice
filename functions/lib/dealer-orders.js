@@ -1,37 +1,23 @@
 /**
- * Dealer portal product orders: cart submit → Zoho SO (Draft) → confirm/invoice in Zoho.
- * Portal dealerOrders remain as a thin audit/payment link to the Zoho SO.
+ * Dealer cart → Zoho Inventory sales order (Draft) → confirm/void in Zoho.
+ * No portal dealerOrders lifecycle — Firestore dealerOrders is deprecated and purgeable.
  */
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import {
   confirmSalesOrder,
   createSalesOrderFromDealerOrder,
-  createInvoiceFromSalesOrder,
-  downloadSalesOrderPdf,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
-import { getDealerOrderPaymentUrl } from './dealer-order-upload.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 
-const COLLECTION = 'dealerOrders';
 const PRODUCTS = 'catalogProducts';
 const CUSTOMERS = 'zohoCustomers';
-
-const STATUSES = new Set([
-  'pending_review',
-  'waiting_for_payment',
-  'payment_submitted',
-  'processing',
-  'completed',
-  'rejected',
-  'cancelled',
-]);
+const LEGACY_COLLECTION = 'dealerOrders';
 
 const DEALER_ROLES = new Set(['dealer', 'dealer_staff']);
-const OPS_ROLES = new Set(['staff', 'super_admin']);
 
 const LOGISTICS_DEFAULT_PERMS = new Set([
   'orders.view',
@@ -102,12 +88,6 @@ function staffHasPermission(user, permission) {
   return ADMIN_DEFAULT_PERMS.has(permission);
 }
 
-function requireOrdersView(user) {
-  if (user.role === 'super_admin') return;
-  if (user.role === 'staff' && staffHasPermission(user, 'orders.view')) return;
-  throw new HttpsError('permission-denied', 'You do not have access to orders.');
-}
-
 function requireOrdersManage(user) {
   if (user.role === 'super_admin') return;
   if (user.role === 'staff' && staffHasPermission(user, 'orders.manage')) return;
@@ -116,21 +96,7 @@ function requireOrdersManage(user) {
 
 function requireSuperAdmin(user) {
   if (user.role !== 'super_admin') {
-    throw new HttpsError('permission-denied', 'Only super admin can verify payment.');
-  }
-}
-
-function assertDealerOrderAccess(user, order) {
-  if (OPS_ROLES.has(user.role)) {
-    requireOrdersView(user);
-    return;
-  }
-  if (!DEALER_ROLES.has(user.role)) {
-    throw new HttpsError('permission-denied', 'You do not have access to this order.');
-  }
-  const dealerId = resolveDealerId(user);
-  if (!dealerId || String(order.dealerId) !== dealerId) {
-    throw new HttpsError('permission-denied', 'You do not have access to this order.');
+    throw new HttpsError('permission-denied', 'Only super admin can run this action.');
   }
 }
 
@@ -147,16 +113,6 @@ function sumItemCount(lines) {
     if (isQuantityExcludedLineItem(line?.name, line?.sku, line?.hsn)) return sum;
     return sum + Number(line?.quantity || 0);
   }, 0);
-}
-
-function statusEvent(status, user, note = null) {
-  return {
-    status,
-    at: nowIso(),
-    byUid: user?.uid ?? null,
-    byName: user ? displayName(user) : null,
-    note: note || null,
-  };
 }
 
 async function nextOrderNumber() {
@@ -213,7 +169,7 @@ function toOrderLine(product, quantity) {
   };
 }
 
-async function buildLinesFromInput(rawLines, { allowOutOfStock = false } = {}) {
+async function buildLinesFromInput(rawLines) {
   if (!Array.isArray(rawLines) || rawLines.length === 0) {
     throw new HttpsError('invalid-argument', 'Add at least one product.');
   }
@@ -234,7 +190,7 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = false } = {}) {
     if (!product || product.hiddenFromCatalog || product.status === 'inactive') {
       throw new HttpsError('failed-precondition', `Product unavailable: ${productId}`);
     }
-    if (!allowOutOfStock && product.stockStatus === 'out_of_stock') {
+    if (product.stockStatus === 'out_of_stock') {
       throw new HttpsError(
         'failed-precondition',
         `${product.name} is out of stock and cannot be ordered.`,
@@ -274,100 +230,10 @@ function isSpareCategory(categoryName, categoryId) {
   return id.includes('spare');
 }
 
-function mapOrderDoc(id, data, paymentScreenshotUrl = null) {
-  return {
-    id,
-    orderNumber: String(data.orderNumber ?? ''),
-    dealerId: String(data.dealerId ?? ''),
-    zohoCustomerId: String(data.zohoCustomerId ?? ''),
-    dealerName: data.dealerName ?? null,
-    dealerCode: data.dealerCode ?? null,
-    createdByUid: String(data.createdByUid ?? ''),
-    createdByName: data.createdByName ?? null,
-    createdAt: String(data.createdAt ?? ''),
-    updatedAt: String(data.updatedAt ?? ''),
-    status: STATUSES.has(String(data.status)) ? String(data.status) : 'pending_review',
-    statusHistory: Array.isArray(data.statusHistory) ? data.statusHistory : [],
-    rejectionReason: data.rejectionReason ?? null,
-    lines: Array.isArray(data.lines) ? data.lines : [],
-    submittedLines: Array.isArray(data.submittedLines) ? data.submittedLines : [],
-    changes: Array.isArray(data.changes) ? data.changes : [],
-    subtotal: Number(data.subtotal ?? 0),
-    itemCount: Number(data.itemCount ?? 0),
-    approvedAt: data.approvedAt ?? null,
-    approvedByUid: data.approvedByUid ?? null,
-    approvedByName: data.approvedByName ?? null,
-    paymentAmount: data.paymentAmount != null ? Number(data.paymentAmount) : null,
-    paymentUtr: data.paymentUtr ?? null,
-    paymentScreenshotStoragePath: data.paymentScreenshotStoragePath ?? null,
-    paymentScreenshotUrl,
-    paymentSubmittedAt: data.paymentSubmittedAt ?? null,
-    paymentVerifiedAt: data.paymentVerifiedAt ?? null,
-    paymentVerifiedByUid: data.paymentVerifiedByUid ?? null,
-    zohoSalesOrderId: data.zohoSalesOrderId ?? null,
-    zohoSalesOrderNumber: data.zohoSalesOrderNumber ?? null,
-    zohoInvoiceId: data.zohoInvoiceId ?? null,
-    zohoInvoiceNumber: data.zohoInvoiceNumber ?? null,
-    zohoSyncError: data.zohoSyncError ?? null,
-  };
-}
-
-async function getOrderOrThrow(orderId) {
-  const id = String(orderId ?? '').trim();
-  if (!id) throw new HttpsError('invalid-argument', 'Order id is required.');
-  const snap = await getFirestore().doc(`${COLLECTION}/${id}`).get();
-  if (!snap.exists) throw new HttpsError('not-found', 'Order not found.');
-  return { ref: snap.ref, id: snap.id, data: snap.data() || {} };
-}
-
-function buildChangeLog(prevLines, nextLines, user) {
-  const prevMap = new Map(prevLines.map(line => [line.productId, line]));
-  const nextMap = new Map(nextLines.map(line => [line.productId, line]));
-  const changes = [];
-  const at = nowIso();
-  const byUid = user.uid;
-  const byName = displayName(user);
-
-  for (const [productId, next] of nextMap) {
-    const prev = prevMap.get(productId);
-    if (!prev) {
-      changes.push({
-        at, byUid, byName, type: 'added',
-        productId, productName: next.name,
-        fromQty: 0, toQty: next.quantity,
-      });
-      continue;
-    }
-    if (Number(prev.quantity) !== Number(next.quantity)) {
-      changes.push({
-        at, byUid, byName, type: 'qty_changed',
-        productId, productName: next.name,
-        fromQty: prev.quantity, toQty: next.quantity,
-      });
-    }
-    if (Number(prev.rate) !== Number(next.rate)) {
-      changes.push({
-        at, byUid, byName, type: 'rate_changed',
-        productId, productName: next.name,
-        fromRate: prev.rate, toRate: next.rate,
-        fromQty: prev.quantity, toQty: next.quantity,
-      });
-    }
-  }
-
-  for (const [productId, prev] of prevMap) {
-    if (!nextMap.has(productId)) {
-      changes.push({
-        at, byUid, byName, type: 'removed',
-        productId, productName: prev.name,
-        fromQty: prev.quantity, toQty: 0,
-      });
-    }
-  }
-
-  return changes;
-}
-
+/**
+ * Place cart as a Zoho Inventory Draft sales order and mirror it locally.
+ * Does not write a portal dealerOrders document.
+ */
 export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId) {
   const user = await loadUser(uid);
   if (!DEALER_ROLES.has(user.role)) {
@@ -386,10 +252,8 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     );
   }
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
+  const lines = await buildLinesFromInput(payload.lines);
 
-  const lines = await buildLinesFromInput(payload.lines, { allowOutOfStock: false });
-
-  // Enforce spares flag
   if (profile.canBuySpares === false) {
     const spare = lines.find(line => isSpareCategory(line.categoryName, null));
     if (spare) {
@@ -409,15 +273,13 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   }
 
   const orderNumber = await nextOrderNumber();
-  const createdAt = nowIso();
-  const ref = getFirestore().collection(COLLECTION).doc();
-
-  // Create Zoho Inventory SO as Draft, then mirror — portal doc is an audit/payment link.
   let salesOrderId = null;
   let salesOrderNumber = null;
+  let status = 'draft';
+
   try {
     const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
-      id: ref.id,
+      id: orderNumber,
       orderNumber,
       zohoCustomerId,
       lines,
@@ -425,11 +287,12 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     });
     salesOrderId = so.salesOrderId;
     salesOrderNumber = so.salesOrderNumber;
+    status = so.status || 'draft';
     try {
       await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
     } catch (mirrorErr) {
       console.warn(
-        `Submit order ${ref.id}: could not mirror SO ${salesOrderId}:`,
+        `Submit order ${orderNumber}: could not mirror SO ${salesOrderId}:`,
         mirrorErr?.message ?? mirrorErr,
       );
     }
@@ -438,279 +301,19 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     throw new HttpsError('failed-precondition', message);
   }
 
-  // Skip portal pending_review — SO already exists in Zoho as Draft.
-  const status = 'waiting_for_payment';
-  const doc = {
+  return {
+    zohoSalesOrderId: salesOrderId,
+    zohoSalesOrderNumber: salesOrderNumber,
     orderNumber,
+    status,
+    subtotal,
+    itemCount: sumItemCount(lines),
     dealerId,
     zohoCustomerId,
     dealerName: profile.dealerName,
-    dealerCode: profile.dealerCode,
     createdByUid: uid,
     createdByName: displayName(user),
-    createdAt,
-    updatedAt: createdAt,
-    status,
-    statusHistory: [statusEvent(status, user, 'Created as Zoho Draft')],
-    rejectionReason: null,
-    lines,
-    submittedLines: lines.map(line => ({ ...line })),
-    changes: [],
-    subtotal,
-    itemCount: sumItemCount(lines),
-    approvedAt: createdAt,
-    approvedByUid: null,
-    approvedByName: 'Zoho Draft',
-    paymentAmount: subtotal,
-    paymentUtr: null,
-    paymentScreenshotStoragePath: null,
-    paymentSubmittedAt: null,
-    paymentVerifiedAt: null,
-    paymentVerifiedByUid: null,
-    zohoSalesOrderId: salesOrderId,
-    zohoSalesOrderNumber: salesOrderNumber,
-    zohoInvoiceId: null,
-    zohoInvoiceNumber: null,
-    zohoSyncError: null,
   };
-
-  await ref.set(doc);
-  return mapOrderDoc(ref.id, doc);
-}
-
-export async function getDealerOrder(uid, role, orderId) {
-  const user = await loadUser(uid);
-  const { id, data } = await getOrderOrThrow(orderId);
-  assertDealerOrderAccess(user, data);
-
-  let paymentScreenshotUrl = null;
-  if (data.paymentScreenshotStoragePath) {
-    try {
-      paymentScreenshotUrl = await getDealerOrderPaymentUrl(uid, data.paymentScreenshotStoragePath);
-    } catch {
-      paymentScreenshotUrl = null;
-    }
-  }
-  return mapOrderDoc(id, data, paymentScreenshotUrl);
-}
-
-export async function listDealerOrders(uid, role, query = {}) {
-  const user = await loadUser(uid);
-  const db = getFirestore();
-  const status = String(query.status ?? '').trim();
-  const limit = Math.min(Math.max(Number(query.limit ?? 50) || 50, 1), 200);
-  const dealerFilter = String(query.dealerId ?? '').trim();
-
-  let q;
-  if (OPS_ROLES.has(user.role)) {
-    requireOrdersView(user);
-    q = db.collection(COLLECTION).orderBy('createdAt', 'desc').limit(limit);
-  } else if (DEALER_ROLES.has(user.role)) {
-    const dealerId = resolveDealerId(user);
-    q = db.collection(COLLECTION)
-      .where('dealerId', '==', dealerId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit);
-  } else {
-    throw new HttpsError('permission-denied', 'You do not have access to orders.');
-  }
-
-  const snap = await q.get();
-  let rows = snap.docs.map(docSnap => mapOrderDoc(docSnap.id, docSnap.data()));
-
-  if (OPS_ROLES.has(user.role) && dealerFilter) {
-    rows = rows.filter(row => row.dealerId === dealerFilter || row.zohoCustomerId === dealerFilter);
-  }
-  if (status && STATUSES.has(status)) {
-    rows = rows.filter(row => row.status === status);
-  }
-  return { data: rows };
-}
-
-export async function updateDealerOrderLines(uid, role, payload = {}) {
-  const user = await loadUser(uid);
-  requireOrdersManage(user);
-
-  const { ref, data } = await getOrderOrThrow(payload.orderId);
-  if (data.status !== 'pending_review') {
-    throw new HttpsError('failed-precondition', 'Only pending orders can be edited.');
-  }
-
-  const nextLines = await buildLinesFromInput(payload.lines, { allowOutOfStock: true });
-  const changes = buildChangeLog(data.lines || [], nextLines, user);
-  const updatedAt = nowIso();
-
-  const patch = {
-    lines: nextLines,
-    subtotal: sumSubtotal(nextLines),
-    itemCount: sumItemCount(nextLines),
-    updatedAt,
-  };
-  if (changes.length) {
-    patch.changes = FieldValue.arrayUnion(...changes);
-  }
-  await ref.update(patch);
-
-  const snap = await ref.get();
-  return mapOrderDoc(snap.id, snap.data());
-}
-
-export async function approveDealerOrder(uid, role, orderId, secrets, orgId) {
-  const user = await loadUser(uid);
-  requireOrdersManage(user);
-
-  const { ref, data } = await getOrderOrThrow(orderId);
-  const approvable = new Set(['pending_review', 'waiting_for_payment']);
-  if (!approvable.has(data.status)) {
-    throw new HttpsError('failed-precondition', 'This order can no longer be confirmed.');
-  }
-  if (!Array.isArray(data.lines) || data.lines.length === 0) {
-    throw new HttpsError('failed-precondition', 'Order has no line items.');
-  }
-
-  const updatedAt = nowIso();
-  const status = 'waiting_for_payment';
-  const subtotal = sumSubtotal(data.lines);
-
-  let salesOrderId = data.zohoSalesOrderId || null;
-  let salesOrderNumber = data.zohoSalesOrderNumber || null;
-
-  try {
-    if (!salesOrderId) {
-      const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
-        ...data,
-        id: ref.id,
-        subtotal,
-      });
-      salesOrderId = so.salesOrderId;
-      salesOrderNumber = so.salesOrderNumber;
-    }
-
-    // Confirm in Zoho Inventory (Draft → Confirmed).
-    if (salesOrderId) {
-      try {
-        await confirmSalesOrder(secrets, orgId, salesOrderId);
-      } catch (confirmErr) {
-        // Already confirmed / approvals gate — still mirror current state.
-        console.warn(
-          `Approve order ${ref.id}: confirm SO ${salesOrderId}:`,
-          confirmErr?.message ?? confirmErr,
-        );
-      }
-      try {
-        await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
-      } catch (mirrorErr) {
-        console.warn(
-          `Approved order ${ref.id}: could not mirror SO ${salesOrderId}:`,
-          mirrorErr?.message ?? mirrorErr,
-        );
-      }
-    }
-
-    await ref.update({
-      status,
-      statusHistory: FieldValue.arrayUnion(statusEvent(status, user, 'Confirmed in Zoho')),
-      approvedAt: updatedAt,
-      approvedByUid: uid,
-      approvedByName: displayName(user),
-      paymentAmount: subtotal,
-      subtotal,
-      itemCount: sumItemCount(data.lines),
-      rejectionReason: null,
-      zohoSalesOrderId: salesOrderId,
-      zohoSalesOrderNumber: salesOrderNumber,
-      zohoSyncError: null,
-      updatedAt,
-    });
-  } catch (err) {
-    const message = err?.message || 'Could not confirm Zoho sales order.';
-    await ref.update({
-      zohoSyncError: message,
-      updatedAt: nowIso(),
-    });
-    throw new HttpsError('internal', message);
-  }
-
-  const snap = await ref.get();
-  return mapOrderDoc(snap.id, snap.data());
-}
-
-export async function rejectDealerOrder(uid, role, orderId, reason, secrets, orgId) {
-  const user = await loadUser(uid);
-  requireOrdersManage(user);
-
-  const { ref, data } = await getOrderOrThrow(orderId);
-  const rejectable = new Set(['pending_review', 'waiting_for_payment']);
-  if (!rejectable.has(data.status)) {
-    throw new HttpsError('failed-precondition', 'Only open orders can be rejected.');
-  }
-
-  const note = String(reason ?? '').trim();
-  if (!note) throw new HttpsError('invalid-argument', 'Rejection reason is required.');
-
-  const soId = String(data.zohoSalesOrderId || '').trim();
-  if (soId && secrets) {
-    try {
-      await voidSalesOrder(secrets, orgId, soId, note);
-      try {
-        await mirrorSalesOrderFromZoho(secrets, orgId, soId);
-      } catch {
-        // ignore mirror failure after void
-      }
-    } catch (voidErr) {
-      console.warn(`Reject order ${ref.id}: void SO ${soId}:`, voidErr?.message ?? voidErr);
-    }
-  }
-
-  const status = 'rejected';
-  const updatedAt = nowIso();
-  await ref.update({
-    status,
-    statusHistory: FieldValue.arrayUnion(statusEvent(status, user, note)),
-    rejectionReason: note,
-    updatedAt,
-  });
-
-  const snap = await ref.get();
-  return mapOrderDoc(snap.id, snap.data());
-}
-
-export async function cancelDealerOrder(uid, role, orderId, secrets, orgId) {
-  const user = await loadUser(uid);
-  const { ref, data } = await getOrderOrThrow(orderId);
-  assertDealerOrderAccess(user, data);
-
-  const cancellable = new Set(['pending_review', 'waiting_for_payment']);
-  if (!cancellable.has(data.status)) {
-    throw new HttpsError('failed-precondition', 'This order can no longer be cancelled.');
-  }
-
-  if (OPS_ROLES.has(user.role)) requireOrdersManage(user);
-
-  const soId = String(data.zohoSalesOrderId || '').trim();
-  if (soId && secrets) {
-    try {
-      await voidSalesOrder(secrets, orgId, soId, 'Cancelled from portal');
-      try {
-        await mirrorSalesOrderFromZoho(secrets, orgId, soId);
-      } catch {
-        // ignore
-      }
-    } catch (voidErr) {
-      console.warn(`Cancel order ${ref.id}: void SO ${soId}:`, voidErr?.message ?? voidErr);
-    }
-  }
-
-  const status = 'cancelled';
-  const updatedAt = nowIso();
-  await ref.update({
-    status,
-    statusHistory: FieldValue.arrayUnion(statusEvent(status, user)),
-    updatedAt,
-  });
-
-  const snap = await ref.get();
-  return mapOrderDoc(snap.id, snap.data());
 }
 
 /** Confirm a mirrored Zoho SO (staff/admin). */
@@ -743,189 +346,28 @@ export async function voidMirroredSalesOrder(uid, role, salesOrderId, reason, se
   };
 }
 
-export async function submitDealerOrderPayment(uid, role, payload = {}) {
-  const user = await loadUser(uid);
-  if (!DEALER_ROLES.has(user.role)) {
-    throw new HttpsError('permission-denied', 'Only dealers can submit payment proof.');
-  }
-
-  const { ref, data } = await getOrderOrThrow(payload.orderId);
-  assertDealerOrderAccess(user, data);
-
-  if (data.status !== 'waiting_for_payment' && data.status !== 'payment_submitted') {
-    throw new HttpsError(
-      'failed-precondition',
-      'Payment can only be submitted when the order is waiting for payment.',
-    );
-  }
-
-  const storagePath = String(payload.paymentScreenshotStoragePath ?? '').trim();
-  if (!storagePath || !storagePath.startsWith(`dealer-orders/${ref.id}/`)) {
-    throw new HttpsError('invalid-argument', 'Payment screenshot is required.');
-  }
-
-  const paymentUtr = String(payload.paymentUtr ?? '').trim() || null;
-  const paymentAmount = Number(data.paymentAmount ?? data.subtotal ?? 0);
-  const status = 'payment_submitted';
-  const updatedAt = nowIso();
-
-  await ref.update({
-    status,
-    statusHistory: FieldValue.arrayUnion(statusEvent(status, user)),
-    paymentScreenshotStoragePath: storagePath,
-    paymentUtr,
-    paymentAmount,
-    paymentSubmittedAt: updatedAt,
-    updatedAt,
-  });
-
-  let paymentScreenshotUrl = null;
-  try {
-    paymentScreenshotUrl = await getDealerOrderPaymentUrl(uid, storagePath);
-  } catch {
-    paymentScreenshotUrl = null;
-  }
-
-  const snap = await ref.get();
-  return mapOrderDoc(snap.id, snap.data(), paymentScreenshotUrl);
-}
-
-export async function verifyDealerOrderPayment(uid, role, orderId, secrets, orgId) {
+/**
+ * Delete all legacy portal dealerOrders documents (batch). Super admin only.
+ * Does not delete Zoho sales orders.
+ */
+export async function purgeAllDealerOrders(uid) {
   const user = await loadUser(uid);
   requireSuperAdmin(user);
 
-  const { ref, data } = await getOrderOrThrow(orderId);
-  if (data.status !== 'payment_submitted' && data.status !== 'processing') {
-    throw new HttpsError(
-      'failed-precondition',
-      'Only payment-submitted orders can be verified.',
-    );
-  }
-  if (!data.paymentScreenshotStoragePath) {
-    throw new HttpsError('failed-precondition', 'Payment screenshot is missing.');
-  }
-
-  // Idempotent if already completed
-  if (data.status === 'completed' && data.zohoInvoiceId) {
-    return mapOrderDoc(ref.id, data);
-  }
-
-  const processingAt = nowIso();
-  await ref.update({
-    status: 'processing',
-    statusHistory: FieldValue.arrayUnion(statusEvent('processing', user)),
-    zohoSyncError: null,
-    updatedAt: processingAt,
-  });
-
-  try {
-    // Prefer SO created at approval; create here only for legacy orders approved before that change.
-    let salesOrderId = data.zohoSalesOrderId || null;
-    let salesOrderNumber = data.zohoSalesOrderNumber || null;
-
-    if (!salesOrderId) {
-      const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
-        ...data,
-        id: ref.id,
-      });
-      salesOrderId = so.salesOrderId;
-      salesOrderNumber = so.salesOrderNumber;
-      await ref.update({
-        zohoSalesOrderId: salesOrderId,
-        zohoSalesOrderNumber: salesOrderNumber,
-        updatedAt: nowIso(),
-      });
+  const db = getFirestore();
+  let deleted = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const snap = await db.collection(LEGACY_COLLECTION).limit(400).get();
+    if (snap.empty) break;
+    const batch = db.batch();
+    for (const docSnap of snap.docs) {
+      batch.delete(docSnap.ref);
     }
-
-    if (salesOrderId) {
-      try {
-        await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
-      } catch (mirrorErr) {
-        console.warn(
-          `Verify order ${ref.id}: could not mirror SO ${salesOrderId}:`,
-          mirrorErr?.message ?? mirrorErr,
-        );
-      }
-    }
-
-    let invoiceId = data.zohoInvoiceId || null;
-    let invoiceNumber = data.zohoInvoiceNumber || null;
-    if (!invoiceId) {
-      const inv = await createInvoiceFromSalesOrder(secrets, orgId, {
-        salesOrderId,
-        customerId: data.zohoCustomerId,
-        referenceNumber: data.orderNumber,
-      });
-      invoiceId = inv.invoiceId;
-      invoiceNumber = inv.invoiceNumber;
-    }
-
-    const completedAt = nowIso();
-    await ref.update({
-      status: 'completed',
-      statusHistory: FieldValue.arrayUnion(statusEvent('completed', user)),
-      paymentVerifiedAt: completedAt,
-      paymentVerifiedByUid: uid,
-      zohoSalesOrderId: salesOrderId,
-      zohoSalesOrderNumber: salesOrderNumber,
-      zohoInvoiceId: invoiceId,
-      zohoInvoiceNumber: invoiceNumber,
-      zohoSyncError: null,
-      updatedAt: completedAt,
-    });
-  } catch (err) {
-    const message = err?.message || 'Could not create Zoho invoice.';
-    await ref.update({
-      status: 'payment_submitted',
-      zohoSyncError: message,
-      updatedAt: nowIso(),
-    });
-    throw new HttpsError('internal', message);
+    await batch.commit();
+    deleted += snap.size;
+    if (snap.size < 400) break;
   }
 
-  const snap = await ref.get();
-  let paymentScreenshotUrl = null;
-  if (snap.data()?.paymentScreenshotStoragePath) {
-    try {
-      paymentScreenshotUrl = await getDealerOrderPaymentUrl(
-        uid,
-        snap.data().paymentScreenshotStoragePath,
-      );
-    } catch {
-      paymentScreenshotUrl = null;
-    }
-  }
-  return mapOrderDoc(snap.id, snap.data(), paymentScreenshotUrl);
-}
-
-export async function downloadDealerOrderSalesOrder(uid, role, orderId, secrets, orgId) {
-  const user = await loadUser(uid);
-  const { data } = await getOrderOrThrow(orderId);
-  assertDealerOrderAccess(user, data);
-
-  const salesOrderId = data.zohoSalesOrderId ? String(data.zohoSalesOrderId) : '';
-  if (!salesOrderId) {
-    throw new HttpsError(
-      'failed-precondition',
-      'Sales order is not available yet. It is created when the order is approved.',
-    );
-  }
-
-  try {
-    return await downloadSalesOrderPdf(secrets, orgId, {
-      salesOrderId,
-      salesOrderNumber: data.zohoSalesOrderNumber || data.orderNumber || salesOrderId,
-    });
-  } catch (err) {
-    throw new HttpsError('internal', err?.message || 'Could not download sales order PDF.');
-  }
-}
-
-export async function countPendingDealerOrders() {
-  const snap = await getFirestore()
-    .collection(COLLECTION)
-    .where('status', '==', 'pending_review')
-    .limit(500)
-    .get();
-  return snap.size;
+  return { deleted, collection: LEGACY_COLLECTION };
 }

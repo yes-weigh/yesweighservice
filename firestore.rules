@@ -768,19 +768,9 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    function isDealerOrderDealerAccess(data) {
-      return (isDealer() && data.dealerId == request.auth.uid)
-        || (isDealerStaff() && data.dealerId == userDealerId(userDoc()))
-        || data.createdByUid == request.auth.uid;
-    }
-
-    /** Dealer product orders — mutations go through Cloud Functions; clients read. */
+    /** Legacy portal orders — deprecated; purge via purgeDealerOrders callable. */
     match /dealerOrders/{orderId} {
-      allow read: if isActiveUser() && (
-        isOpsUser()
-        || isDealerOrderDealerAccess(resource.data)
-      );
-      allow create, update, delete: if false;
+      allow read, create, update, delete: if false;
     }
 
     match /dealerOrderCounters/{dayId} {

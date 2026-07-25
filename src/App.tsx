@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartProvider';
 import { CartFlyProvider } from './context/CartFlyProvider';
@@ -76,10 +76,9 @@ const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }
 };
 
 const OpsOrderDetailRedirect: React.FC = () => {
-  const { orderId = '' } = useParams<{ orderId: string }>();
   const { pathname } = useLocation();
   const base = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
-  return <Navigate to={`${base}/sales-orders/portal/${orderId}`} replace />;
+  return <Navigate to={`${base}/sales-orders`} replace />;
 };
 
 const OpsOrdersListRedirect: React.FC = () => {
@@ -149,14 +148,14 @@ const portalMenuRoutes = (
 const dealerSalesOrderRoutes = (
   <>
     <Route path="sales-orders" element={<DealerMenuPages.SalesOrders />} />
-    <Route path="sales-orders/portal/:orderId" element={<DealerMenuPages.OrderDetail />} />
+    <Route path="sales-orders/portal/:orderId" element={<Navigate to="../" relative="path" replace />} />
     <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>
       <Route index element={<AdminSalesOrderDocumentPage />} />
       <Route path="view" element={<AdminSalesOrderPdfViewerPage />} />
     </Route>
     <Route path="orders" element={<DealerMenuPages.Orders />} />
     <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
-    <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
+    <Route path="orders/:orderId" element={<Navigate to="../sales-orders" relative="path" replace />} />
   </>
 );
 

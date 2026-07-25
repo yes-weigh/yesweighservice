@@ -74,7 +74,7 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     reference_number: String(order.orderNumber || order.id || ''),
     date: new Date().toISOString().slice(0, 10),
     line_items: lineItems,
-    notes: `Portal cart ${order.orderNumber || order.id}`,
+    notes: `YesOne cart ${order.orderNumber || order.id}`,
   };
 
   const payload = await zohoJson(accessToken, orgId, '/salesorders', {

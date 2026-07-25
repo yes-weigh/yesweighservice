@@ -898,46 +898,6 @@ export async function syncDealerSalesOrdersToFirestore(secrets, orgId, customerI
   };
 }
 
-async function resolveDealerIdForUser(uid, role) {
-  const userSnap = await getFirestore().doc(`users/${uid}`).get();
-  const data = userSnap.data() || {};
-  if (role === 'dealer_staff') {
-    return String(data.dealerId ?? data.directorId ?? uid);
-  }
-  return String(uid);
-}
-
-async function loadPortalLinkedSalesOrderIds(uid, role) {
-  const dealerId = await resolveDealerIdForUser(uid, role);
-  const snap = await getFirestore()
-    .collection('dealerOrders')
-    .where('dealerId', '==', dealerId)
-    .limit(200)
-    .get();
-  const ids = [];
-  for (const docSnap of snap.docs) {
-    const soId = docSnap.data()?.zohoSalesOrderId;
-    if (soId) ids.push(String(soId));
-  }
-  return ids;
-}
-
-async function loadSalesOrdersByIds(ids) {
-  const unique = [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
-  if (!unique.length) return [];
-  const db = getFirestore();
-  const rows = [];
-  for (let i = 0; i < unique.length; i += 100) {
-    const chunk = unique.slice(i, i + 100);
-    const refs = chunk.map(id => soCollection().doc(id));
-    const docs = await db.getAll(...refs);
-    for (const docSnap of docs) {
-      if (docSnap.exists) rows.push(mapSalesOrderListRow(docSnap.id, docSnap.data() || {}));
-    }
-  }
-  return rows;
-}
-
 /**
  * Admin-style fetch: page through this customer's salesOrders newest-first.
  * Avoids the old single-shot limit(400) that returned an arbitrary/old slice.
@@ -1020,16 +980,6 @@ function sortSalesOrderRows(rows) {
   });
 }
 
-function mergeSalesOrderRows(...lists) {
-  const byId = new Map();
-  for (const list of lists) {
-    for (const row of list) {
-      if (row?.id) byId.set(row.id, row);
-    }
-  }
-  return sortSalesOrderRows([...byId.values()]);
-}
-
 /**
  * Dealer / dealer_staff: list Zoho sales orders for their linked customer.
  * Mirrors admin visibility: date-ordered pagination for the customer (no 400-cap slice).
@@ -1052,26 +1002,6 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
 
   let rows = await queryDealerSalesOrdersFromFirestore(customerId, rangeOpts);
 
-  const portalLinkedIds = await loadPortalLinkedSalesOrderIds(uid, role);
-  if (portalLinkedIds.length) {
-    rows = mergeSalesOrderRows(rows, await loadSalesOrdersByIds(portalLinkedIds));
-  }
-
-  const missingPortalIds = portalLinkedIds.filter(id => !rows.some(row => row.id === id));
-  if (missingPortalIds.length && secrets && orgId) {
-    for (const soId of missingPortalIds.slice(0, 25)) {
-      try {
-        await mirrorSalesOrderFromZoho(secrets, orgId, soId);
-      } catch (err) {
-        console.warn(`Mirror portal-linked SO ${soId} failed:`, err?.message ?? err);
-      }
-    }
-    rows = mergeSalesOrderRows(
-      await queryDealerSalesOrdersFromFirestore(customerId, rangeOpts),
-      await loadSalesOrdersByIds(portalLinkedIds),
-    );
-  }
-
   // Firestore empty for this customer → pull from Zoho (throttled).
   if (rows.length === 0 && secrets && orgId) {
     const metaSnap = await getFirestore().doc(`salesOrderMeta/dealerSync_${customerId}`).get();
@@ -1085,9 +1015,6 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
           maxDetails: 120,
         });
         rows = await queryDealerSalesOrdersFromFirestore(customerId, rangeOpts);
-        if (portalLinkedIds.length) {
-          rows = mergeSalesOrderRows(rows, await loadSalesOrdersByIds(portalLinkedIds));
-        }
       } catch (err) {
         console.warn('Dealer SO lazy sync failed:', err?.message ?? err);
       }
