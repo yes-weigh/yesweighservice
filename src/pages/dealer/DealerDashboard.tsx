@@ -97,9 +97,9 @@ function buildSecondaryKpis(base: string, openOrders: number | null): KpiCard[] 
     },
     {
       id: 'orders',
-      label: 'Open Orders',
+      label: 'Sales orders',
       value: openOrders == null ? '' : String(openOrders),
-      path: `${base}/orders/history`,
+      path: `${base}/sales-orders`,
       tone: 'orange',
       icon: <ShoppingCart size={22} strokeWidth={2.5} />,
     },

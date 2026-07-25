@@ -4,8 +4,9 @@ import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
 import { DealerDashboard } from './DealerDashboard';
 import { OrdersPage } from './OrdersPage';
-import { DealerOrderHistoryPage } from './DealerOrderHistoryPage';
+import { Navigate } from 'react-router-dom';
 import { DealerOrderDetailPage } from './DealerOrderDetailPage';
+import { DealerSalesOrdersPage } from './DealerSalesOrdersPage';
 import { StaffOrderDetailPage } from '../staff/StaffOrderDetailPage';
 import { CatalogPage } from './CatalogPage';
 import { InvoicesPage } from './InvoicesPage';
@@ -55,9 +56,17 @@ function OrderDetailRoute() {
 function OrderHistoryRoute() {
   const { user } = useAuth();
   if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
-    return <DealerOrderHistoryPage />;
+    return <Navigate to={`${homePathForRole(user.role)}/sales-orders`} replace />;
   }
   return <OrdersPage />;
+}
+
+function SalesOrdersRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
+    return <DealerSalesOrdersPage />;
+  }
+  return <Navigate to="/" replace />;
 }
 
 export const RoleDashboard: React.FC = () => {
@@ -97,6 +106,7 @@ export const DealerMenuPages = {
   Orders: OrdersPage,
   OrderHistory: OrderHistoryRoute,
   OrderDetail: OrderDetailRoute,
+  SalesOrders: SalesOrdersRoute,
   Verification: () => (
     <PagePlaceholder
       title="Verification"

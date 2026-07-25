@@ -7,6 +7,7 @@ import {
   fetchAdminSalesOrderDetail,
   type AdminSalesOrderDetail,
 } from '../../lib/admin-sales-orders';
+import { fetchDealerSalesOrderDetail } from '../../lib/dealer-sales-orders';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
@@ -15,7 +16,12 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const { salesOrderId = '' } = useParams<{ salesOrderId: string }>();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  const basePath = pathname.startsWith('/staff')
+    ? '/staff'
+    : pathname.startsWith('/dealer')
+      ? (pathname.startsWith('/dealer-staff') ? '/dealer-staff' : '/dealer')
+      : '/super-admin';
+  const isDealerView = basePath === '/dealer' || basePath === '/dealer-staff';
   const listPath = `${basePath}/sales-orders`;
   const summaryPath = `${listPath}/${salesOrderId}`;
   const isPdfView = pathname.endsWith('/view');
@@ -50,7 +56,11 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     setLoading(true);
     setError('');
 
-    fetchAdminSalesOrderDetail(salesOrderId)
+    const load = isDealerView
+      ? fetchDealerSalesOrderDetail(salesOrderId)
+      : fetchAdminSalesOrderDetail(salesOrderId);
+
+    load
       .then(data => {
         if (!cancelled) {
           setSalesOrder(data);
@@ -70,7 +80,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [salesOrderId]);
+  }, [salesOrderId, isDealerView]);
 
   if (!salesOrderId) return null;
 

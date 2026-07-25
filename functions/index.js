@@ -99,6 +99,9 @@ import {
   syncOrgSalesOrdersToFirestore,
   reclassifySalesOrderCategoriesFromCatalog,
   ensureSalesOrderPdf,
+  listDealerSalesOrders as listDealerSalesOrderRecords,
+  getDealerSalesOrderDetail as getDealerSalesOrderDetailRecord,
+  ensureDealerSalesOrderPdf,
 } from './lib/sales-order-sync.js';
 import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
@@ -2190,7 +2193,7 @@ export const syncZohoSalesOrdersScheduled = onSchedule(
   },
 );
 
-/** Download sales order PDF (lazy cache) — staff / super admin. */
+/** Download sales order PDF (lazy cache) — staff / super admin, or owning dealer. */
 export const downloadSalesOrderDocument = onCall(
   {
     region: 'asia-south1',
@@ -2199,20 +2202,62 @@ export const downloadSalesOrderDocument = onCall(
     memory: '512MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
     const soId = String(request.data?.salesOrderId ?? '').trim();
     if (!soId) {
       throw new HttpsError('invalid-argument', 'salesOrderId is required.');
     }
     try {
+      if (role === 'dealer' || role === 'dealer_staff') {
+        return await ensureDealerSalesOrderPdf(
+          zohoSecrets(),
+          zohoOrganizationId.value(),
+          uid,
+          role,
+          soId,
+        );
+      }
       return await ensureSalesOrderPdf(
         zohoSecrets(),
         zohoOrganizationId.value(),
         soId,
       );
     } catch (err) {
+      if (err instanceof HttpsError) throw err;
       console.error('downloadSalesOrderDocument failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not download sales order PDF.');
+    }
+  },
+);
+
+/** Dealer: list own Zoho sales orders from Firestore. */
+export const listDealerSalesOrders = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      return await listDealerSalesOrderRecords(uid, role, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load sales orders.');
+    }
+  },
+);
+
+/** Dealer: load one own Zoho sales order detail. */
+export const getDealerSalesOrderDetail = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    const salesOrderId = String(request.data?.salesOrderId ?? '').trim();
+    try {
+      return await getDealerSalesOrderDetailRecord(uid, role, salesOrderId);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load sales order.');
     }
   },
 );

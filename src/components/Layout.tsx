@@ -91,10 +91,9 @@ function portalNavItems(
   const items: Record<string, NavItem> = {
     catalog: { path: `${home}/catalog`, icon: <Package size={20} />, label: 'Catalog' },
     orders: {
-      path: `${home}/orders`,
-      icon: <ShoppingCart size={20} />,
-      label: 'Orders',
-      badge: itemCount > 0 ? itemCount : undefined,
+      path: `${home}/sales-orders`,
+      icon: <ClipboardList size={20} />,
+      label: 'Sales orders',
     },
     complaints: { path: `${home}/complaints`, icon: <MessageSquareWarning size={20} />, label: 'Complaints' },
     warrantySupport: {

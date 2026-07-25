@@ -66,8 +66,8 @@ const DealerCartPage: React.FC = () => {
             <h2 className="orders-page__title">Your cart</h2>
             <p className="text-muted text-sm">Add products, then place an order for review.</p>
           </div>
-          <Link to={`${base}/orders/history`} className="btn btn-secondary btn-sm">
-            My orders
+          <Link to={`${base}/sales-orders`} className="btn btn-secondary btn-sm">
+            Sales orders
           </Link>
         </div>
         <div className="orders-page__empty panel glass">
@@ -92,8 +92,8 @@ const DealerCartPage: React.FC = () => {
           </p>
         </div>
         <div className="orders-page__header-actions">
-          <Link to={`${base}/orders/history`} className="btn btn-secondary btn-sm">
-            My orders
+          <Link to={`${base}/sales-orders`} className="btn btn-secondary btn-sm">
+            Sales orders
           </Link>
           <button type="button" className="btn btn-secondary btn-sm" onClick={clearCart}>
             Clear cart

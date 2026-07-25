@@ -3,11 +3,14 @@ import { Link, useOutletContext } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
+import { useAuth } from '../../context/AuthContext';
 import { findDealerOrderIdByOrderNumber } from '../../lib/dealerOrders';
 import { formatInvoiceDate, invoiceCategoryLabel, invoiceStatusLabel } from '../../lib/invoices';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 
 export const AdminSalesOrderDocumentPage: React.FC = () => {
+  const { user } = useAuth();
+  const isDealer = user?.role === 'dealer' || user?.role === 'dealer_staff';
   const { salesOrder, listPath } = useOutletContext<AdminSalesOrderDetailOutletContext>();
   const [portalOrderId, setPortalOrderId] = useState<string | null>(null);
 
@@ -35,10 +38,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     <>
       <section className="panel glass mb-4" style={{ padding: '1rem 1.25rem' }}>
         <div className="flex gap-4 flex-wrap" style={{ justifyContent: 'space-between' }}>
-          <div>
-            <div className="text-muted text-sm">Customer</div>
-            <strong>{salesOrder.customerName ?? '—'}</strong>
-          </div>
+          {!isDealer && (
+            <div>
+              <div className="text-muted text-sm">Customer</div>
+              <strong>{salesOrder.customerName ?? '—'}</strong>
+            </div>
+          )}
           <div>
             <div className="text-muted text-sm">Date</div>
             <strong>{formatInvoiceDate(salesOrder.date)}</strong>

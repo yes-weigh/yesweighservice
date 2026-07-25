@@ -332,9 +332,9 @@ function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen:
             <InvoiceCategoryBadge category={invoice.invoiceCategory} />
             <strong>{invoice.invoiceNumber || '—'}</strong>
           </span>
-          <span className="invoices-mobile-row__so">
-            {invoice.customerName || invoice.referenceNumber || '—'}
-          </span>
+          {invoice.referenceNumber ? (
+            <span className="invoices-mobile-row__so">{invoice.referenceNumber}</span>
+          ) : null}
           <span className="invoices-mobile-row__meta">{formatInvoiceDate(invoice.date)}</span>
         </span>
         <span className="invoices-mobile-row__amount">

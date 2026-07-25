@@ -147,7 +147,7 @@ export const DealerOrderDetailPage: React.FC = () => {
           <AlertCircle size={18} />
           <span>{error || 'Order not found.'}</span>
         </div>
-        <button type="button" className="btn btn-secondary" onClick={() => navigate(`${base}/orders/history`)}>
+        <button type="button" className="btn btn-secondary" onClick={() => navigate(`${base}/sales-orders`)}>
           Back to orders
         </button>
       </div>
@@ -160,7 +160,7 @@ export const DealerOrderDetailPage: React.FC = () => {
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          onClick={() => navigate(`${base}/orders/history`)}
+          onClick={() => navigate(`${base}/sales-orders`)}
         >
           <ChevronLeft size={16} /> Orders
         </button>

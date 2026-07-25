@@ -17,6 +17,8 @@ import {
   parseInvoiceCategory,
   sumNonFreightQuantity,
 } from './invoice-category.js';
+import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
+import { HttpsError } from 'firebase-functions/v2/https';
 
 const COLLECTION = 'salesOrders';
 const META_DOC = 'salesOrderMeta/orgSync';
@@ -754,6 +756,7 @@ export async function ensureSalesOrderPdf(secrets, orgId, soId) {
 }
 
 export function mapSalesOrderDoc(id, data) {
+  const lineItems = Array.isArray(data.lineItems) ? data.lineItems : [];
   return {
     id,
     salesOrderNumber: String(data.salesOrderNumber ?? ''),
@@ -769,16 +772,68 @@ export function mapSalesOrderDoc(id, data) {
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ?? null,
-    lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
+    lineItems,
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
-    itemQuantity: data.itemQuantity != null
-      ? Number(data.itemQuantity)
-      : (Array.isArray(data.lineItems)
-        ? data.lineItems.reduce((sum, line) => sum + Number(line.quantity || 0), 0)
-        : null),
+    itemQuantity: lineItems.length
+      ? sumNonFreightQuantity(lineItems)
+      : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
     syncedAt: data.syncedAt?.toDate?.()?.toISOString?.()
       ?? (typeof data.syncedAt === 'string' ? data.syncedAt : null),
     searchBlob: data.searchBlob ?? '',
     pdfStoragePath: data.pdfStoragePath ?? null,
   };
+}
+
+/**
+ * Dealer / dealer_staff: list Zoho sales orders for their linked customer.
+ * Sorted by date desc in memory (avoids a composite index dependency).
+ */
+export async function listDealerSalesOrders(uid, role, query = {}) {
+  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+  if (!customerId) {
+    throw new HttpsError('failed-precondition', 'No Zoho customer is linked to this account.');
+  }
+  const limit = Math.min(Math.max(Number(query.limit ?? 200) || 200, 1), 400);
+  const snap = await soCollection()
+    .where('customerId', '==', String(customerId))
+    .limit(limit)
+    .get();
+
+  const rows = snap.docs
+    .map(docSnap => mapSalesOrderDoc(docSnap.id, docSnap.data() || {}))
+    .sort((a, b) => {
+      const ad = String(a.date ?? '');
+      const bd = String(b.date ?? '');
+      if (ad !== bd) return bd.localeCompare(ad);
+      return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+    });
+
+  return { data: rows, customerId: String(customerId) };
+}
+
+/** Dealer / dealer_staff: load one sales order if it belongs to their customer. */
+export async function getDealerSalesOrderDetail(uid, role, salesOrderId) {
+  const id = String(salesOrderId ?? '').trim();
+  if (!id) throw new HttpsError('invalid-argument', 'salesOrderId is required.');
+
+  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+  if (!customerId) {
+    throw new HttpsError('failed-precondition', 'No Zoho customer is linked to this account.');
+  }
+
+  const snap = await soCollection().doc(id).get();
+  if (!snap.exists) {
+    throw new HttpsError('not-found', 'Sales order not found.');
+  }
+  const data = snap.data() || {};
+  if (String(data.customerId ?? '') !== String(customerId)) {
+    throw new HttpsError('permission-denied', 'You do not have access to this sales order.');
+  }
+  return mapSalesOrderDoc(snap.id, data);
+}
+
+/** Ensure dealer owns the SO before serving PDF. */
+export async function ensureDealerSalesOrderPdf(secrets, orgId, uid, role, salesOrderId) {
+  await getDealerSalesOrderDetail(uid, role, salesOrderId);
+  return ensureSalesOrderPdf(secrets, orgId, salesOrderId);
 }

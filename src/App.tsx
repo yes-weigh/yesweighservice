@@ -146,13 +146,25 @@ const portalMenuRoutes = (
   </>
 );
 
+const dealerSalesOrderRoutes = (
+  <>
+    <Route path="sales-orders" element={<DealerMenuPages.SalesOrders />} />
+    <Route path="sales-orders/portal/:orderId" element={<DealerMenuPages.OrderDetail />} />
+    <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>
+      <Route index element={<AdminSalesOrderDocumentPage />} />
+      <Route path="view" element={<AdminSalesOrderPdfViewerPage />} />
+    </Route>
+    <Route path="orders" element={<DealerMenuPages.Orders />} />
+    <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
+    <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
+  </>
+);
+
 const dealerRoutes = (
   <>
     <Route index element={<RoleDashboard />} />
     {portalMenuRoutes}
-    <Route path="orders" element={<DealerMenuPages.Orders />} />
-    <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
-    <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
+    {dealerSalesOrderRoutes}
     <Route path="team" element={<DealerTeamPage />} />
     <Route path="profile" element={<ProfilePage />} />
   </>
@@ -329,9 +341,7 @@ const App: React.FC = () => (
                 <Route path="qc" element={<DealerMenuPages.InvoiceQc />} />
               </Route>
               {catalogRoutes}
-              <Route path="orders" element={<DealerMenuPages.Orders />} />
-              <Route path="orders/history" element={<DealerMenuPages.OrderHistory />} />
-              <Route path="orders/:orderId" element={<DealerMenuPages.OrderDetail />} />
+              {dealerSalesOrderRoutes}
               <Route path="verification" element={<DealerMenuPages.Verification />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
               <Route path="logistics" element={<DealerMenuPages.Logistics />} />
