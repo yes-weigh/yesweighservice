@@ -6,6 +6,7 @@ import {
   extractZohoListFields,
 } from './zoho-contact-fields.js';
 import { classifyZohoHttpError, recordZohoApiFailure } from './zoho-api-usage.js';
+import { extractWebhookEvent } from './invoice-sync.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const SETTINGS_COLLECTION = 'dealerSettings';
@@ -429,4 +430,160 @@ export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
   await ref.set(localPatch, { merge: true });
 
   return refreshDealerFromZoho(id, secrets, orgId, { force: true });
+}
+
+function normalizeWebhookBody(body) {
+  if (!body || typeof body !== 'object') return {};
+  let next = { ...body };
+  if (typeof body.JSONString === 'string' && body.JSONString.trim()) {
+    try {
+      const parsed = JSON.parse(body.JSONString);
+      if (parsed && typeof parsed === 'object') next = { ...next, ...parsed };
+    } catch {
+      // ignore
+    }
+  }
+  return next;
+}
+
+export function extractContactIdFromWebhook(body, query = {}) {
+  const normalized = normalizeWebhookBody(body);
+  const candidates = [
+    query.contact_id,
+    query.contactId,
+    query.customer_id,
+    query.customerId,
+    query.id,
+    normalized.contact_id,
+    normalized.contactId,
+    normalized.customer_id,
+    normalized.contact?.contact_id,
+    normalized.customer?.contact_id,
+    normalized.data?.contact_id,
+    normalized.payload?.contact_id,
+  ];
+  for (const value of candidates) {
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return null;
+}
+
+/**
+ * Create or refresh one Zoho customer in zohoCustomers/{id} (webhook / force path).
+ */
+export async function upsertCustomerFromZoho(secrets, orgId, contactId) {
+  const id = String(contactId ?? '').trim();
+  if (!id) throw new Error('contactId is required.');
+
+  const db = getFirestore();
+  const ref = db.collection(CUSTOMERS_COLLECTION).doc(id);
+  const snap = await ref.get();
+  const existing = snap.exists ? snap.data() : null;
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const contact = await fetchRawCustomerDetail(accessToken, organizationId, id);
+
+  const zohoDetailFields = extractZohoDetailFields(contact);
+  const coreFields = extractZohoCoreFields(contact);
+  const zohoListFields = extractZohoListFields(contact);
+  const zohoEmail = coreFields.email ?? null;
+
+  const isManuallyDeactivated = existing?.filterReason === 'Manual';
+  const contactStatus = String(contact.status ?? coreFields.status ?? 'active').toLowerCase();
+  const zohoFiltered = contactStatus === 'inactive' || contactStatus === 'deleted';
+
+  const resolvedMobile = coreFields.mobile
+    ?? zohoDetailFields.zohoPrimaryContact?.mobile
+    ?? existing?.mobile
+    ?? null;
+
+  const patch = {
+    ...coreFields,
+    ...zohoListFields,
+    ...zohoDetailFields,
+    zohoEmail,
+    email: existing?.email ?? zohoEmail,
+    phone: existing?.phone ?? coreFields.phone,
+    mobile: resolvedMobile,
+    firstName: existing?.firstName ?? coreFields.firstName,
+    isFiltered: isManuallyDeactivated ? true : zohoFiltered,
+    filterReason: isManuallyDeactivated ? 'Manual' : (zohoFiltered ? 'Inactive' : (existing?.filterReason ?? null)),
+    syncedAt: new Date().toISOString(),
+    zohoDetailSyncedAt: new Date().toISOString(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  if (!isManuallyDeactivated && !zohoFiltered && existing?.filterReason === 'DeletedFromZoho') {
+    patch.isFiltered = false;
+    patch.filterReason = null;
+  }
+
+  const billing = contact.billing_address;
+  const shipping = contact.shipping_address;
+  const address = (shipping?.state || shipping?.city) ? shipping : billing;
+  if (address) {
+    if (!existing?.billingState && (address.state || address.state_code)) {
+      patch.billingState = address.state || address.state_code;
+    }
+    if (!existing?.district && address.city) {
+      patch.district = address.city;
+    }
+    if (!existing?.zipCode && address.zip) {
+      patch.zipCode = address.zip;
+    }
+  }
+
+  if (!existing) {
+    await ref.set({
+      ...patch,
+      kamId: null,
+      dealerStage: null,
+      billingState: patch.billingState ?? null,
+      district: patch.district ?? null,
+      zipCode: patch.zipCode ?? null,
+      categories: [],
+      portalUserId: null,
+      createdAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { id, created: true };
+  }
+
+  await ref.set(patch, { merge: true });
+  return { id, created: false };
+}
+
+export async function markCustomerDeletedFromZoho(contactId) {
+  const id = String(contactId ?? '').trim();
+  if (!id) return;
+  const ref = getFirestore().collection(CUSTOMERS_COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  const data = snap.data() || {};
+  // Keep portal-linked dealers; soft-hide everyone on Zoho delete.
+  await ref.set({
+    isFiltered: true,
+    filterReason: data.filterReason === 'Manual' ? 'Manual' : 'DeletedFromZoho',
+    status: 'inactive',
+    syncedAt: new Date().toISOString(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+}
+
+export async function handleZohoCustomerWebhook(secrets, orgId, req) {
+  const body = normalizeWebhookBody(req.body ?? {});
+  const contactId = extractContactIdFromWebhook(body, req.query ?? {});
+  if (!contactId) {
+    return { ok: false, status: 400, message: 'Missing contact_id' };
+  }
+
+  const queryAction = String(req.query?.action ?? '').trim().toLowerCase();
+  const event = queryAction || extractWebhookEvent(body);
+  if (event.includes('delete')) {
+    await markCustomerDeletedFromZoho(contactId);
+    return { ok: true, status: 200, action: 'deleted', contactId };
+  }
+
+  const result = await upsertCustomerFromZoho(secrets, orgId, contactId);
+  return { ok: true, status: 200, action: 'synced', contactId, result };
 }

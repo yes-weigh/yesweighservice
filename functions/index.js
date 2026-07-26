@@ -21,6 +21,7 @@ import {
   importProductImagesFromZoho,
   pushMissingCatalogProductImagesToZoho,
   recordCatalogBinLabelPrint,
+  handleZohoItemWebhook,
 } from './lib/catalog-sync.js';
 import {
   mutateCatalogProductDetails,
@@ -46,7 +47,7 @@ import {
   saveSpareProductMap,
 } from './lib/spare-links.js';
 import { syncLinkedAuditPhotosToZoho, reconcileLinkedAuditPhotosOnZoho } from './lib/audit-zoho-images.js';
-import { syncCustomersToFirestore } from './lib/zoho-customers.js';
+import { syncCustomersToFirestore, handleZohoCustomerWebhook } from './lib/zoho-customers.js';
 import {
   listDealers,
   exportDealersCsv,
@@ -1785,6 +1786,82 @@ export const zohoSalesOrderWebhook = onRequest(
       res.status(result.status).json(result);
     } catch (err) {
       console.error('Zoho sales order webhook failed:', err);
+      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+    }
+  },
+);
+
+/** Zoho Item webhook — create/edit/delete catalogProducts mirror. */
+export const zohoItemWebhook = onRequest(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+
+    const secret = zohoWebhookSecret.value()?.trim();
+    if (secret && !verifyZohoWebhookSignature(req, secret)) {
+      console.warn('Zoho item webhook rejected: invalid signature.');
+      res.status(401).send('Invalid signature');
+      return;
+    }
+    if (!secret) {
+      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
+    }
+
+    try {
+      const result = await handleZohoItemWebhook(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        req,
+      );
+      res.status(result.status).json(result);
+    } catch (err) {
+      console.error('Zoho item webhook failed:', err);
+      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+    }
+  },
+);
+
+/** Zoho Customer webhook — create/edit/soft-delete zohoCustomers mirror. */
+export const zohoCustomerWebhook = onRequest(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+
+    const secret = zohoWebhookSecret.value()?.trim();
+    if (secret && !verifyZohoWebhookSignature(req, secret)) {
+      console.warn('Zoho customer webhook rejected: invalid signature.');
+      res.status(401).send('Invalid signature');
+      return;
+    }
+    if (!secret) {
+      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
+    }
+
+    try {
+      const result = await handleZohoCustomerWebhook(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        req,
+      );
+      res.status(result.status).json(result);
+    } catch (err) {
+      console.error('Zoho customer webhook failed:', err);
       res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
     }
   },

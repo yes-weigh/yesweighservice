@@ -3,6 +3,7 @@ import { getStorage } from 'firebase-admin/storage';
 import {
   fetchAllProducts,
   fetchBulkItemDetails,
+  fetchProductDetail,
   getAccessToken,
   resolveOrganizationId,
   downloadProductImage,
@@ -18,6 +19,7 @@ import {
   normaliseCategoryId,
 } from './zoho.js';
 import { buildZohoSyncAuditAdjustment } from './catalog-product-audit.js';
+import { extractWebhookEvent } from './invoice-sync.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
 const CATEGORIES_COLLECTION = 'catalogCategories';
@@ -1903,4 +1905,202 @@ export async function deleteProductImage(productId, accessToken, organizationId,
   }, { merge: true });
 
   return { ok: true, imageUrl: null, imageUrls: [], imageDocs: [] };
+}
+
+function normalizeWebhookBody(body) {
+  if (!body || typeof body !== 'object') return {};
+  let next = { ...body };
+  if (typeof body.JSONString === 'string' && body.JSONString.trim()) {
+    try {
+      const parsed = JSON.parse(body.JSONString);
+      if (parsed && typeof parsed === 'object') next = { ...next, ...parsed };
+    } catch {
+      // ignore
+    }
+  }
+  return next;
+}
+
+export function extractItemIdFromWebhook(body, query = {}) {
+  const normalized = normalizeWebhookBody(body);
+  const candidates = [
+    query.item_id,
+    query.itemId,
+    query.id,
+    normalized.item_id,
+    normalized.itemId,
+    normalized.item?.item_id,
+    normalized.item?.itemId,
+    normalized.data?.item_id,
+    normalized.payload?.item_id,
+  ];
+  for (const value of candidates) {
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return null;
+}
+
+export async function deleteCatalogItemFromFirestore(itemId) {
+  const id = String(itemId ?? '').trim();
+  if (!id) return;
+  const db = getFirestore();
+  await db.collection(PRODUCTS_COLLECTION).doc(id).delete().catch(() => {});
+}
+
+/**
+ * Pull one Zoho item into catalogProducts/{id}. Preserves local overlays.
+ * Webhooks skip image download by default (1 API call).
+ */
+export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId, options = {}) {
+  const id = String(itemId ?? '').trim();
+  if (!id) throw new Error('itemId is required.');
+
+  const skipImages = options.skipImages !== false;
+  const db = getFirestore();
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const product = await fetchProductDetail(accessToken, organizationId, id);
+
+  const existingSnap = await db.collection(PRODUCTS_COLLECTION).doc(id).get();
+  const existing = existingSnap.exists ? existingSnap.data() : null;
+  let imageUrl = existing?.imageUrl ?? null;
+  const suppressZohoImageImport = Boolean(existing?.suppressZohoImageImport);
+  const now = new Date().toISOString();
+
+  if (
+    !skipImages
+    && !imageUrl
+    && !suppressZohoImageImport
+  ) {
+    const cached = await cacheProductImage(accessToken, organizationId, id, imageUrl);
+    if (cached && cached !== 'RATE_LIMITED') imageUrl = cached;
+  }
+
+  const doc = {
+    id: product.id,
+    name: product.name,
+    sku: product.sku || null,
+    description: product.description || null,
+    unit: product.unit,
+    rate: product.rate,
+    stock: product.stock,
+    stockStatus: product.stockStatus,
+    imageUrl,
+    categoryId: product.categoryId || null,
+    categoryName: product.categoryName || null,
+    status: product.status,
+    hsn: product.hsn || null,
+    taxName: product.taxName || null,
+    taxPercentage: product.taxPercentage,
+    reorderLevel: product.reorderLevel,
+    warehouses: Array.isArray(product.warehouses) ? product.warehouses : [],
+    syncedAt: now,
+    organizationId,
+  };
+
+  if (suppressZohoImageImport && !imageUrl) {
+    doc.suppressZohoImageImport = true;
+  }
+
+  const packageInfo = readPackageInfo(existing?.packageInfo);
+  if (packageInfo) doc.packageInfo = packageInfo;
+
+  const mrpOverride = Number(existing?.mrpOverride);
+  if (Number.isFinite(mrpOverride) && mrpOverride > 0) {
+    doc.mrpOverride = Math.round(mrpOverride * 100) / 100;
+  }
+
+  const modelNumber = String(existing?.modelNumber ?? '').trim();
+  if (modelNumber) doc.modelNumber = modelNumber;
+
+  const approvalNumber = String(existing?.approvalNumber ?? '').trim();
+  if (approvalNumber) doc.approvalNumber = approvalNumber;
+
+  const previousStock = Number(existing?.stock);
+  const zohoSyncEntry = buildZohoSyncAuditAdjustment(
+    existing?.auditSnapshot,
+    previousStock,
+    product.stock,
+    now,
+  );
+  if (zohoSyncEntry) {
+    const productRef = db.collection(PRODUCTS_COLLECTION).doc(id);
+    const logRef = productRef.collection('auditLogs').doc();
+    const prior = existing?.auditSnapshot && typeof existing.auditSnapshot === 'object'
+      ? existing.auditSnapshot
+      : {};
+    const log = {
+      id: logRef.id,
+      catalogProductId: id,
+      auditedAt: zohoSyncEntry.auditedAt,
+      auditedByUid: null,
+      auditedByName: zohoSyncEntry.auditedByName,
+      mode: zohoSyncEntry.mode,
+      headOfficeQty: zohoSyncEntry.headOfficeQty,
+      cochinQty: zohoSyncEntry.cochinQty,
+      physicalQty: zohoSyncEntry.physicalQty,
+      rawPhysicalQty: null,
+      zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
+      baselineDifference: zohoSyncEntry.baselineDifference,
+      trigger: 'zoho_sync',
+      auditCycleId: null,
+    };
+    const snapshot = {
+      ...prior,
+      lastAuditLogId: logRef.id,
+      baselineDifference: zohoSyncEntry.baselineDifference,
+      physicalQtyAtAudit: zohoSyncEntry.physicalQty,
+      zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
+      mode: zohoSyncEntry.mode,
+      headOfficeQtyAtAudit: Number(prior.headOfficeQtyAtAudit ?? zohoSyncEntry.headOfficeQty),
+      cochinQtyAtAudit: Number(prior.cochinQtyAtAudit ?? zohoSyncEntry.cochinQty),
+      lastPhysicalAuditedAt: prior.lastPhysicalAuditedAt ?? prior.lastAuditedAt ?? null,
+      lastPhysicalAuditedByUid: prior.lastPhysicalAuditedByUid ?? prior.lastAuditedByUid ?? null,
+      lastPhysicalAuditedByName: prior.lastPhysicalAuditedByName ?? prior.lastAuditedByName ?? null,
+      lastAuditCycleId: prior.lastAuditCycleId ?? null,
+      lastHeadOfficeAuditCycleId: prior.lastHeadOfficeAuditCycleId ?? null,
+      lastCochinAuditCycleId: prior.lastCochinAuditCycleId ?? null,
+      lastAuditedAt: prior.lastAuditedAt ?? prior.lastPhysicalAuditedAt ?? zohoSyncEntry.auditedAt,
+      lastAuditedByUid: prior.lastAuditedByUid ?? prior.lastPhysicalAuditedByUid ?? null,
+      lastAuditedByName: prior.lastAuditedByName ?? prior.lastPhysicalAuditedByName ?? null,
+    };
+    await logRef.set(log);
+    doc.auditSnapshot = snapshot;
+  } else if (existing?.auditSnapshot) {
+    doc.auditSnapshot = existing.auditSnapshot;
+  }
+
+  if (Number.isFinite(existing?.displayOrder)) {
+    doc.displayOrder = existing.displayOrder;
+  }
+
+  if (existing?.hiddenFromCatalog === true) {
+    doc.hiddenFromCatalog = true;
+    if (existing.hiddenFromCatalogAt) doc.hiddenFromCatalogAt = existing.hiddenFromCatalogAt;
+    if (existing.hiddenFromCatalogByUid) doc.hiddenFromCatalogByUid = existing.hiddenFromCatalogByUid;
+  }
+
+  await db.collection(PRODUCTS_COLLECTION).doc(id).set(doc, { merge: true });
+  return { id, created: !existingSnap.exists };
+}
+
+export async function handleZohoItemWebhook(secrets, orgId, req) {
+  const body = normalizeWebhookBody(req.body ?? {});
+  const itemId = extractItemIdFromWebhook(body, req.query ?? {});
+  if (!itemId) {
+    return { ok: false, status: 400, message: 'Missing item_id' };
+  }
+
+  const queryAction = String(req.query?.action ?? '').trim().toLowerCase();
+  const event = queryAction || extractWebhookEvent(body);
+  if (event.includes('delete')) {
+    await deleteCatalogItemFromFirestore(itemId);
+    return { ok: true, status: 200, action: 'deleted', itemId };
+  }
+
+  const result = await mirrorCatalogItemFromZoho(secrets, orgId, itemId, {
+    skipImages: true,
+    source: 'webhook',
+  });
+  return { ok: true, status: 200, action: 'synced', itemId, result };
 }
