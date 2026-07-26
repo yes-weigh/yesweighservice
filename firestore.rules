@@ -298,6 +298,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Zoho salesperson cache for HR staff linking (written by Admin SDK sync).
+    match /zohoSalespersons/{salespersonId} {
+      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
+      allow write: if false;
+    }
+
+    match /zohoSalespersonMeta/{docId} {
+      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
+      allow write: if false;
+    }
+
     match /staffRoles/{roleId} {
       allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
       allow create, update, delete: if isFullSuperAdmin();

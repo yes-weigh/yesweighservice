@@ -15,6 +15,7 @@ import type { Kam } from '../../types/dealers';
 import { effectivePermissionSet } from '../../lib/staffAccess';
 import { findStaffRole, legacyDepartmentToRoleId } from '../../lib/staffRoles';
 import {
+  clearZohoSalespersonsCache,
   listZohoSalespersons,
   type ZohoSalespersonOption,
 } from '../../lib/zohoSalespersons';
@@ -182,11 +183,29 @@ function ZohoSalespersonPicker({
   const rootRef = useRef<HTMLDivElement>(null);
   const [options, setOptions] = useState<ZohoSalespersonOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+
+  const loadOptions = async (forceRefresh = false) => {
+    setLoading(true);
+    if (forceRefresh) setSyncing(true);
+    setError('');
+    try {
+      if (forceRefresh) clearZohoSalespersonsCache();
+      const rows = await listZohoSalespersons({ forceRefresh });
+      setOptions(rows);
+      setLoaded(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load Zoho salespersons.');
+    } finally {
+      setLoading(false);
+      setSyncing(false);
+    }
+  };
 
   const selectedLabel = salespersonName?.trim()
     || (salespersonId
@@ -203,25 +222,9 @@ function ZohoSalespersonPicker({
 
   useEffect(() => {
     if (!loadEnabled || loaded || loading) return;
-    let active = true;
-    setLoading(true);
-    setError('');
-    void listZohoSalespersons()
-      .then(rows => {
-        if (!active) return;
-        setOptions(rows);
-        setLoaded(true);
-      })
-      .catch(err => {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : 'Could not load Zoho salespersons.');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+    void loadOptions(false);
+    // Intentionally only when the Zoho section opens / first load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadEnabled, loaded, loading]);
 
   useEffect(() => {
@@ -276,7 +279,13 @@ function ZohoSalespersonPicker({
             id="staff-zoho-salesperson-search"
             type="search"
             className="input-field staff-role-editor__zoho-search-input"
-            placeholder={loading ? 'Loading salespersons…' : 'Search Zoho salesperson…'}
+            placeholder={
+              syncing
+                ? 'Syncing from Zoho…'
+                : loading
+                  ? 'Loading salespersons…'
+                  : 'Search Zoho salesperson…'
+            }
             value={query}
             disabled={disabled}
             autoComplete="off"
@@ -340,7 +349,7 @@ function ZohoSalespersonPicker({
             <li className="staff-role-editor__zoho-option-empty text-sm">{error}</li>
           ) : loading && !loaded ? (
             <li className="staff-role-editor__zoho-option-empty text-muted text-sm">
-              Loading from Zoho…
+              {syncing ? 'First sync from Zoho…' : 'Loading…'}
             </li>
           ) : matches.length === 0 ? (
             <li className="staff-role-editor__zoho-option-empty text-muted text-sm">
@@ -371,11 +380,27 @@ function ZohoSalespersonPicker({
         </ul>
       )}
 
-      {salespersonId ? (
-        <p className="staff-role-editor__hint text-muted text-sm">
-          Linked ID: {salespersonId}
-        </p>
-      ) : null}
+      <div className="staff-role-editor__zoho-footer">
+        {salespersonId ? (
+          <p className="staff-role-editor__hint text-muted text-sm">
+            Linked ID: {salespersonId}
+          </p>
+        ) : (
+          <p className="staff-role-editor__hint text-muted text-sm">
+            {options.length
+              ? `${options.length} salespersons cached`
+              : 'List loads from Firestore cache'}
+          </p>
+        )}
+        <button
+          type="button"
+          className="staff-role-editor__zoho-refresh"
+          disabled={disabled || loading || syncing}
+          onClick={() => void loadOptions(true)}
+        >
+          {syncing ? 'Refreshing…' : 'Refresh from Zoho'}
+        </button>
+      </div>
     </div>
   );
 }

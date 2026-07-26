@@ -30606,6 +30606,36 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 600;
 }
 
+.staff-role-editor__zoho-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.staff-role-editor__zoho-footer .staff-role-editor__hint {
+  margin: 0;
+}
+
+.staff-role-editor__zoho-refresh {
+  border: 0;
+  background: transparent;
+  color: rgba(251, 146, 60, 0.95);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.15rem 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.staff-role-editor__zoho-refresh:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 
 .staff-role-editor__departments {
   display: grid;

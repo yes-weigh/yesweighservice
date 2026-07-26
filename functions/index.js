@@ -84,7 +84,10 @@ import {
   reclassifyInvoiceCategoriesFromCatalog,
 } from './lib/invoice-category.js';
 import { upsertInvoicesFromCsv } from './lib/invoice-csv-upsert.js';
-import { listZohoSalespersons as fetchZohoSalespersons } from './lib/zoho-salespersons.js';
+import {
+  listCachedZohoSalespersons,
+  syncZohoSalespersonsToFirestore,
+} from './lib/zoho-salespersons.js';
 import {
   syncOrgPurchaseOrdersToFirestore,
   reclassifyPurchaseOrderCategoriesFromCatalog,
@@ -2081,21 +2084,47 @@ export const upsertInvoicesFromCsvFn = onCall(
   },
 );
 
-/** List Zoho Inventory salespersons for HR staff linking (super admin). */
+/** List cached Zoho salespersons from Firestore (fast; super admin). */
 export const listZohoSalespersons = onCall(
   {
     region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 60,
+    timeoutSeconds: 30,
     memory: '256MiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
     try {
-      return await fetchZohoSalespersons(zohoSecrets(), zohoOrganizationId.value());
+      return await listCachedZohoSalespersons();
     } catch (err) {
       console.error('listZohoSalespersons failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not load Zoho salespersons.');
+    }
+  },
+);
+
+/** Pull Zoho Inventory salespersons into Firestore cache (super admin). */
+export const syncZohoSalespersons = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const result = await syncZohoSalespersonsToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+      return {
+        count: result.count,
+        removed: result.removed,
+        salespersons: result.salespersons,
+      };
+    } catch (err) {
+      console.error('syncZohoSalespersons failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not sync Zoho salespersons.');
     }
   },
 );
