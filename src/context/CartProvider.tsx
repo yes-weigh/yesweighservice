@@ -6,6 +6,8 @@ import { useAuth } from './AuthContext';
 import { CartContext } from './cart-context';
 
 const STORAGE_PREFIX = 'yesweigh-cart';
+/** Zoho SO notes max is 5000; keep a practical portal limit. */
+export const CART_REMARKS_MAX_LENGTH = 2000;
 
 function storageKey(uid: string): string {
   return `${STORAGE_PREFIX}:${uid}`;
@@ -14,29 +16,48 @@ function storageKey(uid: string): string {
 function normalizeCartItem(item: CartItem): CartItem {
   return {
     ...item,
+    description: item.description?.trim() || null,
     stockStatus: effectiveCatalogStockStatus(item.stockStatus, item.hsn),
   };
 }
 
-function readStoredCart(uid: string): CartItem[] {
+function normalizeRemarks(raw: unknown): string {
+  return String(raw ?? '').slice(0, CART_REMARKS_MAX_LENGTH);
+}
+
+interface StoredCart {
+  items: CartItem[];
+  remarks: string;
+}
+
+function readStoredCart(uid: string): StoredCart {
   try {
     const raw = localStorage.getItem(storageKey(uid));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as CartItem[];
-    return Array.isArray(parsed)
-      ? parsed.filter(item => item?.productId).map(normalizeCartItem)
-      : [];
+    if (!raw) return { items: [], remarks: '' };
+    const parsed = JSON.parse(raw) as CartItem[] | StoredCart;
+    if (Array.isArray(parsed)) {
+      return {
+        items: parsed.filter(item => item?.productId).map(normalizeCartItem),
+        remarks: '',
+      };
+    }
+    const items = Array.isArray(parsed?.items) ? parsed.items : [];
+    return {
+      items: items.filter(item => item?.productId).map(normalizeCartItem),
+      remarks: normalizeRemarks(parsed?.remarks),
+    };
   } catch {
-    return [];
+    return { items: [], remarks: '' };
   }
 }
 
-function writeStoredCart(uid: string, items: CartItem[]): void {
+function writeStoredCart(uid: string, items: CartItem[], remarks: string): void {
   try {
-    if (items.length === 0) {
+    if (items.length === 0 && !remarks.trim()) {
       localStorage.removeItem(storageKey(uid));
     } else {
-      localStorage.setItem(storageKey(uid), JSON.stringify(items));
+      const payload: StoredCart = { items, remarks: normalizeRemarks(remarks) };
+      localStorage.setItem(storageKey(uid), JSON.stringify(payload));
     }
   } catch {
     /* ignore quota errors */
@@ -46,20 +67,24 @@ function writeStoredCart(uid: string, items: CartItem[]): void {
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
+  const [remarks, setRemarksState] = useState('');
 
   useEffect(() => {
     if (user?.uid) {
-      setItems(readStoredCart(user.uid));
+      const stored = readStoredCart(user.uid);
+      setItems(stored.items);
+      setRemarksState(stored.remarks);
     } else {
       setItems([]);
+      setRemarksState('');
     }
   }, [user?.uid]);
 
   useEffect(() => {
     if (user?.uid) {
-      writeStoredCart(user.uid, items);
+      writeStoredCart(user.uid, items, remarks);
     }
-  }, [items, user?.uid]);
+  }, [items, remarks, user?.uid]);
 
   const addItem = useCallback((product: CatalogProduct, quantity = 1): boolean => {
     const stockStatus = effectiveCatalogStockStatus(product.stockStatus, product.hsn);
@@ -76,6 +101,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 stockStatus,
                 hsn: product.hsn ?? item.hsn ?? null,
                 name: product.name,
+                description: product.description?.trim() || item.description || null,
+                sku: product.sku ?? item.sku,
                 quantity: item.quantity + quantity,
               }
             : item,
@@ -100,8 +127,13 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   }, []);
 
+  const setRemarks = useCallback((next: string) => {
+    setRemarksState(normalizeRemarks(next));
+  }, []);
+
   const clearCart = useCallback(() => {
     setItems([]);
+    setRemarksState('');
   }, []);
 
   const isInCart = useCallback(
@@ -129,14 +161,28 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       items,
       itemCount,
       subtotal,
+      remarks,
       addItem,
       removeItem,
       setQuantity,
+      setRemarks,
       clearCart,
       isInCart,
       getQuantity,
     }),
-    [items, itemCount, subtotal, addItem, removeItem, setQuantity, clearCart, isInCart, getQuantity],
+    [
+      items,
+      itemCount,
+      subtotal,
+      remarks,
+      addItem,
+      removeItem,
+      setQuantity,
+      setRemarks,
+      clearCart,
+      isInCart,
+      getQuantity,
+    ],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

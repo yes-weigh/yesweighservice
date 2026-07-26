@@ -12418,6 +12418,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
+.orders-page__cart-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
 .orders-page__items {
   list-style: none;
   margin: 0;
@@ -12431,7 +12438,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: grid;
   grid-template-columns: 72px 1fr auto;
   gap: 0.85rem;
-  align-items: center;
+  align-items: start;
   padding: 0.85rem 1rem !important;
 }
 
@@ -12456,19 +12463,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   object-fit: contain;
 }
 
-.orders-page__item-info h3 {
-  margin: 0.15rem 0 0;
-  font-size: 0.9375rem;
-  font-weight: 800;
-  color: #0f172a;
-}
-
-.orders-page__item-sku {
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #64748b;
+.orders-page__item-info.invoice-detail-item__body {
+  min-width: 0;
 }
 
 .orders-page__item-price {
@@ -12620,6 +12616,44 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .orders-page__summary-row strong {
   font-size: 1.125rem;
+}
+
+.orders-page__remarks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.orders-page__remarks-label {
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.orders-page__remarks-input {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.28);
+  color: inherit;
+  padding: 0.7rem 0.8rem;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.orders-page__remarks-input:focus {
+  outline: none;
+  border-color: rgba(249, 115, 22, 0.55);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+
+.orders-page__remarks-input:disabled {
+  opacity: 0.7;
+}
+
+.orders-page__remarks-count {
+  align-self: flex-end;
 }
 
 .orders-page__submit,
@@ -23935,6 +23969,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.75rem;
   color: var(--text-secondary);
   line-height: 1.35;
+  white-space: pre-line;
 }
 
 .invoice-detail-item__pricing {
@@ -34491,6 +34526,19 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 650;
 }
 
+.so-detail__remarks {
+  margin: 0 0 0.85rem;
+  padding: 0.9rem 1rem !important;
+}
+
+.so-detail__remarks-body {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
 .so-detail__payment-form {
   display: flex;
   flex-direction: column;
@@ -34604,7 +34652,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: grid;
   grid-template-columns: 3.25rem minmax(0, 1fr) auto auto auto;
   gap: 0.65rem;
-  align-items: center;
+  align-items: start;
   padding: 0.65rem 0.7rem;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.04);

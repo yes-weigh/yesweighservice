@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import {
   Ban,
@@ -18,7 +18,7 @@ import {
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
 import { useAuth } from '../../context/AuthContext';
-import { formatCurrency } from '../../lib/catalog';
+import { fetchCatalog, formatCurrency } from '../../lib/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
 import {
   listCustomerShippingAddresses,
@@ -57,6 +57,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [shipError, setShipError] = useState('');
   const [shipSelection, setShipSelection] = useState<ShippingSelection | null>(null);
   const [savingShip, setSavingShip] = useState(false);
+  const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
 
   const stage = String(salesOrder?.yesOneStage || '');
   const zohoStatus = String(salesOrder?.status || '').toLowerCase().replace(/\s+/g, '_');
@@ -69,6 +70,42 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const canEditShipping = canEditDraft && Boolean(salesOrder?.customerId?.trim());
   const canPay = isDealer && (stage === 'ready_for_payment' || stage === 'payment_submitted');
   const pdfPath = `${listPath}/${salesOrderId}/view`;
+
+  useEffect(() => {
+    if (!salesOrder?.lineItems?.length) return;
+    const missing = salesOrder.lineItems.filter(line => !line.description?.trim());
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void fetchCatalog()
+      .then(res => {
+        if (cancelled) return;
+        const next: Record<string, string> = {};
+        for (const product of res.items) {
+          const desc = product.description?.trim();
+          if (!desc) continue;
+          next[product.id] = desc;
+          if (product.sku) next[`sku:${product.sku}`] = desc;
+        }
+        setCatalogDescByItemId(next);
+      })
+      .catch(() => { /* keep SO usable without catalog specs */ });
+    return () => { cancelled = true; };
+  }, [salesOrder?.lineItems]);
+
+  const documentInvoice = useMemo(() => {
+    if (!salesOrder) return null;
+    return {
+      ...salesOrder,
+      lineItems: salesOrder.lineItems.map(line => {
+        if (line.description?.trim()) return line;
+        const fromCatalog = catalogDescByItemId[line.itemId || '']
+          || catalogDescByItemId[line.id]
+          || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
+          || null;
+        return fromCatalog ? { ...line, description: fromCatalog } : line;
+      }),
+    };
+  }, [salesOrder, catalogDescByItemId]);
 
   const loadShipAddresses = useCallback((customerId: string, currentAddressId?: string | null) => {
     setShipLoading(true);
@@ -98,16 +135,25 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const startEdit = () => {
     if (!salesOrder) return;
     setEditLines(
-      salesOrder.lineItems.map(line => ({
-        productId: line.itemId || line.id,
-        name: line.name,
-        sku: line.sku ?? null,
-        imageUrl: line.imageUrl ?? null,
-        rate: Number(line.rate) || 0,
-        unit: 'pcs',
-        quantity: Math.max(1, Math.floor(line.quantity || 1)),
-        stockStatus: null,
-      })),
+      salesOrder.lineItems.map(line => {
+        const productId = line.itemId || line.id;
+        const description = line.description?.trim()
+          || catalogDescByItemId[productId]
+          || catalogDescByItemId[line.id]
+          || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
+          || null;
+        return {
+          productId,
+          name: line.name,
+          sku: line.sku ?? null,
+          description,
+          imageUrl: line.imageUrl ?? null,
+          rate: Number(line.rate) || 0,
+          unit: 'pcs',
+          quantity: Math.max(1, Math.floor(line.quantity || 1)),
+          stockStatus: null,
+        };
+      }),
     );
     setEditing(true);
   };
@@ -294,6 +340,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         )}
       </header>
 
+      {salesOrder.notes?.trim() ? (
+        <section className="so-detail__remarks panel glass">
+          <h3 className="so-detail__section-title">Remarks</h3>
+          <p className="so-detail__remarks-body">{salesOrder.notes.trim()}</p>
+        </section>
+      ) : null}
+
       {/* Products + totals as one surface */}
       <section className="so-detail__doc">
         {canEditLines && editing ? (
@@ -332,7 +385,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               </div>
             )}
             <InvoiceDocumentBody
-              invoice={salesOrder}
+              invoice={documentInvoice ?? salesOrder}
               itemClassName="admin-invoice-detail-item"
               totalsAfterItems
             />

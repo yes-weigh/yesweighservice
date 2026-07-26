@@ -3,6 +3,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Headphones, Package } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
+import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { formatCurrency } from '../../lib/catalog';
 import { supportBasePath } from '../../lib/dealerSupport';
 import {
@@ -82,17 +83,16 @@ export const InvoiceDocumentPage: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className="invoice-detail-item__body">
-                  <strong className="invoice-detail-item__name">{item.name}</strong>
-                  {item.sku && <span className="invoice-detail-item__sku">{item.sku}</span>}
-                  {item.description && (
-                    <p className="invoice-detail-item__desc">{item.description}</p>
-                  )}
+                <DocumentLineItemSpec
+                  name={item.name}
+                  sku={item.sku}
+                  description={item.description}
+                >
                   <div className="invoice-detail-item__pricing">
                     <span>{formatCurrency(item.rate)} × {item.quantity}</span>
                     <strong>{formatCurrency(item.total)}</strong>
                   </div>
-                </div>
+                </DocumentLineItemSpec>
                 <button
                   type="button"
                   className="invoice-detail-item__service"

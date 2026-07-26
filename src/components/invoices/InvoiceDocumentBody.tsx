@@ -3,6 +3,7 @@ import { ArrowRight, ChevronRight, Package } from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
 import { isFreightInvoiceLineItem } from '../../lib/invoices';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
+import { DocumentLineItemSpec } from './DocumentLineItemSpec';
 
 interface InvoiceDocumentBodyProps {
   invoice: Pick<DealerInvoiceDetail, 'subtotal' | 'taxTotal' | 'total' | 'lineItems'>;
@@ -151,12 +152,11 @@ function ItemContent({
           </span>
         )}
       </div>
-      <div className="invoice-detail-item__body">
-        <strong className="invoice-detail-item__name">{item.name}</strong>
-        {item.sku && <span className="invoice-detail-item__sku">{item.sku}</span>}
-        {item.description && (
-          <p className="invoice-detail-item__desc">{item.description}</p>
-        )}
+      <DocumentLineItemSpec
+        name={item.name}
+        sku={item.sku}
+        description={item.description}
+      >
         <div className="invoice-detail-item__pricing">
           <span>{formatCurrency(item.rate, currencyCode)} × {item.quantity}</span>
           <strong>{formatCurrency(item.total, currencyCode)}</strong>
@@ -174,7 +174,7 @@ function ItemContent({
             <ArrowRight size={16} />
           </button>
         )}
-      </div>
+      </DocumentLineItemSpec>
     </>
   );
 }

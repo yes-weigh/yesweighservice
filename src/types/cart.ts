@@ -5,6 +5,8 @@ export interface CartItem {
   productId: string;
   name: string;
   sku: string | null;
+  /** Zoho item description — same “spec writing” as SO / invoice lines. */
+  description: string | null;
   imageUrl: string | null;
   rate: number;
   unit: string;
@@ -19,6 +21,7 @@ export function cartItemFromProduct(product: CatalogProduct, quantity = 1): Cart
     productId: product.id,
     name: product.name,
     sku: product.sku,
+    description: product.description?.trim() || null,
     imageUrl: product.imageUrl,
     rate: product.rate,
     unit: product.unit,

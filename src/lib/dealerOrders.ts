@@ -40,11 +40,16 @@ export interface SubmitDealerOrderResult {
 export async function submitDealerOrder(
   lines: SubmitDealerOrderLineInput[],
   shipping: ShippingSelection,
+  remarks = '',
 ): Promise<SubmitDealerOrderResult> {
   try {
     return await call(
       'submitDealerOrder',
-      { lines, shipping: shippingSelectionPayload(shipping) },
+      {
+        lines,
+        shipping: shippingSelectionPayload(shipping),
+        remarks: remarks.trim() || undefined,
+      },
       180_000,
     );
   } catch (err) {

@@ -4,9 +4,11 @@ import { IndianRupee, Package, ShoppingCart, Trash2 } from 'lucide-react';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
+import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { useAuth } from '../../context/AuthContext';
+import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
-import { formatCurrency } from '../../lib/catalog';
+import { fetchCatalog, formatCurrency } from '../../lib/catalog';
 import { isSacHsn } from '../../lib/sacCatalog';
 import { dealerOrderErrorMessage, submitDealerOrder } from '../../lib/dealerOrders';
 import {
@@ -16,14 +18,6 @@ import {
 } from '../../lib/shippingAddresses';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
-
-function formatProductTitle(name: string): string {
-  return name
-    .toLowerCase()
-    .split(/\s+/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
@@ -40,15 +34,43 @@ export const OrdersPage: React.FC = () => {
 const DealerCartPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { items, itemCount, subtotal, setQuantity, removeItem, clearCart } = useCart();
+  const {
+    items,
+    itemCount,
+    subtotal,
+    remarks,
+    setRemarks,
+    setQuantity,
+    removeItem,
+    clearCart,
+  } = useCart();
   const [submitting, setSubmitting] = useState(false);
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
   const [addressesLoading, setAddressesLoading] = useState(true);
   const [addressesError, setAddressesError] = useState('');
   const [shipping, setShipping] = useState<ShippingSelection | null>(null);
+  const [descByProductId, setDescByProductId] = useState<Record<string, string>>({});
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/catalog`;
+
+  useEffect(() => {
+    const missing = items.filter(item => !item.description?.trim()).map(item => item.productId);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void fetchCatalog()
+      .then(res => {
+        if (cancelled) return;
+        const next: Record<string, string> = {};
+        for (const product of res.items) {
+          const desc = product.description?.trim();
+          if (desc && missing.includes(product.id)) next[product.id] = desc;
+        }
+        if (Object.keys(next).length) setDescByProductId(prev => ({ ...prev, ...next }));
+      })
+      .catch(() => { /* keep cart usable without specs */ });
+    return () => { cancelled = true; };
+  }, [items]);
 
   const loadAddresses = useCallback(() => {
     setAddressesLoading(true);
@@ -79,6 +101,7 @@ const DealerCartPage: React.FC = () => {
       const order = await submitDealerOrder(
         items.map(item => ({ productId: item.productId, quantity: item.quantity })),
         shipping,
+        remarks,
       );
       clearCart();
       const soId = order.zohoSalesOrderId?.trim();
@@ -137,68 +160,74 @@ const DealerCartPage: React.FC = () => {
       </div>
 
       <div className="orders-page__layout">
-        <ul className="orders-page__items">
-          {items.map(item => {
-            const lineTotal = item.rate * item.quantity;
-            const unavailable = item.stockStatus === 'out_of_stock'
-              && !isSacHsn(item.hsn);
+        <div className="orders-page__cart-column">
+          <ul className="orders-page__items">
+            {items.map(item => {
+              const lineTotal = item.rate * item.quantity;
+              const unavailable = item.stockStatus === 'out_of_stock'
+                && !isSacHsn(item.hsn);
 
-            return (
-              <li
-                key={item.productId}
-                className={`orders-page__item panel glass ${unavailable ? 'orders-page__item--unavailable' : ''}`}
-              >
-                <div className="orders-page__item-media">
-                  {item.imageUrl ? (
-                    <CategoryThumbnail src={item.imageUrl} knockout={false} />
-                  ) : (
-                    <Package size={28} aria-hidden />
-                  )}
-                </div>
-
-                <div className="orders-page__item-info">
-                  {item.sku && <span className="orders-page__item-sku">{item.sku}</span>}
-                  <h3>{formatProductTitle(item.name)}</h3>
-                  {item.categoryName && (
-                    <p className="orders-page__item-category text-muted text-sm">{item.categoryName}</p>
-                  )}
-                  <div className="orders-page__item-price">
-                    <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-                    <span>{item.rate.toLocaleString('en-IN')}</span>
-                    <span className="text-muted text-sm">/ {item.unit}</span>
-                  </div>
-                  {unavailable && (
-                    <p className="orders-page__item-warning">Currently out of stock — remove before placing order</p>
-                  )}
-                </div>
-
-                <div className="orders-page__item-actions">
-                  <QuantityStepper
-                    value={item.quantity}
-                    onChange={next => setQuantity(item.productId, next)}
-                    className="orders-page__qty"
-                    buttonClassName="orders-page__qty-btn"
-                    inputClassName="orders-page__qty-input"
-                  />
-
-                  <div className="orders-page__line-total">
-                    <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-                    <span>{lineTotal.toLocaleString('en-IN')}</span>
+              return (
+                <li
+                  key={item.productId}
+                  className={`orders-page__item panel glass ${unavailable ? 'orders-page__item--unavailable' : ''}`}
+                >
+                  <div className="orders-page__item-media">
+                    {item.imageUrl ? (
+                      <CategoryThumbnail src={item.imageUrl} knockout={false} />
+                    ) : (
+                      <Package size={28} aria-hidden />
+                    )}
                   </div>
 
-                  <button
-                    type="button"
-                    className="orders-page__remove"
-                    onClick={() => removeItem(item.productId)}
-                    aria-label="Remove from cart"
+                  <DocumentLineItemSpec
+                    className="orders-page__item-info invoice-detail-item__body"
+                    name={item.name}
+                    sku={item.sku}
+                    description={item.description || descByProductId[item.productId] || null}
                   >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                    <div className="orders-page__item-price">
+                      <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                      <span>{item.rate.toLocaleString('en-IN')}</span>
+                      <span className="text-muted text-sm">/ {item.unit}</span>
+                    </div>
+                    {unavailable && (
+                      <p className="orders-page__item-warning">Currently out of stock — remove before placing order</p>
+                    )}
+                  </DocumentLineItemSpec>
+
+                  <div className="orders-page__item-actions">
+                    <QuantityStepper
+                      value={item.quantity}
+                      onChange={next => setQuantity(item.productId, next)}
+                      className="orders-page__qty"
+                      buttonClassName="orders-page__qty-btn"
+                      inputClassName="orders-page__qty-input"
+                    />
+
+                    <div className="orders-page__line-total">
+                      <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                      <span>{lineTotal.toLocaleString('en-IN')}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="orders-page__remove"
+                      onClick={() => removeItem(item.productId)}
+                      aria-label="Remove from cart"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          <Link to={productsPath} className="btn btn-secondary orders-page__continue">
+            Add more products
+          </Link>
+        </div>
 
         <aside className="orders-page__summary panel glass">
           <h3>Order summary</h3>
@@ -209,6 +238,23 @@ const DealerCartPage: React.FC = () => {
           <p className="orders-page__summary-note text-muted text-sm">
             Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.
           </p>
+          <label className="orders-page__remarks">
+            <span className="orders-page__remarks-label">Remarks</span>
+            <textarea
+              className="orders-page__remarks-input"
+              value={remarks}
+              onChange={e => setRemarks(e.target.value)}
+              disabled={submitting}
+              rows={3}
+              maxLength={CART_REMARKS_MAX_LENGTH}
+              placeholder="Optional notes for this order (shown to staff on the sales order)"
+            />
+            {remarks.length > 0 && (
+              <span className="orders-page__remarks-count text-muted text-sm">
+                {remarks.length}/{CART_REMARKS_MAX_LENGTH}
+              </span>
+            )}
+          </label>
           <ShippingAddressPicker
             addresses={addresses}
             loading={addressesLoading}
@@ -231,9 +277,6 @@ const DealerCartPage: React.FC = () => {
           >
             {submitting ? 'Submitting…' : 'Place order'}
           </button>
-          <Link to={productsPath} className="btn btn-secondary orders-page__continue">
-            Add more products
-          </Link>
         </aside>
       </div>
     </div>

@@ -53,6 +53,7 @@ function lineItemsFromOrder(order) {
     rate: Number(line.rate || 0),
     quantity: Number(line.quantity || 0),
     unit: String(line.unit || 'pcs'),
+    ...(line.description ? { description: String(line.description) } : {}),
     ...(line.hsn ? { hsn_or_sac: String(line.hsn) } : {}),
   })).filter(line => line.quantity > 0 && line.item_id);
 }
@@ -68,13 +69,18 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   const customerId = String(order.zohoCustomerId || '').trim();
   if (!customerId) throw new Error('Dealer is not linked to a Zoho customer.');
 
+  // Zoho Inventory "notes" is the sales-order remarks field (UI: Customer Notes / Remarks).
+  const dealerRemarks = String(order.remarks ?? order.notes ?? '').trim();
+  const notes = dealerRemarks
+    || `YesOne cart ${order.orderNumber || order.id}`;
+
   // Zoho Inventory creates SOs as Draft by default (Save as Draft).
   const body = {
     customer_id: customerId,
     reference_number: String(order.orderNumber || order.id || ''),
     date: new Date().toISOString().slice(0, 10),
     line_items: lineItems,
-    notes: `YesOne cart ${order.orderNumber || order.id}`,
+    notes,
   };
   if (order.shippingAddressId) {
     body.shipping_address_id = String(order.shippingAddressId);

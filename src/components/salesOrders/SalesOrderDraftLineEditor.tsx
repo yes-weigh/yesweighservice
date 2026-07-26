@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Package, Search, Trash2 } from 'lucide-react';
 import { QuantityStepper } from '../QuantityStepper';
 import { CategoryThumbnail } from '../catalog/CategoryThumbnail';
+import { DocumentLineItemSpec } from '../invoices/DocumentLineItemSpec';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import type { CatalogProduct } from '../../types/catalog';
 
@@ -9,6 +10,7 @@ export interface DraftEditLine {
   productId: string;
   name: string;
   sku: string | null;
+  description: string | null;
   imageUrl: string | null;
   rate: number;
   unit: string;
@@ -40,6 +42,7 @@ function toDraftLine(product: CatalogProduct, quantity = 1): DraftEditLine {
     productId: product.id,
     name: product.name,
     sku: product.sku,
+    description: product.description?.trim() || null,
     imageUrl: product.imageUrl,
     rate: Number(product.rate) || 0,
     unit: product.unit || 'pcs',
@@ -195,13 +198,17 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                   </span>
                 )}
               </div>
-              <div className="so-draft-editor__line-info">
-                <strong>{line.name}</strong>
+              <DocumentLineItemSpec
+                className="so-draft-editor__line-info invoice-detail-item__body"
+                name={line.name}
+                sku={line.sku}
+                description={line.description}
+              >
                 <span className="text-muted text-sm">
-                  {[line.sku, formatCurrency(line.rate)].filter(Boolean).join(' · ')}
+                  {formatCurrency(line.rate)}
                   {line.stockStatus === 'out_of_stock' ? ' · Out of stock' : ''}
                 </span>
-              </div>
+              </DocumentLineItemSpec>
               <QuantityStepper
                 value={line.quantity}
                 onChange={next => setQuantity(line.productId, next)}

@@ -166,6 +166,7 @@ async function loadCatalogProduct(productId) {
     itemId: data.itemId != null ? String(data.itemId) : snap.id,
     name: String(data.name ?? 'Product'),
     sku: data.sku != null ? String(data.sku) : null,
+    description: data.description != null ? String(data.description).trim() || null : null,
     rate: Number(data.rate ?? 0),
     unit: String(data.unit ?? 'pcs'),
     stockStatus: effectiveCatalogStockStatus(
@@ -211,6 +212,7 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true } = {}) {
       itemId: product.itemId,
       name: product.name,
       sku: product.sku,
+      description: product.description,
       rate: Number(product.rate) || 0,
       unit: product.unit,
       quantity,

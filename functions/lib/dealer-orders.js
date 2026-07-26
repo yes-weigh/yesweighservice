@@ -151,6 +151,7 @@ async function loadCatalogProduct(productId) {
     name: String(data.name ?? 'Product'),
     sku: data.sku != null ? String(data.sku) : null,
     imageUrl: data.imageUrl != null ? String(data.imageUrl) : null,
+    description: data.description != null ? String(data.description).trim() || null : null,
     rate: Number(data.rate ?? 0),
     unit: String(data.unit ?? 'pcs'),
     stockStatus: effectiveCatalogStockStatus(
@@ -174,6 +175,7 @@ function toOrderLine(product, quantity) {
     name: product.name,
     sku: product.sku,
     imageUrl: product.imageUrl,
+    description: product.description,
     rate: Number(product.rate) || 0,
     unit: product.unit,
     quantity: qty,
@@ -301,6 +303,8 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     throw new HttpsError('invalid-argument', err?.message || 'Invalid shipping address.');
   }
 
+  const remarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
+
   const orderNumber = await nextOrderNumber();
   let salesOrderId = null;
   let salesOrderNumber = null;
@@ -313,6 +317,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       zohoCustomerId,
       lines,
       subtotal,
+      remarks,
       shippingAddressId: shippingResolved.shippingAddressId,
       shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
     });
