@@ -31,7 +31,7 @@ import {
   upsertSalaryShare,
 } from '../../lib/hrSalaryShares';
 import { isLocalhostDev } from '../../lib/isLocalhost';
-import { canViewHrSalary } from '../../lib/staffAccess';
+import { canEditHrSalary, canViewHrSalary } from '../../lib/staffAccess';
 import type { HrHoliday } from '../../types/hr-holiday';
 import {
   currentSalaryPeriod,
@@ -352,7 +352,7 @@ function DayAttendanceSheet({
 export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }) => {
   const { user } = useAuth();
   const canAccess = canViewHrSalary(user) && isLocalhostDev();
-  const canEdit = canAccess;
+  const canEdit = canAccess && canEditHrSalary(user);
   const [period, setPeriod] = useState<HrSalaryPeriod>(currentSalaryPeriod);
   const [rows, setRows] = useState<HrSalaryStaffRow[]>([]);
   const [holidays, setHolidays] = useState<HrHoliday[]>([]);

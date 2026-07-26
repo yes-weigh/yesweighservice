@@ -1,5 +1,6 @@
 import type { SupportRequestType } from '../types/dealer-support';
 import type { User, Role } from '../types';
+import { normalizeSuperAdminAccess } from '../types';
 import {
   ALL_STAFF_PERMISSIONS,
   DEPARTMENT_DEFAULT_PERMISSIONS,
@@ -11,12 +12,51 @@ import {
   type StaffPermission,
 } from '../types/staff-access';
 
+/** Staff permissions that imply mutation / sync (denied for view-only super admins). */
+const SUPER_ADMIN_WRITE_PERMISSIONS = new Set<StaffPermission>([
+  'dealers.edit',
+  'dealers.sync',
+  'leads.manage',
+  'support.manage',
+  'support.service',
+  'support.return',
+  'support.complaint',
+  'orders.manage',
+  'catalog.manage',
+  'catalog.sync',
+  'staff.manage',
+  'hr.manage',
+  'verification.manage',
+]);
+
 export function isStaffUser(user: Pick<User, 'role'> | null | undefined): boolean {
   return user?.role === 'staff';
 }
 
 export function isPlatformAdmin(user: Pick<User, 'role'> | null | undefined): boolean {
   return user?.role === 'super_admin';
+}
+
+/** Super admin with full write access (missing tier → full). */
+export function isFullSuperAdmin(
+  user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
+): boolean {
+  return user?.role === 'super_admin'
+    && normalizeSuperAdminAccess(user.superAdminAccess) === 'full';
+}
+
+/** Alias — use for any mutate/sync UI that currently checks super_admin. */
+export function canSuperAdminWrite(
+  user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
+): boolean {
+  return isFullSuperAdmin(user);
+}
+
+export function isViewOnlySuperAdmin(
+  user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
+): boolean {
+  return user?.role === 'super_admin'
+    && normalizeSuperAdminAccess(user.superAdminAccess) === 'view_only';
 }
 
 export function readStaffAccessProfile(user: User | null | undefined): StaffAccessProfile {
@@ -33,7 +73,11 @@ export function readStaffAccessProfile(user: User | null | undefined): StaffAcce
 
 export function resolveStaffPermissions(user: User | null | undefined): StaffPermission[] {
   if (!user) return [];
-  if (user.role === 'super_admin') return ALL_STAFF_PERMISSIONS;
+  if (user.role === 'super_admin') {
+    if (isFullSuperAdmin(user)) return ALL_STAFF_PERMISSIONS;
+    // View-only: keep view / non-mutating permissions for nav + screens.
+    return ALL_STAFF_PERMISSIONS.filter(p => !SUPER_ADMIN_WRITE_PERMISSIONS.has(p));
+  }
   if (user.role !== 'staff') return [];
 
   const profile = readStaffAccessProfile(user);
@@ -63,7 +107,7 @@ export function canViewHr(user: User | null | undefined): boolean {
 
 export function canManageHr(user: User | null | undefined): boolean {
   if (!user) return false;
-  if (user.role === 'super_admin') return true;
+  if (user.role === 'super_admin') return canSuperAdminWrite(user);
   if (user.role !== 'staff') return false;
   return hasStaffPermission(user, 'hr.manage');
 }
@@ -73,9 +117,10 @@ export function canManageWarehouseUsers(user: User | null | undefined): boolean 
 }
 
 export function canManageStaffRolesInHr(user: User | null | undefined): boolean {
-  return user?.role === 'super_admin';
+  return canSuperAdminWrite(user);
 }
 
+/** Open Super Admins page (view-only can browse; writes gated in UI). */
 export function canManageSuperAdminsInHr(user: User | null | undefined): boolean {
   return user?.role === 'super_admin';
 }
@@ -83,6 +128,11 @@ export function canManageSuperAdminsInHr(user: User | null | undefined): boolean
 /** Salary calculation role gate (super-admin). Tab also requires localhost / isLocalhostDev(). */
 export function canViewHrSalary(user: User | null | undefined): boolean {
   return user?.role === 'super_admin';
+}
+
+/** Persist salary / share mutations (full super admin only). */
+export function canEditHrSalary(user: User | null | undefined): boolean {
+  return canSuperAdminWrite(user);
 }
 
 export function canViewDealersInHr(user: User | null | undefined): boolean {
@@ -109,13 +159,13 @@ export function isInternalOpsUser(user: User | null | undefined): boolean {
 
 export function canManageSupportOps(user: User | null | undefined): boolean {
   if (!user) return false;
-  if (user.role === 'super_admin') return true;
+  if (user.role === 'super_admin') return canSuperAdminWrite(user);
   return hasStaffPermission(user, 'support.manage');
 }
 
 export function canCreateSupportOnBehalf(user: User | null | undefined): boolean {
   if (!user) return false;
-  if (user.role === 'super_admin') return true;
+  if (user.role === 'super_admin') return canSuperAdminWrite(user);
   if (user.role !== 'staff') return false;
   return hasAnyStaffPermission(user, [
     'support.view',

@@ -18,8 +18,8 @@ import {
 import { authErrorMessage } from './authErrors';
 import { reserveLoginIndex } from './loginIndex';
 import { contactFieldsForLogin } from './profileLogin';
-import type { FirestoreUserDoc, Role } from '../types';
-import { normalizeRole } from '../types';
+import type { FirestoreUserDoc, Role, SuperAdminAccess } from '../types';
+import { normalizeRole, normalizeSuperAdminAccess } from '../types';
 import type { StaffDepartment, StaffPermission } from '../types/staff-access';
 import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
 
@@ -50,6 +50,7 @@ export type UpdateUserProfilePatch = Partial<
     | 'email'
     | 'active'
     | 'dealerId'
+    | 'superAdminAccess'
     | 'staffDepartment'
     | 'staffRoleId'
     | 'staffAccessMode'
@@ -101,6 +102,8 @@ export type CreateUserInput = {
   email?: string;
   dealerId?: string;
   zohoCustomerId?: string;
+  /** Super admin only; defaults to full. */
+  superAdminAccess?: SuperAdminAccess;
   staffDepartment?: StaffDepartment;
   staffRoleId?: string | null;
   staffAccessMode?: 'role' | 'department' | 'custom';
@@ -138,6 +141,9 @@ export async function createUserProfile(
     aadhar: contacts.aadhar,
     phone: contactPhone || undefined,
     email: contactEmail || undefined,
+    superAdminAccess: input.role === 'super_admin'
+      ? normalizeSuperAdminAccess(input.superAdminAccess)
+      : undefined,
     dealerId: input.role === 'dealer_staff' ? input.dealerId?.trim() : undefined,
     zohoCustomerId: input.zohoCustomerId?.trim() || undefined,
     staffDepartment: input.role === 'staff' ? input.staffDepartment : undefined,
@@ -227,6 +233,7 @@ export async function promoteStaffToSuperAdmin(
   }
   await updateDoc(ref, {
     role: 'super_admin',
+    superAdminAccess: 'full',
     staffDepartment: deleteField(),
     staffRoleId: deleteField(),
     staffAccessMode: deleteField(),

@@ -4,6 +4,7 @@ import { SpareProductMapView } from '../components/catalog/SpareProductMapView';
 import { useAuth } from '../context/AuthContext';
 import { catalogBaseForRole } from '../lib/catalogRoutes';
 import { canViewCatalogStock } from '../lib/dealerAccess';
+import { canSuperAdminWrite } from '../lib/staffAccess';
 import type { CatalogProduct } from '../types/catalog';
 
 export const SpareProductMapPage: React.FC = () => {
@@ -21,8 +22,12 @@ export const SpareProductMapPage: React.FC = () => {
     ? `${catalogBase}?section=map&category=${encodeURIComponent(returnCategoryId)}`
     : `${catalogBase}?section=map`;
   const sparesBasePath = `${catalogBase}/spare`;
-  const canManage = user?.role === 'staff' || user?.role === 'super_admin';
-  const showStockQuantity = canManage || canViewCatalogStock(user);
+  const canManage = user?.role === 'staff' || canSuperAdminWrite(user);
+  const showStockQuantity = (
+    user?.role === 'staff'
+    || user?.role === 'super_admin'
+    || canViewCatalogStock(user)
+  );
 
   if (!productId) return null;
 

@@ -202,7 +202,7 @@ async function readUserRole(uid) {
   return null;
 }
 
-async function requireActiveUser(uid, allowedRoles = ALLOWED_ROLES) {
+async function requireActiveUser(uid, allowedRoles = ALLOWED_ROLES, options = {}) {
   if (!uid) {
     throw new HttpsError('unauthenticated', 'Sign in required.');
   }
@@ -215,6 +215,19 @@ async function requireActiveUser(uid, allowedRoles = ALLOWED_ROLES) {
   const userSnap = await getFirestore().doc(`users/${uid}`).get();
   if (!userSnap.exists || userSnap.data()?.active === false) {
     throw new HttpsError('permission-denied', 'Your account is inactive.');
+  }
+
+  const data = userSnap.data() || {};
+  // View-only super admins may browse the app / read callables, but not mutate.
+  if (
+    role === 'super_admin'
+    && data.superAdminAccess === 'view_only'
+    && options.allowViewOnly !== true
+  ) {
+    throw new HttpsError(
+      'permission-denied',
+      'Your account is view-only and cannot make changes.',
+    );
   }
 
   return role;
@@ -1358,7 +1371,7 @@ export const getCatalogSpareLinks = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid);
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
 
     const productId = String(request.data?.productId ?? '').trim();
     const spareId = String(request.data?.spareId ?? '').trim();
@@ -1569,7 +1582,7 @@ export const getDealerInvoiceDashboard = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES, { allowViewOnly: true });
     try {
       return await buildDealerInvoiceDashboard(
         null,
@@ -1592,7 +1605,7 @@ export const getDealerInvoiceDetail = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES, { allowViewOnly: true });
     const invoiceId = String(request.data?.invoiceId ?? '').trim();
     if (!invoiceId) {
       throw new HttpsError('invalid-argument', 'Invoice id is required.');
@@ -1622,7 +1635,7 @@ export const downloadDealerInvoiceDocument = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES, { allowViewOnly: true });
     const invoiceId = String(request.data?.invoiceId ?? '').trim();
     const documentType = String(request.data?.documentType ?? '').trim().toLowerCase();
     if (!invoiceId) {
@@ -1691,7 +1704,7 @@ export const getDealerInvoices = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES, { allowViewOnly: true });
     try {
       return await listDealerInvoices(
         null,
@@ -2209,7 +2222,7 @@ export const downloadSalesOrderDocument = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES, { allowViewOnly: true });
     const soId = String(request.data?.salesOrderId ?? '').trim();
     if (!soId) {
       throw new HttpsError('invalid-argument', 'salesOrderId is required.');
@@ -2339,7 +2352,7 @@ export const syncDealerInvoicesFromZoho = onCall(
 export const getDealers = onCall(
   { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
     return listDealers(request.data ?? {});
   },
 );
@@ -2354,7 +2367,7 @@ export const getMyDealerProfile = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES);
+    const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES, { allowViewOnly: true });
     try {
       const customerId = await resolveZohoCustomerIdForUser(uid, role);
       const dealer = await getDealerRecord(customerId, {

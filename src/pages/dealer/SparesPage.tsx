@@ -37,7 +37,7 @@ export const SparesPage: React.FC = () => {
   const { pathname } = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
+  const canSync = hasStaffPermission(user, 'catalog.sync');
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const viewMode = parseViewMode(searchParams.get('view'), canSync);
 

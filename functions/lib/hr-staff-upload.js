@@ -64,7 +64,15 @@ function staffHasHrView(userData) {
 
 export async function requireHrManageUser(uid) {
   const { role, data } = await readActiveUser(uid);
-  if (role === 'super_admin') return { role, data };
+  if (role === 'super_admin') {
+    if (data?.superAdminAccess === 'view_only') {
+      throw new HttpsError(
+        'permission-denied',
+        'Your account is view-only and cannot make changes.',
+      );
+    }
+    return { role, data };
+  }
   if (role !== 'staff' || !staffHasHrManage(data)) {
     throw new HttpsError('permission-denied', 'You do not have HR manage access.');
   }

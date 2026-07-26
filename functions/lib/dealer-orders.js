@@ -74,8 +74,13 @@ function resolveDealerId(user) {
   return null;
 }
 
+function isFullSuperAdmin(user) {
+  return user.role === 'super_admin' && user.data?.superAdminAccess !== 'view_only';
+}
+
 function staffHasPermission(user, permission) {
-  if (user.role === 'super_admin') return true;
+  if (isFullSuperAdmin(user)) return true;
+  if (user.role === 'super_admin') return false;
   if (user.role !== 'staff') return false;
   const mode = String(user.data?.staffAccessMode ?? 'role');
   const perms = Array.isArray(user.data?.staffPermissions)
@@ -91,14 +96,19 @@ function staffHasPermission(user, permission) {
 }
 
 function requireOrdersManage(user) {
-  if (user.role === 'super_admin') return;
+  if (isFullSuperAdmin(user)) return;
   if (user.role === 'staff' && staffHasPermission(user, 'orders.manage')) return;
   throw new HttpsError('permission-denied', 'You do not have permission to manage orders.');
 }
 
 function requireSuperAdmin(user) {
-  if (user.role !== 'super_admin') {
-    throw new HttpsError('permission-denied', 'Only super admin can run this action.');
+  if (!isFullSuperAdmin(user)) {
+    throw new HttpsError(
+      'permission-denied',
+      user.role === 'super_admin'
+        ? 'Your account is view-only and cannot make changes.'
+        : 'Only super admin can run this action.',
+    );
   }
 }
 

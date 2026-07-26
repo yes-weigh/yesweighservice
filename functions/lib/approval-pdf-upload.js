@@ -31,6 +31,12 @@ async function requireSuperAdmin(uid) {
   if (role !== 'super_admin') {
     throw new HttpsError('permission-denied', 'Only super admins can manage approval PDFs.');
   }
+  if (data?.superAdminAccess === 'view_only') {
+    throw new HttpsError(
+      'permission-denied',
+      'Your account is view-only and cannot make changes.',
+    );
+  }
 
   return { role, data };
 }

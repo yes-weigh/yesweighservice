@@ -8,7 +8,7 @@ import {
   Users,
 } from 'lucide-react';
 import { fetchDealerById } from '../../lib/dealers';
-import { canManageSupportOps } from '../../lib/staffAccess';
+import { canManageSupportOps, canSuperAdminWrite } from '../../lib/staffAccess';
 import { isSupportOpen } from '../../lib/supportStatus';
 import type { User as AppUser } from '../../types';
 import type { DealerSupportRequest, SupportOpenStage } from '../../types/dealer-support';
@@ -281,7 +281,7 @@ export const SupportRequestDetailPanel: React.FC<SupportRequestDetailPanelProps>
           </section>
         )}
 
-        {user?.role === 'super_admin' && (
+        {canSuperAdminWrite(user) && (
           <div className="support-detail-card__admin">
             <button
               type="button"

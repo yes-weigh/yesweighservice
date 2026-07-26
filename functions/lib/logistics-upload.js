@@ -43,6 +43,12 @@ async function requireOpsUser(uid) {
   if (user.role !== 'super_admin' && user.role !== 'staff') {
     throw new HttpsError('permission-denied', 'Only staff can upload logistics photos.');
   }
+  if (user.role === 'super_admin' && user.data?.superAdminAccess === 'view_only') {
+    throw new HttpsError(
+      'permission-denied',
+      'Your account is view-only and cannot make changes.',
+    );
+  }
   return user;
 }
 

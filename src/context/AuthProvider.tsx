@@ -9,6 +9,7 @@ import {
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { User, FirestoreUserDoc } from '../types';
+import { normalizeSuperAdminAccess } from '../types';
 import { normalizeRole, readDealerId } from '../types';
 import { AuthContext } from './auth-context';
 import { authEmailForLoginId, parseLoginId } from '../lib/loginAuth';
@@ -75,6 +76,9 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       loginIdType: login.type,
       displayName: data.displayName.trim() || 'User',
       role,
+      superAdminAccess: role === 'super_admin'
+        ? normalizeSuperAdminAccess(data.superAdminAccess)
+        : undefined,
       email: data.email?.trim().toLowerCase() || contacts.email,
       phone: data.phone?.trim() || contacts.phone,
       aadhar: data.aadhar || contacts.aadhar,

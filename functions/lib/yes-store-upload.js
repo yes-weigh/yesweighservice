@@ -47,7 +47,16 @@ async function readActiveUser(uid) {
 
 export async function requireYesStoreUser(uid) {
   const { role, data } = await readActiveUser(uid);
-  if (role === 'warehouse' || role === 'super_admin') {
+  if (role === 'warehouse') {
+    return { role, data };
+  }
+  if (role === 'super_admin') {
+    if (data?.superAdminAccess === 'view_only') {
+      throw new HttpsError(
+        'permission-denied',
+        'Your account is view-only and cannot make changes.',
+      );
+    }
     return { role, data };
   }
   throw new HttpsError('permission-denied', 'You do not have warehouse storage access.');

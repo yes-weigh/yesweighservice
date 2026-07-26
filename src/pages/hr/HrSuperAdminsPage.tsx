@@ -19,7 +19,7 @@ export const HrSuperAdminsPage: React.FC<HrSuperAdminsPageProps> = ({ basePath }
     <UserManagement
       role="super_admin"
       title="Super Admins"
-      description="Manage super admin accounts. Only visible to super admins within HR."
+      description="Manage super admin accounts and access (Full vs View only). Only visible to super admins within HR."
     />
   );
 };

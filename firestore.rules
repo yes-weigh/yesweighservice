@@ -23,6 +23,11 @@ service cloud.firestore {
       return signedIn() && userExists() && (role() == 'super_admin' || role() == 'admin');
     }
 
+    // Missing superAdminAccess → full (legacy accounts).
+    function isFullSuperAdmin() {
+      return isSuperAdmin() && userDoc().superAdminAccess != 'view_only';
+    }
+
     function isStaff() {
       return signedIn() && userExists() && role() == 'staff';
     }
@@ -40,11 +45,15 @@ service cloud.firestore {
     }
 
     function canWriteCatalogMedia() {
-      return isSuperAdmin() || isMedia();
+      return isFullSuperAdmin() || isMedia();
     }
 
     function canAccessYesStore() {
       return isWarehouse() || isSuperAdmin();
+    }
+
+    function canWriteYesStore() {
+      return isWarehouse() || isFullSuperAdmin();
     }
 
     function isDealer() {
@@ -198,11 +207,11 @@ service cloud.firestore {
       allow read: if signedIn();
       allow write: if signedIn() && (
         bootstrapOpen()
-        || (docId == 'productSettings' && isSuperAdmin())
-        || (docId == 'logisticsSettings' && isSuperAdmin())
-        || (docId == 'logisticsCourierRates' && isSuperAdmin())
-        || (docId == 'localPrinterSettings' && isSuperAdmin())
-        || (docId == 'labelStudio' && isSuperAdmin())
+        || (docId == 'productSettings' && isFullSuperAdmin())
+        || (docId == 'logisticsSettings' && isFullSuperAdmin())
+        || (docId == 'logisticsCourierRates' && isFullSuperAdmin())
+        || (docId == 'localPrinterSettings' && isFullSuperAdmin())
+        || (docId == 'labelStudio' && isFullSuperAdmin())
       );
     }
 
@@ -290,28 +299,30 @@ service cloud.firestore {
 
     match /staffRoles/{roleId} {
       allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
-      allow create, update, delete: if isSuperAdmin();
+      allow create, update, delete: if isFullSuperAdmin();
     }
 
     match /hrHolidays/{holidayId} {
       allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
-      allow create, update, delete: if isSuperAdmin() || staffHasHrManage();
+      allow create, update, delete: if isFullSuperAdmin() || staffHasHrManage();
     }
 
     match /hrSalaryMonths/{docId} {
-      allow read, create, update, delete: if isSuperAdmin();
+      allow read: if isSuperAdmin();
+      allow create, update, delete: if isFullSuperAdmin();
     }
 
     match /hrPayrollEmployees/{employeeId} {
-      allow read, create, update, delete: if isSuperAdmin();
+      allow read: if isSuperAdmin();
+      allow create, update, delete: if isFullSuperAdmin();
     }
 
     // Public salary month snapshots (unguessable token as doc id).
     match /hrSalaryShares/{token} {
       allow get: if true;
       allow list: if false;
-      allow create, update: if isSuperAdmin();
-      allow delete: if isSuperAdmin();
+      allow create, update: if isFullSuperAdmin();
+      allow delete: if isFullSuperAdmin();
     }
 
     match /dealerSettings/{docId} {
@@ -326,7 +337,7 @@ service cloud.firestore {
         && (isOpsUser() || isDealer())
         && request.resource.data.uid is string
         && request.resource.data.role is string;
-      allow delete: if isSuperAdmin();
+      allow delete: if isFullSuperAdmin();
     }
 
     match /dealer_otp_sessions/{phone} {
@@ -341,7 +352,7 @@ service cloud.firestore {
         && request.resource.data.role is string
         && request.resource.data.loginIdType is string
         && validLoginIdType(request.resource.data.loginIdType);
-      allow delete: if isSuperAdmin();
+      allow delete: if isFullSuperAdmin();
     }
 
     match /users/{userId} {
@@ -358,7 +369,7 @@ service cloud.firestore {
           && (request.resource.data.role == 'super_admin' || request.resource.data.role == 'admin')
           && request.resource.data.active == true
           && validAadhar(request.resource.data))
-        || (isActiveUser() && isSuperAdmin() && validAadhar(request.resource.data) && validManagedUserWrite(request.resource.data))
+        || (isActiveUser() && isFullSuperAdmin() && validAadhar(request.resource.data) && validManagedUserWrite(request.resource.data))
         || (isActiveUser()
             && staffHasHrManage()
             && request.resource.data.role == 'staff'
@@ -390,7 +401,7 @@ service cloud.firestore {
       );
 
       allow update: if isActiveUser() && (
-        (isSuperAdmin() && validManagedUserWrite(request.resource.data))
+        (isFullSuperAdmin() && validManagedUserWrite(request.resource.data))
         || (staffHasHrManage()
             && resource.data.role == 'staff'
             && request.resource.data.role == 'staff'
@@ -412,7 +423,7 @@ service cloud.firestore {
             && validDealerPortalUserWrite(request.resource.data))
         || (request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()
-                .hasAny(['role', 'loginId', 'loginIdType', 'aadhar', 'email', 'dealerId', 'directorId', 'active', 'createdAt', 'createdByUid']))
+                .hasAny(['role', 'loginId', 'loginIdType', 'aadhar', 'email', 'dealerId', 'directorId', 'active', 'createdAt', 'createdByUid', 'superAdminAccess']))
         || (isDealer()
             && isDealerStaffRole(resource.data.role)
             && userDealerId(resource.data) == request.auth.uid
@@ -421,7 +432,7 @@ service cloud.firestore {
             && validDealerPortalUserWrite(request.resource.data))
       );
 
-      allow delete: if isSuperAdmin();
+      allow delete: if isFullSuperAdmin();
     }
 
     function isDealerStaff() {
@@ -620,7 +631,7 @@ service cloud.firestore {
         || validDealerSupportCancel()
       );
 
-      allow delete: if isSuperAdmin()
+      allow delete: if isFullSuperAdmin()
         || (
           isActiveUser()
           && isSupportRequestDealerAccess(resource.data)
@@ -636,7 +647,7 @@ service cloud.firestore {
           && validSupportMessageCreate();
 
         allow update: if false;
-        allow delete: if isSuperAdmin();
+        allow delete: if isFullSuperAdmin();
       }
     }
 
@@ -673,44 +684,48 @@ service cloud.firestore {
     }
 
     match /yesStoreRacks/{rackId} {
-      allow read, write: if canAccessYesStore();
+      allow read: if canAccessYesStore();
+      allow write: if canWriteYesStore();
     }
 
     match /yesStoreRows/{rowId} {
-      allow read, write: if canAccessYesStore();
+      allow read: if canAccessYesStore();
+      allow write: if canWriteYesStore();
     }
 
     match /yesStoreBins/{binId} {
-      allow read, write: if canAccessYesStore();
+      allow read: if canAccessYesStore();
+      allow write: if canWriteYesStore();
     }
 
     match /yesStoreItems/{itemId} {
-      allow read, write: if canAccessYesStore();
+      allow read: if canAccessYesStore();
+      allow write: if canWriteYesStore();
     }
 
     match /warehouseZones/{zoneId} {
       allow read: if isOpsUser() || isWarehouse();
-      allow write: if isSuperAdmin();
+      allow write: if isFullSuperAdmin();
     }
 
     match /warehouseZoneRows/{rowId} {
       allow read: if isOpsUser() || isWarehouse();
-      allow write: if isSuperAdmin();
+      allow write: if isFullSuperAdmin();
     }
 
     match /catalogSiteInventory/{docId} {
       allow read: if isOpsUser() || isWarehouse();
-      allow write: if isSuperAdmin() || isStaff();
+      allow write: if isFullSuperAdmin() || isStaff();
     }
 
     match /auditCycles/{cycleId} {
       allow read: if isOpsUser() || isWarehouse();
-      allow write: if isSuperAdmin();
+      allow write: if isFullSuperAdmin();
     }
 
     match /catalogProductNc/{productId} {
       allow read: if isOpsUser();
-      allow write: if isSuperAdmin() || isStaff();
+      allow write: if isFullSuperAdmin() || isStaff();
     }
 
     match /catalogProductMedia/{productId} {
@@ -751,11 +766,15 @@ service cloud.firestore {
         && data.updatedAt is string;
     }
 
+    function canWriteOpsLogistics() {
+      return isFullSuperAdmin() || isStaff();
+    }
+
     function validLogisticsBookingOpsUpdate() {
       // Ops may complete/resume bookings started by another staff member.
       // Keep provenance (createdAt / createdByUid) immutable; dealer keys may be
       // re-synced from Zoho when portal linking changes between draft and confirm.
-      return isOpsUser()
+      return canWriteOpsLogistics()
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.createdByUid == resource.data.createdByUid;
     }
@@ -766,11 +785,11 @@ service cloud.firestore {
         || isLogisticsBookingDealerAccess(resource.data)
       );
 
-      allow create: if isActiveUser() && validLogisticsBookingCreate();
+      allow create: if isActiveUser() && canWriteOpsLogistics() && validLogisticsBookingCreate();
 
-      allow update: if isActiveUser() && isOpsUser() && validLogisticsBookingOpsUpdate();
+      allow update: if isActiveUser() && canWriteOpsLogistics() && validLogisticsBookingOpsUpdate();
 
-      allow delete: if isSuperAdmin();
+      allow delete: if isFullSuperAdmin();
     }
 
     /** Legacy portal orders — deprecated; purge via purgeDealerOrders callable. */

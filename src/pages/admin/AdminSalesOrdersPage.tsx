@@ -36,6 +36,7 @@ import {
   invoiceCategoryLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
+import { canSuperAdminWrite } from '../../lib/staffAccess';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
@@ -241,7 +242,7 @@ export const AdminSalesOrdersPage: React.FC = () => {
   const { pathname } = useLocation();
   const { user } = useAuth();
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
-  const canSync = user?.role === 'super_admin';
+  const canSync = canSuperAdminWrite(user);
   const scrollRef = useRevealScrollbarOnScroll();
   const [rows, setRows] = useState<AdminFirestoreSalesOrder[]>([]);
   const [loading, setLoading] = useState(true);

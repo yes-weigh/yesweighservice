@@ -26,6 +26,7 @@ import {
   verifySalesOrderPayment,
   yesOneStageLabel,
 } from '../../lib/salesOrderWorkflow';
+import { canSuperAdminWrite } from '../../lib/staffAccess';
 import type {
   AdminSalesOrderDetailOutletContext,
   SalesOrderActionBusy,
@@ -44,8 +45,8 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       : '/super-admin';
   const isDealerView = basePath === '/dealer' || basePath === '/dealer-staff';
   const canManageZoho = !isDealerView
-    && (user?.role === 'staff' || user?.role === 'super_admin');
-  const canVerifyPayment = !isDealerView && user?.role === 'super_admin';
+    && (user?.role === 'staff' || canSuperAdminWrite(user));
+  const canVerifyPayment = !isDealerView && canSuperAdminWrite(user);
   const listPath = `${basePath}/sales-orders`;
   const summaryPath = `${listPath}/${salesOrderId}`;
   const isPdfView = pathname.endsWith('/view');

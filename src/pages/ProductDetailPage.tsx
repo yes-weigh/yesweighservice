@@ -4,11 +4,12 @@ import { useAuth } from '../context/AuthContext';
 import {
   homePathForRole,
   canUseCart,
-  canWriteCatalogMedia,
-  canEditCatalogProductImage,
+  canWriteCatalogMediaForUser,
+  canEditCatalogProductImageForUser,
   isMediaRole,
 } from '../types';
 import { canViewCatalogStock, canViewWarehouseStock } from '../lib/dealerAccess';
+import { canSuperAdminWrite } from '../lib/staffAccess';
 import { canNavigateBackInApp } from '../lib/navigation';
 import {
   catalogBaseForRole,
@@ -42,10 +43,12 @@ export const ProductDetailPage: React.FC = () => {
     && (user?.role === 'staff' || user?.role === 'super_admin' || canViewWarehouseStock(user));
   const showStockQuantity = !mediaOnly && (showWarehouseStock || canViewCatalogStock(user));
   const showCartActions = !mediaOnly && canUseCart(user?.role);
-  const manageSpareLinks = !mediaOnly && (user?.role === 'staff' || user?.role === 'super_admin');
+  const manageSpareLinks = !mediaOnly && (
+    user?.role === 'staff' || canSuperAdminWrite(user)
+  );
   const canEditProductDetails = manageSpareLinks;
-  const canEditProductImages = canEditCatalogProductImage(user?.role);
-  const canSetInactive = user?.role === 'super_admin';
+  const canEditProductImages = canEditCatalogProductImageForUser(user);
+  const canSetInactive = canSuperAdminWrite(user);
   const showAuditedStock = !mediaOnly && (user?.role === 'staff' || user?.role === 'super_admin');
   const showRelatedLinks =
     !isPublic
@@ -94,7 +97,7 @@ export const ProductDetailPage: React.FC = () => {
         ordersPath={ordersPath}
         currentNavState={currentNavState}
         visibleTabs={mediaOnly ? MEDIA_PRODUCT_DETAIL_TABS : undefined}
-        canWriteMedia={canWriteCatalogMedia(user?.role)}
+        canWriteMedia={canWriteCatalogMediaForUser(user)}
         mediaActorUid={user?.uid ?? ''}
         mediaActorName={user?.displayName}
       />

@@ -44,6 +44,12 @@ async function requireMediaWriter(uid) {
   if (role !== 'super_admin' && role !== 'media') {
     throw new HttpsError('permission-denied', 'Only media users can manage product media.');
   }
+  if (role === 'super_admin' && data?.superAdminAccess === 'view_only') {
+    throw new HttpsError(
+      'permission-denied',
+      'Your account is view-only and cannot make changes.',
+    );
+  }
 
   return {
     role,

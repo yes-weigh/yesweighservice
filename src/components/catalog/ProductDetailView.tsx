@@ -69,6 +69,7 @@ import {
 } from '../../lib/yesStore/inventoryAudit';
 import type { CatalogProduct, CatalogProductDetail, CatalogCategory } from '../../types/catalog';
 import { useAuth } from '../../context/AuthContext';
+import { canSuperAdminWrite } from '../../lib/staffAccess';
 import { getCatalogSiteInventory } from '../../lib/catalogSiteInventory/data';
 import {
   CATALOG_INVENTORY_SITE_CONFIG,
@@ -522,7 +523,9 @@ export const ProductDetailView: React.FC<{
     });
   }, [product, showAuditedStock, auditItems, cochinRecord, headOfficeRecord, isSpareItem]);
 
-  const canEditCochin = showAuditedStock && (user?.role === 'super_admin' || user?.role === 'staff');
+  const canEditCochin = showAuditedStock && (
+    user?.role === 'staff' || canSuperAdminWrite(user)
+  );
   const canEditHeadOffice = canEditCochin;
 
   const catalogImageUrls = useMemo(() => {
@@ -2358,7 +2361,7 @@ export const ProductDetailView: React.FC<{
               showNcTab={showAuditedStock}
               ncCategories={spareClassificationCategories}
               canEditNc={canEditCochin}
-              canWipeNc={user?.role === 'super_admin'}
+              canWipeNc={canSuperAdminWrite(user)}
               ncActorUid={user?.uid ?? ''}
               ncActorName={user?.displayName}
               ncExistingLocations={ncExistingLocations}

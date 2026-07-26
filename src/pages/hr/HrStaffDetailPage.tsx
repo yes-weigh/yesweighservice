@@ -8,7 +8,7 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { HrStaffProfileView } from '../../components/hr/HrStaffProfileView';
 import { getHrFileUrl } from '../../lib/hrStaff';
 import { fetchStaffRoles, findStaffRole } from '../../lib/staffRoles';
-import { canManageHr, canManageSuperAdminsInHr } from '../../lib/staffAccess';
+import { canManageHr, canManageSuperAdminsInHr, canSuperAdminWrite } from '../../lib/staffAccess';
 import { deactivateUser, deleteUserPermanently, promoteStaffToSuperAdmin } from '../../lib/userAdmin';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
@@ -107,7 +107,13 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
   };
 
   const handlePromoteToSuperAdmin = async () => {
-    if (!record || !user || !canManageSuperAdminsInHr(user) || record.uid === user.uid) return;
+    if (
+      !record
+      || !user
+      || !canManageSuperAdminsInHr(user)
+      || !canSuperAdminWrite(user)
+      || record.uid === user.uid
+    ) return;
     const ok = await confirm({
       title: 'Promote to Super Admin',
       message: `Promote ${record.displayName} to Super Admin? They will leave the staff directory and gain full super admin access. Login and HR profile stay the same.`,
@@ -153,7 +159,10 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
             <Pencil size={15} />
             Edit
           </Link>
-          {canManageSuperAdminsInHr(user) && record.uid !== user?.uid && record.active !== false && (
+          {canManageSuperAdminsInHr(user)
+            && canSuperAdminWrite(user)
+            && record.uid !== user?.uid
+            && record.active !== false && (
             <button
               type="button"
               className="btn btn-secondary btn-sm"

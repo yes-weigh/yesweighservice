@@ -33,6 +33,7 @@ import { fetchKams } from '../../lib/dealers';
 import { fetchStaffRoles } from '../../lib/staffRoles';
 import type { StaffRoleTemplate } from '../../types/staff-role';
 import {
+  canSuperAdminWrite,
   effectivePermissionSet,
   resolveStaffPermissions,
   staffDepartmentLabel,
@@ -80,7 +81,7 @@ export const StaffManagementPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const canManage = user?.role === 'super_admin';
+  const canManage = canSuperAdminWrite(user);
 
   const fetchStaff = useCallback(async () => {
     setLoading(true);

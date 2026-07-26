@@ -174,7 +174,7 @@ export const CatalogPage: React.FC = () => {
   const isStaff = user?.role === 'staff';
   const isMedia = user?.role === 'media';
   const isMobile = useIsMobile();
-  const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
+  const canSync = hasStaffPermission(user, 'catalog.sync');
   const canSpareGroup = isSuperAdmin || isStaff;
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const showAuditedLocations = isSuperAdmin || isStaff;

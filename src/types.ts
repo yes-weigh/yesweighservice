@@ -1,5 +1,17 @@
 export type Role = 'super_admin' | 'staff' | 'media' | 'dealer' | 'dealer_staff' | 'warehouse';
 
+/** Super admin write tier. Missing / unknown → full (legacy accounts). */
+export type SuperAdminAccess = 'view_only' | 'full';
+
+export const SUPER_ADMIN_ACCESS_LABELS: Record<SuperAdminAccess, string> = {
+  full: 'Full',
+  view_only: 'View only',
+};
+
+export function normalizeSuperAdminAccess(value: unknown): SuperAdminAccess {
+  return value === 'view_only' ? 'view_only' : 'full';
+}
+
 export type { StaffDepartment, StaffPermission, StaffAccessProfile, StaffAccessMode } from './types/staff-access';
 export {
   STAFF_DEPARTMENTS,
@@ -46,6 +58,8 @@ export interface User {
   loginIdType: LoginIdType;
   displayName: string;
   role: Role;
+  /** Super admin only. Missing → full. */
+  superAdminAccess?: SuperAdminAccess;
   email?: string;
   dealerId?: string;
   zohoCustomerId?: string;
@@ -88,6 +102,8 @@ export interface FirestoreUserDoc {
   loginIdType?: LoginIdType;
   displayName: string;
   role: Role | 'admin' | 'director' | 'director_staff';
+  /** Super admin only. Missing → full. */
+  superAdminAccess?: SuperAdminAccess;
   email?: string;
   dealerId?: string;
   zohoCustomerId?: string;
@@ -191,9 +207,29 @@ export function canWriteCatalogMedia(role: Role | undefined): boolean {
   return role === 'media' || role === 'super_admin';
 }
 
+/**
+ * Media writers, or full super admins (not view-only).
+ * Prefer this over {@link canWriteCatalogMedia} when a User is available.
+ */
+export function canWriteCatalogMediaForUser(
+  user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
+): boolean {
+  if (!user) return false;
+  if (user.role === 'media') return true;
+  return user.role === 'super_admin' && normalizeSuperAdminAccess(user.superAdminAccess) === 'full';
+}
+
 /** Can edit the primary Zoho-linked product image. */
 export function canEditCatalogProductImage(role: Role | undefined): boolean {
   return role === 'super_admin' || role === 'staff' || role === 'media';
+}
+
+export function canEditCatalogProductImageForUser(
+  user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
+): boolean {
+  if (!user) return false;
+  if (user.role === 'staff' || user.role === 'media') return true;
+  return user.role === 'super_admin' && normalizeSuperAdminAccess(user.superAdminAccess) === 'full';
 }
 
 export function canUseCart(role: Role | undefined): boolean {

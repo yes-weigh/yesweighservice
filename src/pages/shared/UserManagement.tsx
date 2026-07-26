@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
-import { Eye, EyeOff, Pencil, Plus, RefreshCw, Trash2, Save, UserX } from 'lucide-react';
+import { Eye, EyeOff, Pencil, Plus, RefreshCw, Shield, Trash2, Save, UserX } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -11,9 +11,16 @@ import {
   registerUser,
   updateUserProfile,
 } from '../../lib/userAdmin';
-import type { FirestoreUserDoc, Role, UserRecord } from '../../types';
-import { ROLE_LABELS, canManageRole, normalizeRole, readDealerId } from '../../types';
-import { canManageWarehouseUsers } from '../../lib/staffAccess';
+import type { FirestoreUserDoc, Role, SuperAdminAccess, UserRecord } from '../../types';
+import {
+  ROLE_LABELS,
+  SUPER_ADMIN_ACCESS_LABELS,
+  canManageRole,
+  normalizeRole,
+  normalizeSuperAdminAccess,
+  readDealerId,
+} from '../../types';
+import { canManageWarehouseUsers, canSuperAdminWrite } from '../../lib/staffAccess';
 import {
   formatLoginIdDisplay,
   loginIdTypeLabel,
@@ -36,6 +43,7 @@ const EMPTY_FORM = {
   phone: '',
   email: '',
   dealerId: '',
+  superAdminAccess: 'full' as SuperAdminAccess,
 };
 
 type UserManagementProps = {
@@ -79,6 +87,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [error, setError] = useState('');
   const [roleDraft, setRoleDraft] = useState<DealerRoleDraft>(EMPTY_DEALER_ROLE_DRAFT);
   const showDealerAccess = role === 'dealer' || role === 'dealer_staff';
+  const showSuperAdminAccess = role === 'super_admin';
+  const canWriteUsers = canSuperAdminWrite(user) || (
+    user?.role !== 'super_admin' && Boolean(user)
+  );
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -137,7 +149,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   };
 
   const openCreate = () => {
-    setForm({ ...EMPTY_FORM, dealerId: scopedDealerId ?? '' });
+    if (!canWriteUsers) return;
+    setForm({ ...EMPTY_FORM, dealerId: scopedDealerId ?? '', superAdminAccess: 'full' });
     const parent = role === 'dealer_staff' ? parentDealerRecord(scopedDealerId) : null;
     setRoleDraft(parent ? dealerRoleDraftFromRecord(parent) : EMPTY_DEALER_ROLE_DRAFT);
     setEditingUid(null);
@@ -146,6 +159,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   };
 
   const openEdit = (record: UserRecord) => {
+    if (!canWriteUsers) return;
     const login = resolveProfileLogin(record);
     setForm({
       loginId: login?.value ?? '',
@@ -154,6 +168,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       phone: record.phone ?? '',
       email: record.email ?? '',
       dealerId: readDealerId(record) ?? scopedDealerId ?? '',
+      superAdminAccess: normalizeSuperAdminAccess(record.superAdminAccess),
     });
     setRoleDraft(dealerRoleDraftFromRecord(record));
     setEditingUid(record.uid);
@@ -163,12 +178,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !canWriteUsers) return;
+    if (showSuperAdminAccess && !canSuperAdminWrite(user)) {
+      setError('View-only super admins cannot change access.');
+      return;
+    }
     setSubmitting(true);
     setError('');
 
     try {
       const accessPayload = showDealerAccess ? dealerRoleDraftToPayload(roleDraft) : {};
+      const superAccessPayload = showSuperAdminAccess
+        ? { superAdminAccess: normalizeSuperAdminAccess(form.superAdminAccess) }
+        : {};
       if (editingUid) {
         await updateUserProfile(db, editingUid, {
           displayName: form.displayName,
@@ -177,6 +199,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           dealerId:
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           ...accessPayload,
+          ...superAccessPayload,
         });
       } else {
         if (form.password.length < 6) {
@@ -199,6 +222,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           dealerId:
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           ...accessPayload,
+          ...superAccessPayload,
           createdByUid: user.uid,
         });
       }
@@ -211,8 +235,29 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     }
   };
 
+  const handleToggleSuperAdminAccess = async (record: UserRecord) => {
+    if (!user || !canSuperAdminWrite(user) || record.uid === user.uid) return;
+    const current = normalizeSuperAdminAccess(record.superAdminAccess);
+    const next: SuperAdminAccess = current === 'full' ? 'view_only' : 'full';
+    const ok = await confirm({
+      title: `Set ${SUPER_ADMIN_ACCESS_LABELS[next]} access`,
+      message: next === 'view_only'
+        ? `${record.displayName} will be able to view the portal but not update stock, products, or other data.`
+        : `${record.displayName} will regain full edit permissions.`,
+      confirmLabel: `Make ${SUPER_ADMIN_ACCESS_LABELS[next]}`,
+    });
+    if (!ok) return;
+    setError('');
+    try {
+      await updateUserProfile(db, record.uid, { superAdminAccess: next });
+      await fetchUsers();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not update access.');
+    }
+  };
+
   const handleDeactivate = async (record: UserRecord) => {
-    if (record.uid === user?.uid) return;
+    if (!canWriteUsers || record.uid === user?.uid) return;
     const ok = await confirm({
       title: 'Deactivate user',
       message: `Deactivate ${record.displayName}? They will not be able to sign in.`,
@@ -225,7 +270,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   };
 
   const handleDeletePermanently = async (record: UserRecord) => {
-    if (!user || user.role !== 'super_admin' || !canPermanentlyDelete || record.uid === user.uid) {
+    if (
+      !user
+      || !canSuperAdminWrite(user)
+      || !canPermanentlyDelete
+      || record.uid === user.uid
+    ) {
       return;
     }
     const extraNote =
@@ -249,7 +299,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   };
 
   const canPermanentlyDelete =
-    user?.role === 'super_admin'
+    canSuperAdminWrite(user)
     && (role === 'super_admin' || role === 'dealer' || role === 'staff' || role === 'dealer_staff' || role === 'warehouse' || role === 'media');
 
   const dealerName = (dealerId?: string) =>
@@ -282,12 +332,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <RefreshCw size={16} />
               Refresh
             </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>
-              <Plus size={16} />
-              Add {ROLE_LABELS[role]}
-            </button>
+            {canWriteUsers ? (
+              <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>
+                <Plus size={16} />
+                Add {ROLE_LABELS[role]}
+              </button>
+            ) : null}
           </div>
         </div>
+        {showSuperAdminAccess && !canWriteUsers ? (
+          <p className="text-muted text-sm mx-4 mb-2">
+            Your account is view-only. You can browse this list but cannot add, edit, or change access.
+          </p>
+        ) : null}
 
         {error && !showForm && (
           <div className="login-error mx-4 mb-3">{error}</div>
@@ -396,6 +453,25 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 </div>
               )}
 
+              {showSuperAdminAccess && (
+                <div className="form-group col-span-all">
+                  <label htmlFor="super-admin-access">Access</label>
+                  <select
+                    id="super-admin-access"
+                    className="input-field"
+                    value={form.superAdminAccess}
+                    onChange={e => setForm(f => ({
+                      ...f,
+                      superAdminAccess: normalizeSuperAdminAccess(e.target.value),
+                    }))}
+                    disabled={submitting || !canSuperAdminWrite(user)}
+                  >
+                    <option value="full">Full — can edit stock, products, locations, HR, etc.</option>
+                    <option value="view_only">View only — browse everything, no edits</option>
+                  </select>
+                </div>
+              )}
+
               <div className="form-group">
                 <label htmlFor="user-password">
                   {editingUid ? 'Password (set at creation only)' : 'Password'}
@@ -446,6 +522,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   <th>Login ID</th>
                   <th>Phone</th>
                   {showDealerAccess && <th>Access</th>}
+                  {showSuperAdminAccess && <th>Access</th>}
                   {role === 'dealer_staff' && !scopedDealerId && <th>Dealer</th>}
                   <th>Status</th>
                   <th className="text-right">Actions</th>
@@ -454,6 +531,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <tbody>
                 {records.map(record => {
                   const loginDisplay = displayLoginForRecord(record);
+                  const access = normalizeSuperAdminAccess(record.superAdminAccess);
                   return (
                     <tr key={record.uid}>
                       <td>{record.displayName}</td>
@@ -473,6 +551,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                           )}
                         </td>
                       )}
+                      {showSuperAdminAccess && (
+                        <td>
+                          <span
+                            className={[
+                              'status-badge',
+                              access === 'full' ? 'active' : 'inactive',
+                            ].join(' ')}
+                          >
+                            {SUPER_ADMIN_ACCESS_LABELS[access]}
+                          </span>
+                        </td>
+                      )}
                       {role === 'dealer_staff' && !scopedDealerId && (
                         <td>{dealerName(readDealerId(record))}</td>
                       )}
@@ -482,15 +572,34 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         </span>
                       </td>
                       <td className="text-right">
-                        <button
-                          type="button"
-                          className="btn-icon"
-                          title="Edit"
-                          onClick={() => openEdit(record)}
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        {record.uid !== user?.uid && record.active !== false && (
+                        {canWriteUsers ? (
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            title="Edit"
+                            onClick={() => openEdit(record)}
+                          >
+                            <Pencil size={16} />
+                          </button>
+                        ) : null}
+                        {showSuperAdminAccess
+                          && canSuperAdminWrite(user)
+                          && record.uid !== user?.uid
+                          && record.active !== false ? (
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            title={
+                              access === 'full'
+                                ? 'Switch to view only'
+                                : 'Switch to full access'
+                            }
+                            onClick={() => { void handleToggleSuperAdminAccess(record); }}
+                          >
+                            <Shield size={16} />
+                          </button>
+                        ) : null}
+                        {canWriteUsers && record.uid !== user?.uid && record.active !== false && (
                           <button
                             type="button"
                             className="btn-icon text-red"

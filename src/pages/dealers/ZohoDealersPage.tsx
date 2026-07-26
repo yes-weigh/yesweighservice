@@ -50,8 +50,8 @@ export function ZohoDealersPage() {
   const { user } = useAuth();
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
   const scopedKamId = user?.role === 'staff' && user.staffKamId ? user.staffKamId : null;
-  const canSyncDealers = user?.role === 'super_admin' || hasStaffPermission(user, 'dealers.sync');
-  const canEditDealers = user?.role === 'super_admin' || hasStaffPermission(user, 'dealers.edit');
+  const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
+  const canEditDealers = hasStaffPermission(user, 'dealers.edit');
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
