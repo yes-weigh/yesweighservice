@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ChevronRight,
   FileText,
+  FileUp,
   IndianRupee,
   LayoutGrid,
   Search,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { canSuperAdminWrite } from '../../lib/staffAccess';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
   DealerMultiFilterPicker,
@@ -277,6 +280,8 @@ function AdminFilterSheet({
 
 export const AdminInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canImport = canSuperAdminWrite(user);
   const [searchParams, setSearchParams] = useSearchParams();
   const scrollRef = useRevealScrollbarOnScroll();
   const [rows, setRows] = useState<AdminFirestoreInvoice[]>([]);
@@ -533,6 +538,16 @@ export const AdminInvoicesPage: React.FC = () => {
   const headerTools = useMemo(
     () => (
       <div className="invoices-header-tools">
+        {canImport && (
+          <Link
+            to="/super-admin/invoices/import"
+            className="btn btn-secondary btn-sm"
+            title="CSV import"
+          >
+            <FileUp size={14} />
+            Import
+          </Link>
+        )}
         <div className="catalog-search invoices-header-search">
           <Search size={15} aria-hidden />
           <input
@@ -570,7 +585,7 @@ export const AdminInvoicesPage: React.FC = () => {
         </button>
       </div>
     ),
-    [search, filterOpen, hasActiveFilters],
+    [search, filterOpen, hasActiveFilters, canImport],
   );
 
   useCatalogPageHeader({ mobileCompactHeader: true }, true);

@@ -357,8 +357,8 @@ const LayoutShell: React.FC = () => {
   const dealerListPath = isDealerDetail
     ? location.pathname.replace(/\/[^/]+$/, '')
     : null;
-  // Exclude list helpers like /invoices/sync from "invoice detail" title handling.
-  const isInvoiceDetail = /\/invoices\/(?!sync(?:\/|$))[^/]+(\/(invoice(\/view)?|payments|logistic|qc))?$/.test(
+  // Exclude list helpers like /invoices/import from "invoice detail" title handling.
+  const isInvoiceDetail = /\/invoices\/(?!(?:sync|import)(?:\/|$))[^/]+(\/(invoice(\/view)?|payments|logistic|qc))?$/.test(
     location.pathname,
   );
   const isPurchaseOrderDetail = /\/purchase-orders\/(?!sync(?:\/|$))[^/]+(\/view)?$/.test(

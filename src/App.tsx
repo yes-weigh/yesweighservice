@@ -32,12 +32,10 @@ import { AdminInvoiceDetailLayout } from './pages/admin/AdminInvoiceDetailLayout
 import { AdminInvoiceDocumentPage } from './pages/admin/AdminInvoiceDocumentPage';
 import { AdminInvoicePdfViewerPage } from './pages/admin/AdminInvoicePdfViewerPage';
 import { AdminPurchaseOrdersPage } from './pages/admin/AdminPurchaseOrdersPage';
-import { AdminPurchaseOrderSyncPage } from './pages/admin/AdminPurchaseOrderSyncPage';
 import { AdminPurchaseOrderDetailLayout } from './pages/admin/AdminPurchaseOrderDetailLayout';
 import { AdminPurchaseOrderDocumentPage } from './pages/admin/AdminPurchaseOrderDocumentPage';
 import { AdminPurchaseOrderPdfViewerPage } from './pages/admin/AdminPurchaseOrderPdfViewerPage';
 import { AdminUnifiedSalesOrdersPage } from './pages/admin/AdminUnifiedSalesOrdersPage';
-import { AdminSalesOrderSyncPage } from './pages/admin/AdminSalesOrderSyncPage';
 import { AdminSalesOrderDetailLayout } from './pages/admin/AdminSalesOrderDetailLayout';
 import { AdminSalesOrderDocumentPage } from './pages/admin/AdminSalesOrderDocumentPage';
 import { AdminSalesOrderPdfViewerPage } from './pages/admin/AdminSalesOrderPdfViewerPage';
@@ -224,9 +222,10 @@ const App: React.FC = () => (
                   <Route path="view" element={<AdminInvoicePdfViewerPage />} />
                 </Route>
               </Route>
-              <Route path="invoices/sync" element={<AdminInvoiceSyncPage />} />
+              <Route path="invoices/import" element={<AdminInvoiceSyncPage />} />
+              <Route path="invoices/sync" element={<Navigate to="/super-admin/invoices/import" replace />} />
               <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />
-              <Route path="sales-orders/sync" element={<AdminSalesOrderSyncPage />} />
+              <Route path="sales-orders/sync" element={<Navigate to="/super-admin/sales-orders" replace />} />
               <Route path="sales-orders/portal/:orderId" element={<StaffOrderDetailPage />} />
               <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>
                 <Route index element={<AdminSalesOrderDocumentPage />} />
@@ -236,7 +235,7 @@ const App: React.FC = () => (
               <Route path="orders/history" element={<OpsOrdersListRedirect />} />
               <Route path="orders/:orderId" element={<OpsOrderDetailRedirect />} />
               <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
-              <Route path="purchase-orders/sync" element={<AdminPurchaseOrderSyncPage />} />
+              <Route path="purchase-orders/sync" element={<Navigate to="/super-admin/purchase-orders" replace />} />
               <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
                 <Route index element={<AdminPurchaseOrderDocumentPage />} />
                 <Route path="view" element={<AdminPurchaseOrderPdfViewerPage />} />

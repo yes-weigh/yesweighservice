@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   FileText,
   IndianRupee,
-  RefreshCw,
   Search,
   ShoppingBag,
   SlidersHorizontal,
@@ -16,7 +15,6 @@ import {
   InvoiceCategoryBadge,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
-import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   buildAdminPurchaseOrderSalesEntries,
@@ -35,7 +33,6 @@ import {
   invoiceCategoryLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
-import { canSuperAdminWrite } from '../../lib/staffAccess';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
@@ -239,9 +236,7 @@ function PurchaseOrderFilterSheet({
 export const AdminPurchaseOrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user } = useAuth();
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
-  const canSync = canSuperAdminWrite(user);
   const scrollRef = useRevealScrollbarOnScroll();
   const [rows, setRows] = useState<AdminFirestorePurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -332,16 +327,6 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   const headerTools = useMemo(
     () => (
       <div className="invoices-header-tools">
-        {canSync && (
-          <Link
-            to={`${basePath}/purchase-orders/sync`}
-            className="btn btn-secondary btn-sm"
-            title="Purchase order sync"
-          >
-            <RefreshCw size={14} />
-            Sync
-          </Link>
-        )}
         <div className="catalog-search invoices-header-search">
           <Search size={15} aria-hidden />
           <input
@@ -379,7 +364,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
         </button>
       </div>
     ),
-    [search, filterOpen, hasActiveFilters, canSync, basePath],
+    [search, filterOpen, hasActiveFilters],
   );
 
   useCatalogPageHeader({ mobileCompactHeader: true }, true);
@@ -456,11 +441,6 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
           <div className="invoices-empty panel glass">
             <FileText size={40} className="text-muted" aria-hidden />
             <p>No purchase orders found for this period.</p>
-            {canSync && (
-              <Link to={`${basePath}/purchase-orders/sync`} className="btn btn-primary mt-4">
-                Open PO sync
-              </Link>
-            )}
           </div>
         ) : (
           <>

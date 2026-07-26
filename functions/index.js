@@ -77,25 +77,18 @@ import {
   verifyZohoWebhookSignature,
   handleZohoInvoiceWebhook,
 } from './lib/invoice-sync.js';
-import {
-  getOrgInvoiceSyncStatus,
-  countOrgInvoicesInRange,
-  syncOrgInvoicesToFirestore,
-} from './lib/org-invoice-sync.js';
+import { syncOrgInvoicesToFirestore } from './lib/org-invoice-sync.js';
 import {
   backfillInvoiceCategoriesToProduct,
   reclassifyInvoiceCategoriesFromCatalog,
 } from './lib/invoice-category.js';
+import { upsertInvoicesFromCsv } from './lib/invoice-csv-upsert.js';
 import {
-  getOrgPurchaseOrderSyncStatus,
-  countOrgPurchaseOrdersInRange,
   syncOrgPurchaseOrdersToFirestore,
   reclassifyPurchaseOrderCategoriesFromCatalog,
   ensurePurchaseOrderPdf,
 } from './lib/purchase-order-sync.js';
 import {
-  getOrgSalesOrderSyncStatus,
-  countOrgSalesOrdersInRange,
   syncOrgSalesOrdersToFirestore,
   reclassifySalesOrderCategoriesFromCatalog,
   ensureSalesOrderPdf,
@@ -104,7 +97,6 @@ import {
   ensureDealerSalesOrderPdf,
   syncDealerSalesOrdersToFirestore,
 } from './lib/sales-order-sync.js';
-import { getZohoApiUsageStatus } from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
@@ -1759,7 +1751,10 @@ export const zohoInvoiceWebhook = onRequest(
   },
 );
 
-/** Nightly invoice backfill — 2 AM IST; uses at most 70% of daily Zoho quota (30% reserved). */
+/**
+ * Nightly org sync safety net if webhooks miss updates.
+ * Invoices 2 AM IST, POs 3 AM, SOs 4 AM — each uses at most 70% of daily Zoho quota.
+ */
 export const syncZohoInvoicesScheduled = onSchedule(
   {
     schedule: '0 2 * * *',
@@ -1786,6 +1781,66 @@ export const syncZohoInvoicesScheduled = onSchedule(
       );
     } catch (err) {
       console.error('Scheduled org invoice sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+export const syncZohoPurchaseOrdersScheduled = onSchedule(
+  {
+    schedule: '0 3 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 1800,
+    memory: '2GiB',
+  },
+  async () => {
+    try {
+      const result = await syncOrgPurchaseOrdersToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          source: 'scheduled',
+          quotaReserveRatio: 0.30,
+        },
+      );
+      console.log(
+        `Scheduled org PO sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
+        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
+        + `quotaReserved=${result.quotaReserved}.`,
+      );
+    } catch (err) {
+      console.error('Scheduled org PO sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+export const syncZohoSalesOrdersScheduled = onSchedule(
+  {
+    schedule: '0 4 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 1800,
+    memory: '2GiB',
+  },
+  async () => {
+    try {
+      const result = await syncOrgSalesOrdersToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          source: 'scheduled',
+          quotaReserveRatio: 0.30,
+        },
+      );
+      console.log(
+        `Scheduled org SO sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
+        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
+        + `quotaReserved=${result.quotaReserved}.`,
+      );
+    } catch (err) {
+      console.error('Scheduled org SO sync failed:', err?.message ?? err);
     }
   },
 );
@@ -1820,60 +1875,6 @@ export const syncZohoInvoices = onCall(
   },
 );
 
-/** Org-wide invoice backfill status — super admin. */
-export const getOrgInvoiceSyncStatusCallable = onCall(
-  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    return getOrgInvoiceSyncStatus();
-  },
-);
-
-/** Zoho API usage today — super admin (on-demand from admin invoice sync page). */
-export const getZohoApiUsageCallable = onCall(
-  {
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 30,
-    memory: '256MiB',
-  },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    try {
-      return await getZohoApiUsageStatus(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        { forceRefresh: request.data?.forceRefresh === true },
-      );
-    } catch (err) {
-      console.error('getZohoApiUsageStatus failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Could not load Zoho API usage.');
-    }
-  },
-);
-
-/** Count every org invoice in Zoho — super admin. */
-export const countOrgInvoicesInRangeCallable = onCall(
-  {
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 3600,
-    memory: '1GiB',
-  },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    try {
-      return await countOrgInvoicesInRange(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-      );
-    } catch (err) {
-      console.error('countOrgInvoicesInRange failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Invoice count failed.');
-    }
-  },
-);
-
 /**
  * Reclassify existing invoices from lineItems.itemId → catalogProducts (HSN/category).
  * No Zoho calls. Alias kept for older clients.
@@ -1897,6 +1898,33 @@ export const reclassifyInvoiceCategoriesFromCatalogFn = onCall(
   },
 );
 
+/**
+ * Bulk upsert invoices from a parsed CSV payload (no Zoho API).
+ * Super admin only. Client sends batches of ≤100 invoices.
+ */
+export const upsertInvoicesFromCsvFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await upsertInvoicesFromCsv({
+        invoices: request.data?.invoices,
+      });
+    } catch (err) {
+      console.error('upsertInvoicesFromCsvFn failed:', err);
+      const message = err?.message ?? 'Invoice CSV upsert failed.';
+      if (/required|at most|invalid/i.test(message)) {
+        throw new HttpsError('invalid-argument', message);
+      }
+      throw new HttpsError('internal', message);
+    }
+  },
+);
+
 /** @deprecated Prefer reclassifyInvoiceCategoriesFromCatalogFn */
 export const backfillInvoiceCategoriesToProductFn = onCall(
   {
@@ -1913,69 +1941,6 @@ export const backfillInvoiceCategoriesToProductFn = onCall(
     } catch (err) {
       console.error('backfillInvoiceCategoriesToProduct failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice category backfill failed.');
-    }
-  },
-);
-
-/** Pull all org invoice details into Firestore — super admin. */
-export const runOrgInvoiceSync = onCall(
-  {
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 3600,
-    memory: '2GiB',
-  },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    try {
-      return await syncOrgInvoicesToFirestore(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        { source: 'manual' },
-      );
-    } catch (err) {
-      if (err?.code === 'ALREADY_RUNNING') {
-        throw new HttpsError('failed-precondition', err.message);
-      }
-      if (err?.code === 'RATE_LIMITED') {
-        throw new HttpsError(
-          'resource-exhausted',
-          'Zoho API rate limit reached. Wait a few minutes and click Pull now again.',
-        );
-      }
-      console.error('runOrgInvoiceSync failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Org invoice sync failed.');
-    }
-  },
-);
-
-/** Org-wide purchase order sync status — super admin. */
-export const getOrgPurchaseOrderSyncStatusCallable = onCall(
-  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    return getOrgPurchaseOrderSyncStatus();
-  },
-);
-
-/** Count every org purchase order in Zoho — super admin. */
-export const countOrgPurchaseOrdersInRangeCallable = onCall(
-  {
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 3600,
-    memory: '1GiB',
-  },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    try {
-      return await countOrgPurchaseOrdersInRange(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-      );
-    } catch (err) {
-      console.error('countOrgPurchaseOrdersInRange failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Purchase order count failed.');
     }
   },
 );
@@ -2001,69 +1966,6 @@ export const reclassifyPurchaseOrderCategoriesFromCatalogFn = onCall(
     } catch (err) {
       console.error('reclassifyPurchaseOrderCategoriesFromCatalog failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Purchase order category reclassify failed.');
-    }
-  },
-);
-
-/** Pull all org purchase order details into Firestore — super admin. */
-export const runOrgPurchaseOrderSync = onCall(
-  {
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 3600,
-    memory: '2GiB',
-  },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    try {
-      return await syncOrgPurchaseOrdersToFirestore(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        { source: 'manual' },
-      );
-    } catch (err) {
-      if (err?.code === 'ALREADY_RUNNING') {
-        throw new HttpsError('failed-precondition', err.message);
-      }
-      if (err?.code === 'RATE_LIMITED') {
-        throw new HttpsError(
-          'resource-exhausted',
-          'Zoho API rate limit reached. Wait a few minutes and click Pull now again.',
-        );
-      }
-      console.error('runOrgPurchaseOrderSync failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Org purchase order sync failed.');
-    }
-  },
-);
-
-/** Nightly purchase order backfill — 3 AM IST; 70% of daily Zoho quota max. */
-export const syncZohoPurchaseOrdersScheduled = onSchedule(
-  {
-    schedule: '0 3 * * *',
-    timeZone: 'Asia/Kolkata',
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 1800,
-    memory: '2GiB',
-  },
-  async () => {
-    try {
-      const result = await syncOrgPurchaseOrdersToFirestore(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        {
-          source: 'scheduled',
-          quotaReserveRatio: 0.30,
-        },
-      );
-      console.log(
-        `Scheduled org PO sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
-        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
-        + `quotaReserved=${result.quotaReserved}.`,
-      );
-    } catch (err) {
-      console.error('Scheduled org PO sync failed:', err?.message ?? err);
     }
   },
 );
@@ -2095,37 +1997,6 @@ export const downloadPurchaseOrderDocument = onCall(
   },
 );
 
-/** Org-wide sales order sync status — super admin. */
-export const getOrgSalesOrderSyncStatusCallable = onCall(
-  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    return getOrgSalesOrderSyncStatus();
-  },
-);
-
-/** Count every org sales order in Zoho — super admin. */
-export const countOrgSalesOrdersInRangeCallable = onCall(
-  {
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 3600,
-    memory: '1GiB',
-  },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    try {
-      return await countOrgSalesOrdersInRange(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-      );
-    } catch (err) {
-      console.error('countOrgSalesOrdersInRange failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Sales order count failed.');
-    }
-  },
-);
-
 /** Reclassify existing sales orders from lineItems.itemId → catalogProducts. */
 export const reclassifySalesOrderCategoriesFromCatalogFn = onCall(
   {
@@ -2147,69 +2018,6 @@ export const reclassifySalesOrderCategoriesFromCatalogFn = onCall(
     } catch (err) {
       console.error('reclassifySalesOrderCategoriesFromCatalog failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Sales order category reclassify failed.');
-    }
-  },
-);
-
-/** Pull all org sales order details into Firestore — super admin. */
-export const runOrgSalesOrderSync = onCall(
-  {
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 3600,
-    memory: '2GiB',
-  },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
-    try {
-      return await syncOrgSalesOrdersToFirestore(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        { source: 'manual' },
-      );
-    } catch (err) {
-      if (err?.code === 'ALREADY_RUNNING') {
-        throw new HttpsError('failed-precondition', err.message);
-      }
-      if (err?.code === 'RATE_LIMITED') {
-        throw new HttpsError(
-          'resource-exhausted',
-          'Zoho API rate limit reached. Wait a few minutes and click Pull now again.',
-        );
-      }
-      console.error('runOrgSalesOrderSync failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Org sales order sync failed.');
-    }
-  },
-);
-
-/** Nightly sales order backfill — 4 AM IST; 70% of daily Zoho quota max. */
-export const syncZohoSalesOrdersScheduled = onSchedule(
-  {
-    schedule: '0 4 * * *',
-    timeZone: 'Asia/Kolkata',
-    region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 1800,
-    memory: '2GiB',
-  },
-  async () => {
-    try {
-      const result = await syncOrgSalesOrdersToFirestore(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        {
-          source: 'scheduled',
-          quotaReserveRatio: 0.30,
-        },
-      );
-      console.log(
-        `Scheduled org SO sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
-        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
-        + `quotaReserved=${result.quotaReserved}.`,
-      );
-    } catch (err) {
-      console.error('Scheduled org SO sync failed:', err?.message ?? err);
     }
   },
 );
