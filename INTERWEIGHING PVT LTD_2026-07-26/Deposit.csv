@@ -1,0 +1,737 @@
+Transaction Date,Transaction Type,From Account,To Account,Reference,Description,Currency Code,Exchange Rate,Payment Mode,Is Inclusive Tax,Exemption Reason,Bank Charges,Tax,Tax %,Tax Amount,Tax Type,Bank Charges,Sub Total,Total
+2019-03-12,Capital Introduced,Harish Ramankutty,Kotak Current Account,Harish ,BY CLG INST 2x1956:FBL AT THIRUVANANTHAPURAM,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-03-12,Capital Introduced,Ayyankuyyan Faisal,Kotak Current Account,,IMPS from FAISAL AYYANKU Ref xxxxxxxx3253,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2019-03-14,Capital Introduced,Mahipal Samban,Kotak Current Account,,IB:ADVANCE,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2019-03-13,Capital Introduced,Babu Thomas Manickathinal,Kotak Current Account,,BY CLG INST 6x3321:SBI AT KOTTAYAM,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-03-13,Capital Introduced,Harish Ramankutty,Kotak Current Account,,BY CLG INST 2x1958:FBL AT THIRUVANANTHAPURAM,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,400000.000,400000.000
+2019-03-13,Capital Introduced,Ayyankuyyan Faisal,Kotak Current Account,,IMPS from FAISAL AYYANKU Ref xxxxxxxx0481,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2019-03-14,Capital Introduced,Ayyankuyyan Faisal,Kotak Current Account,,RTGS HDFCRxxxxxxxxxxxxx0162 FAISAL AYYANKUYYAN,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,400000.000,400000.000
+2019-03-14,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,IMPS from SHIJU Ref xxxxxxxx0161,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-03-14,Capital Introduced,Asish George Pulikkottil,Kotak Current Account,,RTGS SBINRxxxxxxxxxxxxx4075 ASISH GEORGE P,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,400000.000,400000.000
+2019-03-14,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,RTGS FDRLRxxxxxxxxxxxxx1754 CALICUT CITY SERVIC,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,400000.000,400000.000
+2019-03-14,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,RTGS SIBLRxxxxxxxxxxxxx5874 M S ASK AUTOMATION,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2019-03-14,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,NEFT Nxxxxxxxxxxx6095 ASK AUTOMATION SYSTEMS,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-03-15,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,IMPS from SHIJU Ref xxxxxxxx3148,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-03-15,Capital Introduced,Mahipal Samban,Kotak Current Account,,IB:INTERWEIGHING PVT LTD,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,450000.000,450000.000
+2019-03-16,Capital Introduced,Dileep J Nair,Kotak Current Account,,IMPS from Mr DILEEP J Ref xxxxxxxx7668,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-03-16,Capital Introduced,Dileep J Nair,Kotak Current Account,,IMPS from Mrs SANTHIKRISH Ref xxxxxxxx0369,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-03-16,Capital Introduced,Ravishankar B S,Kotak Current Account,,BY TR FROM RAVISANKAR,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2019-03-20,Capital Introduced,Asish George Pulikkottil,Kotak Current Account,,NEFT SBINxxxxxxxx1067 ASISH GEORGE P,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-03-20,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,NEFT AXISPxxxxxxx8010 CALICUT CITY SERVICE CO OP,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-03-28,Capital Introduced,Vijaykumar Sadasivan Nair,Kotak Current Account,,NEFT SBINxxxxxxxx4320 VIJAYAKUMAR S,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-04-02,Capital Introduced,Sabi N S,Kotak Current Account,,NEFT IOBANxxxxxxx4242 MODERN SCALES,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,180000.000,180000.000
+2019-04-02,Capital Introduced,Sabi N S,Kotak Current Account,,NEFT IOBANxxxxxxx6635 MODERN MACHINES,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,190000.000,190000.000
+2019-04-02,Capital Introduced,Vijaykumar Sadasivan Nair,Kotak Current Account,,NEFT SBINxxxxxxxx4935 VIJAYAKUMAR S,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,400000.000,400000.000
+2019-04-02,Capital Introduced,Sabi N S,Kotak Current Account,,NEFT IOBANxxxxxxx2115 THRASS WORLD,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,130000.000,130000.000
+2019-04-09,Capital Introduced,Pinakin Kantibhai Patel,Kotak Current Account,,BY CLG INST 1x8973:HDFC AT THIRUVANANTHAPURAM,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-04-22,Capital Introduced,Manojkumar M,Kotak Current Account,,NEFT CMSxxxxxx0595 MANJERI CO OPERATIVE URBAN BAN,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2019-05-03,Capital Introduced,DINESH KANJIRAKKAD SHARE,Kotak Current Account,,IMPS from DINESHAN P Ref xxxxxxxx8220,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-05-03,Capital Introduced,VINOD WAYANAD SHARE,Kotak Current Account,,NEFT FBWDCBxxxxxx8089 VINODKUMAR K,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-05-06,Deposit,Discount Received,Kotak Current Account,,UPI/goog-paymen/xxxxxxxx0269/UPI,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.050,0.050
+2019-05-11,Deposit,Petty Cash,Kotak Current Account,,REV:IMPS xxxxxxxxxxx0376 Ref xxxxxxxx4632,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,10000.000,10000.000
+2019-05-14,Capital Introduced,Radakrishnan P M,Kotak Current Account,,RTGS FDRLRxxxxxxxxxxxxx6605 ALUVA SCALES,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-05-13,Capital Introduced,Jayakrishnan share,Kotak Current Account,,NEFT Pxxxxxxxxxx7534 JAYAKRISHNAN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2019-05-20,Capital Introduced,Ayyankuyyan Faisal,Kotak Current Account,,RTGS HDFCRxxxxxxxxxxxxx1612 FAISAL AYYANKUYYAN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000000.000,1000000.000
+2019-05-20,Capital Introduced,Harish Ramankutty,Kotak Current Account,,FTR FROM HAREESH R,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-05-21,Capital Introduced,Harish Ramankutty,Kotak Current Account,,BY CLG INST 2x1856:FBL AT THIRUVANANTHAPURAM,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-05-21,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,NEFT SIBLNxxxxxxx0333 SHIJU P K,INR,1.000000000000,Bank Remittance,false,,0.000,,,0.000,Amount,0.000,190000.000,190000.000
+2019-05-21,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,RTGS SIBLRxxxxxxxxxxxxx0855 SHIJU P K,INR,1.000000000000,Bank Remittance,false,,0.000,,,0.000,Amount,0.000,810000.000,810000.000
+2019-05-21,Capital Introduced,Asish George Pulikkottil,Kotak Current Account,,NEFT SBINxxxxxxxx5784 ASISH GEORGE P,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000000.000,1000000.000
+2019-05-22,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000000.000,1000000.000
+2019-05-22,Capital Introduced,Dileep J Nair,Kotak Current Account,,NEFT SBINxxxxxxxx5303 MR DILEEP J NAIR,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2019-05-22,Capital Introduced,Dileep J Nair,Kotak Current Account,,IMPS from Mr DILEEP Ref xxxxxxxx4785,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2019-05-22,Capital Introduced,Babu Thomas Manickathinal,Kotak Current Account,,BY CLG INST 6x3324:SBI AT KOTTAYAM,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-05-22,Capital Introduced,Babu Thomas Manickathinal,Kotak Current Account,,NEFT SBINxxxxxxxx2068 BABU M T,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-05-23,Capital Introduced,Mahipal Samban,Kotak Current Account,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000000.000,1000000.000
+2019-05-24,Capital Introduced,Manojkumar M,Kotak Current Account,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300000.000,300000.000
+2019-05-24,Capital Introduced,Ravishankar B S,Kotak Current Account,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300000.000,300000.000
+2019-05-28,Capital Introduced,Vijaykumar Sadasivan Nair,Kotak Current Account,,NEFT SBINxxxxxxxx3588 VIJAYAKUMAR S,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500029.500,500029.500
+2019-05-29,Capital Introduced,Santhosh share,Kotak Current Account,,NEFT SBINxxxxxxxx9552 SANTHOSH P K,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2019-05-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2827,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,591.000,591.000
+2019-05-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3239,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,545.000,545.000
+2019-05-31,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3239,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,42.000,42.000
+2019-06-01,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3239,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,127.000,127.000
+2019-06-03,Capital Introduced,Pinakin Kantibhai Patel,Kotak Current Account,,NEFT Nxxxxxxxxxxx8035 PINAKIN KANTIBHAI PATEL,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-06-17,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3239,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,31.000,31.000
+2019-06-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5071,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,12.000,12.000
+2019-06-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3239,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,30.000,30.000
+2019-06-13,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5071,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,57.000,57.000
+2019-06-11,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5071,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,15.000,15.000
+2019-06-10,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5071,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,34.000,34.000
+2019-06-22,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2207,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,488.000,488.000
+2019-06-21,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2207,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,160.000,160.000
+2019-06-20,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2207,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,313.000,313.000
+2019-06-19,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2468,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1275.000,1275.000
+2019-06-19,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2207,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,4073.000,4073.000
+2019-06-19,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3239,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1545.000,1545.000
+2019-06-19,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0522,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,456.000,456.000
+2019-06-19,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx9114,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1825.000,1825.000
+2019-06-18,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3239,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,445.000,445.000
+2019-06-25,Capital Introduced,Vijaykumar Sadasivan Nair,Kotak Current Account,,RTGS SBINRxxxxxxxxxxxxx5174 VIJAYAKUMAR S,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-07-02,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx9748,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,309.000,309.000
+2019-07-02,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2207,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,8487.000,8487.000
+2019-07-23,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5020,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,21.000,21.000
+2019-07-23,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3251,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,34.000,34.000
+2019-07-23,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3902,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,67.000,67.000
+2019-07-23,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8378,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,127.000,127.000
+2019-08-08,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4008,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,8.000,8.000
+2019-08-13,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2111,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1197.000,1197.000
+2019-08-13,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5786,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1134.000,1134.000
+2019-08-13,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7693,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,54.000,54.000
+2019-08-13,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4008,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,50.000,50.000
+2019-08-13,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3902,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,192.000,192.000
+2019-08-13,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2069,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,104.000,104.000
+2019-08-13,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx6069,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,614.000,614.000
+2019-08-12,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4008,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,23.000,23.000
+2019-09-27,Deposit,Discount Received,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.400,0.400
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx9149,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,460.000,460.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx6682,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,28.000,28.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7139,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,118.000,118.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2124,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1525.000,1525.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8080,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,132.000,132.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3810,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,212.000,212.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7640,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,40.000,40.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8657,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,146.000,146.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx1557,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,140.000,140.000
+2019-10-03,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2440,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,168.000,168.000
+2019-10-10,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2502,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,101.000,101.000
+2019-10-09,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2502,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1233.000,1233.000
+2019-10-08,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2502,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,911.000,911.000
+2019-10-07,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2124,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,45.000,45.000
+2019-10-07,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2502,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,279.000,279.000
+2019-10-05,Expense Refund,Travelling expenses,Kotak Current Account,,UPI/fak.mzn@okh/xxxxxxxx7628/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,260.000,260.000
+2019-10-05,Expense Refund,Travelling expenses,Kotak Current Account,,UPI/fak.mzn@okh/xxxxxxxx4857/Bill 455,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,265.000,265.000
+2019-10-11,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2502,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,208.000,208.000
+2019-10-14,Deposit,Discount Received,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.120,0.120
+2019-10-15,Capital Introduced,Pinakin Kantibhai Patel,Kotak Current Account,,RTGS HDFCRxxxxxxxxxxxxx7762 PINAKIN KANTIBHAI P,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2019-10-19,Deposit,Discount Received,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2019-10-17,Interest Received,Interest Income,Kotak Current Account,,VISA-REFUND/xx1019/9288/UBER TECHNOLOGIES INC (Value Date:14/10/2019),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7413,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,306.000,306.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2508,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,466.000,466.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2502,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1424.000,1424.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx1340,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,450.000,450.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3627,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2211.000,2211.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8920,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,94.000,94.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0155,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,133.000,133.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx1844,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,103.000,103.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7481,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,47.000,47.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0957,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,194.000,194.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4420,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,63.000,63.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0434,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,83.000,83.000
+2019-10-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx1778,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,729.000,729.000
+2019-11-01,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3627,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,841.000,841.000
+2019-11-20,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0139,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,55.000,55.000
+2019-11-21,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0139,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,101.000,101.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx1722,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,284.000,284.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4691,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1022.000,1022.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx6974,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1111.000,1111.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0037,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,281.000,281.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8612,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,158.000,158.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx9110,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,21.000,21.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0139,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,310.000,310.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4200,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,442.000,442.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4618,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1173.000,1173.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4244,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1238.000,1238.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0734,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,409.000,409.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3627,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1935.000,1935.000
+2019-11-27,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3810,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,370.000,370.000
+2019-12-02,Deposit,Petty Cash,Kotak Current Account,,NEFT RTN KKBKHxxxxxxx9477 ACCOUNT DOES NOT EXIST,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3950.000,3950.000
+2019-12-02,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx1694,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,780.000,780.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx1694,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,195.000,195.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2252,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,83.000,83.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8397,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,96.000,96.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5443,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,11.000,11.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2252,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,301.000,301.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8480,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,15.000,15.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5288,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,21.000,21.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5236,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,18.000,18.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0074,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,19.000,19.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0796,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,52.000,52.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0442,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,137.000,137.000
+2019-12-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx9378,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,231.000,231.000
+2020-02-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx6524,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,132.000,132.000
+2020-02-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2535,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,253.000,253.000
+2020-02-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0936,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,38.000,38.000
+2020-02-24,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8266,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,439.000,439.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4032,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1545.000,1545.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5316,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2121.000,2121.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx6276,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,181.000,181.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2382,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,696.000,696.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4686,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2169.000,2169.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2787,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,748.000,748.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7313,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1325.000,1325.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx6112,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,362.000,362.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7091,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,781.000,781.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7857,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,51.000,51.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0936,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1239.000,1239.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4996,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,68.000,68.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7475,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,18.000,18.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx8753,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,48.000,48.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0283,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,43.000,43.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5392,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,302.000,302.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx3540,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,855.000,855.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5616,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,557.000,557.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx1436,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,452.000,452.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx4163,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,246.000,246.000
+2020-03-16,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx0806,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,813.000,813.000
+2020-03-28,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5407,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,387.000,387.000
+2020-03-26,Interest Received,Interest Income,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5407,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,60.000,60.000
+2020-05-04,Deposit,Undeposited Funds,Kotak Current Account,,Received from AC V XX6979 IMPS IDFC BANK,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2020-07-21,Capital Introduced,Mahipal Samban,Kotak Current Account,,IB:RECEIVED MONEY FROM MAHIPAL SAM xxxxxxxxxx4647,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-21,Capital Introduced,Harish Ramankutty,Kotak Current Account,,MB:RECEIVED MONEY FROM HAREESH.R xxxxxxxx5928,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-20,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,NEFT AXMBxxxxxxxx5675 JYOTHISH K V UTIBxxx1908,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-20,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,RTGS SIBLRxxxxxxxxxxxxx2622 SHIJU P K SIBLx0001,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-20,Capital Introduced,Ayyankuyyan Faisal,Kotak Current Account,,NEFT Nxxxxxxxxxxx5956 FAISAL AYYANKUYYAN HDFC0000,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-22,Capital Introduced,Asish George Pulikkottil,Kotak Current Account,,NEFT SBINxxxxxxxx1570 ASISH GEORGE P SBINxxx2892,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2020-07-22,Capital Introduced,Asish George Pulikkottil,Kotak Current Account,,NEFT SBINxxxxxxxx9383 ASISH GEORGE P SBINxxx2892,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2020-07-24,Capital Introduced,Nisar,Kotak Current Account,,Received from NISA XX2652 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.000,3.000
+2020-07-24,Capital Introduced,Nisar,Kotak Current Account,,Received from NISA XX2652 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,199997.000,199997.000
+2020-07-24,Capital Introduced,Nisar,Kotak Current Account,,RTGS FDRLRxxxxxxxxxxxxx8319 NISAR U FDRLxxx1077,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,350000.000,350000.000
+2020-07-24,Capital Introduced,Ayyankuyyan Faisal,Kotak Current Account,,NEFT Nxxxxxxxxxxx3780 FAISAL AYYANKUYYAN HDFC0000,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-24,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,NEFT AXMBxxxxxxxx3478 JYOTHISH K V UTIBxxx1908,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2020-07-24,Capital Introduced,Ravishankar B S,Kotak Current Account,,IB:RECEIVED MONEY FROM RAVISANKAR B S xxxxxx0222,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2020-07-24,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,Received from JYOT XX3189 IMPS CANARA BAN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2020-07-24,Capital Introduced,Mahipal Samban,Kotak Current Account,,IB:RECEIVED MONEY FROM MAHIPAL SAM xxxxxxxxxx4647,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-24,Capital Introduced,Harish Ramankutty,Kotak Current Account,,MB:RECEIVED MONEY FROM HAREESH.R xxxxxxxx5928,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-24,Capital Introduced,Dileep J Nair,Kotak Current Account,,FTR FROM DILEEP J NAIR,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2020-07-24,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,Received from SHIJ XX2765 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2020-07-24,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,Received from SHIJ XX2765 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,25000.000,25000.000
+2020-07-23,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,Received from SHIJ XX2765 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2020-07-23,Capital Introduced,Babu Thomas Manickathinal,Kotak Current Account,,RTGS SBINRxxxxxxxxxxxxx6007 BABU T SBINxxx0101,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-23,Capital Introduced,Dileep J Nair,Kotak Current Account,,MB:RECEIVED MONEY FROM TRAVANCORE SCAL xxxxxx2017,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2020-07-24,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,Received from SHIJ XX2890 IMPS HDFCBANKLT,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,25000.000,25000.000
+2020-07-27,Capital Introduced,Asish George Pulikkottil,Kotak Current Account,,RTGS SBINRxxxxxxxxxxxxx7079 ASISH GEORGE P SBIN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2020-07-27,Capital Introduced,Babu Thomas Manickathinal,Kotak Current Account,,RTGS SBINRxxxxxxxxxxxxx5967 BABU T SBINxxx0101,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250000.000,250000.000
+2020-07-25,Capital Introduced,Asish George Pulikkottil,Kotak Current Account,,UPI/asishpulikk/xxxxxxxx2176/Capital,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2020-07-26,Capital Introduced,Nisar,Kotak Current Account,,Received from NISA XX2652 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2020-07-27,Capital Introduced,Nisar,Kotak Current Account,,Received from NISA XX2652 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2020-07-28,Capital Introduced,Nisar,Kotak Current Account,,Received from NISA XX2652 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2020-07-29,Capital Introduced,Dileep J Nair,Kotak Current Account,,Received from DILE XX6501 IMPS HDFCBANKLT,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2020-07-30,Capital Introduced,Dileep J Nair,Kotak Current Account,,Received from DILE XX6501 IMPS HDFCBANKLT,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2020-09-19,Capital Introduced,Pinakin Kantibhai Patel,Kotak Current Account,,NEFT Nxxxxxxxxxxx9957 PINAKIN KANTIBHAI PATEL HDF,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2020-10-26,Capital Introduced,Vijaykumar Sadasivan Nair,Petty Cash,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2020-10-30,Capital Introduced,Harish Ramankutty,Kotak Current Account,,MB:RECEIVED MONEY FROM HAREESH.R xxxxxxxx5928,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2020-11-03,Capital Introduced,Harish Ramankutty,Kotak Current Account,,BY CLG INST 2x1858/xx-x0-20/FBL/THIRUVANANTHAPURAM,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,400000.000,400000.000
+2020-10-30,Capital Introduced,Harish Ramankutty,Kotak Current Account,,BY CH xx1983 HAREESH R,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2020-10-30,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,NEFT SIBLNxxxxxxx0893 SHIJU P K SIBLxxx0159,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,900000.000,900000.000
+2020-10-31,Capital Introduced,Shiju Pereppadan,Kotak Current Account,,Received from SHIJ XX2765 IMPS THE SOUTH,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2020-11-03,Capital Introduced,Mahipal Samban,Kotak Current Account,,IB:RECEIVED MONEY FROM MAHIPAL SAM xxxxxxxxxx4647,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300000.000,300000.000
+2020-10-31,Capital Introduced,Mahipal Samban,Kotak Current Account,,IB:RECEIVED MONEY FROM MAHIPAL SAM xxxxxxxxxx4647,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300000.000,300000.000
+2020-10-30,Capital Introduced,Mahipal Samban,Kotak Current Account,,IB:RECEIVED MONEY FROM MAHIPAL SAM xxxxxxxxxx4647,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2020-11-09,Capital Introduced,Pinakin Kantibhai Patel,Kotak Current Account,,NEFT Nxxxxxxxxxxx4745 PINAKIN KANTIBHAI PATEL HDF,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000000.000,1000000.000
+2020-11-02,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,Received from JYOT XX3189 IMPS CANARA BAN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,50000.000,50000.000
+2020-11-02,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,Received from JYOT XX3189 IMPS CANARA BAN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2020-11-02,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,NEFT Pxxxxxxxxxxx7413 JYOTHISH K V CNRBxxx1144,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2020-11-02,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,NEFT Pxxxxxxxxxxx7268 JYOTHISH K V CNRBxxx1144,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2020-10-31,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,NEFT Pxxxxxxxxxxx0081 JYOTHISH K V CNRBxxx1144,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2020-11-02,Capital Introduced,Babu Thomas Manickathinal,Kotak Current Account,,RTGS SBINRxxxxxxxxxxxxx4391 VICTORYSCALES SBIN0,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2020-11-02,Capital Introduced,Ashly Thomas,Kotak Current Account,,RTGS SBINRxxxxxxxxxxxxx4955 ASHLEYTHOMAS SBIN00,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2020-10-31,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,Received from JYOT XX3189 IMPS CANARA BAN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150000.000,150000.000
+2020-10-30,Capital Introduced,Ayyankuyyan Faisal,Kotak Current Account,,NEFT Nxxxxxxxxxxx9461 FAISAL AYYANKUYYAN HDFC0000,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,800000.000,800000.000
+2020-11-10,Capital Introduced,Pinakin Kantibhai Patel,Kotak Current Account,,NEFT Nxxxxxxxxxxx4321 PINAKIN KANTIBHAI PATEL HDF,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2020-11-05,Capital Introduced,Neethu Jyothish,Kotak Current Account,,RTGS CNRBRxxxxxxxxxxxxx3102 NEETHU CNRBxxx1144,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300000.000,300000.000
+2020-11-01,Capital Introduced,Nasreena Faisal,Kotak Current Account,,Received from NASR XX6688 IMPS HDFCBANKLT,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2020-10-30,Capital Introduced,Nasreena Faisal,Kotak Current Account,,Received from NASR XX6688 IMPS HDFCBANKLT,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,200000.000,200000.000
+2020-10-31,Capital Introduced,Nasreena Faisal,Kotak Current Account,,Received from NASR XX6688 IMPS HDFCBANKLT,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,170000.000,170000.000
+2020-10-31,Capital Introduced,Nasreena Faisal,Kotak Current Account,,Received from NASR XX6688 IMPS HDFCBANKLT,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,30000.000,30000.000
+2020-11-28,Expense Refund,Consultancy Charges,Kotak Current Account,,REV:IMPS xxxxxxxx9333 Ref xxxxxxxx5675,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,900.000,900.000
+2020-11-28,Expense Refund,Consultancy Charges,Kotak Current Account,,REV:IMPS xxxxxxxx9333 Ref xxxxxxxx7225,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,900.000,900.000
+2020-11-28,Expense Refund,Consultancy Charges,Kotak Current Account,,REV:IMPS xxxxxxxx9333 Ref xxxxxxxx4759,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,900.000,900.000
+2020-11-25,Expense Refund,Marketing expenses,ICICI Bank,S45130215,NEFT-BKIDN20330305967-ATHIRA SANKAR-ATHIRA TO INTERWEIGHING-xxxxxxxxxxx0316-BKI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,10000.000,10000.000
+2019-10-07,Deposit,Miscellaneous Income,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.140,0.140
+2020-12-03,Deposit,Other Charges,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.010,0.010
+2020-12-04,Deposit,Discount Received,ICICI Bank,S42343370,VPS REF KWALITY AUTO SERVICE,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2020-12-05,Deposit,Discount Received,Kotak Current Account,,INT FOR DELAY NEFT CR SBINxxxxxxxx5421 xxxx2020,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,4.850,4.850
+2020-12-23,Deposit,Miscellaneous Income,Kotak Current Account,,INT FOR DELAY NEFT CR Nxxxxxxxxxxx4592 xxxx2020,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,26.380,26.380
+2021-01-15,Capital Introduced,Harish Ramankutty,Kotak Current Account,,MB:RECEIVED MONEY FROM HAREESH.R xxxxxxxx5928,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300000.000,300000.000
+2021-01-15,Capital Introduced,Jyotish Kizhakke Varappil,Kotak Current Account,,Received from JYOT XX3189 IMPS CANARA BAN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2021-01-15,Capital Introduced,Shajan P K,Kotak Current Account,,RTGS SIBLRxxxxxxxxxxxxx4696 SHAJAN P K SIBL0000,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300000.000,300000.000
+2021-01-01,Expense Refund,Travelling expenses,ICICI Bank,S7757564,REFUND MAKEMYTRIP  INDIA  PVT LT,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000.000,1000.000
+2020-12-17,Expense Refund,Travelling expenses,ICICI Bank,S875649,REFUND MMT FLIGHT CANCELATION,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1106.000,1106.000
+2021-01-19,Deposit,Discount Received,ICICI Bank,S76666087,VPS REF MELETH AGENCIES,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,18.530,18.530
+2020-12-16,Deposit,Discount Received,ICICI Bank,S90839180,VPS REF A M SADICK,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.750,3.750
+2021-01-18,Deposit,Discount Received,ICICI Bank,S61518898,VISA REF SREE NARAYANA SALES AN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.250,2.250
+2021-01-04,Deposit,Discount Received,Kotak Current Account,,Received from CITY XX9369 IMPS The Federa,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2021-01-25,Deposit,Discount Received,ICICI Bank,S91677629,VISA REF P C Auto Fuels,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.750,3.750
+2021-02-01,Expense Refund,Travelling expenses,ICICI Bank,S27262136,VPS PRO_1114_UBER INDI_1/27/20,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2500.000,2500.000
+2021-01-28,Expense Refund,Travelling expenses,ICICI Bank,S42864467,VISA REF INDIGO,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2243.000,2243.000
+2021-02-16,Deposit,Miscellaneous Income,ICICI Bank,S43248588,VPS REF PRABHA FUELS,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.000,3.000
+2021-02-16,Deposit,Miscellaneous Income,ICICI Bank,S43241166,VPS REF KRISHNA FUELS,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,4.500,4.500
+2021-02-16,Deposit,Miscellaneous Income,ICICI Bank,S42896145,VPS REF KWALITY AUTO SERVICES,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,12.750,12.750
+2021-02-16,Deposit,Miscellaneous Income,ICICI Bank,S42682052,VPS REF AMRITA FUELS,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,22.520,22.520
+2021-02-15,Deposit,Miscellaneous Income,Kotak Current Account,,Visa-Refund/xx0221/1045/AMAZON INTERNET SERVIC,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2021-02-22,Deposit,Miscellaneous Income,ICICI Bank,S34462607,VISA REF SREE NARAYANA SALES AN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-02-20,Deposit,Miscellaneous Income,ICICI Bank,S18937368,VPS REF KWALITY AUTO SERVICES,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,20.450,20.450
+2020-10-19,Capital Introduced,Mahipal Samban,Kotak Current Account,,RTGS RTN KKBKRxxxxxxxxxxxxx2042 DOES NOT EXIST,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2021-02-24,Expense Refund,Travelling expenses,ICICI Bank,S77806358,IPS REF DT xxxxxxxxxxxxx3199 UBER INR,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2021-02-25,Expense Refund,Miscellaneous Expenses,ICICI Bank,S93559905,MMT/IMPS/105613568391/Advancepayment5/SAMEEHWEBS/FDRL0001427,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3750.000,3750.000
+2021-03-05,Deposit,Miscellaneous Income,ICICI Bank,S82415994,IPS REF DT xxxxxxxxxxxxx2497 BPCL 0 75  CASHLESS IN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-03-06,Expense Refund,Miscellaneous Expenses,ICICI Bank,S95324986,VSI/PAYMNT RVSL/LINKEDIN   /202103061345/106508346395/,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2021-03-06,Deposit,Miscellaneous Income,Kotak Current Account,,Received from GOOG XX2063 IMPS AXB,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2021-03-08,Expense Refund,Transportation Expenses,Kotak Current Account,,REV:IMPS xxxxxxxxxx0099 Ref xxxxxxxx8788,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,20442.000,20442.000
+2021-03-02,Deposit,Miscellaneous Income,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.020,0.020
+2021-03-08,Deposit,Miscellaneous Income,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.500,0.500
+2021-03-12,Deposit,Miscellaneous Income,ICICI Bank,S37714382,VISA REF EDATHAMARA PETROLEUM C,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.750,3.750
+2021-03-16,Deposit,Miscellaneous Income,ICICI Bank,S16993370,VISA REF A M SADICK,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,21.230,21.230
+2021-03-16,Deposit,Miscellaneous Income,ICICI Bank,S16993210,VISA REF SREE NARAYANA SALES AN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,6.000,6.000
+2021-03-16,Deposit,Miscellaneous Income,ICICI Bank,S16655628,VISA REF S R FUELS,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.750,3.750
+2021-03-17,Deposit,Miscellaneous Income,Kotak Current Account,,AGM Gift excess refunded by Mr.Mahipal,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2599.000,2599.000
+2021-03-19,Deposit,Miscellaneous Income,Kotak Current Account,,AGM Gift excess refund-Asish Sir,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1080.000,1080.000
+2021-03-26,Deposit,Miscellaneous Income,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-03-30,Deposit,Miscellaneous Income,ICICI Bank,S1087488,VISA REF HPCL A M SADICK,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.750,3.750
+2021-04-03,Deposit,Miscellaneous Income,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.100,0.100
+2021-04-06,Deposit,Miscellaneous Income,ICICI Bank,S39798822,VISA REF KWALITY AUTO SERVICE,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.750,3.750
+2020-04-02,Deposit,Interest Received,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5407,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,80.000,80.000
+2020-04-16,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx0379,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,271.000,271.000
+2020-04-06,Deposit,Interest Received,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx7656,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,349.000,349.000
+2020-04-06,Deposit,Interest Received,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx2787,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,453.000,453.000
+2020-04-06,Deposit,Interest Received,Kotak Current Account,,TD PREMAT PROCEEDS: xxxxxx5783,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,459.000,459.000
+2020-04-17,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx2244,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,561.000,561.000
+2020-04-16,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4132,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3704.000,3704.000
+2020-04-20,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8006,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1192.000,1192.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8006,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,870.000,870.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx7855,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,46.000,46.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8141,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,402.000,402.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8258,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,23.000,23.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8413,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,128.000,128.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx5890,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,177.000,177.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx2585,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,484.000,484.000
+2020-05-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx5454,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,79.000,79.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx5454,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,266.000,266.000
+2020-05-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx1011,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,230.000,230.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx2576,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,5303.000,5303.000
+2020-05-07,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx7838,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1799.000,1799.000
+2020-06-01,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4012,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,22.000,22.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4012,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1490.000,1490.000
+2020-06-01,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx3438,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,20.000,20.000
+2020-05-30,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4813,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,432.000,432.000
+2020-06-01,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4813,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,92.000,92.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx6824,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,421.000,421.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4691,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,498.000,498.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx0675,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,984.000,984.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx6293,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,647.000,647.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx3280,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,80.000,80.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx9354,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,459.000,459.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx9354,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,388.000,388.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx7227,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,598.000,598.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4814,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,852.000,852.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx1605,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,328.000,328.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8372,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1141.000,1141.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx9265,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1810.000,1810.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx7726,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,18.000,18.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4777,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,792.000,792.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx2859,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,967.000,967.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx0854,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,311.000,311.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx2497,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,438.000,438.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx3643,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,189.000,189.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx2956,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,101.000,101.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx2590,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,150.000,150.000
+2020-07-06,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx4419,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,216.000,216.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx0825,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,103.000,103.000
+2020-07-21,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8105,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,127.000,127.000
+2020-08-03,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8105,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,43.000,43.000
+2020-07-17,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8399,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,108.000,108.000
+2020-07-21,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8399,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,135.000,135.000
+2020-07-17,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx6140,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,195.000,195.000
+2020-08-03,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx2437,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,216.000,216.000
+2020-08-03,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx9587,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,428.000,428.000
+2020-08-03,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx7378,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1762.000,1762.000
+2020-08-03,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx0876,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,98.000,98.000
+2021-04-12,Deposit,Miscellaneous Income,ICICI Bank,S70179546,VISA REF ATS FUELS,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2020-08-03,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx9122,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,77.000,77.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx0139,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,38.000,38.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx0879,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,18.000,18.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8863,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,131.000,131.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx9985,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,255.000,255.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx0072,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,148.000,148.000
+2020-08-18,Deposit,Interest Received,Kotak Current Account,,FD PREMAT PROCEEDS: xxxxxx8105,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,370.000,370.000
+2021-04-16,Deposit,Miscellaneous Income,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-04-19,Expense Refund,Office Expenses,ICICI Bank,S13448510,Mirror purchase from amazon-Refund,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2020-10-14,Deposit,Miscellaneous Income,Kotak Current Account,,INT FOR DELAY NEFT CR SIBLNxxxxxxx8290 xxxx2020,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,8.220,8.220
+2020-10-28,Deposit,Miscellaneous Income,Kotak Current Account,,VISA-REFUND/xx1020/0298/AMAZON INTERNET SERVIC,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2020-12-04,Deposit,Miscellaneous Income,Kotak Current Account,,INT FOR DELAY NEFT CR SBINxxxxxxxx7758 xxxx2020,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.070,7.070
+2021-05-03,Deposit,Miscellaneous Income,ICICI Bank,S83976407,IPS REF DT xxxxxxxxxxxxx5756 HPCL 0 75  CASHLESS IN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.100,0.100
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.160,0.160
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.180,0.180
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.220,0.220
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.280,0.280
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.400,0.400
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.400,0.400
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.400,0.400
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.400,0.400
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.400,0.400
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.600,0.600
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.600,0.600
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.640,0.640
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.800,0.800
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.800,0.800
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.160,1.160
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.200,1.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.200,1.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.200,1.200
+2021-05-11,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.400,0.400
+2021-05-11,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.790,0.790
+2021-05-11,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.300,1.300
+2021-05-11,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,29.600,29.600
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,657.360,657.360
+2021-05-11,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.290,0.290
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,704.520,704.520
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,284.760,284.760
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,501.900,501.900
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1316.880,1316.880
+2020-09-09,Deposit,Miscellaneous Income,Kotak Current Account,,,INR,1.000000000000,Cash,false,,0.000,,,0.000,Amount,0.000,0.100,0.100
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,60.000,60.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.200,1.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.460,1.460
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.570,1.570
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.800,1.800
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.100,0.100
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,4.000,4.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.300,7.300
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,11.000,11.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,28.160,28.160
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,30.200,30.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,4.800,4.800
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,45.600,45.600
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,45.770,45.770
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,71.880,71.880
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100.000,100.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,147.510,147.510
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,153.000,153.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,313.640,313.640
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,321.740,321.740
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,392.800,392.800
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,423.300,423.300
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,454.400,454.400
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,589.000,589.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,637.200,637.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1296.300,1296.300
+2021-05-11,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,30.000,30.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1503.200,1503.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1604.480,1604.480
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1755.000,1755.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1490.200,1490.200
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1793.800,1793.800
+2021-05-11,Deposit,Miscellaneous Income,ICICI Bank,S58023981,VISA REF EDATHAMARA PETROLEUM C,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2020-11-17,Deposit,Discount,Petty Cash,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,17882.000,17882.000
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,6698.600,6698.600
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,6256.840,6256.840
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2288.800,2288.800
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,5083.640,5083.640
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,4162.660,4162.660
+2021-03-31,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,6135.000,6135.000
+2021-05-06,Deposit,Miscellaneous Income,Kotak Current Account,,Receipt for cloud customization,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2021-03-31,Expense Refund,Discount Allowed,Petty Cash,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,5933.800,5933.800
+2020-06-18,Deposit,Discount Received,Petty Cash,,Spare from Meezan INV20-176,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,55.460,55.460
+2020-08-20,Deposit,Discount Received,Petty Cash,,Spare from Meezan INV20-483,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,210.040,210.040
+2020-09-10,Deposit,Discount Received,Petty Cash,,Spare from Meezan INV20-597,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,99.120,99.120
+2020-08-27,Deposit,Discount Received,Petty Cash,,Spare from Meezan INV20-525,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,83.780,83.780
+2021-05-24,Deposit,Miscellaneous Income,Kotak Current Account,,Received from Payt XX0003 IMPS PAYTMPAYME,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2021-05-27,Expense Refund,Freight Outwards,Petty Cash,,Freight charge for Hy-tech electronic weighing system (Trackon),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300.600,300.600
+2021-05-28,Deposit,Miscellaneous Income,ICICI Bank,S78380425,VISA REF A M SADICK,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.580,7.580
+2021-05-31,Deposit,Miscellaneous Income,ICICI Bank,S34936300,VISA REF BHARAT PETROLEUM CORPO,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.750,3.750
+2021-05-31,Deposit,Miscellaneous Income,ICICI Bank,S34935627,VISA REF COCO PARAVUR KAVALA JA,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-01,Deposit,Miscellaneous Income,ICICI Bank,S63281818,VISA REF EDATHAMARA PETROLEUM C,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-03,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.120,0.120
+2021-06-03,Expense Refund,Discount Allowed,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,0.200,0.200
+2021-06-05,Deposit,Miscellaneous Income,ICICI Bank,S49581795,VISA REF M A MOOPAN AND BROTHER,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-08,Deposit,Miscellaneous Income,ICICI Bank,S19414436,VISA REF S R FUELS,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-11,Deposit,Miscellaneous Income,ICICI Bank,S92552664,VISA REF KUMAR SALES AND SERVICES,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-11,Deposit,Miscellaneous Income,Kotak Current Account,,Visa-Refund/xx0621/1161/AMAZON INTERNET SERVIC,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2021-06-14,Deposit,Miscellaneous Income,ICICI Bank,S52229378,VISA REF S R  FUELS ADHOC,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-15,Deposit,Miscellaneous Income,ICICI Bank,S77952145,VISA REF EDATHAMARA PETROLEUM C,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-16,Expense Refund,Marketing expenses,Kotak Current Account,,Received from GOOG XX2063 IMPS AXB,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,585.000,585.000
+2021-06-17,Deposit,Miscellaneous Income,ICICI Bank,S18632253,VPS REF COCO PARAVUR KAVALA JA,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-21,Deposit,Miscellaneous Income,ICICI Bank,S97005368,VISA REF SREE NARAYANA SALES AN,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-28,Deposit,Miscellaneous Income,ICICI Bank,S43034839,VISA REF COCO PARAVUR KAVALA JA,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-06-29,Deposit,Miscellaneous Income,ICICI Bank,S69417255,VISA REF COCO PARAVUR KAVALA JA,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-07-03,Deposit,Miscellaneous Income,ICICI Bank,S70034670,VISA REF BHARAT PETROLEUM CORPO,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,15.000,15.000
+2021-07-30,Deposit,Miscellaneous Income,ICICI Bank,S1082807,MCD REF TRINITY FU DT 210726,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.250,2.250
+2021-08-03,Deposit,Miscellaneous Income,ICICI Bank,S6249527,MCD REF BHARAT PET DT 210729,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.400,2.400
+2021-08-06,Deposit,Miscellaneous Income,ICICI Bank,S92320747,MCD REF VAISAKHAM IOCL DEALERIRIMPANAM PO COCHIN 682309    KERIND,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.500,1.500
+2021-08-06,Deposit,Miscellaneous Income,Kotak Current Account,,Received from Payt XX0003 IMPS PAYTMPAYME,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2021-03-31,Expense Refund,Transportation Expenses,Petty Cash,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,11505.400,11505.400
+2021-08-17,Deposit,Miscellaneous Income,ICICI Bank,S68493394,MCD REF  S R FUELS  DT 210812,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.830,3.830
+2021-09-01,Deposit,Miscellaneous Income,ICICI Bank,S27994652,MCD REF SREE NARAY DT 210828,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.830,3.830
+2021-09-04,Deposit,Miscellaneous Income,ICICI Bank,S17219728,MCD REF BHARAT PET DT 210831,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.580,7.580
+2021-09-08,Deposit,Miscellaneous Income,ICICI Bank,S31531720,MCD REF SREE NARAY DT 210904,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.500,7.500
+2021-09-20,Interest Received,Interest Income,Kotak Current Account,,INT FOR DELAY RTGS ICICR42021081300520737 13082021,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,37.980,37.980
+2021-09-21,Deposit,Miscellaneous Income,ICICI Bank,S58028408,MCD REF A M Sadic 210917,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,4.200,4.200
+2021-09-28,Deposit,Miscellaneous Income,ICICI Bank,S30856452,MCD REF BHARAT PE DT 210922,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.580,7.580
+2021-09-29,Deposit,Miscellaneous Income,ICICI Bank,S58073621,MCD REF BHARAT PE DT 210925,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.580,7.580
+2021-10-01,Deposit,Miscellaneous Income,ICICI Bank,S15188670,MCD REF EDATHAMA 210927,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,11.400,11.400
+2021-10-14,Deposit,Miscellaneous Income,Kotak Current Account,,Received from Paym XX0003 IMPS PAYTMPAYME,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2021-10-14,Deposit,Miscellaneous Income,ICICI Bank,S3179693,MCD REF A M SADICK DT 211007,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.830,3.830
+2021-10-20,Deposit,Miscellaneous Income,ICICI Bank,S72116552,MCD REF S R  FUELS DT 211016,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.080,3.080
+2021-10-22,Deposit,Miscellaneous Income,ICICI Bank,S21923653,MCD REF SREE NARAY DT 211018,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,9.080,9.080
+2021-10-25,Deposit,Miscellaneous Income,ICICI Bank,S4676767,MCD REF S R  FUELS DT 211019,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,23.210,23.210
+2021-11-15,Deposit,Miscellaneous Income,Kotak Current Account,,Received from GOOG XX2063 IMPS AXB,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2021-03-26,Deposit,Miscellaneous Income,Kotak Current Account,,Received from TAKY XX0080 IMPS ICICI Bank,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,8589.000,8589.000
+2021-12-24,Deposit,Miscellaneous Income,Kotak Current Account,,INT FOR DELAY NEFT CR 25488184771DC 16112021,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.240,2.240
+2021-12-28,Deposit,Interest Received,Kotak Current Account,,INT FOR DELAY NEFT CR PUNBH21320131799 16112021,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.260,1.260
+2021-12-28,Deposit,Interest Received,Kotak Current Account,,INT FOR DELAY NEFT CR IOBAN21320362394 16112021,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,12.980,12.980
+2022-01-12,Deposit,Miscellaneous Income,Kotak Current Account,,Recd:IMPS/201212562038/GOOGLEINDI/KKBK/X2063/,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2010.000,2010.000
+2022-02-10,Deposit,Miscellaneous Income,Kotak Current Account,,CASH DEPOSIT BY ANIL AT THIRUVANANTHAPURAM,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,5600.000,5600.000
+2022-02-01,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,298.000,298.000
+2022-02-02,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-02-04,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,298.000,298.000
+2022-02-06,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-02-07,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-02-09,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-02-10,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-02-23,Expense Refund,Import Expenses,Kotak Current Account,,MB:RECEIVED MONEY FROM ACCURATE TRAD 514044034877,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2500.000,2500.000
+2022-01-03,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,298.000,298.000
+2022-01-04,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-01-05,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-01-12,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-01-15,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,298.000,298.000
+2022-01-18,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-01-19,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,298.000,298.000
+2022-01-20,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-01-22,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-01-28,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,447.000,447.000
+2022-01-29,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2022-01-01,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-12-23,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-12-22,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,298.000,298.000
+2021-12-20,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,447.000,447.000
+2021-12-07,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-12-11,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-12-17,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-12-04,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-11-01,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-11-04,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,298.000,298.000
+2021-11-10,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-11-15,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-11-16,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,447.000,447.000
+2021-11-17,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,447.000,447.000
+2021-11-19,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2021-10-30,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,905.000,905.000
+2022-03-25,Deposit,Bank Charge reversal,Kotak Current Account,,REV OF FGN BK CHGS  9206AIR220060207,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1250.000,1250.000
+2022-03-25,Deposit,Bank Charge reversal,Kotak Current Account,,REV OF GST ON FBC  9206AIR220060207,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,225.000,225.000
+2022-05-02,Deposit,Miscellaneous Income,ICICI -Mumbai-NEW,S3122223,UPI/212280863797/UPI/babyteslin@okic/Federal Bank/ICIc7a06951dbf04040aa295816d7,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2022-05-07,Deposit,Miscellaneous Income,Kotak Current Account,,Recd:IMPS/212709485203/GOOGLEINDI/KKBK/X2063/,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2022-05-11,Deposit,Miscellaneous Income,ICICI -Mumbai-NEW,S12613769,UPI/213114645280/UPI/shalimathomas@o/Federal Bank/SBIdb298ef239334516ac50836059,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2022-05-14,Deposit,Miscellaneous Income,ICICI -Mumbai-NEW,S10208998,UPI/213416445282/UPI/shalimathomas@o/Federal Bank/SBI5cdf660ddf93406589328180c9,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2022-06-06,Expense Refund,ios App Enrollment,ICICI Bank,S41443492,MCI REF APPLE COM U 220531,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7683.390,7683.390
+2022-06-06,Expense Refund,ios App Enrollment,ICICI Bank,S41446438,MCI REF APPLE COM U 220531,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7683.390,7683.390
+2022-06-19,Deposit,Mahipal Samban,Kotak Current Account,,IB:RECEIVED MONEY FROM MAHIPAL SAM xxxxxxxxxx4647,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,100000.000,100000.000
+2022-06-20,Deposit,Vijaykumar Sadasivan Nair,Kotak Current Account,,RTGS ICICR12022062002295657 VIJAYAKUMAR S ICIC0,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2022-06-19,Deposit,Asish George Pulikkottil,Kotak Current Account,,NEFT IDIBH22170128902 ASISH GEORGE PU IDIB000B027,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500000.000,500000.000
+2022-06-27,Deposit,Miscellaneous Income,ICICI -Mumbai-NEW,S90656902,"MMT/IMPS/217815892520/IB:   TRIPURA F/INTERWEIGH/Kotak Mahindra
+Freight charge received",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,250.000,250.000
+2022-07-08,Expense Refund,Bank Charges,Kotak Current Account,,REVERSAL OF PENALTY FOR NON SUB OF STK STAT JUN22,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,5000.000,5000.000
+2022-07-23,Deposit,Miscellaneous Income,Kotak Current Account,,Recd:IMPS/220415666803/GOOGLEINDI/KKBK/X2063/,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2022-07-27,Expense Refund,Consultancy Charges,Kotak Current Account,,Recd:IMPS/220811612161/GOOGLEINDI/KKBK/X2063/,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,10000.000,10000.000
+2022-05-02,Deposit,Miscellaneous Income,ICICI -Mumbai-NEW,,UPI/212280863797/UPI/babyteslin@okic/Federal Bank/ICIc7a06951dbf04040aa295816d7,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2022-08-22,Expense Refund,Miscellaneous Expenses,ICICI Bank,S17843583,MCD REF FACEBOOK INDI 220818,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3.000,3.000
+2022-08-30,Deposit,Miscellaneous Income,ICICI Bank,S75673489,MCD GOOGLESERV 220826,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2022-06-20,Expense Refund,Razor pay service charge,Razorpay,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,708.000,708.000
+2022-09-21,Expense Refund,Miscellaneous Expenses,ICICI Bank,S74643301,MCD REF GOOGLECL 220918,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2022-09-21,Expense Refund,Miscellaneous Expenses,ICICI Bank,S74643274,MCD REF GOOGLECL 220918,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2022-11-23,Expense Refund,Freight Inwards,ICICI -Mumbai-NEW,S13620902,UPI/232789934511/for faizal/accuratecasio@o/Federal Bank/AXI71dcaa5a0cbb4d8e971,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,21962.000,21962.000
+2022-12-22,Deposit,Interest Received,Kotak Current Account,,INT FOR DELAY NEFT CR SBIN422316850377 20221112,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,11.470,11.470
+2022-12-22,Deposit,Interest Received,Kotak Current Account,,INT FOR DELAY NEFT CR N316222204033899 20221112,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7.380,7.380
+2023-01-21,Deposit,Interest Received,Kotak Current Account,,INT FOR DELAY NEFT CR N351222252301387 20221217,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.610,2.610
+2023-02-15,Deposit,Marketing Income,Razorpay,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2023-04-04,Deposit,Bank Charge reversal,Kotak Current Account,,UPI-BEN-TO-xxxxxxxxxxx3-03-APR-23,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,149.000,149.000
+2023-06-27,Deposit,Shipping Charge,Kotak Current Account,,NEFT 32700731221DC INTERWEIGHING PRIVAT ICIC0SF00,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300.000,300.000
+2023-07-08,Deposit,Shipping Charge,ICICI -Mumbai-NEW,S69562330,UPI/318981646880/UPI/evajla1880-1@ok/Union Bank of I/ICI80e9bdf5ab934c7091cf5ef672413ea3,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2023-07-10,Expense Refund,Freight Inwards,ICICI Bank,S89214247,INF/INFT/032870281091/Freight charge /INTERWEIGHING P,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,650.000,650.000
+2023-07-17,Expense Refund,Import Expenses,Kotak Current Account,,Recd:IMPS/319813151770/DYNAMIC EN/KKBK/X2112/Pay t,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,5500.000,5500.000
+2023-08-19,Deposit,Miscellaneous Income,Kotak Current Account,,UPI/SHALIMA K T/359785360646/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2023-08-25,Expense Refund,Bank Charges,ICICI Bank,S23273821,REV NMQAB CHGS JUN23 GST,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3532.630,3532.630
+2023-08-28,Expense Refund,Refreshments/utility expenses,Kotak Current Account,,"NEFT 33441937451DC SCANGLE RETAIL PRIVA ICIC0SF00
+
+Onam Expense refunded by Scangle",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1280.000,1280.000
+2023-02-19,Expense Refund,Freight Outwards,Kotak Current Account,,UPI/ATHIRA SANKAR/305073533539/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,8916.000,8916.000
+2022-04-19,Expense Refund,Freight Outwards,Kotak Current Account,,UPI/MOHD MAZHER KHA/210945671492/Payment from Ph,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300.000,300.000
+2022-05-20,Expense Refund,Freight Outwards,Kotak Current Account,,Recd:IMPS/214018023035/K MURUGAN/KKBK/X9758/trans,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,230.000,230.000
+2022-11-11,Expense Refund,Freight Outwards,Kotak Current Account,,Recd:IMPS/231519082634/GOOGLEINDI/KKBK/X2063/,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,510.000,510.000
+2023-10-18,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT 34059358301DC SCANGLE RETAIL PRIVA ICIC0SF00,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,10767.000,10767.000
+2023-11-09,Deposit,Interest Received,Kotak Current Account,,INT DELAY NEFT CR R04423280000000320231007,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,20.180,20.180
+2023-11-09,Deposit,Interest Received,Kotak Current Account,,INT DELAY NEFT CR IDIBH2328029049220231007,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,6.860,6.860
+2023-11-10,Deposit,Interest Received,Kotak Current Account,,INT DELAY NEFT CR N28023267734854120231007,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,11.660,11.660
+2023-11-10,Deposit,Interest Received,Kotak Current Account,,INT DELAY NEFT CR FBBT23280397335020231007,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,8.510,8.510
+2023-11-21,Expense Refund,Electricity Charge,Petty Cash,,Refund from Scangle retail,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,10922.000,10922.000
+2023-11-21,Expense Refund,Refreshments/utility expenses,Petty Cash,,Deepawali sweets payment refund from Scangle retail,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,640.000,640.000
+2024-01-23,Expense Refund,Electricity Charge,Kotak Current Account,,"NEFT 35089839151DC SCANGLE RETAIL PRIVA ICIC0SF00
+Refund from Scangle",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,11395.800,11395.800
+2024-03-27,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT 35756653801DC SCANGLE RETAIL PRIVA ICIC0SF00,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,14181.000,14181.000
+2024-05-22,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT 36378480101DC SCANGLE RETAIL PRIVA ICIC0SF00,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,14071.000,14071.000
+2024-05-29,Expense Refund,Fuel Expenses,Kotak Current Account,,UPI/RIYASUDHEEN  K/415042283675/stamping,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300.000,300.000
+2024-06-15,Expense Refund,Marketing expenses,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2464.000,2464.000
+2024-07-08,Expense Refund,Stamping Charges,Petty Cash (Spare division),,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3360.000,3360.000
+2024-07-18,Expense Refund,Stamping Charges,Petty Cash (Spare division),,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,680.000,680.000
+2024-07-25,Expense Refund,Stamping Charges,Petty Cash (Spare division),,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1340.000,1340.000
+2024-08-16,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S1164139,UPI/422921751494/Tasgaonkar/9867431234-1@fk/ICICIBank/FLP0d9df65910704bd488d03f54b7eb5db5,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2360.000,2360.000
+2024-08-27,Expense Refund,Bank Charges,Kotak Current Account,,REV: BILLDESK Z1622285929270 0215003645,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,11.000,11.000
+2024-08-18,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S15552235,UPI/459791148478/UPI/kaviarasan1393@/HDFC BANK LTD/AXId0a645bc16304dc0aa52ed6302c4e3b4,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-08-17,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S11370408,UPI/423057920019/Payment from Ph/8157859472@axl/Indian Bank/AXLdafd38680e77447896c1a23036643413,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2360.000,2360.000
+2024-08-20,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S29853299,UPI/423394313017/UPI/nssuji84-4@okic/South IndianBa/ICI6440633bf4e24332b03e76c37517af26,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-08-26,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S81335925,UPI/423961193374/Payment from Ph/7489843409@ybl/State Bank Of I/YBL77513572b5f34941bb556cd77406c959,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-08-24,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S64464556,UPI/423737475386/Payment from Ph/yadavdeenanath5/HDFC BANK LTD/AXL090f1f6fd8594908a93d7a0a03c432de,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-08-21,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S44460848,UPI/423485560618/UPI/pmsijk1@okaxis/Dhanlaxmi Bank /AXI33356a0bcede450c9cb49485843b1e94,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1100.000,1100.000
+2024-08-20,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S33631464,UPI/459934406628/UPI/m.kandoth80@oka/HDFC BANK LTD/AXI2dc96f605bca445c983ec156e9592862,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2360.000,2360.000
+2024-08-20,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S30035448,UPI/423310633577/PAY BY WHATSAPP/fine.2106@wahdf/HDFC BANK LTD/HDFCWCF0505865EC3F0E4DE4156EE876027,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000.000,1000.000
+2024-08-20,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S30126281,"UPI/423310611091/PAY BY WHATSAPP/fine.2106@wahdf/HDFC BANK 
+LTD/HDFCWCC166FB56B050061007825F8ED1BC3
+ZAIN BAKERS",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1360.000,1360.000
+2024-08-29,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S6292968,UPI/424281080561/Belgaum Id ka p/7489843409@ybl/State Bank Of I/YBL5c4f34a36554459790a1a14724710e59,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-08-29,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S6349126,UPI/424228555852/Mysuru Id ka pa/7489843409@ybl/State Bank Of I/YBL1ba94cc1a63644e8ac3f8f9245853c41,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-08-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S17473004,UPI/424393339005/Gaya/7489843409@ybl/State Bank Of I/YBL1e4f92953dcf4e52902ec420aa69e904,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-08-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S17549243,UPI/424370767535/Jharsuguda/7489843409@ybl/State Bank Of I/YBLec3dd9f8fbb947c383e0c417577dbc92,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-08-31,Deposit,Miscellaneous Income,ICICI -Mumbai-NEW,S29859761,UPI/461099826956/UPI/vishnu9847v@oka/Federal Bank/AXId38f1172e21543d8b5f9cb8658e16a5b,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2024-09-01,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S38851545,UPI/424595903204/Prakruthi  subs/shajikrishnajyo/Federal Bank/ICI00391d7e28b4433a9354a354663f792e,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-08-31,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S31427866,UPI/424417518092/Payment from Ai/7489843409@airt/Airtel Payments/APB1450tCL5WBoQZuiofibUnX0RIfJ9odbg,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-08-31,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S28244205,UPI/424433759276/Jharsuguda yes/7489843409@ybl/State Bank Of I/YBLd9bd2b13cd9245ee96c562eaaf17c0f9,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-09-02,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S49342727,UPI/461254953383/UPI/shreer2018g1@ok/ICICI Bank/ICI756a89249d8f477c97486f62f3a3d496,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,224.000,224.000
+2024-09-09,Expense Refund,Office Expenses,Kotak Current Account,,UPI/THRASSINDIASALE/461951572093/watch,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,973.000,973.000
+2024-09-07,Expense Refund,Office Expenses,Kotak Current Account,,UPI/PRASANTHM/425188679772/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,300.000,300.000
+2024-09-11,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S44916079,UPI/425547640134/UPI/praseenbvpa@oki/Punjab National/ICI222cc76c714d4f0f8e4f8e36f4e753fc ( end customer :Chillies),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-09-12,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S54017304,UPI/425634506404/Payment from Ph/7489843409@ybl/State Bank Of I/YBL85b3eb5867504c7a9d1e73e9ae9315c2,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-08-07,Expense Refund,Stamping Charges,Kotak Current Account,,NEFT N220243193725137 MEEZAN ELECTRONIC SCALES PV,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,680.000,680.000
+2024-08-06,Expense Refund,Stamping Charges,Kotak Current Account,,UPI/GLOBAL MEASUREM/421918000061/Payment from Ph,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2040.000,2040.000
+2024-09-06,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S97460948,UPI/425048127902/UPI/adhiar0677@okhd/Yes Bank Ltd/HDF8106c6fb9e674a9e932e8e5c8c0f6ace,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2360.000,2360.000
+2024-09-18,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S7143604,UPI/426204700009/NA/8877613040@ptye/Canara Bank/PTMb59fafa7678649cfbd3846e63559f3fb,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2024-09-18,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S6987267,UPI/426277242158/NA/8877613040@ptsb/Canara Bank/PTM6589eadd3ddb421b86bf222e7c58666d,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-09-24,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S58508950,UPI/426835789689/Payment from Ph/9496100076@ibl/Kerala Gramin B/IBLfeb9225d00664eba8595751be218a487,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2024-09-24,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S58501511,UPI/426812232491/Payment from Ph/9496100076@ibl/Kerala Gramin B/IBL56bad19db12e4dc095a2f7cd30337c1c,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2024-09-24,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S58534629,UPI/426841576020/Payment from Ph/9496100076@ibl/Kerala Gramin B/IBL36659361950a499ea6b2ff6a2d4612eb,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-09-19,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT 37668837191DC SCANGLE RETAIL PRIVA ICIC0SF00,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7000.000,7000.000
+2024-09-28,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S92082063,"UPI/463873697399/UPI/renjithkr103-2@/Axis Bank Ltd/AXI4ca8e3ff31414e3eaf54576da3
+
+26ab41
+
+Suguna Chicken",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2024-09-28,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S92019599,UPI/463810089539/UPI/renjithkr103-2@/Axis Bank Ltd/AXI82d0eccef3f344b79d0bc3adbe4bf1ff,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-09-28,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S92306952,UPI/427230095717/UPI/renjithkr103-2@/Axis Bank Ltd/AXI4d520a61569b494a903c676386d8a50c,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,450.000,450.000
+2024-09-29,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S97599120,"UPI/427356040197/Payment from Ph/badriya1368@ybl/Canara Bank/YBL72faaee7b4c54b61a89415608f46b6ca
+Kilo Bazar",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2950.000,2950.000
+2024-09-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S7762508,UPI/427461642902/Mysuru yes clou/7489843409@ybl/State Bank Of I/YBL0725a383522c4845b83e695b008af132,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-09-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S7929815,UPI/427439049487/Rajkot yes clou/7489843409@ybl/State Bank Of I/YBLc4bdad966b714508b301a5cce1d7e91e,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-09-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S8189047,UPI/427471458567/Dharbhanga yes/7489843409@ybl/State Bank Of I/YBLa03b367a49e240eea84d8dcddab871f6,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-09-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S14519240,UPI/464054330220/UPI/udhitvr@okicici/State Bank Of I/ICI5565a722246c45ce9d57a5604e2d413b,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2500.000,2500.000
+2024-10-12,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S49099596,UPI/519546952864/UPI/moorthy.8675@wa/State Bank Of I/AXISWCAC4F7973110E59D261EAF04409891,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2024-10-12,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S49562807,UPI/526214162864/UPI/moorthy.8675@wa/State Bank Of I/AXISWCC0F90A3D77266BAE1D8FD8C85EB3F,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-10-15,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S70993609,UPI/428913081858/Subscription/919947523528@fe/Federal Bank/FBLaadbde57b84d4ea18685d97b6345bf01,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-10-18,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,"S96875794,vipjhas test12345",UPI/931774971788/Bareilly yes cl/7489843409@ybl/State Bank Of I/YBL4c6b8d5bd247407fb72d6cc463c71fcc,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-10-24,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S51717832,UPI/794388244581/Dharbhanga Id/7489843409@ybl/State Bank Of I/YBLa3c30e88ff9f49868063c855191a4bd6,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-10-26,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT 38068687341DC SCANGLE RETAIL PRIVA ICIC0SF00,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,6203.000,6203.000
+2024-10-24,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S49532693,UPI/466447171209/ke peruva/shijasshijasta-/Federal Bank/ICI3161c46af4e748a6aa0c305c418b8421,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3000.000,3000.000
+2024-10-23,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S46332665,UPI/466343056340/KE PERUVA/shijasshijasta-/Federal Bank/ICI34e8905c4ee3406c9c869f2dc207f10b,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2500.000,2500.000
+2024-10-28,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S87311178,UPI/430214792469/Payment from Ai/7489843409@airt/Airtel Payments/APB145015f1ySSnZ5GQ0eLK9XkZVQVWeGqE,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-10-28,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S87336588,UPI/430214790990/Payment from Ai/7489843409@airt/State Bank Of I/APB1450JSuu3OFUtB8M01BSwFwO1Oiv4pcJ,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-10-25,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S61859556,UPI/429922448884/Increase Sales/sarangi.manas2-/RBL/SBIaaaa3c8a5b1b417fa1c5b8026321f939,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,885.000,885.000
+2024-10-29,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S97370985,UPI/430382158070/UPI/rajanpuliyan-1@/Federal Bank/AXI5032c2fb8aef426ab55c4727af6c7945,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2500.000,2500.000
+2024-10-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S11413984,UPI/306781304500/Belgaum/7489843409@ybl/State Bank Of I/YBLaae27b2301f2421d807eb073359e68f8,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-10-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S10879336,UPI/301068555834/Mysuru yes clou/7489843409@ybl/State Bank Of I/YBL8f398a6062e6448c9feb596aaa91bfa5,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,276.000,276.000
+2024-11-04,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S59265963,UPI/506205624309/Rajkot recharge/7489843409@ybl/State Bank Of I/YBL3a7f900260024c8596e60c60c1eff650,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-11-02,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S44457635,UPI/654000734511/Payment from Ph/7489843409@ybl/State Bank Of I/YBL160c53ea518e40fa98c8f4be771fb1e6,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-11-04,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S56338376,UPI/430965353734/UPI/madarsh79-2@oks/The Kerala Stat/SBIb3a2cb780a134524b48d72f29dfab6d9,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-11-04,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S63068964,UPI/467561861070/UPI/balastores86@ok/South IndianBa/AXI4adaa77b88014707bc82eddbc0afd048,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2500.000,2500.000
+2024-11-06,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S87702081,UPI/431175884776/UPI/goldencdryfruit/HDFC BANK LTD/AXIf2ca0dca32804c059b5078b6b1e26b3c,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2500.000,2500.000
+2024-11-08,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S4081262,UPI/053578771678/Jharsuguda/7489843409@ybl/State Bank Of I/YBL56866f6baddc47538d982b2b15d944b9,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-11-08,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S4084001,UPI/575671047046/Payment from Ph/7489843409@ybl/State Bank Of I/YBLa08faddfa158466ba7bdd3ce8246f497,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-11-08,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S10082537,UPI/467937540259/UPI/ramsheedkcs-2@o/South IndianBa/AXI654df1040093447192eaf6743cee23a6,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2024-11-08,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S9976127,UPI/467957134135/UPI/ramsheedkcs-2@o/South IndianBa/AXI6be97dfcbb114ab19e76d3d7bbccded1,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-11-11,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S28625259,UPI/431639253897/UPI/sirajdeen87@oks/State Bank Of I/SBIb019b380769f49d7818582d122581d90,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2024-11-11,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,C40082848,UPI/431639257751/UPI/sirajdeen87@oks/State Bank Of I/SBId9275db0c3be48fe81342a542a175826,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-11-11,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S29830014,UPI/431614106448/Monthly subscri/919947523528@fe/Federal Bank/FBLab152e68cc3444ac9d91a33adb124b20,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-11-13,Deposit,Cloud Service Charge,Paytm,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,38314.410,38314.410
+2024-11-18,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S88404526,UPI/432303423494/UPI/ramsheedkcs-2@o/South IndianBa/AXI0d12ccfa035e4d9aae4a8 b40b1c5e041  (MAC ID :-0023F0193A3B) Terminal ! end customer : Laika,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,885.000,885.000
+2024-11-22,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S26084948,"UPI/432775972020/UPI/kalmeshwarshett/State Bank Of I/AXI3c550be5b14149e1b9547a27bf8b8d26
+( End customer)",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,376.000,376.000
+2024-11-23,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S35066759,UPI/432855661258/NA/7014581158@ptsb/State Bank OfI/PTMC52997BD1F70467891217DA6E1DABAB6 ( end customer :SR Super Store),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000.000,1000.000
+2024-11-25,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S45869606,UPI/469621271700/UPI/ramsheedkcs-2@o/South IndianBa/AXIcea3af90e4f54907816f566bc1de4631( end customer :Laika) std to premium charge,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000.000,1000.000
+2024-11-27,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S66391602,UPI/022862251496/Mysuru id/7489843409@ybl/State Bank Of I/YBLfe4edfd350f94b22b5b050131cbd903e End customer VIP,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-11-27,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S66401539,UPI/917436286960/Belgaum recharg/7489843409@ybl/State Bank OfI/YBL67450192acbe4b0b82b43e0834fb47db  End customer VIP,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-11-27,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S65550629,UPI/097676045714/Payment from Ph/8373909939@ybl/HDFC BANK LTD/YBL9fc07c6b70f44f8ea5d1ced7a6ba36b7  End customer :Uttamam for one year plan,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2300.000,2300.000
+2024-12-02,Deposit,Miscellaneous Income,Kotak Current Account,,NEFT AXNGG33778319778 GOOGLE INDIA DIGITAL SERVIC,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2024-12-03,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S30221105,UPI/433812661664/Payment from Ai/7489843409@airt/AIRTEL PAYMENTS/APB1450nu10djtO2EEweJ69KOBPUCc7CNDQ ( End customer VIP),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-04,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S44178433,UPI/433933836636/Paid via CRED/7025641180-1@ax/BANK OF BARODA  /ACD01JE8M557WVM77S3V2VE9QH896JL2597 ( end customer KR ,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,550.000,550.000
+2024-12-07,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT 38536178411DC SCANGLE RETAIL PRIVA ICIC0SF00,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,8322.000,8322.000
+2024-12-10,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S2536123,"UPI/471165453990/UPI/vidhya6005909@o/State Bank Of I/ICI991e26374f414905a5a9ef19b6805d4f (End customer -ezeemart,)",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,5500.000,5500.000
+2024-12-10,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S2912297,UPI/471117249181/ACCOUNTING SOFT/shajikrishnajyo/FEDERAL BANK/ICI6ba7f728843a49449cdcfd63c9a5cf18 ( End customer -Prekrthi) - 9947523528,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-10,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S4643031,UPI/471160646119/UPI/madarsh79-2@oka/KERALA STATECO/AXI0eb00e264d02409f82d39b4c58630042 ( End customer -9746108013,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-13,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S35507436,UPI/957367327361/Payment from Ph/7489843409@ybl/State Bank Of I/YBLf54cedae556f42f8b4f20aafdc6f7f3d (END Customer :- VIP),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-19,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S84706631,UPI/472061629802/UPI/kalmeshwarshett/State Bank Of I/ICIc1ed2763c9094cfa8bb9f54ee3e3af70 - end customer veg,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-20,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S94973164,UPI/435561694225/UPI/svjeevabe-1@oki/UNION BANK OF I/ICI213b51bd4ad9481824fd000a98c40b5 (END Customer),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-20,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S95396002,UPI/472149122139/UPI/ramsheedkcs-2@o/South IndianBa/AXI5beabec74595416cbd864b52f43ce5d0-(END Customer - lika DFC),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,750.000,750.000
+2024-12-21,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S8940662,UPI/435685732910/UPI/ramsheedkcs-2@o/South IndianBa/AXI39781fd7262a4c25a67a89e7c100b064 - END Customer lika,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,750.000,750.000
+2024-12-20,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S96295006,UPI/435567126172/billing machine/meye2eye-9@okax/HDFC BANKLTD/AXI61ceb8476a964b27a4aa0b1580d12afc - end customer,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2024-12-20,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S96464617,UPI/435564666825/billing machine/meye2eye-6@okhd/HDFC BANK LTD/HDFf1394a738edf49aaa3e01dab66de8606 -end customer,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-12-24,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S31835212,UPI/472587609508/cloud subcripti/freshnfine.9999/FEDERAL BANK/AXI0cf97ca3ffbb4ba7b07fde8e6dbf8470 - End Customer -sruthi,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,500.000,500.000
+2024-12-24,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S31955081,UPI/435923899747/cloud subcripti/freshnfine.9999/FEDERAL BANK/AXIe0ac6c84513b4636b8ca5203faee4351 - End Customer -sruthi,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2000.000,2000.000
+2024-12-27,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S51648746,UPI/436262430149/UPI/fayisok321-1@ok/HDFC BANK LTD/AXIfa36d3e9741040e88e2031435dc38266 -END Customer - GREENFRESH - 99163 23310,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-28,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S62460086,UPI/333437466482/Belgaum recharg/7489843409@ybl/State Bank Of I/YBL7c2ad4c419624a18b35e3dc1577a56ec (END Customer - VIP ),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2025-01-01,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S99831604,UPI/500165383056/na/pradeep.2421-85/KERALA GRAMINB/ICIWCCB7507253E94B369F35DAB17B88D5E  (END -customer),INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S72881486,UPI/625047194551/Shirdi/7489843409@ybl/State BankOf I/YBL6f05593be0124e229437f78aa0ff0d7c (END -vip,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-30,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S74314471,UPI/913641835054/Payment from Ph/7489843409@ybl/State Bank Of I/YBLcf831ad808024a12a5ffd12e423be839 - END CUSTOMER -VIP,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2024-12-31,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S89363477,UPI/214223598292/Jharsuguda Id/7489843409@ybl/State Bank Of I/YBL7f3fbe362b3e46a697ee6a0202f6a618 - END Customer,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,275.000,275.000
+2025-01-06,Deposit,Miscellaneous Income,ICICI -Mumbai-NEW,S62544027,UPI/9448707684@ybl/Payment from Ph/KARNATAKA BANK/076884708121/YBLf354a6a9fd8442ffb9d5b18d3eb3d27e,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2025-01-21,Deposit,Miscellaneous Income,Kotak Current Account,,UPI/SHALIMAKT/502196725506/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2025-01-23,Deposit,Cloud Service Charge,ICICI -Mumbai-NEW,S9819958,"UPI/538901977033/Yes Weight/gowthama82-3@ok/SBI Credit Card/AXI7d67f5e998164595b3eb8023a40a0fcb
+
+End Customer STD to PRE",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000.000,1000.000
+2025-02-06,Deposit,Cloud Service Charge,Kotak Current Account,,"NEFT AXNGG03736446515 GOOGLE INDIA DIGITAL SERVIC
+Additional Products",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1500.000,1500.000
+2025-02-13,Deposit,Miscellaneous Income,Kotak Current Account,,UPI/MAHIPALSAMBAN/504431630866/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2025-02-13,Deposit,Miscellaneous Income,Kotak Current Account,,UPI/MUHAMMEDSHERIEF/541097158469/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2025-02-28,Deposit,Cloud Service Charge,Kotak Current Account,,"UPI/SHHALALCHICKENC/542522882170/UPI
+Done through group",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000.000,1000.000
+2025-02-28,Deposit,Cloud Service Charge,Kotak Current Account,,"UPI/SHHALALCHICKENC/542522946494/UPI
+Done through group",INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1500.000,1500.000
+2025-03-19,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT ICIN407859051904 SCANGLE RETAIL PRIVATE LIMI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,10580.000,10580.000
+2025-03-04,Deposit,Cloud Service Charge,Kotak Current Account,,UPI/SHIBIN/506374755202/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1250.000,1250.000
+2025-05-17,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT ICIN413753835060 SCANGLE RETAIL PRIVATE LIMI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,12312.000,12312.000
+2025-07-10,Deposit,Miscellaneous Income,Kotak Current Account,,UPI/MURUGAIAH O/555724337619/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2025-04-03,Deposit,Miscellaneous Income,Unearned Income,,Payment from Unearned income,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,4515.000,4515.000
+2025-07-22,Deposit,Miscellaneous Income,Kotak Current Account,,UPI/M S TASGAONKAR/520373266949/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2025-08-12,Expense Refund,Electricity Charge,Kotak Current Account,,NEFT ICIN422457494758 SCANGLE RETAIL PRIVATE LIMI,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,13898.000,13898.000
+2025-08-13,Deposit,Miscellaneous Income,Kotak Current Account,,UPI/PARVEEN KUMAR/387873008479/Sent using Payt,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2024-04-11,Deposit,Cloud Service Charge,Petty Cash,Kraus,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,570.000,570.000
+2024-07-19,Deposit,Cloud Service Charge,Petty Cash,Kraus,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1400.000,1400.000
+2026-01-03,Expense Refund,Office Expenses,ICICI Bank,S65726581,MCD Ref GOOGLECL 251231,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2026-02-24,Deposit,Miscellaneous Income,ICICI Bank,S47843535,MCD REF GOOGLEPL 260221,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2026-02-21,Expense Refund,Electricity Charge,PAYMENT ADJUSTMENT,,,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,51526.000,51526.000
+2026-02-17,Deposit,Miscellaneous Income,Kotak Current Account,,UPI/R B N ENTERPRIS/395493933036/Payment from Ph,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2026-03-03,Deposit,Miscellaneous Income,Kotak Current Account,,NEFT AXNGG06260821439 GOOGLE INDIA DIGITAL SERVIC,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2025-12-22,Expense Refund,Weight calibration fees,PAYMENT ADJUSTMENT,Harish - F2,Harish - F2,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,39228.480,39228.480
+2025-12-22,Expense Refund,Weight calibration fees,PAYMENT ADJUSTMENT,Shiju - F2,,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,17188.260,17188.260
+2025-12-22,Expense Refund,Weight calibration fees,PAYMENT ADJUSTMENT,Jyothish F2,,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,15048.260,15048.260
+2026-02-28,Expense Refund,GATC Application expense,Undeposited Funds,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,39425.520,39425.520
+2026-02-28,Expense Refund,Meeting Expenses,Undeposited Funds,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,16754.000,16754.000
+2026-01-30,Expense Refund,Office Expenses,Undeposited Funds,,,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,1400.000,1400.000
+2025-12-12,Expense Refund,Freight Outwards,Undeposited Funds,,,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,4671.280,4671.280
+2026-03-31,Expense Refund,Weight calibration fees,Kotak Current Account,NEFTINW-1539820356,NEFT HDFCH00899915530 MEEZAN ELECTRONIC SCALES PV,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,15268.000,15268.000
+2026-04-16,Expense Refund,Freight Outwards,Petty Cash,From  Faisal,,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,7400.000,7400.000
+2026-05-23,Deposit,Service charge,Kotak Current Account,UPI-614316001271,UPI/GLOBAL MEASUREM/614349534914/UPI,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1300.000,1300.000
+2026-05-08,Deposit,Miscellaneous Income,Kotak Current Account,NEFTINW-1579670841,NEFT AXNGG12807923158 GOOGLE INDIA DIGITAL SERVIC,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2026-05-27,Deposit,Miscellaneous Income,Kotak Current Account,IMPS-614712337074,Recd:IMPS/614712198741/PHONEPELIM/KKBK/X8981/F13Ph,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1.000,1.000
+2026-05-31,Deposit,GATC,Petty Cash,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,17500.000,17500.000
+2026-06-04,Expense Refund,GATC Expenses,Petty Cash,,,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,6041.000,6041.000
+2026-05-31,Expense Refund,GATC Expenses,Petty Cash,,,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3660.000,3660.000
+2026-06-10,Expense Refund,GATC Expenses,ICICI Bank,S69980584,MCI REF CURSOR   260604,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,1225.920,1225.920
+2026-06-09,Deposit,Miscellaneous Income,ICICI Bank,S58123925,MCD REF GOOGLECL 260605,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2.000,2.000
+2026-06-13,Expense Refund,Overtime allowance,Petty Cash,,Fazal - GATC,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,4166.000,4166.000
+2026-07-01,Expense Refund,Maintenance and Repairs,Kotak Current Account,NEFTINW-1635795517,NEFT HDFCH01094269822 MEEZAN ELECTRONIC SCALES PV,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,3000.000,3000.000
+2026-07-04,Expense Refund,Freight Inwards,Kotak Current Account,UPI-618595833914,"UPI/JERSHATH  C/UCBA/618563121102/Royal Scales
+F2 Weight freight",INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,2570.000,2570.000
+2026-07-04,Expense Refund,Freight Inwards,Kotak Current Account,NEFTINW-1639430521,NEFT AXODH18595823595 KRAUS INSTRUMENTS UTIB00000- F2 weight freight,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,2570.000,2570.000
+2026-06-30,Expense Refund,GATC Expenses,Petty Cash,,,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,9900.000,9900.000
+2026-07-09,Expense Refund,Freight Inwards,Kotak Current Account,NEFTINW-1645050734,NEFT SBIN226190814372 VICTORY     SCALES SBIN0070 F2 weight freight,INR,1.000000000000,Bank Transfer,true,,0.000,,,0.000,Amount,0.000,2570.000,2570.000
+2026-07-13,Deposit,GATC,Kotak Current Account,MB-998330117882,MB:RECEIVED FROM ACCURATE TRADE LINKS/NITHIN SALAR,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,3750.000,3750.000
+2026-07-15,Deposit,Service charge,Kotak Current Account,UPI-619668182569,UPI/ASHRAF  T Y/SBIN/619664193904/NA,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1000.000,1000.000
+2026-07-18,Deposit,Miscellaneous Income,Petty Cash,,Old Carton Box Selling,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,1420.000,1420.000
+2026-06-30,Deposit,GATC,Petty Cash,,Fazal Salary,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,7500.000,7500.000
+2025-10-08,Deposit,General Income,Kotak Current Account,,NEFT AXNGG28131182001 GOOGLE INDIA DIGITAL SERVIC,INR,1.000000000000,Bank Transfer,false,,0.000,,,0.000,Amount,0.000,2360.000,2360.000

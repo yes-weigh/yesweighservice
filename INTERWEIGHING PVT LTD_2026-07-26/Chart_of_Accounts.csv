@@ -1,0 +1,497 @@
+Account ID,Account Name,Account Code,Description,Account Type,Mileage Rate,Mileage Unit,IsMileage,Account Status,Currency,Parent Account
+99381000000000513,Exchange Gain or Loss,,Changing the conversion rate can result in a gain or a loss. You can record this into the exchange gain or loss account.,Other Expense,0.000,,false,Active,INR,
+99381000000000537,Bad Debt,,Any amount which is lost and is unrecoverable is recorded into the bad debt account.,Expense,0.000,,false,Active,INR,
+99381000000000543,Salaries and Employee Wages,,Salaries for your employees and the wages paid to workers are recorded under the salaries and wages account.,Expense,0.000,,false,Active,INR,
+99381000000000549,Depreciation,,Any depreciation in value of your assets can be captured as a depreciation expense.,Other Expense,0.000,,false,Active,INR,
+99381000000000558,Other Expenses,,Any minor expense on activities unrelated to primary business operations is recorded under the other expense account.,Expense,0.000,,false,Active,INR,
+99381000000000561,Drawings,,The money withdrawn from a business by its owner can be tracked with this account.,Equity,0.000,,false,Active,INR,
+99381000000000564,Lodging,,Any expense related to putting up at motels etc while on business travel can be entered here.,Expense,0.000,,false,Active,INR,
+99381000000000567,Cost of Goods Sold,,An expense account which tracks the value of the goods sold.,Cost Of Goods Sold,0.000,,false,Active,INR,
+99381000000000570,Employee Advance,,Money paid out to an employee in advance can be tracked here till it's repaid or shown to be spent for company purposes.,Other Current Asset,0.000,,false,Active,INR,
+99381000003919565,Athira Shankar,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000003925643,Biju B,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000003925649,Eldho Baby,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000003925655,Ankit Kumar Sharma,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000003925661,Nabanitha Poddar,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000003925667,Shalima K T,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000003925673,Teslin Baby,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000003925679,Vishnu V,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000003925685,Vishnu M,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000003925691,Ardhra Evalin Shaji,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000003925697,Amrutha T J,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000004007203,Shuhaib Advertisement,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000004010793,Venugopal N,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000004123337,Sheaba Anna Mathew,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000004172966,Arya A B,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000004525393,Binsha Shajahan,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000005478037,Akshay Marsale,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000006404895,Balachandran P,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000008564597,Mustafa -Service,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000009990079,Robindas,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000009990085,Namrata Kumari,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000013630241,Rizwan,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000013630247,Akash,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000014701980,Muhammed Hashim,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000015631024,Jamsheer - Service,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000016454195,Jacob Palamoottil,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000016756569,Prasanth,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000017618433,SHIBIN,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000017655311,Shilpam Goswami,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000018914275,Anoop M Kuruvila,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000018914281,Unnimaya C Gireesh,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000018914287,Visakh B,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000018914293,George Lazar,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000022742473,Umesha,,,Other Current Asset,0.000,,false,Inactive,INR,Employee Advance
+99381000025104984,Faisal A K,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025104992,Harish R,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025105000,Asish George,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025107008,Babu M T,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025107016,Mahipal,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025107024,Jyothish K V,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025107032,Vijayakumar S,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025107040,Shiju P K,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025107048,Pinakin Kanthibhai,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025528190,Safna N A,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000025978975,Muhammed Fazal,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000029611549,Santhosh Kumar,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000029611553,Saritha Solanki,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000029917002,Supriya,,,Other Current Asset,0.000,,false,Active,INR,Employee Advance
+99381000000000573,Employee Reimbursements,,This account can be used to track the reimbursements that are due to be paid out to employees.,Other Current Liability,0.000,,false,Active,INR,
+99381000000000576,Uncategorized,,This account can be used to temporarily track expenses that are yet to be identified and classified into a particular category.,Expense,0.000,,false,Active,INR,
+99381000000000579,Tag Adjustments,,This adjustment account tracks the transfers between different reporting tags.,Other Liability,0.000,,false,Active,INR,
+99381000000000615,Opening Balance Adjustments,,This account will hold the difference in the debits and credits entered during the opening balance.,Other Current Liability,0.000,,false,Active,INR,
+99381000000000617,Unearned Revenue,,"A liability account that reports amounts received in advance of providing goods or services. When the goods or services are provided, this account balance is decreased and a revenue account is increased.",Other Current Liability,0.000,,false,Active,INR,
+99381000000000619,Other Charges,,Miscellaneous charges like adjustments made to the invoice can be recorded in this account.,Income,0.000,,false,Active,INR,
+99381000000000622,Shipping Charge,,Shipping charges made to the invoice will be recorded in this account.,Income,0.000,,false,Active,INR,
+99381000000000626,Inventory Asset,,An account which tracks the value of goods in your inventory.,Stock,0.000,,false,Active,INR,
+99381000000000456,Undeposited Funds,,Record funds received by your company yet to be deposited in a bank as undeposited funds and group them as a current asset in your balance sheet.,Cash,0.000,,false,Active,INR,
+99381000000000459,Petty Cash,,It is a small amount of cash that is used to pay your minor or casual expenses rather than writing a check.,Cash,0.000,,false,Active,INR,
+99381000000000462,Accounts Receivable,,The money that customers owe you becomes the accounts receivable. A good example of this is a payment expected from an invoice sent to your customer.,Accounts Receivable,0.000,,false,Active,INR,
+99381000000000465,Furniture and Fittings,,Purchases of furniture and equipment for your office that can be used for a long period of time usually exceeding one year can be tracked with this account.,Fixed Asset,0.000,,false,Active,INR,
+99381000000000468,Advance Tax,,"Any tax which is paid in advance is recorded into the advance tax account. This advance tax payment could be a quarterly, half yearly or yearly payment.",Other Current Asset,0.000,,false,Active,INR,
+99381000000000471,Accounts Payable,,"This is an account of all the money which you owe to others like a pending bill payment to a vendor,etc.",Accounts Payable,0.000,,false,Active,INR,
+99381000000000474,Tax Payable,,The amount of money which you owe to your tax authority is recorded under the tax payable account. This amount is a sum of your outstanding in taxes and the tax charged on sales.,Other Current Liability,0.000,,false,Active,INR,
+99381000000000477,Retained Earnings,,The earnings of your company which are not distributed among the share holders is accounted as retained earnings.,Equity,0.000,,false,Active,INR,
+99381000000000480,Owner's Equity,,The owners rights to the assets of a company can be quantified in the owner''s equity account.,Equity,0.000,,false,Active,INR,
+99381000000000483,Opening Balance Offset,,This is an account where you can record the balance from your previous years earning or the amount set aside for some activities. It is like a buffer account for your funds.,Equity,0.000,,false,Active,INR,
+99381000000000486,Sales,,The income from the sales in your business is recorded under the sales account.,Income,0.000,,false,Active,INR,
+99381000000000489,General Income,,A general category of account where you can record any income which cannot be recorded into any other category.,Income,0.000,,false,Active,INR,
+99381000000000492,Interest Income,,A percentage of your balances and deposits are given as interest to you by your banks and financial institutions. This interest is recorded into the interest income account.,Income,0.000,,false,Active,INR,
+99381000000000495,Late Fee Income,,Any late fee income is recorded into the late fee income account. The late fee is levied when the payment for an invoice is not received by the due date.,Income,0.000,,false,Active,INR,
+99381000000000504,Discount,,Any reduction on your selling price as a discount can be recorded into the discount account.,Income,0.000,,false,Active,INR,
+99381000000000507,Bank Fees and Charges,,"Any bank fees levied is recorded into the bank fees and charges account. A bank account maintenance fee, transaction charges, a late payment fee are some examples.",Expense,0.000,,false,Active,INR,
+99381000000005010,Prepaid Expenses,,An asset account that reports amounts paid in advance while purchasing goods or services from a vendor.,Other Current Asset,0.000,,false,Active,INR,
+99381000000005014,TDS Payable,,,Other Current Liability,0.000,,false,Active,INR,
+99381000000005032,Mortgages,,An expense account that tracks the amounts you pay for the mortgage loan.,Non Current Liability,0.000,,false,Active,INR,
+99381000000005036,Construction Loans,,An expense account that tracks the amount you repay for construction loans.,Non Current Liability,0.000,,false,Active,INR,
+99381000000005040,Investments,,An equity account used to track the amount that you invest.,Equity,0.000,,false,Active,INR,
+99381000000005042,Distributions,,"An equity account that tracks the payment of stock, cash or physical products to its shareholders.",Equity,0.000,,false,Active,INR,
+99381000000005044,Labor,,An expense account that tracks the amount that you pay as labor.,Cost Of Goods Sold,0.000,,false,Active,INR,
+99381000000005048,Materials,,An expense account that tracks the amount you use in purchasing materials.,Cost Of Goods Sold,0.000,,false,Active,INR,
+99381000000005052,Subcontractor,,An expense account to track the amount that you pay subcontractors who provide service to you.,Cost Of Goods Sold,0.000,,false,Active,INR,
+99381000000005056,Job Costing,,An expense account to track the costs that you incur in performing a job or a task.,Cost Of Goods Sold,0.000,,false,Active,INR,
+99381000000005060,Capital Stock,,An equity account that tracks the capital introduced when a business is operated through a company or corporation.,Equity,0.000,,false,Active,INR,
+99381000000005062,Dividends Paid,,An equity account to track the dividends paid when a corporation declares dividend on its common stock.,Equity,0.000,,false,Active,INR,
+99381000000005064,Raw Materials And Consumables,,An expense account to track the amount spent on purchasing raw materials and consumables.,Expense,0.000,,false,Active,INR,
+99381000000006070,CUSTOMS DUTY,,,Expense,0.000,,false,Active,INR,
+99381000000006076,Overseas Tax Payable,,This account tracks the Tax collected from Overseas consumers on sales of digital services.,Other Current Liability,0.000,,false,Active,INR,
+99381000000006092,GST Payable,,,Other Current Liability,0.000,,false,Active,INR,
+99381000000006098,Output IGST,,,Other Current Liability,0.000,,false,Active,INR,GST Payable
+99381000000006120,Output CGST,,,Other Current Liability,0.000,,false,Active,INR,GST Payable
+99381000000006136,Output SGST,,,Other Current Liability,0.000,,false,Active,INR,GST Payable
+99381000000081171,Output CESS,,,Other Current Liability,0.000,,false,Active,INR,GST Payable
+99381000000006104,Input Tax Credits,,,Other Current Asset,0.000,,false,Active,INR,
+99381000000006110,Input IGST,,,Other Current Asset,0.000,,false,Active,INR,Input Tax Credits
+99381000000006126,Input CGST,,,Other Current Asset,0.000,,false,Active,INR,Input Tax Credits
+99381000000006142,Input SGST,,,Other Current Asset,0.000,,false,Active,INR,Input Tax Credits
+99381000000081193,Input CESS,,,Other Current Asset,0.000,,false,Active,INR,Input Tax Credits
+99381000000006156,Reverse Charge Tax Input but not due,,The amount of tax payable for your reverse charge purchases can be tracked here.,Other Current Asset,0.000,,false,Active,INR,
+99381000000006234,Kotak Current Account,,,Bank,0.000,,false,Active,INR,
+99381000000008524,VINOD WAYANAD SHARE,,,Equity,0.000,,false,Inactive,INR,
+99381000000011002,DINESH KANJIRAKKAD SHARE,,,Equity,0.000,,false,Inactive,INR,
+99381000000011294,Sales to Customers (Cash),,,Other Current Asset,0.000,,false,Active,INR,
+99381000000014114,Bank Sweep Account,,,Bank,0.000,,false,Inactive,INR,
+99381000000014316,Audit Fees,,,Expense,0.000,,false,Inactive,INR,
+99381000000014435,Hotel Meeting,,,Expense,0.000,,false,Active,INR,
+99381000000015136,Tax Paid Expense,,,Expense,0.000,,false,Active,INR,
+99381000000015296,Model Approval Fees one time,,,Other Asset,0.000,,false,Active,INR,
+99381000000015688,ernakulam office interior Asset,,,Other Asset,0.000,,false,Active,INR,
+99381000000022069,Jayakrishnan share,,,Equity,0.000,,false,Inactive,INR,
+99381000000048234,Corporation Bank,,,Bank,0.000,,false,Active,INR,
+99381000000062116,Santhosh share,,,Equity,0.000,,false,Inactive,INR,
+99381000000083007,Parking,,The parking fares you pay while on business trips can be recorded under this expense category.,Expense,0.000,,false,Active,INR,
+99381000000081217,Cash Ledger : Tax,,This account is used to track the total tax amount you have in the GSTN portal. You can use the amount in this account to offset your tax liability.,Other Current Asset,0.000,,false,Active,INR,
+99381000000081243,Cash Ledger : IGST Tax,,This account is used to track the IGST amount you have in the GSTN portal. You can use the amount in this account to offset your IGST liability.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Tax
+99381000000081271,Cash Ledger : CGST Tax,,This account is used to track the CGST amount you have in the GSTN portal. You can use the amount in this account to offset your CGST liability.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Tax
+99381000000081301,Cash Ledger : SGST Tax,,This account is used to track the SGST amount you have in the GSTN portal. You can use the amount in this account to offset your SGST liability.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Tax
+99381000000081333,Cash Ledger : CESS Tax,,This account is used to track the CESS amount you have in the GSTN portal. You can use the amount in this account to offset your CESS liability.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Tax
+99381000000081367,Interest Payable,,This account is used to track the total amount you need to pay as interest.,Other Current Liability,0.000,,false,Active,INR,
+99381000000081403,Interest IGST Payable,,This account is used to track the amount you need to pay as interest for IGST.,Other Current Liability,0.000,,false,Active,INR,Interest Payable
+99381000000081441,Interest CGST Payable,,This account is used to track the amount you need to pay as interest for CGST.,Other Current Liability,0.000,,false,Active,INR,Interest Payable
+99381000000081481,Interest SGST Payable,,This account is used to track the amount you need to pay as interest for SGST.,Other Current Liability,0.000,,false,Active,INR,Interest Payable
+99381000000081523,Interest CESS Payable,,This account is used to track the amount you need to pay as interest for CESS.,Other Current Liability,0.000,,false,Active,INR,Interest Payable
+99381000000081567,Latefee Payable,,This account is used to track the total amount you need to pay as latefee.,Other Current Liability,0.000,,false,Active,INR,
+99381000000081613,Latefee IGST Payable,,This account is used to track the amount you need to pay as latefee for IGST.,Other Current Liability,0.000,,false,Active,INR,Latefee Payable
+99381000000081661,Late fee CGST Payable,,This account is used to track the amount you need to pay as latefee for CGST.,Other Current Liability,0.000,,false,Active,INR,Latefee Payable
+99381000000081711,Latefee SGST Payable,,This account is used to track the amount you need to pay as latefee for SGST.,Other Current Liability,0.000,,false,Active,INR,Latefee Payable
+99381000000081763,Latefee CESS Payable,,This account is used to track the amount you need to pay as latefee for CESS.,Other Current Liability,0.000,,false,Active,INR,Latefee Payable
+99381000000081817,Cash Ledger : Interest,,This account is used to track the Interest you have in the GSTN portal. You can use the amount in this account to offset the Interest.,Other Current Asset,0.000,,false,Active,INR,
+99381000000081873,Cash Ledger : IGST Interest,,This account is used to track the Interest for IGST you have in the GSTN portal. You can use the amount in this account to offset the Interest of IGST.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Interest
+99381000000081931,Cash Ledger : CGST Interest,,This account is used to track the Interest for CGST you have in the GSTN portal. You can use the amount in this account to offset the Interest of CGST.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Interest
+99381000000081991,Cash Ledger : SGST Interest,,This account is used to track the Interest for SGST you have in the GSTN portal. You can use the amount in this account to offset the Interest of SGST.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Interest
+99381000000084053,Cash Ledger : CESS Interest,,This account is used to track the Interest for CESS you have in the GSTN portal. You can use the amount in this account to offset the Interest of CESS.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Interest
+99381000000084117,Cash Ledger : Latefee,,This account is used to track the Late Fee you have in the GSTN portal. You can use the amount in this account to offset the Late Fee.,Other Current Asset,0.000,,false,Active,INR,
+99381000000084183,Cash Ledger : IGST Latefee,,This account is used to track the Late Fee for IGST you have in the GSTN portal. You can use the amount in this account to offset the Late Fee of IGST.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Latefee
+99381000000084251,Cash Ledger : CGST Latefee,,This account is used to track the Late Fee for CGST you have in the GSTN portal. You can use the amount in this account to offset the Late Fee of CGST.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Latefee
+99381000000084321,Cash Ledger : SGST Latefee,,This account is used to track the Late Fee for SGST you have in the GSTN portal. You can use the amount in this account to offset the Late Fee of SGST.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Latefee
+99381000000084393,Cash Ledger : CESS Latefee,,This account is used to track the Late Fee for CESS you have in the GSTN portal. You can use the amount in this account to offset the Late Fee of CESS.,Other Current Asset,0.000,,false,Active,INR,Cash Ledger : Latefee
+99381000000084725,Computer and equipments,,,Fixed Asset,0.000,,false,Active,INR,
+99381000000105017,Amazon Parking,,,Cash,0.000,,false,Active,INR,
+99381000000186001,Stamping Fees,,,Expense,0.000,,false,Active,INR,
+99381000000233266,Loading and Unloading Charges,,,Expense,0.000,,false,Active,INR,
+99381000000256286,Storage and Handling Charges,,,Expense,0.000,,false,Active,INR,
+99381000000275469,TOOLS,,,Fixed Asset,0.000,,false,Active,INR,
+99381000000275871,Freight Inwards,,Freight charges incurred in the course of Inward supply.,Expense,0.000,,false,Active,INR,
+99381000000313089,Standard Chartered Bank,,,Bank,0.000,,false,Inactive,INR,
+99381000000319795,PAYMENT ADJUSTMENT,,,Payment Clearing,0.000,,false,Active,INR,
+99381000000553030,Motor Vehicle,,,Fixed Asset,0.000,,false,Active,INR,
+99381000000553135,HDFC Car Loan,,,Bank,0.000,,false,Inactive,INR,
+99381000000636498,Discount Received,,,Other Income,0.000,,false,Active,INR,
+99381000000705077,Reimbursements Payable,Payroll-001,,Other Current Liability,0.000,,false,Active,INR,
+99381000000705079,Payroll Tax Payable,Payroll-002,,Other Current Liability,0.000,,false,Active,INR,
+99381000000705081,Statutory Deductions Payable,Payroll-003,,Other Current Liability,0.000,,false,Active,INR,
+99381000000705083,Deductions Payable,Payroll-004,,Other Current Liability,0.000,,false,Active,INR,
+99381000000705085,Net Salary Payable,Payroll-005,,Other Current Liability,0.000,,false,Active,INR,
+99381000000733104,ICICI Bank,,ICICI ACCOUNT,Bank,0.000,,false,Active,INR,
+99381000000951003,Stamping expenses (Labour ),,,Expense,0.000,,false,Active,INR,
+99381000001196001,Stamping parking fees,,,Bank,0.000,,false,Inactive,INR,
+99381000001196005,Government stamping fees Parking,,,Bank,0.000,,false,Inactive,INR,
+99381000001351001,TDS Receivable,,,Other Current Asset,0.000,,false,Active,INR,
+99381000001726775,Round off,,,Other Expense,0.000,,false,Active,INR,
+99381000001726881,Late Fees,,,Other Expense,0.000,,false,Active,INR,
+99381000001728118,ROC Filing expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001734115,Advertisement expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001735371,Auditing Fee,,,Other Expense,0.000,,false,Active,INR,
+99381000001735423,Salaries and wages,,,Other Expense,0.000,,false,Active,INR,
+99381000001751534,Midhun,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001751584,Leona,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001751634,Sheaba,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001752090,Cleaning Help,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001752334,Sweety,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001752420,Shuhaib,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001752822,Venugopal - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001756262,Sreejith,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001756348,Subadra,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001756408,Sharon,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001756494,Stefy,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001758033,Shakir Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001758135,Swathy,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001803942,Vishnu V - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822398,Athira -  Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822420,Biju - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822554,Aayushi,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822578,Akshada,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822616,Farzana,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822638,Teslin- Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822660,Nabanita - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822826,Sneha,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822864,Eldho- Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001822952,Sanjay,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001823022,Richu,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001823044,Shalima- Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001823066,Vishnu Mohan- Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001900055,Deepthi,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078009,Asish George-Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078015,Babu Thomas- Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078021,Faisal A K- Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078027,Harish R- Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078033,Jyotish K- Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078039,Mahipal Samban- Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078045,Shiju P K- Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078051,Vijayakumar S- Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002078313,Pinakin Patel- Salary,,Director Salary,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002320309,Ankit- Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002776474,Athira Vidyadharan,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000002974177,Salary-Others,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000003630512,Amrutha - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000003895586,Ardhra Evalin- Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000004172972,Arya -Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000004525435,Binsha -Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000005478043,Akshay Marsale-Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000006807610,Balachandran - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000008574599,Mustafa - Service-Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000009990091,Robindas - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000009990097,Namrata Kumari-Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000013630253,Rizwan-Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000013630259,Akash - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000014701986,Hashim - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000015631030,Jamsheer - Salary-Service,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000016454201,Jacob - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000017256155,Prasanth -Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000017655317,Shilpam - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000017655343,Shibin - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000019248541,Anoop - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000019248547,George Lazar - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000019248553,Visakh  - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000019248739,Unnimaya - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000022742481,Umesha - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000025528198,Safna - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000025978983,Fazal - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000029611557,Santhosh Kumar - Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000031357026,Nithin Salary,,,Other Expense,0.000,,false,Active,INR,Salaries and wages
+99381000001735445,Bank Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000001735869,Tiago Car interest,,,Other Expense,0.000,,false,Active,INR,
+99381000001735907,Commissions Paid,,,Other Expense,0.000,,false,Active,INR,
+99381000001751694,Shakir Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001756370,Nitheesh Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001766402,Swathy Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001766408,Shiju P K -Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001802993,Jyotish Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001809161,Faisal Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001809263,Mahipal Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001809531,Harish Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001809569,Ashish Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001809803,Vijaykumar Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001809825,Babu Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000002457271,Biju Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000002850448,Athira-Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000003925795,Eldho -Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000004593857,Teslin - Commision,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000004593863,Binsha - Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000005914391,Ankit -Commision,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000012287375,Namratha Kumari-Commision,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000013153868,Robindas - Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000013630265,Akash - Commision,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000013630271,Rizwan- Commision,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000023126609,Visakh - Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000028278921,Shibin - Commisssion,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000028774127,Radhakrishnan - Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000028774135,Sabi N S - Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000028774143,Arunkumar - Commision,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000028774151,Azhar Jaman - Commision,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000029611561,Santhosh Kumar - Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000029611565,Saritha Solanki - Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000029917006,Supriya - Commission,,,Other Expense,0.000,,false,Active,INR,Commissions Paid
+99381000001739025,Consultancy Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000001739327,Electricity Charge,,,Other Expense,0.000,,false,Active,INR,
+99381000001734201,Insurance Charges,,Vehicle insurance,Other Expense,0.000,,false,Active,INR,
+99381000001734251,Travelling expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001739449,Renovation Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001739471,Electrical Fittings,,,Fixed Asset,0.000,,false,Active,INR,
+99381000001739563,Office Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001742954,Meeting Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001743764,Internet and IT Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000001746132,Transportation Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001748032,Cleaning Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000001748362,Lodging Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001748774,Telephone Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000001749336,Miscellaneous Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001749548,Government Fees,,,Other Expense,0.000,,false,Active,INR,
+99381000001749716,Building Tax Paid,,,Other Expense,0.000,,false,Active,INR,
+99381000001749738,Taxes Paid,,,Other Expense,0.000,,false,Active,INR,
+99381000001750112,Postage and courier,,,Other Expense,0.000,,false,Active,INR,
+99381000001750790,Printing and Stationery Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001751382,Labor Charges for Stamping,,,Other Expense,0.000,,false,Active,INR,
+99381000001752952,Reimbursements to Employees,,,Other Expense,0.000,,false,Active,INR,
+99381000001758157,Directors' Remuneration,,,Other Expense,0.000,,false,Active,INR,
+99381000001758163,Mahipal Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001758185,Ashish George Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001758207,Faisal A K Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001758229,Jyothish K V Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001758251,Shiju P K Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001758273,Babu M T Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001758295,Vijayakumar S Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001758317,Pinakin Kantibhai Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001758339,Harish R Remuneration,,,Other Expense,0.000,,false,Active,INR,Directors' Remuneration
+99381000001762503,DB Sitting Charges and TA,,,Other Expense,0.000,,false,Active,INR,
+99381000001764763,Rental Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000001767449,Employee Accomodation Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000001767697,Maintenance and Repairs,,,Other Expense,0.000,,false,Active,INR,
+99381000001765481,Registration Expenses Paid,,,Other Expense,0.000,,false,Active,INR,
+99381000001765551,Model Approval Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001765685,License Renewal Fees,,,Other Expense,0.000,,false,Active,INR,
+99381000001771112,Gifts and Promotions,,,Other Expense,0.000,,false,Active,INR,
+99381000001773355,Interest Received,,,Other Income,0.000,,false,Active,INR,
+99381000001776001,Shareholders' Funds,,Main Head which covers share capital,Equity,0.000,,false,Active,INR,
+99381000001776005,Ayyankuyyan Faisal,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776009,Harish Ramankutty,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776013,Asish George Pulikkottil,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776017,Babu Thomas Manickathinal,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776021,Dileep J Nair,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776025,Jyotish Kizhakke Varappil,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776031,Mahipal Samban,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776035,Shiju Pereppadan,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776039,Manojkumar M,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776043,Vijaykumar Sadasivan Nair,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776047,Pinakin Kantibhai Patel,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776051,Radakrishnan P M,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776055,Ravishankar B S,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001776059,Sabi N S,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000002442432,Ashly Thomas,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000002442436,Nasreena Faisal,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000002442440,Neethu Jyothish,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000002443254,Nisar,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000005211193,Shajan P K,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000010733310,AZHAR JAMAN P A,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000010733314,RAGHAVENDRAN HARIKRISHNAN,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000010733318,ARUNKUMAR G,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000027588648,Muhammed Sakkeer,,,Equity,0.000,,false,Active,INR,Shareholders' Funds
+99381000001775660,Building deposit refundable,,,Other Current Asset,0.000,,false,Active,INR,
+99381000001782294,Marketing expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000001797371,HDFC Car Loan-Tiago,,,Non Current Liability,0.000,,false,Active,INR,
+99381000001801769,Miscellaneous Income,,,Other Income,0.000,,false,Active,INR,
+99381000001820769,Import Expenses,,,Expense,0.000,,false,Active,INR,
+99381000001815812,Container Handling Charges,,,Expense,0.000,,false,Active,INR,
+99381000001972092,Plant and Machinery,,,Fixed Asset,0.000,,false,Active,INR,
+99381000002093005,Hold Salary Payable,Payroll-006,,Other Current Liability,0.000,,false,Active,INR,
+99381000002259060,Stamping Miscellaneous Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000002280001,Income tax Paid,,,Other Expense,0.000,,false,Active,INR,
+99381000002321467,Safal Payment Clearing Account,,,Payment Clearing,0.000,,false,Inactive,INR,
+99381000002552002,Purchase Discounts,,Tracks any reduction that your vendor offers on your purchases. Some vendors also provide them to encourage quick payment settlement.,Expense,0.000,,false,Active,INR,
+99381000002732565,Digital Scales Payment Clearing,,Payment adjustments for different customers for Digital scales-Nisar,Payment Clearing,0.000,,false,Inactive,INR,
+99381000002786092,Fuel Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000002789667,Dividend Clearing Account,,,Payment Clearing,0.000,,false,Inactive,INR,
+99381000002802744,7% Scheme Clearing Account,,,Payment Clearing,0.000,,false,Inactive,INR,
+99381000002803955,Water Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000002815084,Discount Schemes,,,Other Expense,0.000,,false,Active,INR,
+99381000002707133,Discount Allowed,,,Other Expense,0.000,,false,Active,INR,Discount Schemes
+99381000002789655,Trade Discount,,,Other Expense,0.000,,false,Active,INR,Discount Schemes
+99381000002789661,7% Discount Scheme,,,Other Expense,0.000,,false,Active,INR,Discount Schemes
+99381000002815132,Discount Clearing Account,,,Payment Clearing,0.000,,false,Inactive,INR,
+99381000002843113,Freight Outwards,,Freight charges incurred in the course of outward supply.,Other Expense,0.000,,false,Active,INR,
+99381000002867884,Stamping Vendor Clearing,,,Payment Clearing,0.000,,false,Inactive,INR,
+99381000002987621,Unearned Income,,,Bank,0.000,,false,Active,INR,
+99381000002983255,Tour me office asset,,,Other Current Asset,0.000,,false,Active,INR,
+99381000002991112,Inter Branch Account,,,Other Current Liability,0.000,,false,Active,INR,
+99381000002992036,DHL Import Courier Expense Charges,,,Expense,0.000,,false,Active,INR,
+99381000003000423,Green LED Changing charges,,,Expense,0.000,,false,Active,INR,
+99381000003210018,Linkdin Charges,,,Expense,0.000,,false,Active,INR,
+99381000003210042,Forex Adjustment,,,Bank,0.000,,false,Active,INR,
+99381000003236479,Refreshments,,,Expense,0.000,,false,Active,INR,
+99381000003273214,DHL Payments,,,Bank,0.000,,false,Inactive,INR,
+99381000003289402,Yearly service charges,,,Expense,0.000,,false,Active,INR,
+99381000003309716,Duty Interest,,,Expense,0.000,,false,Active,INR,
+99381000003343342,Demurrage Charges,,,Expense,0.000,,false,Active,INR,
+99381000003343637,AVERAGE BOND,,,Expense,0.000,,false,Active,INR,
+99381000003389083,GST interest /Fine /late fee,,,Expense,0.000,,false,Active,INR,
+99381000003399232,Overtime allowance,,,Other Expense,0.000,,false,Active,INR,
+99381000003466282,Outsourcing payments,,,Other Expense,0.000,,false,Active,INR,
+99381000003708267,ICICI -Mumbai-NEW,ICICI000010,,Bank,0.000,,false,Active,INR,
+99381000003817522,Audit fee Payable,,,Other Current Liability,0.000,,false,Active,INR,
+99381000003817548,Previous year earning,,,Equity,0.000,,false,Active,INR,
+99381000003821782,Festival allowance,,,Other Expense,0.000,,false,Active,INR,
+99381000003821788,Sheaba - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821794,Shalima - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821800,Athira Shankar - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821806,Eldho - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821812,Teslin - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821818,Biju - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821824,Vishnu Mohan- Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821830,Vishnu V - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821836,Ankit - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821842,Nabanita - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003821848,Amrutha - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822142,Shakir - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822148,Ravishankar- Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822154,Sabi - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822160,Radhakrishnan- Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822166,Dileep Nair - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822172,Manoj - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822280,Nissar - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822322,Mahipal - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822328,Harish - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822334,Faisal- Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822340,Vijaykumar - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822346,Jyotish - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822352,Shiju -Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822358,Babu -Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822364,Asish - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000003822370,Pinakin - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000006192387,Raghavendran- Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000006201795,Binsha - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000010498149,Arunkumar-Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000010498155,Azhar Jaman - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000024317359,Shibin - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000024317367,Visakh - Allowance,,,Other Expense,0.000,,false,Active,INR,Festival allowance
+99381000004077497,Commision Payable - Shiju P K,,,Other Current Liability,0.000,,false,Active,INR,
+99381000004088361,Salary Payable - Venugopal,,,Other Current Liability,0.000,,false,Active,INR,
+99381000004176091,Duty payment Parking,,,Bank,0.000,,false,Active,INR,
+99381000004182319,Cloud Service Charge,,,Other Income,0.000,,false,Active,INR,
+99381000004287290,Income tax payable,,,Other Current Liability,0.000,,false,Active,INR,
+99381000004287318,deferred tax,,,Other Asset,0.000,,false,Active,INR,
+99381000004287324,deferred tax(P&L),,,Other Expense,0.000,,false,Active,INR,
+99381000004287394,income tax interest,,,Other Expense,0.000,,false,Active,INR,
+99381000004301001,Raw materials,,,Other Expense,0.000,,false,Active,INR,
+99381000004333817,Cloud charges,,,Other Expense,0.000,,false,Active,INR,
+99381000004336045,Zoho Software Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000004445507,Paytm service charge,,,Other Expense,0.000,,false,Active,INR,
+99381000004502002,TCS Receivable,,,Other Current Asset,0.000,,false,Active,INR,
+99381000004502008,TCS Payable,,,Other Current Liability,0.000,,false,Active,INR,
+99381000004739277,BOE Reminder Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000004782027,Razor pay service charge,,,Other Expense,0.000,,false,Active,INR,
+99381000004817433,Paytm,,,Bank,0.000,,false,Inactive,INR,
+99381000005003089,FASTAG / TOLL,,,Other Expense,0.000,,false,Active,INR,
+99381000005012564,Income tax interest received,,,Income,0.000,,false,Active,INR,
+99381000005077012,Goods from Cochin to Vyttila COK branch,,An account which tracks your In Transit goods value.,Other Current Asset,0.000,,false,Active,INR,
+99381000005107640,Machine alteration work charges,,,Other Expense,0.000,,false,Active,INR,
+99381000005164389,Bank Charge reversal,,,Other Income,0.000,,false,Active,INR,
+99381000005269487,Building deposit refundable-Flat,,,Other Current Asset,0.000,,false,Active,INR,
+99381000005370604,Petty Cash (Spare division),,,Cash,0.000,,false,Active,INR,
+99381000005428393,Kotak Bank FD-6911,,,Other Current Asset,0.000,,false,Active,INR,
+99381000005428399,CGTMSE Charge,,,Other Expense,0.000,,false,Active,INR,
+99381000005485529,ios App Enrollment,,,Other Expense,0.000,,false,Active,INR,
+99381000005521413,Replacement spare cost,,,Other Income,0.000,,false,Active,INR,
+99381000005559673,Vehicle maintenance,,,Other Expense,0.000,,false,Active,INR,
+99381000005573106,Razorpay,,,Bank,0.000,,false,Active,INR,
+99381000006056112,Reverse tax charge output,,,Other Current Liability,0.000,,false,Active,INR,
+99381000006246180,Input Lapsed,,,Other Expense,0.000,,false,Active,INR,
+99381000006382340,Bank OD Interest,,,Other Expense,0.000,,false,Active,INR,
+99381000006559954,OEM Expense,,,Other Expense,0.000,,false,Active,INR,
+99381000007341521,Machine/Spare -service /Repair,,,Other Expense,0.000,,false,Active,INR,
+99381000007788787,Marketing Income,,,Other Income,0.000,,false,Active,INR,
+99381000007834216,Leave Encashment,,,Other Expense,0.000,,false,Active,INR,
+99381000008015375,Razor pay charge,,,Other Income,0.000,,false,Active,INR,
+99381000008056004,Work In Progress,,An account which tracks the value of goods that are currently fed into production.,Stock,0.000,,false,Active,INR,
+99381000008056006,Finished Goods,,An account which tracks the value of finished goods.,Stock,0.000,,false,Active,INR,
+99381000008257453,Visa processing expense,,,Other Expense,0.000,,false,Active,INR,
+99381000008574593,Medical allowance,,,Other Expense,0.000,,false,Active,INR,
+99381000008878130,Labour charges,,,Other Expense,0.000,,false,Active,INR,
+99381000009155453,Refreshments/utility expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000009716294,Service/Compensation,,,Other Income,0.000,,false,Active,INR,
+99381000010665265,Amazone TDS Receivable,,,Other Current Asset,0.000,,false,Active,INR,
+99381000010724454,Kotak Bank FD -0895,,,Other Current Asset,0.000,,false,Active,INR,
+99381000010733020,Kotak Bank FD Interest,,,Other Income,0.000,,false,Active,INR,
+99381000010996912,Sanoft TDS Receivable,,,Other Current Asset,0.000,,false,Active,INR,
+99381000010996918,Zoho TDS Receivable,,,Other Current Asset,0.000,,false,Active,INR,
+99381000010996924,Marketxpander TDS Receivable,,,Other Current Asset,0.000,,false,Active,INR,
+99381000011034373,Packing materials,,,Other Expense,0.000,,false,Active,INR,
+99381000011114468,TDS Interest,,,Other Expense,0.000,,false,Active,INR,
+99381000011122001,Sanoft  Maintenance / Development charges,,,Other Expense,0.000,,false,Active,INR,
+99381000015556071,Calibration Expense,,,Other Expense,0.000,,false,Active,INR,
+99381000016008699,Stamping Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000017655454,ICICI CREDIT CARD,,,Bank,0.000,,false,Active,INR,
+99381000018427279,Sales Training,,,Other Expense,0.000,,false,Active,INR,
+99381000019590242,Materials for Servicing/Repairing,,,Other Expense,0.000,,false,Active,INR,
+99381000019771303,Porter Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000021555346,Advertisement payment,,,Other Income,0.000,,false,Active,INR,
+99381000025394617,Zoho Payments Clearing,,,Payment Clearing,0.000,,false,Active,INR,
+99381000025531019,Refund receivable,,,Other Current Asset,0.000,,false,Active,INR,
+99381000025978618,GATC Application expense,,,Other Expense,0.000,,false,Active,INR,
+99381000027061110,Stock Audit fees,,,Other Expense,0.000,,false,Active,INR,
+99381000027061283,Weight calibration fees,,,Other Expense,0.000,,false,Active,INR,
+99381000028066259,Professional Tax - Employees,,,Other Expense,0.000,,false,Active,INR,
+99381000028774229,Legal Fees,,,Other Expense,0.000,,false,Active,INR,
+99381000029408079,GATC Expenses,,,Other Expense,0.000,,false,Active,INR,
+99381000029476370,GATC,,,Other Income,0.000,,false,Active,INR,
+99381000030050222,Service charge,,,Other Income,0.000,,false,Active,INR,
+99381000030316170,GATC Payments,,,Other Current Asset,0.000,,false,Active,INR,
+99381000030412002,GATC Wallet,,,Bank,0.000,,false,Active,INR,
+99381000030412054,Shiju GATC Labour Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000030412058,Harish GATC Labour  Charge,,,Other Expense,0.000,,false,Active,INR,
+99381000030412062,Faisal  GATC Labour  Charge,,,Other Expense,0.000,,false,Active,INR,
+99381000030412070,Babu ThomsaGATC Labour  Charge,,,Other Expense,0.000,,false,Active,INR,
+99381000030412074,Jyothish GATC Labour  Charge,,,Other Expense,0.000,,false,Active,INR,
+99381000030412078,Ashish GATC Labour  Charge,,,Other Expense,0.000,,false,Active,INR,
+99381000030584014,Vijayakumar GATC Labour Charges,,,Other Expense,0.000,,false,Active,INR,
+99381000031254002,Jershath ThomsaGATC Labour  Charge,,,Other Expense,0.000,,false,Active,INR,
+99381000031463544,Maintenance - Warehouse,,,Other Expense,0.000,,false,Active,INR,

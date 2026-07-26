@@ -1,0 +1,5 @@
+Date,Credit Note Number,Customer Name,Mode of Refund,Exchange Rate,Refund From Account,Refund From Account Code,Amount,Description,Reference Number
+2020-11-10,CN-00017,M/S HIM Enterprises,Check,1.000000000000,ICICI Bank,,2113.000,INF/NEFT/023055445171/PUNB0303400/Refund to custo/HIMenterprises,S61436623
+2024-01-17,CN-00119,Victory Scales,Bank Transfer,1.000000000000,PAYMENT ADJUSTMENT,,8850.000,Credit note done in Cochin Branch But Invoice in Vytila Cok branch that's why adjusting the amount,
+2024-09-04,CN-00157,Sanoft Technologies Pvt Ltd,Bank Transfer,1.000000000000,Petty Cash,,25370.000,,
+2025-07-04,CN-00200,INFRATECH SOLUTIONS,Cheque,1.000000000000,Kotak Current Account,,32804.000,SentIMPS518511466986ADHIL MUHA/FDRLX0516/IB   REFU,
