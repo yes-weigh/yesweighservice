@@ -96,6 +96,7 @@ import {
   getDealerSalesOrderDetail as getDealerSalesOrderDetailRecord,
   ensureDealerSalesOrderPdf,
   syncDealerSalesOrdersToFirestore,
+  handleZohoSalesOrderWebhook,
 } from './lib/sales-order-sync.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
@@ -1746,6 +1747,44 @@ export const zohoInvoiceWebhook = onRequest(
       res.status(result.status).json(result);
     } catch (err) {
       console.error('Zoho invoice webhook failed:', err);
+      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+    }
+  },
+);
+
+/** Zoho Sales Order webhook — create/edit/delete mirror in Firestore. */
+export const zohoSalesOrderWebhook = onRequest(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+
+    const secret = zohoWebhookSecret.value()?.trim();
+    if (secret && !verifyZohoWebhookSignature(req, secret)) {
+      console.warn('Zoho sales order webhook rejected: invalid signature.');
+      res.status(401).send('Invalid signature');
+      return;
+    }
+    if (!secret) {
+      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
+    }
+
+    try {
+      const result = await handleZohoSalesOrderWebhook(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        req,
+      );
+      res.status(result.status).json(result);
+    } catch (err) {
+      console.error('Zoho sales order webhook failed:', err);
       res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
     }
   },

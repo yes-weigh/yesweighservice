@@ -19,6 +19,7 @@ import {
 } from './invoice-category.js';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import { formatZohoAddress } from './zoho-contact-fields.js';
+import { extractWebhookEvent } from './invoice-sync.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 const COLLECTION = 'salesOrders';
@@ -1136,4 +1137,73 @@ export async function getDealerSalesOrderDetail(uid, role, salesOrderId) {
 export async function ensureDealerSalesOrderPdf(secrets, orgId, uid, role, salesOrderId) {
   await getDealerSalesOrderDetail(uid, role, salesOrderId);
   return ensureSalesOrderPdf(secrets, orgId, salesOrderId);
+}
+
+function normalizeWebhookBody(body) {
+  if (!body || typeof body !== 'object') return {};
+  let next = { ...body };
+  if (typeof body.JSONString === 'string' && body.JSONString.trim()) {
+    try {
+      const parsed = JSON.parse(body.JSONString);
+      if (parsed && typeof parsed === 'object') next = { ...next, ...parsed };
+    } catch {
+      // ignore malformed Zoho JSONString
+    }
+  }
+  return next;
+}
+
+export function extractSalesOrderIdFromWebhook(body, query = {}) {
+  const normalized = normalizeWebhookBody(body);
+  const candidates = [
+    query.salesorder_id,
+    query.salesOrderId,
+    query.id,
+    normalized.salesorder_id,
+    normalized.salesorderId,
+    normalized.sales_order_id,
+    normalized.salesorder?.salesorder_id,
+    normalized.salesorder?.salesorderId,
+    normalized.data?.salesorder_id,
+    normalized.payload?.salesorder_id,
+    normalized.sales_order?.salesorder_id,
+  ];
+  for (const value of candidates) {
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return null;
+}
+
+export async function deleteSalesOrderFromFirestore(salesOrderId) {
+  const id = String(salesOrderId ?? '').trim();
+  if (!id) return;
+  await soCollection().doc(id).delete().catch(() => {});
+}
+
+/**
+ * Zoho Sales Order webhook — create/edit/delete mirror in Firestore.
+ * Create/edit pull full detail from Zoho (1 API call) so line items stay complete.
+ */
+export async function handleZohoSalesOrderWebhook(secrets, orgId, req) {
+  const body = normalizeWebhookBody(req.body ?? {});
+  const salesOrderId = extractSalesOrderIdFromWebhook(body, req.query ?? {});
+  if (!salesOrderId) {
+    return { ok: false, status: 400, message: 'Missing salesorder_id' };
+  }
+
+  const queryAction = String(req.query?.action ?? '').trim().toLowerCase();
+  const event = queryAction || extractWebhookEvent(body);
+  if (event.includes('delete')) {
+    await deleteSalesOrderFromFirestore(salesOrderId);
+    return { ok: true, status: 200, action: 'deleted', salesOrderId };
+  }
+
+  const result = await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+  return {
+    ok: true,
+    status: 200,
+    action: 'synced',
+    salesOrderId,
+    result,
+  };
 }
