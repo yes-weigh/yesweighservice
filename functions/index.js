@@ -84,6 +84,7 @@ import {
   reclassifyInvoiceCategoriesFromCatalog,
 } from './lib/invoice-category.js';
 import { upsertInvoicesFromCsv } from './lib/invoice-csv-upsert.js';
+import { listZohoSalespersons as fetchZohoSalespersons } from './lib/zoho-salespersons.js';
 import {
   syncOrgPurchaseOrdersToFirestore,
   reclassifyPurchaseOrderCategoriesFromCatalog,
@@ -2076,6 +2077,25 @@ export const upsertInvoicesFromCsvFn = onCall(
         throw new HttpsError('invalid-argument', message);
       }
       throw new HttpsError('internal', message);
+    }
+  },
+);
+
+/** List Zoho Inventory salespersons for HR staff linking (super admin). */
+export const listZohoSalespersons = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await fetchZohoSalespersons(zohoSecrets(), zohoOrganizationId.value());
+    } catch (err) {
+      console.error('listZohoSalespersons failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not load Zoho salespersons.');
     }
   },
 );
