@@ -24,8 +24,9 @@ service cloud.firestore {
     }
 
     // Missing superAdminAccess → full (legacy accounts).
+    // Use .get() — bare field access fails the rule when the key is absent.
     function isFullSuperAdmin() {
-      return isSuperAdmin() && userDoc().superAdminAccess != 'view_only';
+      return isSuperAdmin() && userDoc().get('superAdminAccess', 'full') != 'view_only';
     }
 
     function isStaff() {

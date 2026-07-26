@@ -24,6 +24,7 @@ import {
   workProjectIdForDate,
   type HrSalaryStaffRow,
 } from '../../lib/hrSalary';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import {
   createSalaryShareToken,
   salarySharePublicUrl,
@@ -728,6 +729,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     setCopyingShareUid(row.staffUid);
     try {
       const token = shareTokens[row.staffUid] || row.publicShareToken || createSalaryShareToken();
+      const url = salarySharePublicUrl(token);
       const monthHs = holidaysInMonth(holidays, period.year, period.month);
       await upsertSalaryShare(
         {
@@ -752,8 +754,8 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
       setRows(prev => prev.map(r => (
         r.staffUid === row.staffUid ? { ...r, publicShareToken: token } : r
       )));
-      const url = salarySharePublicUrl(token);
-      await navigator.clipboard.writeText(url);
+      // Clipboard user-activation often expires after Firestore awaits — use fallback.
+      await copyTextToClipboard(url);
       setCopiedShareUid(row.staffUid);
       window.setTimeout(() => {
         setCopiedShareUid(prev => (prev === row.staffUid ? null : prev));
