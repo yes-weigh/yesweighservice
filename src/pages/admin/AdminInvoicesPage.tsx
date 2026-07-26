@@ -28,10 +28,9 @@ import {
   countInvoiceRowsByCategory,
   fetchAdminCustomerLocations,
   fetchAdminInvoicesForCustomers,
+  fetchAllAdminInvoicesInRange,
   filterAdminInvoices,
-  filterAdminInvoicesByPeriod,
   formatAdminCustomerLocation,
-  subscribeAdminInvoices,
   toInvoiceDateKey,
   type AdminFirestoreInvoice,
   type AdminInvoiceCategoryCounts,
@@ -53,7 +52,6 @@ import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
-const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
 const DEFAULT_SORT: AdminInvoiceSort = 'date';
@@ -284,6 +282,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const [rows, setRows] = useState<AdminFirestoreInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [truncated, setTruncated] = useState(false);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<AdminInvoiceSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
@@ -359,27 +358,38 @@ export const AdminInvoicesPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  // Org-wide: live subscribe (all categories). Category filter is client-side.
+  // Org-wide: load ALL invoices in the selected date window (paginated).
   useEffect(() => {
     if (dealerScoped) return;
+    let cancelled = false;
     setLoading(true);
     setError('');
+    setTruncated(false);
     setRows([]);
-    const unsubscribe = subscribeAdminInvoices(
+    void fetchAllAdminInvoicesInRange({
       sort,
-      PAGE_SIZE,
-      next => {
+      category: 'all',
+      dateStart,
+      dateEnd,
+    })
+      .then(({ rows: next, truncated: wasTruncated }) => {
+        if (cancelled) return;
         setRows(next);
-        setLoading(false);
-      },
-      message => {
-        setError(message);
-        setLoading(false);
-      },
-      'all',
-    );
-    return () => unsubscribe();
-  }, [sort, dealerScoped]);
+        setTruncated(wasTruncated);
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not load invoices.');
+          setRows([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sort, dealerScoped, dateStart, dateEnd]);
 
   // Dealer-scoped: fetch invoices for selected customers in the date window.
   useEffect(() => {
@@ -387,6 +397,7 @@ export const AdminInvoicesPage: React.FC = () => {
     let cancelled = false;
     setLoading(true);
     setError('');
+    setTruncated(false);
     void fetchAdminInvoicesForCustomers({
       customerIds: selectedCustomerIds,
       dateStart,
@@ -414,7 +425,7 @@ export const AdminInvoicesPage: React.FC = () => {
     };
   }, [dealerScoped, selectedCustomerKey, dateStart, dateEnd, sort, selectedCustomerIds]);
 
-  // Org-wide category counts from Firestore.
+  // Org-wide category counts from Firestore (authoritative for tabs).
   useEffect(() => {
     if (dealerScoped) return;
     let cancelled = false;
@@ -430,14 +441,9 @@ export const AdminInvoicesPage: React.FC = () => {
     };
   }, [dealerScoped, dateStart, dateEnd]);
 
-  const periodRows = useMemo(
-    () => (dealerScoped ? rows : filterAdminInvoicesByPeriod(rows, rangePreset)),
-    [rows, rangePreset, dealerScoped],
-  );
-
   const filtered = useMemo(
-    () => filterAdminInvoices(periodRows, search, category),
-    [periodRows, search, category],
+    () => filterAdminInvoices(rows, search, category),
+    [rows, search, category],
   );
 
   const displayRows = useMemo(
@@ -503,13 +509,20 @@ export const AdminInvoicesPage: React.FC = () => {
   const summary = useMemo(() => {
     const salesEntries = buildAdminSalesEntries(filtered);
     const sales = salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null;
+    const boundsForRange = getInvoicePeriodBounds(rangePreset);
+    // Prefer Firestore category count when not searching so KPI matches the tabs.
+    const countFromTabs = !search.trim()
+      ? (category === 'all' ? categoryCounts.all : categoryCounts[category])
+      : null;
     return {
-      invoiceCount: filtered.length,
+      invoiceCount: countFromTabs ?? filtered.length,
       totalSales: sales?.totalSales ?? 0,
-      periodStart: sales?.periodStart ?? null,
-      periodEnd: sales?.periodEnd ?? new Date().toISOString(),
+      periodStart: sales?.periodStart ?? boundsForRange?.start?.toISOString() ?? null,
+      periodEnd: sales?.periodEnd
+        ?? boundsForRange?.end?.toISOString()
+        ?? new Date().toISOString(),
     };
-  }, [filtered, rangePreset]);
+  }, [filtered, rangePreset, search, category, categoryCounts]);
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
@@ -651,6 +664,16 @@ export const AdminInvoicesPage: React.FC = () => {
         <div className="products-inline-error panel glass admin-invoices-error" role="alert">
           <AlertCircle size={18} />
           <span>{error}</span>
+        </div>
+      )}
+
+      {truncated && !error && (
+        <div className="products-inline-error panel glass admin-invoices-error" role="status">
+          <AlertCircle size={18} />
+          <span>
+            Loaded the first {rows.length.toLocaleString('en-IN')} invoices for this period.
+            Narrow the date range if totals still look incomplete.
+          </span>
         </div>
       )}
 

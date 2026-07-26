@@ -14,6 +14,7 @@ import {
   type DocumentData,
   type QueryConstraint,
   type QueryDocumentSnapshot,
+  type QuerySnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { toSalesOrderDateKey } from './admin-sales-orders';
@@ -95,19 +96,45 @@ export function mapAdminInvoiceDoc(
   };
 }
 
-export function buildAdminInvoicesQuery(
-  sort: AdminInvoiceSort,
-  pageSize: number,
-  cursor?: QueryDocumentSnapshot<DocumentData> | null,
-  category: InvoiceCategory | 'all' = 'all',
-) {
-  const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
+export type AdminInvoiceListQuery = {
+  sort?: AdminInvoiceSort;
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  category?: InvoiceCategory | 'all';
+  /** Inclusive YYYY-MM-DD */
+  dateStart?: string | null;
+  /** Inclusive YYYY-MM-DD */
+  dateEnd?: string | null;
+};
+
+/** Soft ceiling so a bad range cannot download unbounded docs in one go. */
+export const ADMIN_INVOICES_MAX_FETCH = 15_000;
+const ADMIN_INVOICES_PAGE_SIZE = 300;
+
+export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery) {
+  const sort = options.sort ?? 'date';
+  const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 500));
+  const category = options.category ?? 'all';
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
   const constraints: QueryConstraint[] = [];
+
   if (category && category !== 'all') {
     constraints.push(where('invoiceCategory', '==', category));
   }
-  constraints.push(orderBy(field, 'desc'), limit(pageSize));
-  if (cursor) constraints.push(startAfter(cursor));
+
+  // Date inequalities must share orderBy('date'); client re-sorts by syncedAt if needed.
+  if (dateStart || dateEnd) {
+    if (dateStart) constraints.push(where('date', '>=', dateStart));
+    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+    constraints.push(orderBy('date', 'desc'));
+  } else {
+    const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
+    constraints.push(orderBy(field, 'desc'));
+  }
+
+  if (options.cursor) constraints.push(startAfter(options.cursor));
+  constraints.push(limit(pageSize));
   return query(collectionGroup(db, 'invoices'), ...constraints);
 }
 
@@ -117,8 +144,17 @@ export function subscribeAdminInvoices(
   onData: (rows: AdminFirestoreInvoice[]) => void,
   onError: (message: string) => void,
   category: InvoiceCategory | 'all' = 'all',
+  dateStart?: string | null,
+  dateEnd?: string | null,
 ) {
-  const q = buildAdminInvoicesQuery(sort, pageSize, null, category);
+  const q = buildAdminInvoicesQuery({
+    sort,
+    pageSize,
+    cursor: null,
+    category,
+    dateStart,
+    dateEnd,
+  });
   return onSnapshot(
     q,
     snap => {
@@ -135,9 +171,67 @@ export async function fetchAdminInvoicesPage(
   pageSize: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
   category: InvoiceCategory | 'all' = 'all',
+  dateStart?: string | null,
+  dateEnd?: string | null,
 ): Promise<AdminFirestoreInvoice[]> {
-  const snap = await getDocs(buildAdminInvoicesQuery(sort, pageSize, cursor, category));
+  const snap = await getDocs(buildAdminInvoicesQuery({
+    sort,
+    pageSize,
+    cursor,
+    category,
+    dateStart,
+    dateEnd,
+  }));
   return snap.docs.map(mapAdminInvoiceDoc);
+}
+
+/**
+ * Load every invoice in the date window (paginated), for Aggregate / KPI totals.
+ * When sort is syncedAt with a date range, results are re-sorted client-side.
+ */
+export async function fetchAllAdminInvoicesInRange(options: {
+  sort?: AdminInvoiceSort;
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  maxRows?: number;
+}): Promise<{ rows: AdminFirestoreInvoice[]; truncated: boolean }> {
+  const sort = options.sort ?? 'date';
+  const category = options.category ?? 'all';
+  const maxRows = Math.min(
+    Math.max(Number(options.maxRows ?? ADMIN_INVOICES_MAX_FETCH) || ADMIN_INVOICES_MAX_FETCH, 1),
+    ADMIN_INVOICES_MAX_FETCH,
+  );
+  const rows: AdminFirestoreInvoice[] = [];
+  let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+  let truncated = false;
+
+  while (rows.length < maxRows) {
+    const pageSize = Math.min(ADMIN_INVOICES_PAGE_SIZE, maxRows - rows.length);
+    const pageQuery = buildAdminInvoicesQuery({
+      sort,
+      pageSize,
+      cursor,
+      category,
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+    });
+    const pageSnap: QuerySnapshot<DocumentData> = await getDocs(pageQuery);
+    if (pageSnap.empty) break;
+    rows.push(...pageSnap.docs.map(mapAdminInvoiceDoc));
+    cursor = pageSnap.docs[pageSnap.docs.length - 1] ?? null;
+    if (pageSnap.size < pageSize) break;
+    if (rows.length >= maxRows) {
+      truncated = true;
+      break;
+    }
+  }
+
+  if (sort === 'syncedAt' && (options.dateStart || options.dateEnd)) {
+    rows.sort((a, b) => String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? '')));
+  }
+
+  return { rows, truncated };
 }
 
 export function filterAdminInvoices(
@@ -431,7 +525,11 @@ export async function fetchAdminInvoicesForCustomers(options: {
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const sort = options.sort ?? 'date';
-  const maxPerCustomer = Math.min(Math.max(Number(options.maxPerCustomer ?? 500) || 500, 1), 2000);
+  // Default high enough for FY dealer totals; still soft-capped.
+  const maxPerCustomer = Math.min(
+    Math.max(Number(options.maxPerCustomer ?? 5_000) || 5_000, 1),
+    10_000,
+  );
   const pageSize = 100;
 
   const perCustomer = await Promise.all(ids.map(async customerId => {
