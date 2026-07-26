@@ -7,6 +7,7 @@ import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/useCart';
 import { formatCurrency } from '../../lib/catalog';
+import { isSacHsn } from '../../lib/sacCatalog';
 import { dealerOrderErrorMessage, submitDealerOrder } from '../../lib/dealerOrders';
 import {
   listDealerShippingAddresses,
@@ -139,7 +140,8 @@ const DealerCartPage: React.FC = () => {
         <ul className="orders-page__items">
           {items.map(item => {
             const lineTotal = item.rate * item.quantity;
-            const unavailable = item.stockStatus === 'out_of_stock';
+            const unavailable = item.stockStatus === 'out_of_stock'
+              && !isSacHsn(item.hsn);
 
             return (
               <li
@@ -223,7 +225,7 @@ const DealerCartPage: React.FC = () => {
               submitting
               || !shipping
               || addressesLoading
-              || items.some(i => i.stockStatus === 'out_of_stock')
+              || items.some(i => i.stockStatus === 'out_of_stock' && !isSacHsn(i.hsn))
             }
             onClick={() => void handlePlaceOrder()}
           >

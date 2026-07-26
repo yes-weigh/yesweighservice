@@ -1,13 +1,10 @@
 /**
- * Bump / stamp the user-facing app version in src/app-version.json.
+ * Bump the user-facing app version in src/app-version.json.
  * Format: MAJOR.MINOR (display as vMAJOR.MINOR).
+ * This file is the single source of truth for local and deploy builds.
  *
- *   node scripts/bump-app-version.mjs
+ *   node scripts/bump-app-version.mjs          # bump MINOR by 1
  *   node scripts/bump-app-version.mjs --set 5.0
- *   node scripts/bump-app-version.mjs --ci-run 42   # keep MAJOR, set MINOR from CI run number
- *
- * CI stamps the file in the build workspace only — do not commit it back to git
- * (that used to race local pushes on main).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,23 +32,10 @@ const setValue = setArg
   ? setArg.slice('--set='.length)
   : (setIndex >= 0 ? process.argv[setIndex + 1] : null);
 
-const ciRunArg = process.argv.find(arg => arg.startsWith('--ci-run='));
-const ciRunIndex = process.argv.indexOf('--ci-run');
-const ciRunRaw = ciRunArg
-  ? ciRunArg.slice('--ci-run='.length)
-  : (ciRunIndex >= 0 ? process.argv[ciRunIndex + 1] : null);
-
 const current = JSON.parse(fs.readFileSync(VERSION_PATH, 'utf8'));
 let nextVersion;
 
-if (ciRunRaw != null) {
-  const run = Number(String(ciRunRaw).trim());
-  if (!Number.isInteger(run) || run < 0) {
-    throw new Error(`Invalid --ci-run value "${ciRunRaw}". Expected a non-negative integer.`);
-  }
-  const parsed = parseVersion(current.version);
-  nextVersion = formatVersion(parsed.major, run);
-} else if (setValue) {
+if (setValue) {
   const parsed = parseVersion(setValue);
   nextVersion = formatVersion(parsed.major, parsed.minor);
 } else {

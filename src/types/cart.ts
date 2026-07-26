@@ -1,4 +1,5 @@
 import type { CatalogProduct, StockStatus } from './catalog';
+import { effectiveCatalogStockStatus } from '../lib/sacCatalog';
 
 export interface CartItem {
   productId: string;
@@ -9,6 +10,7 @@ export interface CartItem {
   unit: string;
   stockStatus: StockStatus;
   categoryName: string | null;
+  hsn?: string | null;
   quantity: number;
 }
 
@@ -20,8 +22,9 @@ export function cartItemFromProduct(product: CatalogProduct, quantity = 1): Cart
     imageUrl: product.imageUrl,
     rate: product.rate,
     unit: product.unit,
-    stockStatus: product.stockStatus,
+    stockStatus: effectiveCatalogStockStatus(product.stockStatus, product.hsn),
     categoryName: product.categoryName,
+    hsn: product.hsn ?? null,
     quantity,
   };
 }

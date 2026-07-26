@@ -227,6 +227,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         </div>
 
         <DocumentPartyBlock
+          className="so-detail__party"
           customerName={salesOrder.customerName}
           hideName={isDealer}
           address={salesOrder.shippingAddress}

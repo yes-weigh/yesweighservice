@@ -176,7 +176,7 @@ export async function transferCatalogProductWarehouseStock(secrets, configuredOr
     {
       warehouses: nextWarehouses,
       stock: nextStock,
-      stockStatus: getStockStatus(nextStock, reorderLevel),
+      stockStatus: getStockStatus(nextStock, reorderLevel, refreshed.hsn),
       warehouseLocationCorrectedAt: new Date().toISOString(),
     },
     { merge: true },

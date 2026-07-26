@@ -10,6 +10,7 @@ import {
   fetchProductDetail,
   getStockStatus,
 } from './lib/zoho.js';
+import { effectiveCatalogStockStatus } from './lib/sac-catalog.js';
 import {
   syncCatalogToFirestore,
   readCatalogFromFirestore,
@@ -319,7 +320,10 @@ export const getCatalogProductDetail = onCall(
         unit: String(cachedData.unit ?? 'pcs'),
         rate: Number(cachedData.rate ?? 0),
         stock,
-        stockStatus: cachedData.stockStatus ?? getStockStatus(stock, reorderLevel),
+        stockStatus: effectiveCatalogStockStatus(
+          cachedData.stockStatus ?? getStockStatus(stock, reorderLevel, cachedData.hsn),
+          cachedData.hsn,
+        ),
         categoryId: cachedData.categoryId ?? null,
         categoryName: cachedData.categoryName ?? null,
         status: String(cachedData.status ?? 'active'),

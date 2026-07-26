@@ -1086,9 +1086,13 @@ async function shippingAddressFromCustomer(customerId) {
   const snap = await getFirestore().collection('zohoCustomers').doc(id).get();
   if (!snap.exists) return null;
   const data = snap.data() || {};
+  // Shipping first, then billing — never invent from district/ZIP alone.
   const formatted = data.zohoShippingAddress
     || data.shippingAddress
-    || formatZohoAddress(data.zohoShippingAddressRaw);
+    || formatZohoAddress(data.zohoShippingAddressRaw)
+    || data.zohoBillingAddress
+    || data.billingAddress
+    || formatZohoAddress(data.zohoBillingAddressRaw);
   return formatted ? String(formatted) : null;
 }
 

@@ -79,6 +79,7 @@ import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditI
 import { rememberAuditReturnFocus } from '../../lib/yesStore/auditReturnFocus';
 import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
 import { canUseCart } from '../../types';
+import { effectiveCatalogStockStatus } from '../../lib/sacCatalog';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
 import { WarehouseLocationTransferDialog } from '../../components/catalog/WarehouseLocationTransferDialog';
@@ -932,11 +933,14 @@ export const CatalogPage: React.FC = () => {
               ...item,
               warehouses: patch.warehouses,
               stock: patch.stock,
-              stockStatus: patch.stock <= 0
-                ? 'out_of_stock'
-                : (item.reorderLevel ?? 0) > 0 && patch.stock <= (item.reorderLevel ?? 0)
-                  ? 'low_stock'
-                  : 'in_stock',
+              stockStatus: effectiveCatalogStockStatus(
+                patch.stock <= 0
+                  ? 'out_of_stock'
+                  : (item.reorderLevel ?? 0) > 0 && patch.stock <= (item.reorderLevel ?? 0)
+                    ? 'low_stock'
+                    : 'in_stock',
+                item.hsn,
+              ),
             }
             : item
         )),

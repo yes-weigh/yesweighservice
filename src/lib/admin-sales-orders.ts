@@ -653,10 +653,14 @@ export async function fetchAdminSalesOrderDetail(
       salesOrderId: null,
       salesOrderNumber: null,
     }),
-    resolveZohoCustomerDisplayContact(detail.customerId, detail.shippingAddress),
+    resolveZohoCustomerDisplayContact(detail.customerId, {
+      preferredAddress: detail.shippingAddress,
+      preferredAddressId: detail.shippingAddressId,
+    }),
   ]);
   return {
     ...detail,
+    // Keep SO-provided address when present; otherwise use customer shipping/billing fallback.
     shippingAddress: contact.address,
     customerPhone: contact.phone,
     customerTelHref: contact.telHref,

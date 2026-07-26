@@ -3,6 +3,7 @@ import {
   recordZohoApiFailure,
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
+import { isSacHsn } from './sac-catalog.js';
 
 const ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.in';
 export const ZOHO_API_BASE = 'https://www.zohoapis.in/inventory/v1';
@@ -38,7 +39,8 @@ function resolveLabelRate(item) {
 /** @type {{ token: string; expiresAt: number } | null} */
 let tokenCache = null;
 
-export function getStockStatus(stock, reorderLevel) {
+export function getStockStatus(stock, reorderLevel, hsn = null) {
+  if (isSacHsn(hsn)) return 'in_stock';
   if (stock <= 0) return 'out_of_stock';
   if (reorderLevel > 0 && stock <= reorderLevel) return 'low_stock';
   return 'in_stock';
@@ -72,6 +74,7 @@ export function normaliseItem(raw) {
 
   const stock = Number.parseFloat(String(stockRaw)) || 0;
   const reorderLevel = Number.parseFloat(String(raw.reorder_level || 0)) || 0;
+  const hsn = String(raw.hsn_or_sac ?? '');
 
   return {
     id: String(raw.item_id ?? ''),
@@ -81,12 +84,12 @@ export function normaliseItem(raw) {
     unit: String(raw.unit ?? 'pcs'),
     rate: Number.parseFloat(String(raw.rate ?? 0)) || 0,
     stock,
-    stockStatus: getStockStatus(stock, reorderLevel),
+    stockStatus: getStockStatus(stock, reorderLevel, hsn),
     hasImage: Boolean(raw.image_url || raw.image_document_id),
     categoryId: normaliseCategoryId(raw.category_id),
     categoryName: String(raw.category_name ?? '').trim(),
     status: String(raw.status ?? 'active'),
-    hsn: String(raw.hsn_or_sac ?? ''),
+    hsn,
     taxName: String(raw.tax_name ?? ''),
     taxPercentage: Number(raw.tax_percentage ?? 0),
     reorderLevel,
@@ -287,6 +290,7 @@ export async function fetchProductDetail(accessToken, orgId, itemId) {
     ?? 0,
   );
   const reorderLevel = Number(item.reorder_level ?? 0);
+  const hsn = item.hsn_or_sac || null;
 
   const warehouses = normaliseWarehouses(item);
 
@@ -298,13 +302,13 @@ export async function fetchProductDetail(accessToken, orgId, itemId) {
     unit: String(item.unit ?? 'pcs'),
     rate: Number(item.rate ?? 0),
     stock,
-    stockStatus: getStockStatus(stock, reorderLevel),
+    stockStatus: getStockStatus(stock, reorderLevel, hsn),
     categoryId: normaliseCategoryId(item.category_id) || null,
     categoryName: normaliseCategoryId(item.category_id)
       ? String(item.category_name ?? '').trim() || null
       : null,
     status: String(item.status ?? 'active'),
-    hsn: item.hsn_or_sac || null,
+    hsn,
     taxName: item.tax_name || null,
     taxPercentage: item.tax_percentage != null ? Number(item.tax_percentage) : null,
     reorderLevel,

@@ -34176,6 +34176,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.65rem;
 }
 
+.so-detail__header .so-detail__party + .doc-kam-strip {
+  margin-top: 0.85rem;
+}
+
+.invoice-detail-page .document-party + .doc-kam-strip {
+  margin-top: 0.85rem;
+}
+
 .doc-kam-strip {
   display: flex;
   align-items: stretch;

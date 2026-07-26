@@ -40,10 +40,8 @@ jobs:
       - name: Install functions dependencies
         run: npm ci --prefix functions
 
-      # Stamp version into the build only — never commit/push back to main.
-      # (CI commits were racing local pushes: "Can't push refs… Try Pull first".)
-      - name: Stamp app version for this deploy
-        run: node scripts/bump-app-version.mjs --ci-run "${{ github.run_number }}"
+      # App version comes from committed src/app-version.json (same as local).
+      # Bump with: npm run bump:app-version
 
       - name: Build
         run: npm run build

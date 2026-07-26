@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { effectiveCatalogStockStatus } from '../lib/sacCatalog';
 import type { CatalogProduct } from '../types/catalog';
 import { cartItemFromProduct, type CartItem } from '../types/cart';
 import { useAuth } from './AuthContext';
@@ -10,12 +11,21 @@ function storageKey(uid: string): string {
   return `${STORAGE_PREFIX}:${uid}`;
 }
 
+function normalizeCartItem(item: CartItem): CartItem {
+  return {
+    ...item,
+    stockStatus: effectiveCatalogStockStatus(item.stockStatus, item.hsn),
+  };
+}
+
 function readStoredCart(uid: string): CartItem[] {
   try {
     const raw = localStorage.getItem(storageKey(uid));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as CartItem[];
-    return Array.isArray(parsed) ? parsed.filter(item => item?.productId) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter(item => item?.productId).map(normalizeCartItem)
+      : [];
   } catch {
     return [];
   }
@@ -52,7 +62,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [items, user?.uid]);
 
   const addItem = useCallback((product: CatalogProduct, quantity = 1): boolean => {
-    if (product.stockStatus === 'out_of_stock' || quantity < 1) return false;
+    const stockStatus = effectiveCatalogStockStatus(product.stockStatus, product.hsn);
+    if (stockStatus === 'out_of_stock' || quantity < 1) return false;
 
     setItems(prev => {
       const existing = prev.find(item => item.productId === product.id);
@@ -62,7 +73,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? {
                 ...item,
                 rate: product.rate,
-                stockStatus: product.stockStatus,
+                stockStatus,
+                hsn: product.hsn ?? item.hsn ?? null,
                 name: product.name,
                 quantity: item.quantity + quantity,
               }

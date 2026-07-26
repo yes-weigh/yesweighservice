@@ -25,6 +25,7 @@ import {
 } from './sales-order-sync.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
+import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
 
 const SO_COLLECTION = 'salesOrders';
 const PRODUCTS = 'catalogProducts';
@@ -167,7 +168,10 @@ async function loadCatalogProduct(productId) {
     sku: data.sku != null ? String(data.sku) : null,
     rate: Number(data.rate ?? 0),
     unit: String(data.unit ?? 'pcs'),
-    stockStatus: data.stockStatus != null ? String(data.stockStatus) : null,
+    stockStatus: effectiveCatalogStockStatus(
+      data.stockStatus != null ? String(data.stockStatus) : null,
+      data.hsn,
+    ),
     categoryName: data.categoryName != null ? String(data.categoryName) : null,
     hsn: data.hsn != null ? String(data.hsn) : null,
     status: String(data.status ?? 'active'),
@@ -196,7 +200,7 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true } = {}) {
     if (!product || product.hiddenFromCatalog || product.status === 'inactive') {
       throw new HttpsError('failed-precondition', `Product unavailable: ${productId}`);
     }
-    if (!allowOutOfStock && product.stockStatus === 'out_of_stock') {
+    if (!allowOutOfStock && product.stockStatus === 'out_of_stock' && !isSacHsn(product.hsn)) {
       throw new HttpsError(
         'failed-precondition',
         `${product.name} is out of stock and cannot be ordered.`,

@@ -14,6 +14,7 @@ import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
+import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
 
 const PRODUCTS = 'catalogProducts';
 const CUSTOMERS = 'zohoCustomers';
@@ -152,7 +153,10 @@ async function loadCatalogProduct(productId) {
     imageUrl: data.imageUrl != null ? String(data.imageUrl) : null,
     rate: Number(data.rate ?? 0),
     unit: String(data.unit ?? 'pcs'),
-    stockStatus: data.stockStatus != null ? String(data.stockStatus) : null,
+    stockStatus: effectiveCatalogStockStatus(
+      data.stockStatus != null ? String(data.stockStatus) : null,
+      data.hsn,
+    ),
     categoryName: data.categoryName != null ? String(data.categoryName) : null,
     categoryId: data.categoryId != null ? String(data.categoryId) : null,
     taxPercentage: Number(data.taxPercentage ?? 0),
@@ -202,7 +206,7 @@ async function buildLinesFromInput(rawLines) {
     if (!product || product.hiddenFromCatalog || product.status === 'inactive') {
       throw new HttpsError('failed-precondition', `Product unavailable: ${productId}`);
     }
-    if (product.stockStatus === 'out_of_stock') {
+    if (product.stockStatus === 'out_of_stock' && !isSacHsn(product.hsn)) {
       throw new HttpsError(
         'failed-precondition',
         `${product.name} is out of stock and cannot be ordered.`,

@@ -13,6 +13,7 @@ import type {
 } from '../types/catalog';
 import { mapAuditSnapshot } from './catalogProductAudit/data';
 import { resolveAdjustedAuditDisplay } from './catalogProductAudit/display';
+import { effectiveCatalogStockStatus } from './sacCatalog';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -708,6 +709,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
   const warehouses = mapWarehouse(data.warehouses);
   const packageInfo = mapPackageInfo(data.packageInfo);
   const auditSnapshot = mapAuditSnapshot(data.auditSnapshot);
+  const hsn = (data.hsn as string | null) ?? null;
   return {
     id: String(data.id ?? ''),
     name: String(data.name ?? ''),
@@ -716,14 +718,17 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     unit: String(data.unit ?? 'pcs'),
     rate: Number(data.rate ?? 0),
     stock: Number(data.stock ?? 0),
-    stockStatus: (data.stockStatus as CatalogProduct['stockStatus']) ?? 'out_of_stock',
+    stockStatus: effectiveCatalogStockStatus(
+      (data.stockStatus as CatalogProduct['stockStatus']) ?? 'out_of_stock',
+      hsn,
+    ),
     imageUrl,
     ...(imageUrls?.length ? { imageUrls } : {}),
     ...(imageDocs?.length ? { imageDocs } : {}),
     categoryId: (data.categoryId as string | null) ?? null,
     categoryName: (data.categoryName as string | null) ?? null,
     status: String(data.status ?? 'active'),
-    hsn: (data.hsn as string | null) ?? null,
+    hsn,
     taxName: (data.taxName as string | null) ?? null,
     taxPercentage: Number(data.taxPercentage ?? 0),
     reorderLevel: Number(data.reorderLevel ?? 0),
