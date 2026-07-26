@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, FileText } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import {
   fetchAdminInvoiceDetail,
 } from '../../lib/admin-invoices';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
+import { staffCanAccessSalespersonDoc } from '../../lib/salespersonScope';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
@@ -18,7 +20,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   }>();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const invoicesPath = '/super-admin/invoices';
+  const { user } = useAuth();
+  const invoicesPath = pathname.startsWith('/staff') ? '/staff/invoices' : '/super-admin/invoices';
   const invoiceSummaryPath = `${invoicesPath}/${customerId}/${invoiceId}/invoice`;
   const isPdfView = pathname.endsWith('/invoice/view');
 
@@ -54,10 +57,14 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
 
     fetchAdminInvoiceDetail(customerId, invoiceId)
       .then(data => {
-        if (!cancelled) {
-          setInvoice(data);
-          setError('');
+        if (cancelled) return;
+        if (!staffCanAccessSalespersonDoc(user, data.salespersonId)) {
+          setInvoice(null);
+          setError('You can only view invoices assigned to you.');
+          return;
         }
+        setInvoice(data);
+        setError('');
       })
       .catch(err => {
         if (!cancelled) {
@@ -72,7 +79,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [customerId, invoiceId]);
+  }, [customerId, invoiceId, user]);
 
   if (!customerId || !invoiceId) return null;
 

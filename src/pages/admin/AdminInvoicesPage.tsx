@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ChevronRight,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
+import { salespersonScopeForUser } from '../../lib/salespersonScope';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
   DealerMultiFilterPicker,
@@ -280,8 +281,12 @@ function AdminFilterSheet({
 
 export const AdminInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { user } = useAuth();
   const canImport = canSuperAdminWrite(user);
+  const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
+  const salespersonScopeKey = salespersonIds?.slice().sort().join(',') ?? '';
   const [searchParams, setSearchParams] = useSearchParams();
   const scrollRef = useRevealScrollbarOnScroll();
   const [rows, setRows] = useState<AdminFirestoreInvoice[]>([]);
@@ -374,6 +379,7 @@ export const AdminInvoicesPage: React.FC = () => {
       category: 'all',
       dateStart,
       dateEnd,
+      salespersonIds,
     })
       .then(({ rows: next }) => {
         if (cancelled) return;
@@ -391,7 +397,7 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [sort, dealerScoped, dateStart, dateEnd]);
+  }, [sort, dealerScoped, dateStart, dateEnd, salespersonIds, salespersonScopeKey]);
 
   // Dealer-scoped: fetch invoices for selected customers in the date window.
   useEffect(() => {
@@ -405,6 +411,7 @@ export const AdminInvoicesPage: React.FC = () => {
       dateEnd,
       category: 'all',
       sort,
+      salespersonIds,
     })
       .then(next => {
         if (cancelled) return;
@@ -424,13 +431,22 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [dealerScoped, selectedCustomerKey, dateStart, dateEnd, sort, selectedCustomerIds]);
+  }, [
+    dealerScoped,
+    selectedCustomerKey,
+    dateStart,
+    dateEnd,
+    sort,
+    selectedCustomerIds,
+    salespersonIds,
+    salespersonScopeKey,
+  ]);
 
   // Org-wide category counts from Firestore (authoritative for tabs).
   useEffect(() => {
     if (dealerScoped) return;
     let cancelled = false;
-    void countAdminInvoicesByCategory({ dateStart, dateEnd })
+    void countAdminInvoicesByCategory({ dateStart, dateEnd, salespersonIds })
       .then(counts => {
         if (!cancelled) setCategoryCounts(counts);
       })
@@ -440,7 +456,7 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [dealerScoped, dateStart, dateEnd]);
+  }, [dealerScoped, dateStart, dateEnd, salespersonIds, salespersonScopeKey]);
 
   const filtered = useMemo(
     () => filterAdminInvoices(rows, search, category),
@@ -484,7 +500,7 @@ export const AdminInvoicesPage: React.FC = () => {
   }, [pageRows]);
 
   const openInvoice = (invoice: AdminFirestoreInvoice) => {
-    navigate(`/super-admin/invoices/${invoice.customerId}/${invoice.id}/invoice`);
+    navigate(`${basePath}/invoices/${invoice.customerId}/${invoice.id}/invoice`);
   };
 
   const openAggregatedDealer = useCallback((invoice: AdminFirestoreInvoice) => {

@@ -19,6 +19,7 @@ import {
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
+import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   DealerMultiFilterPicker,
@@ -40,6 +41,7 @@ import {
 } from '../../lib/admin-invoices';
 import { formatCurrency } from '../../lib/catalog';
 import { fetchDealerById } from '../../lib/dealers';
+import { salespersonScopeForUser } from '../../lib/salespersonScope';
 import {
   formatInvoiceDate,
   formatInvoiceItemQuantity,
@@ -251,6 +253,7 @@ function UnifiedFilterSheet({
 export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const dealerFilterFromUrl = searchParams.get('dealerId')?.trim() || '';
   const dealersParam = searchParams.get('dealers') || '';
@@ -259,6 +262,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     [dealersParam],
   );
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
+  const salespersonScopeKey = salespersonIds?.slice().sort().join(',') ?? '';
   const scrollRef = useRevealScrollbarOnScroll();
 
   const [zohoOrders, setZohoOrders] = useState<AdminFirestoreSalesOrder[]>([]);
@@ -347,7 +352,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, category, sort, selectedCustomerKey]);
+  }, [search, rangePreset, category, sort, selectedCustomerKey, salespersonScopeKey]);
 
   // Server category counts for Zoho (org-wide). Dealer-scoped counts come from loaded rows.
   useEffect(() => {
@@ -360,6 +365,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     void countAdminSalesOrdersByCategory({
       dateStart,
       dateEnd,
+      salespersonIds,
     })
       .then(counts => {
         if (cancelled) return;
@@ -375,7 +381,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [dealerScoped, dateStart, dateEnd, category]);
+  }, [dealerScoped, dateStart, dateEnd, category, salespersonIds, salespersonScopeKey]);
 
   // Dealer-scoped: load full date window for selected customers (newest-first).
   useEffect(() => {
@@ -390,6 +396,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       category: 'all',
       statusIn: null,
       sort,
+      salespersonIds,
     })
       .then(rows => {
         if (cancelled) return;
@@ -418,6 +425,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     sort,
     dateStart,
     dateEnd,
+    salespersonIds,
+    salespersonScopeKey,
   ]);
 
   useEffect(() => {
@@ -442,6 +451,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       dateStart,
       dateEnd,
       statusIn: null,
+      salespersonIds,
     })
       .then(result => {
         if (cancelled) return;
@@ -472,6 +482,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     dateStart,
     dateEnd,
     searchActive,
+    salespersonIds,
+    salespersonScopeKey,
   ]);
 
   const loading = zohoLoading || countsLoading;

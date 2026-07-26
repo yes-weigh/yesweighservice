@@ -116,11 +116,8 @@ const superAdminOpsRoutes = (
   </>
 );
 
-const portalMenuRoutes = (
+const dealerInvoiceRoutes = (
   <>
-    <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
-    <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
-    <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
     <Route path="invoices" element={<DealerMenuPages.Invoices />} />
     <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />}>
       <Route index element={<Navigate to="invoice" replace />} />
@@ -132,6 +129,28 @@ const portalMenuRoutes = (
       <Route path="logistic" element={<DealerMenuPages.InvoiceLogistic />} />
       <Route path="qc" element={<DealerMenuPages.InvoiceQc />} />
     </Route>
+  </>
+);
+
+/** Staff invoices — same org list/detail as super admin, scoped to their Zoho salesperson ids. */
+const staffInvoiceRoutes = (
+  <>
+    <Route path="invoices" element={<AdminInvoicesPage />} />
+    <Route path="invoices/:customerId/:invoiceId" element={<AdminInvoiceDetailLayout />}>
+      <Route index element={<Navigate to="invoice" replace />} />
+      <Route path="invoice">
+        <Route index element={<AdminInvoiceDocumentPage />} />
+        <Route path="view" element={<AdminInvoicePdfViewerPage />} />
+      </Route>
+    </Route>
+  </>
+);
+
+const portalMenuRoutes = (
+  <>
+    <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
+    <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
+    <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
     {catalogRoutes}
     <Route path="verification" element={<DealerMenuPages.Verification />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
@@ -161,6 +180,7 @@ const dealerRoutes = (
   <>
     <Route index element={<RoleDashboard />} />
     {portalMenuRoutes}
+    {dealerInvoiceRoutes}
     {dealerSalesOrderRoutes}
     <Route path="team" element={<DealerTeamPage />} />
     <Route path="profile" element={<ProfilePage />} />
@@ -267,6 +287,7 @@ const App: React.FC = () => (
               <Route index element={<StaffDashboard />} />
               <Route path="tasks" element={<DealerMenuPages.Tasks />} />
               {portalMenuRoutes}
+              {staffInvoiceRoutes}
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />
@@ -278,11 +299,7 @@ const App: React.FC = () => (
               <Route path="orders" element={<OpsOrdersListRedirect />} />
               <Route path="orders/history" element={<OpsOrdersListRedirect />} />
               <Route path="orders/:orderId" element={<OpsOrderDetailRedirect />} />
-              <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
-              <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
-                <Route index element={<AdminPurchaseOrderDocumentPage />} />
-                <Route path="view" element={<AdminPurchaseOrderPdfViewerPage />} />
-              </Route>
+              <Route path="purchase-orders/*" element={<Navigate to="/staff" replace />} />
               <Route path="reports" element={<ReportsLayout basePath="/staff" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
               </Route>

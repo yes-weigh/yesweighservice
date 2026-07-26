@@ -248,7 +248,8 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   advertisements: ['advertisements.view'],
   invoices: ['invoices.view'],
   'sales-orders': ['orders.view', 'orders.manage', 'invoices.view'],
-  'purchase-orders': ['orders.view', 'invoices.view'],
+  // Purchase orders are super-admin only — staff must not see this nav/feature.
+  'purchase-orders': [],
   logistics: ['logistics.view'],
   loyalty: ['loyalty.view'],
   'ai-assistant': 'always',

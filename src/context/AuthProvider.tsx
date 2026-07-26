@@ -18,6 +18,7 @@ import { authErrorMessage } from '../lib/authErrors';
 import { clearInvoiceCacheForUser } from '../lib/invoice-cache';
 import { clearDealerCache, prefetchDealersCache } from '../lib/dealer-cache';
 import { isInternalOpsUser } from '../lib/staffAccess';
+import { normalizeZohoSalespersonLinks } from '../lib/zohoSalespersonStaff';
 import { FIRM_NAME } from '../constants/brand';
 import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
 
@@ -70,6 +71,16 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       }
     }
 
+    const zohoSalespersonLinks = role === 'staff'
+      ? normalizeZohoSalespersonLinks({
+        zohoSalespersonLinks: data.zohoSalespersonLinks,
+        zohoSalespersonIds: data.zohoSalespersonIds,
+        zohoSalespersonId: data.zohoSalespersonId,
+        zohoSalespersonName: data.zohoSalespersonName,
+      })
+      : [];
+    const zohoSalespersonIds = zohoSalespersonLinks.map(link => link.id);
+
     return {
       uid: fbUser.uid,
       loginId: login.value,
@@ -89,6 +100,10 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       staffPermissions: data.staffPermissions,
       staffKamId: data.staffKamId ?? null,
       staffTeamId: data.staffTeamId ?? null,
+      zohoSalespersonIds: role === 'staff' ? zohoSalespersonIds : undefined,
+      zohoSalespersonLinks: role === 'staff' ? zohoSalespersonLinks : undefined,
+      zohoSalespersonId: role === 'staff' ? (zohoSalespersonIds[0] ?? null) : undefined,
+      zohoSalespersonName: role === 'staff' ? (zohoSalespersonLinks[0]?.name ?? null) : undefined,
       staffLogisticsSite: data.staffLogisticsSite ?? null,
       dealerTier,
       dealerAccessMode,

@@ -25,6 +25,10 @@ import {
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
 } from './invoices';
+import {
+  appendSalespersonIdConstraint,
+  filterRowsBySalespersonScope,
+} from './salespersonScope';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
@@ -109,6 +113,11 @@ export type AdminInvoiceListQuery = {
   dateStart?: string | null;
   /** Inclusive YYYY-MM-DD */
   dateEnd?: string | null;
+  /**
+   * When set, restrict to these Zoho salesperson ids.
+   * Empty array → no results. Omit / null → org-wide (super admin).
+   */
+  salespersonIds?: string[] | null;
 };
 
 const ADMIN_INVOICES_PAGE_SIZE = 300;
@@ -120,6 +129,10 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery) {
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const constraints: QueryConstraint[] = [];
+
+  if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+    constraints.push(where('salespersonId', '==', '__none__'));
+  }
 
   if (category && category !== 'all') {
     constraints.push(where('invoiceCategory', '==', category));
@@ -175,7 +188,14 @@ export async function fetchAdminInvoicesPage(
   category: InvoiceCategory | 'all' = 'all',
   dateStart?: string | null,
   dateEnd?: string | null,
+  salespersonIds?: string[] | null,
 ): Promise<AdminFirestoreInvoice[]> {
+  if (
+    salespersonIds != null
+    && appendSalespersonIdConstraint([], salespersonIds) === 'empty'
+  ) {
+    return [];
+  }
   const snap = await getDocs(buildAdminInvoicesQuery({
     sort,
     pageSize,
@@ -183,6 +203,7 @@ export async function fetchAdminInvoicesPage(
     category,
     dateStart,
     dateEnd,
+    salespersonIds,
   }));
   return snap.docs.map(mapAdminInvoiceDoc);
 }
@@ -196,7 +217,15 @@ export async function fetchAllAdminInvoicesInRange(options: {
   category?: InvoiceCategory | 'all';
   dateStart?: string | null;
   dateEnd?: string | null;
+  salespersonIds?: string[] | null;
 }): Promise<{ rows: AdminFirestoreInvoice[]; truncated: boolean }> {
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return { rows: [], truncated: false };
+  }
+
   const sort = options.sort ?? 'date';
   const category = options.category ?? 'all';
   const rows: AdminFirestoreInvoice[] = [];
@@ -212,6 +241,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
       category,
       dateStart: options.dateStart,
       dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
     });
     const pageSnap: QuerySnapshot<DocumentData> = await getDocs(pageQuery);
     if (pageSnap.empty) break;
@@ -429,12 +459,23 @@ export async function countAdminInvoices(options: {
   category?: InvoiceCategory | 'all';
   dateStart?: string | null;
   dateEnd?: string | null;
+  salespersonIds?: string[] | null;
 }): Promise<number> {
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return 0;
+  }
+
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const constraints: QueryConstraint[] = [];
 
+  if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+    return 0;
+  }
   if (category && category !== 'all') {
     constraints.push(where('invoiceCategory', '==', category));
   }
@@ -454,10 +495,12 @@ export async function countAdminInvoices(options: {
 export async function countAdminInvoicesByCategory(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
+  salespersonIds?: string[] | null;
 }): Promise<AdminInvoiceCategoryCounts> {
   const base = {
     dateStart: options.dateStart ?? null,
     dateEnd: options.dateEnd ?? null,
+    salespersonIds: options.salespersonIds ?? null,
   } as const;
 
   const [all, product, spare, software_key, service, gatc] = await Promise.all([
@@ -508,11 +551,18 @@ export async function fetchAdminInvoicesForCustomers(options: {
   dateEnd?: string | null;
   category?: InvoiceCategory | 'all';
   sort?: AdminInvoiceSort;
+  salespersonIds?: string[] | null;
 }): Promise<AdminFirestoreInvoice[]> {
   const ids = [...new Set(
     options.customerIds.map(id => String(id ?? '').trim()).filter(Boolean),
   )];
   if (!ids.length) return [];
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return [];
+  }
 
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
@@ -526,6 +576,9 @@ export async function fetchAdminInvoicesForCustomers(options: {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const constraints: QueryConstraint[] = [];
+      if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+        return [];
+      }
       if (dateStart) constraints.push(where('date', '>=', dateStart));
       if (dateEnd) constraints.push(where('date', '<=', dateEnd));
       if (dateStart || dateEnd || sort !== 'syncedAt') {
@@ -547,7 +600,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
     return rows;
   }));
 
-  let merged = perCustomer.flat();
+  let merged = filterRowsBySalespersonScope(perCustomer.flat(), options.salespersonIds);
 
   if (options.category && options.category !== 'all') {
     merged = merged.filter(row => row.invoiceCategory === options.category);

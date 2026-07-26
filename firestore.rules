@@ -45,6 +45,17 @@ service cloud.firestore {
       return isSuperAdmin() || isStaff();
     }
 
+    /** Staff may read SO/invoice docs only when salespersonId is one of theirs. */
+    function staffOwnsSalespersonResource() {
+      return isStaff()
+        && resource.data.keys().hasAll(['salespersonId'])
+        && resource.data.salespersonId is string
+        && (
+          resource.data.salespersonId in userDoc().get('zohoSalespersonIds', [])
+          || resource.data.salespersonId == userDoc().get('zohoSalespersonId', '')
+        );
+    }
+
     function canWriteCatalogMedia() {
       return isFullSuperAdmin() || isMedia();
     }
@@ -246,7 +257,7 @@ service cloud.firestore {
       allow write: if false;
 
       match /invoices/{invoiceId} {
-        allow read: if isSuperAdmin();
+        allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
         allow write: if false;
       }
 
@@ -261,7 +272,7 @@ service cloud.firestore {
 
     // Required for admin collectionGroup(db, 'invoices') live queries.
     match /{path=**}/invoices/{invoiceId} {
-      allow read: if isSuperAdmin();
+      allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
       allow write: if false;
     }
 
@@ -275,7 +286,7 @@ service cloud.firestore {
 
     // Org-wide Zoho purchase orders (vendor-scoped fields on each doc).
     match /purchaseOrders/{poId} {
-      allow read: if isOpsUser();
+      allow read: if isSuperAdmin();
       allow write: if false;
     }
 
@@ -285,7 +296,7 @@ service cloud.firestore {
 
     // Org-wide Zoho sales orders (customer-scoped fields on each doc).
     match /salesOrders/{soId} {
-      allow read: if isOpsUser();
+      allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
       allow write: if false;
     }
 

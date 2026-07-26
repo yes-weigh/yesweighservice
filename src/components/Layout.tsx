@@ -282,13 +282,6 @@ const LayoutShell: React.FC = () => {
           0,
           { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
         );
-        const invoicesIndex = withExtras.findIndex(item => item.path.endsWith('/invoices'));
-        const poInsertAt = invoicesIndex >= 0 ? invoicesIndex + 1 : withExtras.length;
-        withExtras.splice(
-          poInsertAt,
-          0,
-          { path: '/staff/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
-        );
         const notificationsIndex = withExtras.findIndex(item => item.path.endsWith('/notifications'));
         const reportsItem = { path: '/staff/reports', icon: <BarChart3 size={20} />, label: 'Reports' };
         if (notificationsIndex >= 0) {

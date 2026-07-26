@@ -23,6 +23,10 @@ import {
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
 } from './invoices';
+import {
+  appendSalespersonIdConstraint,
+  filterRowsBySalespersonScope,
+} from './salespersonScope';
 import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
@@ -45,6 +49,11 @@ export type AdminSalesOrderListQuery = {
   /** Inclusive YYYY-MM-DD */
   dateEnd?: string | null;
   statusIn?: readonly string[] | null;
+  /**
+   * When set, restrict to these Zoho salesperson ids.
+   * Empty array → no results. Omit / null → org-wide (super admin).
+   */
+  salespersonIds?: string[] | null;
 };
 
 /** Zoho SO statuses treated as finished in the unified pipeline. */
@@ -200,6 +209,11 @@ export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
   const statusIn = options.statusIn?.length ? [...options.statusIn] : null;
   const constraints: QueryConstraint[] = [];
 
+  if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+    // Impossible match so callers that ignore empty-scope still get zero docs.
+    constraints.push(where('salespersonId', '==', '__none__'));
+  }
+
   if (category && category !== 'all') {
     constraints.push(where('salesOrderCategory', '==', category));
   }
@@ -268,6 +282,12 @@ export async function fetchAdminSalesOrdersPage(
 export async function fetchAdminSalesOrdersPageDetailed(
   options: AdminSalesOrderListQuery,
 ): Promise<AdminSalesOrdersPageResult> {
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return { rows: [], docs: [], lastDoc: null };
+  }
   const snap = await getDocs(buildAdminSalesOrdersQuery(options));
   return {
     rows: snap.docs.map(mapAdminSalesOrderDoc),
@@ -279,6 +299,13 @@ export async function fetchAdminSalesOrdersPageDetailed(
 export async function countAdminSalesOrders(
   options: Omit<AdminSalesOrderListQuery, 'pageSize' | 'cursor'>,
 ): Promise<number> {
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return 0;
+  }
+
   const sort = options.sort ?? 'date';
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
@@ -286,6 +313,9 @@ export async function countAdminSalesOrders(
   const statusIn = options.statusIn?.length ? [...options.statusIn] : null;
   const constraints: QueryConstraint[] = [];
 
+  if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+    return 0;
+  }
   if (category && category !== 'all') {
     constraints.push(where('salesOrderCategory', '==', category));
   }
@@ -311,11 +341,13 @@ export async function countAdminSalesOrdersByUnifiedStages(options: {
   category?: InvoiceCategory | 'all';
   dateStart?: string | null;
   dateEnd?: string | null;
+  salespersonIds?: string[] | null;
 }): Promise<{ all: number; so: number; done: number; rejected: number }> {
   const base = {
     category: options.category ?? 'all',
     dateStart: options.dateStart ?? null,
     dateEnd: options.dateEnd ?? null,
+    salespersonIds: options.salespersonIds ?? null,
   } as const;
 
   const [all, so, done, rejected] = await Promise.all([
@@ -340,10 +372,12 @@ export type AdminSalesOrderCategoryCounts = {
 export async function countAdminSalesOrdersByCategory(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
+  salespersonIds?: string[] | null;
 }): Promise<AdminSalesOrderCategoryCounts> {
   const base = {
     dateStart: options.dateStart ?? null,
     dateEnd: options.dateEnd ?? null,
+    salespersonIds: options.salespersonIds ?? null,
   } as const;
 
   const [all, product, spare, software_key, service, gatc] = await Promise.all([
@@ -397,11 +431,18 @@ export async function fetchAdminSalesOrdersForCustomers(options: {
   statusIn?: readonly string[] | null;
   sort?: AdminSalesOrderSort;
   maxPerCustomer?: number;
+  salespersonIds?: string[] | null;
 }): Promise<AdminFirestoreSalesOrder[]> {
   const ids = [...new Set(
     options.customerIds.map(id => String(id ?? '').trim()).filter(Boolean),
   )];
   if (!ids.length) return [];
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return [];
+  }
 
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
@@ -415,6 +456,9 @@ export async function fetchAdminSalesOrdersForCustomers(options: {
 
     while (rows.length < maxPerCustomer) {
       const constraints: QueryConstraint[] = [where('customerId', '==', customerId)];
+      if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+        return [];
+      }
       if (dateStart) constraints.push(where('date', '>=', dateStart));
       if (dateEnd) constraints.push(where('date', '<=', dateEnd));
       if (dateStart || dateEnd || sort !== 'syncedAt') {
@@ -434,7 +478,7 @@ export async function fetchAdminSalesOrdersForCustomers(options: {
     return rows;
   }));
 
-  let merged = perCustomer.flat();
+  let merged = filterRowsBySalespersonScope(perCustomer.flat(), options.salespersonIds);
 
   if (options.category && options.category !== 'all') {
     merged = merged.filter(row => row.salesOrderCategory === options.category);
