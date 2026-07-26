@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { isLocalhostDev } from '../../lib/isLocalhost';
 import { canManageSuperAdminsInHr } from '../../lib/staffAccess';
 import { UserManagement } from '../shared/UserManagement';
 
@@ -19,7 +20,11 @@ export const HrSuperAdminsPage: React.FC<HrSuperAdminsPageProps> = ({ basePath }
     <UserManagement
       role="super_admin"
       title="Super Admins"
-      description="Manage super admin accounts and access (Full vs View only). Only visible to super admins within HR."
+      description={
+        isLocalhostDev()
+          ? 'Manage super admin accounts and access (Full vs View only). Access controls are only shown on localhost.'
+          : 'Manage super admin accounts. Only visible to super admins within HR.'
+      }
     />
   );
 };

@@ -21,6 +21,7 @@ import {
   readDealerId,
 } from '../../types';
 import { canManageWarehouseUsers, canSuperAdminWrite } from '../../lib/staffAccess';
+import { isLocalhostDev } from '../../lib/isLocalhost';
 import {
   formatLoginIdDisplay,
   loginIdTypeLabel,
@@ -87,7 +88,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [error, setError] = useState('');
   const [roleDraft, setRoleDraft] = useState<DealerRoleDraft>(EMPTY_DEALER_ROLE_DRAFT);
   const showDealerAccess = role === 'dealer' || role === 'dealer_staff';
-  const showSuperAdminAccess = role === 'super_admin';
+  /** Access column / toggle / form — localhost only so production super admins don't see tiers. */
+  const showSuperAdminAccess = role === 'super_admin' && isLocalhostDev();
   const canWriteUsers = canSuperAdminWrite(user) || (
     user?.role !== 'super_admin' && Boolean(user)
   );
