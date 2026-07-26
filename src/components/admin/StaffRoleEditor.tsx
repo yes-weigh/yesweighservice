@@ -22,6 +22,8 @@ export interface StaffRoleDraft {
   permissions: StaffPermission[];
   kamId: string | null;
   teamId: string | null;
+  zohoSalespersonId: string | null;
+  zohoSalespersonName: string | null;
 }
 
 export const EMPTY_STAFF_ROLE_DRAFT: StaffRoleDraft = {
@@ -31,6 +33,8 @@ export const EMPTY_STAFF_ROLE_DRAFT: StaffRoleDraft = {
   permissions: [],
   kamId: null,
   teamId: null,
+  zohoSalespersonId: null,
+  zohoSalespersonName: null,
 };
 
 export function staffRoleDraftFromRecord(
@@ -41,6 +45,8 @@ export function staffRoleDraftFromRecord(
     staffPermissions?: StaffPermission[];
     staffKamId?: string | null;
     staffTeamId?: string | null;
+    zohoSalespersonId?: string | null;
+    zohoSalespersonName?: string | null;
   },
   roles: StaffRoleTemplate[],
 ): StaffRoleDraft {
@@ -67,6 +73,8 @@ export function staffRoleDraftFromRecord(
     permissions,
     kamId: input.staffKamId ?? null,
     teamId: input.staffTeamId ?? null,
+    zohoSalespersonId: input.zohoSalespersonId?.trim() || null,
+    zohoSalespersonName: input.zohoSalespersonName?.trim() || null,
   };
 }
 
@@ -77,8 +85,11 @@ export function staffRoleDraftToPayload(draft: StaffRoleDraft): {
   staffPermissions: StaffPermission[];
   staffKamId: string | null;
   staffTeamId: string | null;
+  zohoSalespersonId: string | null;
+  zohoSalespersonName: string | null;
 } {
   const effective = effectivePermissionSet(draft.accessMode, draft.department, draft.permissions);
+  const zohoId = draft.zohoSalespersonId?.trim() || null;
   return {
     staffRoleId: draft.accessMode === 'role' ? draft.roleId : draft.roleId,
     staffDepartment: draft.department,
@@ -86,6 +97,10 @@ export function staffRoleDraftToPayload(draft: StaffRoleDraft): {
     staffPermissions: effective,
     staffKamId: draft.department === 'sales' ? draft.kamId : null,
     staffTeamId: draft.teamId?.trim() || null,
+    zohoSalespersonId: zohoId,
+    zohoSalespersonName: zohoId
+      ? (draft.zohoSalespersonName?.trim() || null)
+      : null,
   };
 }
 
@@ -245,6 +260,41 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
       {selectedRole?.description && (
         <p className="staff-role-editor__hint text-muted text-sm">{selectedRole.description}</p>
       )}
+
+      <details className="staff-role-editor__optional" open={Boolean(value.zohoSalespersonId)}>
+        <summary>Zoho salesperson (KAM on SO / invoice)</summary>
+        <div className="staff-role-editor__zoho-row">
+          <label className="staff-role-editor__field">
+            <span>Zoho Salesperson ID</span>
+            <input
+              className="input-field"
+              disabled={disabled}
+              placeholder="Paste from Zoho Inventory"
+              value={value.zohoSalespersonId ?? ''}
+              onChange={e => onChange({
+                ...value,
+                zohoSalespersonId: e.target.value.trim() || null,
+              })}
+            />
+          </label>
+          <label className="staff-role-editor__field">
+            <span>Zoho name (optional)</span>
+            <input
+              className="input-field"
+              disabled={disabled}
+              placeholder="As shown in Zoho"
+              value={value.zohoSalespersonName ?? ''}
+              onChange={e => onChange({
+                ...value,
+                zohoSalespersonName: e.target.value || null,
+              })}
+            />
+          </label>
+        </div>
+        <p className="staff-role-editor__hint text-muted text-sm">
+          Link this staff member to Zoho’s salesperson id so sales orders and invoices show them as KAM.
+        </p>
+      </details>
 
       <details className="staff-role-editor__optional">
         <summary>Optional fields</summary>

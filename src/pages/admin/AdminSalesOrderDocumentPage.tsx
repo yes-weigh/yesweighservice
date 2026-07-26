@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { Ban, Check, FileText, IndianRupee, MapPin, Pencil, Trash2 } from 'lucide-react';
+import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
@@ -256,6 +257,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             </div>
           )}
         </div>
+
+        {isOps && (
+          <DocumentKamStrip
+            salespersonId={salesOrder.salespersonId}
+            salespersonName={salesOrder.salespersonName}
+          />
+        )}
       </header>
 
       {/* Products + totals as one surface */}

@@ -57,6 +57,8 @@ export type UpdateUserProfilePatch = Partial<
     | 'staffPermissions'
     | 'staffKamId'
     | 'staffTeamId'
+    | 'zohoSalespersonId'
+    | 'zohoSalespersonName'
     | 'staffLogisticsSite'
     | 'dealerTier'
     | 'dealerAccessMode'
@@ -110,6 +112,8 @@ export type CreateUserInput = {
   staffPermissions?: StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  zohoSalespersonId?: string | null;
+  zohoSalespersonName?: string | null;
   staffLogisticsSite?: import('../types/staff-logistics').StaffLogisticsSite | null;
   dealerTier?: DealerTier;
   dealerAccessMode?: DealerAccessMode;
@@ -152,6 +156,8 @@ export async function createUserProfile(
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
     staffKamId: input.role === 'staff' ? input.staffKamId ?? null : undefined,
     staffTeamId: input.role === 'staff' ? input.staffTeamId ?? null : undefined,
+    zohoSalespersonId: input.role === 'staff' ? input.zohoSalespersonId ?? null : undefined,
+    zohoSalespersonName: input.role === 'staff' ? input.zohoSalespersonName ?? null : undefined,
     staffLogisticsSite: input.role === 'staff' ? input.staffLogisticsSite ?? null : undefined,
     dealerTier: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerTier ?? 'standard' : undefined,
     dealerAccessMode: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerAccessMode ?? 'tier' : undefined,

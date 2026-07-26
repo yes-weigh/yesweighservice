@@ -43,6 +43,8 @@ export interface AdminFirestoreInvoice {
   customerId: string;
   invoiceNumber: string;
   customerName: string | null;
+  salespersonId?: string | null;
+  salespersonName?: string | null;
   date: string | null;
   status: string;
   /** Grand total including GST. */
@@ -83,6 +85,8 @@ export function mapAdminInvoiceDoc(
     customerId,
     invoiceNumber: String(data.invoiceNumber ?? ''),
     customerName: data.customerName ? String(data.customerName) : null,
+    salespersonId: data.salespersonId ? String(data.salespersonId) : null,
+    salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     date: data.date ? String(data.date) : null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),
@@ -642,6 +646,8 @@ export function mapAdminInvoiceDetail(
     lastPaymentDate: data.lastPaymentDate ? String(data.lastPaymentDate) : null,
     currencyCode: data.currencyCode ? String(data.currencyCode) : 'INR',
     customerName: data.customerName ? String(data.customerName) : null,
+    salespersonId: data.salespersonId ? String(data.salespersonId) : null,
+    salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     invoiceUrl: data.invoiceUrl ? String(data.invoiceUrl) : null,
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     salesOrderId: data.salesOrderId ? String(data.salesOrderId) : null,

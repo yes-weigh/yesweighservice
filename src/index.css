@@ -30468,6 +30468,36 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.staff-role-editor__optional {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 12px;
+  padding: 0.65rem 0.85rem;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.staff-role-editor__optional > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+  list-style: none;
+}
+
+.staff-role-editor__optional > summary::-webkit-details-marker {
+  display: none;
+}
+
+.staff-role-editor__optional[open] > summary {
+  margin-bottom: 0.65rem;
+}
+
+.staff-role-editor__zoho-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
 .staff-role-editor__departments {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
@@ -33834,6 +33864,94 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+}
+
+.doc-kam-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.doc-kam-strip__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #94a3b8);
+}
+
+.doc-kam-strip__photo {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.doc-kam-strip__photo--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(148, 163, 184, 0.16);
+  color: #94a3b8;
+}
+
+.doc-kam-strip__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1 1 8rem;
+}
+
+.doc-kam-strip__name {
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.doc-kam-strip__hint {
+  font-size: 0.72rem;
+}
+
+.doc-kam-strip__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.doc-kam-strip__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  text-decoration: none;
+}
+
+.doc-kam-strip__action:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.doc-kam-strip__action--wa {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.doc-kam-strip__action--wa:hover {
+  background: rgba(34, 197, 94, 0.2);
 }
 
 .so-detail__pdf {

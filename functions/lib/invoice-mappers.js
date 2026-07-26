@@ -17,6 +17,14 @@ export function mapInvoice(raw) {
     customerName: raw.customer_name ?? raw.customerName
       ? String(raw.customer_name ?? raw.customerName)
       : null,
+    salespersonId: raw.salesperson_id != null && String(raw.salesperson_id).trim()
+      ? String(raw.salesperson_id).trim()
+      : (raw.salespersonId != null && String(raw.salespersonId).trim()
+        ? String(raw.salespersonId).trim()
+        : null),
+    salespersonName: raw.salesperson_name ?? raw.salespersonName
+      ? String(raw.salesperson_name ?? raw.salespersonName).trim() || null
+      : null,
     invoiceUrl: raw.invoice_url ?? raw.invoiceUrl
       ? String(raw.invoice_url ?? raw.invoiceUrl)
       : null,
@@ -370,6 +378,8 @@ export function firestoreDocToListInvoice(data) {
     lastPaymentDate: data.lastPaymentDate ?? null,
     currencyCode: data.currencyCode ? String(data.currencyCode) : 'INR',
     customerName: data.customerName ?? null,
+    salespersonId: data.salespersonId ? String(data.salespersonId) : null,
+    salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     invoiceUrl: data.invoiceUrl ?? null,
     invoiceCategory,
   };

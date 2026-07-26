@@ -36,6 +36,9 @@ export interface DealerInvoice {
   lastPaymentDate: string | null;
   currencyCode: string;
   customerName: string | null;
+  /** Zoho Inventory salesperson (KAM) when present on the invoice. */
+  salespersonId?: string | null;
+  salespersonName?: string | null;
   invoiceUrl: string | null;
   /** Present after sync with category classifier; null for older docs. */
   invoiceCategory?: InvoiceCategory | null;

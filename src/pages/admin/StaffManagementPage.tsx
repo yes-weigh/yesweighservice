@@ -31,6 +31,7 @@ import {
 } from '../../lib/userAdmin';
 import { fetchKams } from '../../lib/dealers';
 import { fetchStaffRoles } from '../../lib/staffRoles';
+import { assertZohoSalespersonIdAvailable } from '../../lib/zohoSalespersonStaff';
 import type { StaffRoleTemplate } from '../../types/staff-role';
 import {
   canSuperAdminWrite,
@@ -177,6 +178,7 @@ export const StaffManagementPage: React.FC = () => {
     const accessPayload = staffRoleDraftToPayload(roleDraft);
 
     try {
+      await assertZohoSalespersonIdAvailable(accessPayload.zohoSalespersonId, editingUid);
       if (editingUid) {
         await updateUserProfile(db, editingUid, {
           displayName: account.displayName,

@@ -67,6 +67,9 @@ export interface AdminFirestoreSalesOrder {
   salesOrderNumber: string;
   customerId: string;
   customerName: string | null;
+  /** Zoho Inventory salesperson (KAM) id/name when present on the SO. */
+  salespersonId?: string | null;
+  salespersonName?: string | null;
   date: string | null;
   shipmentDate: string | null;
   status: string;
@@ -95,6 +98,8 @@ export interface AdminSalesOrderDetail {
   currencyCode: string;
   customerId: string;
   customerName: string | null;
+  salespersonId?: string | null;
+  salespersonName?: string | null;
   /** Formatted shipping address from the SO or customer record. */
   shippingAddress?: string | null;
   shippingAddressId?: string | null;
@@ -159,6 +164,8 @@ export function mapAdminSalesOrderDoc(
     salesOrderNumber: String(data.salesOrderNumber ?? ''),
     customerId: String(data.customerId ?? ''),
     customerName: data.customerName ? String(data.customerName) : null,
+    salespersonId: data.salespersonId ? String(data.salespersonId) : null,
+    salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     date: data.date ? String(data.date) : null,
     shipmentDate: data.shipmentDate ? String(data.shipmentDate) : null,
     status: String(data.status ?? 'draft'),
@@ -551,6 +558,8 @@ export function mapAdminSalesOrderDetail(
     currencyCode: data.currencyCode ? String(data.currencyCode) : 'INR',
     customerId: String(data.customerId ?? ''),
     customerName: data.customerName ? String(data.customerName) : null,
+    salespersonId: data.salespersonId ? String(data.salespersonId) : null,
+    salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
     shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),

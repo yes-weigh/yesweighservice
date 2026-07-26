@@ -141,9 +141,16 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
                   {record.phone ? ` · ${record.phone}` : ''}
                   {record.staffLogisticsSite ? ` · ${staffLogisticsSiteLabel(record.staffLogisticsSite)}` : ''}
                 </p>
-                <span className={`hr-staff-list__status ${record.active === false ? 'is-inactive' : ''}`}>
-                  {record.active === false ? 'Inactive' : 'Active'}
-                </span>
+                <div className="hr-staff-list__card-meta">
+                  <span className={`hr-staff-list__status ${record.active === false ? 'is-inactive' : ''}`}>
+                    {record.active === false ? 'Inactive' : 'Active'}
+                  </span>
+                  {record.zohoSalespersonId ? (
+                    <span className="hr-staff-list__zoho-badge" title={record.zohoSalespersonId}>
+                      Zoho linked
+                    </span>
+                  ) : null}
+                </div>
               </Link>
             );
           })}

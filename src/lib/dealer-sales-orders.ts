@@ -63,6 +63,8 @@ function mapDetail(raw: Record<string, unknown>): AdminSalesOrderDetail {
     currencyCode: list.currencyCode,
     customerId: list.customerId,
     customerName: list.customerName,
+    salespersonId: raw.salespersonId ? String(raw.salespersonId) : null,
+    salespersonName: raw.salespersonName ? String(raw.salespersonName) : null,
     shippingAddress: raw.shippingAddress ? String(raw.shippingAddress) : null,
     salesOrderCategory: list.salesOrderCategory,
     subtotal: Number(raw.subtotal ?? 0),

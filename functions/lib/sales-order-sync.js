@@ -252,6 +252,10 @@ function mapSalesOrder(raw) {
     currencyCode: String(raw.currency_code ?? 'INR'),
     customerId: raw.customer_id != null ? String(raw.customer_id) : '',
     customerName: raw.customer_name ? String(raw.customer_name) : null,
+    salespersonId: raw.salesperson_id != null && String(raw.salesperson_id).trim()
+      ? String(raw.salesperson_id).trim()
+      : null,
+    salespersonName: raw.salesperson_name ? String(raw.salesperson_name).trim() || null : null,
     shippingAddress: formatZohoAddress(raw.shipping_address) ?? null,
     shippingAddressId: raw.shipping_address_id != null
       ? String(raw.shipping_address_id)
@@ -802,6 +806,8 @@ export function mapSalesOrderDoc(id, data) {
     currencyCode: String(data.currencyCode ?? 'INR'),
     customerId: String(data.customerId ?? ''),
     customerName: data.customerName ?? null,
+    salespersonId: data.salespersonId ? String(data.salespersonId) : null,
+    salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
     shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
     subtotal: Number(data.subtotal ?? 0),

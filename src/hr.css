@@ -159,6 +159,14 @@
   background: rgba(148, 163, 184, 0.15);
 }
 
+.hr-staff-list__card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+
 .hr-staff-list__status {
   font-size: 0.7rem;
   color: #34d399;
@@ -166,6 +174,16 @@
 
 .hr-staff-list__status.is-inactive {
   color: #f87171;
+}
+
+.hr-staff-list__zoho-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(245, 130, 32, 0.15);
+  color: #fbbf77;
+  border: 1px solid rgba(245, 130, 32, 0.3);
 }
 
 .hr-staff-list__empty {

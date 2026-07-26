@@ -1,5 +1,6 @@
 import React from 'react';
 import { useOutletContext } from 'react-router-dom';
+import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
 import { RelatedSupportRequests } from '../../components/support/RelatedSupportRequests';
@@ -18,6 +19,11 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
 
   return (
     <>
+      <DocumentKamStrip
+        className="mb-4"
+        salespersonId={invoice.salespersonId}
+        salespersonName={invoice.salespersonName}
+      />
       <section className="invoice-detail-actions panel glass">
         <BookCourierEntryButton entry={entry} size="sm" />
       </section>

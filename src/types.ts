@@ -75,6 +75,9 @@ export interface User {
   /** Links sales staff to KAM record for dealer scoping */
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  /** Zoho Inventory salesperson id — used to show KAM on SO/invoice */
+  zohoSalespersonId?: string | null;
+  zohoSalespersonName?: string | null;
   /** HR staff logistics site */
   staffLogisticsSite?: import('./types/staff-logistics').StaffLogisticsSite | null;
   /** Dealer portal only */
@@ -119,6 +122,8 @@ export interface FirestoreUserDoc {
   staffPermissions?: import('./types/staff-access').StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  zohoSalespersonId?: string | null;
+  zohoSalespersonName?: string | null;
   staffLogisticsSite?: import('./types/staff-logistics').StaffLogisticsSite | null;
   dealerTier?: import('./types/dealer-access').DealerTier;
   dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
