@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Phone, UserRound } from 'lucide-react';
 import { HrStaffPhoto } from '../hr/HrStaffPhoto';
 import {
-  resolveStaffForZohoSalespersonId,
+  resolveStaffForZohoSalesperson,
   type ZohoSalespersonStaff,
 } from '../../lib/zohoSalespersonStaff';
 
@@ -28,11 +28,11 @@ export const DocumentKamStrip: React.FC<Props> = ({
   const id = salespersonId?.trim() || '';
   const zohoName = salespersonName?.trim() || '';
   const [staff, setStaff] = useState<ZohoSalespersonStaff | null>(null);
-  const [resolved, setResolved] = useState(!id);
+  const [resolved, setResolved] = useState(!(id || zohoName));
 
   useEffect(() => {
     let active = true;
-    if (!id) {
+    if (!id && !zohoName) {
       setStaff(null);
       setResolved(true);
       return () => {
@@ -40,7 +40,7 @@ export const DocumentKamStrip: React.FC<Props> = ({
       };
     }
     setResolved(false);
-    void resolveStaffForZohoSalespersonId(id)
+    void resolveStaffForZohoSalesperson(id || null, zohoName || null)
       .then(result => {
         if (!active) return;
         setStaff(result);
@@ -55,7 +55,7 @@ export const DocumentKamStrip: React.FC<Props> = ({
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, zohoName]);
 
   if (!id && !zohoName) return null;
   if (!resolved && !zohoName) return null;
@@ -86,7 +86,7 @@ export const DocumentKamStrip: React.FC<Props> = ({
       )}
       <div className="doc-kam-strip__body">
         <strong className="doc-kam-strip__name">{displayName}</strong>
-        {!staff && zohoName && id ? (
+        {!staff && zohoName ? (
           <span className="doc-kam-strip__hint text-muted">Not linked to staff</span>
         ) : null}
       </div>

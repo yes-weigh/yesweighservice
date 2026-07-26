@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { normalizePhone, isValidPhone } from './loginAuth';
+import { listZohoSalespersonsFromFirestore } from './zohoSalespersons';
 
 export type ZohoSalespersonLink = {
   id: string;
@@ -239,6 +240,82 @@ export function resolveStaffForZohoSalespersonId(
     throw err;
   });
   resolveCache.set(id, pending);
+  return pending;
+}
+
+function normalizeSalespersonName(value: string | null | undefined): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[-_/.,]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function resolveSalespersonIdFromName(
+  salespersonName: string,
+): Promise<string | null> {
+  const target = normalizeSalespersonName(salespersonName);
+  if (!target) return null;
+
+  try {
+    const rows = await listZohoSalespersonsFromFirestore();
+    const exact = rows.find(row => normalizeSalespersonName(row.name) === target);
+    if (exact?.id) return exact.id;
+  } catch {
+    // fall through to staff-link scan
+  }
+
+  // Fallback: match against names saved on staff Zoho links.
+  const staffSnap = await getDocs(
+    query(collection(db, 'users'), where('role', 'in', ['staff', 'super_admin']), limit(100)),
+  );
+  for (const docSnap of staffSnap.docs) {
+    const data = docSnap.data() as Record<string, unknown>;
+    if (data.active === false) continue;
+    const links = normalizeZohoSalespersonLinks({
+      zohoSalespersonLinks: data.zohoSalespersonLinks as ZohoSalespersonLink[] | null | undefined,
+      zohoSalespersonIds: data.zohoSalespersonIds as string[] | null | undefined,
+      zohoSalespersonId: data.zohoSalespersonId as string | null | undefined,
+      zohoSalespersonName: data.zohoSalespersonName as string | null | undefined,
+    });
+    const match = links.find(link => normalizeSalespersonName(link.name) === target);
+    if (match?.id) return match.id;
+  }
+  return null;
+}
+
+/**
+ * Resolve linked staff from Zoho salesperson id and/or name.
+ * CSV-imported invoices/SOs often have name only — name falls back through the
+ * zohoSalespersons cache and staff link names.
+ */
+export async function resolveStaffForZohoSalesperson(
+  zohoSalespersonId?: string | null,
+  zohoSalespersonName?: string | null,
+): Promise<ZohoSalespersonStaff | null> {
+  const id = String(zohoSalespersonId ?? '').trim();
+  if (id) {
+    const byId = await resolveStaffForZohoSalespersonId(id);
+    if (byId) return byId;
+  }
+
+  const name = String(zohoSalespersonName ?? '').trim();
+  if (!name) return null;
+
+  const nameKey = `name:${normalizeSalespersonName(name)}`;
+  const cached = resolveCache.get(nameKey);
+  if (cached) return cached;
+
+  const pending = (async () => {
+    const resolvedId = await resolveSalespersonIdFromName(name);
+    if (!resolvedId) return null;
+    return resolveStaffForZohoSalespersonId(resolvedId);
+  })().catch(err => {
+    resolveCache.delete(nameKey);
+    throw err;
+  });
+
+  resolveCache.set(nameKey, pending);
   return pending;
 }
 

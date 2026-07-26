@@ -1123,10 +1123,11 @@ html::-webkit-scrollbar {
 }
 
 .top-bar__version {
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  color: rgba(148, 163, 184, 0.9);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(248, 250, 252, 0.95);
   line-height: 1;
   white-space: nowrap;
   user-select: all;
