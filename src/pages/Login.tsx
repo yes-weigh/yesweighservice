@@ -14,6 +14,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { Logo } from '../components/Logo';
+import { BRAND_TITLE, FIRM_NAME } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole } from '../types';
 import { parseLoginId } from '../lib/loginAuth';
@@ -89,7 +90,7 @@ export const Login: React.FC = () => {
 
   return (
     <div className="login-hero">
-      <div className="login-hero__inner">
+      <div className="login-hero__tile">
         <header className="login-hero__brand">
           <Logo size="lg" className="login-hero__logo" />
           <h1 className="login-hero__welcome">Welcome to YesOne</h1>
@@ -183,12 +184,12 @@ export const Login: React.FC = () => {
           </form>
         </div>
 
-        <footer className="login-hero__bottom-bar">
+        <div className="login-hero__bottom-bar">
           <span className="login-hero__bottom-title">Dealer</span>
           <Link to="/dealer-login" className="login-hero__bottom-link">
             Activate your account
           </Link>
-        </footer>
+        </div>
 
         <section className="login-hero__help" aria-label="Need help">
           <h3 className="login-hero__help-title">Need help?</h3>
@@ -217,6 +218,16 @@ export const Login: React.FC = () => {
             </a>
           </div>
         </section>
+
+        <footer className="login-hero__trust">
+          <p className="login-hero__trust-safe">
+            <ShieldCheck size={16} strokeWidth={2} aria-hidden />
+            Your data is safe with us
+          </p>
+          <p className="login-hero__trust-copy">
+            © {BRAND_TITLE} · {FIRM_NAME.toUpperCase()}
+          </p>
+        </footer>
       </div>
     </div>
   );

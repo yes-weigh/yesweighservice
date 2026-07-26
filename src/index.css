@@ -112,11 +112,16 @@ html::-webkit-scrollbar {
   color: #fff;
 }
 
-.login-hero__inner {
-  width: min(100%, 480px);
+.login-hero__tile {
+  width: min(100%, 520px);
   display: flex;
   flex-direction: column;
   align-items: center;
+  padding: 1.75rem 1.35rem 1.25rem;
+  background: #101820;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
 }
 
 .login-hero__brand {
@@ -124,7 +129,7 @@ html::-webkit-scrollbar {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  margin-bottom: 1.75rem;
+  margin-bottom: 1.5rem;
 }
 
 .login-hero__logo {
@@ -154,7 +159,7 @@ html::-webkit-scrollbar {
 
 .login-hero__features {
   list-style: none;
-  margin: 0 0 2.25rem;
+  margin: 0 0 1.75rem;
   padding: 0.95rem 0.5rem;
   width: 100%;
   display: flex;
@@ -337,7 +342,7 @@ html::-webkit-scrollbar {
   justify-content: center;
   gap: 0.65rem;
   width: 100%;
-  margin-top: 1.75rem;
+  margin-top: 1.5rem;
   padding: 0.85rem 1rem;
   background: var(--login-panel);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -446,14 +451,47 @@ html::-webkit-scrollbar {
   line-height: 1.2;
 }
 
+.login-hero__trust {
+  width: 100%;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+.login-hero__trust-safe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #c5ceda;
+}
+
+.login-hero__trust-safe svg {
+  color: var(--login-muted);
+  flex-shrink: 0;
+}
+
+.login-hero__trust-copy {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--login-muted);
+  letter-spacing: 0.02em;
+}
+
 @media (max-width: 560px) {
   .login-hero {
-    padding: 1.5rem 1rem 2rem;
+    padding: 1.25rem 0.85rem 1.75rem;
     align-items: flex-start;
   }
 
-  .login-hero__inner {
-    padding-top: 0.5rem;
+  .login-hero__tile {
+    padding: 1.35rem 1rem 1.1rem;
+    border-radius: 16px;
   }
 
   .login-hero__logo .brand-logo {
