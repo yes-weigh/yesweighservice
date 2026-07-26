@@ -306,6 +306,14 @@ service cloud.firestore {
       allow read, create, update, delete: if isSuperAdmin();
     }
 
+    // Public salary month snapshots (unguessable token as doc id).
+    match /hrSalaryShares/{token} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
     match /dealerSettings/{docId} {
       allow read: if isOpsUser();
       allow write: if false;

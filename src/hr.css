@@ -981,6 +981,13 @@
   outline: none;
 }
 
+.hr-salary__rate-value-text {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--sal-text);
+  font-variant-numeric: tabular-nums;
+}
+
 .hr-salary__rate-value-input:focus {
   color: var(--sal-teal);
 }
@@ -1349,7 +1356,11 @@
   cursor: pointer;
 }
 
-.hr-salary__ot-detail-line:hover {
+.hr-salary__ot-detail-line.is-readonly {
+  cursor: default;
+}
+
+.hr-salary__ot-detail-line:hover:not(.is-readonly) {
   background: var(--sal-card-hover);
   margin: 0 -1rem;
   padding: 0.75rem 1rem;
@@ -1934,8 +1945,53 @@
   color: #c7d2fe;
 }
 
-.hr-salary__day:not(:disabled):hover {
+.hr-salary__day:not(:disabled):not(.is-readonly):hover {
   background: var(--sal-card-hover, #222632);
+}
+
+.hr-salary__day.is-readonly {
+  cursor: default;
+}
+
+.hr-salary-public {
+  min-height: 100vh;
+  background: #13151b;
+  color: #f0f2f5;
+  padding: 1.5rem 1rem 2.5rem;
+  box-sizing: border-box;
+}
+
+.hr-salary-public__shell {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.hr-salary__expand--public {
+  max-width: none;
+}
+
+.hr-salary-public__state {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  text-align: center;
+  color: #8b92a5;
+}
+
+.hr-salary-public__state h1 {
+  margin: 0;
+  color: #f0f2f5;
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.hr-salary-public__state p {
+  margin: 0;
+  max-width: 28rem;
 }
 
 .hr-salary__math {

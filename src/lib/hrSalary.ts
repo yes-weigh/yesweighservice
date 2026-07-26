@@ -46,6 +46,8 @@ export type HrSalaryStaffRow = {
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  /** Reused when copying a public share link for this staff+period. */
+  publicShareToken: string | null;
   calc: HrSalaryCalc;
 };
 
@@ -723,6 +725,9 @@ function mapSalaryDoc(id: string, data: Record<string, unknown>): HrSalaryMonthR
     projects: mapProjects(data),
     workDayEntries: mapWorkDayEntries(data),
     overtimeEntries: mapOvertimeEntries(data),
+    publicShareToken: data.publicShareToken != null && String(data.publicShareToken).trim()
+      ? String(data.publicShareToken).trim()
+      : null,
     updatedAt: String(data.updatedAt ?? ''),
     updatedByUid: data.updatedByUid != null ? String(data.updatedByUid) : null,
   };
@@ -824,6 +829,7 @@ export async function buildSalaryCalculationRows(
         projects,
         workDayEntries,
         overtimeEntries,
+        publicShareToken: saved?.publicShareToken ?? null,
         calc: computeSalaryCalc(
           perDaySalary,
           otPerDaySalary,

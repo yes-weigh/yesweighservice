@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Plus, RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { Camera, Link2, Plus, RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { useAuth } from '../../context/AuthContext';
 import { fetchHrHolidays, holidaysInMonth } from '../../lib/hrHolidays';
@@ -24,6 +24,12 @@ import {
   workProjectIdForDate,
   type HrSalaryStaffRow,
 } from '../../lib/hrSalary';
+import {
+  createSalaryShareToken,
+  salarySharePublicUrl,
+  saveSalaryMonthShareToken,
+  upsertSalaryShare,
+} from '../../lib/hrSalaryShares';
 import { isLocalhostDev } from '../../lib/isLocalhost';
 import { canViewHrSalary } from '../../lib/staffAccess';
 import type { HrHoliday } from '../../types/hr-holiday';
@@ -363,6 +369,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const [addingPayroll, setAddingPayroll] = useState(false);
   const [addPayrollError, setAddPayrollError] = useState('');
   const [capturingExpand, setCapturingExpand] = useState(false);
+  const [shareTokens, setShareTokens] = useState<Record<string, string>>({});
+  const [copyingShareUid, setCopyingShareUid] = useState<string | null>(null);
+  const [copiedShareUid, setCopiedShareUid] = useState<string | null>(null);
   const autosaveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const expandCaptureRef = useRef<HTMLDivElement | null>(null);
   const draftsRef = useRef(drafts);
@@ -386,6 +395,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
       setHolidays(holidayList);
       setRows(nextRows);
       setDrafts(Object.fromEntries(nextRows.map(r => [r.staffUid, emptyDraft(r)])));
+      setShareTokens(Object.fromEntries(
+        nextRows
+          .filter(r => r.publicShareToken)
+          .map(r => [r.staffUid, r.publicShareToken as string]),
+      ));
       setSelectedDate(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Could not load salary data.');
@@ -706,6 +720,50 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     updateDraft(uid, {
       overtimeEntries: draft.overtimeEntries.filter(entry => entry.id !== entryId),
     });
+  };
+
+  const copyPublicShareLink = async (row: HrSalaryStaffRow) => {
+    if (!user || copyingShareUid) return;
+    const draft = drafts[row.staffUid] ?? emptyDraft(row);
+    setCopyingShareUid(row.staffUid);
+    try {
+      const token = shareTokens[row.staffUid] || row.publicShareToken || createSalaryShareToken();
+      const monthHs = holidaysInMonth(holidays, period.year, period.month);
+      await upsertSalaryShare(
+        {
+          token,
+          uid: row.staffUid,
+          displayName: row.displayName,
+          period,
+          perDaySalary: Math.max(0, Number.parseFloat(draft.perDaySalary) || 0),
+          otPerDaySalary: Math.max(0, Number.parseFloat(draft.otPerDaySalary) || 0),
+          leaveEntries: draft.leaveEntries,
+          projects: draft.projects,
+          workDayEntries: draft.workDayEntries,
+          overtimeEntries: draft.overtimeEntries,
+          holidays: monthHs.map(h => ({ date: h.date, name: h.name })),
+        },
+        user.uid,
+      );
+      if (!shareTokens[row.staffUid] && !row.publicShareToken) {
+        await saveSalaryMonthShareToken(row.staffUid, period, token);
+      }
+      setShareTokens(prev => ({ ...prev, [row.staffUid]: token }));
+      setRows(prev => prev.map(r => (
+        r.staffUid === row.staffUid ? { ...r, publicShareToken: token } : r
+      )));
+      const url = salarySharePublicUrl(token);
+      await navigator.clipboard.writeText(url);
+      setCopiedShareUid(row.staffUid);
+      window.setTimeout(() => {
+        setCopiedShareUid(prev => (prev === row.staffUid ? null : prev));
+      }, 2000);
+    } catch (err) {
+      console.error(err);
+      window.alert(err instanceof Error ? err.message : 'Could not copy public link.');
+    } finally {
+      setCopyingShareUid(null);
+    }
   };
 
   const captureExpandedView = async (displayName: string) => {
@@ -1141,6 +1199,20 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                   {calc.payableDays} days worked
                                 </p>
                               </div>
+                              <button
+                                type="button"
+                                className="hr-salary__capture-btn"
+                                data-capture-ignore="1"
+                                disabled={copyingShareUid === row.staffUid}
+                                onClick={() => { void copyPublicShareLink(row); }}
+                              >
+                                <Link2 size={15} aria-hidden />
+                                {copyingShareUid === row.staffUid
+                                  ? 'Copying…'
+                                  : copiedShareUid === row.staffUid
+                                    ? 'Link copied'
+                                    : 'Copy public link'}
+                              </button>
                               <button
                                 type="button"
                                 className="hr-salary__capture-btn"

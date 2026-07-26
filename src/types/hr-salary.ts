@@ -65,6 +65,8 @@ export type HrSalaryMonthRecord = {
   workDayEntries: HrWorkDayEntry[];
   /** Timed OT shifts (one or more per day). */
   overtimeEntries: HrOvertimeEntry[];
+  /** Unguessable token for `/s/salary/:token` public share page. */
+  publicShareToken: string | null;
   updatedAt: string;
   updatedByUid: string | null;
 };

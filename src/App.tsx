@@ -59,6 +59,7 @@ import { AuditReportTab } from './pages/admin/settings/AuditReportTab';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
+import { HrSalaryPublicSharePage } from './pages/public/HrSalaryPublicSharePage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { SpareProductMapPage } from './pages/SpareProductMapPage';
 import {
@@ -181,6 +182,7 @@ const App: React.FC = () => (
           <Route path="/dealer-login" element={<DealerLogin />} />
           <Route path="/oc" element={<OpenCatalogPage />} />
           <Route path="/oc/:productId" element={<ProductDetailPage />} />
+          <Route path="/s/salary/:token" element={<HrSalaryPublicSharePage />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/admin/*" element={<Navigate to="/super-admin" replace />} />
           <Route path="/director-staff/*" element={<LegacyPathRedirect from="/director-staff" to="/dealer-staff" />} />
