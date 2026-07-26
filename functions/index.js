@@ -112,7 +112,9 @@ import {
   sendDealerLoginOtp as dispatchDealerLoginOtp,
   verifyDealerLoginOtp as validateDealerLoginOtp,
   completeDealerSignup as finalizeDealerSignup,
+  completeDealerPasswordReset as finalizeDealerPasswordReset,
 } from './lib/dealer-otp.js';
+import { setManagedUserPassword as updateManagedUserPassword } from './lib/set-user-password.js';
 import { prepareSupportAttachmentUpload, uploadSupportAttachment } from './lib/support-attachments.js';
 import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
@@ -2690,7 +2692,7 @@ export const dealerLoginLookup = onCall(
   },
 );
 
-/** Public — send WhatsApp OTP via Wati for first-time dealer portal signup. */
+/** Public — send WhatsApp OTP via Wati for first-time signup or password reset. */
 export const sendDealerLoginOtp = onCall(
   {
     region: 'asia-south1',
@@ -2701,11 +2703,19 @@ export const sendDealerLoginOtp = onCall(
   async request => {
     const phone = parseDealerPhoneInput(request.data?.phone);
     const dealerId = String(request.data?.dealerId ?? '').trim();
+    const purposeRaw = String(request.data?.purpose ?? 'signup').trim().toLowerCase();
+    const purpose = purposeRaw === 'reset' ? 'reset' : 'signup';
     if (!dealerId) {
       throw new HttpsError('invalid-argument', 'Select which dealer account to use.');
     }
     try {
-      return await dispatchDealerLoginOtp(phone, dealerId, watiToken.value(), watiEndpoint.value());
+      return await dispatchDealerLoginOtp(
+        phone,
+        dealerId,
+        watiToken.value(),
+        watiEndpoint.value(),
+        purpose,
+      );
     } catch (err) {
       dealerOtpError(err, 'Could not send OTP.');
     }
@@ -2743,6 +2753,46 @@ export const completeDealerSignup = onCall(
       return await finalizeDealerSignup(phone, setupToken, password);
     } catch (err) {
       dealerOtpError(err, 'Signup failed.');
+    }
+  },
+);
+
+/** Public — set a new password after OTP verification for an existing dealer portal. */
+export const completeDealerPasswordReset = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const phone = parseDealerPhoneInput(request.data?.phone);
+    const setupToken = String(request.data?.setupToken ?? '').trim();
+    const password = String(request.data?.password ?? '');
+    if (!setupToken) {
+      throw new HttpsError('invalid-argument', 'Verification session is missing.');
+    }
+    try {
+      return await finalizeDealerPasswordReset(phone, setupToken, password);
+    } catch (err) {
+      dealerOtpError(err, 'Password reset failed.');
+    }
+  },
+);
+
+/** Super admin — set Auth password for a managed portal user (dealer support). */
+export const setManagedUserPassword = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const targetUid = String(request.data?.uid ?? '').trim();
+    const password = String(request.data?.password ?? '');
+    if (!targetUid) {
+      throw new HttpsError('invalid-argument', 'User id is required.');
+    }
+    if (targetUid === request.auth?.uid) {
+      throw new HttpsError('failed-precondition', 'Use a different flow to change your own password.');
+    }
+    try {
+      return await updateManagedUserPassword(targetUid, password);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update password.');
     }
   },
 );

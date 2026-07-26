@@ -2128,6 +2128,17 @@ html::-webkit-scrollbar {
 
 .login-footer { margin-top: 1.5rem; text-align: center; }
 
+.login-footer .link-button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .dealer-login-back {
   margin-bottom: 1rem;
 }

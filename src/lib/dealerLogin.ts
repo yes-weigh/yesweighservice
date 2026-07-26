@@ -4,6 +4,8 @@ import { normalizePhone, isValidPhone } from './loginAuth';
 
 const functions = getFunctions(app, 'asia-south1');
 
+export type DealerOtpPurpose = 'signup' | 'reset';
+
 export type DealerLookupOption = {
   dealerId: string;
   displayName: string;
@@ -24,16 +26,23 @@ export type DealerLookupResult = {
 
 export type DealerOtpSendResult = {
   sent: boolean;
+  purpose?: DealerOtpPurpose;
   expiresInSeconds: number;
 };
 
 export type DealerOtpVerifyResult = {
   verified: boolean;
+  purpose?: DealerOtpPurpose;
   setupToken: string;
   displayName: string;
 };
 
 export type DealerSignupResult = {
+  uid: string;
+  displayName: string;
+};
+
+export type DealerPasswordResetResult = {
   uid: string;
   displayName: string;
 };
@@ -70,18 +79,19 @@ export async function lookupDealerByPhone(phoneInput: string): Promise<DealerLoo
 export async function sendDealerLoginOtp(
   phoneInput: string,
   dealerId: string,
+  purpose: DealerOtpPurpose = 'signup',
 ): Promise<DealerOtpSendResult> {
   const phone = parsePhone(phoneInput);
   const trimmedDealerId = dealerId.trim();
   if (!trimmedDealerId) {
     throw new Error('Select which dealer account to use.');
   }
-  const fn = httpsCallable<{ phone: string; dealerId: string }, DealerOtpSendResult>(
-    functions,
-    'sendDealerLoginOtp',
-  );
+  const fn = httpsCallable<
+    { phone: string; dealerId: string; purpose: DealerOtpPurpose },
+    DealerOtpSendResult
+  >(functions, 'sendDealerLoginOtp');
   try {
-    const result = await fn({ phone, dealerId: trimmedDealerId });
+    const result = await fn({ phone, dealerId: trimmedDealerId, purpose });
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not send OTP.');
@@ -120,5 +130,23 @@ export async function completeDealerSignup(
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not complete signup.');
+  }
+}
+
+export async function completeDealerPasswordReset(
+  phoneInput: string,
+  setupToken: string,
+  password: string,
+): Promise<DealerPasswordResetResult> {
+  const phone = parsePhone(phoneInput);
+  const fn = httpsCallable<
+    { phone: string; setupToken: string; password: string },
+    DealerPasswordResetResult
+  >(functions, 'completeDealerPasswordReset');
+  try {
+    const result = await fn({ phone, setupToken, password: password.trim() });
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not reset password.');
   }
 }

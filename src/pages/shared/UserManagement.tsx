@@ -9,6 +9,7 @@ import {
   deactivateUser,
   deleteUserPermanently,
   registerUser,
+  setManagedUserPassword,
   updateUserProfile,
 } from '../../lib/userAdmin';
 import type { FirestoreUserDoc, Role, SuperAdminAccess, UserRecord } from '../../types';
@@ -203,6 +204,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           ...accessPayload,
           ...superAccessPayload,
         });
+        const nextPassword = form.password.trim();
+        if (nextPassword) {
+          if (!canSuperAdminWrite(user)) {
+            throw new Error('Only full super admins can reset passwords.');
+          }
+          if (nextPassword.length < 6) {
+            throw new Error('Password must be at least 6 characters.');
+          }
+          await setManagedUserPassword(editingUid, nextPassword);
+        }
       } else {
         if (form.password.length < 6) {
           throw new Error('Password must be at least 6 characters.');
@@ -476,7 +487,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
               <div className="form-group">
                 <label htmlFor="user-password">
-                  {editingUid ? 'Password (set at creation only)' : 'Password'}
+                  {editingUid ? 'Reset password' : 'Password'}
                 </label>
                 {!editingUid ? (
                   <div className="input-icon-wrap">
@@ -497,8 +508,35 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
+                ) : canSuperAdminWrite(user) && editingUid !== user?.uid ? (
+                  <>
+                    <div className="input-icon-wrap">
+                      <input
+                        id="user-password"
+                        type={showPw ? 'text' : 'password'}
+                        className="input-field"
+                        placeholder="Leave blank to keep current password"
+                        value={form.password}
+                        onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                        minLength={6}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className="input-icon-right"
+                        onClick={() => setShowPw(p => !p)}
+                      >
+                        {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                    <p className="text-muted text-sm">
+                      Enter a new password (min 6 characters) and save to reset their login.
+                    </p>
+                  </>
                 ) : (
-                  <p className="text-muted text-sm">Contact admin to reset password.</p>
+                  <p className="text-muted text-sm">
+                    Dealers can reset via WhatsApp on the dealer login page.
+                  </p>
                 )}
               </div>
 

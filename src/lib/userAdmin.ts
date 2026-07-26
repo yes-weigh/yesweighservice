@@ -275,5 +275,29 @@ export async function deleteUserPermanently(uid: string): Promise<void> {
   }
 }
 
+/** Super admin: set a new Auth password for a managed portal user. */
+export async function setManagedUserPassword(uid: string, password: string): Promise<void> {
+  const trimmed = password.trim();
+  if (trimmed.length < 6) {
+    throw new Error('Password must be at least 6 characters.');
+  }
+  const functions = getFunctions(app, 'asia-south1');
+  const callable = httpsCallable<{ uid: string; password: string }, { ok: boolean }>(
+    functions,
+    'setManagedUserPassword',
+  );
+  try {
+    await callable({ uid, password: trimmed });
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'code' in err && 'message' in err) {
+      const fbErr = err as { code: string; message: string };
+      if (fbErr.code.startsWith('functions/') && fbErr.message) {
+        throw new Error(fbErr.message);
+      }
+    }
+    throw new Error(authErrorMessage(err, 'Could not update password'));
+  }
+}
+
 /** @deprecated Use deleteUserPermanently */
 export const deleteDealerPermanently = deleteUserPermanently;

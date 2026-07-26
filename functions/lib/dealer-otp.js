@@ -132,17 +132,7 @@ async function sendWatiOtp(phone10, code, watiToken, watiEndpoint) {
   }
 }
 
-export async function sendDealerLoginOtp(phone10, dealerId, watiToken, watiEndpoint) {
-  const dealer = await findDealerForLogin(phone10, dealerId);
-  if (!dealer) {
-    throw new Error('No dealer found for this phone number.');
-  }
-  if (dealer.portalUserId) {
-    throw new Error('This dealer already has a portal account. Sign in with your phone and password.');
-  }
-
-  const db = getFirestore();
-  const sessionRef = db.collection('dealer_otp_sessions').doc(phone10);
+async function assertOtpResendAllowed(sessionRef) {
   const existing = await sessionRef.get();
   if (existing.exists) {
     const lastSentAt = Number(existing.data()?.lastSentAt ?? 0);
@@ -150,13 +140,40 @@ export async function sendDealerLoginOtp(phone10, dealerId, watiToken, watiEndpo
       throw new Error('Please wait a minute before requesting another OTP.');
     }
   }
+}
+
+/** @param {'signup' | 'reset'} purpose */
+export async function sendDealerLoginOtp(
+  phone10,
+  dealerId,
+  watiToken,
+  watiEndpoint,
+  purpose = 'signup',
+) {
+  const mode = purpose === 'reset' ? 'reset' : 'signup';
+  const dealer = await findDealerForLogin(phone10, dealerId);
+  if (!dealer) {
+    throw new Error('No dealer found for this phone number.');
+  }
+  if (mode === 'signup' && dealer.portalUserId) {
+    throw new Error('This dealer already has a portal account. Sign in with your phone and password.');
+  }
+  if (mode === 'reset' && !dealer.portalUserId) {
+    throw new Error('No portal account for this dealer yet. Activate your account first.');
+  }
+
+  const db = getFirestore();
+  const sessionRef = db.collection('dealer_otp_sessions').doc(phone10);
+  await assertOtpResendAllowed(sessionRef);
 
   const code = String(randomInt(100000, 999999));
   await sendWatiOtp(phone10, code, watiToken, watiEndpoint);
 
   await sessionRef.set({
+    purpose: mode,
     code,
     dealerId: dealer.id,
+    portalUserId: dealer.portalUserId ? String(dealer.portalUserId) : null,
     displayName: dealer.companyName || dealer.contactName || dealer.firstName || 'Dealer',
     expiresAt: Date.now() + OTP_TTL_MS,
     lastSentAt: Date.now(),
@@ -168,6 +185,7 @@ export async function sendDealerLoginOtp(phone10, dealerId, watiToken, watiEndpo
 
   return {
     sent: true,
+    purpose: mode,
     expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
   };
 }
@@ -182,6 +200,7 @@ export async function verifyDealerLoginOtp(phone10, code) {
   }
 
   const session = sessionSnap.data();
+  const purpose = session.purpose === 'reset' ? 'reset' : 'signup';
   if (Date.now() > Number(session.expiresAt ?? 0)) {
     await sessionRef.delete().catch(() => undefined);
     throw new Error('OTP expired. Send a new code.');
@@ -191,16 +210,24 @@ export async function verifyDealerLoginOtp(phone10, code) {
   }
 
   const dealer = await getDealerById(session.dealerId);
-  if (!dealer || dealer.portalUserId) {
-    throw new Error('This dealer account is no longer eligible for OTP signup.');
+  if (!dealer) {
+    throw new Error('Dealer record not found.');
   }
   if (!dealerMatchesPhone(dealer, phone10)) {
     throw new Error('Selected dealer was not found for this phone number.');
+  }
+  if (purpose === 'signup' && dealer.portalUserId) {
+    throw new Error('This dealer account is no longer eligible for OTP signup.');
+  }
+  if (purpose === 'reset' && !dealer.portalUserId) {
+    throw new Error('No portal account for this dealer. Activate your account first.');
   }
 
   const setupToken = randomBytes(32).toString('hex');
   await sessionRef.set({
     verified: true,
+    purpose,
+    portalUserId: dealer.portalUserId ? String(dealer.portalUserId) : null,
     setupToken,
     setupExpiresAt: Date.now() + SETUP_TTL_MS,
     updatedAt: FieldValue.serverTimestamp(),
@@ -208,6 +235,7 @@ export async function verifyDealerLoginOtp(phone10, code) {
 
   return {
     verified: true,
+    purpose,
     setupToken,
     displayName: String(session.displayName ?? dealerDisplayName(dealer)),
   };
@@ -231,6 +259,9 @@ export async function completeDealerSignup(phone10, setupToken, password) {
   }
 
   const session = sessionSnap.data();
+  if (session.purpose === 'reset') {
+    throw new Error('This verification session is for password reset, not signup.');
+  }
   if (!session.verified || session.setupToken !== setupToken) {
     throw new Error('Invalid verification session.');
   }
@@ -300,4 +331,73 @@ export async function completeDealerSignup(phone10, setupToken, password) {
     await auth.deleteUser(userRecord.uid).catch(() => undefined);
     throw err;
   }
+}
+
+/** After OTP reset verification — set a new Auth password for an existing portal dealer. */
+export async function completeDealerPasswordReset(phone10, setupToken, password) {
+  const trimmedPassword = String(password ?? '').trim();
+  if (trimmedPassword.length < 6) {
+    throw new Error('Password must be at least 6 characters.');
+  }
+
+  const db = getFirestore();
+  const sessionRef = db.collection('dealer_otp_sessions').doc(phone10);
+  const sessionSnap = await sessionRef.get();
+  if (!sessionSnap.exists) {
+    throw new Error('Verification session expired. Start again with your phone number.');
+  }
+
+  const session = sessionSnap.data();
+  if (session.purpose !== 'reset') {
+    throw new Error('This verification session is not for password reset.');
+  }
+  if (!session.verified || session.setupToken !== setupToken) {
+    throw new Error('Invalid verification session.');
+  }
+  if (Date.now() > Number(session.setupExpiresAt ?? 0)) {
+    await sessionRef.delete().catch(() => undefined);
+    throw new Error('Verification session expired. Start again with your phone number.');
+  }
+
+  const dealer = await getDealerById(session.dealerId);
+  if (!dealer) {
+    throw new Error('Dealer record not found.');
+  }
+  if (!dealerMatchesPhone(dealer, phone10)) {
+    throw new Error('Selected dealer was not found for this phone number.');
+  }
+  const portalUserId = String(dealer.portalUserId || session.portalUserId || '').trim();
+  if (!portalUserId) {
+    throw new Error('No portal account for this dealer. Activate your account first.');
+  }
+
+  const userRef = db.collection('users').doc(portalUserId);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new Error('Portal user record was not found.');
+  }
+  const userData = userSnap.data() || {};
+  const role = userData.role === 'admin' ? 'super_admin' : userData.role;
+  if (role !== 'dealer' && role !== 'director') {
+    throw new Error('Password reset is only available for dealer portal accounts.');
+  }
+  if (userData.active === false) {
+    throw new Error('This portal account is inactive. Contact YesWeigh support.');
+  }
+
+  const auth = getAuth();
+  await auth.updateUser(portalUserId, { password: trimmedPassword });
+  await userRef.set(
+    {
+      clearTextPassword: trimmedPassword,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true },
+  );
+  await sessionRef.delete().catch(() => undefined);
+
+  return {
+    uid: portalUserId,
+    displayName: String(userData.displayName || session.displayName || dealerDisplayName(dealer)),
+  };
 }

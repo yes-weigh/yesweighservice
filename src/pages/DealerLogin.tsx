@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, KeyRound, Lock, Phone, Send, ShieldCheck } from 'lucide-react';
 import { Logo } from '../components/Logo';
 import { TAGLINE } from '../constants/brand';
@@ -7,12 +7,14 @@ import { useAuth } from '../context/AuthContext';
 import { homePathForRole } from '../types';
 import { isValidPhone, normalizePhone } from '../lib/loginAuth';
 import {
+  completeDealerPasswordReset,
   completeDealerSignup,
   lookupDealerByPhone,
   sendDealerLoginOtp,
   verifyDealerLoginOtp,
   type DealerLookupOption,
   type DealerLookupResult,
+  type DealerOtpPurpose,
 } from '../lib/dealerLogin';
 
 type Step = 'phone' | 'select' | 'otp' | 'password';
@@ -20,7 +22,11 @@ type Step = 'phone' | 'select' | 'otp' | 'password';
 export const DealerLogin: React.FC = () => {
   const { user, loading, login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
+  const [purpose, setPurpose] = useState<DealerOtpPurpose>(
+    searchParams.get('mode') === 'reset' ? 'reset' : 'signup',
+  );
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -42,6 +48,16 @@ export const DealerLogin: React.FC = () => {
   }, [user, loading, navigate]);
 
   const normalizedPhone = normalizePhone(phone);
+  const isReset = purpose === 'reset';
+
+  const resetTransient = () => {
+    setError('');
+    setInfo('');
+    setOtp('');
+    setPassword('');
+    setConfirmPassword('');
+    setSetupToken('');
+  };
 
   const applyDealerSelection = (dealer: DealerLookupOption) => {
     setSelectedDealerId(dealer.dealerId);
@@ -52,6 +68,17 @@ export const DealerLogin: React.FC = () => {
       displayName: dealer.displayName,
       hasPortalAccount: dealer.hasPortalAccount,
     });
+
+    if (isReset) {
+      if (!dealer.hasPortalAccount) {
+        setInfo('This dealer has no portal account yet. Activate the portal first.');
+        setStep('phone');
+        return;
+      }
+      setStep('otp');
+      return;
+    }
+
     if (dealer.hasPortalAccount) {
       setInfo('You already have a portal account. Sign in with your phone number and password.');
       setStep('phone');
@@ -76,22 +103,40 @@ export const DealerLogin: React.FC = () => {
         setError('No dealer account matches this phone number.');
         return;
       }
-      if (result.multiple && result.dealers?.length) {
-        setDealerOptions(result.dealers);
+
+      const options = result.multiple && result.dealers?.length
+        ? result.dealers
+        : result.dealerId
+          ? [{
+              dealerId: result.dealerId,
+              displayName: result.displayName ?? 'Dealer',
+              hasPortalAccount: Boolean(result.hasPortalAccount),
+            }]
+          : [];
+
+      const filtered = isReset
+        ? options.filter(d => d.hasPortalAccount)
+        : options;
+
+      if (isReset && filtered.length === 0) {
+        setError('No active portal account for this phone. Activate your dealer portal first.');
+        return;
+      }
+
+      if (filtered.length > 1) {
+        setDealerOptions(filtered);
         setDealerInfo(null);
         setSelectedDealerId('');
         setStep('select');
         return;
       }
-      if (!result.dealerId) {
+
+      const only = filtered[0];
+      if (!only) {
         setError('Dealer lookup failed. Try again.');
         return;
       }
-      applyDealerSelection({
-        dealerId: result.dealerId,
-        displayName: result.displayName ?? 'Dealer',
-        hasPortalAccount: Boolean(result.hasPortalAccount),
-      });
+      applyDealerSelection(only);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lookup failed.');
     } finally {
@@ -108,7 +153,7 @@ export const DealerLogin: React.FC = () => {
     }
     setSubmitting(true);
     try {
-      await sendDealerLoginOtp(normalizedPhone, selectedDealerId);
+      await sendDealerLoginOtp(normalizedPhone, selectedDealerId, purpose);
       setInfo('OTP sent to your WhatsApp number.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send OTP.');
@@ -131,6 +176,9 @@ export const DealerLogin: React.FC = () => {
       const result = await verifyDealerLoginOtp(normalizedPhone, otp);
       setSetupToken(result.setupToken);
       setDisplayName(result.displayName);
+      if (result.purpose === 'reset' || result.purpose === 'signup') {
+        setPurpose(result.purpose);
+      }
       setStep('password');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'OTP verification failed.');
@@ -153,14 +201,41 @@ export const DealerLogin: React.FC = () => {
 
     setSubmitting(true);
     try {
-      await completeDealerSignup(normalizedPhone, setupToken, password);
+      if (isReset) {
+        await completeDealerPasswordReset(normalizedPhone, setupToken, password);
+      } else {
+        await completeDealerSignup(normalizedPhone, setupToken, password);
+      }
       await login(normalizedPhone, password);
       navigate('/dealer', { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not complete signup.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : (isReset ? 'Could not reset password.' : 'Could not complete signup.'),
+      );
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const startResetMode = () => {
+    setPurpose('reset');
+    setStep('phone');
+    setDealerInfo(null);
+    setDealerOptions([]);
+    setSelectedDealerId('');
+    resetTransient();
+    setInfo('Enter your registered mobile number to reset your password via WhatsApp OTP.');
+  };
+
+  const startSignupMode = () => {
+    setPurpose('signup');
+    setStep('phone');
+    setDealerInfo(null);
+    setDealerOptions([]);
+    setSelectedDealerId('');
+    resetTransient();
   };
 
   if (loading) {
@@ -177,10 +252,14 @@ export const DealerLogin: React.FC = () => {
         <div className="login-header">
           <div className="login-brand">
             <Logo size="lg" />
-            <h2>Dealer Login</h2>
+            <h2>{isReset ? 'Reset password' : 'Dealer Login'}</h2>
             <p className="brand-tagline">{TAGLINE}</p>
           </div>
-          <p>Verify your phone to activate your dealer portal</p>
+          <p>
+            {isReset
+              ? 'Verify your phone on WhatsApp, then choose a new password'
+              : 'Verify your phone to activate your dealer portal'}
+          </p>
         </div>
 
         {step !== 'phone' && (
@@ -193,12 +272,7 @@ export const DealerLogin: React.FC = () => {
               } else {
                 setStep(dealerOptions.length > 1 ? 'select' : 'phone');
               }
-              setError('');
-              setInfo('');
-              setOtp('');
-              setPassword('');
-              setConfirmPassword('');
-              setSetupToken('');
+              resetTransient();
             }}
           >
             <ArrowLeft size={16} /> {step === 'select' ? 'Change phone number' : 'Back'}
@@ -238,7 +312,7 @@ export const DealerLogin: React.FC = () => {
           </form>
         )}
 
-        {step === 'phone' && dealerInfo?.found && dealerInfo.hasPortalAccount && (
+        {step === 'phone' && !isReset && dealerInfo?.found && dealerInfo.hasPortalAccount && (
           <div className="dealer-login-panel">
             <p className="text-sm">
               Welcome back{dealerInfo.displayName ? `, ${dealerInfo.displayName}` : ''}.
@@ -246,6 +320,13 @@ export const DealerLogin: React.FC = () => {
             <Link to="/login" className="btn btn-primary w-full mt-2">
               Go to sign in
             </Link>
+            <button
+              type="button"
+              className="btn btn-secondary w-full mt-2"
+              onClick={startResetMode}
+            >
+              Forgot password?
+            </button>
           </div>
         )}
 
@@ -278,7 +359,11 @@ export const DealerLogin: React.FC = () => {
                           dealer.hasPortalAccount ? ' is-registered' : ''
                         }`}
                       >
-                        {dealer.hasPortalAccount ? 'Portal active' : 'Activate portal'}
+                        {isReset
+                          ? 'Reset password'
+                          : dealer.hasPortalAccount
+                            ? 'Portal active'
+                            : 'Activate portal'}
                       </span>
                     </button>
                   </li>
@@ -288,7 +373,7 @@ export const DealerLogin: React.FC = () => {
           </div>
         )}
 
-        {step === 'otp' && dealerInfo?.found && !dealerInfo.hasPortalAccount && (
+        {step === 'otp' && dealerInfo?.found && (
           <div className="login-form">
             <div className="dealer-login-panel">
               <ShieldCheck size={18} />
@@ -336,7 +421,7 @@ export const DealerLogin: React.FC = () => {
             <div className="dealer-login-panel">
               <Lock size={18} />
               <div>
-                <strong>Set your password</strong>
+                <strong>{isReset ? 'Choose a new password' : 'Set your password'}</strong>
                 <p className="text-muted text-sm">{displayName || dealerInfo?.displayName}</p>
               </div>
             </div>
@@ -369,12 +454,30 @@ export const DealerLogin: React.FC = () => {
             </div>
 
             <button type="submit" className="btn btn-primary w-full mt-2" disabled={submitting}>
-              {submitting ? <span className="spinner-inline" /> : <>Create account & sign in</>}
+              {submitting
+                ? <span className="spinner-inline" />
+                : (isReset ? <>Save password & sign in</> : <>Create account & sign in</>)}
             </button>
           </form>
         )}
 
         <div className="login-footer">
+          {isReset ? (
+            <p className="text-muted text-sm">
+              Remembered it? <Link to="/login">Sign in</Link>
+              {' · '}
+              <button type="button" className="link-button" onClick={startSignupMode}>
+                Activate new portal
+              </button>
+            </p>
+          ) : (
+            <p className="text-muted text-sm">
+              Forgot password?{' '}
+              <button type="button" className="link-button" onClick={startResetMode}>
+                Reset via WhatsApp
+              </button>
+            </p>
+          )}
           <p className="text-muted text-sm">
             Staff or admin? <Link to="/login">Sign in here</Link>
           </p>
