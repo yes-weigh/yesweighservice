@@ -381,8 +381,10 @@ const LayoutShell: React.FC = () => {
       ? 'Product Details'
       : (currentNavItem?.label ?? 'Dashboard');
   const displayTitle = pageHeader.title ?? pageTitle;
+  const isDashboardHome = location.pathname === home;
   const showHeaderBack = Boolean(pageHeader.showBack && pageHeader.onBack);
   const mobileCompactHeader = Boolean(pageHeader.mobileCompactHeader && isMobile);
+  const showTrailing = Boolean(isDashboardHome || topBarAction || showCartFlyTarget);
 
   const handleNavClick = (path: string) => {
     const isCatalogRoot = path.endsWith('/catalog');
@@ -585,13 +587,16 @@ const LayoutShell: React.FC = () => {
               {headerSlot}
             </div>
           )}
+          {showTrailing && (
           <div className="top-bar__trailing">
-            <span
-              className="top-bar__version"
-              title="App version. If a feature looks outdated, clear cache and restart the app."
-            >
-              {getAppVersionLabel()}
-            </span>
+            {isDashboardHome ? (
+              <span
+                className="top-bar__version"
+                title="App version. If a feature looks outdated, clear cache and restart the app."
+              >
+                {getAppVersionLabel()}
+              </span>
+            ) : null}
             {topBarAction ?? (showCartFlyTarget && (
               <button
                 ref={cartBtnRef}
@@ -609,6 +614,7 @@ const LayoutShell: React.FC = () => {
               </button>
             ))}
           </div>
+          )}
           </div>
           {headerSlot && isMobile && !mobileCompactHeader && (
             <div className="top-bar__slot">
