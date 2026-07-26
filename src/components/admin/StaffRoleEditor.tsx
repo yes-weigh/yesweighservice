@@ -19,6 +19,11 @@ import {
   listZohoSalespersons,
   type ZohoSalespersonOption,
 } from '../../lib/zohoSalespersons';
+import {
+  normalizeZohoSalespersonLinks,
+  zohoLinksToFirestoreFields,
+  type ZohoSalespersonLink,
+} from '../../lib/zohoSalespersonStaff';
 
 export interface StaffRoleDraft {
   roleId: string | null;
@@ -27,8 +32,7 @@ export interface StaffRoleDraft {
   permissions: StaffPermission[];
   kamId: string | null;
   teamId: string | null;
-  zohoSalespersonId: string | null;
-  zohoSalespersonName: string | null;
+  zohoSalespersonLinks: ZohoSalespersonLink[];
 }
 
 export const EMPTY_STAFF_ROLE_DRAFT: StaffRoleDraft = {
@@ -38,8 +42,7 @@ export const EMPTY_STAFF_ROLE_DRAFT: StaffRoleDraft = {
   permissions: [],
   kamId: null,
   teamId: null,
-  zohoSalespersonId: null,
-  zohoSalespersonName: null,
+  zohoSalespersonLinks: [],
 };
 
 export function staffRoleDraftFromRecord(
@@ -50,6 +53,8 @@ export function staffRoleDraftFromRecord(
     staffPermissions?: StaffPermission[];
     staffKamId?: string | null;
     staffTeamId?: string | null;
+    zohoSalespersonLinks?: ZohoSalespersonLink[] | null;
+    zohoSalespersonIds?: string[] | null;
     zohoSalespersonId?: string | null;
     zohoSalespersonName?: string | null;
   },
@@ -78,8 +83,7 @@ export function staffRoleDraftFromRecord(
     permissions,
     kamId: input.staffKamId ?? null,
     teamId: input.staffTeamId ?? null,
-    zohoSalespersonId: input.zohoSalespersonId?.trim() || null,
-    zohoSalespersonName: input.zohoSalespersonName?.trim() || null,
+    zohoSalespersonLinks: normalizeZohoSalespersonLinks(input),
   };
 }
 
@@ -90,11 +94,13 @@ export function staffRoleDraftToPayload(draft: StaffRoleDraft): {
   staffPermissions: StaffPermission[];
   staffKamId: string | null;
   staffTeamId: string | null;
+  zohoSalespersonIds: string[];
+  zohoSalespersonLinks: ZohoSalespersonLink[];
   zohoSalespersonId: string | null;
   zohoSalespersonName: string | null;
 } {
   const effective = effectivePermissionSet(draft.accessMode, draft.department, draft.permissions);
-  const zohoId = draft.zohoSalespersonId?.trim() || null;
+  const zohoFields = zohoLinksToFirestoreFields(draft.zohoSalespersonLinks);
   return {
     staffRoleId: draft.accessMode === 'role' ? draft.roleId : draft.roleId,
     staffDepartment: draft.department,
@@ -102,10 +108,7 @@ export function staffRoleDraftToPayload(draft: StaffRoleDraft): {
     staffPermissions: effective,
     staffKamId: draft.department === 'sales' ? draft.kamId : null,
     staffTeamId: draft.teamId?.trim() || null,
-    zohoSalespersonId: zohoId,
-    zohoSalespersonName: zohoId
-      ? (draft.zohoSalespersonName?.trim() || null)
-      : null,
+    ...zohoFields,
   };
 }
 
@@ -167,18 +170,16 @@ export const StaffRolePermissionsPanel: React.FC<StaffRolePermissionsPanelProps>
 };
 
 function ZohoSalespersonPicker({
-  salespersonId,
-  salespersonName,
+  links,
   disabled,
   loadEnabled,
   onChange,
 }: {
-  salespersonId: string | null;
-  salespersonName: string | null;
+  links: ZohoSalespersonLink[];
   disabled?: boolean;
   /** When true (Zoho details open), fetch the Zoho list. */
   loadEnabled?: boolean;
-  onChange: (next: { zohoSalespersonId: string | null; zohoSalespersonName: string | null }) => void;
+  onChange: (next: ZohoSalespersonLink[]) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [options, setOptions] = useState<ZohoSalespersonOption[]>([]);
@@ -189,6 +190,11 @@ function ZohoSalespersonPicker({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+
+  const selectedIds = useMemo(
+    () => new Set(links.map(link => link.id)),
+    [links],
+  );
 
   const loadOptions = async (forceRefresh = false) => {
     setLoading(true);
@@ -206,19 +212,6 @@ function ZohoSalespersonPicker({
       setSyncing(false);
     }
   };
-
-  const selectedLabel = salespersonName?.trim()
-    || (salespersonId
-      ? (options.find(o => o.id === salespersonId)?.name ?? salespersonId)
-      : '');
-
-  useEffect(() => {
-    if (salespersonId) {
-      setQuery(selectedLabel);
-    } else {
-      setQuery('');
-    }
-  }, [salespersonId, selectedLabel]);
 
   useEffect(() => {
     if (!loadEnabled || loaded || loading) return;
@@ -238,31 +231,34 @@ function ZohoSalespersonPicker({
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options.slice(0, 50);
-    return options
+    const available = options.filter(row => !selectedIds.has(row.id));
+    if (!q) return available.slice(0, 50);
+    return available
       .filter(row =>
         row.name.toLowerCase().includes(q)
         || row.id.toLowerCase().includes(q)
         || (row.email?.toLowerCase().includes(q) ?? false),
       )
       .slice(0, 50);
-  }, [options, query]);
+  }, [options, query, selectedIds]);
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [query, open]);
+  }, [query, open, selectedIds]);
 
-  const pick = (row: ZohoSalespersonOption) => {
-    onChange({
-      zohoSalespersonId: row.id,
-      zohoSalespersonName: row.name,
-    });
-    setQuery(row.name);
-    setOpen(false);
+  const add = (row: ZohoSalespersonOption) => {
+    if (selectedIds.has(row.id)) return;
+    onChange([...links, { id: row.id, name: row.name }]);
+    setQuery('');
+    setOpen(true);
   };
 
-  const clear = () => {
-    onChange({ zohoSalespersonId: null, zohoSalespersonName: null });
+  const remove = (id: string) => {
+    onChange(links.filter(link => link.id !== id));
+  };
+
+  const clearAll = () => {
+    onChange([]);
     setQuery('');
     setOpen(false);
   };
@@ -271,8 +267,29 @@ function ZohoSalespersonPicker({
 
   return (
     <div className="staff-role-editor__zoho-picker" ref={rootRef}>
+      {links.length > 0 ? (
+        <ul className="staff-role-editor__zoho-chips" aria-label="Linked Zoho salespersons">
+          {links.map(link => (
+            <li key={link.id} className="staff-role-editor__zoho-chip">
+              <span className="staff-role-editor__zoho-chip-name">
+                {link.name || link.id}
+              </span>
+              <button
+                type="button"
+                className="staff-role-editor__zoho-chip-remove"
+                disabled={disabled}
+                aria-label={`Remove ${link.name || link.id}`}
+                onClick={() => remove(link.id)}
+              >
+                <X size={12} aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <label className="staff-role-editor__field" htmlFor="staff-zoho-salesperson-search">
-        <span>Zoho salesperson</span>
+        <span>{links.length ? 'Add another Zoho salesperson' : 'Zoho salesperson'}</span>
         <div className={`staff-role-editor__zoho-search${showOptions ? ' is-open' : ''}`}>
           <Search size={16} aria-hidden className="staff-role-editor__zoho-search-icon" />
           <input
@@ -284,7 +301,7 @@ function ZohoSalespersonPicker({
                 ? 'Syncing from Zoho…'
                 : loading
                   ? 'Loading salespersons…'
-                  : 'Search Zoho salesperson…'
+                  : 'Search and add…'
             }
             value={query}
             disabled={disabled}
@@ -296,12 +313,8 @@ function ZohoSalespersonPicker({
               if (!disabled) setOpen(true);
             }}
             onChange={e => {
-              const next = e.target.value;
-              setQuery(next);
+              setQuery(e.target.value);
               setOpen(true);
-              if (salespersonId && next !== selectedLabel) {
-                onChange({ zohoSalespersonId: null, zohoSalespersonName: null });
-              }
             }}
             onKeyDown={e => {
               if (!showOptions || matches.length === 0) {
@@ -317,7 +330,7 @@ function ZohoSalespersonPicker({
               } else if (e.key === 'Enter') {
                 e.preventDefault();
                 const row = matches[activeIndex];
-                if (row) pick(row);
+                if (row) add(row);
               } else if (e.key === 'Escape') {
                 setOpen(false);
               }
@@ -325,13 +338,13 @@ function ZohoSalespersonPicker({
           />
           {loading ? (
             <Loader2 size={16} className="spin-icon staff-role-editor__zoho-spinner" aria-hidden />
-          ) : salespersonId ? (
+          ) : links.length > 0 ? (
             <button
               type="button"
               className="staff-role-editor__zoho-clear"
               disabled={disabled}
-              aria-label="Clear Zoho salesperson"
-              onClick={clear}
+              aria-label="Clear all Zoho salespersons"
+              onClick={clearAll}
             >
               <X size={14} aria-hidden />
             </button>
@@ -353,7 +366,9 @@ function ZohoSalespersonPicker({
             </li>
           ) : matches.length === 0 ? (
             <li className="staff-role-editor__zoho-option-empty text-muted text-sm">
-              No salespersons match.
+              {selectedIds.size && !query.trim()
+                ? 'All matching salespersons already linked.'
+                : 'No salespersons match.'}
             </li>
           ) : (
             matches.map((row, index) => (
@@ -363,11 +378,10 @@ function ZohoSalespersonPicker({
                   className={[
                     'staff-role-editor__zoho-option',
                     index === activeIndex ? 'is-active' : '',
-                    row.id === salespersonId ? 'is-selected' : '',
                     !row.active ? 'is-inactive' : '',
                   ].filter(Boolean).join(' ')}
                   onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => pick(row)}
+                  onClick={() => add(row)}
                 >
                   <span className="staff-role-editor__zoho-option-name">{row.name}</span>
                   <span className="staff-role-editor__zoho-option-meta text-muted text-sm">
@@ -381,17 +395,13 @@ function ZohoSalespersonPicker({
       )}
 
       <div className="staff-role-editor__zoho-footer">
-        {salespersonId ? (
-          <p className="staff-role-editor__hint text-muted text-sm">
-            Linked ID: {salespersonId}
-          </p>
-        ) : (
-          <p className="staff-role-editor__hint text-muted text-sm">
-            {options.length
+        <p className="staff-role-editor__hint text-muted text-sm">
+          {links.length
+            ? `${links.length} linked`
+            : options.length
               ? `${options.length} salespersons cached`
               : 'List loads from Firestore cache'}
-          </p>
-        )}
+        </p>
         <button
           type="button"
           className="staff-role-editor__zoho-refresh"
@@ -421,7 +431,7 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
   disabled,
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(value.accessMode === 'custom');
-  const [zohoDetailsOpen, setZohoDetailsOpen] = useState(Boolean(value.zohoSalespersonId));
+  const [zohoDetailsOpen, setZohoDetailsOpen] = useState(value.zohoSalespersonLinks.length > 0);
   const selectedRole = findStaffRole(roles, value.roleId);
 
   const effectivePermissions = useMemo(
@@ -515,14 +525,13 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
       >
         <summary>Zoho salesperson (KAM on SO / invoice)</summary>
         <ZohoSalespersonPicker
-          salespersonId={value.zohoSalespersonId}
-          salespersonName={value.zohoSalespersonName}
+          links={value.zohoSalespersonLinks}
           disabled={disabled}
           loadEnabled={zohoDetailsOpen}
-          onChange={next => onChange({ ...value, ...next })}
+          onChange={zohoSalespersonLinks => onChange({ ...value, zohoSalespersonLinks })}
         />
         <p className="staff-role-editor__hint text-muted text-sm">
-          Search and select a Zoho salesperson so sales orders and invoices show this staff member as KAM.
+          Link one or more Zoho salespersons so their sales orders and invoices show this staff member as KAM.
         </p>
       </details>
 

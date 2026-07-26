@@ -75,8 +75,15 @@ export interface User {
   /** Links sales staff to KAM record for dealer scoping */
   staffKamId?: string | null;
   staffTeamId?: string | null;
-  /** Zoho Inventory salesperson id — used to show KAM on SO/invoice */
+  /**
+   * Zoho Inventory salesperson ids linked to this staff (KAM on SO/invoice).
+   * One staff may map to multiple Zoho salespersons; each Zoho id maps to at most one staff.
+   */
+  zohoSalespersonIds?: string[] | null;
+  zohoSalespersonLinks?: Array<{ id: string; name: string | null }> | null;
+  /** @deprecated Prefer zohoSalespersonIds — kept as first linked id for compatibility */
   zohoSalespersonId?: string | null;
+  /** @deprecated Prefer zohoSalespersonLinks */
   zohoSalespersonName?: string | null;
   /** HR staff logistics site */
   staffLogisticsSite?: import('./types/staff-logistics').StaffLogisticsSite | null;
@@ -122,7 +129,11 @@ export interface FirestoreUserDoc {
   staffPermissions?: import('./types/staff-access').StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  zohoSalespersonIds?: string[] | null;
+  zohoSalespersonLinks?: Array<{ id: string; name: string | null }> | null;
+  /** @deprecated Prefer zohoSalespersonIds */
   zohoSalespersonId?: string | null;
+  /** @deprecated Prefer zohoSalespersonLinks */
   zohoSalespersonName?: string | null;
   staffLogisticsSite?: import('./types/staff-logistics').StaffLogisticsSite | null;
   dealerTier?: import('./types/dealer-access').DealerTier;

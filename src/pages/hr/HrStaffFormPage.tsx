@@ -26,7 +26,7 @@ import { registerUser, updateUserProfile } from '../../lib/userAdmin';
 import { loadDefaultStaffLogisticsSite } from '../../lib/logisticsSettings';
 import { parseLoginId } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
-import { assertZohoSalespersonIdAvailable } from '../../lib/zohoSalespersonStaff';
+import { assertZohoSalespersonIdsAvailable } from '../../lib/zohoSalespersonStaff';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
 import { HrDocumentUpload } from '../../components/hr/HrDocumentUpload';
@@ -160,7 +160,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
     try {
       if (!roleDraft.roleId) throw new Error('Select a staff role.');
       const accessPayload = staffRoleDraftToPayload(roleDraft);
-      await assertZohoSalespersonIdAvailable(accessPayload.zohoSalespersonId, uid);
+      await assertZohoSalespersonIdsAvailable(accessPayload.zohoSalespersonIds, uid);
       let targetUid = uid;
 
       if (isEdit && targetUid) {

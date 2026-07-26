@@ -57,6 +57,8 @@ export type UpdateUserProfilePatch = Partial<
     | 'staffPermissions'
     | 'staffKamId'
     | 'staffTeamId'
+    | 'zohoSalespersonIds'
+    | 'zohoSalespersonLinks'
     | 'zohoSalespersonId'
     | 'zohoSalespersonName'
     | 'staffLogisticsSite'
@@ -112,6 +114,8 @@ export type CreateUserInput = {
   staffPermissions?: StaffPermission[];
   staffKamId?: string | null;
   staffTeamId?: string | null;
+  zohoSalespersonIds?: string[] | null;
+  zohoSalespersonLinks?: Array<{ id: string; name: string | null }> | null;
   zohoSalespersonId?: string | null;
   zohoSalespersonName?: string | null;
   staffLogisticsSite?: import('../types/staff-logistics').StaffLogisticsSite | null;
@@ -156,6 +160,8 @@ export async function createUserProfile(
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
     staffKamId: input.role === 'staff' ? input.staffKamId ?? null : undefined,
     staffTeamId: input.role === 'staff' ? input.staffTeamId ?? null : undefined,
+    zohoSalespersonIds: input.role === 'staff' ? input.zohoSalespersonIds ?? [] : undefined,
+    zohoSalespersonLinks: input.role === 'staff' ? input.zohoSalespersonLinks ?? [] : undefined,
     zohoSalespersonId: input.role === 'staff' ? input.zohoSalespersonId ?? null : undefined,
     zohoSalespersonName: input.role === 'staff' ? input.zohoSalespersonName ?? null : undefined,
     staffLogisticsSite: input.role === 'staff' ? input.staffLogisticsSite ?? null : undefined,
@@ -247,6 +253,10 @@ export async function promoteStaffToSuperAdmin(
     staffKamId: deleteField(),
     staffTeamId: deleteField(),
     staffLogisticsSite: deleteField(),
+    zohoSalespersonIds: deleteField(),
+    zohoSalespersonLinks: deleteField(),
+    zohoSalespersonId: deleteField(),
+    zohoSalespersonName: deleteField(),
     updatedAt: new Date().toISOString(),
   });
 }

@@ -145,9 +145,19 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
                   <span className={`hr-staff-list__status ${record.active === false ? 'is-inactive' : ''}`}>
                     {record.active === false ? 'Inactive' : 'Active'}
                   </span>
-                  {record.zohoSalespersonId ? (
-                    <span className="hr-staff-list__zoho-badge" title={record.zohoSalespersonId}>
+                  {(record.zohoSalespersonIds?.length || record.zohoSalespersonId) ? (
+                    <span
+                      className="hr-staff-list__zoho-badge"
+                      title={
+                        (record.zohoSalespersonIds?.length
+                          ? record.zohoSalespersonIds.join(', ')
+                          : record.zohoSalespersonId) || undefined
+                      }
+                    >
                       Zoho linked
+                      {record.zohoSalespersonIds && record.zohoSalespersonIds.length > 1
+                        ? ` · ${record.zohoSalespersonIds.length}`
+                        : ''}
                     </span>
                   ) : null}
                 </div>

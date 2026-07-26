@@ -38,6 +38,7 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 import { Logo } from './Logo';
+import { getAppVersionLabel } from '../lib/appVersion';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
 
 type NavItem = {
@@ -591,22 +592,30 @@ const LayoutShell: React.FC = () => {
               {headerSlot}
             </div>
           )}
-          {topBarAction ?? (showCartFlyTarget && (
-            <button
-              ref={cartBtnRef}
-              id="cart-fly-target"
-              type="button"
-              className={`cart-header-btn ${cartBump ? 'cart-header-btn--bump' : ''} ${itemCount > 0 ? 'cart-header-btn--has-items' : ''}`}
-              onClick={() => handleNavClick(`${home}/orders`)}
-              aria-label={itemCount > 0 ? `View cart, ${itemCount} items` : 'View cart'}
-              title="View cart"
+          <div className="top-bar__trailing">
+            <span
+              className="top-bar__version"
+              title="App version. If a feature looks outdated, clear cache and restart the app."
             >
-              <ShoppingCart size={22} />
-              {itemCount > 0 && (
-                <span className="cart-header-btn__badge">{itemCount > 99 ? '99+' : itemCount}</span>
-              )}
-            </button>
-          ))}
+              {getAppVersionLabel()}
+            </span>
+            {topBarAction ?? (showCartFlyTarget && (
+              <button
+                ref={cartBtnRef}
+                id="cart-fly-target"
+                type="button"
+                className={`cart-header-btn ${cartBump ? 'cart-header-btn--bump' : ''} ${itemCount > 0 ? 'cart-header-btn--has-items' : ''}`}
+                onClick={() => handleNavClick(`${home}/orders`)}
+                aria-label={itemCount > 0 ? `View cart, ${itemCount} items` : 'View cart'}
+                title="View cart"
+              >
+                <ShoppingCart size={22} />
+                {itemCount > 0 && (
+                  <span className="cart-header-btn__badge">{itemCount > 99 ? '99+' : itemCount}</span>
+                )}
+              </button>
+            ))}
+          </div>
           </div>
           {headerSlot && isMobile && !mobileCompactHeader && (
             <div className="top-bar__slot">

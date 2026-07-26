@@ -8,6 +8,11 @@ import {
 import { db } from '../firebase';
 import { normalizePhone, isValidPhone } from './loginAuth';
 
+export type ZohoSalespersonLink = {
+  id: string;
+  name: string | null;
+};
+
 export type ZohoSalespersonStaff = {
   uid: string;
   displayName: string;
@@ -18,6 +23,7 @@ export type ZohoSalespersonStaff = {
   whatsappHref: string | null;
   zohoSalespersonId: string;
   zohoSalespersonName: string | null;
+  zohoSalespersonIds: string[];
 };
 
 const resolveCache = new Map<string, Promise<ZohoSalespersonStaff | null>>();
@@ -38,6 +44,68 @@ function phoneHrefs(phoneRaw: string | null | undefined): {
   };
 }
 
+/** Normalize legacy single-id fields + arrays into a unique link list. */
+export function normalizeZohoSalespersonLinks(input: {
+  zohoSalespersonLinks?: ZohoSalespersonLink[] | null;
+  zohoSalespersonIds?: string[] | null;
+  zohoSalespersonId?: string | null;
+  zohoSalespersonName?: string | null;
+}): ZohoSalespersonLink[] {
+  const byId = new Map<string, string | null>();
+
+  const push = (idRaw: unknown, nameRaw?: unknown) => {
+    const id = String(idRaw ?? '').trim();
+    if (!id || byId.has(id)) {
+      if (id && nameRaw != null && String(nameRaw).trim() && !byId.get(id)) {
+        byId.set(id, String(nameRaw).trim());
+      }
+      return;
+    }
+    const name = nameRaw != null && String(nameRaw).trim() ? String(nameRaw).trim() : null;
+    byId.set(id, name);
+  };
+
+  if (Array.isArray(input.zohoSalespersonLinks)) {
+    for (const link of input.zohoSalespersonLinks) {
+      if (!link) continue;
+      push(link.id, link.name);
+    }
+  }
+  if (Array.isArray(input.zohoSalespersonIds)) {
+    for (const id of input.zohoSalespersonIds) push(id);
+  }
+  if (input.zohoSalespersonId) {
+    push(input.zohoSalespersonId, input.zohoSalespersonName);
+  }
+
+  return [...byId.entries()].map(([id, name]) => ({ id, name }));
+}
+
+/** Firestore write shape — keeps legacy single fields as the first link. */
+export function zohoLinksToFirestoreFields(links: ZohoSalespersonLink[]): {
+  zohoSalespersonIds: string[];
+  zohoSalespersonLinks: ZohoSalespersonLink[];
+  zohoSalespersonId: string | null;
+  zohoSalespersonName: string | null;
+} {
+  const normalized = normalizeZohoSalespersonLinks({ zohoSalespersonLinks: links });
+  const first = normalized[0] ?? null;
+  return {
+    zohoSalespersonIds: normalized.map(link => link.id),
+    zohoSalespersonLinks: normalized,
+    zohoSalespersonId: first?.id ?? null,
+    zohoSalespersonName: first?.name ?? null,
+  };
+}
+
+export function staffHasZohoSalespersonLink(input: {
+  zohoSalespersonLinks?: ZohoSalespersonLink[] | null;
+  zohoSalespersonIds?: string[] | null;
+  zohoSalespersonId?: string | null;
+}): boolean {
+  return normalizeZohoSalespersonLinks(input).length > 0;
+}
+
 /** Returns another staff uid already linked to this Zoho salesperson id, if any. */
 export async function findStaffUidByZohoSalespersonId(
   zohoSalespersonId: string,
@@ -45,18 +113,33 @@ export async function findStaffUidByZohoSalespersonId(
 ): Promise<string | null> {
   const id = zohoSalespersonId.trim();
   if (!id) return null;
-  const snap = await getDocs(
+
+  const roleOk = (role: string) => role === 'staff' || role === 'super_admin';
+
+  const arraySnap = await getDocs(
+    query(
+      collection(db, 'users'),
+      where('zohoSalespersonIds', 'array-contains', id),
+      limit(5),
+    ),
+  );
+  for (const docSnap of arraySnap.docs) {
+    if (excludeUid && docSnap.id === excludeUid) continue;
+    if (roleOk(String(docSnap.data()?.role ?? ''))) return docSnap.id;
+  }
+
+  const legacySnap = await getDocs(
     query(
       collection(db, 'users'),
       where('zohoSalespersonId', '==', id),
       limit(5),
     ),
   );
-  for (const docSnap of snap.docs) {
+  for (const docSnap of legacySnap.docs) {
     if (excludeUid && docSnap.id === excludeUid) continue;
-    const role = String(docSnap.data()?.role ?? '');
-    if (role === 'staff' || role === 'super_admin') return docSnap.id;
+    if (roleOk(String(docSnap.data()?.role ?? ''))) return docSnap.id;
   }
+
   return null;
 }
 
@@ -72,39 +155,75 @@ export async function assertZohoSalespersonIdAvailable(
   }
 }
 
+export async function assertZohoSalespersonIdsAvailable(
+  zohoSalespersonIds: Array<string | null | undefined> | null | undefined,
+  excludeUid?: string | null,
+): Promise<void> {
+  const ids = [...new Set(
+    (zohoSalespersonIds ?? [])
+      .map(id => String(id ?? '').trim())
+      .filter(Boolean),
+  )];
+  for (const id of ids) {
+    await assertZohoSalespersonIdAvailable(id, excludeUid);
+  }
+}
+
 async function queryStaffByZohoSalespersonId(
   zohoSalespersonId: string,
 ): Promise<ZohoSalespersonStaff | null> {
   const id = zohoSalespersonId.trim();
   if (!id) return null;
-  const snap = await getDocs(
+
+  const trySnap = async (snap: Awaited<ReturnType<typeof getDocs>>) => {
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data();
+      if (data.active === false) continue;
+      const role = String(data.role ?? '');
+      if (role !== 'staff' && role !== 'super_admin') continue;
+      const links = normalizeZohoSalespersonLinks({
+        zohoSalespersonLinks: data.zohoSalespersonLinks,
+        zohoSalespersonIds: data.zohoSalespersonIds,
+        zohoSalespersonId: data.zohoSalespersonId,
+        zohoSalespersonName: data.zohoSalespersonName,
+      });
+      const match = links.find(link => link.id === id);
+      const phoneInfo = phoneHrefs(data.phone != null ? String(data.phone) : null);
+      return {
+        uid: docSnap.id,
+        displayName: String(data.displayName ?? 'Staff').trim() || 'Staff',
+        hrPhotoUrl: data.hrPhotoUrl ? String(data.hrPhotoUrl) : null,
+        hrPhotoStoragePath: data.hrPhotoStoragePath ? String(data.hrPhotoStoragePath) : null,
+        phone: phoneInfo.phone,
+        telHref: phoneInfo.telHref,
+        whatsappHref: phoneInfo.whatsappHref,
+        zohoSalespersonId: id,
+        zohoSalespersonName: match?.name
+          ?? (data.zohoSalespersonName ? String(data.zohoSalespersonName) : null),
+        zohoSalespersonIds: links.map(link => link.id),
+      } satisfies ZohoSalespersonStaff;
+    }
+    return null;
+  };
+
+  const arraySnap = await getDocs(
+    query(
+      collection(db, 'users'),
+      where('zohoSalespersonIds', 'array-contains', id),
+      limit(5),
+    ),
+  );
+  const fromArray = await trySnap(arraySnap);
+  if (fromArray) return fromArray;
+
+  const legacySnap = await getDocs(
     query(
       collection(db, 'users'),
       where('zohoSalespersonId', '==', id),
       limit(5),
     ),
   );
-  for (const docSnap of snap.docs) {
-    const data = docSnap.data();
-    if (data.active === false) continue;
-    const role = String(data.role ?? '');
-    if (role !== 'staff' && role !== 'super_admin') continue;
-    const phoneInfo = phoneHrefs(data.phone != null ? String(data.phone) : null);
-    return {
-      uid: docSnap.id,
-      displayName: String(data.displayName ?? 'Staff').trim() || 'Staff',
-      hrPhotoUrl: data.hrPhotoUrl ? String(data.hrPhotoUrl) : null,
-      hrPhotoStoragePath: data.hrPhotoStoragePath ? String(data.hrPhotoStoragePath) : null,
-      phone: phoneInfo.phone,
-      telHref: phoneInfo.telHref,
-      whatsappHref: phoneInfo.whatsappHref,
-      zohoSalespersonId: id,
-      zohoSalespersonName: data.zohoSalespersonName
-        ? String(data.zohoSalespersonName)
-        : null,
-    };
-  }
-  return null;
+  return trySnap(legacySnap);
 }
 
 /** Resolve Zoho salesperson id → linked staff (cached per page session). */
