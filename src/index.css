@@ -331,6 +331,45 @@ html::-webkit-scrollbar {
   border-top-color: #0b1219;
 }
 
+.login-hero__bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  width: 100%;
+  margin-top: 1.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--login-panel);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+}
+
+.login-hero__bottom-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--login-orange);
+  letter-spacing: 0.02em;
+}
+
+.login-hero__bottom-title::after {
+  content: '·';
+  margin-left: 0.65rem;
+  color: rgba(255, 255, 255, 0.25);
+  font-weight: 400;
+}
+
+.login-hero__bottom-link {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: #e8edf4;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.login-hero__bottom-link:hover {
+  color: #fff;
+}
+
 @media (max-width: 560px) {
   .login-hero {
     padding: 1.5rem 1rem 2rem;

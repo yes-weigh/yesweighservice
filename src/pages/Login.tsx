@@ -160,6 +160,13 @@ export const Login: React.FC = () => {
             </button>
           </form>
         </div>
+
+        <footer className="login-hero__bottom-bar">
+          <span className="login-hero__bottom-title">Dealer</span>
+          <Link to="/dealer-login" className="login-hero__bottom-link">
+            Activate your account
+          </Link>
+        </footer>
       </div>
     </div>
   );
