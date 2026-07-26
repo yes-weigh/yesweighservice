@@ -111,8 +111,6 @@ export type AdminInvoiceListQuery = {
   dateEnd?: string | null;
 };
 
-/** Soft ceiling so a bad range cannot download unbounded docs in one go. */
-export const ADMIN_INVOICES_MAX_FETCH = 15_000;
 const ADMIN_INVOICES_PAGE_SIZE = 300;
 
 export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery) {
@@ -198,23 +196,18 @@ export async function fetchAllAdminInvoicesInRange(options: {
   category?: InvoiceCategory | 'all';
   dateStart?: string | null;
   dateEnd?: string | null;
-  maxRows?: number;
 }): Promise<{ rows: AdminFirestoreInvoice[]; truncated: boolean }> {
   const sort = options.sort ?? 'date';
   const category = options.category ?? 'all';
-  const maxRows = Math.min(
-    Math.max(Number(options.maxRows ?? ADMIN_INVOICES_MAX_FETCH) || ADMIN_INVOICES_MAX_FETCH, 1),
-    ADMIN_INVOICES_MAX_FETCH,
-  );
   const rows: AdminFirestoreInvoice[] = [];
   let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
-  let truncated = false;
 
-  while (rows.length < maxRows) {
-    const pageSize = Math.min(ADMIN_INVOICES_PAGE_SIZE, maxRows - rows.length);
+  // Page until Firestore is exhausted — no soft row cap.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
     const pageQuery = buildAdminInvoicesQuery({
       sort,
-      pageSize,
+      pageSize: ADMIN_INVOICES_PAGE_SIZE,
       cursor,
       category,
       dateStart: options.dateStart,
@@ -224,18 +217,14 @@ export async function fetchAllAdminInvoicesInRange(options: {
     if (pageSnap.empty) break;
     rows.push(...pageSnap.docs.map(mapAdminInvoiceDoc));
     cursor = pageSnap.docs[pageSnap.docs.length - 1] ?? null;
-    if (pageSnap.size < pageSize) break;
-    if (rows.length >= maxRows) {
-      truncated = true;
-      break;
-    }
+    if (pageSnap.size < ADMIN_INVOICES_PAGE_SIZE) break;
   }
 
   if (sort === 'syncedAt' && (options.dateStart || options.dateEnd)) {
     rows.sort((a, b) => String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? '')));
   }
 
-  return { rows, truncated };
+  return { rows, truncated: false };
 }
 
 export function filterAdminInvoices(
@@ -519,7 +508,6 @@ export async function fetchAdminInvoicesForCustomers(options: {
   dateEnd?: string | null;
   category?: InvoiceCategory | 'all';
   sort?: AdminInvoiceSort;
-  maxPerCustomer?: number;
 }): Promise<AdminFirestoreInvoice[]> {
   const ids = [...new Set(
     options.customerIds.map(id => String(id ?? '').trim()).filter(Boolean),
@@ -529,18 +517,14 @@ export async function fetchAdminInvoicesForCustomers(options: {
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const sort = options.sort ?? 'date';
-  // Default high enough for FY dealer totals; still soft-capped.
-  const maxPerCustomer = Math.min(
-    Math.max(Number(options.maxPerCustomer ?? 5_000) || 5_000, 1),
-    10_000,
-  );
   const pageSize = 100;
 
   const perCustomer = await Promise.all(ids.map(async customerId => {
     const rows: AdminFirestoreInvoice[] = [];
     let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
 
-    while (rows.length < maxPerCustomer) {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
       const constraints: QueryConstraint[] = [];
       if (dateStart) constraints.push(where('date', '>=', dateStart));
       if (dateEnd) constraints.push(where('date', '<=', dateEnd));
@@ -550,7 +534,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
         constraints.push(orderBy('syncedAt', 'desc'));
       }
       if (cursor) constraints.push(startAfter(cursor));
-      constraints.push(limit(Math.min(pageSize, maxPerCustomer - rows.length)));
+      constraints.push(limit(pageSize));
 
       const snap = await getDocs(
         query(collection(db, 'zohoCustomers', customerId, 'invoices'), ...constraints),

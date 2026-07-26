@@ -287,7 +287,6 @@ export const AdminInvoicesPage: React.FC = () => {
   const [rows, setRows] = useState<AdminFirestoreInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [truncated, setTruncated] = useState(false);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<AdminInvoiceSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
@@ -369,7 +368,6 @@ export const AdminInvoicesPage: React.FC = () => {
     let cancelled = false;
     setLoading(true);
     setError('');
-    setTruncated(false);
     setRows([]);
     void fetchAllAdminInvoicesInRange({
       sort,
@@ -377,10 +375,9 @@ export const AdminInvoicesPage: React.FC = () => {
       dateStart,
       dateEnd,
     })
-      .then(({ rows: next, truncated: wasTruncated }) => {
+      .then(({ rows: next }) => {
         if (cancelled) return;
         setRows(next);
-        setTruncated(wasTruncated);
       })
       .catch(err => {
         if (!cancelled) {
@@ -402,7 +399,6 @@ export const AdminInvoicesPage: React.FC = () => {
     let cancelled = false;
     setLoading(true);
     setError('');
-    setTruncated(false);
     void fetchAdminInvoicesForCustomers({
       customerIds: selectedCustomerIds,
       dateStart,
@@ -679,16 +675,6 @@ export const AdminInvoicesPage: React.FC = () => {
         <div className="products-inline-error panel glass admin-invoices-error" role="alert">
           <AlertCircle size={18} />
           <span>{error}</span>
-        </div>
-      )}
-
-      {truncated && !error && (
-        <div className="products-inline-error panel glass admin-invoices-error" role="status">
-          <AlertCircle size={18} />
-          <span>
-            Loaded the first {rows.length.toLocaleString('en-IN')} invoices for this period.
-            Narrow the date range if totals still look incomplete.
-          </span>
         </div>
       )}
 
