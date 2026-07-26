@@ -17,6 +17,7 @@ import {
   parseInvoiceCategory,
   sumNonFreightQuantity,
 } from './invoice-category.js';
+import { extractWebhookEvent } from './invoice-sync.js';
 
 const COLLECTION = 'purchaseOrders';
 const META_DOC = 'purchaseOrderMeta/orgSync';
@@ -780,5 +781,85 @@ export function mapPurchaseOrderDoc(id, data) {
       ?? (typeof data.syncedAt === 'string' ? data.syncedAt : null),
     searchBlob: data.searchBlob ?? '',
     pdfStoragePath: data.pdfStoragePath ?? null,
+  };
+}
+
+function normalizeWebhookBody(body) {
+  if (!body || typeof body !== 'object') return {};
+  let next = { ...body };
+  if (typeof body.JSONString === 'string' && body.JSONString.trim()) {
+    try {
+      const parsed = JSON.parse(body.JSONString);
+      if (parsed && typeof parsed === 'object') next = { ...next, ...parsed };
+    } catch {
+      // ignore malformed Zoho JSONString
+    }
+  }
+  return next;
+}
+
+export function extractPurchaseOrderIdFromWebhook(body, query = {}) {
+  const normalized = normalizeWebhookBody(body);
+  const candidates = [
+    query.purchaseorder_id,
+    query.purchaseOrderId,
+    query.purchase_order_id,
+    query.id,
+    normalized.purchaseorder_id,
+    normalized.purchaseOrderId,
+    normalized.purchase_order_id,
+    normalized.purchaseorder?.purchaseorder_id,
+    normalized.purchaseorder?.purchaseorderId,
+    normalized.purchase_order?.purchaseorder_id,
+    normalized.data?.purchaseorder_id,
+    normalized.payload?.purchaseorder_id,
+  ];
+  for (const value of candidates) {
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return null;
+}
+
+export async function deletePurchaseOrderFromFirestore(purchaseOrderId) {
+  const id = String(purchaseOrderId ?? '').trim();
+  if (!id) return;
+  await poCollection().doc(id).delete().catch(() => {});
+}
+
+/** Pull one PO from Zoho into Firestore (webhook / single refresh). */
+export async function mirrorPurchaseOrderFromZoho(secrets, orgId, purchaseOrderId) {
+  const id = String(purchaseOrderId ?? '').trim();
+  if (!id) throw new Error('purchaseOrderId is required.');
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const raw = await fetchPurchaseOrderRaw(accessToken, organizationId, id);
+  if (!raw) throw new Error('Purchase order not found in Zoho.');
+  return upsertPurchaseOrderFromRaw(raw);
+}
+
+/**
+ * Zoho Purchase Order webhook — create/edit/delete mirror in Firestore.
+ */
+export async function handleZohoPurchaseOrderWebhook(secrets, orgId, req) {
+  const body = normalizeWebhookBody(req.body ?? {});
+  const purchaseOrderId = extractPurchaseOrderIdFromWebhook(body, req.query ?? {});
+  if (!purchaseOrderId) {
+    return { ok: false, status: 400, message: 'Missing purchaseorder_id' };
+  }
+
+  const queryAction = String(req.query?.action ?? '').trim().toLowerCase();
+  const event = queryAction || extractWebhookEvent(body);
+  if (event.includes('delete')) {
+    await deletePurchaseOrderFromFirestore(purchaseOrderId);
+    return { ok: true, status: 200, action: 'deleted', purchaseOrderId };
+  }
+
+  const result = await mirrorPurchaseOrderFromZoho(secrets, orgId, purchaseOrderId);
+  return {
+    ok: true,
+    status: 200,
+    action: 'synced',
+    purchaseOrderId,
+    result,
   };
 }

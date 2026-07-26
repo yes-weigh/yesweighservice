@@ -88,6 +88,7 @@ import {
   syncOrgPurchaseOrdersToFirestore,
   reclassifyPurchaseOrderCategoriesFromCatalog,
   ensurePurchaseOrderPdf,
+  handleZohoPurchaseOrderWebhook,
 } from './lib/purchase-order-sync.js';
 import {
   syncOrgSalesOrdersToFirestore,
@@ -1786,6 +1787,44 @@ export const zohoSalesOrderWebhook = onRequest(
       res.status(result.status).json(result);
     } catch (err) {
       console.error('Zoho sales order webhook failed:', err);
+      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+    }
+  },
+);
+
+/** Zoho Purchase Order webhook — create/edit/delete mirror in Firestore. */
+export const zohoPurchaseOrderWebhook = onRequest(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+
+    const secret = zohoWebhookSecret.value()?.trim();
+    if (secret && !verifyZohoWebhookSignature(req, secret)) {
+      console.warn('Zoho purchase order webhook rejected: invalid signature.');
+      res.status(401).send('Invalid signature');
+      return;
+    }
+    if (!secret) {
+      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
+    }
+
+    try {
+      const result = await handleZohoPurchaseOrderWebhook(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        req,
+      );
+      res.status(result.status).json(result);
+    } catch (err) {
+      console.error('Zoho purchase order webhook failed:', err);
       res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
     }
   },
