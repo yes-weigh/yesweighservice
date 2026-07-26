@@ -120,9 +120,6 @@ export const Login: React.FC = () => {
             Forgot dealer password?{' '}
             <Link to="/dealer-login?mode=reset">Reset via WhatsApp OTP</Link>
           </p>
-          <p className="text-muted text-sm">
-            Warehouse? <Link to="/warehouse-login">YesStore warehouse login</Link>
-          </p>
           <p className="text-muted text-sm">© {BRAND_TITLE} · service.yesweigh.in</p>
         </div>
       </div>
