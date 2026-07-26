@@ -29,6 +29,7 @@ import {
   appendSalespersonIdConstraint,
   filterRowsBySalespersonScope,
 } from './salespersonScope';
+import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
@@ -706,5 +707,20 @@ export async function fetchAdminInvoiceDetail(
   if (!snap.exists()) {
     throw new Error('Invoice not found.');
   }
-  return enrichInvoiceDetailImages(mapAdminInvoiceDetail(invoiceId, snap.data()));
+  const data = snap.data();
+  const detail = mapAdminInvoiceDetail(invoiceId, data);
+  const preferredAddress = String(
+    data.shippingAddress || data.billingAddress || '',
+  ).trim() || null;
+  const [withImages, contact] = await Promise.all([
+    enrichInvoiceDetailImages(detail),
+    resolveZohoCustomerDisplayContact(customerId, preferredAddress),
+  ]);
+  return {
+    ...withImages,
+    shippingAddress: contact.address,
+    customerPhone: contact.phone,
+    customerTelHref: contact.telHref,
+    customerWhatsappHref: contact.whatsappHref,
+  };
 }

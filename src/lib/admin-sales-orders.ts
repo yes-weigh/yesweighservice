@@ -27,6 +27,7 @@ import {
   appendSalespersonIdConstraint,
   filterRowsBySalespersonScope,
 } from './salespersonScope';
+import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
 import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
@@ -109,9 +110,13 @@ export interface AdminSalesOrderDetail {
   customerName: string | null;
   salespersonId?: string | null;
   salespersonName?: string | null;
-  /** Formatted shipping address from the SO or customer record. */
+  /** Formatted shipping (or billing fallback) address from the SO or customer record. */
   shippingAddress?: string | null;
   shippingAddressId?: string | null;
+  /** Dealer phone for Call / WhatsApp on the document party block. */
+  customerPhone?: string | null;
+  customerTelHref?: string | null;
+  customerWhatsappHref?: string | null;
   salesOrderCategory: InvoiceCategory | null;
   subtotal: number;
   taxTotal: number;
@@ -629,23 +634,6 @@ export function mapAdminSalesOrderDetail(
   };
 }
 
-async function resolveShippingAddressFallback(
-  detail: AdminSalesOrderDetail,
-): Promise<string | null> {
-  if (detail.shippingAddress) return detail.shippingAddress;
-  const customerId = String(detail.customerId || '').trim();
-  if (!customerId) return null;
-  try {
-    const snap = await getDoc(doc(db, 'zohoCustomers', customerId));
-    if (!snap.exists()) return null;
-    const data = snap.data();
-    const addr = data.zohoShippingAddress || data.shippingAddress;
-    return addr ? String(addr) : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function fetchAdminSalesOrderDetail(
   salesOrderId: string,
 ): Promise<AdminSalesOrderDetail> {
@@ -654,7 +642,7 @@ export async function fetchAdminSalesOrderDetail(
     throw new Error('Sales order not found.');
   }
   const detail = mapAdminSalesOrderDetail(salesOrderId, snap.data());
-  const [withImages, shippingAddress] = await Promise.all([
+  const [withImages, contact] = await Promise.all([
     enrichInvoiceDetailImages({
       ...detail,
       invoiceNumber: detail.salesOrderNumber,
@@ -665,11 +653,14 @@ export async function fetchAdminSalesOrderDetail(
       salesOrderId: null,
       salesOrderNumber: null,
     }),
-    resolveShippingAddressFallback(detail),
+    resolveZohoCustomerDisplayContact(detail.customerId, detail.shippingAddress),
   ]);
   return {
     ...detail,
-    shippingAddress,
+    shippingAddress: contact.address,
+    customerPhone: contact.phone,
+    customerTelHref: contact.telHref,
+    customerWhatsappHref: contact.whatsappHref,
     lineItems: withImages.lineItems,
   };
 }

@@ -1,7 +1,16 @@
 import React, { useCallback, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { Ban, Check, FileText, IndianRupee, MapPin, Pencil, Trash2 } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  FileText,
+  ImageIcon,
+  IndianRupee,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
+import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
@@ -181,19 +190,50 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const showPayment = canPay
     || (isOps && (stage === 'payment_submitted' || stage === 'completed' || salesOrder.paymentScreenshotUrl));
 
+  const paymentScreenshotUrl = salesOrder.paymentScreenshotUrl?.trim() || '';
+  const topActionClass = paymentScreenshotUrl
+    ? 'invoice-detail-top__actions invoice-detail-top__actions--pair'
+    : 'invoice-detail-top__actions invoice-detail-top__actions--single';
+
   return (
     <div className={`so-detail${showWorkflowActions ? ' so-detail--with-actions' : ''}`}>
-      {/* Compact header: PDF + customer + shipping */}
+      {/* Compact header: PDF (+ payment screenshot) + customer + shipping */}
       <header className="so-detail__header">
-        <Link to={pdfPath} className="so-detail__pdf">
-          <FileText size={16} aria-hidden />
-          View PDF
-        </Link>
+        <div className="invoice-detail-top so-detail__top-actions">
+          <div className={topActionClass} role="group" aria-label="Sales order actions">
+            <Link
+              to={pdfPath}
+              className="invoice-detail-top__card invoice-detail-top__card--blue is-active"
+            >
+              <span className="invoice-detail-top__card-icon">
+                <FileText size={28} strokeWidth={1.75} aria-hidden />
+              </span>
+              <span className="invoice-detail-top__card-label">Sales order</span>
+            </Link>
+            {paymentScreenshotUrl ? (
+              <a
+                href={paymentScreenshotUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="invoice-detail-top__card invoice-detail-top__card--purple"
+              >
+                <span className="invoice-detail-top__card-icon">
+                  <ImageIcon size={28} strokeWidth={1.75} aria-hidden />
+                </span>
+                <span className="invoice-detail-top__card-label">Payment</span>
+              </a>
+            ) : null}
+          </div>
+        </div>
 
-        <div className="so-detail__party">
-          {!isDealer && (
-            <h2 className="so-detail__customer">{salesOrder.customerName ?? '—'}</h2>
-          )}
+        <DocumentPartyBlock
+          customerName={salesOrder.customerName}
+          hideName={isDealer}
+          address={salesOrder.shippingAddress}
+          telHref={isOps ? salesOrder.customerTelHref : null}
+          whatsappHref={isOps ? salesOrder.customerWhatsappHref : null}
+          emptyAddressLabel="No address on file"
+        >
           {editingShip ? (
             <div className="so-detail__ship-edit">
               <ShippingAddressPicker
@@ -232,31 +272,18 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="so-detail__ship-row">
-              {salesOrder.shippingAddress ? (
-                <p className="so-detail__ship">
-                  <MapPin size={14} aria-hidden />
-                  <span>{salesOrder.shippingAddress}</span>
-                </p>
-              ) : (
-                <p className="so-detail__ship text-muted">
-                  <MapPin size={14} aria-hidden />
-                  <span>No shipping address on this order</span>
-                </p>
-              )}
-              {canEditShipping && (
-                <button
-                  type="button"
-                  className="so-detail__edit-btn so-detail__ship-change"
-                  onClick={startEditShipping}
-                >
-                  <Pencil size={14} aria-hidden />
-                  Change address
-                </button>
-              )}
-            </div>
+            canEditShipping ? (
+              <button
+                type="button"
+                className="so-detail__edit-btn so-detail__ship-change"
+                onClick={startEditShipping}
+              >
+                <Pencil size={14} aria-hidden />
+                Change address
+              </button>
+            ) : null
           )}
-        </div>
+        </DocumentPartyBlock>
 
         {isOps && (
           <DocumentKamStrip
@@ -322,13 +349,6 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           )}
           {salesOrder.paymentUtr && (
             <p className="text-sm mb-2">UTR: <strong>{salesOrder.paymentUtr}</strong></p>
-          )}
-          {salesOrder.paymentScreenshotUrl && (
-            <p className="mb-3">
-              <a href={salesOrder.paymentScreenshotUrl} target="_blank" rel="noreferrer">
-                View payment screenshot
-              </a>
-            </p>
           )}
           {isDealer && stage === 'ready_for_payment' && (
             <div className="so-detail__payment-form">

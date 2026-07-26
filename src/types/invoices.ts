@@ -66,6 +66,11 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   taxTotal: number;
   notes: string | null;
   lineItems: DealerInvoiceLineItem[];
+  /** Resolved shipping/billing address for display (from invoice or zohoCustomers). */
+  shippingAddress?: string | null;
+  customerPhone?: string | null;
+  customerTelHref?: string | null;
+  customerWhatsappHref?: string | null;
 }
 
 export type InvoiceDocumentType = 'invoice' | 'salesorder';

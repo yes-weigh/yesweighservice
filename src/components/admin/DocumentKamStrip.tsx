@@ -67,25 +67,27 @@ export const DocumentKamStrip: React.FC<Props> = ({
 
   return (
     <aside className={`doc-kam-strip ${className}`.trim()} aria-label="Key account manager">
-      <span className="doc-kam-strip__label">KAM</span>
-      {staff ? (
-        <HrStaffPhoto
-          userId={staff.uid}
-          photo={{
-            hrPhotoUrl: staff.hrPhotoUrl,
-            hrPhotoStoragePath: staff.hrPhotoStoragePath,
-          }}
-          className="doc-kam-strip__photo"
-          placeholderClassName="doc-kam-strip__photo doc-kam-strip__photo--placeholder"
-          iconSize={16}
-        />
-      ) : (
-        <div className="doc-kam-strip__photo doc-kam-strip__photo--placeholder" aria-hidden>
-          <UserRound size={16} />
-        </div>
-      )}
+      <div className="doc-kam-strip__media">
+        {staff ? (
+          <HrStaffPhoto
+            userId={staff.uid}
+            photo={{
+              hrPhotoUrl: staff.hrPhotoUrl,
+              hrPhotoStoragePath: staff.hrPhotoStoragePath,
+            }}
+            className="doc-kam-strip__photo"
+            placeholderClassName="doc-kam-strip__photo doc-kam-strip__photo--placeholder"
+            iconSize={22}
+          />
+        ) : (
+          <div className="doc-kam-strip__photo doc-kam-strip__photo--placeholder" aria-hidden>
+            <UserRound size={22} />
+          </div>
+        )}
+      </div>
       <div className="doc-kam-strip__body">
         <strong className="doc-kam-strip__name">{displayName}</strong>
+        <span className="doc-kam-strip__role">Key account manager</span>
         {!staff && zohoName ? (
           <span className="doc-kam-strip__hint text-muted">Not linked to staff</span>
         ) : null}

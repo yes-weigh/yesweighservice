@@ -5,7 +5,10 @@ import { useAuth } from '../../context/AuthContext';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
 import { formatCurrency } from '../../lib/catalog';
 import { supportBasePath } from '../../lib/dealerSupport';
-import { buildInvoiceBookingDraftPatch } from '../../lib/logisticsPrefill';
+import {
+  buildInvoiceBookingDraftPatch,
+  canBookCourierForInvoice,
+} from '../../lib/logisticsPrefill';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import type { SupportProductDraft } from '../../types/dealer-support';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
@@ -35,21 +38,26 @@ export const InvoiceDocumentPage: React.FC = () => {
 
   const dealerId = user?.role === 'dealer' ? user.uid : (user?.dealerId ?? user?.uid ?? '');
   const zohoCustomerId = user?.zohoCustomerId?.trim() || '';
-  const courierEntry = {
-    draftPatch: buildInvoiceBookingDraftPatch(
-      invoice,
-      invoiceId,
-      zohoCustomerId,
-      dealerId || zohoCustomerId,
-    ),
-    dealerQuery: invoice.customerName ?? undefined,
-  };
+  const showBookCourier = canBookCourierForInvoice(invoice);
+  const courierEntry = showBookCourier
+    ? {
+      draftPatch: buildInvoiceBookingDraftPatch(
+        invoice,
+        invoiceId,
+        zohoCustomerId,
+        dealerId || zohoCustomerId,
+      ),
+      dealerQuery: invoice.customerName ?? undefined,
+    }
+    : null;
 
   return (
     <>
-      <section className="invoice-detail-actions panel glass">
-        <BookCourierEntryButton entry={courierEntry} size="sm" />
-      </section>
+      {courierEntry ? (
+        <section className="invoice-detail-actions panel glass">
+          <BookCourierEntryButton entry={courierEntry} size="sm" />
+        </section>
+      ) : null}
       {dealerId && (
         <RelatedSupportRequests
           dealerId={dealerId}
@@ -57,21 +65,6 @@ export const InvoiceDocumentPage: React.FC = () => {
           invoiceNumber={invoice.invoiceNumber}
         />
       )}
-      <section className="invoice-detail-footer panel glass">
-        <div className="invoice-detail-footer__row">
-          <span>Sub Total</span>
-          <span>{formatCurrency(invoice.subtotal)}</span>
-        </div>
-        <div className="invoice-detail-footer__row">
-          <span>GST</span>
-          <span>{formatCurrency(invoice.taxTotal)}</span>
-        </div>
-        <div className="invoice-detail-footer__row invoice-detail-footer__row--total">
-          <span>Grand Total</span>
-          <strong>{formatCurrency(invoice.total)}</strong>
-        </div>
-      </section>
-
       <section className="invoice-detail-items panel glass">
         <h3 className="invoice-detail-items__title">
           Items{invoice.lineItems.length ? ` (${invoice.lineItems.length})` : ''}
@@ -115,6 +108,20 @@ export const InvoiceDocumentPage: React.FC = () => {
         ) : (
           <p className="invoice-detail-items__empty text-muted text-sm">No line items on this invoice.</p>
         )}
+      </section>
+      <section className="invoice-detail-footer panel glass">
+        <div className="invoice-detail-footer__row">
+          <span>Sub Total</span>
+          <span>{formatCurrency(invoice.subtotal)}</span>
+        </div>
+        <div className="invoice-detail-footer__row">
+          <span>GST</span>
+          <span>{formatCurrency(invoice.taxTotal)}</span>
+        </div>
+        <div className="invoice-detail-footer__row invoice-detail-footer__row--total">
+          <span>Grand Total</span>
+          <strong>{formatCurrency(invoice.total)}</strong>
+        </div>
       </section>
     </>
   );

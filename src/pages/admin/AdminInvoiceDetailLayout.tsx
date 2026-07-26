@@ -1,13 +1,19 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, FileText } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import {
   fetchAdminInvoiceDetail,
 } from '../../lib/admin-invoices';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
+import { canCreateLogisticsBooking } from '../../lib/logisticsBookings';
+import {
+  buildInvoiceBookingDraftPatch,
+  canBookCourierForInvoice,
+} from '../../lib/logisticsPrefill';
 import { staffCanAccessSalespersonDoc } from '../../lib/salespersonScope';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
@@ -81,6 +87,15 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     };
   }, [customerId, invoiceId, user]);
 
+  const courierEntry = useMemo(() => {
+    if (!invoice || !customerId || !invoiceId || !user) return null;
+    if (!canCreateLogisticsBooking(user) || !canBookCourierForInvoice(invoice)) return null;
+    return {
+      draftPatch: buildInvoiceBookingDraftPatch(invoice, invoiceId, customerId, customerId),
+      dealerQuery: invoice.customerName ?? undefined,
+    };
+  }, [invoice, customerId, invoiceId, user]);
+
   if (!customerId || !invoiceId) return null;
 
   const outletContext: AdminInvoiceDetailOutletContext = {
@@ -113,7 +128,14 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
         <>
           {!isPdfView && (
             <div className="invoice-detail-top admin-invoice-detail-top">
-              <div className="invoice-detail-top__actions" role="tablist" aria-label="Invoice sections">
+              <div
+                className={[
+                  'invoice-detail-top__actions',
+                  courierEntry ? 'invoice-detail-top__actions--pair' : 'invoice-detail-top__actions--single',
+                ].join(' ')}
+                role="tablist"
+                aria-label="Invoice sections"
+              >
                 <button
                   type="button"
                   role="tab"
@@ -124,8 +146,11 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                   <span className="invoice-detail-top__card-icon">
                     <FileText size={28} strokeWidth={1.75} aria-hidden />
                   </span>
-                  <span className="invoice-detail-top__card-label">View PDF</span>
+                  <span className="invoice-detail-top__card-label">Invoice</span>
                 </button>
+                {courierEntry ? (
+                  <BookCourierEntryButton entry={courierEntry} variant="card" />
+                ) : null}
               </div>
             </div>
           )}
