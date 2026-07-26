@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
   # Needed to resolve the last successful deploy SHA for functions catch-up.
   actions: read
 
@@ -39,6 +39,11 @@ jobs:
 
       - name: Install functions dependencies
         run: npm ci --prefix functions
+
+      # Stamp version into the build only — never commit/push back to main.
+      # (CI commits were racing local pushes: "Can't push refs… Try Pull first".)
+      - name: Stamp app version for this deploy
+        run: node scripts/bump-app-version.mjs --ci-run "${{ github.run_number }}"
 
       - name: Build
         run: npm run build
@@ -67,23 +72,6 @@ jobs:
 
       - name: Deploy hosting, Firestore, and Storage
         run: bash scripts/ci-firebase-deploy.sh hosting,firestore,storage
-
-      # Bump after a successful hosting deploy so the next release shows a new vX.Y.
-      # Built artifact for this run still carries the pre-bump version (starts at v5.0).
-      - name: Bump app version for next deploy
-        if: success()
-        run: |
-          set -euo pipefail
-          node scripts/bump-app-version.mjs
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/app-version.json
-          if git diff --staged --quiet; then
-            echo "App version unchanged."
-            exit 0
-          fi
-          git commit -m "chore: bump app version [skip ci]"
-          git push origin HEAD:${{ github.ref_name }}
 
       - name: Resolve functions deploy base
         id: functions_base
