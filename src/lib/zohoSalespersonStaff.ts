@@ -177,15 +177,15 @@ async function queryStaffByZohoSalespersonId(
 
   const trySnap = async (snap: Awaited<ReturnType<typeof getDocs>>) => {
     for (const docSnap of snap.docs) {
-      const data = docSnap.data();
+      const data = docSnap.data() as Record<string, unknown>;
       if (data.active === false) continue;
       const role = String(data.role ?? '');
       if (role !== 'staff' && role !== 'super_admin') continue;
       const links = normalizeZohoSalespersonLinks({
-        zohoSalespersonLinks: data.zohoSalespersonLinks,
-        zohoSalespersonIds: data.zohoSalespersonIds,
-        zohoSalespersonId: data.zohoSalespersonId,
-        zohoSalespersonName: data.zohoSalespersonName,
+        zohoSalespersonLinks: data.zohoSalespersonLinks as ZohoSalespersonLink[] | null | undefined,
+        zohoSalespersonIds: data.zohoSalespersonIds as string[] | null | undefined,
+        zohoSalespersonId: data.zohoSalespersonId as string | null | undefined,
+        zohoSalespersonName: data.zohoSalespersonName as string | null | undefined,
       });
       const match = links.find(link => link.id === id);
       const phoneInfo = phoneHrefs(data.phone != null ? String(data.phone) : null);
