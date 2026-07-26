@@ -5,7 +5,6 @@ import {
   Cloud,
   Eye,
   EyeOff,
-  Headset,
   LayoutGrid,
   Lock,
   LogIn,
@@ -27,7 +26,6 @@ const FEATURES = [
   { icon: LayoutGrid, label: 'All in One Platform' },
   { icon: ShieldCheck, label: 'Secure & Reliable' },
   { icon: BarChart3, label: 'Smart Insights' },
-  { icon: Headset, label: '24x7 Support' },
   { icon: Cloud, label: 'Cloud Enabled' },
 ] as const;
 
@@ -90,9 +88,9 @@ export const Login: React.FC = () => {
 
   return (
     <div className="login-hero">
-      <div className="login-hero__tile">
+      <div className="login-hero__inner">
         <header className="login-hero__brand">
-          <Logo size="lg" className="login-hero__logo" />
+          <Logo size="md" className="login-hero__logo" />
           <h1 className="login-hero__welcome">Welcome to YesOne</h1>
           <p className="login-hero__tagline">One platform. Unlimited possibilities.</p>
         </header>
@@ -101,7 +99,7 @@ export const Login: React.FC = () => {
           {FEATURES.map(({ icon: Icon, label }, index) => (
             <li key={label} className="login-hero__feature">
               {index > 0 && <span className="login-hero__feature-rule" aria-hidden />}
-              <Icon size={22} strokeWidth={1.75} aria-hidden />
+              <Icon size={18} strokeWidth={1.75} aria-hidden />
               <span>{label}</span>
             </li>
           ))}
@@ -198,7 +196,7 @@ export const Login: React.FC = () => {
               href={SUPPORT_TEL_HREF}
               className="login-hero__help-btn login-hero__help-btn--call"
             >
-              <Phone size={22} strokeWidth={1.85} aria-hidden />
+              <Phone size={18} strokeWidth={1.85} aria-hidden />
               <span className="login-hero__help-btn-text">
                 <strong>Call Us</strong>
                 <span>Talk to us</span>
@@ -210,7 +208,7 @@ export const Login: React.FC = () => {
               rel="noopener noreferrer"
               className="login-hero__help-btn login-hero__help-btn--whatsapp"
             >
-              <WhatsAppGlyph />
+              <WhatsAppGlyph size={18} />
               <span className="login-hero__help-btn-text">
                 <strong>WhatsApp</strong>
                 <span>Chat with us</span>
@@ -221,8 +219,8 @@ export const Login: React.FC = () => {
 
         <footer className="login-hero__trust">
           <p className="login-hero__trust-safe">
-            <ShieldCheck size={16} strokeWidth={2} aria-hidden />
-            Your data is safe with us
+            <ShieldCheck size={15} strokeWidth={2} aria-hidden />
+            Your data is secured
           </p>
           <p className="login-hero__trust-copy">
             © {BRAND_TITLE} · {FIRM_NAME.toUpperCase()}
