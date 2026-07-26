@@ -1,11 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogIn, Lock, UserRound, Eye, EyeOff } from 'lucide-react';
+import {
+  BarChart3,
+  Cloud,
+  Eye,
+  EyeOff,
+  Headset,
+  LayoutGrid,
+  Lock,
+  LogIn,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react';
 import { Logo } from '../components/Logo';
-import { APP_NAME, BRAND_TITLE, TAGLINE } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole } from '../types';
 import { parseLoginId } from '../lib/loginAuth';
+
+const FEATURES = [
+  { icon: LayoutGrid, label: 'All in One Platform' },
+  { icon: ShieldCheck, label: 'Secure & Reliable' },
+  { icon: BarChart3, label: 'Smart Insights' },
+  { icon: Headset, label: '24x7 Support' },
+  { icon: Cloud, label: 'Cloud Enabled' },
+] as const;
 
 export const Login: React.FC = () => {
   const { login, user, loading } = useAuth();
@@ -41,93 +59,107 @@ export const Login: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="login-container">
+      <div className="login-hero">
         <div className="loader-ring" />
       </div>
     );
   }
 
   return (
-    <div className="login-container">
-      <div className="login-box glass">
-        <div className="login-header">
-          <div className="login-brand">
-            <Logo size="lg" />
-            <h2>{APP_NAME}</h2>
-            <p className="brand-tagline">{TAGLINE}</p>
-          </div>
-          <p>Sign in with your ID and password</p>
-        </div>
+    <div className="login-hero">
+      <div className="login-hero__inner">
+        <header className="login-hero__brand">
+          <Logo size="lg" className="login-hero__logo" />
+          <h1 className="login-hero__welcome">Welcome to YesOne</h1>
+          <p className="login-hero__tagline">One platform. Unlimited possibilities.</p>
+        </header>
 
-        <form onSubmit={handleSubmit} className="login-form">
-          {error && <div className="login-error">{error}</div>}
+        <ul className="login-hero__features" aria-label="Platform highlights">
+          {FEATURES.map(({ icon: Icon, label }, index) => (
+            <li key={label} className="login-hero__feature">
+              {index > 0 && <span className="login-hero__feature-rule" aria-hidden />}
+              <Icon size={22} strokeWidth={1.75} aria-hidden />
+              <span>{label}</span>
+            </li>
+          ))}
+        </ul>
 
-          <div className="form-group">
-            <label htmlFor="login-id">Login ID</label>
-            <div className="input-icon-wrap">
-              <UserRound size={18} className="input-icon" />
-              <input
-                id="login-id"
-                type="text"
-                className="input-field input-with-icon"
-                placeholder="Email, phone, Aadhaar, or User ID"
-                value={loginId}
-                onChange={e => setLoginId(e.target.value)}
-                required
-                autoFocus
-                autoComplete="username"
-              />
+        <div className="login-hero__form-wrap">
+          <h2 className="login-hero__signin-title">
+            Sign in with your{' '}
+            <span className="login-hero__signin-accent">ID and password</span>
+          </h2>
+
+          <form onSubmit={handleSubmit} className="login-hero__form">
+            {error && <div className="login-error">{error}</div>}
+
+            <div className="form-group">
+              <label htmlFor="login-id">Login ID</label>
+              <div className="input-icon-wrap">
+                <UserRound size={18} className="input-icon" strokeWidth={1.75} />
+                <input
+                  id="login-id"
+                  type="text"
+                  className="input-field input-with-icon login-hero__input"
+                  placeholder="Email, phone, Aadhaar, or User ID"
+                  value={loginId}
+                  onChange={e => setLoginId(e.target.value)}
+                  required
+                  autoFocus
+                  autoComplete="username"
+                />
+              </div>
+              <p className="login-hero__hint">
+                Use your email, 10-digit mobile number, or 12-digit Aadhaar
+              </p>
             </div>
-            <p className="text-muted text-sm login-id-hint">
-              Use your email, 10-digit mobile number, or 12-digit Aadhaar
-            </p>
-          </div>
 
-          <div className="form-group">
-            <label htmlFor="login-password">Password</label>
-            <div className="input-icon-wrap">
-              <Lock size={18} className="input-icon" />
-              <input
-                id="login-password"
-                type={showPassword ? 'text' : 'password'}
-                className="input-field input-with-icon"
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
-              <button
-                type="button"
-                className="input-icon-right"
-                onClick={() => setShowPassword(p => !p)}
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
+            <div className="form-group login-hero__password-group">
+              <label htmlFor="login-password">Password</label>
+              <div className="input-icon-wrap">
+                <Lock size={18} className="input-icon" strokeWidth={1.75} />
+                <input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  className="input-field input-with-icon login-hero__input"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  className="input-icon-right"
+                  onClick={() => setShowPassword(p => !p)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <div className="login-hero__forgot-row">
+                <Link to="/dealer-login?mode=reset" className="login-hero__forgot">
+                  Forgot password?
+                </Link>
+              </div>
             </div>
-          </div>
 
-          <button type="submit" className="btn btn-primary w-full mt-2" disabled={submitting}>
-            {submitting ? <span className="spinner-inline" /> : <><LogIn size={18} /> Sign In</>}
-          </button>
-        </form>
-
-        <div className="login-footer">
-          <p className="text-muted text-sm">
-            Dealer? <Link to="/dealer-login">Activate or verify your account</Link>
-          </p>
-          <p className="text-muted text-sm">
-            Forgot dealer password?{' '}
-            <Link to="/dealer-login?mode=reset">Reset via WhatsApp OTP</Link>
-          </p>
-          <p className="text-muted text-sm">© {BRAND_TITLE} · service.yesweigh.in</p>
+            <button
+              type="submit"
+              className="login-hero__submit"
+              disabled={submitting}
+            >
+              {submitting
+                ? <span className="spinner-inline login-hero__spinner" />
+                : (
+                  <>
+                    <LogIn size={20} strokeWidth={2.25} aria-hidden />
+                    Sign In
+                  </>
+                )}
+            </button>
+          </form>
         </div>
-      </div>
-
-      <div className="bg-shapes">
-        <div className="shape shape-1" />
-        <div className="shape shape-2" />
-        <div className="shape shape-3" />
       </div>
     </div>
   );
