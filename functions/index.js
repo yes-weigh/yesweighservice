@@ -3406,7 +3406,7 @@ export const applySalesOrderSalespersonFromDealer = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, ['super_admin', 'staff']);
+    const role = await requireActiveUser(uid, SYNC_ROLES);
     try {
       return await applySalesOrderSalespersonFromDealerRecord(
         uid,
