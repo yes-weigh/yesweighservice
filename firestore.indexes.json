@@ -477,6 +477,7 @@
       "fieldPath": "syncedAt",
       "ttl": false,
       "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
         { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
       ]
     },
@@ -485,6 +486,7 @@
       "fieldPath": "date",
       "ttl": false,
       "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
         { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
       ]
     },
@@ -493,6 +495,7 @@
       "fieldPath": "syncedAt",
       "ttl": false,
       "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
         { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
       ]
     },
@@ -501,6 +504,7 @@
       "fieldPath": "date",
       "ttl": false,
       "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
         { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
       ]
     },

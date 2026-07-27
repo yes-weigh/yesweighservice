@@ -25,6 +25,7 @@ import {
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   aggregateAdminInvoicesByDealer,
+  countInvoiceRowsByCategory,
   fetchAdminCustomerLocations,
   fetchAdminDealerLifetimeAggregates,
   fetchAdminInvoicesForCustomers,
@@ -383,12 +384,13 @@ export const AdminInvoicesPage: React.FC = () => {
 
   // KPI + category counts (rollups when available, else cheap count/sum queries).
   useEffect(() => {
+    if (dealerScoped) return;
     let cancelled = false;
     void loadAdminInvoiceKpis({
       dateStart,
       dateEnd,
       category: 'all',
-      salespersonIds: dealerScoped ? null : salespersonIds,
+      salespersonIds: salespersonIds,
     })
       .then(kpi => {
         if (cancelled) return;
@@ -412,12 +414,13 @@ export const AdminInvoicesPage: React.FC = () => {
 
   // Refresh amount when category tab changes (rollup path already has by-category amounts).
   useEffect(() => {
+    if (dealerScoped) return;
     let cancelled = false;
     void loadAdminInvoiceKpis({
       dateStart,
       dateEnd,
       category,
-      salespersonIds: dealerScoped ? null : salespersonIds,
+      salespersonIds: salespersonIds,
     })
       .then(kpi => {
         if (cancelled) return;
@@ -546,6 +549,10 @@ export const AdminInvoicesPage: React.FC = () => {
       .then(next => {
         if (cancelled) return;
         setRows(next);
+        setCategoryCounts(countInvoiceRowsByCategory(next));
+        setKpiCount(next.length);
+        setKpiCategoryAmount(next.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
+        setKpiDocumentAmount(next.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
         setHasMore(false);
         setPageCursors([null]);
       })

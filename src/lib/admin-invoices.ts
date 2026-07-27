@@ -195,7 +195,7 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
 
 function isFirestoreIndexError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? '');
-  return /requires an index|COLLECTION_GROUP/i.test(msg);
+  return /requires an index|COLLECTION_GROUP|COLLECTION_DESC|COLLECTION_ASC/i.test(msg);
 }
 
 type AdminInvoicesQueryOptions = AdminInvoiceListQuery & {
@@ -924,29 +924,58 @@ export async function fetchAdminInvoicesForCustomers(options: {
     const rows: AdminFirestoreInvoice[] = [];
     let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
+    const buildConstraints = (ordered: boolean, pageCursor: QueryDocumentSnapshot<DocumentData> | null) => {
       const constraints: QueryConstraint[] = [];
       if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
-        return [];
+        return 'empty' as const;
       }
       if (dateStart) constraints.push(where('date', '>=', dateStart));
       if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-      if (dateStart || dateEnd || sort !== 'syncedAt') {
-        constraints.push(orderBy('date', 'desc'));
-      } else {
-        constraints.push(orderBy('syncedAt', 'desc'));
+      if (ordered) {
+        if (dateStart || dateEnd || sort !== 'syncedAt') {
+          constraints.push(orderBy('date', 'desc'));
+        } else {
+          constraints.push(orderBy('syncedAt', 'desc'));
+        }
+        if (pageCursor) constraints.push(startAfter(pageCursor));
+        constraints.push(limit(pageSize));
       }
-      if (cursor) constraints.push(startAfter(cursor));
-      constraints.push(limit(pageSize));
+      // Unordered fallback: no orderBy/startAfter (pagination needs a COLLECTION index).
+      return constraints;
+    };
 
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const constraints = buildConstraints(true, cursor);
+        if (constraints === 'empty') return [];
+        const snap = await getDocs(
+          query(collection(db, 'zohoCustomers', customerId, 'invoices'), ...constraints),
+        );
+        if (snap.empty) break;
+        rows.push(...snap.docs.map(mapAdminInvoiceDoc));
+        cursor = snap.docs[snap.docs.length - 1];
+        if (snap.size < pageSize) break;
+      }
+    } catch (err) {
+      // Field overrides for collection-group date/syncedAt can omit COLLECTION indexes.
+      // Fall back to unordered fetch + client sort so dealer drill-down still works.
+      if (!isFirestoreIndexError(err)) throw err;
+      rows.length = 0;
+      const constraints = buildConstraints(false, null);
+      if (constraints === 'empty') return [];
       const snap = await getDocs(
         query(collection(db, 'zohoCustomers', customerId, 'invoices'), ...constraints),
       );
-      if (snap.empty) break;
       rows.push(...snap.docs.map(mapAdminInvoiceDoc));
-      cursor = snap.docs[snap.docs.length - 1];
-      if (snap.size < pageSize) break;
+      rows.sort((a, b) => {
+        if (sort === 'syncedAt') {
+          return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+        }
+        const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
+        if (byDate) return byDate;
+        return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+      });
     }
     return rows;
   }));
