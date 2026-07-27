@@ -465,6 +465,14 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "invoiceDealerStats",
+      "fieldPath": "amount",
+      "ttl": false,
+      "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" }
+      ]
+    },
+    {
       "collectionGroup": "invoices",
       "fieldPath": "syncedAt",
       "ttl": false,

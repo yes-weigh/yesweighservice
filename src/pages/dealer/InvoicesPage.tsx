@@ -319,7 +319,18 @@ function InvoiceFilterSheet({
   );
 }
 
-function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen: (id: string) => void }) {
+function InvoiceMobileRow({
+  invoice,
+  category,
+  onOpen,
+}: {
+  invoice: DealerInvoice;
+  category: InvoiceCategory | 'all';
+  onOpen: (id: string) => void;
+}) {
+  const displayAmount = category === 'all'
+    ? invoiceAmountExclGst(invoice)
+    : invoiceCategoryAmount(invoice, category);
   return (
     <button
       type="button"
@@ -343,7 +354,7 @@ function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen:
           <span className="invoices-mobile-row__meta">{formatInvoiceDate(invoice.date)}</span>
         </span>
         <span className="invoices-mobile-row__amount">
-          <strong>{formatCurrency(invoiceAmountExclGst(invoice))}</strong>
+          <strong>{formatCurrency(displayAmount)}</strong>
           <InvoiceDeliveryBadge date={invoice.date} />
         </span>
       </span>
@@ -689,23 +700,6 @@ export const InvoicesPage: React.FC = () => {
             </span>
           </div>
         </div>
-        {category !== 'all' && (
-          <>
-            <div className="invoices-summary__divider" aria-hidden />
-            <div className="invoices-summary__kpi">
-              <span className="invoices-summary__kpi-icon" aria-hidden>
-                <IndianRupee size={16} strokeWidth={2.4} />
-              </span>
-              <div className="invoices-summary__kpi-body">
-                <span className="invoices-summary__kpi-label">Invoice Amount</span>
-                <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                  {kpiLoading ? '…' : formatCurrency(kpiSummary.totalSales)}
-                </strong>
-                <span className="invoices-summary__kpi-sub">Matching invoices</span>
-              </div>
-            </div>
-          </>
-        )}
       </div>
 
       <div className="unified-so-category-blocks" role="tablist" aria-label="Invoice category">
@@ -861,7 +855,13 @@ export const InvoicesPage: React.FC = () => {
                             )}
                           </td>
                           <td><InvoiceDeliveryBadge date={invoice.date} /></td>
-                          <td className="invoices-table__num">{formatCurrency(invoiceAmountExclGst(invoice))}</td>
+                          <td className="invoices-table__num">
+                            {formatCurrency(
+                              category === 'all'
+                                ? invoiceAmountExclGst(invoice)
+                                : invoiceCategoryAmount(invoice, category),
+                            )}
+                          </td>
                           <td className="invoices-table__num">{formatCurrency(invoice.balance)}</td>
                         </tr>
                         );
@@ -877,7 +877,12 @@ export const InvoicesPage: React.FC = () => {
                   <span>Amount</span>
                 </div>
                 {invoices.map(invoice => (
-                  <InvoiceMobileRow key={invoice.id} invoice={invoice} onOpen={openInvoice} />
+                  <InvoiceMobileRow
+                    key={invoice.id}
+                    invoice={invoice}
+                    category={category}
+                    onOpen={openInvoice}
+                  />
                 ))}
               </div>
             </div>

@@ -439,37 +439,6 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
               </span>
             </div>
           </div>
-          {category !== 'all' && (
-            <>
-              <div className="invoices-summary__divider" aria-hidden />
-              <div className="invoices-summary__kpi">
-                <span className="invoices-summary__kpi-icon" aria-hidden>
-                  <IndianRupee size={16} strokeWidth={2.4} />
-                </span>
-                <div className="invoices-summary__kpi-body">
-                  <span className="invoices-summary__kpi-label">Order Amount</span>
-                  {summary.totalsByCurrency.length === 0 ? (
-                    <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                      {formatCurrency(0)}
-                    </strong>
-                  ) : summary.totalsByCurrency.length === 1 ? (
-                    <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                      {formatCurrency(summary.totalsByCurrency[0].total, summary.totalsByCurrency[0].currencyCode)}
-                    </strong>
-                  ) : (
-                    <ul className="invoices-summary__currency-totals" aria-label="Totals by currency">
-                      {summary.totalsByCurrency.map(row => (
-                        <li key={row.currencyCode}>
-                          <strong>{formatCurrency(row.total, row.currencyCode)}</strong>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <span className="invoices-summary__kpi-sub">Matching orders</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
       </section>
 
@@ -561,7 +530,14 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                           <td>{po.vendorName ?? '—'}</td>
                           <td>{formatInvoiceDate(po.date)}</td>
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
-                          <td className="invoices-table__num">{formatCurrency(po.total, po.currencyCode)}</td>
+                          <td className="invoices-table__num">
+                            {formatCurrency(
+                              category === 'all'
+                                ? po.total
+                                : Number(po.categoryAmounts[category] ?? po.total ?? 0),
+                              po.currencyCode,
+                            )}
+                          </td>
                           <td>
                             {categoryLabel ? (
                               <span className="unified-so-order-cell__badges">
@@ -626,7 +602,12 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                             Qty {formatInvoiceItemQuantity(po.itemQuantity)}
                           </span>
                           <strong className="invoices-mobile-row__amount-value">
-                            {formatCurrency(po.total, po.currencyCode)}
+                            {formatCurrency(
+                              category === 'all'
+                                ? po.total
+                                : Number(po.categoryAmounts[category] ?? po.total ?? 0),
+                              po.currencyCode,
+                            )}
                           </strong>
                         </span>
                       </span>

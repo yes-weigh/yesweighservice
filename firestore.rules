@@ -314,6 +314,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /invoiceDealerStats/{customerId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
     // Org-wide Zoho purchase orders (vendor-scoped fields on each doc).
     match /purchaseOrders/{poId} {
       allow read: if isSuperAdmin();

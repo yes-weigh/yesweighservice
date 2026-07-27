@@ -398,23 +398,6 @@ export const AdminSalesOrdersPage: React.FC = () => {
               </span>
             </div>
           </div>
-          {category !== 'all' && (
-            <>
-              <div className="invoices-summary__divider" aria-hidden />
-              <div className="invoices-summary__kpi">
-                <span className="invoices-summary__kpi-icon" aria-hidden>
-                  <IndianRupee size={16} strokeWidth={2.4} />
-                </span>
-                <div className="invoices-summary__kpi-body">
-                  <span className="invoices-summary__kpi-label">Order Amount</span>
-                  <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                    {loading ? '…' : formatCurrency(summary.totalAmount)}
-                  </strong>
-                  <span className="invoices-summary__kpi-sub">Matching orders</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
       </section>
 
@@ -506,7 +489,13 @@ export const AdminSalesOrdersPage: React.FC = () => {
                           <td>{po.customerName ?? '—'}</td>
                           <td>{formatInvoiceDate(po.date)}</td>
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
-                          <td className="invoices-table__num">{formatCurrency(po.total)}</td>
+                          <td className="invoices-table__num">
+                            {formatCurrency(
+                              category === 'all'
+                                ? po.total
+                                : Number(po.categoryAmounts[category] ?? po.total ?? 0),
+                            )}
+                          </td>
                           <td>
                             {categoryLabel ? (
                               <span className="unified-so-order-cell__badges">
@@ -566,7 +555,13 @@ export const AdminSalesOrdersPage: React.FC = () => {
                         </span>
                       </span>
                       <span className="invoices-mobile-row__amount">
-                        <strong>{formatCurrency(po.total)}</strong>
+                        <strong>
+                          {formatCurrency(
+                            category === 'all'
+                              ? po.total
+                              : Number(po.categoryAmounts[category] ?? po.total ?? 0),
+                          )}
+                        </strong>
                         <span className={poStatusClass(po.status)}>
                           {invoiceStatusLabel(po.status)}
                         </span>

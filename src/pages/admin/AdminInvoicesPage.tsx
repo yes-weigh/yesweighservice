@@ -26,6 +26,7 @@ import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeade
 import {
   aggregateAdminInvoicesByDealer,
   fetchAdminCustomerLocations,
+  fetchAdminDealerLifetimeAggregates,
   fetchAdminInvoicesForCustomers,
   fetchAdminInvoicesPageResult,
   fetchAllAdminInvoicesInRange,
@@ -179,7 +180,7 @@ function AdminFilterSheet({
                 <em>
                   Club invoices into one row per dealer
                   {draftRange === 'lifetime'
-                    ? ' (pick a date range — All time is not supported)'
+                    ? ' (Lifetime uses precomputed dealer totals)'
                     : ''}
                 </em>
               </span>
@@ -193,7 +194,6 @@ function AdminFilterSheet({
                   draftAggregate ? 'logistics-filter-supermode__switch--on' : '',
                 ].filter(Boolean).join(' ')}
                 onClick={() => {
-                  if (draftRange === 'lifetime' && draftDealers.length === 0) return;
                   setDraftAggregate(prev => !prev);
                 }}
               >
@@ -332,8 +332,11 @@ export const AdminInvoicesPage: React.FC = () => {
   const bounds = getInvoicePeriodBounds(rangePreset);
   const dateStart = bounds ? toInvoiceDateKey(bounds.start) : null;
   const dateEnd = bounds ? toInvoiceDateKey(bounds.end) : null;
-  const aggregateAllowed = Boolean(dateStart && dateEnd) || dealerScoped;
+  const orgWide = salespersonIds == null;
+  const lifetimeAggregateAllowed = rangePreset === 'lifetime' && orgWide;
+  const aggregateAllowed = Boolean(dateStart && dateEnd) || dealerScoped || lifetimeAggregateAllowed;
   const useAggregate = aggregate && aggregateAllowed;
+  const useLifetimeDealerRollups = useAggregate && lifetimeAggregateAllowed && !dealerScoped;
 
   useEffect(() => {
     if (aggregate && !aggregateAllowed) setAggregate(false);
@@ -437,13 +440,17 @@ export const AdminInvoicesPage: React.FC = () => {
     setTruncated(false);
 
     if (useAggregate) {
-      void fetchAllAdminInvoicesInRange({
-        sort,
-        category: 'all',
-        dateStart,
-        dateEnd,
-        salespersonIds,
-      })
+      const load = useLifetimeDealerRollups
+        ? fetchAdminDealerLifetimeAggregates().then(next => ({ rows: next, truncated: false }))
+        : fetchAllAdminInvoicesInRange({
+          sort,
+          category: 'all',
+          dateStart,
+          dateEnd,
+          salespersonIds,
+        });
+
+      void load
         .then(({ rows: next, truncated: wasTruncated }) => {
           if (cancelled) return;
           setRows(next);
@@ -510,6 +517,7 @@ export const AdminInvoicesPage: React.FC = () => {
     salespersonIds,
     salespersonScopeKey,
     useAggregate,
+    useLifetimeDealerRollups,
     category,
     page,
   ]);
@@ -570,8 +578,12 @@ export const AdminInvoicesPage: React.FC = () => {
   );
 
   const displayRows = useMemo(
-    () => (useAggregate ? aggregateAdminInvoicesByDealer(filtered, sort) : filtered),
-    [useAggregate, filtered, sort],
+    () => (useAggregate
+      ? (useLifetimeDealerRollups
+        ? filtered
+        : aggregateAdminInvoicesByDealer(filtered, sort))
+      : filtered),
+    [useAggregate, useLifetimeDealerRollups, filtered, sort],
   );
 
   // Client-side pagination only for aggregate / dealer-scoped dumps.
@@ -765,23 +777,6 @@ export const AdminInvoicesPage: React.FC = () => {
               </span>
             </div>
           </div>
-          {category !== 'all' && (
-            <>
-              <div className="invoices-summary__divider" aria-hidden />
-              <div className="invoices-summary__kpi">
-                <span className="invoices-summary__kpi-icon" aria-hidden>
-                  <IndianRupee size={16} strokeWidth={2.4} />
-                </span>
-                <div className="invoices-summary__kpi-body">
-                  <span className="invoices-summary__kpi-label">Invoice Amount</span>
-                  <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                    {loading ? '…' : formatCurrency(summary.documentSales)}
-                  </strong>
-                  <span className="invoices-summary__kpi-sub">Matching invoices</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
 
         {(selectedDealers.length > 0 || useAggregate || truncated) && (
@@ -941,7 +936,13 @@ export const AdminInvoicesPage: React.FC = () => {
                       </td>
                       <td>{formatInvoiceDate(invoice.date)}</td>
                       <td className="invoices-table__num">{formatInvoiceItemQuantity(invoice.itemQuantity)}</td>
-                      <td className="invoices-table__num">{formatCurrency(invoiceAmountExclGst(invoice))}</td>
+                      <td className="invoices-table__num">
+                        {formatCurrency(
+                          category === 'all'
+                            ? invoiceAmountExclGst(invoice)
+                            : invoiceCategoryAmount(invoice, category),
+                        )}
+                      </td>
                       <td>
                         {categoryLabel ? (
                           <span className="unified-so-order-cell__badges">
@@ -1024,7 +1025,13 @@ export const AdminInvoicesPage: React.FC = () => {
                       </span>
                     </span>
                     <span className="invoices-mobile-row__amount">
-                      <strong>{formatCurrency(invoiceAmountExclGst(invoice))}</strong>
+                      <strong>
+                        {formatCurrency(
+                          category === 'all'
+                            ? invoiceAmountExclGst(invoice)
+                            : invoiceCategoryAmount(invoice, category),
+                        )}
+                      </strong>
                       {isAggregateRow ? (
                         <span className="text-muted text-sm">Aggregated</span>
                       ) : (

@@ -541,14 +541,18 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
   try {
     const afterSnap = {
       ...doc,
+      customerId,
       invoiceCategory: parseInvoiceCategory(doc.invoiceCategory) || doc.invoiceCategory,
       date: doc.date ?? null,
       total: doc.total,
       subtotal: doc.subtotal,
       taxTotal: doc.taxTotal,
     };
+    const beforeSnap = existing
+      ? { ...existing, customerId: existing.customerId ?? customerId }
+      : null;
     await upsertInvoiceSummary(customerId, invoiceId, afterSnap);
-    await reconcileInvoiceStats(existing, afterSnap);
+    await reconcileInvoiceStats(beforeSnap, afterSnap);
   } catch (err) {
     console.warn(`Invoice stats/summary update failed for ${invoiceId}:`, err?.message ?? err);
   }
@@ -568,7 +572,7 @@ export async function deleteInvoiceFromFirestore(customerId, invoiceId) {
   await invoiceIndexRef(invoiceId).delete().catch(() => {});
   await deleteInvoiceSummary(customerId, invoiceId);
   try {
-    await reconcileInvoiceStats(data, null);
+    await reconcileInvoiceStats({ ...data, customerId: data.customerId ?? customerId }, null);
   } catch (err) {
     console.warn(`Invoice stats remove failed for ${invoiceId}:`, err?.message ?? err);
   }

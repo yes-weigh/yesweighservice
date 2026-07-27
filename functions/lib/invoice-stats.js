@@ -7,6 +7,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 export const INVOICE_STATS_COLLECTION = 'invoiceStats';
 export const INVOICE_MONTH_STATS_COLLECTION = 'invoiceMonthStats';
+export const INVOICE_DEALER_STATS_COLLECTION = 'invoiceDealerStats';
 export const INVOICE_SUMMARIES_SUBCOLLECTION = 'invoiceSummaries';
 export const INVOICE_SUMMARIES_ARCHIVE_SUBCOLLECTION = 'invoiceSummariesArchive';
 export const INVOICES_ARCHIVE_SUBCOLLECTION = 'invoicesArchive';
@@ -150,16 +151,22 @@ function applyCategoryDelta(byCategory, category, deltaCount) {
 }
 
 /**
- * Apply +1/-1 to org + month rollups for one invoice snapshot.
+ * Apply +1/-1 to org + month + dealer rollups for one invoice snapshot.
  * @param {'add'|'remove'} op
  */
 export async function applyInvoiceStatsDelta(invoiceLike, op) {
   const sign = op === 'remove' ? -1 : 1;
   const countDelta = sign;
-  const amountDelta = sign * amountExclGst(invoiceLike);
+  const amount = amountExclGst(invoiceLike);
+  const amountDelta = sign * amount;
+  const totalDelta = sign * Number(invoiceLike?.total ?? 0);
+  const balanceDelta = sign * Number(invoiceLike?.balance ?? 0);
+  const qty = invoiceLike?.itemQuantity != null ? Number(invoiceLike.itemQuantity) : null;
+  const qtyDelta = qty != null && Number.isFinite(qty) ? sign * qty : null;
   const categories = categoriesFromInvoiceLike(invoiceLike);
-  const categoryAmounts = categoryAmountsFromInvoiceLike(invoiceLike, amountExclGst(invoiceLike));
+  const categoryAmounts = categoryAmountsFromInvoiceLike(invoiceLike, amount);
   const monthKey = invoiceMonthKey(invoiceLike.date);
+  const customerId = String(invoiceLike?.customerId ?? '').trim();
 
   const db = getFirestore();
   const batch = db.batch();
@@ -182,6 +189,41 @@ export async function applyInvoiceStatsDelta(invoiceLike, op) {
   if (monthKey) {
     const monthRef = db.doc(`${INVOICE_MONTH_STATS_COLLECTION}/${monthKey}`);
     batch.set(monthRef, updates, { merge: true });
+  }
+
+  if (customerId) {
+    const dealerRef = db.doc(`${INVOICE_DEALER_STATS_COLLECTION}/${customerId}`);
+    const dealerUpdates = {
+      customerId,
+      count: FieldValue.increment(countDelta),
+      amount: FieldValue.increment(amountDelta),
+      total: FieldValue.increment(totalDelta),
+      balance: FieldValue.increment(balanceDelta),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (qtyDelta != null) {
+      dealerUpdates.itemQuantity = FieldValue.increment(qtyDelta);
+    }
+    for (const category of categories) {
+      dealerUpdates[`byCategory.${category}`] = FieldValue.increment(countDelta);
+      dealerUpdates[`documentAmountByCategory.${category}`] = FieldValue.increment(amountDelta);
+      const categoryAmount = Number(categoryAmounts[category] ?? 0);
+      if (categoryAmount) {
+        dealerUpdates[`amountByCategory.${category}`] = FieldValue.increment(sign * categoryAmount);
+      }
+    }
+    if (op === 'add') {
+      if (invoiceLike.customerName) {
+        dealerUpdates.customerName = String(invoiceLike.customerName);
+      }
+      if (invoiceLike.date) {
+        dealerUpdates.latestDate = String(invoiceLike.date);
+      }
+      if (invoiceLike.syncedAt) {
+        dealerUpdates.latestSyncedAt = invoiceLike.syncedAt;
+      }
+    }
+    batch.set(dealerRef, dealerUpdates, { merge: true });
   }
 
   await batch.commit();
@@ -226,13 +268,15 @@ export async function setInvoiceListSource(listSource) {
 }
 
 /**
- * One-shot: rebuild org/month rollups and dual-write invoiceSummaries from hot invoices.
+ * One-shot: rebuild org/month/dealer rollups and dual-write invoiceSummaries from hot invoices.
+ * Dealer lifetime stats also include archived invoices so Aggregate Lifetime stays accurate.
  */
 export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
   const db = getFirestore();
   const customersSnap = await db.collection('zohoCustomers').select().get();
   let invoiceCount = 0;
   let summaryCount = 0;
+  let dealerDocs = 0;
 
   // Reset org stats, then rebuild.
   const orgRef = db.doc(`${INVOICE_STATS_COLLECTION}/org`);
@@ -254,11 +298,76 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
     await batch.commit();
   }
 
+  // Clear dealer docs in pages
+  const dealersSnap = await db.collection(INVOICE_DEALER_STATS_COLLECTION).get();
+  for (let i = 0; i < dealersSnap.docs.length; i += 400) {
+    const batch = db.batch();
+    for (const doc of dealersSnap.docs.slice(i, i + 400)) batch.delete(doc.ref);
+    await batch.commit();
+  }
+
   const monthAcc = new Map();
+  const dealerAcc = new Map();
+
+  const emptyRollup = () => ({
+    count: 0,
+    amount: 0,
+    byCategory: emptyByCategory(),
+    amountByCategory: emptyByCategory(),
+    documentAmountByCategory: emptyByCategory(),
+  });
+
+  const emptyDealerRollup = (customerId) => ({
+    customerId: String(customerId),
+    customerName: null,
+    count: 0,
+    amount: 0,
+    total: 0,
+    balance: 0,
+    itemQuantity: 0,
+    hasItemQuantity: false,
+    byCategory: emptyByCategory(),
+    amountByCategory: emptyByCategory(),
+    documentAmountByCategory: emptyByCategory(),
+    latestDate: null,
+    latestSyncedAt: null,
+  });
+
+  const bumpRollup = (acc, summary) => {
+    const amount = summary.amountExclGst;
+    const categories = categoriesFromInvoiceLike(summary);
+    const categoryAmounts = categoryAmountsFromInvoiceLike(summary, amount);
+    acc.count += 1;
+    acc.amount += amount;
+    for (const category of categories) {
+      acc.byCategory[category] += 1;
+      acc.documentAmountByCategory[category] += amount;
+      acc.amountByCategory[category] += Number(categoryAmounts[category] ?? 0);
+    }
+  };
+
+  const bumpDealer = (acc, summary) => {
+    bumpRollup(acc, summary);
+    acc.total += Number(summary.total ?? 0);
+    acc.balance += Number(summary.balance ?? 0);
+    if (summary.itemQuantity != null) {
+      acc.itemQuantity += Number(summary.itemQuantity);
+      acc.hasItemQuantity = true;
+    }
+    if (summary.customerName) acc.customerName = String(summary.customerName);
+    const date = summary.date ? String(summary.date) : null;
+    if (date && (!acc.latestDate || date > acc.latestDate)) {
+      acc.latestDate = date;
+    }
+    const syncedAt = summary.syncedAt ?? null;
+    if (syncedAt) acc.latestSyncedAt = syncedAt;
+  };
 
   for (const customerDoc of customersSnap.docs) {
     const customerId = customerDoc.id;
-    const invSnap = await db.collection('zohoCustomers').doc(customerId).collection('invoices').get();
+    const hotCol = db.collection('zohoCustomers').doc(customerId).collection('invoices');
+    const archiveCol = db.collection('zohoCustomers').doc(customerId).collection(INVOICES_ARCHIVE_SUBCOLLECTION);
+    const [invSnap, archiveSnap] = await Promise.all([hotCol.get(), archiveCol.get()]);
     let batch = db.batch();
     let batchOps = 0;
 
@@ -268,6 +377,10 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
       batch = db.batch();
       batchOps = 0;
     };
+
+    if (!dealerAcc.has(customerId)) {
+      dealerAcc.set(customerId, emptyDealerRollup(customerId));
+    }
 
     for (const invDoc of invSnap.docs) {
       const data = invDoc.data() ?? {};
@@ -286,57 +399,40 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
       invoiceCount += 1;
 
       const monthKey = invoiceMonthKey(summary.date);
-      const amount = summary.amountExclGst;
-      const categories = categoriesFromInvoiceLike(summary);
-      const categoryAmounts = categoryAmountsFromInvoiceLike(summary, amount);
-
-      const bump = (acc) => {
-        acc.count += 1;
-        acc.amount += amount;
-        for (const category of categories) {
-          acc.byCategory[category] += 1;
-          acc.documentAmountByCategory[category] += amount;
-          acc.amountByCategory[category] += Number(categoryAmounts[category] ?? 0);
-        }
-      };
-
-      if (!monthAcc.has('__org__')) {
-        monthAcc.set('__org__', {
-          count: 0,
-          amount: 0,
-          byCategory: emptyByCategory(),
-          amountByCategory: emptyByCategory(),
-          documentAmountByCategory: emptyByCategory(),
-        });
-      }
-      bump(monthAcc.get('__org__'));
+      if (!monthAcc.has('__org__')) monthAcc.set('__org__', emptyRollup());
+      bumpRollup(monthAcc.get('__org__'), summary);
+      bumpDealer(dealerAcc.get(customerId), summary);
 
       if (monthKey) {
-        if (!monthAcc.has(monthKey)) {
-          monthAcc.set(monthKey, {
-            count: 0,
-            amount: 0,
-            byCategory: emptyByCategory(),
-            amountByCategory: emptyByCategory(),
-            documentAmountByCategory: emptyByCategory(),
-          });
-        }
-        bump(monthAcc.get(monthKey));
+        if (!monthAcc.has(monthKey)) monthAcc.set(monthKey, emptyRollup());
+        bumpRollup(monthAcc.get(monthKey), summary);
       }
 
       if (batchOps >= 400) await flush();
     }
+
+    // Archived invoices stay in lifetime dealer/org totals (archive move does not reverse rollups).
+    for (const invDoc of archiveSnap.docs) {
+      const data = invDoc.data() ?? {};
+      const summary = buildInvoiceSummaryFields(data, customerId, invDoc.id);
+      invoiceCount += 1;
+
+      const monthKey = invoiceMonthKey(summary.date);
+      if (!monthAcc.has('__org__')) monthAcc.set('__org__', emptyRollup());
+      bumpRollup(monthAcc.get('__org__'), summary);
+      bumpDealer(dealerAcc.get(customerId), summary);
+
+      if (monthKey) {
+        if (!monthAcc.has(monthKey)) monthAcc.set(monthKey, emptyRollup());
+        bumpRollup(monthAcc.get(monthKey), summary);
+      }
+    }
+
     await flush();
-    onProgress?.({ customerId, invoiceCount, summaryCount });
+    onProgress?.({ customerId, invoiceCount, summaryCount, dealerDocs: dealerAcc.size });
   }
 
-  const orgAcc = monthAcc.get('__org__') || {
-    count: 0,
-    amount: 0,
-    byCategory: emptyByCategory(),
-    amountByCategory: emptyByCategory(),
-    documentAmountByCategory: emptyByCategory(),
-  };
+  const orgAcc = monthAcc.get('__org__') || emptyRollup();
   await orgRef.set({
     ...orgAcc,
     updatedAt: FieldValue.serverTimestamp(),
@@ -352,9 +448,44 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
     }, { merge: true });
   }
 
+  let dealerBatch = db.batch();
+  let dealerBatchOps = 0;
+  for (const [customerId, acc] of dealerAcc) {
+    if (!acc.count) continue;
+    dealerBatch.set(db.doc(`${INVOICE_DEALER_STATS_COLLECTION}/${customerId}`), {
+      customerId,
+      customerName: acc.customerName,
+      count: acc.count,
+      amount: acc.amount,
+      total: acc.total,
+      balance: acc.balance,
+      itemQuantity: acc.hasItemQuantity ? acc.itemQuantity : null,
+      byCategory: acc.byCategory,
+      amountByCategory: acc.amountByCategory,
+      documentAmountByCategory: acc.documentAmountByCategory,
+      latestDate: acc.latestDate,
+      latestSyncedAt: acc.latestSyncedAt,
+      updatedAt: FieldValue.serverTimestamp(),
+      rebuiltAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    dealerBatchOps += 1;
+    dealerDocs += 1;
+    if (dealerBatchOps >= 400) {
+      await dealerBatch.commit();
+      dealerBatch = db.batch();
+      dealerBatchOps = 0;
+    }
+  }
+  if (dealerBatchOps) await dealerBatch.commit();
+
   await setInvoiceListSource('summaries');
 
-  return { invoiceCount, summaryCount, monthDocs: monthAcc.size - 1 };
+  return {
+    invoiceCount,
+    summaryCount,
+    monthDocs: Math.max(0, monthAcc.size - 1),
+    dealerDocs,
+  };
 }
 
 function archiveCutoffDateKey(months = INVOICE_ARCHIVE_AGE_MONTHS) {

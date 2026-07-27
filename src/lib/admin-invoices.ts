@@ -478,6 +478,7 @@ export function aggregateAdminInvoicesByDealer(
         hasTaxTotal = true;
       }
       if (inv.invoiceCategory) categories.add(inv.invoiceCategory);
+      for (const category of inv.categories ?? []) categories.add(category);
     }
 
     const count = invoices.length;
@@ -624,20 +625,67 @@ export async function sumAdminInvoiceAmount(_options: {
   return 0;
 }
 
-/** One-time seed of invoiceStats / invoiceMonthStats / invoiceSummaries (super admin). */
+/** One-time seed of invoiceStats / invoiceMonthStats / invoiceSummaries / invoiceDealerStats. */
 export async function runInvoiceStatsBackfill(): Promise<{
   invoiceCount: number;
   summaryCount: number;
   monthDocs: number;
+  dealerDocs?: number;
 }> {
   const functions = getFunctions(app, 'asia-south1');
   const callable = httpsCallable<
     Record<string, never>,
-    { invoiceCount: number; summaryCount: number; monthDocs: number }
+    { invoiceCount: number; summaryCount: number; monthDocs: number; dealerDocs?: number }
   >(functions, 'backfillInvoiceStatsAndSummariesFn', { timeout: 540_000 });
   const result = await callable({});
   clearAdminInvoiceListCollectionCache();
   return result.data;
+}
+
+/** Map precomputed dealer lifetime rollups into Aggregate list rows. */
+export function mapAdminDealerStatsDoc(
+  docSnap: QueryDocumentSnapshot<DocumentData>,
+): AdminFirestoreInvoice {
+  const data = docSnap.data();
+  const customerId = String(data.customerId ?? docSnap.id);
+  const count = Number(data.count ?? 0);
+  const byCategory = (data.byCategory ?? {}) as Record<string, number>;
+  const amountByCategory = normalizeInvoiceCategoryAmounts(data.amountByCategory);
+  const categories = (['product', 'spare', 'software_key', 'service', 'gatc'] as const)
+    .filter(key => Number(byCategory[key] ?? 0) > 0);
+  const amount = Number(data.amount ?? 0);
+  return {
+    id: count === 1 ? customerId : `agg-${customerId}`,
+    customerId,
+    invoiceNumber: count === 1 ? (String(data.latestInvoiceNumber ?? '') || `${count} invoices`) : `${count} invoices`,
+    customerName: data.customerName ? String(data.customerName) : null,
+    date: data.latestDate ? String(data.latestDate) : null,
+    status: count === 1 ? String(data.latestStatus ?? 'aggregated') : 'aggregated',
+    total: Number(data.total ?? amount),
+    subtotal: Number.isFinite(amount) ? amount : null,
+    taxTotal: null,
+    balance: Number(data.balance ?? 0),
+    referenceNumber: null,
+    syncedAt: timestampToIso(data.latestSyncedAt),
+    itemQuantity: data.itemQuantity != null ? Number(data.itemQuantity) : null,
+    invoiceCategory: categories.length === 1 ? categories[0]! : null,
+    categories,
+    categoryAmounts: amountByCategory,
+    aggregateInvoiceCount: count,
+  };
+}
+
+/**
+ * Lifetime Aggregate: one slim read per dealer from invoiceDealerStats (no invoice scan).
+ * Org-wide only — not salesperson-partitioned.
+ */
+export async function fetchAdminDealerLifetimeAggregates(): Promise<AdminFirestoreInvoice[]> {
+  const snap = await getDocs(
+    query(collection(db, 'invoiceDealerStats'), orderBy('amount', 'desc')),
+  );
+  return snap.docs
+    .map(mapAdminDealerStatsDoc)
+    .filter(row => (row.aggregateInvoiceCount ?? 0) > 0);
 }
 
 export type AdminInvoiceStatsKpi = {

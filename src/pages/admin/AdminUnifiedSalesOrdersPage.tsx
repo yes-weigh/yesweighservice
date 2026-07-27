@@ -706,29 +706,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
               </span>
             </div>
           </div>
-          {category !== 'all' && (
-            <>
-              <div className="invoices-summary__divider" aria-hidden />
-              <div className="invoices-summary__kpi">
-                <span className="invoices-summary__kpi-icon" aria-hidden>
-                  <IndianRupee size={16} strokeWidth={2.4} />
-                </span>
-                <div className="invoices-summary__kpi-body">
-                  <span className="invoices-summary__kpi-label">Order Amount</span>
-                  <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                    {loading
-                      ? '…'
-                      : summary.currencyCode
-                        ? formatCurrency(summary.totalAmount, summary.currencyCode)
-                        : pageRows.length
-                          ? 'Mixed currencies'
-                          : formatCurrency(0)}
-                  </strong>
-                  <span className="invoices-summary__kpi-sub">This page</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
 
         {selectedDealers.length > 0 && (
@@ -890,7 +867,14 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                           </div>
                         </td>
                         <td className="invoices-table__num">{formatInvoiceItemQuantity(row.qty)}</td>
-                        <td className="invoices-table__num">{formatCurrency(row.amount, row.currencyCode)}</td>
+                        <td className="invoices-table__num">
+                          {formatCurrency(
+                            category === 'all'
+                              ? row.amount
+                              : Number(row.categoryAmounts[category] ?? row.amount ?? 0),
+                            row.currencyCode,
+                          )}
+                        </td>
                       </tr>
                       );
                     })}
@@ -935,7 +919,12 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                             </span>
                           </span>
                           <strong className="invoices-mobile-row__amount-value">
-                            {formatCurrency(row.amount, row.currencyCode)}
+                            {formatCurrency(
+                              category === 'all'
+                                ? row.amount
+                                : Number(row.categoryAmounts[category] ?? row.amount ?? 0),
+                              row.currencyCode,
+                            )}
                           </strong>
                         </span>
                         <strong className="invoices-mobile-row__company">
