@@ -186,6 +186,29 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
   return query(collectionGroup(db, listCollection), ...constraints);
 }
 
+function isFirestoreIndexError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /requires an index|COLLECTION_GROUP/i.test(msg);
+}
+
+type AdminInvoicesQueryOptions = AdminInvoiceListQuery & {
+  listCollection?: AdminInvoiceListCollection;
+};
+
+async function getAdminInvoicesQuerySnap(
+  options: AdminInvoicesQueryOptions,
+  listCollection: AdminInvoiceListCollection,
+): Promise<QuerySnapshot<DocumentData>> {
+  try {
+    return await getDocs(buildAdminInvoicesQuery({ ...options, listCollection }));
+  } catch (err) {
+    if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
+      return getDocs(buildAdminInvoicesQuery({ ...options, listCollection: 'invoices' }));
+    }
+    throw err;
+  }
+}
+
 export function subscribeAdminInvoices(
   sort: AdminInvoiceSort,
   pageSize: number,
@@ -230,7 +253,7 @@ export async function fetchAdminInvoicesPage(
     return [];
   }
   const listCollection = await resolveAdminInvoiceListCollection();
-  const snap = await getDocs(buildAdminInvoicesQuery({
+  const snap = await getAdminInvoicesQuerySnap({
     sort,
     pageSize,
     cursor,
@@ -238,8 +261,7 @@ export async function fetchAdminInvoicesPage(
     dateStart,
     dateEnd,
     salespersonIds,
-    listCollection,
-  }));
+  }, listCollection);
   return snap.docs.map(mapAdminInvoiceDoc);
 }
 
@@ -264,7 +286,7 @@ export async function fetchAdminInvoicesPageResult(options: {
   }
   const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
   const listCollection = await resolveAdminInvoiceListCollection();
-  const snap = await getDocs(buildAdminInvoicesQuery({
+  const snap = await getAdminInvoicesQuerySnap({
     sort: options.sort ?? 'date',
     pageSize,
     cursor: options.cursor ?? null,
@@ -272,8 +294,7 @@ export async function fetchAdminInvoicesPageResult(options: {
     dateStart: options.dateStart,
     dateEnd: options.dateEnd,
     salespersonIds: options.salespersonIds,
-    listCollection,
-  }));
+  }, listCollection);
   return {
     rows: snap.docs.map(mapAdminInvoiceDoc),
     lastDoc: snap.docs[snap.docs.length - 1] ?? null,
@@ -310,7 +331,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const pageQuery = buildAdminInvoicesQuery({
+    const pageSnap: QuerySnapshot<DocumentData> = await getAdminInvoicesQuerySnap({
       sort,
       pageSize: ADMIN_INVOICES_PAGE_SIZE,
       cursor,
@@ -318,9 +339,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
       dateStart: options.dateStart,
       dateEnd: options.dateEnd,
       salespersonIds: options.salespersonIds,
-      listCollection,
-    });
-    const pageSnap: QuerySnapshot<DocumentData> = await getDocs(pageQuery);
+    }, listCollection);
     if (pageSnap.empty) break;
     rows.push(...pageSnap.docs.map(mapAdminInvoiceDoc));
     cursor = pageSnap.docs[pageSnap.docs.length - 1] ?? null;
@@ -570,8 +589,17 @@ export async function countAdminInvoices(options: {
   }
 
   const countQuery = query(collectionGroup(db, listCollection), ...constraints);
-  const snap = await getCountFromServer(countQuery);
-  return snap.data().count;
+  try {
+    const snap = await getCountFromServer(countQuery);
+    return snap.data().count;
+  } catch (err) {
+    if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
+      const fallback = query(collectionGroup(db, 'invoices'), ...constraints);
+      const snap = await getCountFromServer(fallback);
+      return snap.data().count;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -599,6 +627,7 @@ export async function runInvoiceStatsBackfill(): Promise<{
     { invoiceCount: number; summaryCount: number; monthDocs: number }
   >(functions, 'backfillInvoiceStatsAndSummariesFn', { timeout: 540_000 });
   const result = await callable({});
+  clearAdminInvoiceListCollectionCache();
   return result.data;
 }
 

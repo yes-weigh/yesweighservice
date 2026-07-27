@@ -344,6 +344,22 @@
       ]
     },
     {
+      "collectionGroup": "invoiceSummaries",
+      "fieldPath": "syncedAt",
+      "ttl": false,
+      "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "invoiceSummaries",
+      "fieldPath": "date",
+      "ttl": false,
+      "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
       "collectionGroup": "purchaseOrders",
       "fieldPath": "syncedAt",
       "ttl": false,
