@@ -430,11 +430,33 @@ function resolvePeriodBounds(
     return { periodStart, periodEnd, prevPeriodStart, prevPeriodEnd };
   }
 
-  if (period === 'current_year') {
-    const periodStart = startOfDay(new Date(now.getFullYear(), 0, 1));
-    const prevPeriodStart = startOfDay(new Date(now.getFullYear() - 1, 0, 1));
-    const prevPeriodEnd = endOfDay(new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()));
-    return { periodStart, periodEnd, prevPeriodStart, prevPeriodEnd };
+  if (period === 'previous_month') {
+    const periodStart = startOfDay(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    const periodEndPrev = endOfDay(new Date(now.getFullYear(), now.getMonth(), 0));
+    const prevPeriodStart = startOfDay(new Date(now.getFullYear(), now.getMonth() - 2, 1));
+    const prevPeriodEnd = endOfDay(new Date(now.getFullYear(), now.getMonth() - 1, 0));
+    return {
+      periodStart,
+      periodEnd: periodEndPrev,
+      prevPeriodStart,
+      prevPeriodEnd,
+    };
+  }
+
+  if (period === 'previous_financial_year') {
+    const currentFyStart = financialYearStart(now);
+    const periodStart = startOfDay(new Date(currentFyStart));
+    periodStart.setFullYear(periodStart.getFullYear() - 1);
+    const periodEndPrev = endOfDay(addDays(currentFyStart, -1));
+    const prevPeriodStart = startOfDay(new Date(periodStart));
+    prevPeriodStart.setFullYear(prevPeriodStart.getFullYear() - 1);
+    const prevPeriodEnd = endOfDay(addDays(periodStart, -1));
+    return {
+      periodStart,
+      periodEnd: periodEndPrev,
+      prevPeriodStart,
+      prevPeriodEnd,
+    };
   }
 
   const periodStart = financialYearStart(now);
@@ -604,8 +626,9 @@ export function computeSalesForDateRange(
 export function formatKpiPeriodLabel(period: KpiPeriod): string {
   if (period === 'lifetime') return 'Lifetime';
   if (period === 'current_month') return 'Current month';
-  if (period === 'current_year') return 'Current year';
-  if (period === 'financial_year') return 'Financial year';
+  if (period === 'previous_month') return 'Previous month';
+  if (period === 'financial_year') return 'Current year (FY)';
+  if (period === 'previous_financial_year') return 'Previous year (FY)';
   if (period === 365) return '365 days';
   return `${period} days`;
 }
@@ -613,8 +636,9 @@ export function formatKpiPeriodLabel(period: KpiPeriod): string {
 export function formatKpiTrendLabel(period: KpiPeriod): string {
   if (period === 'lifetime') return '';
   if (period === 'current_month') return 'vs previous month';
-  if (period === 'current_year') return 'vs previous year';
-  if (period === 'financial_year') return 'vs previous financial year';
+  if (period === 'previous_month') return 'vs month before';
+  if (period === 'financial_year') return 'vs previous FY';
+  if (period === 'previous_financial_year') return 'vs prior FY';
   return `vs previous ${formatKpiPeriodLabel(period).toLowerCase()}`;
 }
 

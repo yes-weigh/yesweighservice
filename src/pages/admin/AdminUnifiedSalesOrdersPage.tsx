@@ -468,9 +468,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         const counts = countZohoRowsByCategory(rows);
         setZohoCategoryCounts(counts);
         setZohoTotal(category === 'all' ? counts.all : counts[category]);
-        setKpiCategoryAmount(rows.reduce((sum, row) => sum + Number(row.total ?? 0), 0));
-        setKpiDocumentAmount(rows.reduce((sum, row) => sum + Number(row.total ?? 0), 0));
-        setKpiSource('query');
       })
       .catch(err => {
         if (!cancelled) {

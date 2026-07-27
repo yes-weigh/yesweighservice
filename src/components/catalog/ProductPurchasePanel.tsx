@@ -319,7 +319,7 @@ export const ProductPurchasePanel: React.FC<{
                 aria-label="Period"
               >
                 <option value="month">This month</option>
-                <option value="financial_year">This year (financial year)</option>
+                <option value="financial_year">This year (FY)</option>
                 <option value="lifetime">Lifetime</option>
                 <option value="custom">Custom</option>
               </select>

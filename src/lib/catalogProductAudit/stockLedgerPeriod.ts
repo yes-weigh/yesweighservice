@@ -67,7 +67,7 @@ export function formatPeriodLabel(
   if (preset === 'financial_year') {
     return from && to
       ? `FY ${formatIsoLabel(from)} - ${formatIsoLabel(to)}`
-      : 'This financial year';
+      : 'This FY';
   }
   if (from && to) return `${formatIsoLabel(from)} - ${formatIsoLabel(to)}`;
   if (from) return `From ${formatIsoLabel(from)}`;

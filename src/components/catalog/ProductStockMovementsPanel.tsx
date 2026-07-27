@@ -278,7 +278,7 @@ export const ProductStockMovementsPanel: React.FC<{
     if (periodPreset === 'financial_year') {
       return period.from && period.to
         ? `FY ${formatIsoLabel(period.from)} - ${formatIsoLabel(period.to)}`
-        : 'This financial year';
+        : 'This FY';
     }
     if (period.from && period.to) return `${formatIsoLabel(period.from)} - ${formatIsoLabel(period.to)}`;
     if (period.from) return `From ${formatIsoLabel(period.from)}`;
@@ -389,7 +389,7 @@ export const ProductStockMovementsPanel: React.FC<{
                 aria-label="Period"
               >
                 <option value="month">This month</option>
-                <option value="financial_year">This year (financial year)</option>
+                <option value="financial_year">This year (FY)</option>
                 <option value="lifetime">Lifetime</option>
                 <option value="custom">Custom</option>
               </select>

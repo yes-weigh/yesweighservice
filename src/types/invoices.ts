@@ -159,8 +159,9 @@ export type KpiPeriod =
   | 365
   | 'lifetime'
   | 'current_month'
-  | 'current_year'
-  | 'financial_year';
+  | 'previous_month'
+  | 'financial_year'
+  | 'previous_financial_year';
 
 export type SalesRangePreset = KpiPeriod;
 
@@ -171,8 +172,9 @@ export const KPI_PERIOD_OPTIONS: Array<{ value: KpiPeriod; label: string }> = [
   { value: 365, label: 'Last 365 days' },
   { value: 'lifetime', label: 'Lifetime' },
   { value: 'current_month', label: 'Current month' },
-  { value: 'current_year', label: 'Current year' },
-  { value: 'financial_year', label: 'Current year (financial year)' },
+  { value: 'previous_month', label: 'Previous month' },
+  { value: 'financial_year', label: 'Current year (FY)' },
+  { value: 'previous_financial_year', label: 'Previous year (FY)' },
 ];
 
 export const SALES_RANGE_OPTIONS = KPI_PERIOD_OPTIONS;
