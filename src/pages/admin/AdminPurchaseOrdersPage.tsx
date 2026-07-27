@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import {
   AlertCircle,
+  ChevronRight,
   FileText,
   IndianRupee,
+  LayoutGrid,
   Search,
   ShoppingBag,
   SlidersHorizontal,
@@ -17,31 +20,52 @@ import {
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
-  buildAdminPurchaseOrderSalesEntries,
+  countAdminPurchaseOrdersByCategory,
+  fetchAdminPurchaseOrdersPageDetailed,
+  fetchAllAdminPurchaseOrdersInRange,
   filterAdminPurchaseOrders,
-  filterAdminPurchaseOrdersByPeriod,
-  subscribeAdminPurchaseOrders,
+  toPurchaseOrderDateKey,
   type AdminFirestorePurchaseOrder,
+  type AdminPurchaseOrderCategoryCounts,
   type AdminPurchaseOrderSort,
 } from '../../lib/admin-purchase-orders';
 import { formatCurrency } from '../../lib/catalog';
 import {
-  computeSalesForPeriod,
   formatInvoiceDate,
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
+  getInvoicePeriodBounds,
   invoiceCategoryLabel,
+  invoiceErrorMessage,
   invoiceStatusLabel,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
-import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
+import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
-const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
+const SEARCH_FETCH_SIZE = 100;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminPurchaseOrderSort = 'date';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
+
+const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'product', label: 'Product' },
+  { value: 'spare', label: 'Spares' },
+  { value: 'software_key', label: 'Software' },
+  { value: 'service', label: 'Service' },
+  { value: 'gatc', label: 'GATC' },
+];
+
+const EMPTY_CATEGORY_COUNTS: AdminPurchaseOrderCategoryCounts = {
+  all: 0,
+  product: 0,
+  spare: 0,
+  software_key: 0,
+  service: 0,
+  gatc: 0,
+};
 
 const SORT_OPTIONS: Array<{ value: AdminPurchaseOrderSort; label: string }> = [
   { value: 'date', label: 'PO date' },
@@ -53,35 +77,51 @@ function poStatusClass(status: string): string {
   return `invoices-status invoices-status--${key}`;
 }
 
+function totalsByCurrency(
+  rows: AdminFirestorePurchaseOrder[],
+  category: InvoiceCategory | 'all',
+): Array<{ currencyCode: string; total: number }> {
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    const code = (row.currencyCode || 'INR').toUpperCase();
+    const amount = category === 'all'
+      ? Number(row.total ?? 0)
+      : Number(row.categoryAmounts[category] ?? row.total ?? 0);
+    map.set(code, (map.get(code) ?? 0) + amount);
+  }
+  return [...map.entries()]
+    .map(([currencyCode, total]) => ({ currencyCode, total }))
+    .sort((a, b) => {
+      if (a.currencyCode === 'INR') return -1;
+      if (b.currencyCode === 'INR') return 1;
+      return a.currencyCode.localeCompare(b.currencyCode);
+    });
+}
+
 function PurchaseOrderFilterSheet({
   open,
   rangePreset,
-  category,
   sort,
   onClose,
   onApply,
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
-  category: InvoiceCategory | 'all';
   sort: AdminPurchaseOrderSort;
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
-    category: InvoiceCategory | 'all';
     sort: AdminPurchaseOrderSort;
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
-  const [draftCategory, setDraftCategory] = useState(category);
   const [draftSort, setDraftSort] = useState(sort);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
-    setDraftCategory(category);
     setDraftSort(sort);
-  }, [open, rangePreset, category, sort]);
+  }, [open, rangePreset, sort]);
 
   useEffect(() => {
     if (!open) return;
@@ -94,9 +134,7 @@ function PurchaseOrderFilterSheet({
 
   if (!open) return null;
 
-  const draftDirty = draftRange !== DEFAULT_RANGE
-    || draftCategory !== DEFAULT_CATEGORY
-    || draftSort !== DEFAULT_SORT;
+  const draftDirty = draftRange !== DEFAULT_RANGE || draftSort !== DEFAULT_SORT;
 
   return createPortal(
     <>
@@ -132,40 +170,16 @@ function PurchaseOrderFilterSheet({
               <span className="catalog-spares-multi-filters__label">Date range</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Date range">
                 {SALES_RANGE_OPTIONS.map(option => {
-                  const checked = draftRange === option.value;
-                  const id = `admin-po-range-${String(option.value)}`;
+                  const id = `po-range-${String(option.value)}`;
                   return (
                     <label key={String(option.value)} className="catalog-spares-multi-filters__option" htmlFor={id}>
                       <input
                         id={id}
                         type="radio"
                         className="catalog-spares-multi-filters__checkbox"
-                        name="admin-po-date-range"
-                        checked={checked}
+                        name="po-date-range"
+                        checked={draftRange === option.value}
                         onChange={() => setDraftRange(option.value)}
-                      />
-                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Category</span>
-              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Category">
-                {INVOICE_CATEGORY_FILTER_OPTIONS.map(option => {
-                  const checked = draftCategory === option.value;
-                  const id = `admin-po-category-${option.value}`;
-                  return (
-                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
-                      <input
-                        id={id}
-                        type="radio"
-                        className="catalog-spares-multi-filters__checkbox"
-                        name="admin-po-category"
-                        checked={checked}
-                        onChange={() => setDraftCategory(option.value)}
                       />
                       <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
                     </label>
@@ -178,16 +192,15 @@ function PurchaseOrderFilterSheet({
               <span className="catalog-spares-multi-filters__label">Sort by</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
                 {SORT_OPTIONS.map(option => {
-                  const checked = draftSort === option.value;
-                  const id = `admin-po-sort-${option.value}`;
+                  const id = `po-sort-${option.value}`;
                   return (
                     <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
                       <input
                         id={id}
                         type="radio"
                         className="catalog-spares-multi-filters__checkbox"
-                        name="admin-po-sort"
-                        checked={checked}
+                        name="po-sort"
+                        checked={draftSort === option.value}
                         onChange={() => setDraftSort(option.value)}
                       />
                       <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
@@ -203,11 +216,7 @@ function PurchaseOrderFilterSheet({
               type="button"
               className="catalog-spares-multi-filters__apply"
               onClick={() => {
-                onApply({
-                  rangePreset: draftRange,
-                  category: draftCategory,
-                  sort: draftSort,
-                });
+                onApply({ rangePreset: draftRange, sort: draftSort });
                 onClose();
               }}
             >
@@ -219,7 +228,6 @@ function PurchaseOrderFilterSheet({
               disabled={!draftDirty}
               onClick={() => {
                 setDraftRange(DEFAULT_RANGE);
-                setDraftCategory(DEFAULT_CATEGORY);
                 setDraftSort(DEFAULT_SORT);
               }}
             >
@@ -238,9 +246,17 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   const { pathname } = useLocation();
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
   const scrollRef = useRevealScrollbarOnScroll();
+  const pageStartCursors = useRef<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
+  const [pageCursorVersion, setPageCursorVersion] = useState(0);
+
   const [rows, setRows] = useState<AdminFirestorePurchaseOrder[]>([]);
+  const [amountRows, setAmountRows] = useState<AdminFirestorePurchaseOrder[]>([]);
+  const [categoryCounts, setCategoryCounts] = useState(EMPTY_CATEGORY_COUNTS);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [countsLoading, setCountsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [truncated, setTruncated] = useState(false);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<AdminPurchaseOrderSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
@@ -248,45 +264,120 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    setLoading(true);
-    setError('');
-    setRows([]);
-    const unsubscribe = subscribeAdminPurchaseOrders(
-      sort,
-      PAGE_SIZE,
-      next => {
-        setRows(next);
-        setLoading(false);
-      },
-      message => {
-        setError(message);
-        setLoading(false);
-      },
-      category,
-    );
-    return () => unsubscribe();
-  }, [sort, category]);
-
-  const periodRows = useMemo(
-    () => filterAdminPurchaseOrdersByPeriod(rows, rangePreset),
-    [rows, rangePreset],
-  );
-
-  const filtered = useMemo(
-    () => filterAdminPurchaseOrders(periodRows, search, category),
-    [periodRows, search, category],
-  );
+  const bounds = getInvoicePeriodBounds(rangePreset);
+  const dateStart = bounds?.start ? toPurchaseOrderDateKey(bounds.start) : null;
+  const dateEnd = bounds?.end ? toPurchaseOrderDateKey(bounds.end) : null;
+  const searchActive = Boolean(search.trim());
 
   useEffect(() => {
     setPage(1);
+    pageStartCursors.current = [null];
+    setPageCursorVersion(v => v + 1);
   }, [search, rangePreset, category, sort]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
+  useEffect(() => {
+    let cancelled = false;
+    setCountsLoading(true);
+    void countAdminPurchaseOrdersByCategory({ dateStart, dateEnd })
+      .then(counts => {
+        if (cancelled) return;
+        setCategoryCounts(counts);
+        setTotalCount(category === 'all' ? counts.all : counts[category]);
+      })
+      .catch(err => {
+        if (!cancelled) setError(invoiceErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setCountsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dateStart, dateEnd, category]);
+
+  // Full-period scan for amount KPIs (bounded).
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAllAdminPurchaseOrdersInRange({
+      sort,
+      category: 'all',
+      dateStart,
+      dateEnd,
+    })
+      .then(({ rows: next, truncated: wasTruncated }) => {
+        if (cancelled) return;
+        setAmountRows(next);
+        setTruncated(wasTruncated);
+      })
+      .catch(() => {
+        if (!cancelled) setAmountRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sort, dateStart, dateEnd]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cursor = pageStartCursors.current[page - 1] ?? null;
+    setLoading(true);
+    setError('');
+
+    void fetchAdminPurchaseOrdersPageDetailed({
+      sort,
+      pageSize: searchActive ? SEARCH_FETCH_SIZE : LIST_PAGE_SIZE,
+      cursor: searchActive ? null : cursor,
+      category: searchActive ? 'all' : category,
+      dateStart,
+      dateEnd,
+    })
+      .then(result => {
+        if (cancelled) return;
+        setRows(result.rows);
+        if (!searchActive && result.lastDoc) {
+          pageStartCursors.current[page] = result.lastDoc;
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setError(invoiceErrorMessage(err));
+          setRows([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page, pageCursorVersion, sort, category, dateStart, dateEnd, searchActive]);
+
+  const filtered = useMemo(
+    () => filterAdminPurchaseOrders(rows, search, searchActive ? category : 'all'),
+    [rows, search, category, searchActive],
+  );
+
+  const amountFiltered = useMemo(
+    () => filterAdminPurchaseOrders(amountRows, search, category),
+    [amountRows, search, category],
+  );
+
+  const clientPaged = searchActive;
+  const filteredTotal = searchActive ? filtered.length : totalCount;
   const pageRows = useMemo(() => {
-    const start = (page - 1) * LIST_PAGE_SIZE;
-    return filtered.slice(start, start + LIST_PAGE_SIZE);
-  }, [filtered, page]);
+    if (searchActive) {
+      const start = (page - 1) * LIST_PAGE_SIZE;
+      return filtered.slice(start, start + LIST_PAGE_SIZE);
+    }
+    return filtered;
+  }, [searchActive, filtered, page]);
+
+  const totalPages = useMemo(() => {
+    if (clientPaged) return Math.max(1, Math.ceil(filteredTotal / LIST_PAGE_SIZE));
+    if (filteredTotal <= 0) return 1;
+    return Math.ceil(filteredTotal / LIST_PAGE_SIZE);
+  }, [clientPaged, filteredTotal]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -297,45 +388,18 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   };
 
   const summary = useMemo(() => {
-    const salesEntries = buildAdminPurchaseOrderSalesEntries(filtered);
-    const sales = salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null;
-    const totalsByCurrencyMap = new Map<string, number>();
-    const categoryTotalsByCurrencyMap = new Map<string, number>();
-    for (const row of filtered) {
-      const code = (row.currencyCode || 'INR').toUpperCase();
-      totalsByCurrencyMap.set(code, (totalsByCurrencyMap.get(code) ?? 0) + (Number(row.total) || 0));
-      const categoryAmount = category === 'all'
-        ? Number(row.total ?? 0)
-        : Number(row.categoryAmounts[category] ?? row.total ?? 0);
-      categoryTotalsByCurrencyMap.set(code, (categoryTotalsByCurrencyMap.get(code) ?? 0) + categoryAmount);
-    }
-    const totalsByCurrency = [...totalsByCurrencyMap.entries()]
-      .map(([currencyCode, total]) => ({ currencyCode, total }))
-      .sort((a, b) => {
-        if (a.currencyCode === 'INR') return -1;
-        if (b.currencyCode === 'INR') return 1;
-        return a.currencyCode.localeCompare(b.currencyCode);
-      });
-    const categoryTotalsByCurrency = [...categoryTotalsByCurrencyMap.entries()]
-      .map(([currencyCode, total]) => ({ currencyCode, total }))
-      .sort((a, b) => {
-        if (a.currencyCode === 'INR') return -1;
-        if (b.currencyCode === 'INR') return 1;
-        return a.currencyCode.localeCompare(b.currencyCode);
-      });
+    const categoryTotalsByCurrency = totalsByCurrency(amountFiltered, category);
     return {
-      count: filtered.length,
-      totalsByCurrency,
+      count: filteredTotal,
       categoryTotalsByCurrency,
-      periodStart: sales?.periodStart ?? null,
-      periodEnd: sales?.periodEnd ?? new Date().toISOString(),
+      periodStart: bounds?.start?.toISOString() ?? null,
+      periodEnd: bounds?.end?.toISOString() ?? new Date().toISOString(),
     };
-  }, [filtered, rangePreset, category]);
+  }, [amountFiltered, category, filteredTotal, bounds]);
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
-  const hasActiveFilters = rangePreset !== DEFAULT_RANGE
-    || category !== DEFAULT_CATEGORY
-    || sort !== DEFAULT_SORT;
+  const hasActiveFilters = rangePreset !== DEFAULT_RANGE || sort !== DEFAULT_SORT;
+  const busy = loading || countsLoading;
 
   const headerTools = useMemo(
     () => (
@@ -394,10 +458,10 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
             <div className="invoices-summary__kpi-body">
               <span className="invoices-summary__kpi-label">Total POs</span>
               <strong className="invoices-summary__kpi-value">
-                {loading ? '…' : summary.count.toLocaleString('en-IN')}
+                {busy ? '…' : summary.count.toLocaleString('en-IN')}
               </strong>
               <span className="invoices-summary__kpi-sub">
-                {loading ? '—' : dateRange}
+                {busy ? '—' : dateRange}
               </span>
             </div>
           </div>
@@ -410,7 +474,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
               <span className="invoices-summary__kpi-label">
                 {category === 'all' ? 'Total Amount' : 'Category Amount'}
               </span>
-              {loading ? (
+              {busy ? (
                 <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">…</strong>
               ) : summary.categoryTotalsByCurrency.length === 0 ? (
                 <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
@@ -433,12 +497,49 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                 </ul>
               )}
               <span className="invoices-summary__kpi-sub">
-                {summary.categoryTotalsByCurrency.length > 1
-                  ? `${summary.categoryTotalsByCurrency.length} currencies`
-                  : (category === 'all' ? 'Amount' : `${invoiceCategoryLabel(category)} lines`)}
+                {truncated
+                  ? 'Partial (scan cap)'
+                  : summary.categoryTotalsByCurrency.length > 1
+                    ? `${summary.categoryTotalsByCurrency.length} currencies`
+                    : (category === 'all' ? 'Amount' : `${invoiceCategoryLabel(category)} lines`)}
               </span>
             </div>
           </div>
+        </div>
+
+        <div className="unified-so-category-blocks" role="tablist" aria-label="PO category">
+          {CATEGORY_BLOCKS.map(item => {
+            const active = category === item.value;
+            const count = item.value === 'all'
+              ? categoryCounts.all
+              : categoryCounts[item.value];
+            return (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`unified-so-category-block${active ? ' is-active' : ''}${
+                  item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
+                }`}
+                onClick={() => setCategory(item.value)}
+              >
+                <span className="unified-so-category-block__icon" aria-hidden>
+                  {item.value === 'all' ? (
+                    <span className="unified-so-category-block__icon--all">
+                      <LayoutGrid size={18} strokeWidth={2.2} />
+                    </span>
+                  ) : (
+                    <InvoiceCategoryIcon category={item.value} />
+                  )}
+                </span>
+                <span className="unified-so-category-block__label">{item.label}</span>
+                <span className="unified-so-category-block__count">
+                  {busy ? '…' : count.toLocaleString('en-IN')}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -452,7 +553,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
 
         {loading && rows.length === 0 ? (
           <FetchingLoader label="Loading purchase orders…" />
-        ) : filtered.length === 0 ? (
+        ) : pageRows.length === 0 ? (
           <div className="invoices-empty panel glass">
             <FileText size={40} className="text-muted" aria-hidden />
             <p>No purchase orders found for this period.</p>
@@ -462,7 +563,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
             {totalPages > 1 && (
               <div className="invoices-pagination invoices-pagination--top" role="navigation" aria-label="PO list pagination">
                 <span className="invoices-pagination__info text-muted text-sm">
-                  {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, filtered.length)} of {filtered.length.toLocaleString('en-IN')}
+                  {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, filteredTotal)} of {filteredTotal.toLocaleString('en-IN')}
                 </span>
                 <div className="invoices-pagination__btns">
                   <button
@@ -539,7 +640,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                             )}
                           </td>
                           <td>
-                            {categoryLabel ? (
+                            {categoryLabel || po.categories.length ? (
                               <span className="unified-so-order-cell__badges">
                                 <InvoiceCategoryBadgeList
                                   categories={po.categories}
@@ -582,12 +683,6 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                           {po.vendorName ?? '—'}
                         </strong>
                         <span className="invoices-mobile-row__pair invoices-mobile-row__pair--mid">
-                          <span className="unified-so-order-cell__badges">
-                            <InvoiceCategoryBadgeList
-                              categories={po.categories}
-                              invoiceCategory={po.purchaseOrderCategory}
-                            />
-                          </span>
                           <span className="invoices-mobile-row__date">
                             {formatInvoiceDate(po.date)}
                           </span>
@@ -612,6 +707,9 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                         </span>
                       </span>
                     </span>
+                    <span className="invoices-mobile-row__chevron" aria-hidden>
+                      <ChevronRight size={18} />
+                    </span>
                   </button>
                 ))}
               </div>
@@ -619,7 +717,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
             {totalPages > 1 && (
               <footer className="invoices-pagination invoices-pagination--sticky">
                 <span className="invoices-pagination__info text-muted text-sm">
-                  {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, filtered.length)} of {filtered.length.toLocaleString('en-IN')}
+                  {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, filteredTotal)} of {filteredTotal.toLocaleString('en-IN')}
                 </span>
                 <div className="invoices-pagination__btns">
                   <button
@@ -651,12 +749,10 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
       <PurchaseOrderFilterSheet
         open={filterOpen}
         rangePreset={rangePreset}
-        category={category}
         sort={sort}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
-          setCategory(next.category);
           setSort(next.sort);
         }}
       />

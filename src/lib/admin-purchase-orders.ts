@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
   limit,
@@ -34,8 +35,21 @@ import type {
 } from '../types/invoices';
 
 const functions = getFunctions(app, 'asia-south1');
+const ADMIN_PO_PAGE_SIZE = 100;
+const ADMIN_PO_AGGREGATE_MAX_ROWS = 2500;
 
 export type AdminPurchaseOrderSort = 'syncedAt' | 'date';
+
+export type AdminPurchaseOrderListQuery = {
+  sort?: AdminPurchaseOrderSort;
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  category?: InvoiceCategory | 'all';
+  /** Inclusive YYYY-MM-DD */
+  dateStart?: string | null;
+  /** Inclusive YYYY-MM-DD */
+  dateEnd?: string | null;
+};
 
 export interface AdminFirestorePurchaseOrder {
   id: string;
@@ -76,6 +90,21 @@ export interface AdminPurchaseOrderDetail {
   notes: string | null;
   lineItems: DealerInvoiceLineItem[];
 }
+
+export interface AdminPurchaseOrdersPageResult {
+  rows: AdminFirestorePurchaseOrder[];
+  docs: QueryDocumentSnapshot<DocumentData>[];
+  lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+}
+
+export type AdminPurchaseOrderCategoryCounts = {
+  all: number;
+  product: number;
+  spare: number;
+  software_key: number;
+  service: number;
+  gatc: number;
+};
 
 function timestampToIso(value: unknown): string | null {
   if (!value) return null;
@@ -122,27 +151,58 @@ export function mapAdminPurchaseOrderDoc(
     currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
-    itemQuantity: lineItems.length ? sumInvoiceProductQuantity(lineItems) : null,
+    itemQuantity: lineItems.length
+      ? sumInvoiceProductQuantity(lineItems)
+      : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
     purchaseOrderCategory: parseInvoiceCategory(data.purchaseOrderCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
   };
 }
 
-export function buildAdminPurchaseOrdersQuery(
+/** Format a Date as local YYYY-MM-DD for Firestore string date fields. */
+export function toPurchaseOrderDateKey(value: Date): string {
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function buildAdminPurchaseOrdersQuery(options: AdminPurchaseOrderListQuery) {
+  const sort = options.sort ?? 'date';
+  const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 100));
+  const category = options.category ?? 'all';
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const constraints: QueryConstraint[] = [];
+
+  if (category && category !== 'all') {
+    constraints.push(where('categories', 'array-contains', category));
+  }
+
+  if (dateStart || dateEnd) {
+    if (dateStart) constraints.push(where('date', '>=', dateStart));
+    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+    constraints.push(orderBy('date', 'desc'));
+  } else {
+    const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
+    constraints.push(orderBy(field, 'desc'));
+  }
+
+  if (options.cursor) constraints.push(startAfter(options.cursor));
+  constraints.push(limit(pageSize));
+
+  return query(collection(db, 'purchaseOrders'), ...constraints);
+}
+
+/** @deprecated Prefer buildAdminPurchaseOrdersQuery(options). */
+export function buildAdminPurchaseOrdersQueryLegacy(
   sort: AdminPurchaseOrderSort,
   pageSize: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
   category: InvoiceCategory | 'all' = 'all',
 ) {
-  const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
-  const constraints: QueryConstraint[] = [];
-  if (category && category !== 'all') {
-    constraints.push(where('categories', 'array-contains', category));
-  }
-  constraints.push(orderBy(field, 'desc'), limit(pageSize));
-  if (cursor) constraints.push(startAfter(cursor));
-  return query(collection(db, 'purchaseOrders'), ...constraints);
+  return buildAdminPurchaseOrdersQuery({ sort, pageSize, cursor, category });
 }
 
 export function subscribeAdminPurchaseOrders(
@@ -152,7 +212,7 @@ export function subscribeAdminPurchaseOrders(
   onError: (message: string) => void,
   category: InvoiceCategory | 'all' = 'all',
 ) {
-  const q = buildAdminPurchaseOrdersQuery(sort, pageSize, null, category);
+  const q = buildAdminPurchaseOrdersQuery({ sort, pageSize, cursor: null, category });
   return onSnapshot(
     q,
     snap => {
@@ -164,14 +224,132 @@ export function subscribeAdminPurchaseOrders(
   );
 }
 
+export async function fetchAdminPurchaseOrdersPageDetailed(
+  options: AdminPurchaseOrderListQuery,
+): Promise<AdminPurchaseOrdersPageResult> {
+  const snap = await getDocs(buildAdminPurchaseOrdersQuery(options));
+  return {
+    rows: snap.docs.map(mapAdminPurchaseOrderDoc),
+    docs: snap.docs,
+    lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
+  };
+}
+
 export async function fetchAdminPurchaseOrdersPage(
-  sort: AdminPurchaseOrderSort,
-  pageSize: number,
+  sortOrOptions: AdminPurchaseOrderSort | AdminPurchaseOrderListQuery,
+  pageSize?: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
   category: InvoiceCategory | 'all' = 'all',
 ): Promise<AdminFirestorePurchaseOrder[]> {
-  const snap = await getDocs(buildAdminPurchaseOrdersQuery(sort, pageSize, cursor, category));
-  return snap.docs.map(mapAdminPurchaseOrderDoc);
+  const options: AdminPurchaseOrderListQuery = typeof sortOrOptions === 'string'
+    ? { sort: sortOrOptions, pageSize, cursor, category }
+    : sortOrOptions;
+  const result = await fetchAdminPurchaseOrdersPageDetailed(options);
+  return result.rows;
+}
+
+export async function countAdminPurchaseOrders(
+  options: Omit<AdminPurchaseOrderListQuery, 'pageSize' | 'cursor'>,
+): Promise<number> {
+  const sort = options.sort ?? 'date';
+  const category = options.category ?? 'all';
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const constraints: QueryConstraint[] = [];
+
+  if (category && category !== 'all') {
+    constraints.push(where('categories', 'array-contains', category));
+  }
+  if (dateStart || dateEnd) {
+    if (dateStart) constraints.push(where('date', '>=', dateStart));
+    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+    constraints.push(orderBy('date', 'desc'));
+  } else if (sort === 'syncedAt') {
+    constraints.push(orderBy('syncedAt', 'desc'));
+  } else {
+    constraints.push(orderBy('date', 'desc'));
+  }
+
+  const snap = await getCountFromServer(query(collection(db, 'purchaseOrders'), ...constraints));
+  return snap.data().count;
+}
+
+export async function countAdminPurchaseOrdersByCategory(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<AdminPurchaseOrderCategoryCounts> {
+  const base = {
+    dateStart: options.dateStart ?? null,
+    dateEnd: options.dateEnd ?? null,
+  } as const;
+
+  const [all, product, spare, software_key, service, gatc] = await Promise.all([
+    countAdminPurchaseOrders({ ...base, category: 'all' }),
+    countAdminPurchaseOrders({ ...base, category: 'product' }),
+    countAdminPurchaseOrders({ ...base, category: 'spare' }),
+    countAdminPurchaseOrders({ ...base, category: 'software_key' }),
+    countAdminPurchaseOrders({ ...base, category: 'service' }),
+    countAdminPurchaseOrders({ ...base, category: 'gatc' }),
+  ]);
+
+  return { all, product, spare, software_key, service, gatc };
+}
+
+export function countPurchaseOrderRowsByCategory(
+  rows: AdminFirestorePurchaseOrder[],
+): AdminPurchaseOrderCategoryCounts {
+  const counts: AdminPurchaseOrderCategoryCounts = {
+    all: rows.length,
+    product: 0,
+    spare: 0,
+    software_key: 0,
+    service: 0,
+    gatc: 0,
+  };
+  for (const row of rows) {
+    const categories = row.categories.length
+      ? row.categories
+      : (row.purchaseOrderCategory ? [row.purchaseOrderCategory] : []);
+    for (const key of categories) {
+      counts[key] += 1;
+    }
+  }
+  return counts;
+}
+
+export async function fetchAllAdminPurchaseOrdersInRange(options: {
+  sort?: AdminPurchaseOrderSort;
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  maxRows?: number;
+}): Promise<{ rows: AdminFirestorePurchaseOrder[]; truncated: boolean }> {
+  const maxRows = options.maxRows ?? ADMIN_PO_AGGREGATE_MAX_ROWS;
+  const rows: AdminFirestorePurchaseOrder[] = [];
+  let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+  let truncated = false;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const result = await fetchAdminPurchaseOrdersPageDetailed({
+      sort: options.sort ?? 'date',
+      pageSize: ADMIN_PO_PAGE_SIZE,
+      cursor,
+      category: options.category ?? 'all',
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+    });
+    if (!result.rows.length) break;
+    rows.push(...result.rows);
+    cursor = result.lastDoc;
+    if (rows.length >= maxRows) {
+      truncated = true;
+      break;
+    }
+    if (result.rows.length < ADMIN_PO_PAGE_SIZE) break;
+  }
+
+  return { rows: truncated ? rows.slice(0, maxRows) : rows, truncated };
 }
 
 export function filterAdminPurchaseOrders(

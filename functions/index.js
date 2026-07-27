@@ -89,6 +89,7 @@ import {
   archiveOldInvoices,
   backfillInvoiceStatsAndSummaries,
 } from './lib/invoice-stats.js';
+import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
 import {
   listCachedZohoSalespersons,
   syncZohoSalespersonsToFirestore,
@@ -2109,6 +2110,26 @@ export const backfillInvoiceStatsAndSummariesFn = onCall(
     } catch (err) {
       console.error('backfillInvoiceStatsAndSummaries failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice stats backfill failed.');
+    }
+  },
+);
+
+/**
+ * Rebuild salesOrderStats + salesOrderMonthStats + salesOrderDealerStats (one-shot / rare).
+ */
+export const backfillSalesOrderStatsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillSalesOrderStats();
+    } catch (err) {
+      console.error('backfillSalesOrderStats failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Sales order stats backfill failed.');
     }
   },
 );

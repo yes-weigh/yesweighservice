@@ -537,12 +537,6 @@ export const AdminSalesOrdersPage: React.FC = () => {
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__title">
-                          <span className="unified-so-order-cell__badges">
-                            <InvoiceCategoryBadgeList
-                              categories={po.categories}
-                              invoiceCategory={po.salesOrderCategory}
-                            />
-                          </span>
                           <strong>{po.salesOrderNumber || po.id}</strong>
                         </span>
                         <span className="invoices-mobile-row__so">

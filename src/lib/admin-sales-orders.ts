@@ -418,18 +418,143 @@ export function countZohoRowsByCategory(
     gatc: 0,
   };
   for (const row of rows) {
-    const key = row.salesOrderCategory;
-    if (
-      key === 'product'
-      || key === 'spare'
-      || key === 'software_key'
-      || key === 'service'
-      || key === 'gatc'
-    ) {
+    const categories = row.categories.length
+      ? row.categories
+      : (row.salesOrderCategory ? [row.salesOrderCategory] : []);
+    for (const key of categories) {
       counts[key] += 1;
     }
   }
   return counts;
+}
+
+const ADMIN_SO_AGGREGATE_MAX_ROWS = 2500;
+const ADMIN_SO_PAGE_SIZE = 100;
+
+function isFirestoreIndexError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /requires an index|COLLECTION_GROUP|COLLECTION_DESC|COLLECTION_ASC/i.test(msg);
+}
+
+function compareSalesOrderSortKey(
+  a: AdminFirestoreSalesOrder,
+  b: AdminFirestoreSalesOrder,
+  sort: AdminSalesOrderSort,
+): number {
+  if (sort === 'syncedAt') {
+    return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+  }
+  const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
+  if (byDate) return byDate;
+  return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+}
+
+/** Club sales orders into one row per dealer (sums amounts / qty; latest date). */
+export function aggregateAdminSalesOrdersByDealer(
+  rows: AdminFirestoreSalesOrder[],
+  sort: AdminSalesOrderSort = 'date',
+): AdminFirestoreSalesOrder[] {
+  const byCustomer = new Map<string, AdminFirestoreSalesOrder[]>();
+  for (const row of rows) {
+    const key = row.customerId || '__unknown__';
+    const list = byCustomer.get(key);
+    if (list) list.push(row);
+    else byCustomer.set(key, [row]);
+  }
+
+  const aggregates: AdminFirestoreSalesOrder[] = [];
+  for (const [customerId, orders] of byCustomer) {
+    const ordered = [...orders].sort((a, b) => compareSalesOrderSortKey(a, b, sort));
+    const latest = ordered[0];
+    let total = 0;
+    let balance = 0;
+    let itemQuantity = 0;
+    const categories = new Set<InvoiceCategory>();
+    const categoryAmounts: Partial<Record<InvoiceCategory, number>> = {};
+
+    for (const order of orders) {
+      total += Number(order.total ?? 0);
+      balance += Number(order.balance ?? 0);
+      if (order.itemQuantity != null) itemQuantity += order.itemQuantity;
+      if (order.salesOrderCategory) categories.add(order.salesOrderCategory);
+      for (const category of order.categories ?? []) categories.add(category);
+      for (const [cat, amount] of Object.entries(order.categoryAmounts ?? {})) {
+        const key = cat as InvoiceCategory;
+        categoryAmounts[key] = (categoryAmounts[key] ?? 0) + Number(amount ?? 0);
+      }
+    }
+
+    const count = orders.length;
+    aggregates.push({
+      ...latest,
+      id: count === 1 ? latest.id : `agg-${customerId}`,
+      customerId: customerId === '__unknown__' ? '' : customerId,
+      salesOrderNumber: count === 1 ? (latest.salesOrderNumber || latest.id) : `${count} orders`,
+      status: count === 1 ? latest.status : 'aggregated',
+      total,
+      balance,
+      categories: [...categories],
+      categoryAmounts,
+      referenceNumber: count === 1 ? latest.referenceNumber : null,
+      itemQuantity: orders.some(o => o.itemQuantity != null) ? itemQuantity : null,
+      salesOrderCategory: categories.size === 1 ? [...categories][0]! : null,
+      yesOneStage: count === 1 ? latest.yesOneStage : null,
+      yesOneCreatedFromCart: count === 1 ? latest.yesOneCreatedFromCart : false,
+    });
+  }
+
+  return aggregates.sort((a, b) => {
+    const amountDiff = Number(b.total ?? 0) - Number(a.total ?? 0);
+    if (amountDiff !== 0) return amountDiff;
+    return compareSalesOrderSortKey(a, b, sort);
+  });
+}
+
+/** Bounded scan of sales orders in a date window (for aggregate / full-period amounts). */
+export async function fetchAllAdminSalesOrdersInRange(options: {
+  sort?: AdminSalesOrderSort;
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+  statusIn?: readonly string[] | null;
+  maxRows?: number;
+}): Promise<{ rows: AdminFirestoreSalesOrder[]; truncated: boolean }> {
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return { rows: [], truncated: false };
+  }
+
+  const maxRows = options.maxRows ?? ADMIN_SO_AGGREGATE_MAX_ROWS;
+  const rows: AdminFirestoreSalesOrder[] = [];
+  let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+  let truncated = false;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const result = await fetchAdminSalesOrdersPageDetailed({
+      sort: options.sort ?? 'date',
+      pageSize: ADMIN_SO_PAGE_SIZE,
+      cursor,
+      category: options.category ?? 'all',
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      statusIn: options.statusIn,
+      salespersonIds: options.salespersonIds,
+    });
+    if (!result.rows.length) break;
+    rows.push(...result.rows);
+    cursor = result.lastDoc;
+    if (rows.length >= maxRows) {
+      truncated = true;
+      break;
+    }
+    if (result.rows.length < ADMIN_SO_PAGE_SIZE) break;
+  }
+
+  return { rows: truncated ? rows.slice(0, maxRows) : rows, truncated };
 }
 
 /**
@@ -468,26 +593,43 @@ export async function fetchAdminSalesOrdersForCustomers(options: {
     const rows: AdminFirestoreSalesOrder[] = [];
     let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
 
-    while (rows.length < maxPerCustomer) {
+    const buildConstraints = (ordered: boolean, pageCursor: QueryDocumentSnapshot<DocumentData> | null) => {
       const constraints: QueryConstraint[] = [where('customerId', '==', customerId)];
       if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
-        return [];
+        return 'empty' as const;
       }
       if (dateStart) constraints.push(where('date', '>=', dateStart));
       if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-      if (dateStart || dateEnd || sort !== 'syncedAt') {
-        constraints.push(orderBy('date', 'desc'));
-      } else {
-        constraints.push(orderBy('syncedAt', 'desc'));
+      if (ordered) {
+        if (dateStart || dateEnd || sort !== 'syncedAt') {
+          constraints.push(orderBy('date', 'desc'));
+        } else {
+          constraints.push(orderBy('syncedAt', 'desc'));
+        }
+        if (pageCursor) constraints.push(startAfter(pageCursor));
+        constraints.push(limit(Math.min(pageSize, maxPerCustomer - rows.length)));
       }
-      if (cursor) constraints.push(startAfter(cursor));
-      constraints.push(limit(Math.min(pageSize, maxPerCustomer - rows.length)));
+      return constraints;
+    };
 
+    try {
+      while (rows.length < maxPerCustomer) {
+        const constraints = buildConstraints(true, cursor);
+        if (constraints === 'empty') return [];
+        const snap = await getDocs(query(collection(db, 'salesOrders'), ...constraints));
+        if (snap.empty) break;
+        rows.push(...snap.docs.map(mapAdminSalesOrderDoc));
+        cursor = snap.docs[snap.docs.length - 1];
+        if (snap.size < pageSize) break;
+      }
+    } catch (err) {
+      if (!isFirestoreIndexError(err)) throw err;
+      rows.length = 0;
+      const constraints = buildConstraints(false, null);
+      if (constraints === 'empty') return [];
       const snap = await getDocs(query(collection(db, 'salesOrders'), ...constraints));
-      if (snap.empty) break;
-      rows.push(...snap.docs.map(mapAdminSalesOrderDoc));
-      cursor = snap.docs[snap.docs.length - 1];
-      if (snap.size < pageSize) break;
+      rows.push(...snap.docs.map(mapAdminSalesOrderDoc).slice(0, maxPerCustomer));
+      rows.sort((a, b) => compareSalesOrderSortKey(a, b, sort));
     }
     return rows;
   }));
@@ -706,4 +848,205 @@ export async function downloadSalesOrderDocument(
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
   }
+}
+
+function emptySoCategoryCounts(): AdminSalesOrderCategoryCounts {
+  return {
+    all: 0,
+    product: 0,
+    spare: 0,
+    software_key: 0,
+    service: 0,
+    gatc: 0,
+  };
+}
+
+function monthKeysForSoRange(dateStart: string | null, dateEnd: string | null): string[] | null {
+  if (!dateStart || !dateEnd) return null;
+  const start = dateStart.slice(0, 7);
+  const end = dateEnd.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(start) || !/^\d{4}-\d{2}$/.test(end)) return null;
+  const keys: string[] = [];
+  let [y, m] = start.split('-').map(Number);
+  const [ey, em] = end.split('-').map(Number);
+  for (let i = 0; i < 24; i += 1) {
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    keys.push(key);
+    if (y === ey && m === em) break;
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return keys;
+}
+
+function mapAdminSalesOrderDealerStatsDoc(
+  docSnap: QueryDocumentSnapshot<DocumentData>,
+): AdminFirestoreSalesOrder & { aggregateOrderCount: number } {
+  const data = docSnap.data() ?? {};
+  const count = Number(data.count ?? 0);
+  const byCategory = (data.byCategory ?? {}) as Record<string, number>;
+  const amountByCategory = normalizeInvoiceCategoryAmounts(data.amountByCategory);
+  const categories = (['product', 'spare', 'software_key', 'service', 'gatc'] as const)
+    .filter(key => Number(byCategory[key] ?? 0) > 0);
+  const amount = Number(data.amount ?? 0);
+  const customerId = String(data.customerId ?? docSnap.id);
+  return {
+    id: count === 1 ? customerId : `agg-${customerId}`,
+    salesOrderNumber: `${count} orders`,
+    customerId,
+    customerName: data.customerName ? String(data.customerName) : null,
+    date: data.latestDate ? String(data.latestDate) : null,
+    shipmentDate: null,
+    status: count === 1 ? 'open' : 'aggregated',
+    total: Number(data.total ?? amount),
+    balance: Number(data.balance ?? 0),
+    currencyCode: 'INR',
+    referenceNumber: null,
+    syncedAt: timestampToIso(data.latestSyncedAt) ?? timestampToIso(data.updatedAt),
+    itemQuantity: data.itemQuantity != null ? Number(data.itemQuantity) : null,
+    salesOrderCategory: categories.length === 1 ? categories[0]! : null,
+    categories: [...categories],
+    categoryAmounts: amountByCategory,
+    yesOneStage: null,
+    yesOneCreatedFromCart: false,
+    aggregateOrderCount: count,
+  };
+}
+
+/**
+ * Lifetime Aggregate: one slim read per dealer from salesOrderDealerStats.
+ * Org-wide only — not salesperson-partitioned.
+ */
+export async function fetchAdminSalesOrderDealerLifetimeAggregates(): Promise<AdminFirestoreSalesOrder[]> {
+  const snap = await getDocs(
+    query(collection(db, 'salesOrderDealerStats'), orderBy('amount', 'desc')),
+  );
+  return snap.docs
+    .map(mapAdminSalesOrderDealerStatsDoc)
+    .filter(row => (row.aggregateOrderCount ?? 0) > 0)
+    .map(({ aggregateOrderCount: _count, ...row }) => row);
+}
+
+export type AdminSalesOrderStatsKpi = {
+  orderCount: number;
+  categoryAmount: number;
+  documentAmount: number;
+  totalAmount: number;
+  categoryCounts: AdminSalesOrderCategoryCounts;
+  source: 'rollup' | 'query';
+};
+
+/**
+ * Prefer precomputed salesOrderStats / salesOrderMonthStats when salesperson is org-wide.
+ */
+export async function loadAdminSalesOrderKpis(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  category?: InvoiceCategory | 'all';
+  salespersonIds?: string[] | null;
+}): Promise<AdminSalesOrderStatsKpi> {
+  const category = options.category ?? 'all';
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const scoped = options.salespersonIds != null;
+
+  if (!scoped) {
+    try {
+      if (!dateStart && !dateEnd) {
+        const org = await getDoc(doc(db, 'salesOrderStats', 'org'));
+        if (org.exists()) {
+          const data = org.data() ?? {};
+          const byCategory = (data.byCategory ?? {}) as Record<string, number>;
+          const amountByCategory = (data.amountByCategory ?? {}) as Record<string, number>;
+          const documentAmountByCategory = (data.documentAmountByCategory ?? {}) as Record<string, number>;
+          const categoryCounts: AdminSalesOrderCategoryCounts = {
+            all: Number(data.count ?? 0),
+            product: Number(byCategory.product ?? 0),
+            spare: Number(byCategory.spare ?? 0),
+            software_key: Number(byCategory.software_key ?? 0),
+            service: Number(byCategory.service ?? 0),
+            gatc: Number(byCategory.gatc ?? 0),
+          };
+          const categoryAmount = category === 'all'
+            ? Number(data.amount ?? 0)
+            : Number(amountByCategory[category] ?? 0);
+          const documentAmount = category === 'all'
+            ? Number(data.amount ?? 0)
+            : Number(documentAmountByCategory[category] ?? 0);
+          return {
+            orderCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
+            categoryAmount,
+            documentAmount,
+            totalAmount: documentAmount,
+            categoryCounts,
+            source: 'rollup',
+          };
+        }
+      } else {
+        const keys = monthKeysForSoRange(dateStart, dateEnd);
+        if (keys?.length) {
+          const snaps = await Promise.all(
+            keys.map(key => getDoc(doc(db, 'salesOrderMonthStats', key))),
+          );
+          const categoryCounts = emptySoCategoryCounts();
+          let totalAmountAll = 0;
+          const amountByCategory: Record<string, number> = {
+            product: 0, spare: 0, software_key: 0, service: 0, gatc: 0,
+          };
+          const documentAmountByCategory: Record<string, number> = {
+            product: 0, spare: 0, software_key: 0, service: 0, gatc: 0,
+          };
+          let any = false;
+          for (const snap of snaps) {
+            if (!snap.exists()) continue;
+            any = true;
+            const data = snap.data() ?? {};
+            categoryCounts.all += Number(data.count ?? 0);
+            totalAmountAll += Number(data.amount ?? 0);
+            const byCategory = (data.byCategory ?? {}) as Record<string, number>;
+            const amounts = (data.amountByCategory ?? {}) as Record<string, number>;
+            const documentAmounts = (data.documentAmountByCategory ?? {}) as Record<string, number>;
+            for (const key of ['product', 'spare', 'software_key', 'service', 'gatc'] as const) {
+              categoryCounts[key] += Number(byCategory[key] ?? 0);
+              amountByCategory[key] += Number(amounts[key] ?? 0);
+              documentAmountByCategory[key] += Number(documentAmounts[key] ?? 0);
+            }
+          }
+          if (any) {
+            const categoryAmount = category === 'all' ? totalAmountAll : amountByCategory[category];
+            const documentAmount = category === 'all'
+              ? totalAmountAll
+              : documentAmountByCategory[category];
+            return {
+              orderCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
+              categoryAmount,
+              documentAmount,
+              totalAmount: documentAmount,
+              categoryCounts,
+              source: 'rollup',
+            };
+          }
+        }
+      }
+    } catch {
+      // Fall through to query counts.
+    }
+  }
+
+  const counts = await countAdminSalesOrdersByCategory({
+    dateStart,
+    dateEnd,
+    salespersonIds: options.salespersonIds,
+  });
+  return {
+    orderCount: category === 'all' ? counts.all : counts[category],
+    categoryAmount: 0,
+    documentAmount: 0,
+    totalAmount: 0,
+    categoryCounts: counts,
+    source: 'query',
+  };
 }

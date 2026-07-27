@@ -26,10 +26,14 @@ import {
   type DealerFilterSelection,
 } from '../../components/dealers/DealerMultiFilterPicker';
 import {
-  countAdminSalesOrdersByCategory,
+  aggregateAdminSalesOrdersByDealer,
   countZohoRowsByCategory,
+  fetchAdminSalesOrderDealerLifetimeAggregates,
   fetchAdminSalesOrdersForCustomers,
   fetchAdminSalesOrdersPageDetailed,
+  fetchAllAdminSalesOrdersInRange,
+  filterAdminSalesOrders,
+  loadAdminSalesOrderKpis,
   toSalesOrderDateKey,
   type AdminFirestoreSalesOrder,
   type AdminSalesOrderCategoryCounts,
@@ -94,6 +98,9 @@ function UnifiedFilterSheet({
   rangePreset,
   sort,
   dealers,
+  aggregate,
+  aggregateAllowed,
+  lifetimeAggregateAllowed,
   onClose,
   onApply,
 }: {
@@ -101,23 +108,29 @@ function UnifiedFilterSheet({
   rangePreset: SalesRangePreset;
   sort: AdminSalesOrderSort;
   dealers: DealerFilterSelection[];
+  aggregate: boolean;
+  aggregateAllowed: boolean;
+  lifetimeAggregateAllowed: boolean;
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
     sort: AdminSalesOrderSort;
     dealers: DealerFilterSelection[];
+    aggregate: boolean;
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
   const [draftSort, setDraftSort] = useState(sort);
   const [draftDealers, setDraftDealers] = useState<DealerFilterSelection[]>(dealers);
+  const [draftAggregate, setDraftAggregate] = useState(aggregate);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
     setDraftSort(sort);
     setDraftDealers(dealers);
-  }, [open, rangePreset, sort, dealers]);
+    setDraftAggregate(aggregate);
+  }, [open, rangePreset, sort, dealers, aggregate]);
 
   useEffect(() => {
     if (!open) return;
@@ -132,7 +145,8 @@ function UnifiedFilterSheet({
 
   const draftDirty = draftRange !== DEFAULT_RANGE
     || draftSort !== DEFAULT_SORT
-    || draftDealers.length > 0;
+    || draftDealers.length > 0
+    || draftAggregate;
 
   return createPortal(
     <>
@@ -212,6 +226,38 @@ function UnifiedFilterSheet({
                 })}
               </div>
             </div>
+
+            <div className="catalog-spares-multi-filters__group">
+              <div className="logistics-filter-supermode">
+                <div className="logistics-filter-supermode__copy">
+                  <strong>Aggregate</strong>
+                  <span className="text-muted text-sm">
+                    {aggregateAllowed
+                      ? (lifetimeAggregateAllowed
+                        ? 'One row per dealer — Lifetime uses precomputed dealer totals'
+                        : 'One row per dealer for the selected period')
+                      : 'Pick a date range (or dealers) to enable'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draftAggregate}
+                  aria-label="Aggregate sales orders by dealer"
+                  disabled={!aggregateAllowed && !draftAggregate}
+                  className={[
+                    'logistics-filter-supermode__switch',
+                    draftAggregate ? 'logistics-filter-supermode__switch--on' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => {
+                    if (!aggregateAllowed && !draftAggregate) return;
+                    setDraftAggregate(prev => !prev);
+                  }}
+                >
+                  <span className="logistics-filter-supermode__knob" />
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="catalog-spares-multi-filters__footer">
@@ -223,6 +269,7 @@ function UnifiedFilterSheet({
                   rangePreset: draftRange,
                   sort: draftSort,
                   dealers: draftDealers,
+                  aggregate: draftAggregate && aggregateAllowed,
                 });
                 onClose();
               }}
@@ -237,6 +284,7 @@ function UnifiedFilterSheet({
                 setDraftRange(DEFAULT_RANGE);
                 setDraftSort(DEFAULT_SORT);
                 setDraftDealers([]);
+                setDraftAggregate(false);
               }}
             >
               Clear
@@ -275,12 +323,17 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
+  const [aggregate, setAggregate] = useState(false);
+  const [truncated, setTruncated] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [zohoTotal, setZohoTotal] = useState(0);
   const [zohoCategoryCounts, setZohoCategoryCounts] = useState<AdminSalesOrderCategoryCounts>(
     EMPTY_CATEGORY_COUNTS,
   );
+  const [kpiCategoryAmount, setKpiCategoryAmount] = useState(0);
+  const [kpiDocumentAmount, setKpiDocumentAmount] = useState(0);
+  const [kpiSource, setKpiSource] = useState<'rollup' | 'query'>('query');
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
@@ -293,11 +346,20 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const dateEnd = bounds ? toSalesOrderDateKey(bounds.end) : null;
   const searchActive = Boolean(search.trim());
   const dealerScoped = selectedDealers.length > 0;
+  const orgWide = salespersonIds == null;
+  const lifetimeAggregateAllowed = rangePreset === 'lifetime' && orgWide && !dealerScoped;
+  const aggregateAllowed = Boolean(dateStart && dateEnd) || dealerScoped || lifetimeAggregateAllowed;
+  const useAggregate = aggregate && aggregateAllowed;
+  const useLifetimeDealerRollups = useAggregate && lifetimeAggregateAllowed;
   const selectedCustomerIds = useMemo(
     () => selectedDealers.map(d => d.id),
     [selectedDealers],
   );
   const selectedCustomerKey = selectedCustomerIds.join('|');
+
+  useEffect(() => {
+    if (aggregate && !aggregateAllowed) setAggregate(false);
+  }, [aggregate, aggregateAllowed]);
 
   // Seed selection from ?dealerId= / ?dealers=
   useEffect(() => {
@@ -352,9 +414,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, category, sort, selectedCustomerKey, salespersonScopeKey]);
+  }, [search, rangePreset, category, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
 
-  // Server category counts for Zoho (org-wide). Dealer-scoped counts come from loaded rows.
+  // Server category counts + amount KPIs (org-wide rollups when available).
   useEffect(() => {
     let cancelled = false;
     if (dealerScoped) {
@@ -362,15 +424,19 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       return;
     }
     setCountsLoading(true);
-    void countAdminSalesOrdersByCategory({
+    void loadAdminSalesOrderKpis({
       dateStart,
       dateEnd,
+      category,
       salespersonIds,
     })
-      .then(counts => {
+      .then(kpi => {
         if (cancelled) return;
-        setZohoCategoryCounts(counts);
-        setZohoTotal(category === 'all' ? counts.all : counts[category]);
+        setZohoCategoryCounts(kpi.categoryCounts);
+        setZohoTotal(kpi.orderCount);
+        setKpiCategoryAmount(kpi.categoryAmount);
+        setKpiDocumentAmount(kpi.documentAmount);
+        setKpiSource(kpi.source);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -404,6 +470,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         const counts = countZohoRowsByCategory(rows);
         setZohoCategoryCounts(counts);
         setZohoTotal(category === 'all' ? counts.all : counts[category]);
+        setKpiCategoryAmount(rows.reduce((sum, row) => sum + Number(row.total ?? 0), 0));
+        setKpiDocumentAmount(rows.reduce((sum, row) => sum + Number(row.total ?? 0), 0));
+        setKpiSource('query');
       })
       .catch(err => {
         if (!cancelled) {
@@ -434,14 +503,55 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     setZohoTotal(category === 'all' ? zohoCategoryCounts.all : zohoCategoryCounts[category]);
   }, [dealerScoped, category, zohoCategoryCounts]);
 
-  // Org-wide: server-paged Zoho feed.
+  // Org-wide: server-paged Zoho feed (or bounded aggregate scan).
   useEffect(() => {
     let cancelled = false;
     if (dealerScoped) return;
 
-    const cursor = pageStartCursors.current[page - 1] ?? null;
     setZohoLoading(true);
     setError('');
+    setTruncated(false);
+
+    if (useAggregate) {
+      const load = useLifetimeDealerRollups
+        ? fetchAdminSalesOrderDealerLifetimeAggregates().then(rows => ({
+          rows,
+          truncated: false,
+        }))
+        : fetchAllAdminSalesOrdersInRange({
+          sort,
+          category: 'all',
+          dateStart,
+          dateEnd,
+          statusIn: null,
+          salespersonIds,
+        });
+
+      void load
+        .then(({ rows, truncated: wasTruncated }) => {
+          if (cancelled) return;
+          setZohoOrders(rows);
+          setTruncated(wasTruncated);
+          if (!useLifetimeDealerRollups) {
+            setZohoCategoryCounts(countZohoRowsByCategory(rows));
+            setZohoTotal(rows.length);
+          }
+        })
+        .catch(err => {
+          if (!cancelled) {
+            setError(invoiceErrorMessage(err));
+            setZohoOrders([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setZohoLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cursor = pageStartCursors.current[page - 1] ?? null;
 
     void fetchAdminSalesOrdersPageDetailed({
       sort,
@@ -474,7 +584,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       cancelled = true;
     };
   }, [
-    dealerScoped,
+    useAggregate,
+    useLifetimeDealerRollups,
     page,
     pageCursorVersion,
     sort,
@@ -489,7 +600,15 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const loading = zohoLoading || countsLoading;
 
   const zohoRows = useMemo(() => {
-    let rows = zohoOrders.map(order => mapZohoOrderToUnified(order, basePath));
+    let source = zohoOrders;
+    if (useAggregate && !dealerScoped && !useLifetimeDealerRollups) {
+      const prefiltered = filterAdminSalesOrders(zohoOrders, search, category);
+      source = aggregateAdminSalesOrdersByDealer(prefiltered, sort);
+    } else if (useAggregate && useLifetimeDealerRollups && (search.trim() || category !== 'all')) {
+      source = filterAdminSalesOrders(zohoOrders, search, category);
+    }
+
+    let rows = source.map(order => mapZohoOrderToUnified(order, basePath));
     if (dealerScoped) {
       rows = filterUnifiedSalesOrders(rows, {
         search,
@@ -498,7 +617,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         category,
         period: undefined,
       });
-    } else if (searchActive) {
+    } else if (searchActive && !useAggregate) {
       rows = filterUnifiedSalesOrders(rows, {
         search,
         source: 'zoho',
@@ -514,22 +633,32 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       return 2;
     };
     return [...rows].sort((a, b) => sealPriority(a.sealKind) - sealPriority(b.sealKind));
-  }, [zohoOrders, basePath, search, searchActive, dealerScoped, category]);
+  }, [
+    zohoOrders,
+    basePath,
+    search,
+    searchActive,
+    dealerScoped,
+    category,
+    useAggregate,
+    useLifetimeDealerRollups,
+    sort,
+  ]);
 
-  const clientPaged = searchActive || dealerScoped;
+  const clientPaged = searchActive || dealerScoped || useAggregate;
 
   const pageRows = useMemo(() => {
-    if (searchActive || dealerScoped) {
+    if (clientPaged) {
       const start = (page - 1) * LIST_PAGE_SIZE;
       return zohoRows.slice(start, start + LIST_PAGE_SIZE);
     }
     return zohoRows;
-  }, [searchActive, dealerScoped, page, zohoRows]);
+  }, [clientPaged, page, zohoRows]);
 
   const filteredTotal = useMemo(() => {
-    if (searchActive || dealerScoped) return zohoRows.length;
+    if (clientPaged) return zohoRows.length;
     return zohoTotal;
-  }, [searchActive, dealerScoped, zohoRows.length, zohoTotal]);
+  }, [clientPaged, zohoRows.length, zohoTotal]);
 
   const totalPages = useMemo(() => {
     if (clientPaged) {
@@ -572,19 +701,52 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   }), [zohoCategoryCounts]);
 
   const summary = useMemo(() => {
-    const countSummary = { count: filteredTotal, totalAmount: 0, currencyCode: null as string | null };
-    const pageSummary = summarizeUnifiedAmounts(pageRows);
-    const categoryAmount = category === 'all'
-      ? pageSummary.totalAmount
-      : pageRows.reduce((sum, row) => sum + Number(row.categoryAmounts[category] ?? row.amount ?? 0), 0);
+    if (dealerScoped) {
+      const amountUnified = zohoOrders.map(order => mapZohoOrderToUnified(order, basePath));
+      const amountFiltered = filterUnifiedSalesOrders(amountUnified, {
+        search,
+        source: 'zoho',
+        statusChip: 'all',
+        category,
+        period: undefined,
+      });
+      const pageSummary = summarizeUnifiedAmounts(amountFiltered);
+      const categoryAmount = category === 'all'
+        ? pageSummary.totalAmount
+        : amountFiltered.reduce(
+          (sum, row) => sum + Number(row.categoryAmounts[category] ?? row.amount ?? 0),
+          0,
+        );
+      return {
+        count: filteredTotal,
+        categoryAmount,
+        totalAmount: pageSummary.totalAmount,
+        currencyCode: pageSummary.currencyCode,
+        amountIsPageOnly: false,
+        truncated: false,
+      };
+    }
+
     return {
-      count: countSummary.count,
-      categoryAmount,
-      totalAmount: pageSummary.totalAmount,
-      currencyCode: pageSummary.currencyCode,
-      amountIsPageOnly: filteredTotal > pageRows.length,
+      count: filteredTotal,
+      categoryAmount: kpiCategoryAmount,
+      totalAmount: category === 'all' ? kpiDocumentAmount : kpiCategoryAmount,
+      currencyCode: 'INR' as string | null,
+      amountIsPageOnly: kpiSource === 'query' && kpiDocumentAmount === 0,
+      truncated,
     };
-  }, [filteredTotal, pageRows, category]);
+  }, [
+    filteredTotal,
+    dealerScoped,
+    zohoOrders,
+    basePath,
+    search,
+    category,
+    kpiCategoryAmount,
+    kpiDocumentAmount,
+    kpiSource,
+    truncated,
+  ]);
 
   const dateRange = formatKpiPeriodRange(
     bounds?.start?.toISOString?.() ?? null,
@@ -594,9 +756,26 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
     || category !== DEFAULT_CATEGORY
     || sort !== DEFAULT_SORT
-    || selectedDealers.length > 0;
+    || selectedDealers.length > 0
+    || aggregate;
+
+  const openAggregatedDealer = useCallback((row: UnifiedSalesOrderRow) => {
+    if (!row.customerId) return;
+    const dealer: DealerFilterSelection = {
+      id: row.customerId,
+      label: row.partyName || row.customerId,
+      portalUserId: null,
+    };
+    setAggregate(false);
+    setSelectedDealers([dealer]);
+    syncDealerParams([dealer]);
+  }, [syncDealerParams]);
 
   const openRow = (row: UnifiedSalesOrderRow) => {
+    if (useAggregate && row.customerId && String(row.id).startsWith('agg-')) {
+      openAggregatedDealer(row);
+      return;
+    }
     navigate(row.href);
   };
 
@@ -701,19 +880,26 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
               </strong>
               <span className="invoices-summary__kpi-sub">
                 {summary.amountIsPageOnly
-                  ? 'This page'
-                  : (category === 'all' ? 'Amount' : 'Category lines')}
+                  ? 'Counts only (run SO stats backfill)'
+                  : summary.truncated
+                    ? 'Partial (scan cap)'
+                    : (category === 'all' ? 'Amount' : 'Category lines')}
               </span>
             </div>
           </div>
         </div>
 
-        {selectedDealers.length > 0 && (
+        {(selectedDealers.length > 0 || useAggregate || truncated) && (
           <p className="unified-so-dealer-filter-note text-muted text-sm">
-            Filtered to {selectedDealers.length === 1
-              ? selectedDealers[0].label
-              : `${selectedDealers.length} dealers`}
-            .
+            {[
+              selectedDealers.length > 0
+                ? `Filtered to ${selectedDealers.length === 1
+                  ? selectedDealers[0].label
+                  : `${selectedDealers.length} dealers`}`
+                : null,
+              useAggregate ? 'Showing one row per dealer' : null,
+              truncated ? 'Amount scan truncated at cap' : null,
+            ].filter(Boolean).join(' · ')}.
           </p>
         )}
 
@@ -909,10 +1095,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__pair">
                           <span className="invoices-mobile-row__title">
-                            <InvoiceCategoryBadgeList
-                              categories={row.categories}
-                              invoiceCategory={row.category}
-                            />
                             <strong>{row.primaryNumber}</strong>
                             <span className="invoices-mobile-row__meta unified-so-mobile-row__date">
                               {formatInvoiceDate(row.date)}
@@ -998,11 +1180,15 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         rangePreset={rangePreset}
         sort={sort}
         dealers={selectedDealers}
+        aggregate={aggregate}
+        aggregateAllowed={aggregateAllowed}
+        lifetimeAggregateAllowed={lifetimeAggregateAllowed}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
           setSort(next.sort);
           setSelectedDealers(next.dealers);
+          setAggregate(next.aggregate);
           syncDealerParams(next.dealers);
         }}
       />

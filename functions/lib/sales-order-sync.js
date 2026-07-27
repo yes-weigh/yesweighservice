@@ -18,6 +18,7 @@ import {
   parseInvoiceCategory,
   sumNonFreightQuantity,
 } from './invoice-category.js';
+import { reconcileSalesOrderStats } from './sales-order-stats.js';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import { formatZohoAddress } from './zoho-contact-fields.js';
 import { extractWebhookEvent } from './invoice-sync.js';
@@ -293,7 +294,11 @@ async function upsertSalesOrderFromRaw(raw, options = {}) {
     contentFingerprint: `${mapped.zohoLastModified}|${mapped.lineItems.length}|${mapped.total}`,
   };
 
-  await soCollection().doc(mapped.id).set(doc, { merge: true });
+  const ref = soCollection().doc(mapped.id);
+  const beforeSnap = await ref.get();
+  const before = beforeSnap.exists ? { id: beforeSnap.id, ...(beforeSnap.data() || {}) } : null;
+  await ref.set(doc, { merge: true });
+  await reconcileSalesOrderStats(before, { id: mapped.id, ...doc });
   return { id: mapped.id, salesOrderCategory };
 }
 
@@ -723,6 +728,7 @@ export async function reclassifySalesOrderCategoriesFromCatalog(options = {}) {
     const catalog = await loadCatalogMeta(itemIds);
     const batch = getFirestore().batch();
     let batchWrites = 0;
+    const pendingStats = [];
 
     for (const docSnap of snap.docs) {
       scanned += 1;
@@ -738,6 +744,12 @@ export async function reclassifySalesOrderCategoriesFromCatalog(options = {}) {
         unchanged += 1;
         continue;
       }
+      const after = {
+        ...data,
+        salesOrderCategory: next,
+        categories: breakdown.categories,
+        categoryAmounts: breakdown.categoryAmounts,
+      };
       batch.update(docSnap.ref, {
         salesOrderCategory: next,
         categories: breakdown.categories,
@@ -745,8 +757,15 @@ export async function reclassifySalesOrderCategoriesFromCatalog(options = {}) {
       });
       batchWrites += 1;
       updated += 1;
+      pendingStats.push({
+        before: { id: docSnap.id, ...data },
+        after: { id: docSnap.id, ...after },
+      });
     }
     if (batchWrites) await batch.commit();
+    for (const entry of pendingStats) {
+      await reconcileSalesOrderStats(entry.before, entry.after);
+    }
     lastDoc = snap.docs[snap.docs.length - 1];
     if (snap.size < limit) break;
   }
@@ -1199,7 +1218,12 @@ export function extractSalesOrderIdFromWebhook(body, query = {}) {
 export async function deleteSalesOrderFromFirestore(salesOrderId) {
   const id = String(salesOrderId ?? '').trim();
   if (!id) return;
-  await soCollection().doc(id).delete().catch(() => {});
+  const ref = soCollection().doc(id);
+  const beforeSnap = await ref.get();
+  if (beforeSnap.exists) {
+    await reconcileSalesOrderStats({ id, ...(beforeSnap.data() || {}) }, null);
+  }
+  await ref.delete().catch(() => {});
 }
 
 /**

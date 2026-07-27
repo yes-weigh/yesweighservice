@@ -510,12 +510,6 @@ export const DealerSalesOrdersPage: React.FC = () => {
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__pair">
-                          <span className="unified-so-order-cell__badges">
-                            <InvoiceCategoryBadgeList
-                              categories={row.categories}
-                              invoiceCategory={row.category}
-                            />
-                          </span>
                           <strong className="invoices-mobile-row__amount-value">
                             {formatCurrency(
                               category === 'all'
