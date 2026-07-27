@@ -48,15 +48,15 @@ export type HrSalaryMonthRecord = {
   month: number;
   /** `yyyy-MM` */
   period: string;
-  /** Pay for one regular (weekday) payable workday. */
+  /** Monthly CTC / base salary for the period (primary input). */
+  monthlySalary: number;
+  /**
+   * Derived regular day rate: monthlySalary ÷ (days − Sundays − weekday holidays).
+   * Stored for older readers / shares; recompute from monthly when possible.
+   */
   perDaySalary: number;
   /** Pay for one full OT day ({@link HR_SALARY_HOURS_PER_DAY} hours). Also used for Sunday hours. */
   otPerDaySalary: number;
-  /**
-   * Legacy monthly total (pre per-day inputs). Used only to migrate old docs.
-   * @deprecated Prefer perDaySalary / otPerDaySalary.
-   */
-  monthlySalary: number;
   /** Leave entries (full or half day). Weekdays only in calc. */
   leaveEntries: HrLeaveEntry[];
   /** Projects for grouping regular work + OT in this month. */
@@ -75,7 +75,7 @@ export type HrSalaryMonthInput = {
   uid: string;
   year: number;
   month: number;
-  perDaySalary: number;
+  monthlySalary: number;
   otPerDaySalary: number;
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
@@ -109,7 +109,10 @@ export type HrSalaryCalc = {
   sundays: number;
   /** Holidays that fall on weekdays (Sundays already excluded). */
   weekdayHolidays: number;
-  /** daysInMonth − Sundays (basis for per-day rate). */
+  /**
+   * Working-day basis for per-day rate:
+   * daysInMonth − Sundays − weekday public/company holidays.
+   */
   rateDays: number;
   /** Full + half leave days (half = 0.5). */
   leaveDays: number;
@@ -119,13 +122,15 @@ export type HrSalaryCalc = {
   overtimeDays: number;
   /** Sum of OT shift hours in the month. */
   overtimeHours: number;
-  /** rateDays − weekdayHolidays − leaveDays */
+  /** rateDays − leaveDays */
   payableDays: number;
   /** payableDays × 8 (standard workday). */
   regularHours: number;
   /** regularHours + overtimeHours */
   totalWorkHours: number;
-  /** Regular weekday per-day rate. */
+  /** Monthly base salary used to derive per-day. */
+  monthlySalary: number;
+  /** monthlySalary ÷ rateDays */
   perDaySalary: number;
   /** Sundays that have marked work hours. */
   sundayWorkDays: number;

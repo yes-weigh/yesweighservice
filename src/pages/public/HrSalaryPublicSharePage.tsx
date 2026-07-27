@@ -70,6 +70,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         <HrSalaryShareView
           displayName={share.displayName}
           period={{ year: share.year, month: share.month }}
+          monthlySalary={share.monthlySalary}
           perDaySalary={share.perDaySalary}
           otPerDaySalary={share.otPerDaySalary}
           leaveEntries={share.leaveEntries}

@@ -58,7 +58,7 @@ type Props = {
 };
 
 type DraftRow = {
-  perDaySalary: string;
+  monthlySalary: string;
   otPerDaySalary: string;
   leaveEntries: Array<{ date: string; kind: HrLeaveKind }>;
   projects: HrSalaryProject[];
@@ -75,7 +75,7 @@ type NewPayrollForm = {
   designation: string;
   employeeId: string;
   department: StaffDepartment;
-  perDaySalary: string;
+  monthlySalary: string;
   otPerDaySalary: string;
 };
 
@@ -84,7 +84,7 @@ const EMPTY_PAYROLL_FORM: NewPayrollForm = {
   designation: '',
   employeeId: '',
   department: 'admin',
-  perDaySalary: '',
+  monthlySalary: '',
   otPerDaySalary: '',
 };
 
@@ -95,7 +95,7 @@ function rateInputValue(n: number): string {
 
 function emptyDraft(row: HrSalaryStaffRow): DraftRow {
   return {
-    perDaySalary: rateInputValue(row.perDaySalary),
+    monthlySalary: rateInputValue(row.monthlySalary),
     otPerDaySalary: rateInputValue(row.otPerDaySalary),
     leaveEntries: row.leaveEntries.map(e => ({ ...e })),
     projects: row.projects.map(p => ({ ...p })),
@@ -435,7 +435,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
       return { ...prev, [uid]: { ...cur, saving: true, error: '' } };
     });
     try {
-      const perDaySalary = Math.max(0, Number.parseFloat(draft.perDaySalary) || 0);
+      const monthlySalary = Math.max(0, Number.parseFloat(draft.monthlySalary) || 0);
       const otPerDaySalary = Math.max(0, Number.parseFloat(draft.otPerDaySalary) || 0);
       const leaveEntries = draft.leaveEntries.map(e => ({ ...e }));
       const projects = draft.projects.map(p => ({ ...p }));
@@ -446,7 +446,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           uid,
           year: periodNow.year,
           month: periodNow.month,
-          perDaySalary,
+          monthlySalary,
           otPerDaySalary,
           leaveEntries,
           projects,
@@ -454,25 +454,28 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           overtimeEntries,
         },
         user.uid,
+        holidaysNow,
+      );
+      const calc = computeSalaryCalc(
+        monthlySalary,
+        otPerDaySalary,
+        periodNow,
+        holidaysNow,
+        leaveEntries,
+        overtimeEntries,
       );
       setRows(prev => prev.map(row => {
         if (row.staffUid !== uid) return row;
         return {
           ...row,
-          perDaySalary,
+          monthlySalary,
+          perDaySalary: calc.perDaySalary,
           otPerDaySalary,
           leaveEntries,
           projects,
           workDayEntries,
           overtimeEntries,
-          calc: computeSalaryCalc(
-            perDaySalary,
-            otPerDaySalary,
-            periodNow,
-            holidaysNow,
-            leaveEntries,
-            overtimeEntries,
-          ),
+          calc,
         };
       }));
       let stillDirty = false;
@@ -481,7 +484,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
         if (!cur) return prev;
         // Another edit landed while saving — keep dirty for next autosave.
         stillDirty = (
-          (Number.parseFloat(cur.perDaySalary) || 0) !== perDaySalary
+          (Number.parseFloat(cur.monthlySalary) || 0) !== monthlySalary
           || (Number.parseFloat(cur.otPerDaySalary) || 0) !== otPerDaySalary
           || JSON.stringify(cur.leaveEntries) !== JSON.stringify(leaveEntries)
           || JSON.stringify(cur.projects) !== JSON.stringify(projects)
@@ -572,10 +575,10 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const liveCalc = (row: HrSalaryStaffRow) => {
     const draft = drafts[row.staffUid];
     if (!draft) return row.calc;
-    const perDaySalary = Number.parseFloat(draft.perDaySalary) || 0;
+    const monthlySalary = Number.parseFloat(draft.monthlySalary) || 0;
     const otPerDaySalary = Number.parseFloat(draft.otPerDaySalary) || 0;
     return computeSalaryCalc(
-      perDaySalary,
+      monthlySalary,
       otPerDaySalary,
       period,
       holidays,
@@ -737,7 +740,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           uid: row.staffUid,
           displayName: row.displayName,
           period,
-          perDaySalary: Math.max(0, Number.parseFloat(draft.perDaySalary) || 0),
+          monthlySalary: Math.max(0, Number.parseFloat(draft.monthlySalary) || 0),
           otPerDaySalary: Math.max(0, Number.parseFloat(draft.otPerDaySalary) || 0),
           leaveEntries: draft.leaveEntries,
           projects: draft.projects,
@@ -851,10 +854,10 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     setAddingPayroll(true);
     setAddPayrollError('');
     try {
-      const perDaySalary = Math.max(0, Number.parseFloat(payrollForm.perDaySalary) || 0);
+      const monthlySalary = Math.max(0, Number.parseFloat(payrollForm.monthlySalary) || 0);
       const otPerDaySalary = Math.max(
         0,
-        Number.parseFloat(payrollForm.otPerDaySalary) || perDaySalary,
+        Number.parseFloat(payrollForm.otPerDaySalary) || 0,
       );
       const emp = await createPayrollEmployee(
         {
@@ -862,7 +865,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           designation: payrollForm.designation.trim() || null,
           employeeId: payrollForm.employeeId.trim() || null,
           department: payrollForm.department,
-          defaultPerDaySalary: perDaySalary,
+          defaultMonthlySalary: monthlySalary,
           defaultOtPerDaySalary: otPerDaySalary,
         },
         user.uid,
@@ -873,7 +876,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           uid: staffUid,
           year: period.year,
           month: period.month,
-          perDaySalary,
+          monthlySalary,
           otPerDaySalary,
           leaveEntries: [],
           projects: [],
@@ -881,6 +884,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           overtimeEntries: [],
         },
         user.uid,
+        holidays,
       );
       setShowAddPayroll(false);
       setPayrollForm(EMPTY_PAYROLL_FORM);
@@ -1000,14 +1004,14 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
               </select>
             </label>
             <label>
-              <span>Per day (regular)</span>
+              <span>Per month</span>
               <input
                 type="number"
                 min={0}
-                step={50}
+                step={500}
                 className="input-field"
-                value={payrollForm.perDaySalary}
-                onChange={e => setPayrollForm(f => ({ ...f, perDaySalary: e.target.value }))}
+                value={payrollForm.monthlySalary}
+                onChange={e => setPayrollForm(f => ({ ...f, monthlySalary: e.target.value }))}
               />
             </label>
             <label>
@@ -1055,7 +1059,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           <thead>
             <tr>
               <th>Staff</th>
-              <th>Per day</th>
+              <th>Per month</th>
               <th>OT / day</th>
               <th>Leave</th>
               <th>OT</th>
@@ -1090,7 +1094,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                 draft.workDayEntries,
               );
               const leadingPads = new Date(period.year, period.month - 1, 1).getDay();
-              const perDayValue = Number.parseFloat(draft.perDaySalary) || 0;
+              const monthlyValue = Number.parseFloat(draft.monthlySalary) || 0;
               const otPerDayValue = Number.parseFloat(draft.otPerDaySalary) || 0;
               const projectTotals = projectWorkTotals(
                 draft.projects,
@@ -1099,7 +1103,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                 draft.overtimeEntries,
                 period,
                 holidays,
-                Number.parseFloat(draft.perDaySalary) || 0,
+                calc.perDaySalary,
                 calc.otHourlyRate,
               );
               const otLines = draft.overtimeEntries
@@ -1170,7 +1174,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                           .join(' · ')}
                       </div>
                     </td>
-                    <td>{formatInr(perDayValue)}</td>
+                    <td>{formatInr(monthlyValue)}</td>
                     <td>{formatInr(otPerDayValue)}</td>
                     <td>{formatLeaveDays(calc.leaveDays)}</td>
                     <td>{formatOtHours(calc.overtimeHours)}</td>
@@ -1231,19 +1235,22 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                           <div className="hr-salary__config-row">
                             <div className="hr-salary__rate-group">
                               <label className="hr-salary__rate-item">
-                                <span>Per day</span>
+                                <span>Per month</span>
                                 <input
                                   type="number"
                                   min={0}
-                                  step={50}
+                                  step={500}
                                   className="hr-salary__rate-value-input"
-                                  value={draft.perDaySalary}
+                                  value={draft.monthlySalary}
                                   disabled={!canEdit}
-                                  onChange={e => updateDraft(row.staffUid, { perDaySalary: e.target.value })}
-                                  aria-label={`Regular per day salary for ${row.displayName}`}
+                                  onChange={e => updateDraft(row.staffUid, { monthlySalary: e.target.value })}
+                                  aria-label={`Monthly salary for ${row.displayName}`}
                                 />
                                 <span className="hr-salary__rate-sub">
-                                  {formatInr(calc.hourlyRate)}/hr
+                                  {formatInr(calc.perDaySalary)}/day · {calc.rateDays} days
+                                  {calc.weekdayHolidays > 0
+                                    ? ` (−${calc.weekdayHolidays} holiday${calc.weekdayHolidays === 1 ? '' : 's'})`
+                                    : ''}
                                 </span>
                               </label>
                               <label className="hr-salary__rate-item">

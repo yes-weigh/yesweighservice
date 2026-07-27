@@ -31,14 +31,18 @@ export function isPayrollEmployeeKey(key: string): boolean {
 }
 
 function mapEmployee(id: string, data: Record<string, unknown>): HrPayrollEmployee {
+  const defaultMonthlySalary = Number(data.defaultMonthlySalary) || 0;
   const defaultPerDaySalary = Number(data.defaultPerDaySalary) || 0;
-  const defaultOtPerDaySalary = Number(data.defaultOtPerDaySalary) || defaultPerDaySalary;
+  const defaultOtPerDaySalary = Number(data.defaultOtPerDaySalary)
+    || defaultPerDaySalary
+    || 0;
   return {
     id,
     displayName: String(data.displayName ?? '').trim() || '—',
     designation: data.designation != null ? String(data.designation) : null,
     employeeId: data.employeeId != null ? String(data.employeeId) : null,
     department: (data.department as StaffDepartment) || 'admin',
+    defaultMonthlySalary,
     defaultPerDaySalary,
     defaultOtPerDaySalary,
     active: data.active !== false,
@@ -62,6 +66,7 @@ export async function createPayrollEmployee(
 ): Promise<HrPayrollEmployee> {
   const displayName = input.displayName.trim();
   if (!displayName) throw new Error('Employee name is required.');
+  const defaultMonthlySalary = Math.max(0, Number(input.defaultMonthlySalary) || 0);
   const defaultPerDaySalary = Math.max(0, Number(input.defaultPerDaySalary) || 0);
   const defaultOtPerDaySalary = Math.max(
     0,
@@ -72,6 +77,7 @@ export async function createPayrollEmployee(
     designation: input.designation?.trim() || null,
     employeeId: input.employeeId?.trim() || null,
     department: input.department,
+    defaultMonthlySalary,
     defaultPerDaySalary,
     defaultOtPerDaySalary,
     active: true,
@@ -84,6 +90,7 @@ export async function createPayrollEmployee(
     designation: input.designation?.trim() || null,
     employeeId: input.employeeId?.trim() || null,
     department: input.department,
+    defaultMonthlySalary,
     defaultPerDaySalary,
     defaultOtPerDaySalary,
     active: true,

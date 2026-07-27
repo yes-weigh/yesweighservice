@@ -4,7 +4,12 @@ import { db } from '../firebase';
 import type { HrSalaryShareInput, HrSalaryShareRecord } from '../types/hr-salary-share';
 import type { HrSalaryPeriod } from '../types/hr-salary';
 import { salaryPeriodKey } from '../types/hr-salary';
-import { salaryMonthDocId } from './hrSalary';
+import type { HrHoliday } from '../types/hr-holiday';
+import {
+  perDayFromMonthly,
+  salaryMonthDocId,
+  salaryRateDays,
+} from './hrSalary';
 
 const SHARE_COLLECTION = 'hrSalaryShares';
 const MONTH_COLLECTION = 'hrSalaryMonths';
@@ -89,6 +94,7 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
     year,
     month,
     period: String(data.period ?? salaryPeriodKey({ year, month })),
+    monthlySalary: Math.max(0, Number(data.monthlySalary) || 0),
     perDaySalary: Math.max(0, Number(data.perDaySalary) || 0),
     otPerDaySalary: Math.max(0, Number(data.otPerDaySalary) || 0),
     leaveEntries,
@@ -120,6 +126,18 @@ export async function upsertSalaryShare(
   const now = new Date().toISOString();
   const ref = doc(db, SHARE_COLLECTION, input.token);
   const existing = await getDoc(ref);
+  const monthlySalary = Math.max(0, Number(input.monthlySalary) || 0);
+  const holidayRows: HrHoliday[] = input.holidays.map((h, i) => ({
+    id: `share-h-${i}-${h.date}`,
+    date: h.date,
+    name: h.name,
+    type: 'company',
+    note: null,
+    createdAt: '',
+    createdByUid: null,
+  }));
+  const rateDays = salaryRateDays(period.year, period.month, holidayRows);
+  const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
   await setDoc(
     ref,
     {
@@ -129,7 +147,8 @@ export async function upsertSalaryShare(
       year: period.year,
       month: period.month,
       period: salaryPeriodKey(period),
-      perDaySalary: Math.max(0, input.perDaySalary),
+      monthlySalary,
+      perDaySalary,
       otPerDaySalary: Math.max(0, input.otPerDaySalary),
       leaveEntries: input.leaveEntries,
       projects: input.projects,

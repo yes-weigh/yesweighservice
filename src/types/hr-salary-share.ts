@@ -21,6 +21,9 @@ export type HrSalaryShareRecord = {
   year: number;
   month: number;
   period: string;
+  /** Monthly base salary (primary). Older shares may only have perDaySalary. */
+  monthlySalary: number;
+  /** Derived / legacy day rate. */
   perDaySalary: number;
   otPerDaySalary: number;
   leaveEntries: HrLeaveEntry[];
@@ -38,7 +41,7 @@ export type HrSalaryShareInput = {
   uid: string;
   displayName: string;
   period: HrSalaryPeriod;
-  perDaySalary: number;
+  monthlySalary: number;
   otPerDaySalary: number;
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];

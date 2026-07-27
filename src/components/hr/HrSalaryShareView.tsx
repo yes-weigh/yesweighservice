@@ -8,6 +8,7 @@ import {
   formatTimeAmPm,
   overtimeEntryHours,
   projectWorkTotals,
+  resolveSalaryRates,
 } from '../../lib/hrSalary';
 import type { HrHoliday } from '../../types/hr-holiday';
 import {
@@ -24,7 +25,9 @@ import type { HrSalaryShareHoliday } from '../../types/hr-salary-share';
 export type HrSalaryShareViewProps = {
   displayName: string;
   period: HrSalaryPeriod;
-  perDaySalary: number;
+  monthlySalary: number;
+  /** Legacy shares may omit monthly and only provide per-day. */
+  perDaySalary?: number;
   otPerDaySalary: number;
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
@@ -64,7 +67,8 @@ function toHrHolidays(holidays: HrHoliday[] | HrSalaryShareHoliday[]): HrHoliday
 export function HrSalaryShareView({
   displayName,
   period,
-  perDaySalary,
+  monthlySalary,
+  perDaySalary: legacyPerDay = 0,
   otPerDaySalary,
   leaveEntries,
   projects,
@@ -73,16 +77,28 @@ export function HrSalaryShareView({
   holidays: holidaysInput,
 }: HrSalaryShareViewProps) {
   const holidays = useMemo(() => toHrHolidays(holidaysInput), [holidaysInput]);
+  const resolvedMonthly = useMemo(
+    () => resolveSalaryRates(
+      {
+        monthlySalary,
+        perDaySalary: legacyPerDay,
+        otPerDaySalary,
+      },
+      period,
+      holidays,
+    ).monthlySalary,
+    [monthlySalary, legacyPerDay, otPerDaySalary, period, holidays],
+  );
   const calc = useMemo(
     () => computeSalaryCalc(
-      perDaySalary,
+      resolvedMonthly,
       otPerDaySalary,
       period,
       holidays,
       leaveEntries,
       overtimeEntries,
     ),
-    [period, holidays, leaveEntries, overtimeEntries, perDaySalary, otPerDaySalary],
+    [period, holidays, leaveEntries, overtimeEntries, resolvedMonthly, otPerDaySalary],
   );
   const cells = useMemo(
     () => buildMonthDayCells(
@@ -104,7 +120,7 @@ export function HrSalaryShareView({
       overtimeEntries,
       period,
       holidays,
-      perDaySalary,
+      calc.perDaySalary,
       calc.otHourlyRate,
     ),
     [
@@ -114,7 +130,7 @@ export function HrSalaryShareView({
       overtimeEntries,
       period,
       holidays,
-      perDaySalary,
+      calc.perDaySalary,
       calc.otHourlyRate,
     ],
   );
@@ -160,9 +176,11 @@ export function HrSalaryShareView({
       <div className="hr-salary__config-row">
         <div className="hr-salary__rate-group">
           <div className="hr-salary__rate-item">
-            <span>Per day</span>
-            <div className="hr-salary__rate-value-text">{formatInr(perDaySalary)}</div>
-            <span className="hr-salary__rate-sub">{formatInr(calc.hourlyRate)}/hr</span>
+            <span>Per month</span>
+            <div className="hr-salary__rate-value-text">{formatInr(resolvedMonthly)}</div>
+            <span className="hr-salary__rate-sub">
+              {formatInr(calc.perDaySalary)}/day · {calc.rateDays} days
+            </span>
           </div>
           <div className="hr-salary__rate-item">
             <span>OT per day ({HR_SALARY_HOURS_PER_DAY}hrs)</span>

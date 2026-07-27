@@ -40,6 +40,7 @@ export type HrSalaryStaffRow = {
   active: boolean;
   /** Portal staff vs payroll-only employee (no login). */
   source: 'user' | 'external';
+  monthlySalary: number;
   perDaySalary: number;
   otPerDaySalary: number;
   leaveEntries: HrLeaveEntry[];
@@ -85,6 +86,46 @@ export function countSundaysInMonth(year: number, month: number): number {
     if (new Date(year, month - 1, day).getDay() === 0) count += 1;
   }
   return count;
+}
+
+/** Weekday holidays in month (Sunday holidays excluded to avoid double-counting). */
+export function countWeekdayHolidaysInMonth(
+  holidays: HrHoliday[],
+  year: number,
+  month: number,
+): number {
+  const monthHolidays = holidaysInMonth(holidays, year, month);
+  let count = 0;
+  for (const holiday of monthHolidays) {
+    const [y, m, d] = holiday.date.split('-').map(Number);
+    if (!y || !m || !d) continue;
+    if (new Date(y, m - 1, d).getDay() === 0) continue;
+    count += 1;
+  }
+  return count;
+}
+
+/**
+ * Working-day basis for monthly → per-day:
+ * total days − Sundays − weekday public/company holidays.
+ */
+export function salaryRateDays(
+  year: number,
+  month: number,
+  holidays: HrHoliday[],
+): number {
+  return Math.max(
+    0,
+    daysInMonth(year, month)
+      - countSundaysInMonth(year, month)
+      - countWeekdayHolidaysInMonth(holidays, year, month),
+  );
+}
+
+export function perDayFromMonthly(monthlySalary: number, rateDays: number): number {
+  const monthly = Math.max(0, Number(monthlySalary) || 0);
+  if (!(monthly > 0) || !(rateDays > 0)) return 0;
+  return Math.round((monthly / rateDays) * 100) / 100;
 }
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -503,13 +544,13 @@ function isSundayIsoDate(date: string): boolean {
 }
 
 /**
- * Earned = payableDays × regular per-day
+ * Earned = payableDays × (monthly ÷ rateDays)
  *         + (Sunday hours + weekday OT hours) × (OT-per-day ÷ 8).
- * Sunday marks are hours-only OT (no separate Sunday day rate).
- * Holidays (weekdays) and leave (full=1, half=0.5) reduce payable days.
+ * rateDays = days − Sundays − weekday holidays.
+ * Leave (full=1, half=0.5) reduces payable days.
  */
 export function computeSalaryCalc(
-  perDaySalaryInput: number,
+  monthlySalaryInput: number,
   otPerDaySalaryInput: number,
   period: HrSalaryPeriod,
   holidays: HrHoliday[],
@@ -518,8 +559,6 @@ export function computeSalaryCalc(
 ): HrSalaryCalc {
   const days = daysInMonth(period.year, period.month);
   const sundays = countSundaysInMonth(period.year, period.month);
-  const rateDays = Math.max(0, days - sundays);
-
   const monthHolidays = holidaysInMonth(holidays, period.year, period.month);
   const weekdayHolidayDates = new Set(
     monthHolidays
@@ -531,6 +570,7 @@ export function computeSalaryCalc(
       .map(h => h.date),
   );
   const weekdayHolidays = weekdayHolidayDates.size;
+  const rateDays = Math.max(0, days - sundays - weekdayHolidays);
 
   let fullLeaveDays = 0;
   let halfLeaveDays = 0;
@@ -563,12 +603,13 @@ export function computeSalaryCalc(
   const overtimeHours = Math.round((sundayHours + weekdayOvertimeHours) * 100) / 100;
   const overtimeDays = hoursByDate.size;
 
-  const payableDays = Math.max(0, rateDays - weekdayHolidays - leaveDays);
+  const payableDays = Math.max(0, rateDays - leaveDays);
   const regularHours = Math.round(payableDays * HR_SALARY_HOURS_PER_DAY * 100) / 100;
   const totalWorkHours = Math.round((regularHours + overtimeHours) * 100) / 100;
-  const perDaySalary = Number.isFinite(perDaySalaryInput) && perDaySalaryInput > 0
-    ? perDaySalaryInput
+  const monthlySalary = Number.isFinite(monthlySalaryInput) && monthlySalaryInput > 0
+    ? monthlySalaryInput
     : 0;
+  const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
   const otPerDaySalary = Number.isFinite(otPerDaySalaryInput) && otPerDaySalaryInput > 0
     ? otPerDaySalaryInput
     : 0;
@@ -591,6 +632,7 @@ export function computeSalaryCalc(
     payableDays,
     regularHours,
     totalWorkHours,
+    monthlySalary,
     perDaySalary,
     sundayWorkDays,
     sundayHours,
@@ -604,43 +646,57 @@ export function computeSalaryCalc(
   };
 }
 
-/** Resolve per-day / OT-day rates, migrating legacy monthlySalary when needed. */
+/** Resolve monthly / OT rates (and derived per-day), migrating legacy per-day docs. */
 export function resolveSalaryRates(
   saved: Pick<
     HrSalaryMonthRecord,
     'perDaySalary' | 'otPerDaySalary' | 'monthlySalary'
   > | null | undefined,
   period: HrSalaryPeriod,
+  holidays: HrHoliday[],
   defaults?: {
+    monthlySalary?: number;
     perDaySalary?: number;
     otPerDaySalary?: number;
   },
-): { perDaySalary: number; otPerDaySalary: number } {
+): { monthlySalary: number; perDaySalary: number; otPerDaySalary: number } {
+  const rateDays = salaryRateDays(period.year, period.month, holidays);
+  const defaultMonthly = Math.max(0, Number(defaults?.monthlySalary) || 0);
   const defaultPerDay = Math.max(0, Number(defaults?.perDaySalary) || 0);
-  const defaultOt = Math.max(0, Number(defaults?.otPerDaySalary) || defaultPerDay);
+  const defaultOt = Math.max(
+    0,
+    Number(defaults?.otPerDaySalary)
+      || (defaultMonthly > 0 ? perDayFromMonthly(defaultMonthly, rateDays) : defaultPerDay),
+  );
+
+  let monthlySalary = 0;
+  let otPerDaySalary = defaultOt;
 
   if (saved) {
-    if (Number(saved.perDaySalary) > 0 || Number(saved.otPerDaySalary) > 0) {
-      const perDaySalary = Math.max(0, Number(saved.perDaySalary) || 0);
-      const otPerDaySalary = Math.max(0, Number(saved.otPerDaySalary) || perDaySalary);
-      return { perDaySalary, otPerDaySalary };
+    if (Number(saved.monthlySalary) > 0) {
+      monthlySalary = Math.max(0, Number(saved.monthlySalary) || 0);
+    } else if (Number(saved.perDaySalary) > 0) {
+      // Legacy fixed per-day → reconstruct monthly for this period's rate days.
+      monthlySalary = Math.round((Number(saved.perDaySalary) * Math.max(rateDays, 1)) * 100) / 100;
     }
-    // Legacy: monthly ÷ (days − Sundays); OT day rate matches per-day.
-    const monthly = Math.max(0, Number(saved.monthlySalary) || 0);
-    if (monthly > 0) {
-      const rateDays = Math.max(
-        0,
-        daysInMonth(period.year, period.month) - countSundaysInMonth(period.year, period.month),
-      );
-      const perDaySalary = rateDays > 0 ? monthly / rateDays : 0;
-      return { perDaySalary, otPerDaySalary: perDaySalary };
+    if (Number(saved.otPerDaySalary) > 0) {
+      otPerDaySalary = Math.max(0, Number(saved.otPerDaySalary) || 0);
+    } else if (monthlySalary > 0) {
+      otPerDaySalary = perDayFromMonthly(monthlySalary, rateDays);
     }
   }
 
-  return {
-    perDaySalary: defaultPerDay,
-    otPerDaySalary: defaultOt,
-  };
+  if (!(monthlySalary > 0)) {
+    if (defaultMonthly > 0) monthlySalary = defaultMonthly;
+    else if (defaultPerDay > 0) {
+      monthlySalary = Math.round((defaultPerDay * Math.max(rateDays, 1)) * 100) / 100;
+    }
+  }
+
+  const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
+  if (!(otPerDaySalary > 0) && perDaySalary > 0) otPerDaySalary = perDaySalary;
+
+  return { monthlySalary, perDaySalary, otPerDaySalary };
 }
 
 function mapProjects(data: Record<string, unknown>): HrSalaryProject[] {
@@ -755,6 +811,7 @@ export async function fetchSalaryMonthsForPeriod(
 export async function saveSalaryMonth(
   input: HrSalaryMonthInput,
   updatedByUid: string,
+  holidays: HrHoliday[] = [],
 ): Promise<void> {
   const period: HrSalaryPeriod = { year: input.year, month: input.month };
   const leaveEntries = normalizeLeaveEntries(input.leaveEntries, period);
@@ -765,7 +822,9 @@ export async function saveSalaryMonth(
     ...entry,
     projectId: entry.projectId && projectIds.has(entry.projectId) ? entry.projectId : null,
   }));
-  const perDaySalary = Math.max(0, Number(input.perDaySalary) || 0);
+  const monthlySalary = Math.max(0, Number(input.monthlySalary) || 0);
+  const rateDays = salaryRateDays(period.year, period.month, holidays);
+  const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
   const otPerDaySalary = Math.max(0, Number(input.otPerDaySalary) || 0);
   await setDoc(
     doc(db, COLLECTION, salaryMonthDocId(input.uid, period)),
@@ -774,18 +833,16 @@ export async function saveSalaryMonth(
       year: input.year,
       month: input.month,
       period: salaryPeriodKey(period),
+      monthlySalary,
       perDaySalary,
       otPerDaySalary,
-      // Clear legacy fields so resolveSalaryRates prefers per-day / OT rates.
       sundayPerDaySalary: 0,
-      monthlySalary: 0,
       leaveEntries,
-      // Keep legacy array in sync for older readers (full-day dates only).
       leaveDates: leaveEntries.filter(e => e.kind === 'full').map(e => e.date),
       projects,
       workDayEntries,
       overtimeEntries,
-      overtimeDates: [], // clear legacy whole-day flags
+      overtimeDates: [],
       updatedAt: new Date().toISOString(),
       updatedByUid,
     },
@@ -807,10 +864,16 @@ export async function buildSalaryCalculationRows(
     .map(emp => {
       const key = payrollEmployeeSalaryKey(emp.id);
       const saved = salaryByUid.get(key);
-      const { perDaySalary, otPerDaySalary } = resolveSalaryRates(saved, period, {
-        perDaySalary: emp.defaultPerDaySalary,
-        otPerDaySalary: emp.defaultOtPerDaySalary,
-      });
+      const { monthlySalary, perDaySalary, otPerDaySalary } = resolveSalaryRates(
+        saved,
+        period,
+        holidays,
+        {
+          monthlySalary: emp.defaultMonthlySalary,
+          perDaySalary: emp.defaultPerDaySalary,
+          otPerDaySalary: emp.defaultOtPerDaySalary,
+        },
+      );
       const leaveEntries = saved?.leaveEntries ?? [];
       const projects = saved?.projects ?? [];
       const workDayEntries = saved?.workDayEntries ?? [];
@@ -823,6 +886,7 @@ export async function buildSalaryCalculationRows(
         employeeId: emp.employeeId,
         active: emp.active,
         source: 'external' as const,
+        monthlySalary,
         perDaySalary,
         otPerDaySalary,
         leaveEntries,
@@ -831,7 +895,7 @@ export async function buildSalaryCalculationRows(
         overtimeEntries,
         publicShareToken: saved?.publicShareToken ?? null,
         calc: computeSalaryCalc(
-          perDaySalary,
+          monthlySalary,
           otPerDaySalary,
           period,
           holidays,
