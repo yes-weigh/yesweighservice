@@ -76,7 +76,7 @@ export const WarrantySupportPage: React.FC = () => {
     }
   }, [state.draft, state.intent, state.resumeDraft, state.openWizard]);
 
-  const openRequest = (request: DealerSupportRequest) => {
+  const openRequest = useCallback((request: DealerSupportRequest) => {
     if (!user) return;
     if (isSupportDraft(request)) {
       setResumeDraft(request);
@@ -85,28 +85,28 @@ export const WarrantySupportPage: React.FC = () => {
       return;
     }
     navigate(supportDetailPath(user.role, request.id));
-  };
+  }, [user, navigate]);
 
-  const closeWizard = () => {
+  const closeWizard = useCallback(() => {
     setShowWizard(false);
     setResumeDraft(null);
     navigate(supportPath, { replace: true, state: {} });
-  };
+  }, [navigate, supportPath]);
 
-  const handleDraftSaved = (requestNumber: string) => {
+  const handleDraftSaved = useCallback((requestNumber: string) => {
     setDraftMessage(`Draft ${requestNumber} saved. You can continue it anytime from your list.`);
     setShowWizard(false);
     setResumeDraft(null);
     navigate(supportPath, { replace: true, state: {} });
     void load();
-  };
+  }, [load, navigate, supportPath]);
 
-  const handleWizardSuccess = () => {
+  const handleWizardSuccess = useCallback(() => {
     setShowWizard(false);
     setResumeDraft(null);
     navigate(supportPath, { replace: true, state: {} });
     void load();
-  };
+  }, [load, navigate, supportPath]);
 
   const startNewRequest = useCallback(() => {
     setShowWizard(true);

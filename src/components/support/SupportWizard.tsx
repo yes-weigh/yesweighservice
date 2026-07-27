@@ -464,6 +464,18 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     onCancel();
   }, [submittedRequestNumber, intent, createdRequestId, onSuccess, onCancel]);
 
+  // Keep action handlers in refs so the top-bar slot identity stays stable.
+  // Unstable callback deps would recreate the slot every render and loop via
+  // useTopBarAction → PageHeaderContext → parent re-render (React #185).
+  const proceedWithIntentRef = useRef(proceedWithIntent);
+  proceedWithIntentRef.current = proceedWithIntent;
+  const handleProductNextRef = useRef(handleProductNext);
+  handleProductNextRef.current = handleProductNext;
+  const handleDeclarationContinueRef = useRef(handleDeclarationContinue);
+  handleDeclarationContinueRef.current = handleDeclarationContinue;
+  const handleSuccessDoneRef = useRef(handleSuccessDone);
+  handleSuccessDoneRef.current = handleSuccessDone;
+
   useCatalogPageHeader({
     title: wizardTitle,
     subtitle: wizardSubtitle,
@@ -473,11 +485,12 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
   const wizardTopBarAction = useMemo(() => {
     if (step === 'intent' && intent) {
+      const selectedIntent = intent;
       return (
         <button
           type="button"
           className="top-bar__action-btn top-bar__action-btn--primary"
-          onClick={() => proceedWithIntent(intent)}
+          onClick={() => proceedWithIntentRef.current(selectedIntent)}
         >
           Next
         </button>
@@ -488,7 +501,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
         <button
           type="button"
           className="top-bar__action-btn top-bar__action-btn--primary"
-          onClick={handleProductNext}
+          onClick={() => handleProductNextRef.current()}
           disabled={isBusy}
         >
           Next
@@ -512,7 +525,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
         <button
           type="button"
           className="top-bar__action-btn top-bar__action-btn--primary"
-          onClick={handleDeclarationContinue}
+          onClick={() => handleDeclarationContinueRef.current()}
           disabled={isBusy || !declarationAgreed}
         >
           {submitting ? 'Submitting…' : 'Continue'}
@@ -524,14 +537,14 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
         <button
           type="button"
           className="top-bar__action-btn top-bar__action-btn--primary"
-          onClick={handleSuccessDone}
+          onClick={() => handleSuccessDoneRef.current()}
         >
           Done
         </button>
       );
     }
     return null;
-  }, [step, intent, isBusy, submitting, isGeneralSupport, declarationAgreed, handleProductNext, handleSuccessDone, handleDeclarationContinue]);
+  }, [step, intent, isBusy, submitting, isGeneralSupport, declarationAgreed]);
 
   useTopBarAction(wizardTopBarAction, Boolean(wizardTopBarAction));
 
