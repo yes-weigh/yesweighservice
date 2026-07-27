@@ -405,3 +405,28 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
   };
 }
+
+/**
+ * Push an invoice's e-invoice to the IRP (Zoho "Push to IRP").
+ * Only succeeds for GST-registered B2B customers.
+ */
+export async function pushInvoiceEinvoiceToIrp(secrets, configuredOrgId, invoiceId) {
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const id = String(invoiceId || '').trim();
+  if (!id) throw new Error('Invoice id is required.');
+
+  const payload = await zohoJson(
+    accessToken,
+    orgId,
+    `/invoices/${encodeURIComponent(id)}/einvoice/push`,
+    { method: 'POST' },
+  );
+
+  return {
+    invoiceId: id,
+    message: payload?.message ? String(payload.message) : 'success',
+    code: payload?.code ?? 0,
+  };
+}
+

@@ -55,6 +55,24 @@ function parseDayTs(value: string | null | undefined): number {
   return Number.isNaN(ts) ? 0 : ts;
 }
 
+/** Numeric SO suffix for sorting (`SO-19874` → 19874). */
+export function salesOrderNumberSortValue(value: string | null | undefined): number {
+  const match = String(value ?? '').match(/(\d+)\s*$/);
+  if (!match) return 0;
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Highest sales-order number first. */
+export function compareSalesOrderNumberDesc(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  const diff = salesOrderNumberSortValue(b) - salesOrderNumberSortValue(a);
+  if (diff) return diff;
+  return String(b ?? '').localeCompare(String(a ?? ''), undefined, { numeric: true });
+}
+
 /** Dealer cart Draft that still needs admin attention. */
 export function isDealerOrderPlaced(so: Pick<
   AdminFirestoreSalesOrder,
@@ -173,7 +191,7 @@ export function mergeUnifiedSalesOrders(
   const audience = options.audience ?? 'admin';
   return zoho
     .map(row => mapZohoOrderToUnified(row, basePath, audience))
-    .sort((a, b) => b.sortAt - a.sortAt);
+    .sort((a, b) => compareSalesOrderNumberDesc(a.primaryNumber, b.primaryNumber));
 }
 
 export type UnifiedStageId = 'review' | 'so' | 'pay' | 'verify' | 'done' | 'rejected';

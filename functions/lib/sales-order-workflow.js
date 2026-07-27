@@ -13,6 +13,7 @@ import {
   confirmSalesOrder,
   createInvoiceFromSalesOrder,
   deleteSalesOrder,
+  pushInvoiceEinvoiceToIrp,
   updateSalesOrderLines,
   updateSalesOrderShippingAddress,
   voidSalesOrder,
@@ -26,6 +27,9 @@ import {
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
+import { getAccessToken, resolveOrganizationId } from './zoho.js';
+import { fetchRawCustomerDetail } from './zoho-customers.js';
+import { extractZohoListFields } from './zoho-contact-fields.js';
 
 const SO_COLLECTION = 'salesOrders';
 const PRODUCTS = 'catalogProducts';
@@ -53,6 +57,50 @@ const STAGES = new Set([
   'completed',
   'void',
 ]);
+
+/**
+ * Zoho e-invoice (Push to IRP) is only for GST-registered businesses.
+ * In our dealer mirror that is `zohoGstTreatment === 'business_gst'`.
+ * (Business without GST / consumer / individual cannot be pushed.)
+ */
+export function isZohoCustomerEinvoicePushEligible(customer) {
+  if (!customer || typeof customer !== 'object') return false;
+  const treatment = String(
+    customer.zohoGstTreatment ?? customer.gst_treatment ?? '',
+  ).trim().toLowerCase();
+  if (treatment === 'business_gst') return true;
+
+  // Fallback when GST treatment was not synced but GSTIN + business subtype are present.
+  const subType = String(
+    customer.zohoCustomerSubType ?? customer.customer_sub_type ?? '',
+  ).trim().toLowerCase();
+  const gstNo = String(customer.zohoGstNo ?? customer.gst_no ?? '').trim();
+  return subType === 'business' && gstNo.length >= 15;
+}
+
+async function resolveCustomerForEinvoice(secrets, orgId, customerId) {
+  const id = String(customerId ?? '').trim();
+  if (!id) return null;
+
+  const ref = getFirestore().collection('zohoCustomers').doc(id);
+  const snap = await ref.get();
+  if (snap.exists) {
+    const data = snap.data() || {};
+    if (data.zohoGstTreatment || data.zohoCustomerSubType || data.zohoGstNo) {
+      return data;
+    }
+  }
+
+  try {
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, orgId);
+    const contact = await fetchRawCustomerDetail(accessToken, organizationId, id);
+    return extractZohoListFields(contact);
+  } catch (err) {
+    console.warn('Could not load Zoho customer for e-invoice eligibility:', id, err?.message || err);
+    return snap.exists ? (snap.data() || {}) : null;
+  }
+}
 
 const MAX_PAYMENT_BYTES = 8 * 1024 * 1024;
 
@@ -506,7 +554,8 @@ export async function submitSalesOrderPayment(uid, role, payload = {}) {
 }
 
 /**
- * Super admin: verify payment → Confirm Zoho SO → create Invoice → mark completed.
+ * Super admin: verify payment → Confirm Zoho SO → create Invoice
+ * → (B2B only) push e-invoice to IRP → mark completed.
  */
 export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, orgId) {
   const user = await loadUser(uid);
@@ -545,6 +594,23 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       invoiceNumber = inv.invoiceNumber;
     }
 
+    let einvoicePushStatus = 'skipped_not_b2b';
+    let einvoicePushError = null;
+    const customer = await resolveCustomerForEinvoice(secrets, orgId, data.customerId);
+    if (isZohoCustomerEinvoicePushEligible(customer)) {
+      try {
+        await pushInvoiceEinvoiceToIrp(secrets, orgId, invoiceId);
+        einvoicePushStatus = 'pushed';
+      } catch (pushErr) {
+        einvoicePushStatus = 'failed';
+        einvoicePushError = String(pushErr?.message || 'E-invoice push failed.');
+        console.warn(
+          `E-invoice push failed for invoice ${invoiceId} (SO ${id}):`,
+          einvoicePushError,
+        );
+      }
+    }
+
     await mirrorSalesOrderFromZoho(secrets, orgId, id);
 
     const at = nowIso();
@@ -555,6 +621,9 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       paymentVerifiedByName: displayName(user),
       zohoInvoiceId: invoiceId,
       zohoInvoiceNumber: invoiceNumber,
+      einvoicePushStatus,
+      einvoicePushError,
+      einvoicePushedAt: einvoicePushStatus === 'pushed' ? at : null,
       yesOneUpdatedAt: at,
       yesOneSyncError: null,
     }, { merge: true });

@@ -55,6 +55,7 @@ import {
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import {
+  compareSalesOrderNumberDesc,
   filterUnifiedSalesOrders,
   mapZohoOrderToUnified,
   countYesOneStages,
@@ -610,13 +611,18 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         period: undefined,
       });
     }
-    // Pin actionable YesOne stages to the top (not completed/invoiced).
+    // Pin actionable YesOne stages to the top (not completed/invoiced),
+    // then highest SO number within each group.
     const sealPriority = (kind: typeof rows[number]['sealKind']) => {
       if (kind === 'under_review') return 0;
       if (kind === 'awaiting_payment') return 1;
       return 2;
     };
-    return [...rows].sort((a, b) => sealPriority(a.sealKind) - sealPriority(b.sealKind));
+    return [...rows].sort((a, b) => {
+      const bySeal = sealPriority(a.sealKind) - sealPriority(b.sealKind);
+      if (bySeal) return bySeal;
+      return compareSalesOrderNumberDesc(a.primaryNumber, b.primaryNumber);
+    });
   }, [
     zohoOrders,
     basePath,

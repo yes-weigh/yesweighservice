@@ -438,17 +438,35 @@ function isFirestoreIndexError(err: unknown): boolean {
   return /requires an index|COLLECTION_GROUP|COLLECTION_DESC|COLLECTION_ASC/i.test(msg);
 }
 
+function salesOrderNumberSortValue(value: string | null | undefined): number {
+  const match = String(value ?? '').match(/(\d+)\s*$/);
+  if (!match) return 0;
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function compareSalesOrderNumberDesc(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  const diff = salesOrderNumberSortValue(b) - salesOrderNumberSortValue(a);
+  if (diff) return diff;
+  return String(b ?? '').localeCompare(String(a ?? ''), undefined, { numeric: true });
+}
+
 function compareSalesOrderSortKey(
   a: AdminFirestoreSalesOrder,
   b: AdminFirestoreSalesOrder,
   sort: AdminSalesOrderSort,
 ): number {
   if (sort === 'syncedAt') {
-    return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+    const bySynced = String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+    if (bySynced) return bySynced;
+    return compareSalesOrderNumberDesc(a.salesOrderNumber, b.salesOrderNumber);
   }
   const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
   if (byDate) return byDate;
-  return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+  return compareSalesOrderNumberDesc(a.salesOrderNumber, b.salesOrderNumber);
 }
 
 /** Club sales orders into one row per dealer (sums amounts / qty; latest date). */
@@ -652,14 +670,7 @@ export async function fetchAdminSalesOrdersForCustomers(options: {
     merged = merged.filter(row => allowed.has(String(row.status || '').toLowerCase()));
   }
 
-  merged.sort((a, b) => {
-    if (sort === 'syncedAt') {
-      return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
-    }
-    const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
-    if (byDate) return byDate;
-    return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
-  });
+  merged.sort((a, b) => compareSalesOrderSortKey(a, b, sort));
 
   return merged;
 }
