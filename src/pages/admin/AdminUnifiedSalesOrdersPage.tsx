@@ -5,8 +5,6 @@ import {
   AlertCircle,
   ChevronRight,
   ClipboardList,
-  LayoutGrid,
-  RefreshCw,
   Search,
   SlidersHorizontal,
   X,
@@ -72,15 +70,6 @@ const SEARCH_FETCH_SIZE = 100;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminSalesOrderSort = 'date';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
-
-const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'product', label: 'Product' },
-  { value: 'spare', label: 'Spares' },
-  { value: 'software_key', label: 'Software' },
-  { value: 'service', label: 'Service' },
-  { value: 'gatc', label: 'GATC' },
-];
 
 const EMPTY_CATEGORY_COUNTS: AdminSalesOrderCategoryCounts = {
   all: 0,
@@ -324,7 +313,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<AdminSalesOrderSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
-  const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
+  const category = DEFAULT_CATEGORY;
   const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>('all');
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
   const [aggregate, setAggregate] = useState(false);
@@ -696,17 +685,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     };
   }, [pageRows]);
 
-  const categoryCounts = useMemo(() => ({
-    all: zohoCategoryCounts.all,
-    product: zohoCategoryCounts.product,
-    spare: zohoCategoryCounts.spare,
-    software_key: zohoCategoryCounts.software_key,
-    service: zohoCategoryCounts.service,
-    gatc: zohoCategoryCounts.gatc,
-  }), [zohoCategoryCounts]);
-
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
-    || category !== DEFAULT_CATEGORY
     || stageFilter !== 'all'
     || sort !== DEFAULT_SORT
     || selectedDealers.length > 0
@@ -732,26 +711,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     navigate(row.href);
   };
 
-  const reloadZoho = useCallback(() => {
-    pageStartCursors.current = [null];
-    setPage(1);
-    setPageCursorVersion(v => v + 1);
-  }, []);
-
   const headerTools = useMemo(
     () => (
       <div className="invoices-header-tools">
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => {
-            reloadZoho();
-          }}
-          disabled={loading}
-          title="Refresh"
-        >
-          <RefreshCw size={14} />
-        </button>
         <div className="catalog-search invoices-header-search">
           <Search size={15} aria-hidden />
           <input
@@ -789,7 +751,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         </button>
       </div>
     ),
-    [search, filterOpen, hasActiveFilters, reloadZoho, loading],
+    [search, filterOpen, hasActiveFilters],
   );
 
   useCatalogPageHeader({ mobileCompactHeader: true, title: 'Sales orders' }, true);
@@ -819,41 +781,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
           loading={loading}
           onChange={setStageFilter}
         />
-
-        <div className="unified-so-category-blocks" role="tablist" aria-label="Order category">
-          {CATEGORY_BLOCKS.map(item => {
-            const active = category === item.value;
-            const count = item.value === 'all'
-              ? categoryCounts.all
-              : categoryCounts[item.value];
-            return (
-              <button
-                key={item.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={`unified-so-category-block${active ? ' is-active' : ''}${
-                  item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
-                }`}
-                onClick={() => setCategory(item.value)}
-              >
-                <span className="unified-so-category-block__icon" aria-hidden>
-                  {item.value === 'all' ? (
-                    <span className="unified-so-category-block__icon--all">
-                      <LayoutGrid size={18} strokeWidth={2.2} />
-                    </span>
-                  ) : (
-                    <InvoiceCategoryIcon category={item.value} />
-                  )}
-                </span>
-                <span className="unified-so-category-block__label">{item.label}</span>
-                <span className="unified-so-category-block__count">
-                  {loading ? '…' : count.toLocaleString('en-IN')}
-                </span>
-              </button>
-            );
-          })}
-        </div>
       </section>
 
       <div ref={scrollRef} className="invoices-page__scroll">

@@ -5,7 +5,6 @@ import {
   AlertCircle,
   ChevronRight,
   ClipboardList,
-  LayoutGrid,
   Search,
   SlidersHorizontal,
   X,
@@ -24,7 +23,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import type {
   AdminFirestoreSalesOrder,
-  AdminSalesOrderCategoryCounts,
 } from '../../lib/admin-sales-orders';
 import { toSalesOrderDateKey } from '../../lib/admin-sales-orders';
 import { formatCurrency } from '../../lib/catalog';
@@ -50,23 +48,6 @@ import type { YesOneStageFilter } from '../../lib/salesOrderWorkflow';
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
-const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'product', label: 'Product' },
-  { value: 'spare', label: 'Spares' },
-  { value: 'software_key', label: 'Software' },
-  { value: 'service', label: 'Service' },
-  { value: 'gatc', label: 'GATC' },
-];
-
-const EMPTY_CATEGORY_COUNTS: AdminSalesOrderCategoryCounts = {
-  all: 0,
-  product: 0,
-  spare: 0,
-  software_key: 0,
-  service: 0,
-  gatc: 0,
-};
 
 function DealerFilterSheet({
   open,
@@ -188,7 +169,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
-  const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
+  const category = DEFAULT_CATEGORY;
   const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -245,24 +226,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
     return filterUnifiedSalesOrders(baseFiltered, { yesOneStage: stageFilter });
   }, [baseFiltered, stageFilter]);
 
-  const categoryCounts = useMemo(() => {
-    const inPeriod = filterUnifiedSalesOrders(merged, {
-      search: '',
-      source: 'zoho',
-      statusChip: 'all',
-      category: 'all',
-      period: rangePreset,
-    });
-    const counts: AdminSalesOrderCategoryCounts = { ...EMPTY_CATEGORY_COUNTS, all: inPeriod.length };
-    for (const row of inPeriod) {
-      for (const key of row.categories) counts[key] += 1;
-    }
-    return counts;
-  }, [merged, rangePreset]);
-
   useEffect(() => {
     setPage(1);
-  }, [search, rangePreset, category, stageFilter]);
+  }, [search, rangePreset, stageFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -336,40 +302,6 @@ export const DealerSalesOrdersPage: React.FC = () => {
           loading={loading}
           onChange={setStageFilter}
         />
-        <div className="unified-so-category-blocks" role="tablist" aria-label="Order category">
-          {CATEGORY_BLOCKS.map(item => {
-            const active = category === item.value;
-            const count = item.value === 'all'
-              ? categoryCounts.all
-              : categoryCounts[item.value];
-            return (
-              <button
-                key={item.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={`unified-so-category-block${active ? ' is-active' : ''}${
-                  item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
-                }`}
-                onClick={() => setCategory(item.value)}
-              >
-                <span className="unified-so-category-block__icon" aria-hidden>
-                  {item.value === 'all' ? (
-                    <span className="unified-so-category-block__icon--all">
-                      <LayoutGrid size={18} strokeWidth={2.2} />
-                    </span>
-                  ) : (
-                    <InvoiceCategoryIcon category={item.value} />
-                  )}
-                </span>
-                <span className="unified-so-category-block__label">{item.label}</span>
-                <span className="unified-so-category-block__count">
-                  {loading ? '…' : count.toLocaleString('en-IN')}
-                </span>
-              </button>
-            );
-          })}
-        </div>
       </section>
 
       <div ref={scrollRef} className="invoices-page__scroll">
