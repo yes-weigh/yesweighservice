@@ -13382,7 +13382,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .unified-so-stage-blocks {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.3rem;
   width: 100%;
   margin: 0 0 0.45rem;
@@ -13395,6 +13395,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.unified-so-stage-block__icon--all {
+  background: rgba(148, 163, 184, 0.16);
+  color: #94a3b8;
 }
 
 .unified-so-stage-block__icon--review {

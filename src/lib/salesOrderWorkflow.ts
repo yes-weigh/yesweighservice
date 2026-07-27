@@ -52,7 +52,7 @@ export const YESONE_STAGE_LABELS_DEALER: Record<YesOneSalesOrderStage, string> =
 export const YESONE_STAGE_LABELS_ADMIN: Record<YesOneSalesOrderStage, string> = {
   review: 'new order',
   ready_for_payment: 'Awaiting payment',
-  payment_submitted: 'paid, pending approval',
+  payment_submitted: 'pending approval',
   completed: 'invoiced',
   void: 'Void',
 };
