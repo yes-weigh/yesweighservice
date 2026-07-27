@@ -58,6 +58,25 @@ function lineItemsFromOrder(order) {
   })).filter(line => line.quantity > 0 && line.item_id);
 }
 
+/** Writable line fields only — Zoho GET payloads include read-only keys that break PUT. */
+function lineItemsForSalesOrderPut(so) {
+  const items = Array.isArray(so?.line_items) ? so.line_items : [];
+  return items.map(item => {
+    const line = {
+      item_id: item.item_id,
+      name: item.name,
+      rate: item.rate,
+      quantity: item.quantity,
+      unit: item.unit || 'pcs',
+    };
+    if (item.line_item_id) line.line_item_id = item.line_item_id;
+    if (item.description) line.description = item.description;
+    if (item.hsn_or_sac) line.hsn_or_sac = item.hsn_or_sac;
+    if (item.tax_id) line.tax_id = item.tax_id;
+    return line;
+  }).filter(line => line.item_id && Number(line.quantity) > 0);
+}
+
 export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, order) {
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
@@ -195,7 +214,7 @@ export async function setSalesOrderSalesperson(
     customer_id: so.customer_id,
     reference_number: so.reference_number || '',
     date: so.date || new Date().toISOString().slice(0, 10),
-    line_items: Array.isArray(so.line_items) ? so.line_items : [],
+    line_items: lineItemsForSalesOrderPut(so),
     notes: so.notes || '',
     salesperson_id: spId,
   };
@@ -247,7 +266,7 @@ export async function updateSalesOrderShippingAddress(
     customer_id: so.customer_id,
     reference_number: so.reference_number || '',
     date: so.date || new Date().toISOString().slice(0, 10),
-    line_items: Array.isArray(so.line_items) ? so.line_items : [],
+    line_items: lineItemsForSalesOrderPut(so),
     notes: so.notes || '',
   };
   if (so.salesperson_id) body.salesperson_id = so.salesperson_id;
