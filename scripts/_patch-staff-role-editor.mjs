@@ -1,169 +1,40 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Loader2, Search, Sparkles, X } from 'lucide-react';
-import {
-  ALL_STAFF_PERMISSIONS,
-  DEPARTMENT_DEFAULT_PERMISSIONS,
-  STAFF_DEPARTMENT_LABELS,
-  STAFF_PERMISSION_GROUPS,
-  STAFF_PERMISSION_LABELS,
-  type StaffAccessMode,
-  type StaffDepartment,
-  type StaffPermission,
-} from '../../types/staff-access';
-import type { StaffRoleTemplate } from '../../types/staff-role';
-import { effectivePermissionSet } from '../../lib/staffAccess';
-import { findStaffRole, legacyDepartmentToRoleId } from '../../lib/staffRoles';
-import {
-  clearZohoSalespersonsCache,
-  listZohoSalespersons,
-  type ZohoSalespersonOption,
-} from '../../lib/zohoSalespersons';
-import {
+import fs from 'fs';
+
+const path = 'd:/yesweighservice/src/components/admin/StaffRoleEditor.tsx';
+let s = fs.readFileSync(path, 'utf8');
+
+s = s.replace("import type { Kam } from '../../types/dealers';\n", '');
+s = s.replace(
+  `import {
+  normalizeZohoSalespersonLinks,
+  zohoLinksToFirestoreFields,
+  type ZohoSalespersonLink,
+} from '../../lib/zohoSalespersonStaff';`,
+  `import {
   listClaimedZohoSalespersonIds,
   normalizeZohoSalespersonLinks,
   zohoLinksToFirestoreFields,
   type ZohoSalespersonLink,
-} from '../../lib/zohoSalespersonStaff';
+} from '../../lib/zohoSalespersonStaff';`,
+);
 
-export interface StaffRoleDraft {
-  roleId: string | null;
-  department: StaffDepartment;
-  accessMode: StaffAccessMode;
-  permissions: StaffPermission[];
-  teamId: string | null;
-  zohoSalespersonLinks: ZohoSalespersonLink[];
-}
+s = s.replace('  kamId: string | null;\n  teamId: string | null;', '  teamId: string | null;');
+s = s.replace('  kamId: null,\n  teamId: null,', '  teamId: null,');
+s = s.replace('    staffKamId?: string | null;\n    staffTeamId?: string | null;', '    staffTeamId?: string | null;');
+s = s.replace('    kamId: input.staffKamId ?? null,\n    teamId: input.staffTeamId ?? null,', '    teamId: input.staffTeamId ?? null,');
+s = s.replace('  staffKamId: string | null;\n  staffTeamId: string | null;', '  staffTeamId: string | null;');
+s = s.replace(
+  "    staffKamId: draft.department === 'sales' ? draft.kamId : null,\n    staffTeamId: draft.teamId?.trim() || null,",
+  '    staffTeamId: draft.teamId?.trim() || null,',
+);
 
-export const EMPTY_STAFF_ROLE_DRAFT: StaffRoleDraft = {
-  roleId: null,
-  department: 'sales',
-  accessMode: 'role',
-  permissions: [],
-  teamId: null,
-  zohoSalespersonLinks: [],
-};
+const oldPickerStart = 'function ZohoSalespersonPicker({';
+const oldPickerEnd = 'interface StaffRoleEditorProps {';
+const i0 = s.indexOf(oldPickerStart);
+const i1 = s.indexOf(oldPickerEnd);
+if (i0 < 0 || i1 < 0) throw new Error('picker bounds not found');
 
-export function staffRoleDraftFromRecord(
-  input: {
-    staffDepartment?: StaffDepartment;
-    staffRoleId?: string | null;
-    staffAccessMode?: StaffAccessMode;
-    staffPermissions?: StaffPermission[];
-    staffTeamId?: string | null;
-    zohoSalespersonLinks?: ZohoSalespersonLink[] | null;
-    zohoSalespersonIds?: string[] | null;
-    zohoSalespersonId?: string | null;
-    zohoSalespersonName?: string | null;
-  },
-  roles: StaffRoleTemplate[],
-): StaffRoleDraft {
-  const accessMode = input.staffAccessMode ?? 'role';
-  const legacyDept = input.staffDepartment ?? 'admin';
-  const roleId = input.staffRoleId
-    ?? (accessMode === 'department' ? legacyDepartmentToRoleId(legacyDept) : null);
-  const role = findStaffRole(roles, roleId);
-  const department = role?.department ?? legacyDept;
-
-  let permissions = input.staffPermissions ?? [];
-  if (accessMode === 'custom' && permissions.length > 0) {
-    // keep custom snapshot
-  } else if (role) {
-    permissions = role.permissions;
-  } else {
-    permissions = DEPARTMENT_DEFAULT_PERMISSIONS[department];
-  }
-
-  return {
-    roleId: role?.id ?? roleId,
-    department,
-    accessMode: accessMode === 'custom' ? 'custom' : 'role',
-    permissions,
-    teamId: input.staffTeamId ?? null,
-    zohoSalespersonLinks: normalizeZohoSalespersonLinks(input),
-  };
-}
-
-export function staffRoleDraftToPayload(draft: StaffRoleDraft): {
-  staffRoleId: string | null;
-  staffDepartment: StaffDepartment;
-  staffAccessMode: StaffAccessMode;
-  staffPermissions: StaffPermission[];
-  staffTeamId: string | null;
-  zohoSalespersonIds: string[];
-  zohoSalespersonLinks: ZohoSalespersonLink[];
-  zohoSalespersonId: string | null;
-  zohoSalespersonName: string | null;
-} {
-  const effective = effectivePermissionSet(draft.accessMode, draft.department, draft.permissions);
-  const zohoFields = zohoLinksToFirestoreFields(draft.zohoSalespersonLinks);
-  return {
-    staffRoleId: draft.accessMode === 'role' ? draft.roleId : draft.roleId,
-    staffDepartment: draft.department,
-    staffAccessMode: draft.accessMode,
-    staffPermissions: effective,
-    staffTeamId: draft.teamId?.trim() || null,
-    ...zohoFields,
-  };
-}
-
-type StaffRolePermissionsPanelProps = {
-  permissions: StaffPermission[];
-  defaultPermissions?: StaffPermission[];
-  onChange: (permissions: StaffPermission[]) => void;
-  disabled?: boolean;
-};
-
-export const StaffRolePermissionsPanel: React.FC<StaffRolePermissionsPanelProps> = ({
-  permissions,
-  defaultPermissions = [],
-  onChange,
-  disabled,
-}) => {
-  const defaultSet = useMemo(() => new Set(defaultPermissions), [defaultPermissions]);
-
-  const togglePermission = (permission: StaffPermission) => {
-    const next = new Set(permissions);
-    if (next.has(permission)) next.delete(permission);
-    else next.add(permission);
-    onChange(ALL_STAFF_PERMISSIONS.filter(item => next.has(item)));
-  };
-
-  return (
-    <div className="staff-role-editor__groups">
-      {STAFF_PERMISSION_GROUPS.map(group => (
-        <div key={group.id} className="staff-role-editor__group panel glass">
-          <h5>{group.label}</h5>
-          <ul className="staff-role-editor__perm-list">
-            {group.permissions.map(permission => {
-              const on = permissions.includes(permission);
-              const isDefault = defaultSet.has(permission);
-              return (
-                <li key={permission}>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    className={`staff-role-editor__perm ${on ? 'is-on' : ''} ${isDefault ? 'is-default' : ''}`}
-                    onClick={() => togglePermission(permission)}
-                  >
-                    <span className="staff-role-editor__perm-check" aria-hidden />
-                    <span className="staff-role-editor__perm-label">
-                      {STAFF_PERMISSION_LABELS[permission]}
-                    </span>
-                    {isDefault && on && (
-                      <span className="staff-role-editor__perm-badge">Default</span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-function ZohoSalespersonPicker({
+const newPicker = `function ZohoSalespersonPicker({
   links,
   disabled,
   loadEnabled,
@@ -285,7 +156,7 @@ function ZohoSalespersonPicker({
                 type="button"
                 className="staff-role-editor__zoho-chip-remove"
                 disabled={disabled}
-                aria-label={`Remove ${link.name || link.id}`}
+                aria-label={\`Remove \${link.name || link.id}\`}
                 onClick={() => remove(link.id)}
               >
                 <X size={12} aria-hidden />
@@ -297,7 +168,7 @@ function ZohoSalespersonPicker({
 
       <label className="staff-role-editor__field" htmlFor="staff-zoho-salesperson-search">
         <span>{links.length ? 'Add another Zoho salesperson' : 'Zoho salesperson'}</span>
-        <div className={`staff-role-editor__zoho-search${showOptions ? ' is-open' : ''}`}>
+        <div className={\`staff-role-editor__zoho-search\${showOptions ? ' is-open' : ''}\`}>
           <Search size={16} aria-hidden className="staff-role-editor__zoho-search-icon" />
           <input
             id="staff-zoho-salesperson-search"
@@ -402,7 +273,7 @@ function ZohoSalespersonPicker({
                     </span>
                     <span className="staff-role-editor__zoho-option-meta text-muted text-sm">
                       {[
-                        claimed ? `Linked to ${claimed.displayName}` : null,
+                        claimed ? \`Linked to \${claimed.displayName}\` : null,
                         !row.active ? 'Inactive' : null,
                         row.email,
                       ].filter(Boolean).join(' · ')}
@@ -418,9 +289,9 @@ function ZohoSalespersonPicker({
       <div className="staff-role-editor__zoho-footer">
         <p className="staff-role-editor__hint text-muted text-sm">
           {links.length
-            ? `${links.length} linked`
+            ? \`\${links.length} linked\`
             : loaded
-              ? `${unlinkedCount} unlinked · ${options.length} total`
+              ? \`\${unlinkedCount} unlinked · \${options.length} total\`
               : 'List loads from Firestore cache'}
         </p>
         <button
@@ -436,7 +307,11 @@ function ZohoSalespersonPicker({
   );
 }
 
-interface StaffRoleEditorProps {
+`;
+
+s = s.slice(0, i0) + newPicker + s.slice(i1);
+
+const newEditorProps = `interface StaffRoleEditorProps {
   value: StaffRoleDraft;
   onChange: (next: StaffRoleDraft) => void;
   roles: StaffRoleTemplate[];
@@ -615,3 +490,11 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
     </div>
   );
 };
+`;
+
+const editorStart = s.indexOf('interface StaffRoleEditorProps {');
+if (editorStart < 0) throw new Error('editor props not found');
+s = s.slice(0, editorStart) + newEditorProps;
+
+fs.writeFileSync(path, s);
+console.log('StaffRoleEditor rewritten OK', s.length);

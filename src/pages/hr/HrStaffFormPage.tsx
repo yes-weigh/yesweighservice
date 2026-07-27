@@ -11,7 +11,6 @@ import {
   staffRoleDraftToPayload,
   type StaffRoleDraft,
 } from '../../components/admin/StaffRoleEditor';
-import { fetchKams } from '../../lib/dealers';
 import { fetchStaffRoles, SYSTEM_STAFF_ROLE_IDS } from '../../lib/staffRoles';
 import type { StaffRoleTemplate } from '../../types/staff-role';
 import { canManageHr } from '../../lib/staffAccess';
@@ -38,7 +37,6 @@ import {
   type HrDocumentType,
   type StaffHrProfile,
 } from '../../types/staff-hr';
-import type { Kam } from '../../types/dealers';
 import {
   STAFF_LOGISTICS_SITES,
   STAFF_LOGISTICS_SITE_LABELS,
@@ -62,7 +60,6 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
   const isEdit = Boolean(uid);
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [kams, setKams] = useState<Kam[]>([]);
   const [staffRoles, setStaffRoles] = useState<StaffRoleTemplate[]>([]);
   const [account, setAccount] = useState(EMPTY_ACCOUNT);
   const [hr, setHr] = useState<StaffHrProfile>(emptyHrProfile());
@@ -108,27 +105,24 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
   }, [uid]);
 
   useEffect(() => {
-    void Promise.all([
-      fetchKams().then(setKams).catch(() => setKams([])),
-      fetchStaffRoles(user?.role === 'super_admin').then(roles => {
-        setStaffRoles(roles);
-        if (isEdit) void loadRecord(roles);
-        else {
-          const defaultRole =
-            roles.find(r => r.id === SYSTEM_STAFF_ROLE_IDS.sales) ?? roles[0];
-          if (defaultRole) {
-            setRoleDraft(staffRoleDraftFromRecord({
-              staffRoleId: defaultRole.id,
-              staffAccessMode: 'role',
-            }, roles));
-          }
-          void loadDefaultStaffLogisticsSite()
-            .then(site => setLogisticsSite(site))
-            .catch(() => undefined);
+    void fetchStaffRoles(user?.role === 'super_admin').then(roles => {
+      setStaffRoles(roles);
+      if (isEdit) void loadRecord(roles);
+      else {
+        const defaultRole =
+          roles.find(r => r.id === SYSTEM_STAFF_ROLE_IDS.sales) ?? roles[0];
+        if (defaultRole) {
+          setRoleDraft(staffRoleDraftFromRecord({
+            staffRoleId: defaultRole.id,
+            staffAccessMode: 'role',
+          }, roles));
         }
-      }),
-    ]);
-  }, [isEdit, loadRecord]);
+        void loadDefaultStaffLogisticsSite()
+          .then(site => setLogisticsSite(site))
+          .catch(() => undefined);
+      }
+    });
+  }, [isEdit, loadRecord, user?.role]);
 
   const onPhotoPick = (file: File | null) => {
     setPhotoFile(file);
@@ -477,7 +471,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
               value={roleDraft}
               onChange={setRoleDraft}
               roles={staffRoles}
-              kams={kams}
+              excludeUid={uid ?? null}
               disabled={submitting}
             />
           </section>

@@ -72,8 +72,6 @@ export interface User {
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;
   /** Full permission set when staffAccessMode is custom; ignored otherwise */
   staffPermissions?: import('./types/staff-access').StaffPermission[];
-  /** Links sales staff to KAM record for dealer scoping */
-  staffKamId?: string | null;
   staffTeamId?: string | null;
   /**
    * Zoho Inventory salesperson ids linked to this staff (KAM on SO/invoice).
@@ -127,7 +125,6 @@ export interface FirestoreUserDoc {
   staffRoleId?: string | null;
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;
   staffPermissions?: import('./types/staff-access').StaffPermission[];
-  staffKamId?: string | null;
   staffTeamId?: string | null;
   zohoSalespersonIds?: string[] | null;
   zohoSalespersonLinks?: Array<{ id: string; name: string | null }> | null;

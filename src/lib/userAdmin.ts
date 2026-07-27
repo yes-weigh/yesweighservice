@@ -55,7 +55,6 @@ export type UpdateUserProfilePatch = Partial<
     | 'staffRoleId'
     | 'staffAccessMode'
     | 'staffPermissions'
-    | 'staffKamId'
     | 'staffTeamId'
     | 'zohoSalespersonIds'
     | 'zohoSalespersonLinks'
@@ -112,7 +111,6 @@ export type CreateUserInput = {
   staffRoleId?: string | null;
   staffAccessMode?: 'role' | 'department' | 'custom';
   staffPermissions?: StaffPermission[];
-  staffKamId?: string | null;
   staffTeamId?: string | null;
   zohoSalespersonIds?: string[] | null;
   zohoSalespersonLinks?: Array<{ id: string; name: string | null }> | null;
@@ -158,7 +156,6 @@ export async function createUserProfile(
     staffRoleId: input.role === 'staff' ? input.staffRoleId ?? null : undefined,
     staffAccessMode: input.role === 'staff' ? input.staffAccessMode ?? 'role' : undefined,
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
-    staffKamId: input.role === 'staff' ? input.staffKamId ?? null : undefined,
     staffTeamId: input.role === 'staff' ? input.staffTeamId ?? null : undefined,
     zohoSalespersonIds: input.role === 'staff' ? input.zohoSalespersonIds ?? [] : undefined,
     zohoSalespersonLinks: input.role === 'staff' ? input.zohoSalespersonLinks ?? [] : undefined,
@@ -250,7 +247,6 @@ export async function promoteStaffToSuperAdmin(
     staffRoleId: deleteField(),
     staffAccessMode: deleteField(),
     staffPermissions: deleteField(),
-    staffKamId: deleteField(),
     staffTeamId: deleteField(),
     staffLogisticsSite: deleteField(),
     zohoSalespersonIds: deleteField(),

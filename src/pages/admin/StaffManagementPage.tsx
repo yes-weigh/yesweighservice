@@ -29,9 +29,8 @@ import {
   registerUser,
   updateUserProfile,
 } from '../../lib/userAdmin';
-import { fetchKams } from '../../lib/dealers';
 import { fetchStaffRoles } from '../../lib/staffRoles';
-import { assertZohoSalespersonIdsAvailable } from '../../lib/zohoSalespersonStaff';
+import { assertZohoSalespersonIdsAvailable, staffHasZohoSalespersonLink } from '../../lib/zohoSalespersonStaff';
 import type { StaffRoleTemplate } from '../../types/staff-role';
 import {
   canSuperAdminWrite,
@@ -48,7 +47,6 @@ import {
   parseLoginId,
 } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
-import type { Kam } from '../../types/dealers';
 
 const EMPTY_ACCOUNT = {
   loginId: '',
@@ -70,7 +68,6 @@ export const StaffManagementPage: React.FC = () => {
   const confirm = useConfirm();
   const [records, setRecords] = useState<UserRecord[]>([]);
   const [staffRoles, setStaffRoles] = useState<StaffRoleTemplate[]>([]);
-  const [kams, setKams] = useState<Kam[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState<StaffDepartment | 'all'>('all');
@@ -105,7 +102,6 @@ export const StaffManagementPage: React.FC = () => {
 
   useEffect(() => {
     void fetchStaff();
-    void fetchKams().then(setKams).catch(() => setKams([]));
     void fetchStaffRoles().then(setStaffRoles).catch(() => setStaffRoles([]));
   }, [fetchStaff]);
 
@@ -393,7 +389,7 @@ export const StaffManagementPage: React.FC = () => {
                   value={roleDraft}
                   onChange={setRoleDraft}
                   roles={staffRoles}
-                  kams={kams}
+                  excludeUid={editingUid}
                   disabled={submitting}
                 />
               </div>
@@ -433,9 +429,7 @@ export const StaffManagementPage: React.FC = () => {
               displayName: record.displayName,
               active: record.active !== false,
             });
-            const kamName = record.staffKamId
-              ? kams.find(k => k.id === record.staffKamId)?.name ?? 'KAM'
-              : null;
+            const zohoLinked = staffHasZohoSalespersonLink(record);
 
             return (
               <article
@@ -461,7 +455,7 @@ export const StaffManagementPage: React.FC = () => {
                 <div className="staff-management-page__meta text-sm">
                   <span>{perms.length} permissions</span>
                   {record.staffAccessMode === 'custom' && <span>Custom access</span>}
-                  {kamName && <span>KAM · {kamName}</span>}
+                  {zohoLinked && <span>Zoho linked</span>}
                   {record.staffTeamId && <span>Team · {record.staffTeamId}</span>}
                 </div>
 

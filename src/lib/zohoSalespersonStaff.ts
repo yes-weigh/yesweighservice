@@ -170,6 +170,37 @@ export async function assertZohoSalespersonIdsAvailable(
   }
 }
 
+/**
+ * Map of Zoho salesperson id → staff already claiming it (for HR picker ordering).
+ * Excludes `excludeUid` so the staff being edited can keep their own links.
+ */
+export async function listClaimedZohoSalespersonIds(
+  excludeUid?: string | null,
+): Promise<Map<string, { uid: string; displayName: string }>> {
+  const snap = await getDocs(collection(db, 'users'));
+  const claimed = new Map<string, { uid: string; displayName: string }>();
+  for (const docSnap of snap.docs) {
+    if (excludeUid && docSnap.id === excludeUid) continue;
+    const data = docSnap.data() as Record<string, unknown>;
+    const role = String(data.role ?? '');
+    if (role !== 'staff' && role !== 'super_admin') continue;
+    if (data.active === false) continue;
+    const links = normalizeZohoSalespersonLinks({
+      zohoSalespersonLinks: data.zohoSalespersonLinks as ZohoSalespersonLink[] | null | undefined,
+      zohoSalespersonIds: data.zohoSalespersonIds as string[] | null | undefined,
+      zohoSalespersonId: data.zohoSalespersonId as string | null | undefined,
+      zohoSalespersonName: data.zohoSalespersonName as string | null | undefined,
+    });
+    const displayName = String(data.displayName ?? 'Staff').trim() || 'Staff';
+    for (const link of links) {
+      if (!claimed.has(link.id)) {
+        claimed.set(link.id, { uid: docSnap.id, displayName });
+      }
+    }
+  }
+  return claimed;
+}
+
 async function queryStaffByZohoSalespersonId(
   zohoSalespersonId: string,
 ): Promise<ZohoSalespersonStaff | null> {

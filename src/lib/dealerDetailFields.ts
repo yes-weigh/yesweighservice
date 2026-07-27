@@ -74,7 +74,7 @@ export const DEALER_FIELD_DEFINITIONS: DealerFieldDefinition[] = [
 
   { key: 'firstName', label: 'Contact first name', source: 'overlay', getValue: d => d.firstName },
   { key: 'phone', label: 'Phone', source: 'overlay', getValue: d => d.phone },
-  { key: 'kamId', label: 'KAM ID', source: 'overlay', getValue: d => d.kamId },
+  { key: 'assignedStaffUid', label: 'Assigned staff UID', source: 'overlay', getValue: d => d.assignedStaffUid },
   { key: 'dealerStage', label: 'Dealer stage', source: 'overlay', getValue: d => d.dealerStage },
   { key: 'billingState', label: 'Billing state', source: 'overlay', getValue: d => d.billingState },
   { key: 'district', label: 'District', source: 'overlay', getValue: d => d.district },
@@ -97,7 +97,7 @@ export const DEALER_FIELD_DEFINITIONS: DealerFieldDefinition[] = [
   { key: 'filterReason', label: 'Filter reason', source: 'overlay', getValue: d => d.filterReason },
   { key: 'portalUserId', label: 'Portal user ID', source: 'overlay', getValue: d => d.portalUserId },
 
-  { key: 'kamName', label: 'KAM name', source: 'computed', getValue: d => d.kamName },
+  { key: 'assignedStaffName', label: 'Assigned staff', source: 'computed', getValue: d => d.assignedStaffName },
   { key: 'portalUserName', label: 'Portal user name', source: 'computed', getValue: d => d.portalUserName },
   { key: 'portalLoginId', label: 'Portal login ID', source: 'computed', getValue: d => d.portalLoginId },
   { key: 'signedIn', label: 'Signed in to portal', source: 'computed', getValue: d => d.signedIn },

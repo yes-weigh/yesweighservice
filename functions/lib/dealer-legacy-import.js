@@ -1,7 +1,6 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import {
   readAllDealersFromFirestore,
-  readKamsFromFirestore,
   readDealerSetting,
   writeDealerSetting,
   fetchRawCustomerDetail,
@@ -30,25 +29,6 @@ function buildDealerNameIndex(dealers) {
 
 function findDealerIdsByName(name, index) {
   return index.get(normalizeLookupName(name)) ?? [];
-}
-
-async function ensureKamByName(name, kamByLowerName) {
-  const key = normalizeLookupName(name);
-  if (!key) return null;
-
-  if (kamByLowerName.has(key)) {
-    return kamByLowerName.get(key);
-  }
-
-  const db = getFirestore();
-  const ref = await db.collection('kams').add({
-    name: String(name).trim(),
-    phone: null,
-    createdAt: new Date().toISOString(),
-  });
-  const kam = { id: ref.id, name: String(name).trim(), phone: null };
-  kamByLowerName.set(key, kam);
-  return kam;
 }
 
 async function commitBatches(updates) {
@@ -81,10 +61,6 @@ export async function importCrmDealerOverlay() {
   }
 
   const nameIndex = buildDealerNameIndex(dealers);
-  const existingKams = await readKamsFromFirestore();
-  const kamByLowerName = new Map(
-    existingKams.map(k => [normalizeLookupName(k.name), k]),
-  );
 
   const updates = [];
   let deactivatedMatched = 0;
@@ -129,10 +105,7 @@ export async function importCrmDealerOverlay() {
       if (cats.length) dataToUpdate.categories = cats;
     }
 
-    if (o.key_account_manager) {
-      const kam = await ensureKamByName(o.key_account_manager, kamByLowerName);
-      if (kam) dataToUpdate.kamId = kam.id;
-    }
+    // Legacy CRM key_account_manager is ignored; staff assignment is via assignedStaffUid.
 
     if (Object.keys(dataToUpdate).length <= 1) continue;
 

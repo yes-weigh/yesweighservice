@@ -1,10 +1,10 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import type {
+  AssignableStaffOption,
   DealerListParams,
   DealerListResponse,
   DealerStats,
-  Kam,
   ZohoDealer,
 } from '../types/dealers';
 import { DEFAULT_DEALER_CATEGORIES } from '../types/dealers';
@@ -187,21 +187,10 @@ export async function linkDealerPortalUser(
   await fn({ zohoCustomerId, portalUserId });
 }
 
-export async function fetchKams(): Promise<Kam[]> {
-  const fn = httpsCallable(functions, 'getDealerKams');
+export async function listAssignableDealerStaff(): Promise<AssignableStaffOption[]> {
+  const fn = httpsCallable(functions, 'listAssignableDealerStaff');
   const result = await fn();
-  return (result.data as { data: Kam[] }).data ?? [];
-}
-
-export async function createKam(name: string, phone?: string): Promise<Kam> {
-  const fn = httpsCallable(functions, 'createDealerKam');
-  const result = await fn({ name, phone });
-  return (result.data as { data: Kam }).data;
-}
-
-export async function deleteKam(id: string): Promise<void> {
-  const fn = httpsCallable(functions, 'deleteDealerKam');
-  await fn({ id });
+  return (result.data as { data: AssignableStaffOption[] }).data ?? [];
 }
 
 export async function fetchDealerCategories(): Promise<string[]> {

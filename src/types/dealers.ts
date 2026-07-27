@@ -40,8 +40,9 @@ export interface ZohoDealer {
   syncedAt: string | null;
   isFiltered: boolean;
   filterReason: string | null;
-  kamId: string | null;
-  kamName: string | null;
+  /** Portal staff uid assigned to this dealer (sales ownership). */
+  assignedStaffUid: string | null;
+  assignedStaffName: string | null;
   dealerStage: string | null;
   billingState: string | null;
   district: string | null;
@@ -108,18 +109,12 @@ export interface ZohoDealer {
   extraFields?: Record<string, unknown>;
 }
 
-export interface Kam {
-  id: string;
-  name: string;
-  phone: string | null;
-}
-
 export interface DealerListParams {
   page?: number;
   limit?: number;
   q?: string;
   status?: string;
-  kamId?: string;
+  assignedStaffUid?: string;
   dealerStage?: string;
   dealerStatus?: string;
   billingState?: string;
@@ -146,7 +141,12 @@ export interface DealerStats {
   nonActive: number;
   blacklisted: number;
   unstaged: number;
-  unassignedKam: number;
+  unassignedStaff: number;
+}
+
+export interface AssignableStaffOption {
+  uid: string;
+  displayName: string;
 }
 
 export const DEFAULT_DEALER_CATEGORIES = [

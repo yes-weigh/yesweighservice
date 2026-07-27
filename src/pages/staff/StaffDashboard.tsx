@@ -191,12 +191,12 @@ function buildMiniStats(stats: DealerStats | null, user: import('../../types').U
       path: `${BASE}/dealers`,
     },
     {
-      label: 'Unassigned KAM',
-      value: stats ? String(stats.unassignedKam) : '—',
+      label: 'Unassigned staff',
+      value: stats ? String(stats.unassignedStaff) : '—',
       trend: 'Needs assignment',
       tone: 'orange',
       icon: <Briefcase size={18} />,
-      actionLabel: 'Assign KAM',
+      actionLabel: 'Assign staff',
       path: `${BASE}/dealers`,
     },
     {

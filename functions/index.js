@@ -52,6 +52,7 @@ import { syncCustomersToFirestore, handleZohoCustomerWebhook } from './lib/zoho-
 import {
   listDealers,
   exportDealersCsv,
+  listAssignableStaffOptions,
   getDealerStatsSummary,
   getDealerLocationsSummary,
   getDealerRecord,
@@ -90,6 +91,10 @@ import {
   backfillInvoiceStatsAndSummaries,
 } from './lib/invoice-stats.js';
 import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
+import {
+  backfillDealerAssignedStaff,
+  wipeLegacyKamData,
+} from './lib/dealer-staff-assignment.js';
 import {
   listCachedZohoSalespersons,
   syncZohoSalespersonsToFirestore,
@@ -2134,6 +2139,48 @@ export const backfillSalesOrderStatsFn = onCall(
   },
 );
 
+/**
+ * Assign dealers to portal staff from latest invoice salespersonId.
+ */
+export const backfillDealerAssignedStaffFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillDealerAssignedStaff({
+        dryRun: Boolean(request.data?.dryRun),
+      });
+    } catch (err) {
+      console.error('backfillDealerAssignedStaff failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Dealer staff assignment backfill failed.');
+    }
+  },
+);
+
+/**
+ * Delete legacy kams collection and strip kamId / staffKamId fields.
+ */
+export const wipeLegacyKamDataFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await wipeLegacyKamData();
+    } catch (err) {
+      console.error('wipeLegacyKamData failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Legacy KAM wipe failed.');
+    }
+  },
+);
+
 /** Move invoices older than 24 months (default) into archive subcollections. */
 export const archiveOldInvoicesFn = onCall(
   {
@@ -2452,8 +2499,9 @@ export const syncDealerInvoicesFromZoho = onCall(
 export const getDealers = onCall(
   { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
-    return listDealers(request.data ?? {});
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SYNC_ROLES, { allowViewOnly: true });
+    return listDealers(request.data ?? {}, { role, uid });
   },
 );
 
@@ -2580,8 +2628,9 @@ export const pushDealerToZoho = onCall(
 export const exportDealers = onCall(
   { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
-    const csv = await exportDealersCsv(request.data ?? {});
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SYNC_ROLES);
+    const csv = await exportDealersCsv(request.data ?? {}, { role, uid });
     return { csv };
   },
 );
@@ -2590,8 +2639,9 @@ export const exportDealers = onCall(
 export const getDealerStats = onCall(
   { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
-    return getDealerStatsSummary();
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SYNC_ROLES);
+    return getDealerStatsSummary({ role, uid });
   },
 );
 
@@ -2599,8 +2649,9 @@ export const getDealerStats = onCall(
 export const getDealerLocations = onCall(
   { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
-    return getDealerLocationsSummary();
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SYNC_ROLES);
+    return getDealerLocationsSummary({ role, uid });
   },
 );
 
@@ -2649,43 +2700,13 @@ export const linkDealerPortalUserFn = onCall(
   },
 );
 
-/** KAM list — staff / super admin. */
-export const getDealerKams = onCall(
+/** Staff options for dealer assignment — ops users. */
+export const listAssignableDealerStaff = onCall(
   { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
-    const snap = await getFirestore().collection('kams').orderBy('name').get();
-    return { data: snap.docs.map(d => ({ id: d.id, ...d.data() })) };
-  },
-);
-
-/** Create KAM — staff / super admin. */
-export const createDealerKam = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
-    const name = String(request.data?.name ?? '').trim();
-    if (!name) throw new HttpsError('invalid-argument', 'name is required.');
-    const phone = request.data?.phone ? String(request.data.phone).trim() : null;
-    const ref = await getFirestore().collection('kams').add({
-      name,
-      phone,
-      createdAt: new Date().toISOString(),
-    });
-    const snap = await ref.get();
-    return { data: { id: snap.id, ...snap.data() } };
-  },
-);
-
-/** Delete KAM — staff / super admin. */
-export const deleteDealerKam = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
-  async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
-    const id = String(request.data?.id ?? '').trim();
-    if (!id) throw new HttpsError('invalid-argument', 'id is required.');
-    await getFirestore().collection('kams').doc(id).delete();
-    return { ok: true };
+    const data = await listAssignableStaffOptions();
+    return { data };
   },
 );
 

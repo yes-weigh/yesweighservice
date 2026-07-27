@@ -23,11 +23,11 @@ import {
   fetchDealerCategories,
   fetchDealerLocations,
   fetchDealers,
-  fetchKams,
+  listAssignableDealerStaff,
   patchDealer,
   syncZohoCustomers,
 } from '../../lib/dealers';
-import { type DealerListParams, type Kam, type ZohoDealer } from '../../types/dealers';
+import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
 import { homePathForRole, type Role } from '../../types';
 import { hasStaffPermission } from '../../lib/staffAccess';
 
@@ -49,14 +49,14 @@ export function ZohoDealersPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
-  const scopedKamId = user?.role === 'staff' && user.staffKamId ? user.staffKamId : null;
+  const isStaffScoped = user?.role === 'staff';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [kamFilter, setKamFilter] = useState<string[]>([]);
+  const [staffFilter, setStaffFilter] = useState<string[]>([]);
   const [stateFilter, setStateFilter] = useState<string[]>([]);
   const [districtFilter, setDistrictFilter] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
@@ -84,7 +84,7 @@ export function ZohoDealersPage() {
   const [success, setSuccess] = useState('');
   const [states, setStates] = useState<string[]>([]);
   const [districtsByState, setDistrictsByState] = useState<Record<string, string[]>>({});
-  const [kams, setKams] = useState<Kam[]>([]);
+  const [assignableStaff, setAssignableStaff] = useState<AssignableStaffOption[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -93,9 +93,9 @@ export function ZohoDealersPage() {
     limit: effectivePaginationOn ? limit : 99999,
     status: 'all',
     ...(debouncedSearch ? { q: debouncedSearch } : {}),
-    ...(scopedKamId
-      ? { kamId: scopedKamId }
-      : kamFilter.length ? { kamId: kamFilter.join(',') } : {}),
+    ...(!isStaffScoped && staffFilter.length
+      ? { assignedStaffUid: staffFilter.join(',') }
+      : {}),
     ...(statusFilter.length ? { dealerStatus: statusFilter.join(',') } : {}),
     ...(stateFilter.length ? { billingState: stateFilter.join(',') } : {}),
     ...(districtFilter.length ? { district: districtFilter.join(',') } : {}),
@@ -103,7 +103,7 @@ export function ZohoDealersPage() {
     sortField,
     sortDir,
   }), [
-    effectivePaginationOn, page, debouncedSearch, scopedKamId, kamFilter, statusFilter, stateFilter,
+    effectivePaginationOn, page, debouncedSearch, isStaffScoped, staffFilter, statusFilter, stateFilter,
     districtFilter, categoryFilter, sortField, sortDir,
   ]);
 
@@ -116,14 +116,14 @@ export function ZohoDealersPage() {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [locRes, kamsRes, catsRes] = await Promise.all([
+      const [locRes, staffRes, catsRes] = await Promise.all([
         fetchDealerLocations(),
-        fetchKams(),
+        listAssignableDealerStaff(),
         fetchDealerCategories(),
       ]);
       setStates(locRes.states);
       setDistrictsByState(locRes.districtsByState);
-      setKams(kamsRes);
+      setAssignableStaff(staffRes);
       setCategories(catsRes);
     } catch (err) {
       console.error('Dealer meta load failed:', err);
@@ -156,7 +156,7 @@ export function ZohoDealersPage() {
   useEffect(() => {
     setPage(1);
     setSelectedIds(new Set());
-  }, [debouncedSearch, statusFilter, kamFilter, stateFilter, districtFilter, categoryFilter]);
+  }, [debouncedSearch, statusFilter, staffFilter, stateFilter, districtFilter, categoryFilter]);
 
   useEffect(() => {
     setDistrictFilter([]);
@@ -229,9 +229,11 @@ export function ZohoDealersPage() {
     await loadMeta();
   };
 
-  const handleBulkKam = async (kamId: string) => {
+  const handleBulkAssignStaff = async (assignedStaffUid: string) => {
     await Promise.all(
-      Array.from(selectedIds).map(id => patchDealer(id, { kamId })),
+      Array.from(selectedIds).map(id => patchDealer(id, {
+        assignedStaffUid: assignedStaffUid || null,
+      })),
     );
     setSelectedIds(new Set());
     await loadDealers();
@@ -262,7 +264,7 @@ export function ZohoDealersPage() {
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const activeFilterCount = [
-    kamFilter,
+    staffFilter,
     statusFilter,
     stateFilter,
     districtFilter,
@@ -338,13 +340,10 @@ export function ZohoDealersPage() {
         </div>
       )}
 
-      {scopedKamId && (
+      {isStaffScoped && (
         <div className="staff-kam-scope-banner panel glass">
           <span className="text-sm">
-            Showing dealers assigned to your KAM only.
-            {kams.find(k => k.id === scopedKamId)?.name
-              ? ` (${kams.find(k => k.id === scopedKamId)?.name})`
-              : ''}
+            Showing dealers assigned to you only.
           </span>
         </div>
       )}
@@ -392,15 +391,17 @@ export function ZohoDealersPage() {
             )}
           </summary>
           <div className="dealers-filters">
-          <MultiSelect
-            placeholder="KAM"
-            value={kamFilter}
-            onChange={setKamFilter}
-            options={[
-              { value: 'unassigned', label: 'Unassigned' },
-              ...kams.map(k => ({ value: k.id, label: k.name })),
-            ]}
-          />
+          {!isStaffScoped && (
+            <MultiSelect
+              placeholder="Assigned staff"
+              value={staffFilter}
+              onChange={setStaffFilter}
+              options={[
+                { value: 'unassigned', label: 'Unassigned' },
+                ...assignableStaff.map(s => ({ value: s.uid, label: s.displayName })),
+              ]}
+            />
+          )}
           <MultiSelect
             placeholder="Status"
             value={statusFilter}
@@ -448,7 +449,7 @@ export function ZohoDealersPage() {
               <th><button type="button" onClick={() => handleSort('contactName')}>Dealer <SortMark field="contactName" /></button></th>
               <th><button type="button" onClick={() => handleSort('firstName')}>Contact <SortMark field="firstName" /></button></th>
               <th><button type="button" onClick={() => handleSort('phone')}>Phone <SortMark field="phone" /></button></th>
-              <th>KAM</th>
+              <th>Staff</th>
               <th><button type="button" onClick={() => handleSort('billingState')}>State <SortMark field="billingState" /></button></th>
               <th><button type="button" onClick={() => handleSort('district')}>District <SortMark field="district" /></button></th>
               <th>Categories</th>
@@ -482,12 +483,17 @@ export function ZohoDealersPage() {
                   <td>
                     <select
                       className="catalog-select dealers-inline-select"
-                      value={dealer.kamId ?? ''}
-                      onChange={e => void updateField(dealer.id, { kamId: e.target.value || null })}
-                      aria-label="KAM"
+                      value={dealer.assignedStaffUid ?? ''}
+                      onChange={e => void updateField(dealer.id, {
+                        assignedStaffUid: e.target.value || null,
+                      })}
+                      aria-label="Assigned staff"
+                      disabled={!canEditDealers}
                     >
                       <option value="">Unassigned</option>
-                      {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+                      {assignableStaff.map(s => (
+                        <option key={s.uid} value={s.uid}>{s.displayName}</option>
+                      ))}
                     </select>
                   </td>
                   <td>{dealer.billingState || '—'}</td>
@@ -542,16 +548,20 @@ export function ZohoDealersPage() {
           <select
             className="catalog-select"
             defaultValue=""
-            aria-label="Assign KAM"
+            aria-label="Assign staff"
             onChange={e => {
               if (e.target.value) {
-                void handleBulkKam(e.target.value);
+                const uid = e.target.value === '__unassigned__' ? '' : e.target.value;
+                void handleBulkAssignStaff(uid);
                 e.target.value = '';
               }
             }}
           >
-            <option value="" disabled>Assign KAM…</option>
-            {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+            <option value="" disabled>Assign staff…</option>
+            <option value="__unassigned__">Unassigned</option>
+            {assignableStaff.map(s => (
+              <option key={s.uid} value={s.uid}>{s.displayName}</option>
+            ))}
           </select>
           <button type="button" className="btn btn-secondary" onClick={() => void handleBulkDeactivate()}>
             <Ban size={14} /> Blacklist

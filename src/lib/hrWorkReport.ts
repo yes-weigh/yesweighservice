@@ -58,13 +58,16 @@ async function countSupportResponsesByStaff(
   return counts;
 }
 
-async function countDealersByKam(): Promise<Map<string, number>> {
+async function countDealersByAssignedStaff(): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   try {
     const res = await fetchDealers({ page: 1, limit: 500 });
     for (const dealer of res.data) {
-      if (!dealer.kamId) continue;
-      counts.set(dealer.kamId, (counts.get(dealer.kamId) ?? 0) + 1);
+      if (!dealer.assignedStaffUid) continue;
+      counts.set(
+        dealer.assignedStaffUid,
+        (counts.get(dealer.assignedStaffUid) ?? 0) + 1,
+      );
     }
   } catch {
     // Dealer API may be unavailable; report still shows other metrics.
@@ -107,8 +110,8 @@ export async function buildStaffWorkReport(period: WorkReportPeriod): Promise<St
   const staff = await fetchStaffRecords();
   const staffUids = new Set(staff.map(r => r.uid));
 
-  const [dealersByKam, supportByStaff, onboardedByStaff] = await Promise.all([
-    countDealersByKam(),
+  const [dealersByStaff, supportByStaff, onboardedByStaff] = await Promise.all([
+    countDealersByAssignedStaff(),
     countSupportResponsesByStaff(staffUids, start, end),
     countStaffOnboardedByCreator(start, end),
   ]);
@@ -117,9 +120,7 @@ export async function buildStaffWorkReport(period: WorkReportPeriod): Promise<St
     .map(record => {
       const hr = readHrProfileFromDoc(record);
       const department = (record.staffDepartment ?? 'admin') as StaffDepartment;
-      const dealersManaged = record.staffKamId
-        ? dealersByKam.get(record.staffKamId) ?? 0
-        : 0;
+      const dealersManaged = dealersByStaff.get(record.uid) ?? 0;
       const supportResponses = supportByStaff.get(record.uid) ?? 0;
       const staffOnboarded = onboardedByStaff.get(record.uid) ?? 0;
       const partial = { dealersManaged, supportResponses, staffOnboarded };

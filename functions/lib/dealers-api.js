@@ -1,7 +1,6 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import {
   readAllDealersFromFirestore,
-  readKamsFromFirestore,
   readDealerSetting,
   writeDealerSetting,
   refreshDealerFromZoho,
@@ -18,8 +17,8 @@ import {
   mapDealerDetailForClient,
 } from './dealer-query.js';
 
-async function loadPortalUserMap(portalUserIds) {
-  const ids = [...new Set(portalUserIds.filter(Boolean))];
+async function loadUserMap(userIds) {
+  const ids = [...new Set(userIds.filter(Boolean))];
   const map = new Map();
   if (!ids.length) return map;
 
@@ -40,45 +39,70 @@ async function loadPortalUserMap(portalUserIds) {
   return map;
 }
 
-export async function listDealers(query = {}) {
-  const [rawDealers, kams] = await Promise.all([
-    readAllDealersFromFirestore(),
-    readKamsFromFirestore(),
-  ]);
-  const kamsById = new Map(kams.map(k => [k.id, k]));
+/** Staff users eligible for dealer assignment (active staff/super_admin with Zoho links preferred but not required). */
+export async function listAssignableStaffOptions() {
+  const snap = await getFirestore().collection('users').get();
+  const rows = [];
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() || {};
+    const role = String(data.role ?? '');
+    if (role !== 'staff' && role !== 'super_admin') continue;
+    if (data.active === false) continue;
+    rows.push({
+      uid: docSnap.id,
+      displayName: String(data.displayName ?? 'Staff').trim() || 'Staff',
+    });
+  }
+  rows.sort((a, b) => a.displayName.localeCompare(b.displayName));
+  return rows;
+}
 
-  const filtered = filterDealers(rawDealers, query);
-  const sorted = sortDealers(filtered, query.sortField, query.sortDir);
-  const page = Number(query.page) || 1;
-  const limit = query.limit === 99999 ? sorted.length : (Number(query.limit) || 50);
+function applyStaffScope(query, { role, uid } = {}) {
+  const next = { ...(query || {}) };
+  if (role === 'staff' && uid) {
+    next.assignedStaffUid = uid;
+  }
+  return next;
+}
+
+export async function listDealers(query = {}, scope = {}) {
+  const scopedQuery = applyStaffScope(query, scope);
+  const rawDealers = await readAllDealersFromFirestore();
+
+  const filtered = filterDealers(rawDealers, scopedQuery);
+  const sorted = sortDealers(filtered, scopedQuery.sortField, scopedQuery.sortDir);
+  const page = Number(scopedQuery.page) || 1;
+  const limit = scopedQuery.limit === 99999 ? sorted.length : (Number(scopedQuery.limit) || 50);
   const { data, pagination } = paginateDealers(sorted, page, limit);
 
-  const usersById = await loadPortalUserMap(data.map(d => d.portalUserId));
+  const userIds = data.flatMap(d => [d.portalUserId, d.assignedStaffUid]);
+  const usersById = await loadUserMap(userIds);
   return {
-    data: data.map(d => mapDealerForClient(d, kamsById, usersById)),
+    data: data.map(d => mapDealerForClient(d, null, usersById)),
     pagination,
   };
 }
 
-export async function exportDealersCsv(query = {}) {
-  const [rawDealers, kams] = await Promise.all([
-    readAllDealersFromFirestore(),
-    readKamsFromFirestore(),
-  ]);
-  const kamsById = new Map(kams.map(k => [k.id, k]));
-  const filtered = filterDealers(rawDealers, query);
-  const sorted = sortDealers(filtered, query.sortField, query.sortDir);
-  return dealersToCsv(sorted, kamsById);
+export async function exportDealersCsv(query = {}, scope = {}) {
+  const scopedQuery = applyStaffScope(query, scope);
+  const rawDealers = await readAllDealersFromFirestore();
+  const filtered = filterDealers(rawDealers, scopedQuery);
+  const sorted = sortDealers(filtered, scopedQuery.sortField, scopedQuery.sortDir);
+  return dealersToCsv(sorted);
 }
 
-export async function getDealerStatsSummary() {
+export async function getDealerStatsSummary(scope = {}) {
   const rawDealers = await readAllDealersFromFirestore();
-  return dealerStats(rawDealers);
+  const scoped = applyStaffScope({}, scope);
+  const filtered = filterDealers(rawDealers, scoped);
+  return dealerStats(filtered);
 }
 
-export async function getDealerLocationsSummary() {
+export async function getDealerLocationsSummary(scope = {}) {
   const rawDealers = await readAllDealersFromFirestore();
-  return dealerLocations(rawDealers);
+  const scoped = applyStaffScope({}, scope);
+  const filtered = filterDealers(rawDealers, scoped);
+  return dealerLocations(filtered);
 }
 
 export async function getDealerRecord(id, { refreshFromZoho, secrets, orgId } = {}) {
@@ -93,12 +117,8 @@ export async function getDealerRecord(id, { refreshFromZoho, secrets, orgId } = 
   if (!snap.exists) throw new Error('Dealer not found.');
 
   const raw = { id: snap.id, ...snap.data() };
-  const [kams, usersById] = await Promise.all([
-    readKamsFromFirestore(),
-    loadPortalUserMap([raw.portalUserId]),
-  ]);
-  const kamsById = new Map(kams.map(k => [k.id, k]));
-  return mapDealerDetailForClient(raw, kamsById, usersById);
+  const usersById = await loadUserMap([raw.portalUserId, raw.assignedStaffUid]);
+  return mapDealerDetailForClient(raw, null, usersById);
 }
 
 export async function patchDealerRecord(id, body = {}) {
@@ -108,7 +128,18 @@ export async function patchDealerRecord(id, body = {}) {
   if (!snap.exists) throw new Error('Dealer not found.');
 
   const data = {};
-  if ('kamId' in body) data.kamId = body.kamId || null;
+  if ('assignedStaffUid' in body) {
+    const uid = body.assignedStaffUid ? String(body.assignedStaffUid).trim() : null;
+    data.assignedStaffUid = uid || null;
+    if (uid) {
+      const userSnap = await db.doc(`users/${uid}`).get();
+      if (!userSnap.exists) throw new Error('Assigned staff not found.');
+      const userData = userSnap.data() || {};
+      data.assignedStaffName = String(userData.displayName ?? 'Staff').trim() || 'Staff';
+    } else {
+      data.assignedStaffName = null;
+    }
+  }
   if ('dealerStage' in body) data.dealerStage = body.dealerStage || null;
   if ('billingState' in body) data.billingState = body.billingState || null;
   if ('district' in body) data.district = body.district || null;
@@ -179,7 +210,4 @@ export async function pushDealerToZohoRecord(id, changes, secrets, orgId) {
   return getDealerRecord(id);
 }
 
-export {
-  readDealerSetting,
-  writeDealerSetting,
-};
+export { readDealerSetting, writeDealerSetting };

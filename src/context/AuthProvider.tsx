@@ -98,7 +98,6 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       staffRoleId: data.staffRoleId ?? null,
       staffAccessMode: data.staffAccessMode,
       staffPermissions: data.staffPermissions,
-      staffKamId: data.staffKamId ?? null,
       staffTeamId: data.staffTeamId ?? null,
       zohoSalespersonIds: role === 'staff' ? zohoSalespersonIds : undefined,
       zohoSalespersonLinks: role === 'staff' ? zohoSalespersonLinks : undefined,

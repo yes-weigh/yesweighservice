@@ -142,7 +142,6 @@ service cloud.firestore {
       return (!('staffDepartment' in data) || validStaffDepartment(data.staffDepartment))
         && (!('staffAccessMode' in data) || validStaffAccessMode(data.staffAccessMode))
         && (!('staffPermissions' in data) || data.staffPermissions is list)
-        && (!('staffKamId' in data) || data.staffKamId == null || data.staffKamId is string)
         && (!('staffTeamId' in data) || data.staffTeamId == null || data.staffTeamId is string)
         && (!('staffRoleId' in data) || data.staffRoleId == null || data.staffRoleId is string)
         && (!('staffLogisticsSite' in data) || validStaffLogisticsSite(data.staffLogisticsSite));
@@ -352,11 +351,6 @@ service cloud.firestore {
 
     match /salesOrderMeta/{docId} {
       allow read, write: if false;
-    }
-
-    match /kams/{kamId} {
-      allow read: if isOpsUser();
-      allow write: if false;
     }
 
     // Zoho salesperson cache for HR staff linking (written by Admin SDK sync).

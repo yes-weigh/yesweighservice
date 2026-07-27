@@ -207,7 +207,6 @@ export type StaffAccessProfile = {
   accessMode: StaffAccessMode;
   roleId: string | null;
   permissions: StaffPermission[];
-  kamId: string | null;
   teamId: string | null;
 };
 
@@ -216,6 +215,5 @@ export const DEFAULT_STAFF_ACCESS: StaffAccessProfile = {
   accessMode: 'role',
   roleId: null,
   permissions: [],
-  kamId: null,
   teamId: null,
 };

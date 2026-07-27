@@ -66,7 +66,6 @@ export function readStaffAccessProfile(user: User | null | undefined): StaffAcce
     accessMode: user.staffAccessMode ?? 'role',
     roleId: user.staffRoleId ?? null,
     permissions: user.staffPermissions ?? [],
-    kamId: user.staffKamId ?? null,
     teamId: user.staffTeamId ?? null,
   };
 }

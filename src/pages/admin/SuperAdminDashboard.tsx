@@ -286,12 +286,12 @@ export const SuperAdminDashboard: React.FC = () => {
       path: `${BASE}/hr`,
     },
     {
-      label: 'Unassigned KAM',
-      value: loading ? '…' : dealerStats ? String(dealerStats.unassignedKam) : '—',
+      label: 'Unassigned staff',
+      value: loading ? '…' : dealerStats ? String(dealerStats.unassignedStaff) : '—',
       trend: 'Needs assignment',
       tone: 'orange' as const,
       icon: <Briefcase size={18} />,
-      actionLabel: 'Assign KAM',
+      actionLabel: 'Assign staff',
       path: `${BASE}/dealers`,
     },
     {

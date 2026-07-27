@@ -17,7 +17,7 @@ import {
   dealerErrorMessage,
   fetchDealerById,
   fetchDealerCategories,
-  fetchKams,
+  listAssignableDealerStaff,
   lookupDealerPincode,
   patchDealer,
   pushDealerChangesToZoho,
@@ -41,7 +41,7 @@ import {
 } from '../../lib/dealerZohoFillable';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { buildContactLinks } from '../../lib/phoneLinks';
-import type { Kam, ZohoDealer } from '../../types/dealers';
+import type { AssignableStaffOption, ZohoDealer } from '../../types/dealers';
 import {
   DEALER_STAGES,
   PRICE_LEVELS,
@@ -71,7 +71,7 @@ type OverlayDraft = Pick<
   | 'billingState'
   | 'district'
   | 'zipCode'
-  | 'kamId'
+  | 'assignedStaffUid'
   | 'dealerStage'
   | 'categories'
   | 'canBuySpares'
@@ -97,7 +97,7 @@ function dealerToDraft(dealer: ZohoDealer): OverlayDraft {
     billingState: dealer.billingState,
     district: dealer.district,
     zipCode: dealer.zipCode,
-    kamId: dealer.kamId,
+    assignedStaffUid: dealer.assignedStaffUid,
     dealerStage: dealer.dealerStage,
     categories: [...dealer.categories],
     canBuySpares: dealer.canBuySpares !== false,
@@ -352,7 +352,7 @@ export const DealerDetailPage: React.FC = () => {
   const [draft, setDraft] = useState<OverlayDraft | null>(
     preview && preview.id === dealerId ? dealerToDraft(preview) : null,
   );
-  const [kams, setKams] = useState<Kam[]>([]);
+  const [assignableStaff, setAssignableStaff] = useState<AssignableStaffOption[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(!dealer);
   const [error, setError] = useState('');
@@ -466,7 +466,7 @@ export const DealerDetailPage: React.FC = () => {
 
   useEffect(() => {
     void Promise.all([
-      fetchKams().then(setKams),
+      listAssignableDealerStaff().then(setAssignableStaff),
       fetchDealerCategories().then(setCategories),
     ]).catch(err => console.error('Dealer detail meta load failed:', err));
   }, []);
@@ -687,15 +687,20 @@ export const DealerDetailPage: React.FC = () => {
             />
           </div>
           <label className="dealers-detail__field dealers-detail__field--full">
-            <FieldLabel label="Key account manager" source="local" />
+            <FieldLabel label="Assigned staff" source="local" />
             <select
               className="catalog-select"
-              value={draft.kamId ?? ''}
+              value={draft.assignedStaffUid ?? ''}
               disabled={saving}
-              onChange={e => setDraft(d => d ? { ...d, kamId: e.target.value || null } : d)}
+              onChange={e => setDraft(d => d ? {
+                ...d,
+                assignedStaffUid: e.target.value || null,
+              } : d)}
             >
               <option value="">Unassigned</option>
-              {kams.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+              {assignableStaff.map(s => (
+                <option key={s.uid} value={s.uid}>{s.displayName}</option>
+              ))}
             </select>
           </label>
 

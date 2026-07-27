@@ -54,15 +54,15 @@ export function filterDealers(dealers, query = {}) {
     list = list.filter(d => d.status === query.status);
   }
 
-  const kamIds = parseListParam(query.kamId);
-  if (kamIds.length > 0) {
-    if (kamIds.includes('unassigned')) {
-      const assigned = kamIds.filter(a => a !== 'unassigned');
+  const staffIds = parseListParam(query.assignedStaffUid);
+  if (staffIds.length > 0) {
+    if (staffIds.includes('unassigned')) {
+      const assigned = staffIds.filter(a => a !== 'unassigned');
       list = list.filter(d =>
-        !d.kamId || assigned.includes(d.kamId),
+        !d.assignedStaffUid || assigned.includes(d.assignedStaffUid),
       );
     } else {
-      list = list.filter(d => d.kamId && kamIds.includes(d.kamId));
+      list = list.filter(d => d.assignedStaffUid && staffIds.includes(d.assignedStaffUid));
     }
   }
 
@@ -152,7 +152,7 @@ export function dealerStats(dealers) {
     nonActive: counts.nonActive,
     blacklisted: counts.blacklisted,
     unstaged: counts.unstaged,
-    unassignedKam: roster.filter(d => !d.kamId).length,
+    unassignedStaff: roster.filter(d => !d.assignedStaffUid).length,
   };
 }
 
@@ -177,8 +177,8 @@ export function dealerLocations(dealers) {
   return { states, districtsByState };
 }
 
-export function dealersToCsv(dealers, kamsById = new Map()) {
-  const headers = ['Dealer Name', 'Contact', 'Phone', 'KAM', 'State', 'District', 'Categories', 'Stage', 'Signed In'];
+export function dealersToCsv(dealers) {
+  const headers = ['Dealer Name', 'Contact', 'Phone', 'Assigned Staff', 'State', 'District', 'Categories', 'Stage', 'Signed In'];
   const escapeCsv = str => {
     if (str == null || str === '') return '';
     return `"${String(str).replace(/"/g, '""')}"`;
@@ -189,12 +189,12 @@ export function dealersToCsv(dealers, kamsById = new Map()) {
     const cats = normalizeCategories(d.categories);
     const name = d.companyName || d.contactName;
     const phone = d.phone || d.mobile || '';
-    const kam = d.kamId ? (kamsById.get(d.kamId)?.name ?? '') : '';
+    const staff = d.assignedStaffName || '';
     rows.push([
       escapeCsv(name),
       escapeCsv(d.firstName || ''),
       escapeCsv(phone),
-      escapeCsv(kam),
+      escapeCsv(staff),
       escapeCsv(d.billingState || ''),
       escapeCsv(d.district || ''),
       escapeCsv(cats.join(' | ')),
@@ -220,7 +220,8 @@ const KNOWN_DEALER_DOC_KEYS = new Set([
   'syncedAt',
   'isFiltered',
   'filterReason',
-  'kamId',
+  'assignedStaffUid',
+  'assignedStaffName',
   'dealerStage',
   'billingState',
   'district',
@@ -308,9 +309,9 @@ function serializeFirestoreValue(value) {
   return value;
 }
 
-export function mapDealerForClient(dealer, kamsById, usersById) {
-  const kam = dealer.kamId ? kamsById.get(dealer.kamId) : null;
+export function mapDealerForClient(dealer, _ignoredKamsById, usersById) {
   const portalUser = dealer.portalUserId ? usersById.get(dealer.portalUserId) : null;
+  const assignedStaff = dealer.assignedStaffUid ? usersById.get(dealer.assignedStaffUid) : null;
   const primary = dealer.zohoPrimaryContact;
   const mobile = dealer.mobile
     ?? primary?.mobile
@@ -330,8 +331,9 @@ export function mapDealerForClient(dealer, kamsById, usersById) {
     syncedAt: dealer.syncedAt ?? null,
     isFiltered: Boolean(dealer.isFiltered),
     filterReason: dealer.filterReason ?? null,
-    kamId: dealer.kamId ?? null,
-    kamName: kam?.name ?? null,
+    assignedStaffUid: dealer.assignedStaffUid ?? null,
+    assignedStaffName: dealer.assignedStaffName
+      ?? (assignedStaff?.displayName ? String(assignedStaff.displayName) : null),
     dealerStage: dealer.dealerStage ?? null,
     billingState: dealer.billingState ?? null,
     district: dealer.district ?? null,

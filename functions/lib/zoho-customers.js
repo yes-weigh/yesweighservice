@@ -172,7 +172,8 @@ export async function syncCustomersToFirestore(secrets, orgId) {
     } else {
       batch.set(ref, {
         ...base,
-        kamId: null,
+        assignedStaffUid: null,
+        assignedStaffName: null,
         dealerStage: null,
         billingState,
         district,
@@ -206,11 +207,6 @@ export async function syncCustomersToFirestore(secrets, orgId) {
 
 export async function readAllDealersFromFirestore() {
   const snap = await getFirestore().collection(CUSTOMERS_COLLECTION).get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-
-export async function readKamsFromFirestore() {
-  const snap = await getFirestore().collection('kams').orderBy('name').get();
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
@@ -537,7 +533,8 @@ export async function upsertCustomerFromZoho(secrets, orgId, contactId) {
   if (!existing) {
     await ref.set({
       ...patch,
-      kamId: null,
+      assignedStaffUid: null,
+      assignedStaffName: null,
       dealerStage: null,
       billingState: patch.billingState ?? null,
       district: patch.district ?? null,
