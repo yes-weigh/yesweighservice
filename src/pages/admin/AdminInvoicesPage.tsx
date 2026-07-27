@@ -1006,14 +1006,6 @@ export const AdminInvoicesPage: React.FC = () => {
                   <span className="invoices-mobile-row__body">
                     <span className="invoices-mobile-row__invoice">
                       <span className="invoices-mobile-row__title">
-                        {invoice.invoiceCategory || invoice.categories.length ? (
-                          <span className="unified-so-order-cell__badges">
-                            <InvoiceCategoryBadgeList
-                              categories={invoice.categories}
-                              invoiceCategory={invoice.invoiceCategory}
-                            />
-                          </span>
-                        ) : null}
                         <strong>
                           {isAggregateRow
                             ? (invoice.customerName ?? 'Dealer')

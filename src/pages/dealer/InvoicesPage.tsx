@@ -342,10 +342,6 @@ function InvoiceMobileRow({
       <span className="invoices-mobile-row__body">
         <span className="invoices-mobile-row__invoice">
           <span className="invoices-mobile-row__title">
-            <InvoiceCategoryBadgeList
-              categories={invoice.categories}
-              invoiceCategory={invoice.invoiceCategory}
-            />
             <strong>{invoice.invoiceNumber || '—'}</strong>
           </span>
           {invoice.referenceNumber ? (
