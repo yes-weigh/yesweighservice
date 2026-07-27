@@ -1,17 +1,24 @@
 import { getFirestore } from 'firebase-admin/firestore';
 
-/** HSN / SAC codes used to classify invoices from the highest-value line item. */
+/**
+ * HSN / SAC codes used to classify invoices.
+ * Multiple codes per category are OR-matched (existing + newly added).
+ */
 export const INVOICE_CATEGORY_HSN = {
-  service: '998717',
-  software_key: '85238020',
-  gatc: '998346',
-  freight: '996812',
+  service: ['998717', '998719'],
+  software_key: ['85238020', '85238010'],
+  gatc: ['998346', '79061190'],
+  freight: ['996812'],
 };
 
 export const INVOICE_CATEGORIES = ['product', 'spare', 'service', 'software_key', 'gatc'];
 
 export function normalizeHsn(value) {
   return String(value ?? '').replace(/\s+/g, '').trim();
+}
+
+function hsnMatchesCategory(hsn, codes) {
+  return Boolean(hsn) && Array.isArray(codes) && codes.includes(hsn);
 }
 
 export function isGenericSpareCategoryName(name) {
@@ -25,16 +32,16 @@ export function isGenericSpareCategoryName(name) {
 }
 
 export function isFreightLineItem(name, sku, hsn) {
-  if (normalizeHsn(hsn) === INVOICE_CATEGORY_HSN.freight) return true;
+  if (hsnMatchesCategory(normalizeHsn(hsn), INVOICE_CATEGORY_HSN.freight)) return true;
   const itemName = String(name ?? '').trim().toLowerCase();
   if (itemName === 'freight' || itemName.includes('freight')) return true;
   const itemSku = String(sku ?? '').trim().toLowerCase();
   return itemSku === 'freight' || itemSku.includes('freight');
 }
 
-/** Lines omitted from qty totals: freight (SAC 996812) and GATC (SAC 998346). */
+/** Lines omitted from qty totals: freight and GATC lines. */
 export function isQuantityExcludedLineItem(name, sku, hsn) {
-  if (normalizeHsn(hsn) === INVOICE_CATEGORY_HSN.gatc) return true;
+  if (hsnMatchesCategory(normalizeHsn(hsn), INVOICE_CATEGORY_HSN.gatc)) return true;
   return isFreightLineItem(name, sku, hsn);
 }
 
@@ -72,9 +79,9 @@ export function classifyInvoiceLineItem(item, catalogByItemId = new Map()) {
   const catalog = itemId ? catalogByItemId.get(itemId) : null;
   const hsn = normalizeHsn(item?.hsn || catalog?.hsn);
 
-  if (hsn === INVOICE_CATEGORY_HSN.gatc) return 'gatc';
-  if (hsn === INVOICE_CATEGORY_HSN.service) return 'service';
-  if (hsn === INVOICE_CATEGORY_HSN.software_key) return 'software_key';
+  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.gatc)) return 'gatc';
+  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.service)) return 'service';
+  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.software_key)) return 'software_key';
   if (isSpareCatalogItem(catalog)) return 'spare';
   return 'product';
 }

@@ -625,33 +625,43 @@ export function formatKpiPeriodRange(periodStart: string | null, periodEnd: stri
   return `${fmt(new Date(periodStart))} – ${fmt(new Date(periodEnd))}`;
 }
 
-/** HSN / SAC codes used to classify docs from the highest-value line item (same as Zoho sync). */
+/**
+ * HSN / SAC codes used to classify docs (same as Zoho sync).
+ * Multiple codes per category are OR-matched (existing + newly added).
+ */
 export const INVOICE_CATEGORY_HSN = {
-  service: '998717',
-  software_key: '85238020',
-  gatc: '998346',
-  freight: '996812',
+  service: ['998717', '998719'],
+  software_key: ['85238020', '85238010'],
+  gatc: ['998346', '79061190'],
+  freight: ['996812'],
 } as const;
 
 function normalizeCategoryHsn(value: string | null | undefined): string {
   return String(value ?? '').replace(/\s+/g, '').trim();
 }
 
+function hsnMatchesCategory(
+  hsn: string,
+  codes: readonly string[],
+): boolean {
+  return Boolean(hsn) && codes.includes(hsn);
+}
+
 export function isFreightInvoiceLineItem(
   item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & { hsn?: string | null },
 ): boolean {
-  if (normalizeCategoryHsn(item.hsn) === INVOICE_CATEGORY_HSN.freight) return true;
+  if (hsnMatchesCategory(normalizeCategoryHsn(item.hsn), INVOICE_CATEGORY_HSN.freight)) return true;
   const name = item.name.trim().toLowerCase();
   if (name === 'freight' || name.includes('freight')) return true;
   const sku = item.sku?.trim().toLowerCase() ?? '';
   return sku === 'freight' || sku.includes('freight');
 }
 
-/** Lines omitted from qty totals: freight (SAC 996812) and GATC (SAC 998346). */
+/** Lines omitted from qty totals: freight and GATC lines. */
 export function isQuantityExcludedInvoiceLineItem(
   item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & { hsn?: string | null },
 ): boolean {
-  if (normalizeCategoryHsn(item.hsn) === INVOICE_CATEGORY_HSN.gatc) return true;
+  if (hsnMatchesCategory(normalizeCategoryHsn(item.hsn), INVOICE_CATEGORY_HSN.gatc)) return true;
   return isFreightInvoiceLineItem(item);
 }
 
@@ -761,9 +771,9 @@ export function classifyInvoiceLineItem(
   const catalog = itemId ? catalogByItemId.get(itemId) : null;
   const hsn = normalizeCategoryHsn(hsnFromItem || catalog?.hsn);
 
-  if (hsn === INVOICE_CATEGORY_HSN.gatc) return 'gatc';
-  if (hsn === INVOICE_CATEGORY_HSN.service) return 'service';
-  if (hsn === INVOICE_CATEGORY_HSN.software_key) return 'software_key';
+  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.gatc)) return 'gatc';
+  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.service)) return 'service';
+  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.software_key)) return 'software_key';
   if (isSpareCatalogItem(catalog)) return 'spare';
   return 'product';
 }
