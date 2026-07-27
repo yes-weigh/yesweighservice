@@ -18,12 +18,17 @@ type Props = {
   salespersonId?: string | null;
   salespersonName?: string | null;
   className?: string;
+  /** When true, show a missing-salesperson placeholder instead of hiding. */
+  showMissing?: boolean;
+  missingHint?: string | null;
 };
 
 export const DocumentKamStrip: React.FC<Props> = ({
   salespersonId,
   salespersonName,
   className = '',
+  showMissing = false,
+  missingHint = null,
 }) => {
   const id = salespersonId?.trim() || '';
   const zohoName = salespersonName?.trim() || '';
@@ -57,16 +62,41 @@ export const DocumentKamStrip: React.FC<Props> = ({
     };
   }, [id, zohoName]);
 
-  if (!id && !zohoName) return null;
+  if (!id && !zohoName) {
+    if (!showMissing) return null;
+    return (
+      <aside
+        className={`doc-kam-strip doc-kam-strip--missing ${className}`.trim()}
+        aria-label="Sales staff missing"
+      >
+        <div className="doc-kam-strip__media">
+          <div className="doc-kam-strip__photo doc-kam-strip__photo--placeholder" aria-hidden>
+            <UserRound size={22} />
+          </div>
+        </div>
+        <div className="doc-kam-strip__body">
+          <strong className="doc-kam-strip__name">No sales staff</strong>
+          <span className="doc-kam-strip__role">Required for Verify &amp; invoice</span>
+          {missingHint ? (
+            <span className="doc-kam-strip__hint text-muted">{missingHint}</span>
+          ) : (
+            <span className="doc-kam-strip__hint text-muted">
+              Assign sales staff on the dealer, then apply here
+            </span>
+          )}
+        </div>
+      </aside>
+    );
+  }
   if (!resolved && !zohoName) return null;
 
   const displayName = staff?.displayName
     || staff?.zohoSalespersonName
     || zohoName
-    || 'KAM';
+    || 'Sales staff';
 
   return (
-    <aside className={`doc-kam-strip ${className}`.trim()} aria-label="Key account manager">
+    <aside className={`doc-kam-strip ${className}`.trim()} aria-label="Sales staff">
       <div className="doc-kam-strip__media">
         {staff ? (
           <HrStaffPhoto
@@ -87,7 +117,7 @@ export const DocumentKamStrip: React.FC<Props> = ({
       </div>
       <div className="doc-kam-strip__body">
         <strong className="doc-kam-strip__name">{displayName}</strong>
-        <span className="doc-kam-strip__role">Key account manager</span>
+        <span className="doc-kam-strip__role">Sales staff</span>
         {!staff && zohoName ? (
           <span className="doc-kam-strip__hint text-muted">Not linked to staff</span>
         ) : null}

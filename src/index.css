@@ -34323,6 +34323,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.85rem;
 }
 
+.so-detail__salesperson-banner {
+  margin: 0 0 0.85rem;
+}
+
 .invoice-detail-page .document-party + .doc-kam-strip {
   margin-top: 0.85rem;
 }
@@ -34337,6 +34341,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.35);
+}
+
+.doc-kam-strip--missing {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.22);
 }
 
 .doc-kam-strip__media {

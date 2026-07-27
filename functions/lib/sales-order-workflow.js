@@ -14,10 +14,12 @@ import {
   createInvoiceFromSalesOrder,
   deleteSalesOrder,
   pushInvoiceEinvoiceToIrp,
+  setSalesOrderSalesperson,
   updateSalesOrderLines,
   updateSalesOrderShippingAddress,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
+import { resolveSalespersonForCustomer } from './sales-order-salesperson.js';
 import {
   mapSalesOrderDoc,
   mirrorSalesOrderFromZoho,
@@ -100,6 +102,74 @@ async function resolveCustomerForEinvoice(secrets, orgId, customerId) {
     console.warn('Could not load Zoho customer for e-invoice eligibility:', id, err?.message || err);
     return snap.exists ? (snap.data() || {}) : null;
   }
+}
+
+const MISSING_SALESPERSON_MESSAGE = (
+  'Assign a sales staff with a linked Zoho salesperson to this dealer, then use “Apply salesperson from dealer” before verifying payment.'
+);
+
+/**
+ * Verify requires salesperson already on the SO (from create or Apply from dealer).
+ */
+function requireSalespersonOnSalesOrder(data) {
+  const salespersonId = data.salespersonId ? String(data.salespersonId).trim() : '';
+  if (!salespersonId) {
+    throw new HttpsError('failed-precondition', MISSING_SALESPERSON_MESSAGE);
+  }
+  const salespersonName = data.salespersonName
+    ? String(data.salespersonName).trim() || null
+    : null;
+  return { salespersonId, salespersonName };
+}
+
+/**
+ * Admin action: copy dealer assigned staff → Zoho salesperson onto this SO.
+ */
+export async function applySalesOrderSalespersonFromDealer(
+  uid,
+  role,
+  salesOrderId,
+  secrets,
+  orgId,
+) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+
+  const { ref, id, data } = await loadSoOrThrow(salesOrderId);
+  const stage = yesOneStageOf(data);
+  if (stage === 'completed' || stage === 'void') {
+    throw new HttpsError(
+      'failed-precondition',
+      'Salesperson cannot be changed after the order is completed or voided.',
+    );
+  }
+
+  const resolved = await resolveSalespersonForCustomer(data.customerId);
+  if (!resolved?.id) {
+    throw new HttpsError('failed-precondition', MISSING_SALESPERSON_MESSAGE);
+  }
+
+  try {
+    await setSalesOrderSalesperson(secrets, orgId, id, {
+      salespersonId: resolved.id,
+      salespersonName: resolved.name,
+    });
+    await mirrorSalesOrderFromZoho(secrets, orgId, id);
+    await ref.set({
+      salespersonId: resolved.id,
+      salespersonName: resolved.name,
+      yesOneUpdatedAt: nowIso(),
+      yesOneLastEditedAt: nowIso(),
+      yesOneLastEditedByUid: uid,
+      yesOneLastEditedByName: displayName(user),
+    }, { merge: true });
+  } catch (err) {
+    const message = err?.message || 'Could not set salesperson on the sales order.';
+    throw new HttpsError('internal', message);
+  }
+
+  const snap = await ref.get();
+  return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
 }
 
 const MAX_PAYMENT_BYTES = 8 * 1024 * 1024;
@@ -582,6 +652,8 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       await confirmSalesOrder(secrets, orgId, id);
     }
 
+    const { salespersonId } = requireSalespersonOnSalesOrder(data);
+
     let invoiceId = data.zohoInvoiceId || null;
     let invoiceNumber = data.zohoInvoiceNumber || null;
     if (!invoiceId) {
@@ -589,6 +661,7 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
         salesOrderId: id,
         customerId: data.customerId,
         referenceNumber: data.referenceNumber,
+        salespersonId,
       });
       invoiceId = inv.invoiceId;
       invoiceNumber = inv.invoiceNumber;

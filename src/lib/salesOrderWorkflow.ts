@@ -187,6 +187,17 @@ export async function verifySalesOrderPayment(
   }
 }
 
+/** Copy dealer assigned staff → Zoho salesperson onto this SO (Zoho + Firestore). */
+export async function applySalesOrderSalespersonFromDealer(
+  salesOrderId: string,
+): Promise<SalesOrderWorkflowDetail> {
+  try {
+    return await call('applySalesOrderSalespersonFromDealer', { salesOrderId }, 120_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
 /** Delete a Draft SO in Zoho and remove the portal mirror. */
 export async function deleteDraftSalesOrder(
   salesOrderId: string,

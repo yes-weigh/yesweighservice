@@ -1,16 +1,27 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { AdminSalesOrderDetail } from '../../lib/admin-sales-orders';
 
-export type SalesOrderActionBusy = 'ready' | 'verify' | 'void' | 'delete' | null;
+export type SalesOrderActionBusy =
+  | 'ready'
+  | 'verify'
+  | 'void'
+  | 'delete'
+  | 'applySalesperson'
+  | null;
 
 export interface SalesOrderWorkflowActions {
   actionBusy: SalesOrderActionBusy;
   canReady: boolean;
   canVerify: boolean;
+  /** True when Verify is blocked only because salesperson is missing. */
+  needsSalesperson: boolean;
+  canApplySalesperson: boolean;
   canVoid: boolean;
   canDelete: boolean;
+  dealerPath: string | null;
   onReady: () => void;
   onVerify: () => void;
+  onApplySalesperson: () => void;
   onVoid: () => void;
   onDelete: () => void;
 }

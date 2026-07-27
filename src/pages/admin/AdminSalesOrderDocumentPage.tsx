@@ -8,6 +8,7 @@ import {
   IndianRupee,
   Pencil,
   Trash2,
+  UserRound,
 } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
@@ -235,6 +236,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     && (
       workflowActions.canReady
       || workflowActions.canVerify
+      || workflowActions.needsSalesperson
+      || workflowActions.canApplySalesperson
       || workflowActions.canVoid
       || workflowActions.canDelete
     ),
@@ -342,9 +345,29 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           <DocumentKamStrip
             salespersonId={salesOrder.salespersonId}
             salespersonName={salesOrder.salespersonName}
+            showMissing
           />
         )}
       </header>
+
+      {isOps && workflowActions?.needsSalesperson ? (
+        <div className="products-inline-error panel glass so-detail__salesperson-banner">
+          <UserRound size={18} aria-hidden />
+          <span>
+            Sales staff is required before Verify &amp; invoice.
+            {workflowActions.dealerPath ? (
+              <>
+                {' '}
+                <Link to={workflowActions.dealerPath}>Open dealer</Link>
+                {' '}
+                to assign sales staff (with a linked Zoho salesperson), then apply it here.
+              </>
+            ) : (
+              <> Assign sales staff on the dealer first, then apply it here.</>
+            )}
+          </span>
+        </div>
+      ) : null}
 
       {portalRemarks ? (
         <section className="so-detail__remarks panel glass">
@@ -460,6 +483,30 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             >
               <IndianRupee size={16} aria-hidden />
               {workflowActions.actionBusy === 'ready' ? 'Updating…' : 'Ready for payment'}
+            </button>
+          )}
+          {workflowActions.canApplySalesperson && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={Boolean(workflowActions.actionBusy)}
+              onClick={workflowActions.onApplySalesperson}
+            >
+              <UserRound size={16} aria-hidden />
+              {workflowActions.actionBusy === 'applySalesperson'
+                ? 'Applying…'
+                : 'Apply salesperson from dealer'}
+            </button>
+          )}
+          {workflowActions.needsSalesperson && !workflowActions.canVerify && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled
+              title="Assign sales staff on the dealer, then apply salesperson here"
+            >
+              <Check size={16} aria-hidden />
+              Verify & invoice
             </button>
           )}
           {workflowActions.canVerify && (

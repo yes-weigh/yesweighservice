@@ -10,6 +10,7 @@ import {
   createSalesOrderFromDealerOrder,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
+import { resolveSalespersonForCustomer } from './sales-order-salesperson.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
@@ -311,6 +312,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   let status = 'draft';
 
   try {
+    const salesperson = await resolveSalespersonForCustomer(zohoCustomerId);
     const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
       id: orderNumber,
       orderNumber,
@@ -320,6 +322,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       remarks,
       shippingAddressId: shippingResolved.shippingAddressId,
       shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
+      salespersonId: salesperson?.id || null,
     });
     salesOrderId = so.salesOrderId;
     salesOrderNumber = so.salesOrderNumber;
@@ -331,6 +334,10 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
         yesOneCartReference: orderNumber,
         shippingAddressId: shippingResolved.shippingAddressId || null,
         shippingAddress: shippingResolved.address?.formatted || null,
+        ...(salesperson ? {
+          salespersonId: salesperson.id,
+          salespersonName: salesperson.name,
+        } : {}),
       });
     } catch (mirrorErr) {
       console.warn(
@@ -343,6 +350,10 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
           yesOneCartReference: orderNumber,
           shippingAddressId: shippingResolved.shippingAddressId || null,
           shippingAddress: shippingResolved.address?.formatted || null,
+          ...(salesperson ? {
+            salespersonId: salesperson.id,
+            salespersonName: salesperson.name,
+          } : {}),
         });
       } catch {
         // Mirror may have failed entirely; workflow seed best-effort.

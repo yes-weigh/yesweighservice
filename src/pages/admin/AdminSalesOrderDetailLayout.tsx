@@ -22,6 +22,7 @@ import {
 } from '../../lib/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import {
+  applySalesOrderSalespersonFromDealer,
   deleteDraftSalesOrder,
   markSalesOrderReadyForPayment,
   verifySalesOrderPayment,
@@ -144,10 +145,22 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
 
   const statusKey = String(salesOrder?.status || '').toLowerCase().replace(/\s+/g, '_');
   const stage = String(salesOrder?.yesOneStage || 'review');
+  const hasSalesperson = Boolean(String(salesOrder?.salespersonId || '').trim());
+  const dealerPath = salesOrder?.customerId
+    ? `${basePath}/dealers/${salesOrder.customerId}`
+    : null;
   const canReady = canManageZoho
     && (statusKey === 'draft' || statusKey === 'pending' || statusKey === 'confirmed' || statusKey === 'open')
     && (stage === 'review' || !salesOrder?.yesOneStage);
-  const canVerify = canVerifyPayment && stage === 'payment_submitted';
+  const needsSalesperson = canVerifyPayment && stage === 'payment_submitted' && !hasSalesperson;
+  const canVerify = canVerifyPayment && stage === 'payment_submitted' && hasSalesperson;
+  const canApplySalesperson = Boolean(
+    canManageZoho
+    && !hasSalesperson
+    && stage !== 'completed'
+    && stage !== 'void'
+    && salesOrder?.customerId,
+  );
   const canDelete = Boolean(
     (canManageZoho || isDealerView)
     && (statusKey === 'draft' || statusKey === 'pending')
@@ -231,6 +244,19 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     }
   }, [salesOrderId, actionBusy, salesOrder?.salesOrderNumber, navigate, listPath]);
 
+  const handleApplySalesperson = useCallback(async () => {
+    if (!salesOrderId || actionBusy) return;
+    setActionBusy('applySalesperson');
+    try {
+      const next = await applySalesOrderSalespersonFromDealer(salesOrderId);
+      setSalesOrder(next);
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setActionBusy(null);
+    }
+  }, [salesOrderId, actionBusy]);
+
   const workflowActions = useMemo<SalesOrderWorkflowActions | null>(() => {
     if (isPdfView) return null;
     if (isDealerView) {
@@ -239,10 +265,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
         actionBusy,
         canReady: false,
         canVerify: false,
+        needsSalesperson: false,
+        canApplySalesperson: false,
         canVoid: false,
         canDelete,
+        dealerPath: null,
         onReady: () => {},
         onVerify: () => {},
+        onApplySalesperson: () => {},
         onVoid: () => {},
         onDelete: () => { void handleDelete(); },
       };
@@ -251,10 +281,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       actionBusy,
       canReady,
       canVerify,
+      needsSalesperson,
+      canApplySalesperson,
       canVoid,
       canDelete,
+      dealerPath,
       onReady: () => { void handleReady(); },
       onVerify: () => { void handleVerify(); },
+      onApplySalesperson: () => { void handleApplySalesperson(); },
       onVoid: () => { void handleVoid(); },
       onDelete: () => { void handleDelete(); },
     };
@@ -264,10 +298,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     actionBusy,
     canReady,
     canVerify,
+    needsSalesperson,
+    canApplySalesperson,
     canVoid,
     canDelete,
+    dealerPath,
     handleReady,
     handleVerify,
+    handleApplySalesperson,
     handleVoid,
     handleDelete,
   ]);

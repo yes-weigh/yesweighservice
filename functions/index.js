@@ -148,6 +148,7 @@ import {
   uploadSalesOrderPaymentScreenshot as uploadSalesOrderPaymentScreenshotRecord,
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
+  applySalesOrderSalespersonFromDealer as applySalesOrderSalespersonFromDealerRecord,
   voidSalesOrderWithWorkflow as voidSalesOrderWithWorkflowRecord,
   deleteDraftSalesOrder as deleteDraftSalesOrderRecord,
 } from './lib/sales-order-workflow.js';
@@ -3386,6 +3387,32 @@ export const verifySalesOrderPayment = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not verify payment.');
+    }
+  },
+);
+
+/** Copy dealer assigned staff → Zoho salesperson onto a sales order. */
+export const applySalesOrderSalespersonFromDealer = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, ['super_admin', 'staff']);
+    try {
+      return await applySalesOrderSalespersonFromDealerRecord(
+        uid,
+        role,
+        request.data?.salesOrderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not apply salesperson.');
     }
   },
 );

@@ -82,6 +82,10 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     line_items: lineItems,
     notes,
   };
+  const salespersonId = String(order.salespersonId || '').trim();
+  if (salespersonId) {
+    body.salesperson_id = salespersonId;
+  }
   if (order.shippingAddressId) {
     body.shipping_address_id = String(order.shippingAddressId);
   } else if (order.shippingAddressInline && typeof order.shippingAddressInline === 'object') {
@@ -111,6 +115,10 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     salesOrderId: String(so.salesorder_id),
     salesOrderNumber: so.salesorder_number ? String(so.salesorder_number) : null,
     status: so.status ? String(so.status) : 'draft',
+    salespersonId: so.salesperson_id != null && String(so.salesperson_id).trim()
+      ? String(so.salesperson_id).trim()
+      : (salespersonId || null),
+    salespersonName: so.salesperson_name ? String(so.salesperson_name).trim() || null : null,
   };
 }
 
@@ -147,6 +155,7 @@ export async function updateSalesOrderLines(secrets, configuredOrgId, salesOrder
     line_items: lineItems,
     notes: so.notes || '',
   };
+  if (so.salesperson_id) body.salesperson_id = so.salesperson_id;
 
   const payload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
     method: 'PUT',
@@ -159,6 +168,54 @@ export async function updateSalesOrderLines(secrets, configuredOrgId, salesOrder
       ? String(updated.salesorder_number)
       : (so.salesorder_number ? String(so.salesorder_number) : null),
     status: updated?.status ? String(updated.status) : status,
+  };
+}
+
+/**
+ * Set / replace Zoho salesperson on a sales order (Draft or Confirmed).
+ */
+export async function setSalesOrderSalesperson(
+  secrets,
+  configuredOrgId,
+  salesOrderId,
+  { salespersonId, salespersonName = null } = {},
+) {
+  const soId = String(salesOrderId || '').trim();
+  const spId = String(salespersonId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+  if (!spId) throw new Error('Salesperson id is required.');
+
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const existing = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+  const so = existing?.salesorder;
+  if (!so) throw new Error('Sales order not found in Zoho.');
+
+  const body = {
+    customer_id: so.customer_id,
+    reference_number: so.reference_number || '',
+    date: so.date || new Date().toISOString().slice(0, 10),
+    line_items: Array.isArray(so.line_items) ? so.line_items : [],
+    notes: so.notes || '',
+    salesperson_id: spId,
+  };
+  if (so.shipping_address_id) {
+    body.shipping_address_id = so.shipping_address_id;
+  }
+
+  const payload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
+    method: 'PUT',
+    body,
+  });
+  const updated = payload?.salesorder;
+  return {
+    salesOrderId: soId,
+    salespersonId: updated?.salesperson_id != null && String(updated.salesperson_id).trim()
+      ? String(updated.salesperson_id).trim()
+      : spId,
+    salespersonName: updated?.salesperson_name
+      ? String(updated.salesperson_name).trim() || null
+      : (salespersonName ? String(salespersonName).trim() || null : null),
   };
 }
 
@@ -193,6 +250,7 @@ export async function updateSalesOrderShippingAddress(
     line_items: Array.isArray(so.line_items) ? so.line_items : [],
     notes: so.notes || '',
   };
+  if (so.salesperson_id) body.salesperson_id = so.salesperson_id;
   if (shippingAddressId) {
     body.shipping_address_id = String(shippingAddressId);
   } else if (shippingAddressInline && typeof shippingAddressInline === 'object') {
@@ -340,13 +398,15 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   salesOrderId,
   customerId,
   referenceNumber,
+  salespersonId = null,
 }) {
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
   const soId = String(salesOrderId || '').trim();
   if (!soId) throw new Error('Sales order id is required.');
+  const spId = String(salespersonId || '').trim();
 
-  // Prefer convert endpoint when available.
+  // Prefer convert endpoint when available (inherits SO salesperson when set on SO).
   try {
     const converted = await zohoJson(
       accessToken,
@@ -356,8 +416,25 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     );
     const inv = converted?.invoice;
     if (inv?.invoice_id) {
+      const invoiceId = String(inv.invoice_id);
+      // Ensure salesperson on invoice when convert did not copy it.
+      if (spId && String(inv.salesperson_id || '').trim() !== spId) {
+        try {
+          await zohoJson(accessToken, orgId, `/invoices/${encodeURIComponent(invoiceId)}`, {
+            method: 'PUT',
+            body: {
+              customer_id: inv.customer_id,
+              date: inv.date,
+              line_items: Array.isArray(inv.line_items) ? inv.line_items : [],
+              salesperson_id: spId,
+            },
+          });
+        } catch (err) {
+          console.warn('Could not set salesperson on converted invoice:', err?.message || err);
+        }
+      }
       return {
-        invoiceId: String(inv.invoice_id),
+        invoiceId,
         invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
       };
     }
@@ -389,6 +466,8 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     line_items: lineItems,
     salesorder_id: soId,
   };
+  const effectiveSp = spId || (so.salesperson_id != null ? String(so.salesperson_id).trim() : '');
+  if (effectiveSp) body.salesperson_id = effectiveSp;
 
   const payload = await zohoJson(accessToken, orgId, '/invoices', {
     method: 'POST',
