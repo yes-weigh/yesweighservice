@@ -2,7 +2,6 @@ import {
   collection,
   collectionGroup,
   doc,
-  getAggregateFromServer,
   getCountFromServer,
   getDoc,
   getDocs,
@@ -11,14 +10,14 @@ import {
   orderBy,
   query,
   startAfter,
-  sum,
   where,
   type DocumentData,
   type QueryConstraint,
   type QueryDocumentSnapshot,
   type QuerySnapshot,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db } from '../firebase';
 import { toSalesOrderDateKey } from './admin-sales-orders';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
@@ -575,67 +574,32 @@ export async function countAdminInvoices(options: {
   return snap.data().count;
 }
 
-function buildAdminAmountConstraints(options: {
-  category?: InvoiceCategory | 'all';
-  dateStart?: string | null;
-  dateEnd?: string | null;
-  salespersonIds?: string[] | null;
-}): QueryConstraint[] | null {
-  if (
-    options.salespersonIds != null
-    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
-  ) {
-    return null;
-  }
-  const constraints: QueryConstraint[] = [];
-  if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
-    return null;
-  }
-  const category = options.category ?? 'all';
-  if (category && category !== 'all') {
-    constraints.push(where('invoiceCategory', '==', category));
-  }
-  const dateStart = options.dateStart?.trim() || null;
-  const dateEnd = options.dateEnd?.trim() || null;
-  if (dateStart || dateEnd) {
-    if (dateStart) constraints.push(where('date', '>=', dateStart));
-    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-    constraints.push(orderBy('date', 'desc'));
-  } else {
-    constraints.push(orderBy('date', 'desc'));
-  }
-  return constraints;
-}
-
-/** Server-side sum of excl-GST amount (prefers amountExclGst, else subtotal). */
-export async function sumAdminInvoiceAmount(options: {
+/**
+ * Live Firestore SUM() on collectionGroup('invoices') fails with failed-precondition
+ * (mixed/missing numeric fields across ~20k docs). Amount KPIs come from rollups only.
+ */
+export async function sumAdminInvoiceAmount(_options: {
   category?: InvoiceCategory | 'all';
   dateStart?: string | null;
   dateEnd?: string | null;
   salespersonIds?: string[] | null;
 }): Promise<number> {
-  const constraints = buildAdminAmountConstraints(options);
-  if (!constraints) return 0;
-  const listCollection = await resolveAdminInvoiceListCollection();
-  const base = query(collectionGroup(db, listCollection), ...constraints);
-  try {
-    const snap = await getAggregateFromServer(base, {
-      total: sum('amountExclGst'),
-    });
-    const value = snap.data().total;
-    if (typeof value === 'number' && Number.isFinite(value) && value !== 0) return value;
-  } catch {
-    // amountExclGst may be missing on older docs / indexes — fall through
-  }
-  try {
-    const snap = await getAggregateFromServer(base, {
-      total: sum('subtotal'),
-    });
-    const value = snap.data().total;
-    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-  } catch {
-    return 0;
-  }
+  return 0;
+}
+
+/** One-time seed of invoiceStats / invoiceMonthStats / invoiceSummaries (super admin). */
+export async function runInvoiceStatsBackfill(): Promise<{
+  invoiceCount: number;
+  summaryCount: number;
+  monthDocs: number;
+}> {
+  const functions = getFunctions(app, 'asia-south1');
+  const callable = httpsCallable<
+    Record<string, never>,
+    { invoiceCount: number; summaryCount: number; monthDocs: number }
+  >(functions, 'backfillInvoiceStatsAndSummariesFn', { timeout: 540_000 });
+  const result = await callable({});
+  return result.data;
 }
 
 export type AdminInvoiceStatsKpi = {
@@ -762,23 +726,16 @@ export async function loadAdminInvoiceKpis(options: {
     }
   }
 
-  const [categoryCounts, totalAmount] = await Promise.all([
-    countAdminInvoicesByCategory({
-      dateStart,
-      dateEnd,
-      salespersonIds: options.salespersonIds,
-    }),
-    sumAdminInvoiceAmount({
-      category,
-      dateStart,
-      dateEnd,
-      salespersonIds: options.salespersonIds,
-    }),
-  ]);
+  // Counts only — amount requires rollups (run backfillInvoiceStatsAndSummariesFn once).
+  const categoryCounts = await countAdminInvoicesByCategory({
+    dateStart,
+    dateEnd,
+    salespersonIds: options.salespersonIds,
+  });
 
   return {
     invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
-    totalAmount,
+    totalAmount: 0,
     categoryCounts,
     source: 'query',
   };
