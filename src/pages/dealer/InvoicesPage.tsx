@@ -459,6 +459,9 @@ export const InvoicesPage: React.FC = () => {
       const res = await fetchDealerInvoicesWithCache(uid, queryParams);
       setInvoices(res.data);
       setTotal(res.pagination.total);
+      if (res.categoryCounts) {
+        setCategoryCounts(prev => ({ ...prev, ...res.categoryCounts }));
+      }
       setError('');
     } catch (err) {
       if (!usedCache) {
@@ -510,39 +513,6 @@ export const InvoicesPage: React.FC = () => {
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch, category, sortField, sortDir]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const uid = user?.uid;
-    void Promise.all(
-      CATEGORY_BLOCKS.map(async item => {
-        const params: InvoiceListParams = {
-          page: 1,
-          limit: 1,
-          sortField: 'date',
-          sortDir: 'desc',
-          ...(item.value !== 'all' ? { category: item.value } : {}),
-          ...(debouncedSearch.trim() ? { q: debouncedSearch.trim() } : {}),
-        };
-        try {
-          const res = await fetchDealerInvoicesWithCache(uid, params);
-          return [item.value, res.pagination.total] as const;
-        } catch {
-          return [item.value, 0] as const;
-        }
-      }),
-    ).then(entries => {
-      if (cancelled) return;
-      const next: DealerInvoiceCategoryCounts = { ...EMPTY_CATEGORY_COUNTS };
-      for (const [key, count] of entries) {
-        next[key] = count;
-      }
-      setCategoryCounts(next);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.uid, debouncedSearch]);
 
   useEffect(() => {
     if (category === 'all') {

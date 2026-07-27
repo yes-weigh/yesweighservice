@@ -1583,7 +1583,7 @@ export const getDealerInvoiceDashboard = onCall(
   {
     region: 'asia-south1',
     timeoutSeconds: 60,
-    memory: '256MiB',
+    memory: '512MiB',
   },
   async request => {
     const uid = request.auth?.uid;
@@ -1705,7 +1705,7 @@ export const getDealerInvoices = onCall(
   {
     region: 'asia-south1',
     timeoutSeconds: 60,
-    memory: '256MiB',
+    memory: '512MiB',
   },
   async request => {
     const uid = request.auth?.uid;

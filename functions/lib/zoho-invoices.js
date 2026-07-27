@@ -5,6 +5,7 @@ import {
   paginateInvoices,
   filterInvoicesBySearch,
   computeInvoiceDashboardSummary,
+  countInvoicesByCategory,
 } from './invoice-mappers.js';
 import {
   readCustomerInvoicesFromFirestore,
@@ -22,6 +23,7 @@ export {
   filterInvoices,
   sortInvoices,
   paginateInvoices,
+  countInvoicesByCategory,
 } from './invoice-mappers.js';
 
 export async function resolveZohoCustomerIdForUser(uid, role) {
@@ -118,19 +120,25 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
   const page = Number(query.page ?? 1);
   const limit = Number(query.limit ?? 25);
 
-  const { invoices, searchBlobById, lastSyncedAt } = await readCustomerInvoicesFromFirestore(customerId);
+  const { invoices, searchBlobById, lastSyncedAt } = await readCustomerInvoicesFromFirestore(
+    customerId,
+    { includeSearchBlob: Boolean(searchText) },
+  );
 
-  let filtered = filterInvoices(invoices, { status, category });
+  let filtered = filterInvoices(invoices, { status, category: 'all' });
 
   if (searchText) {
     filtered = filterInvoicesBySearch(filtered, searchText, searchBlobById);
   }
 
-  filtered = sortInvoices(filtered, sortField, sortDir);
-  const paged = paginateInvoices(filtered, page, limit);
+  const categoryCounts = countInvoicesByCategory(filtered);
+  const categorized = filterInvoices(filtered, { category });
+  const sorted = sortInvoices(categorized, sortField, sortDir);
+  const paged = paginateInvoices(sorted, page, limit);
 
   return {
     ...paged,
+    categoryCounts,
     customerId,
     lastSyncedAt,
   };

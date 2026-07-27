@@ -726,15 +726,43 @@ export async function reconcileCustomerInvoices(secrets, orgId, customerId, opti
   return { zohoCount: zohoIds.size, localRemoved: removed };
 }
 
-export async function readCustomerInvoicesFromFirestore(customerId) {
-  const snap = await invoicesCollection(String(customerId)).get();
+/** List fields only — omit lineItems / PDF paths so large dealers stay under memory caps. */
+const INVOICE_LIST_SELECT_FIELDS = [
+  'invoiceNumber',
+  'date',
+  'dueDate',
+  'status',
+  'total',
+  'subtotal',
+  'taxTotal',
+  'balance',
+  'referenceNumber',
+  'lastPaymentDate',
+  'currencyCode',
+  'customerName',
+  'salespersonId',
+  'salespersonName',
+  'invoiceUrl',
+  'invoiceCategory',
+];
+
+export async function readCustomerInvoicesFromFirestore(
+  customerId,
+  { includeSearchBlob = false } = {},
+) {
+  const fields = includeSearchBlob
+    ? [...INVOICE_LIST_SELECT_FIELDS, 'searchBlob']
+    : INVOICE_LIST_SELECT_FIELDS;
+  const snap = await invoicesCollection(String(customerId)).select(...fields).get();
   const invoices = [];
   const searchBlobById = new Map();
 
   snap.forEach(doc => {
     const data = doc.data() ?? {};
     invoices.push(firestoreDocToListInvoice({ ...data, id: doc.id }));
-    if (data.searchBlob) searchBlobById.set(doc.id, String(data.searchBlob));
+    if (includeSearchBlob && data.searchBlob) {
+      searchBlobById.set(doc.id, String(data.searchBlob));
+    }
   });
 
   const metaSnap = await customerInvoiceMetaRef(String(customerId)).get();

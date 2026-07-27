@@ -133,6 +133,25 @@ export function filterInvoices(invoices, { status, category } = {}) {
   return next;
 }
 
+/** Counts after status/search filters, before the category tab filter. */
+export function countInvoicesByCategory(invoices) {
+  const counts = {
+    all: invoices.length,
+    product: 0,
+    spare: 0,
+    software_key: 0,
+    service: 0,
+    gatc: 0,
+  };
+  for (const inv of invoices) {
+    const key = String(inv.invoiceCategory ?? '').toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(counts, key) && key !== 'all') {
+      counts[key] += 1;
+    }
+  }
+  return counts;
+}
+
 export function sortInvoices(invoices, sortField = 'date', sortDir = 'desc') {
   const dir = sortDir === 'asc' ? 1 : -1;
   const key = sortField || 'date';

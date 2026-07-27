@@ -113,6 +113,15 @@ export interface InvoiceListResponse {
     limit: number;
     totalPages: number;
   };
+  /** Present after status/search filters; used for category tab badges. */
+  categoryCounts?: {
+    all: number;
+    product: number;
+    spare: number;
+    software_key: number;
+    service: number;
+    gatc: number;
+  };
   customerId?: string;
   lastSyncedAt?: string | null;
 }
