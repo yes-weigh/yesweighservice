@@ -13,6 +13,7 @@ import {
   fetchZohoOrgApiUsage,
 } from './zoho-api-usage.js';
 import {
+  classifyInvoiceCategoryBreakdown,
   classifyInvoiceFromLineItems,
   parseInvoiceCategory,
   sumNonFreightQuantity,
@@ -245,12 +246,16 @@ async function upsertPurchaseOrderFromRaw(raw, options = {}) {
   if (!mapped.id) throw new Error('Missing purchaseorder_id.');
 
   const catalog = await loadCatalogMeta(mapped.lineItems.map(line => line.itemId).filter(Boolean));
-  const purchaseOrderCategory = classifyInvoiceFromLineItems(mapped.lineItems, catalog);
+  const categoryBreakdown = classifyInvoiceCategoryBreakdown(mapped.lineItems, catalog);
+  const purchaseOrderCategory = categoryBreakdown.categories[0]
+    ?? classifyInvoiceFromLineItems(mapped.lineItems, catalog);
   const now = Timestamp.now();
   const doc = {
     ...mapped,
     searchBlob: buildSearchBlob(mapped),
     purchaseOrderCategory,
+    categories: categoryBreakdown.categories,
+    categoryAmounts: categoryBreakdown.categoryAmounts,
     itemQuantity: sumNonFreightQuantity(mapped.lineItems),
     syncedAt: now,
     contentFingerprint: `${mapped.zohoLastModified}|${mapped.lineItems.length}|${mapped.total}`,
@@ -691,14 +696,21 @@ export async function reclassifyPurchaseOrderCategoriesFromCatalog(options = {})
       scanned += 1;
       const data = docSnap.data() || {};
       const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
-      const next = classifyInvoiceFromLineItems(lines, catalog);
+      const breakdown = classifyInvoiceCategoryBreakdown(lines, catalog);
+      const next = breakdown.categories[0] ?? classifyInvoiceFromLineItems(lines, catalog);
       counts[next] = (counts[next] || 0) + 1;
       const current = parseInvoiceCategory(data.purchaseOrderCategory);
-      if (current === next) {
+      const sameCategories = JSON.stringify(data.categories ?? []) === JSON.stringify(breakdown.categories);
+      const sameAmounts = JSON.stringify(data.categoryAmounts ?? {}) === JSON.stringify(breakdown.categoryAmounts);
+      if (current === next && sameCategories && sameAmounts) {
         unchanged += 1;
         continue;
       }
-      batch.update(docSnap.ref, { purchaseOrderCategory: next });
+      batch.update(docSnap.ref, {
+        purchaseOrderCategory: next,
+        categories: breakdown.categories,
+        categoryAmounts: breakdown.categoryAmounts,
+      });
       batchWrites += 1;
       updated += 1;
     }
@@ -772,6 +784,10 @@ export function mapPurchaseOrderDoc(id, data) {
     notes: data.notes ?? null,
     lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
     purchaseOrderCategory: parseInvoiceCategory(data.purchaseOrderCategory),
+    categories: Array.isArray(data.categories) ? data.categories.map(String) : [],
+    categoryAmounts: data.categoryAmounts && typeof data.categoryAmounts === 'object'
+      ? { ...data.categoryAmounts }
+      : {},
     itemQuantity: data.itemQuantity != null
       ? Number(data.itemQuantity)
       : (Array.isArray(data.lineItems)

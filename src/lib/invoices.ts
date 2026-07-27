@@ -267,6 +267,19 @@ export function invoiceAmountExclGst(inv: {
   return total;
 }
 
+export function invoiceCategoryAmount(inv: {
+  total?: number | null;
+  subtotal?: number | null;
+  taxTotal?: number | null;
+  categoryAmounts?: unknown;
+  categories?: unknown;
+  invoiceCategory?: unknown;
+}, category: InvoiceCategory): number {
+  const categoryAmounts = normalizeInvoiceCategoryAmounts(inv.categoryAmounts);
+  if (categoryAmounts[category] != null) return Number(categoryAmounts[category] ?? 0);
+  return invoiceHasCategory(inv, category) ? invoiceAmountExclGst(inv) : 0;
+}
+
 export function buildSalesEntriesFromInvoices(invoices: DealerInvoice[]): InvoiceSalesEntry[] {
   return invoices
     .filter(inv => inv.date)
@@ -678,37 +691,126 @@ export type InvoiceCategoryCatalogMeta = {
   categoryName?: string | null;
 };
 
-/**
- * Same rules as Zoho SO/invoice sync: highest-value non-freight line,
- * then HSN/SAC service/software_key/gatc, else spare vs product from catalog.
- */
-export function classifyInvoiceFromLineItems(
-  lineItems: InvoiceCategoryLineInput[],
-  catalogByItemId: Map<string, InvoiceCategoryCatalogMeta> = new Map(),
-): InvoiceCategory {
-  const items = Array.isArray(lineItems) ? lineItems : [];
-  const candidates = items.filter(item => !isFreightInvoiceLineItem({
-    name: String(item?.name ?? ''),
-    sku: item?.sku ?? null,
-    hsn: item?.hsn ?? null,
-  }));
-  if (!candidates.length) return 'spare';
+export type InvoiceCategoryBreakdown = {
+  categories: InvoiceCategory[];
+  categoryAmounts: Partial<Record<InvoiceCategory, number>>;
+  categoryLineCounts: Partial<Record<InvoiceCategory, number>>;
+};
 
-  let top = candidates[0];
-  for (let i = 1; i < candidates.length; i += 1) {
-    const item = candidates[i];
-    if (Number(item.total ?? 0) > Number(top.total ?? 0)) top = item;
+function emptyInvoiceCategoryTotals(): Record<InvoiceCategory, number> {
+  return {
+    product: 0,
+    spare: 0,
+    service: 0,
+    software_key: 0,
+    gatc: 0,
+  };
+}
+
+export function normalizeInvoiceCategories(value: unknown): InvoiceCategory[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<InvoiceCategory>();
+  for (const raw of value) {
+    const parsed = parseInvoiceCategory(raw);
+    if (parsed) seen.add(parsed);
   }
+  return INVOICE_CATEGORIES.filter(category => seen.has(category));
+}
 
-  const itemId = top.itemId ? String(top.itemId) : '';
+export function normalizeInvoiceCategoryAmounts(
+  value: unknown,
+): Partial<Record<InvoiceCategory, number>> {
+  if (!value || typeof value !== 'object') return {};
+  const raw = value as Record<string, unknown>;
+  const next: Partial<Record<InvoiceCategory, number>> = {};
+  for (const category of INVOICE_CATEGORIES) {
+    const amount = Number(raw[category] ?? 0);
+    if (Number.isFinite(amount) && amount !== 0) next[category] = amount;
+  }
+  return next;
+}
+
+export function invoiceHasCategory(
+  value: { categories?: unknown; invoiceCategory?: unknown } | null | undefined,
+  category: InvoiceCategory,
+): boolean {
+  const categories = normalizeInvoiceCategories(value?.categories);
+  if (categories.length) return categories.includes(category);
+  return parseInvoiceCategory(value?.invoiceCategory) === category;
+}
+
+export function invoiceCategoriesForDisplay(
+  value: { categories?: unknown; invoiceCategory?: unknown } | null | undefined,
+): InvoiceCategory[] {
+  const categories = normalizeInvoiceCategories(value?.categories);
+  if (categories.length) return categories;
+  const legacy = parseInvoiceCategory(value?.invoiceCategory);
+  return legacy ? [legacy] : [];
+}
+
+export function classifyInvoiceLineItem(
+  item: InvoiceCategoryLineInput,
+  catalogByItemId: Map<string, InvoiceCategoryCatalogMeta> = new Map(),
+): InvoiceCategory | null {
+  const name = String(item?.name ?? '');
+  const sku = item?.sku ?? null;
+  const hsnFromItem = item?.hsn ?? null;
+  if (isFreightInvoiceLineItem({ name, sku, hsn: hsnFromItem })) return null;
+
+  const itemId = item.itemId ? String(item.itemId) : '';
   const catalog = itemId ? catalogByItemId.get(itemId) : null;
-  const hsn = normalizeCategoryHsn(top.hsn || catalog?.hsn);
+  const hsn = normalizeCategoryHsn(hsnFromItem || catalog?.hsn);
 
   if (hsn === INVOICE_CATEGORY_HSN.gatc) return 'gatc';
   if (hsn === INVOICE_CATEGORY_HSN.service) return 'service';
   if (hsn === INVOICE_CATEGORY_HSN.software_key) return 'software_key';
   if (isSpareCatalogItem(catalog)) return 'spare';
   return 'product';
+}
+
+export function classifyInvoiceCategoryBreakdown(
+  lineItems: InvoiceCategoryLineInput[],
+  catalogByItemId: Map<string, InvoiceCategoryCatalogMeta> = new Map(),
+): InvoiceCategoryBreakdown {
+  const items = Array.isArray(lineItems) ? lineItems : [];
+  const totals = emptyInvoiceCategoryTotals();
+  const counts = emptyInvoiceCategoryTotals();
+
+  for (const item of items) {
+    const category = classifyInvoiceLineItem(item, catalogByItemId);
+    if (!category) continue;
+    totals[category] += Number(item?.total ?? 0);
+    counts[category] += 1;
+  }
+
+  const categories = INVOICE_CATEGORIES.filter(category => totals[category] > 0 || counts[category] > 0);
+  if (!categories.length) {
+    return {
+      categories: ['spare'],
+      categoryAmounts: { spare: 0 },
+      categoryLineCounts: { spare: 0 },
+    };
+  }
+
+  const categoryAmounts: Partial<Record<InvoiceCategory, number>> = {};
+  const categoryLineCounts: Partial<Record<InvoiceCategory, number>> = {};
+  for (const category of categories) {
+    categoryAmounts[category] = totals[category];
+    categoryLineCounts[category] = counts[category];
+  }
+
+  return { categories, categoryAmounts, categoryLineCounts };
+}
+
+/**
+ * Legacy single-category accessor kept during migration.
+ * Returns the first normalized category from the multi-category breakdown.
+ */
+export function classifyInvoiceFromLineItems(
+  lineItems: InvoiceCategoryLineInput[],
+  catalogByItemId: Map<string, InvoiceCategoryCatalogMeta> = new Map(),
+): InvoiceCategory {
+  return classifyInvoiceCategoryBreakdown(lineItems, catalogByItemId).categories[0] ?? 'spare';
 }
 
 /** Classify a portal dealer order from its lines (mirrors Zoho SO categorisation). */

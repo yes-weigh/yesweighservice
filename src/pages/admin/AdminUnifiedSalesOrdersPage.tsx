@@ -15,7 +15,7 @@ import {
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
-  InvoiceCategoryBadge,
+  InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
@@ -574,13 +574,17 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const summary = useMemo(() => {
     const countSummary = { count: filteredTotal, totalAmount: 0, currencyCode: null as string | null };
     const pageSummary = summarizeUnifiedAmounts(pageRows);
+    const categoryAmount = category === 'all'
+      ? pageSummary.totalAmount
+      : pageRows.reduce((sum, row) => sum + Number(row.categoryAmounts[category] ?? row.amount ?? 0), 0);
     return {
       count: countSummary.count,
+      categoryAmount,
       totalAmount: pageSummary.totalAmount,
       currencyCode: pageSummary.currencyCode,
       amountIsPageOnly: filteredTotal > pageRows.length,
     };
-  }, [filteredTotal, pageRows]);
+  }, [filteredTotal, pageRows, category]);
 
   const dateRange = formatKpiPeriodRange(
     bounds?.start?.toISOString?.() ?? null,
@@ -683,21 +687,48 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
               <IndianRupee size={16} strokeWidth={2.4} />
             </span>
             <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">Total Amount</span>
+              <span className="invoices-summary__kpi-label">
+                {category === 'all' ? 'Total Amount' : 'Category Amount'}
+              </span>
               <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
                 {loading
                   ? '…'
                   : summary.currencyCode
-                    ? formatCurrency(summary.totalAmount, summary.currencyCode)
+                    ? formatCurrency(category === 'all' ? summary.totalAmount : summary.categoryAmount, summary.currencyCode)
                     : pageRows.length
                       ? 'Mixed currencies'
                       : formatCurrency(0)}
               </strong>
               <span className="invoices-summary__kpi-sub">
-                {summary.amountIsPageOnly ? 'This page' : 'Amount'}
+                {summary.amountIsPageOnly
+                  ? 'This page'
+                  : (category === 'all' ? 'Amount' : 'Category lines')}
               </span>
             </div>
           </div>
+          {category !== 'all' && (
+            <>
+              <div className="invoices-summary__divider" aria-hidden />
+              <div className="invoices-summary__kpi">
+                <span className="invoices-summary__kpi-icon" aria-hidden>
+                  <IndianRupee size={16} strokeWidth={2.4} />
+                </span>
+                <div className="invoices-summary__kpi-body">
+                  <span className="invoices-summary__kpi-label">Order Amount</span>
+                  <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+                    {loading
+                      ? '…'
+                      : summary.currencyCode
+                        ? formatCurrency(summary.totalAmount, summary.currencyCode)
+                        : pageRows.length
+                          ? 'Mixed currencies'
+                          : formatCurrency(0)}
+                  </strong>
+                  <span className="invoices-summary__kpi-sub">This page</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {selectedDealers.length > 0 && (
@@ -837,9 +868,10 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                               {formatInvoiceDate(row.date)}
                             </span>
                             <span className="unified-so-order-cell__badges">
-                              {row.category ? (
-                                <InvoiceCategoryBadge category={row.category} />
-                              ) : null}
+                              <InvoiceCategoryBadgeList
+                                categories={row.categories}
+                                invoiceCategory={row.category}
+                              />
                               {row.sealKind ? (
                                 <SalesOrderStageSeal kind={row.sealKind} size="inline" />
                               ) : null}
@@ -893,9 +925,10 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__pair">
                           <span className="invoices-mobile-row__title">
-                            {row.category ? (
-                              <InvoiceCategoryBadge category={row.category} />
-                            ) : null}
+                            <InvoiceCategoryBadgeList
+                              categories={row.categories}
+                              invoiceCategory={row.category}
+                            />
                             <strong>{row.primaryNumber}</strong>
                             <span className="invoices-mobile-row__meta unified-so-mobile-row__date">
                               {formatInvoiceDate(row.date)}

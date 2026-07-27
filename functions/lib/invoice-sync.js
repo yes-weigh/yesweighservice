@@ -16,6 +16,7 @@ import {
   firestoreDocToDetail,
 } from './invoice-mappers.js';
 import {
+  classifyInvoiceCategoryBreakdown,
   classifyInvoiceFromLineItems,
   parseInvoiceCategory,
 } from './invoice-category.js';
@@ -339,7 +340,6 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
       options.skipImages ? null : (meta?.imageUrl ?? null),
     );
   });
-  // Highest-value line → catalogProducts (HSN / category) via itemId.
   const classifyInput = lineItemsRaw.map(item => {
     const itemId = item.item_id ? String(item.item_id) : null;
     return {
@@ -350,7 +350,9 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
       hsn: item.hsn_or_sac ?? item.hsnOrSac ?? item.hsn ?? null,
     };
   });
-  const invoiceCategory = classifyInvoiceFromLineItems(classifyInput, catalogMap);
+  const categoryBreakdown = classifyInvoiceCategoryBreakdown(classifyInput, catalogMap);
+  const invoiceCategory = categoryBreakdown.categories[0]
+    ?? classifyInvoiceFromLineItems(classifyInput, catalogMap);
   const salesOrder = options.skipSalesOrder
     ? null
     : await resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw);
@@ -379,6 +381,8 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
       taxTotal: Number(invoiceRaw.tax_total ?? 0),
     }),
     invoiceCategory,
+    categories: categoryBreakdown.categories,
+    categoryAmounts: categoryBreakdown.categoryAmounts,
     zohoLastModified: invoiceRaw.last_modified_time
       ? String(invoiceRaw.last_modified_time)
       : null,
@@ -466,6 +470,8 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       ...mapInvoice(invoiceRaw),
       customerId,
       invoiceCategory: parseInvoiceCategory(existing.invoiceCategory) || 'product',
+      categories: Array.isArray(existing.categories) ? existing.categories : [],
+      categoryAmounts: existing.categoryAmounts ?? {},
       syncedAt: FieldValue.serverTimestamp(),
     };
   } else if (needsDetail || options.forceDetail) {
@@ -487,6 +493,8 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       searchBlob: buildInvoiceSearchBlob(invoiceRaw),
       contentFingerprint: fingerprint,
       invoiceCategory: parseInvoiceCategory(existing.invoiceCategory) || 'product',
+      categories: Array.isArray(existing.categories) ? existing.categories : [],
+      categoryAmounts: existing.categoryAmounts ?? {},
       syncedAt: FieldValue.serverTimestamp(),
     };
     if (!options.skipSalesOrder && existing.salesOrderId) {

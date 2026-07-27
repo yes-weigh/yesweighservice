@@ -56,34 +56,68 @@ export function isSpareCatalogItem(catalog) {
   return false;
 }
 
-/**
- * Classify an invoice from its line items + catalog metadata.
- * Uses the non-freight line with the highest `total`.
- *
- * @param {Array<{ total?: number, name?: string, sku?: string|null, itemId?: string|null, hsn?: string|null }>} lineItems
- * @param {Map<string, { hsn?: string|null, categoryId?: string|null, categoryName?: string|null }>} catalogByItemId
- * @returns {'product'|'spare'|'service'|'software_key'|'gatc'}
- */
-export function classifyInvoiceFromLineItems(lineItems, catalogByItemId = new Map()) {
-  const items = Array.isArray(lineItems) ? lineItems : [];
-  const candidates = items.filter(item => !isFreightLineItem(item?.name, item?.sku, item?.hsn));
-  if (!candidates.length) return 'spare';
+function emptyCategoryTotals() {
+  return {
+    product: 0,
+    spare: 0,
+    service: 0,
+    software_key: 0,
+    gatc: 0,
+  };
+}
 
-  let top = candidates[0];
-  for (let i = 1; i < candidates.length; i += 1) {
-    const item = candidates[i];
-    if (Number(item.total ?? 0) > Number(top.total ?? 0)) top = item;
-  }
-
-  const itemId = top.itemId ? String(top.itemId) : '';
+export function classifyInvoiceLineItem(item, catalogByItemId = new Map()) {
+  if (isFreightLineItem(item?.name, item?.sku, item?.hsn)) return null;
+  const itemId = item?.itemId ? String(item.itemId) : '';
   const catalog = itemId ? catalogByItemId.get(itemId) : null;
-  const hsn = normalizeHsn(top.hsn || catalog?.hsn);
+  const hsn = normalizeHsn(item?.hsn || catalog?.hsn);
 
   if (hsn === INVOICE_CATEGORY_HSN.gatc) return 'gatc';
   if (hsn === INVOICE_CATEGORY_HSN.service) return 'service';
   if (hsn === INVOICE_CATEGORY_HSN.software_key) return 'software_key';
   if (isSpareCatalogItem(catalog)) return 'spare';
   return 'product';
+}
+
+export function classifyInvoiceCategoryBreakdown(lineItems, catalogByItemId = new Map()) {
+  const items = Array.isArray(lineItems) ? lineItems : [];
+  const totals = emptyCategoryTotals();
+  const counts = emptyCategoryTotals();
+
+  for (const item of items) {
+    const category = classifyInvoiceLineItem(item, catalogByItemId);
+    if (!category) continue;
+    totals[category] += Number(item?.total ?? 0);
+    counts[category] += 1;
+  }
+
+  const categories = INVOICE_CATEGORIES.filter(category => totals[category] > 0 || counts[category] > 0);
+  if (!categories.length) {
+    return {
+      categories: ['spare'],
+      categoryAmounts: { spare: 0 },
+      categoryLineCounts: { spare: 0 },
+    };
+  }
+
+  const categoryAmounts = {};
+  const categoryLineCounts = {};
+  for (const category of categories) {
+    categoryAmounts[category] = totals[category];
+    categoryLineCounts[category] = counts[category];
+  }
+  return { categories, categoryAmounts, categoryLineCounts };
+}
+
+/**
+ * Legacy single-category accessor kept during migration.
+ *
+ * @param {Array<{ total?: number, name?: string, sku?: string|null, itemId?: string|null, hsn?: string|null }>} lineItems
+ * @param {Map<string, { hsn?: string|null, categoryId?: string|null, categoryName?: string|null }>} catalogByItemId
+ * @returns {'product'|'spare'|'service'|'software_key'|'gatc'}
+ */
+export function classifyInvoiceFromLineItems(lineItems, catalogByItemId = new Map()) {
+  return classifyInvoiceCategoryBreakdown(lineItems, catalogByItemId).categories[0] ?? 'spare';
 }
 
 export function parseInvoiceCategory(value) {
@@ -161,21 +195,30 @@ export async function reclassifyInvoiceCategoriesFromCatalog(options = {}) {
       scanned += 1;
       const data = docSnap.data() || {};
       const current = parseInvoiceCategory(data.invoiceCategory);
-      if (onlyMissing && current) {
+      const hasMulti = Array.isArray(data.categories) && data.categories.length > 0;
+      if (onlyMissing && current && hasMulti) {
         skipped += 1;
         continue;
       }
 
       const lineItems = Array.isArray(data.lineItems) ? data.lineItems : [];
-      const next = classifyInvoiceFromLineItems(lineItems, catalogMap);
+      const breakdown = classifyInvoiceCategoryBreakdown(lineItems, catalogMap);
+      const next = breakdown.categories[0] ?? 'spare';
       byCategory[next] = (byCategory[next] || 0) + 1;
 
-      if (current === next) {
+      const samePrimary = current === next;
+      const sameCategories = JSON.stringify(data.categories ?? []) === JSON.stringify(breakdown.categories);
+      const sameAmounts = JSON.stringify(data.categoryAmounts ?? {}) === JSON.stringify(breakdown.categoryAmounts);
+      if (samePrimary && sameCategories && sameAmounts) {
         unchanged += 1;
         continue;
       }
 
-      batch.update(docSnap.ref, { invoiceCategory: next });
+      batch.update(docSnap.ref, {
+        invoiceCategory: next,
+        categories: breakdown.categories,
+        categoryAmounts: breakdown.categoryAmounts,
+      });
       batchCount += 1;
       updated += 1;
       if (batchCount >= 400) {

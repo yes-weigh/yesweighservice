@@ -22,7 +22,10 @@ import { toSalesOrderDateKey } from './admin-sales-orders';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
+  invoiceHasCategory,
   invoiceAmountExclGst,
+  normalizeInvoiceCategories,
+  normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
 } from './invoices';
@@ -64,6 +67,8 @@ export interface AdminFirestoreInvoice {
   syncedAt: string | null;
   itemQuantity: number | null;
   invoiceCategory: InvoiceCategory | null;
+  categories: InvoiceCategory[];
+  categoryAmounts: Partial<Record<InvoiceCategory, number>>;
   /** Set when Aggregate mode clubs invoices into one row per dealer. */
   aggregateInvoiceCount?: number;
 }
@@ -107,6 +112,8 @@ export function mapAdminInvoiceDoc(
     syncedAt: timestampToIso(data.syncedAt),
     itemQuantity,
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
+    categories: normalizeInvoiceCategories(data.categories),
+    categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
   };
 }
 
@@ -168,7 +175,7 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
   }
 
   if (category && category !== 'all') {
-    constraints.push(where('invoiceCategory', '==', category));
+    constraints.push(where('categories', 'array-contains', category));
   }
 
   // Date inequalities must share orderBy('date'); client re-sorts by syncedAt if needed.
@@ -364,7 +371,7 @@ export function filterAdminInvoices(
 ): AdminFirestoreInvoice[] {
   let next = rows;
   if (category && category !== 'all') {
-    next = next.filter(row => row.invoiceCategory === category);
+    next = next.filter(row => invoiceHasCategory(row, category));
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;
@@ -485,6 +492,8 @@ export function aggregateAdminInvoicesByDealer(
       subtotal: hasSubtotal ? subtotalSum : null,
       taxTotal: hasTaxTotal ? taxTotalSum : null,
       balance,
+      categories: [...categories],
+      categoryAmounts: {},
       referenceNumber: count === 1 ? latest.referenceNumber : null,
       syncedAt: latest.syncedAt,
       itemQuantity: invoices.some(inv => inv.itemQuantity != null) ? itemQuantity : null,
@@ -578,7 +587,7 @@ export async function countAdminInvoices(options: {
     return 0;
   }
   if (category && category !== 'all') {
-    constraints.push(where('invoiceCategory', '==', category));
+    constraints.push(where('categories', 'array-contains', category));
   }
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
@@ -633,6 +642,9 @@ export async function runInvoiceStatsBackfill(): Promise<{
 
 export type AdminInvoiceStatsKpi = {
   invoiceCount: number;
+  categoryAmount: number;
+  documentAmount: number;
+  /** Legacy alias for existing callers; matches documentAmount. */
   totalAmount: number;
   categoryCounts: AdminInvoiceCategoryCounts;
   source: 'rollup' | 'query';
@@ -694,6 +706,7 @@ export async function loadAdminInvoiceKpis(options: {
           const data = org.data() ?? {};
           const byCategory = (data.byCategory ?? {}) as Record<string, number>;
           const amountByCategory = (data.amountByCategory ?? {}) as Record<string, number>;
+          const documentAmountByCategory = (data.documentAmountByCategory ?? {}) as Record<string, number>;
           const categoryCounts: AdminInvoiceCategoryCounts = {
             all: Number(data.count ?? 0),
             product: Number(byCategory.product ?? 0),
@@ -702,15 +715,20 @@ export async function loadAdminInvoiceKpis(options: {
             service: Number(byCategory.service ?? 0),
             gatc: Number(byCategory.gatc ?? 0),
           };
-          const totalAmount = category === 'all'
+          const categoryAmount = category === 'all'
             ? Number(data.amount ?? 0)
             : Number(amountByCategory[category] ?? 0);
+          const documentAmount = category === 'all'
+            ? Number(data.amount ?? 0)
+            : Number(documentAmountByCategory[category] ?? 0);
           const invoiceCount = category === 'all'
             ? categoryCounts.all
             : categoryCounts[category];
           return {
             invoiceCount,
-            totalAmount,
+            categoryAmount,
+            documentAmount,
+            totalAmount: documentAmount,
             categoryCounts,
             source: 'rollup',
           };
@@ -726,6 +744,9 @@ export async function loadAdminInvoiceKpis(options: {
           const amountByCategory: Record<string, number> = {
             product: 0, spare: 0, software_key: 0, service: 0, gatc: 0,
           };
+          const documentAmountByCategory: Record<string, number> = {
+            product: 0, spare: 0, software_key: 0, service: 0, gatc: 0,
+          };
           let any = false;
           for (const snap of snaps) {
             if (!snap.exists()) continue;
@@ -735,15 +756,23 @@ export async function loadAdminInvoiceKpis(options: {
             totalAmountAll += Number(data.amount ?? 0);
             const byCategory = (data.byCategory ?? {}) as Record<string, number>;
             const amounts = (data.amountByCategory ?? {}) as Record<string, number>;
+            const documentAmounts = (data.documentAmountByCategory ?? {}) as Record<string, number>;
             for (const key of ['product', 'spare', 'software_key', 'service', 'gatc'] as const) {
               categoryCounts[key] += Number(byCategory[key] ?? 0);
               amountByCategory[key] += Number(amounts[key] ?? 0);
+              documentAmountByCategory[key] += Number(documentAmounts[key] ?? 0);
             }
           }
           if (any) {
+            const categoryAmount = category === 'all' ? totalAmountAll : amountByCategory[category];
+            const documentAmount = category === 'all'
+              ? totalAmountAll
+              : documentAmountByCategory[category];
             return {
               invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
-              totalAmount: category === 'all' ? totalAmountAll : amountByCategory[category],
+              categoryAmount,
+              documentAmount,
+              totalAmount: documentAmount,
               categoryCounts,
               source: 'rollup',
             };
@@ -764,6 +793,8 @@ export async function loadAdminInvoiceKpis(options: {
 
   return {
     invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
+    categoryAmount: 0,
+    documentAmount: 0,
     totalAmount: 0,
     categoryCounts,
     source: 'query',
@@ -805,14 +836,8 @@ export function countInvoiceRowsByCategory(
     gatc: 0,
   };
   for (const row of rows) {
-    const key = row.invoiceCategory;
-    if (
-      key === 'product'
-      || key === 'spare'
-      || key === 'software_key'
-      || key === 'service'
-      || key === 'gatc'
-    ) {
+    const categories = row.categories.length ? row.categories : (row.invoiceCategory ? [row.invoiceCategory] : []);
+    for (const key of categories) {
       counts[key] += 1;
     }
   }
@@ -880,8 +905,11 @@ export async function fetchAdminInvoicesForCustomers(options: {
 
   let merged = filterRowsBySalespersonScope(perCustomer.flat(), options.salespersonIds);
 
-  if (options.category && options.category !== 'all') {
-    merged = merged.filter(row => row.invoiceCategory === options.category);
+  const selectedCategory = options.category && options.category !== 'all'
+    ? options.category
+    : null;
+  if (selectedCategory) {
+    merged = merged.filter(row => invoiceHasCategory(row, selectedCategory));
   }
 
   merged.sort((a, b) => {

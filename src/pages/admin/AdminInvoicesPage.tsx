@@ -19,7 +19,7 @@ import {
   type DealerFilterSelection,
 } from '../../components/dealers/DealerMultiFilterPicker';
 import {
-  InvoiceCategoryBadge,
+  InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
@@ -46,6 +46,7 @@ import {
   formatKpiPeriodRange,
   getInvoicePeriodBounds,
   invoiceAmountExclGst,
+  invoiceCategoryAmount,
   invoiceCategoryLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
@@ -305,7 +306,8 @@ export const AdminInvoicesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
   const [categoryCounts, setCategoryCounts] = useState<AdminInvoiceCategoryCounts>(EMPTY_CATEGORY_COUNTS);
-  const [kpiAmount, setKpiAmount] = useState(0);
+  const [kpiCategoryAmount, setKpiCategoryAmount] = useState(0);
+  const [kpiDocumentAmount, setKpiDocumentAmount] = useState(0);
   const [kpiCount, setKpiCount] = useState(0);
   const [truncated, setTruncated] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -388,13 +390,15 @@ export const AdminInvoicesPage: React.FC = () => {
       .then(kpi => {
         if (cancelled) return;
         setCategoryCounts(kpi.categoryCounts);
-        setKpiAmount(kpi.totalAmount);
+        setKpiCategoryAmount(kpi.categoryAmount);
+        setKpiDocumentAmount(kpi.documentAmount);
         setKpiCount(kpi.categoryCounts.all);
       })
       .catch(() => {
         if (!cancelled) {
           setCategoryCounts(EMPTY_CATEGORY_COUNTS);
-          setKpiAmount(0);
+          setKpiCategoryAmount(0);
+          setKpiDocumentAmount(0);
           setKpiCount(0);
         }
       });
@@ -414,7 +418,8 @@ export const AdminInvoicesPage: React.FC = () => {
     })
       .then(kpi => {
         if (cancelled) return;
-        setKpiAmount(kpi.totalAmount);
+        setKpiCategoryAmount(kpi.categoryAmount);
+        setKpiDocumentAmount(kpi.documentAmount);
         setKpiCount(category === 'all' ? kpi.categoryCounts.all : kpi.categoryCounts[category]);
       })
       .catch(() => undefined);
@@ -640,9 +645,14 @@ export const AdminInvoicesPage: React.FC = () => {
       invoiceCount: dealerScoped
         ? (search.trim() ? displayRows.length : filtered.length)
         : (countFromTabs || kpiCount),
-      totalSales: dealerScoped
+      categorySales: dealerScoped
+        ? (category === 'all'
+          ? filtered.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
+          : filtered.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0))
+        : kpiCategoryAmount,
+      documentSales: dealerScoped
         ? filtered.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
-        : kpiAmount,
+        : kpiDocumentAmount,
       periodStart: boundsForRange?.start?.toISOString() ?? null,
       periodEnd: boundsForRange?.end?.toISOString() ?? new Date().toISOString(),
     };
@@ -655,7 +665,8 @@ export const AdminInvoicesPage: React.FC = () => {
     dealerScoped,
     filtered,
     kpiCount,
-    kpiAmount,
+    kpiCategoryAmount,
+    kpiDocumentAmount,
   ]);
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
@@ -743,13 +754,34 @@ export const AdminInvoicesPage: React.FC = () => {
               <IndianRupee size={16} strokeWidth={2.4} />
             </span>
             <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">Total Amount</span>
+              <span className="invoices-summary__kpi-label">
+                {category === 'all' ? 'Total Amount' : 'Category Amount'}
+              </span>
               <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                {loading ? '…' : formatCurrency(summary.totalSales)}
+                {loading ? '…' : formatCurrency(summary.categorySales)}
               </strong>
-              <span className="invoices-summary__kpi-sub">Amount</span>
+              <span className="invoices-summary__kpi-sub">
+                {category === 'all' ? 'Amount' : `${invoiceCategoryLabel(category)} lines`}
+              </span>
             </div>
           </div>
+          {category !== 'all' && (
+            <>
+              <div className="invoices-summary__divider" aria-hidden />
+              <div className="invoices-summary__kpi">
+                <span className="invoices-summary__kpi-icon" aria-hidden>
+                  <IndianRupee size={16} strokeWidth={2.4} />
+                </span>
+                <div className="invoices-summary__kpi-body">
+                  <span className="invoices-summary__kpi-label">Invoice Amount</span>
+                  <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+                    {loading ? '…' : formatCurrency(summary.documentSales)}
+                  </strong>
+                  <span className="invoices-summary__kpi-sub">Matching invoices</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {(selectedDealers.length > 0 || useAggregate || truncated) && (
@@ -912,7 +944,12 @@ export const AdminInvoicesPage: React.FC = () => {
                       <td className="invoices-table__num">{formatCurrency(invoiceAmountExclGst(invoice))}</td>
                       <td>
                         {categoryLabel ? (
-                          <InvoiceCategoryBadge category={invoice.invoiceCategory} />
+                          <span className="unified-so-order-cell__badges">
+                            <InvoiceCategoryBadgeList
+                              categories={invoice.categories}
+                              invoiceCategory={invoice.invoiceCategory}
+                            />
+                          </span>
                         ) : (
                           <span className="text-muted">{isAggregateRow ? 'Mixed' : '—'}</span>
                         )}
@@ -961,8 +998,13 @@ export const AdminInvoicesPage: React.FC = () => {
                   <span className="invoices-mobile-row__body">
                     <span className="invoices-mobile-row__invoice">
                       <span className="invoices-mobile-row__title">
-                        {invoice.invoiceCategory ? (
-                          <InvoiceCategoryBadge category={invoice.invoiceCategory} />
+                        {invoice.invoiceCategory || invoice.categories.length ? (
+                          <span className="unified-so-order-cell__badges">
+                            <InvoiceCategoryBadgeList
+                              categories={invoice.categories}
+                              invoiceCategory={invoice.invoiceCategory}
+                            />
+                          </span>
                         ) : null}
                         <strong>
                           {isAggregateRow

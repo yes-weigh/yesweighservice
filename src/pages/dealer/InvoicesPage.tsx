@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
-  InvoiceCategoryBadge,
+  InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { useAuth } from '../../context/AuthContext';
@@ -25,15 +25,19 @@ import { homePathForRole } from '../../types';
 import {
   computeSalesForPeriod,
   countInvoiceSalesEntriesInPeriod,
+  fetchAllDealerInvoices,
   fetchDealerInvoiceDashboardWithCache,
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
+  invoiceCategoryAmount,
   invoiceAmountExclGst,
   invoiceCategoryLabel,
   invoiceDeliveryLabel,
   getInvoiceDeliveryStage,
+  getInvoicePeriodBounds,
   invoiceErrorMessage,
   formatKpiPeriodRange,
+  readCachedAllDealerInvoices,
   readCachedDealerInvoiceDashboard,
   readCachedDealerInvoices,
 } from '../../lib/invoices';
@@ -327,7 +331,10 @@ function InvoiceMobileRow({ invoice, onOpen }: { invoice: DealerInvoice; onOpen:
       <span className="invoices-mobile-row__body">
         <span className="invoices-mobile-row__invoice">
           <span className="invoices-mobile-row__title">
-            <InvoiceCategoryBadge category={invoice.invoiceCategory} />
+            <InvoiceCategoryBadgeList
+              categories={invoice.categories}
+              invoiceCategory={invoice.invoiceCategory}
+            />
             <strong>{invoice.invoiceNumber || '—'}</strong>
           </span>
           {invoice.referenceNumber ? (
@@ -421,6 +428,7 @@ export const InvoicesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dashboard, setDashboard] = useState<InvoiceDashboardSummary | null>(null);
+  const [allInvoices, setAllInvoices] = useState<DealerInvoice[]>([]);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
 
@@ -511,6 +519,21 @@ export const InvoicesPage: React.FC = () => {
   }, [user?.uid]);
 
   useEffect(() => {
+    const uid = user?.uid;
+    let cancelled = false;
+    const cached = readCachedAllDealerInvoices(uid);
+    if (cached) setAllInvoices(cached);
+    void fetchAllDealerInvoices(uid)
+      .then(rows => {
+        if (!cancelled) setAllInvoices(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  useEffect(() => {
     setPage(1);
   }, [debouncedSearch, category, sortField, sortDir]);
 
@@ -540,9 +563,36 @@ export const InvoicesPage: React.FC = () => {
   const showList = !showInitialLoader && invoices.length > 0;
 
   const kpiSummary = useMemo(() => {
+    const bounds = getInvoicePeriodBounds(rangePreset);
+    const scopedInvoices = bounds
+      ? allInvoices.filter(invoice => {
+        if (!invoice.date) return false;
+        const ts = Date.parse(invoice.date);
+        return !Number.isNaN(ts) && ts >= bounds.start.getTime() && ts <= bounds.end.getTime();
+      })
+      : allInvoices;
+
+    if (scopedInvoices.length) {
+      const matchingInvoices = category === 'all'
+        ? scopedInvoices
+        : scopedInvoices.filter(invoice =>
+          (invoice.categories ?? []).includes(category) || invoice.invoiceCategory === category,
+        );
+      return {
+        totalSales: matchingInvoices.reduce((sum, invoice) => sum + invoiceAmountExclGst(invoice), 0),
+        categorySales: category === 'all'
+          ? matchingInvoices.reduce((sum, invoice) => sum + invoiceAmountExclGst(invoice), 0)
+          : matchingInvoices.reduce((sum, invoice) => sum + invoiceCategoryAmount(invoice, category), 0),
+        periodStart: bounds?.start.toISOString() ?? null,
+        periodEnd: bounds?.end.toISOString() ?? new Date().toISOString(),
+        invoiceCount: matchingInvoices.length,
+      };
+    }
+
     if (!dashboard) {
       return {
         totalSales: 0,
+        categorySales: 0,
         periodStart: null as string | null,
         periodEnd: new Date().toISOString(),
         invoiceCount: 0,
@@ -553,6 +603,7 @@ export const InvoicesPage: React.FC = () => {
       const sales = computeSalesForPeriod(dashboard.salesEntries, rangePreset);
       return {
         totalSales: sales.totalSales,
+        categorySales: sales.totalSales,
         periodStart: sales.periodStart,
         periodEnd: sales.periodEnd,
         invoiceCount: countInvoiceSalesEntriesInPeriod(dashboard.salesEntries, rangePreset),
@@ -561,11 +612,12 @@ export const InvoicesPage: React.FC = () => {
 
     return {
       totalSales: dashboard.totalSales,
+      categorySales: dashboard.totalSales,
       periodStart: dashboard.periodStart,
       periodEnd: dashboard.periodEnd,
       invoiceCount: dashboard.totalInvoiceCount,
     };
-  }, [dashboard, rangePreset]);
+  }, [allInvoices, dashboard, rangePreset, category]);
 
   const kpiDateRange = formatKpiPeriodRange(kpiSummary.periodStart, kpiSummary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
@@ -626,13 +678,34 @@ export const InvoicesPage: React.FC = () => {
             <IndianRupee size={16} strokeWidth={2.4} />
           </span>
           <div className="invoices-summary__kpi-body">
-            <span className="invoices-summary__kpi-label">Total Amount</span>
+            <span className="invoices-summary__kpi-label">
+              {category === 'all' ? 'Total Amount' : 'Category Amount'}
+            </span>
             <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-              {kpiLoading ? '…' : formatCurrency(kpiSummary.totalSales)}
+              {kpiLoading ? '…' : formatCurrency(category === 'all' ? kpiSummary.totalSales : kpiSummary.categorySales)}
             </strong>
-            <span className="invoices-summary__kpi-sub">Amount</span>
+            <span className="invoices-summary__kpi-sub">
+              {category === 'all' ? 'Amount' : `${invoiceCategoryLabel(category)} lines`}
+            </span>
           </div>
         </div>
+        {category !== 'all' && (
+          <>
+            <div className="invoices-summary__divider" aria-hidden />
+            <div className="invoices-summary__kpi">
+              <span className="invoices-summary__kpi-icon" aria-hidden>
+                <IndianRupee size={16} strokeWidth={2.4} />
+              </span>
+              <div className="invoices-summary__kpi-body">
+                <span className="invoices-summary__kpi-label">Invoice Amount</span>
+                <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+                  {kpiLoading ? '…' : formatCurrency(kpiSummary.totalSales)}
+                </strong>
+                <span className="invoices-summary__kpi-sub">Matching invoices</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="unified-so-category-blocks" role="tablist" aria-label="Invoice category">
@@ -777,7 +850,12 @@ export const InvoicesPage: React.FC = () => {
                           <td>{formatInvoiceDate(invoice.dueDate)}</td>
                           <td>
                             {categoryLabel ? (
-                              <InvoiceCategoryBadge category={invoice.invoiceCategory} />
+                              <span className="unified-so-order-cell__badges">
+                                <InvoiceCategoryBadgeList
+                                  categories={invoice.categories}
+                                  invoiceCategory={invoice.invoiceCategory}
+                                />
+                              </span>
                             ) : (
                               <span className="text-muted">—</span>
                             )}

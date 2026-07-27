@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
-  InvoiceCategoryBadge,
+  InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { useAuth } from '../../context/AuthContext';
@@ -239,16 +239,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
     });
     const counts: AdminSalesOrderCategoryCounts = { ...EMPTY_CATEGORY_COUNTS, all: inPeriod.length };
     for (const row of inPeriod) {
-      const key = row.category;
-      if (
-        key === 'product'
-        || key === 'spare'
-        || key === 'software_key'
-        || key === 'service'
-        || key === 'gatc'
-      ) {
-        counts[key] += 1;
-      }
+      for (const key of row.categories) counts[key] += 1;
     }
     return counts;
   }, [merged, rangePreset]);
@@ -269,12 +260,16 @@ export const DealerSalesOrdersPage: React.FC = () => {
 
   const summary = useMemo(() => {
     const amounts = summarizeUnifiedAmounts(filtered);
+    const categoryAmount = category === 'all'
+      ? amounts.totalAmount
+      : filtered.reduce((sum, row) => sum + Number(row.categoryAmounts[category] ?? row.amount ?? 0), 0);
     return {
       count: filtered.length,
+      categoryAmount,
       totalAmount: amounts.totalAmount,
       currencyCode: amounts.currencyCode,
     };
-  }, [filtered]);
+  }, [filtered, category]);
 
   const bounds = getInvoicePeriodBounds(rangePreset);
   const dateRange = formatKpiPeriodRange(
@@ -358,18 +353,42 @@ export const DealerSalesOrdersPage: React.FC = () => {
               <IndianRupee size={16} strokeWidth={2.4} />
             </span>
             <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">Total Amount</span>
+              <span className="invoices-summary__kpi-label">
+                {category === 'all' ? 'Total Amount' : 'Category Amount'}
+              </span>
               <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
                 {loading
                   ? '…'
                   : summary.currencyCode
-                    ? formatCurrency(summary.totalAmount, summary.currencyCode)
+                    ? formatCurrency(category === 'all' ? summary.totalAmount : summary.categoryAmount, summary.currencyCode)
                     : pageRows.length
                       ? 'Mixed currencies'
                       : formatCurrency(0)}
               </strong>
             </div>
           </div>
+          {category !== 'all' && (
+            <>
+              <div className="invoices-summary__divider" aria-hidden />
+              <div className="invoices-summary__kpi">
+                <span className="invoices-summary__kpi-icon" aria-hidden>
+                  <IndianRupee size={16} strokeWidth={2.4} />
+                </span>
+                <div className="invoices-summary__kpi-body">
+                  <span className="invoices-summary__kpi-label">Order Amount</span>
+                  <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+                    {loading
+                      ? '…'
+                      : summary.currencyCode
+                        ? formatCurrency(summary.totalAmount, summary.currencyCode)
+                        : pageRows.length
+                          ? 'Mixed currencies'
+                          : formatCurrency(0)}
+                  </strong>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="unified-so-category-blocks" role="tablist" aria-label="Order category">
@@ -471,9 +490,10 @@ export const DealerSalesOrdersPage: React.FC = () => {
                               {formatInvoiceDate(row.date)}
                             </span>
                             <span className="unified-so-order-cell__badges">
-                              {row.category ? (
-                                <InvoiceCategoryBadge category={row.category} />
-                              ) : null}
+                              <InvoiceCategoryBadgeList
+                                categories={row.categories}
+                                invoiceCategory={row.category}
+                              />
                               <span className={row.statusClass}>{row.statusLabel}</span>
                             </span>
                           </div>
@@ -508,9 +528,10 @@ export const DealerSalesOrdersPage: React.FC = () => {
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__pair">
                           <span className="unified-so-order-cell__badges">
-                            {row.category ? (
-                              <InvoiceCategoryBadge category={row.category} />
-                            ) : null}
+                            <InvoiceCategoryBadgeList
+                              categories={row.categories}
+                              invoiceCategory={row.category}
+                            />
                           </span>
                           <strong className="invoices-mobile-row__amount-value">
                             {formatCurrency(row.amount, row.currencyCode)}

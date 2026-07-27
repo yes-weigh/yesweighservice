@@ -19,7 +19,10 @@ import { db, app } from '../firebase';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
+  invoiceHasCategory,
   invoiceErrorMessage,
+  normalizeInvoiceCategories,
+  normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
 } from './invoices';
@@ -90,6 +93,8 @@ export interface AdminFirestoreSalesOrder {
   syncedAt: string | null;
   itemQuantity: number | null;
   salesOrderCategory: InvoiceCategory | null;
+  categories: InvoiceCategory[];
+  categoryAmounts: Partial<Record<InvoiceCategory, number>>;
   /** YesOne workflow stage on the SO mirror (null for legacy sync-only rows). */
   yesOneStage?: string | null;
   /** True when this Draft SO was created from a dealer cart submit. */
@@ -118,6 +123,8 @@ export interface AdminSalesOrderDetail {
   customerTelHref?: string | null;
   customerWhatsappHref?: string | null;
   salesOrderCategory: InvoiceCategory | null;
+  categories: InvoiceCategory[];
+  categoryAmounts: Partial<Record<InvoiceCategory, number>>;
   subtotal: number;
   taxTotal: number;
   notes: string | null;
@@ -192,6 +199,8 @@ export function mapAdminSalesOrderDoc(
       ? sumInvoiceProductQuantity(lineItems)
       : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
+    categories: normalizeInvoiceCategories(data.categories),
+    categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
     yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
     yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
   };
@@ -220,7 +229,7 @@ export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
   }
 
   if (category && category !== 'all') {
-    constraints.push(where('salesOrderCategory', '==', category));
+    constraints.push(where('categories', 'array-contains', category));
   }
   if (statusIn) {
     constraints.push(where('status', 'in', statusIn.slice(0, 10)));
@@ -322,7 +331,7 @@ export async function countAdminSalesOrders(
     return 0;
   }
   if (category && category !== 'all') {
-    constraints.push(where('salesOrderCategory', '==', category));
+    constraints.push(where('categories', 'array-contains', category));
   }
   if (statusIn) {
     constraints.push(where('status', 'in', statusIn.slice(0, 10)));
@@ -485,8 +494,14 @@ export async function fetchAdminSalesOrdersForCustomers(options: {
 
   let merged = filterRowsBySalespersonScope(perCustomer.flat(), options.salespersonIds);
 
-  if (options.category && options.category !== 'all') {
-    merged = merged.filter(row => row.salesOrderCategory === options.category);
+  const selectedCategory = options.category && options.category !== 'all'
+    ? options.category
+    : null;
+  if (selectedCategory) {
+    merged = merged.filter(row => invoiceHasCategory({
+      categories: row.categories,
+      invoiceCategory: row.salesOrderCategory,
+    }, selectedCategory));
   }
   if (options.statusIn?.length) {
     const allowed = new Set(options.statusIn.map(s => String(s).toLowerCase()));
@@ -539,7 +554,10 @@ export function filterAdminSalesOrders(
 ): AdminFirestoreSalesOrder[] {
   let next = rows;
   if (category && category !== 'all') {
-    next = next.filter(row => row.salesOrderCategory === category);
+    next = next.filter(row => invoiceHasCategory({
+      categories: row.categories,
+      invoiceCategory: row.salesOrderCategory,
+    }, category));
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;
@@ -612,6 +630,8 @@ export function mapAdminSalesOrderDetail(
     shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
     shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
+    categories: normalizeInvoiceCategories(data.categories),
+    categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ? String(data.notes) : null,

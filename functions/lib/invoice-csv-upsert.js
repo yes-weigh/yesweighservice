@@ -1,5 +1,6 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import {
+  classifyInvoiceCategoryBreakdown,
   classifyInvoiceFromLineItems,
   parseInvoiceCategory,
 } from './invoice-category.js';
@@ -179,11 +180,13 @@ async function upsertOneInvoice(input) {
     lineItems = [];
   }
 
+  if (!catalogMap.size && lineItems.length) {
+    catalogMap = await loadCatalogMetaForItemIds(lineItems.map(item => item?.itemId));
+  }
+  const categoryBreakdown = classifyInvoiceCategoryBreakdown(lineItems, catalogMap);
   if (!headerPatch.invoiceCategory) {
-    if (!catalogMap.size && lineItems.length) {
-      catalogMap = await loadCatalogMetaForItemIds(lineItems.map(item => item?.itemId));
-    }
-    headerPatch.invoiceCategory = classifyInvoiceFromLineItems(lineItems, catalogMap)
+    headerPatch.invoiceCategory = categoryBreakdown.categories[0]
+      || classifyInvoiceFromLineItems(lineItems, catalogMap)
       || existing.invoiceCategory
       || 'product';
   }
@@ -236,6 +239,8 @@ async function upsertOneInvoice(input) {
     id: invoiceId,
     customerId,
     ...mergedHeader,
+    categories: categoryBreakdown.categories,
+    categoryAmounts: categoryBreakdown.categoryAmounts,
     lineItems,
     searchBlob: buildSearchBlob(mergedHeader, lineItems),
     contentFingerprint: `csv-import|${invoiceId}|${Date.now()}`,

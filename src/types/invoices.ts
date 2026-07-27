@@ -8,7 +8,7 @@ export type InvoiceStatus =
   | 'partially_paid'
   | 'viewed';
 
-/** Derived from the highest-value non-freight line item at Zoho sync. */
+/** Used across invoice, sales order, and purchase order category classification. */
 export type InvoiceCategory = 'product' | 'spare' | 'service' | 'software_key' | 'gatc';
 
 export const INVOICE_CATEGORIES: readonly InvoiceCategory[] = [
@@ -40,8 +40,12 @@ export interface DealerInvoice {
   salespersonId?: string | null;
   salespersonName?: string | null;
   invoiceUrl: string | null;
-  /** Present after sync with category classifier; null for older docs. */
+  /** Legacy single category kept during migration; null for older docs. */
   invoiceCategory?: InvoiceCategory | null;
+  /** Multi-category classification derived from non-freight line items. */
+  categories?: InvoiceCategory[];
+  /** Sum of line totals per category on this document. */
+  categoryAmounts?: Partial<Record<InvoiceCategory, number>>;
 }
 
 export interface DealerInvoiceLineItem {

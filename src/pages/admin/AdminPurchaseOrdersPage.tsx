@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
-  InvoiceCategoryBadge,
+  InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
@@ -300,11 +300,23 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
     const salesEntries = buildAdminPurchaseOrderSalesEntries(filtered);
     const sales = salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null;
     const totalsByCurrencyMap = new Map<string, number>();
+    const categoryTotalsByCurrencyMap = new Map<string, number>();
     for (const row of filtered) {
       const code = (row.currencyCode || 'INR').toUpperCase();
       totalsByCurrencyMap.set(code, (totalsByCurrencyMap.get(code) ?? 0) + (Number(row.total) || 0));
+      const categoryAmount = category === 'all'
+        ? Number(row.total ?? 0)
+        : Number(row.categoryAmounts[category] ?? row.total ?? 0);
+      categoryTotalsByCurrencyMap.set(code, (categoryTotalsByCurrencyMap.get(code) ?? 0) + categoryAmount);
     }
     const totalsByCurrency = [...totalsByCurrencyMap.entries()]
+      .map(([currencyCode, total]) => ({ currencyCode, total }))
+      .sort((a, b) => {
+        if (a.currencyCode === 'INR') return -1;
+        if (b.currencyCode === 'INR') return 1;
+        return a.currencyCode.localeCompare(b.currencyCode);
+      });
+    const categoryTotalsByCurrency = [...categoryTotalsByCurrencyMap.entries()]
       .map(([currencyCode, total]) => ({ currencyCode, total }))
       .sort((a, b) => {
         if (a.currencyCode === 'INR') return -1;
@@ -314,10 +326,11 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
     return {
       count: filtered.length,
       totalsByCurrency,
+      categoryTotalsByCurrency,
       periodStart: sales?.periodStart ?? null,
       periodEnd: sales?.periodEnd ?? new Date().toISOString(),
     };
-  }, [filtered, rangePreset]);
+  }, [filtered, rangePreset, category]);
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
@@ -394,23 +407,25 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
               <IndianRupee size={16} strokeWidth={2.4} />
             </span>
             <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">Total Amount</span>
+              <span className="invoices-summary__kpi-label">
+                {category === 'all' ? 'Total Amount' : 'Category Amount'}
+              </span>
               {loading ? (
                 <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">…</strong>
-              ) : summary.totalsByCurrency.length === 0 ? (
+              ) : summary.categoryTotalsByCurrency.length === 0 ? (
                 <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
                   {formatCurrency(0)}
                 </strong>
-              ) : summary.totalsByCurrency.length === 1 ? (
+              ) : summary.categoryTotalsByCurrency.length === 1 ? (
                 <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
                   {formatCurrency(
-                    summary.totalsByCurrency[0].total,
-                    summary.totalsByCurrency[0].currencyCode,
+                    summary.categoryTotalsByCurrency[0].total,
+                    summary.categoryTotalsByCurrency[0].currencyCode,
                   )}
                 </strong>
               ) : (
                 <ul className="invoices-summary__currency-totals" aria-label="Totals by currency">
-                  {summary.totalsByCurrency.map(row => (
+                  {summary.categoryTotalsByCurrency.map(row => (
                     <li key={row.currencyCode}>
                       <strong>{formatCurrency(row.total, row.currencyCode)}</strong>
                     </li>
@@ -418,12 +433,43 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                 </ul>
               )}
               <span className="invoices-summary__kpi-sub">
-                {summary.totalsByCurrency.length > 1
-                  ? `${summary.totalsByCurrency.length} currencies`
-                  : 'Amount'}
+                {summary.categoryTotalsByCurrency.length > 1
+                  ? `${summary.categoryTotalsByCurrency.length} currencies`
+                  : (category === 'all' ? 'Amount' : `${invoiceCategoryLabel(category)} lines`)}
               </span>
             </div>
           </div>
+          {category !== 'all' && (
+            <>
+              <div className="invoices-summary__divider" aria-hidden />
+              <div className="invoices-summary__kpi">
+                <span className="invoices-summary__kpi-icon" aria-hidden>
+                  <IndianRupee size={16} strokeWidth={2.4} />
+                </span>
+                <div className="invoices-summary__kpi-body">
+                  <span className="invoices-summary__kpi-label">Order Amount</span>
+                  {summary.totalsByCurrency.length === 0 ? (
+                    <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+                      {formatCurrency(0)}
+                    </strong>
+                  ) : summary.totalsByCurrency.length === 1 ? (
+                    <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
+                      {formatCurrency(summary.totalsByCurrency[0].total, summary.totalsByCurrency[0].currencyCode)}
+                    </strong>
+                  ) : (
+                    <ul className="invoices-summary__currency-totals" aria-label="Totals by currency">
+                      {summary.totalsByCurrency.map(row => (
+                        <li key={row.currencyCode}>
+                          <strong>{formatCurrency(row.total, row.currencyCode)}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <span className="invoices-summary__kpi-sub">Matching orders</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -518,7 +564,12 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                           <td className="invoices-table__num">{formatCurrency(po.total, po.currencyCode)}</td>
                           <td>
                             {categoryLabel ? (
-                              <InvoiceCategoryBadge category={po.purchaseOrderCategory} />
+                              <span className="unified-so-order-cell__badges">
+                                <InvoiceCategoryBadgeList
+                                  categories={po.categories}
+                                  invoiceCategory={po.purchaseOrderCategory}
+                                />
+                              </span>
                             ) : (
                               <span className="text-muted">—</span>
                             )}
@@ -555,7 +606,12 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                           {po.vendorName ?? '—'}
                         </strong>
                         <span className="invoices-mobile-row__pair invoices-mobile-row__pair--mid">
-                          <InvoiceCategoryBadge category={po.purchaseOrderCategory} />
+                          <span className="unified-so-order-cell__badges">
+                            <InvoiceCategoryBadgeList
+                              categories={po.categories}
+                              invoiceCategory={po.purchaseOrderCategory}
+                            />
+                          </span>
                           <span className="invoices-mobile-row__date">
                             {formatInvoiceDate(po.date)}
                           </span>

@@ -18,7 +18,10 @@ import { db, app } from '../firebase';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
+  invoiceHasCategory,
   invoiceErrorMessage,
+  normalizeInvoiceCategories,
+  normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
 } from './invoices';
@@ -49,6 +52,8 @@ export interface AdminFirestorePurchaseOrder {
   syncedAt: string | null;
   itemQuantity: number | null;
   purchaseOrderCategory: InvoiceCategory | null;
+  categories: InvoiceCategory[];
+  categoryAmounts: Partial<Record<InvoiceCategory, number>>;
 }
 
 export interface AdminPurchaseOrderDetail {
@@ -64,6 +69,8 @@ export interface AdminPurchaseOrderDetail {
   vendorId: string;
   vendorName: string | null;
   purchaseOrderCategory: InvoiceCategory | null;
+  categories: InvoiceCategory[];
+  categoryAmounts: Partial<Record<InvoiceCategory, number>>;
   subtotal: number;
   taxTotal: number;
   notes: string | null;
@@ -117,6 +124,8 @@ export function mapAdminPurchaseOrderDoc(
     syncedAt: timestampToIso(data.syncedAt),
     itemQuantity: lineItems.length ? sumInvoiceProductQuantity(lineItems) : null,
     purchaseOrderCategory: parseInvoiceCategory(data.purchaseOrderCategory),
+    categories: normalizeInvoiceCategories(data.categories),
+    categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
   };
 }
 
@@ -129,7 +138,7 @@ export function buildAdminPurchaseOrdersQuery(
   const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
   const constraints: QueryConstraint[] = [];
   if (category && category !== 'all') {
-    constraints.push(where('purchaseOrderCategory', '==', category));
+    constraints.push(where('categories', 'array-contains', category));
   }
   constraints.push(orderBy(field, 'desc'), limit(pageSize));
   if (cursor) constraints.push(startAfter(cursor));
@@ -172,7 +181,10 @@ export function filterAdminPurchaseOrders(
 ): AdminFirestorePurchaseOrder[] {
   let next = rows;
   if (category && category !== 'all') {
-    next = next.filter(row => row.purchaseOrderCategory === category);
+    next = next.filter(row => invoiceHasCategory({
+      categories: row.categories,
+      invoiceCategory: row.purchaseOrderCategory,
+    }, category));
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;
@@ -241,6 +253,8 @@ export function mapAdminPurchaseOrderDetail(
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ? String(data.vendorName) : null,
     purchaseOrderCategory: parseInvoiceCategory(data.purchaseOrderCategory),
+    categories: normalizeInvoiceCategories(data.categories),
+    categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ? String(data.notes) : null,

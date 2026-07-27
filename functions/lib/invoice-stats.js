@@ -55,6 +55,40 @@ export function parseInvoiceCategoryKey(value) {
   return CATEGORY_KEYS.includes(key) ? key : null;
 }
 
+export function parseInvoiceCategoryKeys(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  for (const entry of value) {
+    const key = parseInvoiceCategoryKey(entry);
+    if (key) seen.add(key);
+  }
+  return CATEGORY_KEYS.filter(key => seen.has(key));
+}
+
+export function normalizeCategoryAmounts(value) {
+  if (!value || typeof value !== 'object') return {};
+  const next = {};
+  for (const key of CATEGORY_KEYS) {
+    const amount = Number(value[key] ?? 0);
+    if (Number.isFinite(amount) && amount !== 0) next[key] = amount;
+  }
+  return next;
+}
+
+function categoriesFromInvoiceLike(invoiceLike) {
+  const categories = parseInvoiceCategoryKeys(invoiceLike?.categories);
+  if (categories.length) return categories;
+  const legacy = parseInvoiceCategoryKey(invoiceLike?.invoiceCategory);
+  return legacy ? [legacy] : [];
+}
+
+function categoryAmountsFromInvoiceLike(invoiceLike, amount) {
+  const normalized = normalizeCategoryAmounts(invoiceLike?.categoryAmounts);
+  if (Object.keys(normalized).length) return normalized;
+  const legacy = parseInvoiceCategoryKey(invoiceLike?.invoiceCategory);
+  return legacy ? { [legacy]: amount } : {};
+}
+
 export function sumInvoiceItemQuantity(lineItems) {
   if (!Array.isArray(lineItems) || !lineItems.length) return null;
   let sum = 0;
@@ -77,6 +111,8 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     ? Number(invoiceDoc.itemQuantity)
     : sumInvoiceItemQuantity(invoiceDoc.lineItems);
   const amount = amountExclGst(invoiceDoc);
+  const categories = categoriesFromInvoiceLike(invoiceDoc);
+  const categoryAmounts = categoryAmountsFromInvoiceLike(invoiceDoc, amount);
   return {
     id: String(invoiceId),
     customerId: String(customerId),
@@ -92,6 +128,8 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     balance: Number(invoiceDoc.balance ?? 0),
     referenceNumber: invoiceDoc.referenceNumber ? String(invoiceDoc.referenceNumber) : null,
     invoiceCategory: parseInvoiceCategoryKey(invoiceDoc.invoiceCategory),
+    categories,
+    categoryAmounts,
     itemQuantity,
     amountExclGst: amount,
     syncedAt: invoiceDoc.syncedAt ?? FieldValue.serverTimestamp(),
@@ -119,7 +157,8 @@ export async function applyInvoiceStatsDelta(invoiceLike, op) {
   const sign = op === 'remove' ? -1 : 1;
   const countDelta = sign;
   const amountDelta = sign * amountExclGst(invoiceLike);
-  const category = parseInvoiceCategoryKey(invoiceLike.invoiceCategory);
+  const categories = categoriesFromInvoiceLike(invoiceLike);
+  const categoryAmounts = categoryAmountsFromInvoiceLike(invoiceLike, amountExclGst(invoiceLike));
   const monthKey = invoiceMonthKey(invoiceLike.date);
 
   const db = getFirestore();
@@ -130,9 +169,13 @@ export async function applyInvoiceStatsDelta(invoiceLike, op) {
     amount: FieldValue.increment(amountDelta),
     updatedAt: FieldValue.serverTimestamp(),
   };
-  if (category) {
+  for (const category of categories) {
     updates[`byCategory.${category}`] = FieldValue.increment(countDelta);
-    updates[`amountByCategory.${category}`] = FieldValue.increment(amountDelta);
+    updates[`documentAmountByCategory.${category}`] = FieldValue.increment(amountDelta);
+    const categoryAmount = Number(categoryAmounts[category] ?? 0);
+    if (categoryAmount) {
+      updates[`amountByCategory.${category}`] = FieldValue.increment(sign * categoryAmount);
+    }
   }
   batch.set(orgRef, updates, { merge: true });
 
@@ -198,6 +241,7 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
     amount: 0,
     byCategory: emptyByCategory(),
     amountByCategory: emptyByCategory(),
+    documentAmountByCategory: emptyByCategory(),
     updatedAt: FieldValue.serverTimestamp(),
     rebuiltAt: FieldValue.serverTimestamp(),
   });
@@ -228,8 +272,13 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
     for (const invDoc of invSnap.docs) {
       const data = invDoc.data() ?? {};
       const summary = buildInvoiceSummaryFields(data, customerId, invDoc.id);
-      // Persist itemQuantity on fat doc for future list maps
-      batch.set(invDoc.ref, { itemQuantity: summary.itemQuantity, amountExclGst: summary.amountExclGst }, { merge: true });
+      // Persist derived hot-path fields on the fat doc for list/filter maps.
+      batch.set(invDoc.ref, {
+        itemQuantity: summary.itemQuantity,
+        amountExclGst: summary.amountExclGst,
+        categories: summary.categories,
+        categoryAmounts: summary.categoryAmounts,
+      }, { merge: true });
       batchOps += 1;
       batch.set(invoiceSummaryRef(customerId, invDoc.id), summary, { merge: true });
       batchOps += 1;
@@ -237,15 +286,17 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
       invoiceCount += 1;
 
       const monthKey = invoiceMonthKey(summary.date);
-      const cat = parseInvoiceCategoryKey(summary.invoiceCategory);
       const amount = summary.amountExclGst;
+      const categories = categoriesFromInvoiceLike(summary);
+      const categoryAmounts = categoryAmountsFromInvoiceLike(summary, amount);
 
       const bump = (acc) => {
         acc.count += 1;
         acc.amount += amount;
-        if (cat) {
-          acc.byCategory[cat] += 1;
-          acc.amountByCategory[cat] += amount;
+        for (const category of categories) {
+          acc.byCategory[category] += 1;
+          acc.documentAmountByCategory[category] += amount;
+          acc.amountByCategory[category] += Number(categoryAmounts[category] ?? 0);
         }
       };
 
@@ -255,6 +306,7 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
           amount: 0,
           byCategory: emptyByCategory(),
           amountByCategory: emptyByCategory(),
+          documentAmountByCategory: emptyByCategory(),
         });
       }
       bump(monthAcc.get('__org__'));
@@ -266,6 +318,7 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
             amount: 0,
             byCategory: emptyByCategory(),
             amountByCategory: emptyByCategory(),
+            documentAmountByCategory: emptyByCategory(),
           });
         }
         bump(monthAcc.get(monthKey));
@@ -282,6 +335,7 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
     amount: 0,
     byCategory: emptyByCategory(),
     amountByCategory: emptyByCategory(),
+    documentAmountByCategory: emptyByCategory(),
   };
   await orgRef.set({
     ...orgAcc,

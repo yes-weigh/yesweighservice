@@ -1,7 +1,13 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import type { AdminFirestoreSalesOrder, AdminSalesOrderDetail } from './admin-sales-orders';
-import { invoiceErrorMessage, parseInvoiceCategory, sumInvoiceProductQuantity } from './invoices';
+import {
+  invoiceErrorMessage,
+  normalizeInvoiceCategories,
+  normalizeInvoiceCategoryAmounts,
+  parseInvoiceCategory,
+  sumInvoiceProductQuantity,
+} from './invoices';
 import type { DealerInvoiceLineItem } from '../types/invoices';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -42,6 +48,8 @@ function mapListRow(raw: Record<string, unknown>): AdminFirestoreSalesOrder {
       ? sumInvoiceProductQuantity(lineItems)
       : (raw.itemQuantity != null ? Number(raw.itemQuantity) : null),
     salesOrderCategory: parseInvoiceCategory(raw.salesOrderCategory),
+    categories: normalizeInvoiceCategories(raw.categories),
+    categoryAmounts: normalizeInvoiceCategoryAmounts(raw.categoryAmounts),
     yesOneStage: raw.yesOneStage ? String(raw.yesOneStage) : null,
   };
 }
@@ -67,6 +75,8 @@ function mapDetail(raw: Record<string, unknown>): AdminSalesOrderDetail {
     salespersonName: raw.salespersonName ? String(raw.salespersonName) : null,
     shippingAddress: raw.shippingAddress ? String(raw.shippingAddress) : null,
     salesOrderCategory: list.salesOrderCategory,
+    categories: list.categories,
+    categoryAmounts: list.categoryAmounts,
     subtotal: Number(raw.subtotal ?? 0),
     taxTotal: Number(raw.taxTotal ?? 0),
     notes: raw.notes ? String(raw.notes) : null,

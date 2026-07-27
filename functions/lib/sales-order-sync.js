@@ -13,6 +13,7 @@ import {
   fetchZohoOrgApiUsage,
 } from './zoho-api-usage.js';
 import {
+  classifyInvoiceCategoryBreakdown,
   classifyInvoiceFromLineItems,
   parseInvoiceCategory,
   sumNonFreightQuantity,
@@ -277,12 +278,16 @@ async function upsertSalesOrderFromRaw(raw, options = {}) {
 
   const catalog = await loadCatalogMeta(mapped.lineItems.map(line => line.itemId).filter(Boolean));
   mapped.lineItems = attachCatalogImages(mapped.lineItems, catalog);
-  const salesOrderCategory = classifyInvoiceFromLineItems(mapped.lineItems, catalog);
+  const categoryBreakdown = classifyInvoiceCategoryBreakdown(mapped.lineItems, catalog);
+  const salesOrderCategory = categoryBreakdown.categories[0]
+    ?? classifyInvoiceFromLineItems(mapped.lineItems, catalog);
   const now = Timestamp.now();
   const doc = {
     ...mapped,
     searchBlob: buildSearchBlob(mapped),
     salesOrderCategory,
+    categories: categoryBreakdown.categories,
+    categoryAmounts: categoryBreakdown.categoryAmounts,
     itemQuantity: sumNonFreightQuantity(mapped.lineItems),
     syncedAt: now,
     contentFingerprint: `${mapped.zohoLastModified}|${mapped.lineItems.length}|${mapped.total}`,
@@ -723,14 +728,21 @@ export async function reclassifySalesOrderCategoriesFromCatalog(options = {}) {
       scanned += 1;
       const data = docSnap.data() || {};
       const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
-      const next = classifyInvoiceFromLineItems(lines, catalog);
+      const breakdown = classifyInvoiceCategoryBreakdown(lines, catalog);
+      const next = breakdown.categories[0] ?? classifyInvoiceFromLineItems(lines, catalog);
       counts[next] = (counts[next] || 0) + 1;
       const current = parseInvoiceCategory(data.salesOrderCategory);
-      if (current === next) {
+      const sameCategories = JSON.stringify(data.categories ?? []) === JSON.stringify(breakdown.categories);
+      const sameAmounts = JSON.stringify(data.categoryAmounts ?? {}) === JSON.stringify(breakdown.categoryAmounts);
+      if (current === next && sameCategories && sameAmounts) {
         unchanged += 1;
         continue;
       }
-      batch.update(docSnap.ref, { salesOrderCategory: next });
+      batch.update(docSnap.ref, {
+        salesOrderCategory: next,
+        categories: breakdown.categories,
+        categoryAmounts: breakdown.categoryAmounts,
+      });
       batchWrites += 1;
       updated += 1;
     }
@@ -816,6 +828,10 @@ export function mapSalesOrderDoc(id, data) {
     notes: data.notes ?? null,
     lineItems,
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
+    categories: Array.isArray(data.categories) ? data.categories.map(String) : [],
+    categoryAmounts: data.categoryAmounts && typeof data.categoryAmounts === 'object'
+      ? { ...data.categoryAmounts }
+      : {},
     itemQuantity: lineItems.length
       ? sumNonFreightQuantity(lineItems)
       : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
@@ -849,6 +865,8 @@ function mapSalesOrderListRow(id, data) {
     customerId: full.customerId,
     customerName: full.customerName,
     salesOrderCategory: full.salesOrderCategory,
+    categories: full.categories,
+    categoryAmounts: full.categoryAmounts,
     itemQuantity: full.itemQuantity,
     syncedAt: full.syncedAt,
     yesOneStage: full.yesOneStage,

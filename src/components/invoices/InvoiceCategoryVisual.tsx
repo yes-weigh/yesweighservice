@@ -1,6 +1,7 @@
 import React from 'react';
 import { BadgeCheck, Box, Cog, KeyRound, Wrench } from 'lucide-react';
 import {
+  invoiceCategoriesForDisplay,
   invoiceCategoryClassName,
   invoiceCategoryLabel,
 } from '../../lib/invoices';
@@ -44,5 +45,25 @@ export function InvoiceCategoryBadge({
     <span className={invoiceCategoryClassName(category)}>
       {label}
     </span>
+  );
+}
+
+export function InvoiceCategoryBadgeList({
+  categories,
+  invoiceCategory,
+}: {
+  categories?: InvoiceCategory[] | null;
+  invoiceCategory?: InvoiceCategory | null;
+}) {
+  const values = invoiceCategoriesForDisplay({ categories, invoiceCategory });
+  if (!values.length) return null;
+  return (
+    <>
+      {values.map(category => (
+        <span key={category} className={invoiceCategoryClassName(category)}>
+          {invoiceCategoryLabel(category)}
+        </span>
+      ))}
+    </>
   );
 }

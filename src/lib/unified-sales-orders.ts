@@ -31,6 +31,8 @@ export interface UnifiedSalesOrderRow {
   /** Stage seal stamp for list rows (null when none). */
   sealKind: SalesOrderSealKind | null;
   category: InvoiceCategory | null;
+  categories: InvoiceCategory[];
+  categoryAmounts: Partial<Record<InvoiceCategory, number>>;
   qty: number | null;
   /** Zoho reference number when present. */
   portalOrderNumber: string | null;
@@ -159,6 +161,8 @@ export function mapZohoOrderToUnified(
     isOrderPlaced: display.isOrderPlaced,
     sealKind: display.sealKind,
     category: so.salesOrderCategory,
+    categories: so.categories,
+    categoryAmounts: so.categoryAmounts,
     qty: so.itemQuantity,
     portalOrderNumber: so.referenceNumber,
     zohoSalesOrderId: so.id,
@@ -249,8 +253,11 @@ export function filterUnifiedSalesOrders(
     next = next.filter(row => getUnifiedStage(row) === options.statusChip);
   }
 
-  if (options.category && options.category !== 'all') {
-    next = next.filter(row => row.category === options.category);
+  const selectedCategory = options.category && options.category !== 'all'
+    ? options.category
+    : null;
+  if (selectedCategory) {
+    next = next.filter(row => row.categories.includes(selectedCategory));
   }
 
   if (options.period) {
@@ -275,6 +282,7 @@ export function filterUnifiedSalesOrders(
         row.statusRaw,
         row.statusLabel,
         row.category,
+        ...row.categories,
         row.portalOrderNumber,
         row.zohoSalesOrderId,
         row.source,

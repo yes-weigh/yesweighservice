@@ -118,6 +118,26 @@ export function buildInvoiceSearchBlob(invoiceRaw) {
 
 const INVOICE_CATEGORIES = new Set(['product', 'spare', 'service', 'software_key', 'gatc']);
 
+function normalizeCategories(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  for (const item of value) {
+    const key = String(item ?? '').trim().toLowerCase();
+    if (INVOICE_CATEGORIES.has(key)) seen.add(key);
+  }
+  return ['product', 'spare', 'service', 'software_key', 'gatc'].filter(key => seen.has(key));
+}
+
+function normalizeCategoryAmounts(value) {
+  if (!value || typeof value !== 'object') return {};
+  const next = {};
+  for (const key of ['product', 'spare', 'service', 'software_key', 'gatc']) {
+    const amount = Number(value[key] ?? 0);
+    if (Number.isFinite(amount) && amount !== 0) next[key] = amount;
+  }
+  return next;
+}
+
 export function filterInvoices(invoices, { status, category } = {}) {
   let next = invoices;
   if (status && status !== 'all') {
@@ -127,7 +147,11 @@ export function filterInvoices(invoices, { status, category } = {}) {
   if (category && category !== 'all') {
     const normalized = String(category).toLowerCase();
     if (INVOICE_CATEGORIES.has(normalized)) {
-      next = next.filter(inv => String(inv.invoiceCategory ?? '').toLowerCase() === normalized);
+      next = next.filter(inv => {
+        const categories = normalizeCategories(inv.categories);
+        if (categories.length) return categories.includes(normalized);
+        return String(inv.invoiceCategory ?? '').toLowerCase() === normalized;
+      });
     }
   }
   return next;
@@ -144,9 +168,14 @@ export function countInvoicesByCategory(invoices) {
     gatc: 0,
   };
   for (const inv of invoices) {
-    const key = String(inv.invoiceCategory ?? '').toLowerCase();
-    if (Object.prototype.hasOwnProperty.call(counts, key) && key !== 'all') {
-      counts[key] += 1;
+    const categories = normalizeCategories(inv.categories);
+    if (categories.length) {
+      for (const key of categories) counts[key] += 1;
+      continue;
+    }
+    const legacy = String(inv.invoiceCategory ?? '').toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(counts, legacy) && legacy !== 'all') {
+      counts[legacy] += 1;
     }
   }
   return counts;
@@ -401,6 +430,8 @@ export function firestoreDocToListInvoice(data) {
     salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     invoiceUrl: data.invoiceUrl ?? null,
     invoiceCategory,
+    categories: normalizeCategories(data.categories),
+    categoryAmounts: normalizeCategoryAmounts(data.categoryAmounts),
   };
 }
 
