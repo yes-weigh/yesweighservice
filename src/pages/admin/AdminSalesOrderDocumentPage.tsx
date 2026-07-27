@@ -32,6 +32,7 @@ import {
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
+import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
 
 export const AdminSalesOrderDocumentPage: React.FC = () => {
   const { user } = useAuth();
@@ -106,6 +107,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       }),
     };
   }, [salesOrder, catalogDescByItemId]);
+
+  const portalRemarks = useMemo(
+    () => (salesOrder ? portalSalesOrderRemarks(salesOrder) : null),
+    [salesOrder],
+  );
 
   const loadShipAddresses = useCallback((customerId: string, currentAddressId?: string | null) => {
     setShipLoading(true);
@@ -340,10 +346,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         )}
       </header>
 
-      {salesOrder.notes?.trim() ? (
+      {portalRemarks ? (
         <section className="so-detail__remarks panel glass">
           <h3 className="so-detail__section-title">Remarks</h3>
-          <p className="so-detail__remarks-body">{salesOrder.notes.trim()}</p>
+          <p className="so-detail__remarks-body">{portalRemarks}</p>
         </section>
       ) : null}
 

@@ -128,6 +128,8 @@ export interface AdminSalesOrderDetail {
   subtotal: number;
   taxTotal: number;
   notes: string | null;
+  /** True when this Draft SO was created from a dealer cart submit. */
+  yesOneCreatedFromCart?: boolean;
   lineItems: DealerInvoiceLineItem[];
   yesOneStage?: string | null;
   paymentAmount?: number | null;
@@ -777,6 +779,7 @@ export function mapAdminSalesOrderDetail(
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ? String(data.notes) : null,
+    yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapLineItem(item as Record<string, unknown>))
       : [],
@@ -794,6 +797,22 @@ export function mapAdminSalesOrderDetail(
     zohoInvoiceId: data.zohoInvoiceId ? String(data.zohoInvoiceId) : null,
     zohoInvoiceNumber: data.zohoInvoiceNumber ? String(data.zohoInvoiceNumber) : null,
   };
+}
+
+/**
+ * Portal cart remarks only — hide Zoho template / ERP notes (bank details, etc.).
+ */
+export function portalSalesOrderRemarks(
+  so: Pick<AdminSalesOrderDetail, 'notes' | 'referenceNumber' | 'yesOneCreatedFromCart'>,
+): string | null {
+  const notes = so.notes?.trim() || '';
+  if (!notes) return null;
+  const fromPortal = Boolean(so.yesOneCreatedFromCart)
+    || /^YES-ORD-/i.test(String(so.referenceNumber || ''));
+  if (!fromPortal) return null;
+  // Default placeholder written when the dealer left remarks blank.
+  if (/^YesOne cart\b/i.test(notes)) return null;
+  return notes;
 }
 
 export async function fetchAdminSalesOrderDetail(

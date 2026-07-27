@@ -5,7 +5,6 @@ import {
   AlertCircle,
   ChevronRight,
   ClipboardList,
-  IndianRupee,
   LayoutGrid,
   RefreshCw,
   Search,
@@ -19,6 +18,10 @@ import {
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
+import {
+  EMPTY_STAGE_COUNTS,
+  SalesOrderStageFilterBlocks,
+} from '../../components/salesOrders/SalesOrderStageFilterBlocks';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
@@ -49,7 +52,6 @@ import { salespersonScopeForUser } from '../../lib/salespersonScope';
 import {
   formatInvoiceDate,
   formatInvoiceItemQuantity,
-  formatKpiPeriodRange,
   getInvoicePeriodBounds,
   invoiceErrorMessage,
 } from '../../lib/invoices';
@@ -57,11 +59,12 @@ import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll
 import {
   filterUnifiedSalesOrders,
   mapZohoOrderToUnified,
-  summarizeUnifiedAmounts,
+  countYesOneStages,
   type UnifiedSalesOrderRow,
 } from '../../lib/unified-sales-orders';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
+import type { YesOneStageFilter } from '../../lib/salesOrderWorkflow';
 
 const LIST_PAGE_SIZE = 25;
 const SEARCH_FETCH_SIZE = 100;
@@ -322,6 +325,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const [sort, setSort] = useState<AdminSalesOrderSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
+  const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>('all');
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
   const [aggregate, setAggregate] = useState(false);
   const [truncated, setTruncated] = useState(false);
@@ -331,9 +335,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const [zohoCategoryCounts, setZohoCategoryCounts] = useState<AdminSalesOrderCategoryCounts>(
     EMPTY_CATEGORY_COUNTS,
   );
-  const [kpiCategoryAmount, setKpiCategoryAmount] = useState(0);
-  const [kpiDocumentAmount, setKpiDocumentAmount] = useState(0);
-  const [kpiSource, setKpiSource] = useState<'rollup' | 'query'>('query');
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
@@ -414,9 +415,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, category, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
+  }, [search, rangePreset, category, stageFilter, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
 
-  // Server category counts + amount KPIs (org-wide rollups when available).
+  // Server category counts (org-wide rollups when available).
   useEffect(() => {
     let cancelled = false;
     if (dealerScoped) {
@@ -434,9 +435,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         if (cancelled) return;
         setZohoCategoryCounts(kpi.categoryCounts);
         setZohoTotal(kpi.orderCount);
-        setKpiCategoryAmount(kpi.categoryAmount);
-        setKpiDocumentAmount(kpi.documentAmount);
-        setKpiSource(kpi.source);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -599,7 +597,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
 
   const loading = zohoLoading || countsLoading;
 
-  const zohoRows = useMemo(() => {
+  const mappedRows = useMemo(() => {
     let source = zohoOrders;
     if (useAggregate && !dealerScoped && !useLifetimeDealerRollups) {
       const prefiltered = filterAdminSalesOrders(zohoOrders, search, category);
@@ -608,7 +606,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       source = filterAdminSalesOrders(zohoOrders, search, category);
     }
 
-    let rows = source.map(order => mapZohoOrderToUnified(order, basePath));
+    let rows = source.map(order => mapZohoOrderToUnified(order, basePath, 'admin'));
     if (dealerScoped) {
       rows = filterUnifiedSalesOrders(rows, {
         search,
@@ -645,7 +643,17 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     sort,
   ]);
 
-  const clientPaged = searchActive || dealerScoped || useAggregate;
+  const stageCounts = useMemo(
+    () => (mappedRows.length ? countYesOneStages(mappedRows) : EMPTY_STAGE_COUNTS),
+    [mappedRows],
+  );
+
+  const zohoRows = useMemo(() => {
+    if (stageFilter === 'all') return mappedRows;
+    return filterUnifiedSalesOrders(mappedRows, { yesOneStage: stageFilter });
+  }, [mappedRows, stageFilter]);
+
+  const clientPaged = searchActive || dealerScoped || useAggregate || stageFilter !== 'all';
 
   const pageRows = useMemo(() => {
     if (clientPaged) {
@@ -700,61 +708,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     gatc: zohoCategoryCounts.gatc,
   }), [zohoCategoryCounts]);
 
-  const summary = useMemo(() => {
-    if (dealerScoped) {
-      const amountUnified = zohoOrders.map(order => mapZohoOrderToUnified(order, basePath));
-      const amountFiltered = filterUnifiedSalesOrders(amountUnified, {
-        search,
-        source: 'zoho',
-        statusChip: 'all',
-        category,
-        period: undefined,
-      });
-      const pageSummary = summarizeUnifiedAmounts(amountFiltered);
-      const categoryAmount = category === 'all'
-        ? pageSummary.totalAmount
-        : amountFiltered.reduce(
-          (sum, row) => sum + Number(row.categoryAmounts[category] ?? row.amount ?? 0),
-          0,
-        );
-      return {
-        count: filteredTotal,
-        categoryAmount,
-        totalAmount: pageSummary.totalAmount,
-        currencyCode: pageSummary.currencyCode,
-        amountIsPageOnly: false,
-        truncated: false,
-      };
-    }
-
-    return {
-      count: filteredTotal,
-      categoryAmount: kpiCategoryAmount,
-      totalAmount: category === 'all' ? kpiDocumentAmount : kpiCategoryAmount,
-      currencyCode: 'INR' as string | null,
-      amountIsPageOnly: kpiSource === 'query' && kpiDocumentAmount === 0,
-      truncated,
-    };
-  }, [
-    filteredTotal,
-    dealerScoped,
-    zohoOrders,
-    basePath,
-    search,
-    category,
-    kpiCategoryAmount,
-    kpiDocumentAmount,
-    kpiSource,
-    truncated,
-  ]);
-
-  const dateRange = formatKpiPeriodRange(
-    bounds?.start?.toISOString?.() ?? null,
-    bounds?.end?.toISOString?.() ?? new Date().toISOString(),
-  );
-
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
     || category !== DEFAULT_CATEGORY
+    || stageFilter !== 'all'
     || sort !== DEFAULT_SORT
     || selectedDealers.length > 0
     || aggregate;
@@ -845,50 +801,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page unified-sales-orders-page">
       <section className="invoices-summary" aria-label="Sales order summary">
-        <div className="invoices-summary__kpis">
-          <div className="invoices-summary__kpi">
-            <span className="invoices-summary__kpi-icon" aria-hidden>
-              <ClipboardList size={16} strokeWidth={2.4} />
-            </span>
-            <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">Total</span>
-              <strong className="invoices-summary__kpi-value">
-                {loading ? '…' : summary.count.toLocaleString('en-IN')}
-              </strong>
-              <span className="invoices-summary__kpi-sub">
-                {loading ? '—' : dateRange}
-              </span>
-            </div>
-          </div>
-          <div className="invoices-summary__divider" aria-hidden />
-          <div className="invoices-summary__kpi">
-            <span className="invoices-summary__kpi-icon" aria-hidden>
-              <IndianRupee size={16} strokeWidth={2.4} />
-            </span>
-            <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">
-                {category === 'all' ? 'Total Amount' : 'Category Amount'}
-              </span>
-              <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                {loading
-                  ? '…'
-                  : summary.currencyCode
-                    ? formatCurrency(category === 'all' ? summary.totalAmount : summary.categoryAmount, summary.currencyCode)
-                    : pageRows.length
-                      ? 'Mixed currencies'
-                      : formatCurrency(0)}
-              </strong>
-              <span className="invoices-summary__kpi-sub">
-                {summary.amountIsPageOnly
-                  ? 'Counts only (run SO stats backfill)'
-                  : summary.truncated
-                    ? 'Partial (scan cap)'
-                    : (category === 'all' ? 'Amount' : 'Category lines')}
-              </span>
-            </div>
-          </div>
-        </div>
-
         {(selectedDealers.length > 0 || useAggregate || truncated) && (
           <p className="unified-so-dealer-filter-note text-muted text-sm">
             {[
@@ -902,6 +814,14 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
             ].filter(Boolean).join(' · ')}.
           </p>
         )}
+
+        <SalesOrderStageFilterBlocks
+          audience="admin"
+          value={stageFilter}
+          counts={stageCounts}
+          loading={loading}
+          onChange={setStageFilter}
+        />
 
         <div className="unified-so-category-blocks" role="tablist" aria-label="Order category">
           {CATEGORY_BLOCKS.map(item => {

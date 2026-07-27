@@ -51,6 +51,7 @@ function mapListRow(raw: Record<string, unknown>): AdminFirestoreSalesOrder {
     categories: normalizeInvoiceCategories(raw.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(raw.categoryAmounts),
     yesOneStage: raw.yesOneStage ? String(raw.yesOneStage) : null,
+    yesOneCreatedFromCart: Boolean(raw.yesOneCreatedFromCart),
   };
 }
 
@@ -82,6 +83,7 @@ function mapDetail(raw: Record<string, unknown>): AdminSalesOrderDetail {
     notes: raw.notes ? String(raw.notes) : null,
     lineItems,
     yesOneStage: list.yesOneStage ?? null,
+    yesOneCreatedFromCart: list.yesOneCreatedFromCart,
     paymentAmount: raw.paymentAmount != null ? Number(raw.paymentAmount) : null,
     paymentUtr: raw.paymentUtr ? String(raw.paymentUtr) : null,
     paymentScreenshotStoragePath: raw.paymentScreenshotStoragePath

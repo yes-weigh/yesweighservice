@@ -13380,6 +13380,55 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.unified-so-stage-blocks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.3rem;
+  width: 100%;
+  margin: 0 0 0.45rem;
+}
+
+.unified-so-stage-block__icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.unified-so-stage-block__icon--review {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+}
+
+.unified-so-stage-block__icon--ready_for_payment {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fb923c;
+}
+
+.unified-so-stage-block__icon--payment_submitted {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+
+.unified-so-stage-block__icon--completed {
+  background: rgba(74, 222, 128, 0.18);
+  color: #86efac;
+}
+
+@media (max-width: 640px) {
+  .unified-so-stage-blocks {
+    gap: 0.25rem;
+  }
+
+  .unified-so-stage-block .unified-so-category-block__label {
+    font-size: 0.58rem;
+    line-height: 1.15;
+    min-height: 1.55rem;
+  }
+}
+
 .unified-so-category-blocks {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));

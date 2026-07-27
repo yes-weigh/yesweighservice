@@ -5,12 +5,16 @@ import {
   AlertCircle,
   ChevronRight,
   ClipboardList,
-  IndianRupee,
   LayoutGrid,
   Search,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
+import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
+import {
+  EMPTY_STAGE_COUNTS,
+  SalesOrderStageFilterBlocks,
+} from '../../components/salesOrders/SalesOrderStageFilterBlocks';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
   InvoiceCategoryBadgeList,
@@ -28,20 +32,20 @@ import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
 import {
   formatInvoiceDate,
   formatInvoiceItemQuantity,
-  formatKpiPeriodRange,
   getInvoicePeriodBounds,
   invoiceErrorMessage,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import {
+  countYesOneStages,
   filterUnifiedSalesOrders,
   mergeUnifiedSalesOrders,
-  summarizeUnifiedAmounts,
   type UnifiedSalesOrderRow,
 } from '../../lib/unified-sales-orders';
 import { homePathForRole } from '../../types';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
+import type { YesOneStageFilter } from '../../lib/salesOrderWorkflow';
 
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
@@ -185,6 +189,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
+  const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
 
@@ -214,11 +219,12 @@ export const DealerSalesOrdersPage: React.FC = () => {
   const merged = useMemo(
     () => mergeUnifiedSalesOrders([], zohoOrders, basePath, {
       includePortalDuplicates: false,
+      audience: 'dealer',
     }),
     [zohoOrders, basePath],
   );
 
-  const filtered = useMemo(
+  const baseFiltered = useMemo(
     () => filterUnifiedSalesOrders(merged, {
       search,
       source: 'zoho',
@@ -228,6 +234,16 @@ export const DealerSalesOrdersPage: React.FC = () => {
     }),
     [merged, search, category, rangePreset],
   );
+
+  const stageCounts = useMemo(
+    () => (baseFiltered.length ? countYesOneStages(baseFiltered) : EMPTY_STAGE_COUNTS),
+    [baseFiltered],
+  );
+
+  const filtered = useMemo(() => {
+    if (stageFilter === 'all') return baseFiltered;
+    return filterUnifiedSalesOrders(baseFiltered, { yesOneStage: stageFilter });
+  }, [baseFiltered, stageFilter]);
 
   const categoryCounts = useMemo(() => {
     const inPeriod = filterUnifiedSalesOrders(merged, {
@@ -246,7 +262,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [search, rangePreset, category]);
+  }, [search, rangePreset, category, stageFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -258,26 +274,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const summary = useMemo(() => {
-    const amounts = summarizeUnifiedAmounts(filtered);
-    const categoryAmount = category === 'all'
-      ? amounts.totalAmount
-      : filtered.reduce((sum, row) => sum + Number(row.categoryAmounts[category] ?? row.amount ?? 0), 0);
-    return {
-      count: filtered.length,
-      categoryAmount,
-      totalAmount: amounts.totalAmount,
-      currencyCode: amounts.currencyCode,
-    };
-  }, [filtered, category]);
-
-  const bounds = getInvoicePeriodBounds(rangePreset);
-  const dateRange = formatKpiPeriodRange(
-    bounds ? bounds.start.toISOString() : null,
-    bounds ? bounds.end.toISOString() : new Date().toISOString(),
-  );
-
-  const hasActiveFilters = rangePreset !== DEFAULT_RANGE;
+  const hasActiveFilters = rangePreset !== DEFAULT_RANGE || stageFilter !== 'all';
 
   const openRow = (row: UnifiedSalesOrderRow) => {
     navigate(row.href);
@@ -332,43 +329,13 @@ export const DealerSalesOrdersPage: React.FC = () => {
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page unified-sales-orders-page dealer-sales-orders-page">
       <section className="invoices-summary" aria-label="Sales order summary">
-        <div className="invoices-summary__kpis">
-          <div className="invoices-summary__kpi">
-            <span className="invoices-summary__kpi-icon" aria-hidden>
-              <ClipboardList size={16} strokeWidth={2.4} />
-            </span>
-            <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">Total</span>
-              <strong className="invoices-summary__kpi-value">
-                {loading ? '…' : summary.count.toLocaleString('en-IN')}
-              </strong>
-              <span className="invoices-summary__kpi-sub">
-                {loading ? '—' : dateRange}
-              </span>
-            </div>
-          </div>
-          <div className="invoices-summary__divider" aria-hidden />
-          <div className="invoices-summary__kpi">
-            <span className="invoices-summary__kpi-icon" aria-hidden>
-              <IndianRupee size={16} strokeWidth={2.4} />
-            </span>
-            <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">
-                {category === 'all' ? 'Total Amount' : 'Category Amount'}
-              </span>
-              <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                {loading
-                  ? '…'
-                  : summary.currencyCode
-                    ? formatCurrency(category === 'all' ? summary.totalAmount : summary.categoryAmount, summary.currencyCode)
-                    : pageRows.length
-                      ? 'Mixed currencies'
-                      : formatCurrency(0)}
-              </strong>
-            </div>
-          </div>
-        </div>
-
+        <SalesOrderStageFilterBlocks
+          audience="dealer"
+          value={stageFilter}
+          counts={stageCounts}
+          loading={loading}
+          onChange={setStageFilter}
+        />
         <div className="unified-so-category-blocks" role="tablist" aria-label="Order category">
           {CATEGORY_BLOCKS.map(item => {
             const active = category === item.value;
@@ -449,7 +416,10 @@ export const DealerSalesOrdersPage: React.FC = () => {
                     {pageRows.map(row => (
                       <tr
                         key={row.key}
-                        className="invoices-table__row--clickable"
+                        className={[
+                          'invoices-table__row--clickable',
+                          row.sealKind ? 'unified-so-row--with-seal' : '',
+                        ].filter(Boolean).join(' ')}
                         onClick={() => openRow(row)}
                         onKeyDown={e => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -459,7 +429,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
                         }}
                         role="button"
                         tabIndex={0}
-                        aria-label={`View ${row.primaryNumber}`}
+                        aria-label={`View ${row.primaryNumber}${row.sealKind ? `, ${row.statusLabel}` : ''}`}
                       >
                         <td>
                           <div className="unified-so-order-cell">
@@ -472,6 +442,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
                                 categories={row.categories}
                                 invoiceCategory={row.category}
                               />
+                              {row.sealKind ? (
+                                <SalesOrderStageSeal kind={row.sealKind} size="inline" />
+                              ) : null}
                               <span className={row.statusClass}>{row.statusLabel}</span>
                             </span>
                           </div>
@@ -502,9 +475,12 @@ export const DealerSalesOrdersPage: React.FC = () => {
                   <button
                     key={row.key}
                     type="button"
-                    className="invoices-mobile-row invoices-mobile-row--po-stack unified-so-mobile-row"
+                    className={[
+                      'invoices-mobile-row invoices-mobile-row--po-stack unified-so-mobile-row',
+                      row.sealKind ? 'unified-so-mobile-row--with-seal' : '',
+                    ].filter(Boolean).join(' ')}
                     onClick={() => openRow(row)}
-                    aria-label={`View ${row.primaryNumber}`}
+                    aria-label={`View ${row.primaryNumber}${row.sealKind ? `, ${row.statusLabel}` : ''}`}
                   >
                     <InvoiceCategoryIcon category={row.category} />
                     <span className="invoices-mobile-row__body">
@@ -532,6 +508,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
                         </span>
                       </span>
                     </span>
+                    {row.sealKind ? (
+                      <SalesOrderStageSeal kind={row.sealKind} size="tile" />
+                    ) : null}
                     <span className="invoices-mobile-row__chevron" aria-hidden>
                       <ChevronRight size={18} />
                     </span>

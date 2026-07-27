@@ -3,7 +3,12 @@ import {
   getInvoicePeriodBounds,
   invoiceStatusLabel,
 } from './invoices';
-import { yesOneStageLabel } from './salesOrderWorkflow';
+import {
+  yesOneStageLabelForAudience,
+  yesOneStageStatusClass,
+  type YesOneStageAudience,
+  type YesOneStageFilter,
+} from './salesOrderWorkflow';
 import type { SalesOrderSealKind } from './salesOrderSeals';
 import type { InvoiceCategory, KpiPeriod } from '../types/invoices';
 
@@ -51,7 +56,10 @@ function parseDayTs(value: string | null | undefined): number {
 }
 
 /** Dealer cart Draft that still needs admin attention. */
-export function isDealerOrderPlaced(so: AdminFirestoreSalesOrder): boolean {
+export function isDealerOrderPlaced(so: Pick<
+  AdminFirestoreSalesOrder,
+  'yesOneStage' | 'yesOneCreatedFromCart' | 'status' | 'referenceNumber'
+>): boolean {
   const stage = String(so.yesOneStage || '').trim();
   if (stage === 'review') return true;
   if (so.yesOneCreatedFromCart && (!stage || stage === 'review')) return true;
@@ -62,73 +70,57 @@ export function isDealerOrderPlaced(so: AdminFirestoreSalesOrder): boolean {
   return false;
 }
 
-export function sealKindForSalesOrder(so: AdminFirestoreSalesOrder): SalesOrderSealKind | null {
+export function sealKindForSalesOrder(so: Pick<
+  AdminFirestoreSalesOrder,
+  'yesOneStage' | 'yesOneCreatedFromCart' | 'status' | 'referenceNumber'
+>): SalesOrderSealKind | null {
   const stage = String(so.yesOneStage || '').trim();
   if (isDealerOrderPlaced(so) || stage === 'review') return 'under_review';
   if (stage === 'ready_for_payment') return 'awaiting_payment';
+  if (stage === 'payment_submitted') return 'under_review';
   if (stage === 'completed') return 'invoiced';
   const zoho = String(so.status || '').toLowerCase().replace(/\s+/g, '_');
   if (zoho === 'invoiced') return 'invoiced';
   return null;
 }
 
-function displayStatusForSo(so: AdminFirestoreSalesOrder): {
+function resolveYesOneStage(so: AdminFirestoreSalesOrder): string {
+  const stage = String(so.yesOneStage || '').trim();
+  if (stage) return stage;
+  if (isDealerOrderPlaced(so)) return 'review';
+  return '';
+}
+
+function displayStatusForSo(
+  so: AdminFirestoreSalesOrder,
+  audience: YesOneStageAudience,
+): {
   statusRaw: string;
   statusLabel: string;
   statusClass: string;
   isOrderPlaced: boolean;
   sealKind: SalesOrderSealKind | null;
 } {
-  const stage = String(so.yesOneStage || '').trim();
+  const stage = resolveYesOneStage(so);
   const orderPlaced = isDealerOrderPlaced(so);
   const sealKind = sealKindForSalesOrder(so);
-  // Keep Zoho status (e.g. Draft) as the status pill; seal is separate.
-  if (orderPlaced) {
-    const zohoStatus = String(so.status || 'draft');
-    return {
-      statusRaw: stage || zohoStatus,
-      statusLabel: invoiceStatusLabel(zohoStatus),
-      statusClass: `invoices-status invoices-status--${zohoStatus.toLowerCase().replace(/\s+/g, '_')}`,
-      isOrderPlaced: true,
-      sealKind,
-    };
-  }
-  if (stage === 'ready_for_payment') {
+
+  if (
+    stage === 'review'
+    || stage === 'ready_for_payment'
+    || stage === 'payment_submitted'
+    || stage === 'completed'
+    || stage === 'void'
+  ) {
     return {
       statusRaw: stage,
-      statusLabel: yesOneStageLabel(stage),
-      statusClass: 'invoices-status invoices-status--overdue',
-      isOrderPlaced: false,
+      statusLabel: yesOneStageLabelForAudience(stage, audience),
+      statusClass: yesOneStageStatusClass(stage),
+      isOrderPlaced: orderPlaced || stage === 'review',
       sealKind,
     };
   }
-  if (stage === 'payment_submitted') {
-    return {
-      statusRaw: stage,
-      statusLabel: yesOneStageLabel(stage),
-      statusClass: 'invoices-status invoices-status--partially_paid',
-      isOrderPlaced: false,
-      sealKind,
-    };
-  }
-  if (stage === 'completed') {
-    return {
-      statusRaw: stage,
-      statusLabel: yesOneStageLabel(stage),
-      statusClass: 'invoices-status invoices-status--paid',
-      isOrderPlaced: false,
-      sealKind,
-    };
-  }
-  if (stage === 'void') {
-    return {
-      statusRaw: stage,
-      statusLabel: yesOneStageLabel(stage),
-      statusClass: 'invoices-status invoices-status--void',
-      isOrderPlaced: false,
-      sealKind,
-    };
-  }
+
   return {
     statusRaw: so.status,
     statusLabel: invoiceStatusLabel(so.status),
@@ -141,8 +133,9 @@ function displayStatusForSo(so: AdminFirestoreSalesOrder): {
 export function mapZohoOrderToUnified(
   so: AdminFirestoreSalesOrder,
   basePath: string,
+  audience: YesOneStageAudience = 'admin',
 ): UnifiedSalesOrderRow {
-  const display = displayStatusForSo(so);
+  const display = displayStatusForSo(so, audience);
   return {
     key: `zoho:${so.id}`,
     source: 'zoho',
@@ -175,10 +168,11 @@ export function mergeUnifiedSalesOrders(
   _portalIgnored: unknown[],
   zoho: AdminFirestoreSalesOrder[],
   basePath: string,
-  _options: { includePortalDuplicates?: boolean } = {},
+  options: { includePortalDuplicates?: boolean; audience?: YesOneStageAudience } = {},
 ): UnifiedSalesOrderRow[] {
+  const audience = options.audience ?? 'admin';
   return zoho
-    .map(row => mapZohoOrderToUnified(row, basePath))
+    .map(row => mapZohoOrderToUnified(row, basePath, audience))
     .sort((a, b) => b.sortAt - a.sortAt);
 }
 
@@ -233,12 +227,27 @@ export function getUnifiedStage(row: UnifiedSalesOrderRow): UnifiedStageId {
   return 'so';
 }
 
+export function countYesOneStages(rows: UnifiedSalesOrderRow[]): Record<YesOneStageFilter, number> {
+  const counts: Record<YesOneStageFilter, number> = {
+    review: 0,
+    ready_for_payment: 0,
+    payment_submitted: 0,
+    completed: 0,
+  };
+  for (const row of rows) {
+    const key = row.statusRaw as YesOneStageFilter;
+    if (key in counts) counts[key] += 1;
+  }
+  return counts;
+}
+
 export function filterUnifiedSalesOrders(
   rows: UnifiedSalesOrderRow[],
   options: {
     search?: string;
     source?: UnifiedSalesOrderSource | 'all';
     statusChip?: UnifiedStatusChip;
+    yesOneStage?: YesOneStageFilter | 'all';
     category?: InvoiceCategory | 'all';
     period?: KpiPeriod;
   },
@@ -251,6 +260,10 @@ export function filterUnifiedSalesOrders(
 
   if (options.statusChip && options.statusChip !== 'all') {
     next = next.filter(row => getUnifiedStage(row) === options.statusChip);
+  }
+
+  if (options.yesOneStage && options.yesOneStage !== 'all') {
+    next = next.filter(row => row.statusRaw === options.yesOneStage);
   }
 
   const selectedCategory = options.category && options.category !== 'all'

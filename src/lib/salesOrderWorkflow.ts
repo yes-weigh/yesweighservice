@@ -16,6 +16,23 @@ export type YesOneSalesOrderStage =
   | 'completed'
   | 'void';
 
+export type YesOneStageAudience = 'dealer' | 'admin';
+
+/** Filter chips for YesOne workflow stages (list UI). */
+export type YesOneStageFilter =
+  | 'review'
+  | 'ready_for_payment'
+  | 'payment_submitted'
+  | 'completed';
+
+export const YESONE_STAGE_FILTERS: YesOneStageFilter[] = [
+  'review',
+  'ready_for_payment',
+  'payment_submitted',
+  'completed',
+];
+
+/** @deprecated Prefer yesOneStageLabelForAudience — kept for shared/fallback copy. */
 export const YESONE_STAGE_LABELS: Record<YesOneSalesOrderStage, string> = {
   review: 'Order placed',
   ready_for_payment: 'Awaiting payment',
@@ -24,9 +41,51 @@ export const YESONE_STAGE_LABELS: Record<YesOneSalesOrderStage, string> = {
   void: 'Void',
 };
 
+export const YESONE_STAGE_LABELS_DEALER: Record<YesOneSalesOrderStage, string> = {
+  review: 'submitted',
+  ready_for_payment: 'payment due',
+  payment_submitted: 'under review',
+  completed: 'invoiced',
+  void: 'Void',
+};
+
+export const YESONE_STAGE_LABELS_ADMIN: Record<YesOneSalesOrderStage, string> = {
+  review: 'new order',
+  ready_for_payment: 'Awaiting payment',
+  payment_submitted: 'paid, pending approval',
+  completed: 'invoiced',
+  void: 'Void',
+};
+
 export function yesOneStageLabel(stage: string | null | undefined): string {
   if (!stage) return '';
   return YESONE_STAGE_LABELS[stage as YesOneSalesOrderStage] ?? stage;
+}
+
+export function yesOneStageLabelForAudience(
+  stage: string | null | undefined,
+  audience: YesOneStageAudience,
+): string {
+  if (!stage) return '';
+  const key = stage as YesOneSalesOrderStage;
+  if (audience === 'dealer') {
+    return YESONE_STAGE_LABELS_DEALER[key] ?? stage;
+  }
+  return YESONE_STAGE_LABELS_ADMIN[key] ?? stage;
+}
+
+export function yesOneStageStatusClass(stage: string | null | undefined): string {
+  const key = String(stage || '').trim();
+  if (key === 'review') return 'invoices-status invoices-status--draft so-status--yesone-review';
+  if (key === 'ready_for_payment') {
+    return 'invoices-status invoices-status--overdue so-status--yesone-pay';
+  }
+  if (key === 'payment_submitted') {
+    return 'invoices-status invoices-status--partially_paid so-status--yesone-verify';
+  }
+  if (key === 'completed') return 'invoices-status invoices-status--paid so-status--yesone-done';
+  if (key === 'void') return 'invoices-status invoices-status--void so-status--yesone-void';
+  return 'invoices-status invoices-status--draft';
 }
 
 export interface SalesOrderWorkflowDetail extends AdminSalesOrderDetail {

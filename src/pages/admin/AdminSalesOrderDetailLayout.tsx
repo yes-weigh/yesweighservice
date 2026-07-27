@@ -7,6 +7,7 @@ import {
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
+import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
 import { useCatalogPageHeader, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
 import {
   fetchAdminSalesOrderDetail,
@@ -24,8 +25,10 @@ import {
   deleteDraftSalesOrder,
   markSalesOrderReadyForPayment,
   verifySalesOrderPayment,
-  yesOneStageLabel,
+  yesOneStageLabelForAudience,
+  yesOneStageStatusClass,
 } from '../../lib/salesOrderWorkflow';
+import { sealKindForSalesOrder } from '../../lib/unified-sales-orders';
 import { staffCanAccessSalespersonDoc } from '../../lib/salespersonScope';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
 import type {
@@ -76,38 +79,38 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     onBack: handleBack,
   });
 
-  const isOrderPlaced = salesOrder?.yesOneStage === 'review';
-  const titleStatusLabel = isOrderPlaced
-    ? (salesOrder?.status ? invoiceStatusLabel(salesOrder.status) : 'Draft')
-    : salesOrder?.yesOneStage
-      ? yesOneStageLabel(salesOrder.yesOneStage)
-      : (salesOrder?.status ? invoiceStatusLabel(salesOrder.status) : '');
-  const titleStatusClass = isOrderPlaced
-    ? `invoices-status invoices-status--${String(salesOrder?.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`
-    : salesOrder?.yesOneStage
-      ? (
-        salesOrder.yesOneStage === 'completed' ? 'invoices-status invoices-status--paid'
-          : salesOrder.yesOneStage === 'void' ? 'invoices-status invoices-status--void'
-            : salesOrder.yesOneStage === 'payment_submitted' ? 'invoices-status invoices-status--partially_paid'
-              : salesOrder.yesOneStage === 'ready_for_payment' ? 'invoices-status invoices-status--overdue'
-                : 'invoices-status invoices-status--draft'
-      )
-      : `invoices-status invoices-status--${String(salesOrder?.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`;
+  const stageAudience = isDealerView ? 'dealer' : 'admin';
+  const yesOneStage = String(salesOrder?.yesOneStage || '').trim()
+    || (salesOrder?.yesOneCreatedFromCart ? 'review' : '');
+  const sealKind = salesOrder
+    ? sealKindForSalesOrder({
+      yesOneStage: yesOneStage || salesOrder.yesOneStage,
+      yesOneCreatedFromCart: salesOrder.yesOneCreatedFromCart,
+      status: salesOrder.status,
+      referenceNumber: salesOrder.referenceNumber,
+    })
+    : null;
+  const titleStatusLabel = yesOneStage
+    ? yesOneStageLabelForAudience(yesOneStage, stageAudience)
+    : (salesOrder?.status ? invoiceStatusLabel(salesOrder.status) : '');
+  const titleStatusClass = yesOneStage
+    ? yesOneStageStatusClass(yesOneStage)
+    : `invoices-status invoices-status--${String(salesOrder?.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`;
 
   const titleMeta = useMemo(() => {
     if (!salesOrder || isPdfView) return null;
     return (
       <>
         <InvoiceCategoryBadge category={salesOrder.salesOrderCategory} />
-        {isOrderPlaced ? (
-          <span className="invoices-status so-status--order-placed">Order placed</span>
+        {sealKind ? (
+          <SalesOrderStageSeal kind={sealKind} size="inline" />
         ) : null}
         {titleStatusLabel ? (
           <span className={titleStatusClass}>{titleStatusLabel}</span>
         ) : null}
       </>
     );
-  }, [salesOrder, isPdfView, isOrderPlaced, titleStatusLabel, titleStatusClass]);
+  }, [salesOrder, isPdfView, sealKind, titleStatusLabel, titleStatusClass]);
 
   usePageHeaderTitleMeta(titleMeta, Boolean(titleMeta));
 
