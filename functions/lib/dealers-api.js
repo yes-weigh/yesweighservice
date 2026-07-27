@@ -1,4 +1,5 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { HttpsError } from 'firebase-functions/v2/https';
 import {
   readAllDealersFromFirestore,
   readDealerSetting,
@@ -16,6 +17,11 @@ import {
   mapDealerForClient,
   mapDealerDetailForClient,
 } from './dealer-query.js';
+import { normalizeStaffZohoSalespersonIds } from './sales-order-salesperson.js';
+
+const STAFF_ASSIGN_NO_ZOHO_MESSAGE = (
+  'Assigned staff must have at least one linked Zoho salesperson.'
+);
 
 async function loadUserMap(userIds) {
   const ids = [...new Set(userIds.filter(Boolean))];
@@ -39,7 +45,10 @@ async function loadUserMap(userIds) {
   return map;
 }
 
-/** Staff users eligible for dealer assignment (active staff/super_admin with Zoho links preferred but not required). */
+/**
+ * Staff users eligible for dealer assignment:
+ * active staff/super_admin with ≥1 linked Zoho salesperson.
+ */
 export async function listAssignableStaffOptions() {
   const snap = await getFirestore().collection('users').get();
   const rows = [];
@@ -48,6 +57,7 @@ export async function listAssignableStaffOptions() {
     const role = String(data.role ?? '');
     if (role !== 'staff' && role !== 'super_admin') continue;
     if (data.active === false) continue;
+    if (!normalizeStaffZohoSalespersonIds(data).length) continue;
     rows.push({
       uid: docSnap.id,
       displayName: String(data.displayName ?? 'Staff').trim() || 'Staff',
@@ -55,6 +65,24 @@ export async function listAssignableStaffOptions() {
   }
   rows.sort((a, b) => a.displayName.localeCompare(b.displayName));
   return rows;
+}
+
+function assertAssignableDealerStaff(userSnap) {
+  if (!userSnap?.exists) {
+    throw new HttpsError('not-found', 'Assigned staff not found.');
+  }
+  const userData = userSnap.data() || {};
+  const role = String(userData.role ?? '');
+  if (role !== 'staff' && role !== 'super_admin') {
+    throw new HttpsError('failed-precondition', 'Assigned user must be staff or super admin.');
+  }
+  if (userData.active === false) {
+    throw new HttpsError('failed-precondition', 'Assigned staff is inactive.');
+  }
+  if (!normalizeStaffZohoSalespersonIds(userData).length) {
+    throw new HttpsError('failed-precondition', STAFF_ASSIGN_NO_ZOHO_MESSAGE);
+  }
+  return userData;
 }
 
 function applyStaffScope(query, { role, uid } = {}) {
@@ -133,8 +161,7 @@ export async function patchDealerRecord(id, body = {}) {
     data.assignedStaffUid = uid || null;
     if (uid) {
       const userSnap = await db.doc(`users/${uid}`).get();
-      if (!userSnap.exists) throw new Error('Assigned staff not found.');
-      const userData = userSnap.data() || {};
+      const userData = assertAssignableDealerStaff(userSnap);
       data.assignedStaffName = String(userData.displayName ?? 'Staff').trim() || 'Staff';
     } else {
       data.assignedStaffName = null;

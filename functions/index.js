@@ -2681,8 +2681,13 @@ export const patchDealer = onCall(
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     const id = String(request.data?.id ?? '').trim();
     if (!id) throw new HttpsError('invalid-argument', 'id is required.');
-    const updated = await patchDealerRecord(id, request.data?.patch ?? {});
-    return { dealer: updated };
+    try {
+      const updated = await patchDealerRecord(id, request.data?.patch ?? {});
+      return { dealer: updated };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update dealer.');
+    }
   },
 );
 
@@ -2701,7 +2706,7 @@ export const linkDealerPortalUserFn = onCall(
   },
 );
 
-/** Staff options for dealer assignment — ops users. */
+/** Staff options for dealer assignment — ops users (requires ≥1 Zoho salesperson). */
 export const listAssignableDealerStaff = onCall(
   { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
   async request => {

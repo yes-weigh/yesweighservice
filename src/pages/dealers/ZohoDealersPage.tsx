@@ -24,6 +24,7 @@ import {
   fetchDealerLocations,
   fetchDealers,
   listAssignableDealerStaff,
+  dealerStaffSelectOptions,
   patchDealer,
   syncZohoCustomers,
 } from '../../lib/dealers';
@@ -489,9 +490,13 @@ export function ZohoDealersPage() {
                       })}
                       aria-label="Assigned staff"
                       disabled={!canEditDealers}
+                      title="Only staff with a linked Zoho salesperson can be assigned"
                     >
                       <option value="">Unassigned</option>
-                      {assignableStaff.map(s => (
+                      {dealerStaffSelectOptions(assignableStaff, {
+                        uid: dealer.assignedStaffUid,
+                        name: dealer.assignedStaffName,
+                      }).map(s => (
                         <option key={s.uid} value={s.uid}>{s.displayName}</option>
                       ))}
                     </select>

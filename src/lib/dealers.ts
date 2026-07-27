@@ -193,6 +193,23 @@ export async function listAssignableDealerStaff(): Promise<AssignableStaffOption
   return (result.data as { data: AssignableStaffOption[] }).data ?? [];
 }
 
+/**
+ * Options for the assigned-staff select. Includes the current assignee when they
+ * are no longer eligible (no Zoho salesperson), so the control stays truthful.
+ */
+export function dealerStaffSelectOptions(
+  assignableStaff: AssignableStaffOption[],
+  current?: { uid?: string | null; name?: string | null } | null,
+): AssignableStaffOption[] {
+  const uid = String(current?.uid ?? '').trim();
+  if (!uid || assignableStaff.some(s => s.uid === uid)) return assignableStaff;
+  const name = String(current?.name ?? '').trim() || 'Assigned staff';
+  return [
+    { uid, displayName: `${name} (no Zoho salesperson)` },
+    ...assignableStaff,
+  ];
+}
+
 export async function fetchDealerCategories(): Promise<string[]> {
   try {
     const fn = httpsCallable(functions, 'getDealerSetting');

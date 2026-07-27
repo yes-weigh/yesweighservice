@@ -15,6 +15,7 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
 import {
   dealerErrorMessage,
+  dealerStaffSelectOptions,
   fetchDealerById,
   fetchDealerCategories,
   listAssignableDealerStaff,
@@ -698,10 +699,16 @@ export const DealerDetailPage: React.FC = () => {
               } : d)}
             >
               <option value="">Unassigned</option>
-              {assignableStaff.map(s => (
+              {dealerStaffSelectOptions(assignableStaff, {
+                uid: draft.assignedStaffUid,
+                name: dealer.assignedStaffName,
+              }).map(s => (
                 <option key={s.uid} value={s.uid}>{s.displayName}</option>
               ))}
             </select>
+            <span className="text-muted text-sm">
+              Only staff with at least one linked Zoho salesperson can be assigned.
+            </span>
           </label>
 
           {visibleFillableFields(dealer).map(field => (
