@@ -1229,6 +1229,7 @@ export async function deleteSalesOrderFromFirestore(salesOrderId) {
 /**
  * Zoho Sales Order webhook — create/edit/delete mirror in Firestore.
  * Create/edit pull full detail from Zoho (1 API call) so line items stay complete.
+ * If Zoho says the SO is gone (delete webhook missing/mis-tagged), drop the local mirror.
  */
 export async function handleZohoSalesOrderWebhook(secrets, orgId, req) {
   const body = normalizeWebhookBody(req.body ?? {});
@@ -1244,12 +1245,38 @@ export async function handleZohoSalesOrderWebhook(secrets, orgId, req) {
     return { ok: true, status: 200, action: 'deleted', salesOrderId };
   }
 
-  const result = await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
-  return {
-    ok: true,
-    status: 200,
-    action: 'synced',
-    salesOrderId,
-    result,
-  };
+  try {
+    const result = await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+    return {
+      ok: true,
+      status: 200,
+      action: 'synced',
+      salesOrderId,
+      result,
+    };
+  } catch (err) {
+    const message = String(err?.message ?? '').toLowerCase();
+    const code = String(err?.code ?? err?.zohoCode ?? '').toLowerCase();
+    const missingInZoho = (
+      code === 'not_found'
+      || code === '404'
+      || message.includes('not found')
+      || message.includes('does not exist')
+      || message.includes('invalid salesorder')
+      || /(?:^|\D)404(?:\D|$)/.test(message)
+      || Number(err?.status) === 404
+      || Number(err?.zohoCode) === 5 // Zoho common "resource does not exist"
+    );
+    if (missingInZoho) {
+      await deleteSalesOrderFromFirestore(salesOrderId);
+      return {
+        ok: true,
+        status: 200,
+        action: 'deleted',
+        salesOrderId,
+        reason: 'missing_in_zoho',
+      };
+    }
+    throw err;
+  }
 }
