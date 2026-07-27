@@ -2,6 +2,7 @@ import {
   collection,
   collectionGroup,
   doc,
+  getAggregateFromServer,
   getCountFromServer,
   getDoc,
   getDocs,
@@ -10,6 +11,7 @@ import {
   orderBy,
   query,
   startAfter,
+  sum,
   where,
   type DocumentData,
   type QueryConstraint,
@@ -82,9 +84,13 @@ export function mapAdminInvoiceDoc(
 ): AdminFirestoreInvoice {
   const data = docSnap.data();
   const customerId = String(data.customerId ?? docSnap.ref.parent.parent?.id ?? '');
-  const lineItems = Array.isArray(data.lineItems)
-    ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
-    : [];
+  const itemQuantity = data.itemQuantity != null
+    ? Number(data.itemQuantity)
+    : (Array.isArray(data.lineItems)
+      ? sumInvoiceProductQuantity(
+        data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>)),
+      )
+      : null);
   return {
     id: docSnap.id,
     customerId,
@@ -100,7 +106,7 @@ export function mapAdminInvoiceDoc(
     balance: Number(data.balance ?? 0),
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
-    itemQuantity: lineItems.length ? sumInvoiceProductQuantity(lineItems) : null,
+    itemQuantity,
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
   };
 }
@@ -122,13 +128,40 @@ export type AdminInvoiceListQuery = {
 };
 
 const ADMIN_INVOICES_PAGE_SIZE = 300;
+const ADMIN_LIST_PAGE_SIZE = 25;
+/** Soft cap when Aggregate mode must scan a bounded date window. */
+const ADMIN_AGGREGATE_MAX_ROWS = 2500;
 
-export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery) {
+export type AdminInvoiceListCollection = 'invoices' | 'invoiceSummaries';
+
+let cachedListCollection: AdminInvoiceListCollection | null = null;
+
+/** Prefer slim invoiceSummaries after backfill sets invoiceStats/config.listSource. */
+export async function resolveAdminInvoiceListCollection(): Promise<AdminInvoiceListCollection> {
+  if (cachedListCollection) return cachedListCollection;
+  try {
+    const snap = await getDoc(doc(db, 'invoiceStats', 'config'));
+    const source = snap.exists() ? String(snap.data()?.listSource ?? '') : '';
+    cachedListCollection = source === 'summaries' ? 'invoiceSummaries' : 'invoices';
+  } catch {
+    cachedListCollection = 'invoices';
+  }
+  return cachedListCollection;
+}
+
+export function clearAdminInvoiceListCollectionCache(): void {
+  cachedListCollection = null;
+}
+
+export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
+  listCollection?: AdminInvoiceListCollection;
+}) {
   const sort = options.sort ?? 'date';
-  const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 500));
+  const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? ADMIN_LIST_PAGE_SIZE) || ADMIN_LIST_PAGE_SIZE, 500));
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
+  const listCollection = options.listCollection ?? 'invoices';
   const constraints: QueryConstraint[] = [];
 
   if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
@@ -151,7 +184,7 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery) {
 
   if (options.cursor) constraints.push(startAfter(options.cursor));
   constraints.push(limit(pageSize));
-  return query(collectionGroup(db, 'invoices'), ...constraints);
+  return query(collectionGroup(db, listCollection), ...constraints);
 }
 
 export function subscribeAdminInvoices(
@@ -197,6 +230,7 @@ export async function fetchAdminInvoicesPage(
   ) {
     return [];
   }
+  const listCollection = await resolveAdminInvoiceListCollection();
   const snap = await getDocs(buildAdminInvoicesQuery({
     sort,
     pageSize,
@@ -205,13 +239,52 @@ export async function fetchAdminInvoicesPage(
     dateStart,
     dateEnd,
     salespersonIds,
+    listCollection,
   }));
   return snap.docs.map(mapAdminInvoiceDoc);
 }
 
+export async function fetchAdminInvoicesPageResult(options: {
+  sort?: AdminInvoiceSort;
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+}): Promise<{
+  rows: AdminFirestoreInvoice[];
+  lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}> {
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return { rows: [], lastDoc: null, hasMore: false };
+  }
+  const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
+  const listCollection = await resolveAdminInvoiceListCollection();
+  const snap = await getDocs(buildAdminInvoicesQuery({
+    sort: options.sort ?? 'date',
+    pageSize,
+    cursor: options.cursor ?? null,
+    category: options.category ?? 'all',
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+    salespersonIds: options.salespersonIds,
+    listCollection,
+  }));
+  return {
+    rows: snap.docs.map(mapAdminInvoiceDoc),
+    lastDoc: snap.docs[snap.docs.length - 1] ?? null,
+    hasMore: snap.size >= pageSize,
+  };
+}
+
 /**
- * Load every invoice in the date window (paginated), for Aggregate / KPI totals.
- * When sort is syncedAt with a date range, results are re-sorted client-side.
+ * Load invoices in the date window for Aggregate mode only.
+ * Soft-capped so All-time aggregate cannot dump 20k+ docs.
  */
 export async function fetchAllAdminInvoicesInRange(options: {
   sort?: AdminInvoiceSort;
@@ -219,6 +292,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
   salespersonIds?: string[] | null;
+  maxRows?: number;
 }): Promise<{ rows: AdminFirestoreInvoice[]; truncated: boolean }> {
   if (
     options.salespersonIds != null
@@ -229,10 +303,12 @@ export async function fetchAllAdminInvoicesInRange(options: {
 
   const sort = options.sort ?? 'date';
   const category = options.category ?? 'all';
+  const maxRows = options.maxRows ?? ADMIN_AGGREGATE_MAX_ROWS;
+  const listCollection = await resolveAdminInvoiceListCollection();
   const rows: AdminFirestoreInvoice[] = [];
   let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+  let truncated = false;
 
-  // Page until Firestore is exhausted — no soft row cap.
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const pageQuery = buildAdminInvoicesQuery({
@@ -243,11 +319,16 @@ export async function fetchAllAdminInvoicesInRange(options: {
       dateStart: options.dateStart,
       dateEnd: options.dateEnd,
       salespersonIds: options.salespersonIds,
+      listCollection,
     });
     const pageSnap: QuerySnapshot<DocumentData> = await getDocs(pageQuery);
     if (pageSnap.empty) break;
     rows.push(...pageSnap.docs.map(mapAdminInvoiceDoc));
     cursor = pageSnap.docs[pageSnap.docs.length - 1] ?? null;
+    if (rows.length >= maxRows) {
+      truncated = true;
+      break;
+    }
     if (pageSnap.size < ADMIN_INVOICES_PAGE_SIZE) break;
   }
 
@@ -255,7 +336,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
     rows.sort((a, b) => String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? '')));
   }
 
-  return { rows, truncated: false };
+  return { rows: truncated ? rows.slice(0, maxRows) : rows, truncated };
 }
 
 export function filterAdminInvoices(
@@ -472,6 +553,7 @@ export async function countAdminInvoices(options: {
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
+  const listCollection = await resolveAdminInvoiceListCollection();
   const constraints: QueryConstraint[] = [];
 
   if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
@@ -488,9 +570,218 @@ export async function countAdminInvoices(options: {
     constraints.push(orderBy('date', 'desc'));
   }
 
-  const countQuery = query(collectionGroup(db, 'invoices'), ...constraints);
+  const countQuery = query(collectionGroup(db, listCollection), ...constraints);
   const snap = await getCountFromServer(countQuery);
   return snap.data().count;
+}
+
+function buildAdminAmountConstraints(options: {
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+}): QueryConstraint[] | null {
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return null;
+  }
+  const constraints: QueryConstraint[] = [];
+  if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+    return null;
+  }
+  const category = options.category ?? 'all';
+  if (category && category !== 'all') {
+    constraints.push(where('invoiceCategory', '==', category));
+  }
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  if (dateStart || dateEnd) {
+    if (dateStart) constraints.push(where('date', '>=', dateStart));
+    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+    constraints.push(orderBy('date', 'desc'));
+  } else {
+    constraints.push(orderBy('date', 'desc'));
+  }
+  return constraints;
+}
+
+/** Server-side sum of excl-GST amount (prefers amountExclGst, else subtotal). */
+export async function sumAdminInvoiceAmount(options: {
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+}): Promise<number> {
+  const constraints = buildAdminAmountConstraints(options);
+  if (!constraints) return 0;
+  const listCollection = await resolveAdminInvoiceListCollection();
+  const base = query(collectionGroup(db, listCollection), ...constraints);
+  try {
+    const snap = await getAggregateFromServer(base, {
+      total: sum('amountExclGst'),
+    });
+    const value = snap.data().total;
+    if (typeof value === 'number' && Number.isFinite(value) && value !== 0) return value;
+  } catch {
+    // amountExclGst may be missing on older docs / indexes — fall through
+  }
+  try {
+    const snap = await getAggregateFromServer(base, {
+      total: sum('subtotal'),
+    });
+    const value = snap.data().total;
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export type AdminInvoiceStatsKpi = {
+  invoiceCount: number;
+  totalAmount: number;
+  categoryCounts: AdminInvoiceCategoryCounts;
+  source: 'rollup' | 'query';
+};
+
+function emptyCategoryCounts(): AdminInvoiceCategoryCounts {
+  return {
+    all: 0,
+    product: 0,
+    spare: 0,
+    software_key: 0,
+    service: 0,
+    gatc: 0,
+  };
+}
+
+function monthKeysForRange(dateStart: string | null, dateEnd: string | null): string[] | null {
+  if (!dateStart || !dateEnd) return null;
+  const start = dateStart.slice(0, 7);
+  const end = dateEnd.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(start) || !/^\d{4}-\d{2}$/.test(end)) return null;
+  const keys: string[] = [];
+  let [y, m] = start.split('-').map(Number);
+  const [ey, em] = end.split('-').map(Number);
+  // Cap multi-month rollup reads
+  for (let i = 0; i < 24; i += 1) {
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    keys.push(key);
+    if (y === ey && m === em) break;
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return keys;
+}
+
+/**
+ * Prefer precomputed invoiceStats / invoiceMonthStats when salesperson is org-wide.
+ * Falls back to count + sum queries.
+ */
+export async function loadAdminInvoiceKpis(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  category?: InvoiceCategory | 'all';
+  salespersonIds?: string[] | null;
+}): Promise<AdminInvoiceStatsKpi> {
+  const category = options.category ?? 'all';
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const scoped = options.salespersonIds != null;
+
+  if (!scoped) {
+    try {
+      if (!dateStart && !dateEnd) {
+        const org = await getDoc(doc(db, 'invoiceStats', 'org'));
+        if (org.exists()) {
+          const data = org.data() ?? {};
+          const byCategory = (data.byCategory ?? {}) as Record<string, number>;
+          const amountByCategory = (data.amountByCategory ?? {}) as Record<string, number>;
+          const categoryCounts: AdminInvoiceCategoryCounts = {
+            all: Number(data.count ?? 0),
+            product: Number(byCategory.product ?? 0),
+            spare: Number(byCategory.spare ?? 0),
+            software_key: Number(byCategory.software_key ?? 0),
+            service: Number(byCategory.service ?? 0),
+            gatc: Number(byCategory.gatc ?? 0),
+          };
+          const totalAmount = category === 'all'
+            ? Number(data.amount ?? 0)
+            : Number(amountByCategory[category] ?? 0);
+          const invoiceCount = category === 'all'
+            ? categoryCounts.all
+            : categoryCounts[category];
+          return {
+            invoiceCount,
+            totalAmount,
+            categoryCounts,
+            source: 'rollup',
+          };
+        }
+      } else {
+        const keys = monthKeysForRange(dateStart, dateEnd);
+        if (keys?.length) {
+          const snaps = await Promise.all(
+            keys.map(key => getDoc(doc(db, 'invoiceMonthStats', key))),
+          );
+          const categoryCounts = emptyCategoryCounts();
+          let totalAmountAll = 0;
+          const amountByCategory: Record<string, number> = {
+            product: 0, spare: 0, software_key: 0, service: 0, gatc: 0,
+          };
+          let any = false;
+          for (const snap of snaps) {
+            if (!snap.exists()) continue;
+            any = true;
+            const data = snap.data() ?? {};
+            categoryCounts.all += Number(data.count ?? 0);
+            totalAmountAll += Number(data.amount ?? 0);
+            const byCategory = (data.byCategory ?? {}) as Record<string, number>;
+            const amounts = (data.amountByCategory ?? {}) as Record<string, number>;
+            for (const key of ['product', 'spare', 'software_key', 'service', 'gatc'] as const) {
+              categoryCounts[key] += Number(byCategory[key] ?? 0);
+              amountByCategory[key] += Number(amounts[key] ?? 0);
+            }
+          }
+          if (any) {
+            return {
+              invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
+              totalAmount: category === 'all' ? totalAmountAll : amountByCategory[category],
+              categoryCounts,
+              source: 'rollup',
+            };
+          }
+        }
+      }
+    } catch {
+      // fall through to live queries
+    }
+  }
+
+  const [categoryCounts, totalAmount] = await Promise.all([
+    countAdminInvoicesByCategory({
+      dateStart,
+      dateEnd,
+      salespersonIds: options.salespersonIds,
+    }),
+    sumAdminInvoiceAmount({
+      category,
+      dateStart,
+      dateEnd,
+      salespersonIds: options.salespersonIds,
+    }),
+  ]);
+
+  return {
+    invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
+    totalAmount,
+    categoryCounts,
+    source: 'query',
+  };
 }
 
 export async function countAdminInvoicesByCategory(options: {

@@ -25,23 +25,22 @@ import {
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   aggregateAdminInvoicesByDealer,
-  buildAdminSalesEntries,
-  countAdminInvoicesByCategory,
-  countInvoiceRowsByCategory,
   fetchAdminCustomerLocations,
   fetchAdminInvoicesForCustomers,
+  fetchAdminInvoicesPageResult,
   fetchAllAdminInvoicesInRange,
   filterAdminInvoices,
   formatAdminCustomerLocation,
+  loadAdminInvoiceKpis,
   toInvoiceDateKey,
   type AdminFirestoreInvoice,
   type AdminInvoiceCategoryCounts,
   type AdminInvoiceSort,
 } from '../../lib/admin-invoices';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { formatCurrency } from '../../lib/catalog';
 import { fetchDealerById } from '../../lib/dealers';
 import {
-  computeSalesForPeriod,
   formatInvoiceDate,
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
@@ -176,7 +175,12 @@ function AdminFilterSheet({
             <label className="logistics-filter-supermode">
               <span className="logistics-filter-supermode__copy">
                 <strong>Aggregate</strong>
-                <em>Club all invoices into one row per dealer</em>
+                <em>
+                  Club invoices into one row per dealer
+                  {draftRange === 'lifetime'
+                    ? ' (pick a date range — All time is not supported)'
+                    : ''}
+                </em>
               </span>
               <button
                 type="button"
@@ -187,7 +191,10 @@ function AdminFilterSheet({
                   'logistics-filter-supermode__switch',
                   draftAggregate ? 'logistics-filter-supermode__switch--on' : '',
                 ].filter(Boolean).join(' ')}
-                onClick={() => setDraftAggregate(prev => !prev)}
+                onClick={() => {
+                  if (draftRange === 'lifetime' && draftDealers.length === 0) return;
+                  setDraftAggregate(prev => !prev);
+                }}
               >
                 <span className="logistics-filter-supermode__knob" />
               </button>
@@ -298,6 +305,11 @@ export const AdminInvoicesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
   const [categoryCounts, setCategoryCounts] = useState<AdminInvoiceCategoryCounts>(EMPTY_CATEGORY_COUNTS);
+  const [kpiAmount, setKpiAmount] = useState(0);
+  const [kpiCount, setKpiCount] = useState(0);
+  const [truncated, setTruncated] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [pageCursors, setPageCursors] = useState<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
@@ -318,6 +330,12 @@ export const AdminInvoicesPage: React.FC = () => {
   const bounds = getInvoicePeriodBounds(rangePreset);
   const dateStart = bounds ? toInvoiceDateKey(bounds.start) : null;
   const dateEnd = bounds ? toInvoiceDateKey(bounds.end) : null;
+  const aggregateAllowed = Boolean(dateStart && dateEnd) || dealerScoped;
+  const useAggregate = aggregate && aggregateAllowed;
+
+  useEffect(() => {
+    if (aggregate && !aggregateAllowed) setAggregate(false);
+  }, [aggregate, aggregateAllowed]);
 
   useEffect(() => {
     const ids = dealerFilterFromUrl
@@ -328,22 +346,19 @@ export const AdminInvoicesPage: React.FC = () => {
       return;
     }
     let cancelled = false;
-    void Promise.all(
-      ids.map(id => fetchDealerById(id).catch(() => null)),
-    ).then(rows => {
-      if (cancelled) return;
-      const next: DealerFilterSelection[] = [];
-      for (let i = 0; i < ids.length; i += 1) {
-        const dealer = rows[i];
-        next.push({
-          id: ids[i],
-          label: dealer?.companyName?.trim()
-            || dealer?.contactName?.trim()
-            || ids[i],
-          portalUserId: dealer?.portalUserId ?? null,
-        });
+    void Promise.all(ids.map(async id => {
+      try {
+        const dealer = await fetchDealerById(id);
+        return {
+          id,
+          label: dealer.companyName || dealer.contactName || id,
+          portalUserId: dealer.portalUserId ?? null,
+        } satisfies DealerFilterSelection;
+      } catch {
+        return { id, label: id, portalUserId: null } satisfies DealerFilterSelection;
       }
-      setSelectedDealers(next);
+    })).then(list => {
+      if (!cancelled) setSelectedDealers(list);
     });
     return () => {
       cancelled = true;
@@ -353,10 +368,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const syncDealerParams = useCallback((dealers: DealerFilterSelection[]) => {
     const next = new URLSearchParams(searchParams);
     next.delete('dealerId');
-    if (dealers.length === 0) {
-      next.delete('dealers');
-    } else if (dealers.length === 1) {
-      next.set('dealerId', dealers[0].id);
+    if (!dealers.length) {
       next.delete('dealers');
     } else {
       next.set('dealers', dealers.map(d => d.id).join(','));
@@ -364,23 +376,111 @@ export const AdminInvoicesPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  // Org-wide: load ALL invoices in the selected date window (paginated).
+  // KPI + category counts (rollups when available, else cheap count/sum queries).
+  useEffect(() => {
+    let cancelled = false;
+    void loadAdminInvoiceKpis({
+      dateStart,
+      dateEnd,
+      category: 'all',
+      salespersonIds: dealerScoped ? null : salespersonIds,
+    })
+      .then(kpi => {
+        if (cancelled) return;
+        setCategoryCounts(kpi.categoryCounts);
+        setKpiAmount(kpi.totalAmount);
+        setKpiCount(kpi.categoryCounts.all);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCategoryCounts(EMPTY_CATEGORY_COUNTS);
+          setKpiAmount(0);
+          setKpiCount(0);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dateStart, dateEnd, salespersonIds, salespersonScopeKey, dealerScoped]);
+
+  // Refresh amount when category tab changes (rollup path already has by-category amounts).
+  useEffect(() => {
+    let cancelled = false;
+    void loadAdminInvoiceKpis({
+      dateStart,
+      dateEnd,
+      category,
+      salespersonIds: dealerScoped ? null : salespersonIds,
+    })
+      .then(kpi => {
+        if (cancelled) return;
+        setKpiAmount(kpi.totalAmount);
+        setKpiCount(category === 'all' ? kpi.categoryCounts.all : kpi.categoryCounts[category]);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [category, dateStart, dateEnd, salespersonIds, salespersonScopeKey, dealerScoped]);
+
+  // Org-wide: cursor-paginated list (or bounded aggregate scan).
   useEffect(() => {
     if (dealerScoped) return;
     let cancelled = false;
     setLoading(true);
     setError('');
-    setRows([]);
-    void fetchAllAdminInvoicesInRange({
+    setTruncated(false);
+
+    if (useAggregate) {
+      void fetchAllAdminInvoicesInRange({
+        sort,
+        category: 'all',
+        dateStart,
+        dateEnd,
+        salespersonIds,
+      })
+        .then(({ rows: next, truncated: wasTruncated }) => {
+          if (cancelled) return;
+          setRows(next);
+          setTruncated(wasTruncated);
+          setHasMore(false);
+          setPageCursors([null]);
+        })
+        .catch(err => {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Could not load invoices.');
+            setRows([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cursor = pageCursors[page - 1] ?? null;
+    void fetchAdminInvoicesPageResult({
       sort,
-      category: 'all',
+      pageSize: LIST_PAGE_SIZE,
+      cursor,
+      category,
       dateStart,
       dateEnd,
       salespersonIds,
     })
-      .then(({ rows: next }) => {
+      .then(({ rows: next, lastDoc, hasMore: more }) => {
         if (cancelled) return;
         setRows(next);
+        setHasMore(more);
+        if (more && lastDoc) {
+          setPageCursors(prev => {
+            const copy = prev.slice(0, page);
+            copy[page] = lastDoc;
+            return copy;
+          });
+        }
       })
       .catch(err => {
         if (!cancelled) {
@@ -391,10 +491,29 @@ export const AdminInvoicesPage: React.FC = () => {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
     return () => {
       cancelled = true;
     };
-  }, [sort, dealerScoped, dateStart, dateEnd, salespersonIds, salespersonScopeKey]);
+  // pageCursors intentionally omitted — page index drives cursor lookup
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sort,
+    dealerScoped,
+    dateStart,
+    dateEnd,
+    salespersonIds,
+    salespersonScopeKey,
+    useAggregate,
+    category,
+    page,
+  ]);
+
+  // Reset cursor stack when filters change.
+  useEffect(() => {
+    setPage(1);
+    setPageCursors([null]);
+  }, [search, rangePreset, category, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
 
   // Dealer-scoped: fetch invoices for selected customers in the date window.
   useEffect(() => {
@@ -402,6 +521,7 @@ export const AdminInvoicesPage: React.FC = () => {
     let cancelled = false;
     setLoading(true);
     setError('');
+    setTruncated(false);
     void fetchAdminInvoicesForCustomers({
       customerIds: selectedCustomerIds,
       dateStart,
@@ -413,13 +533,13 @@ export const AdminInvoicesPage: React.FC = () => {
       .then(next => {
         if (cancelled) return;
         setRows(next);
-        setCategoryCounts(countInvoiceRowsByCategory(next));
+        setHasMore(false);
+        setPageCursors([null]);
       })
       .catch(err => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Could not load invoices.');
           setRows([]);
-          setCategoryCounts(EMPTY_CATEGORY_COUNTS);
         }
       })
       .finally(() => {
@@ -439,41 +559,32 @@ export const AdminInvoicesPage: React.FC = () => {
     salespersonScopeKey,
   ]);
 
-  // Org-wide category counts from Firestore (authoritative for tabs).
-  useEffect(() => {
-    if (dealerScoped) return;
-    let cancelled = false;
-    void countAdminInvoicesByCategory({ dateStart, dateEnd, salespersonIds })
-      .then(counts => {
-        if (!cancelled) setCategoryCounts(counts);
-      })
-      .catch(() => {
-        if (!cancelled) setCategoryCounts(EMPTY_CATEGORY_COUNTS);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [dealerScoped, dateStart, dateEnd, salespersonIds, salespersonScopeKey]);
-
   const filtered = useMemo(
-    () => filterAdminInvoices(rows, search, category),
-    [rows, search, category],
+    () => filterAdminInvoices(rows, search, useAggregate || dealerScoped ? category : 'all'),
+    [rows, search, category, useAggregate, dealerScoped],
   );
 
   const displayRows = useMemo(
-    () => (aggregate ? aggregateAdminInvoicesByDealer(filtered, sort) : filtered),
-    [aggregate, filtered, sort],
+    () => (useAggregate ? aggregateAdminInvoicesByDealer(filtered, sort) : filtered),
+    [useAggregate, filtered, sort],
   );
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, rangePreset, category, sort, selectedCustomerKey, aggregate]);
+  // Client-side pagination only for aggregate / dealer-scoped dumps.
+  const clientPaged = useAggregate || dealerScoped;
+  const totalCount = clientPaged
+    ? displayRows.length
+    : (search.trim()
+      ? displayRows.length
+      : (category === 'all' ? categoryCounts.all : categoryCounts[category]));
+  const totalPages = clientPaged
+    ? Math.max(1, Math.ceil(displayRows.length / LIST_PAGE_SIZE))
+    : Math.max(1, Math.ceil(totalCount / LIST_PAGE_SIZE) || 1);
 
-  const totalPages = Math.max(1, Math.ceil(displayRows.length / LIST_PAGE_SIZE));
   const pageRows = useMemo(() => {
+    if (!clientPaged) return displayRows;
     const start = (page - 1) * LIST_PAGE_SIZE;
     return displayRows.slice(start, start + LIST_PAGE_SIZE);
-  }, [displayRows, page]);
+  }, [displayRows, page, clientPaged]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -521,28 +632,46 @@ export const AdminInvoicesPage: React.FC = () => {
   };
 
   const summary = useMemo(() => {
-    const salesEntries = buildAdminSalesEntries(filtered);
-    const sales = salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null;
     const boundsForRange = getInvoicePeriodBounds(rangePreset);
-    // Prefer Firestore category count when not searching so KPI matches the tabs.
     const countFromTabs = !search.trim()
       ? (category === 'all' ? categoryCounts.all : categoryCounts[category])
-      : null;
+      : displayRows.length;
     return {
-      invoiceCount: countFromTabs ?? filtered.length,
-      totalSales: sales?.totalSales ?? 0,
-      periodStart: sales?.periodStart ?? boundsForRange?.start?.toISOString() ?? null,
-      periodEnd: sales?.periodEnd
-        ?? boundsForRange?.end?.toISOString()
-        ?? new Date().toISOString(),
+      invoiceCount: dealerScoped
+        ? (search.trim() ? displayRows.length : filtered.length)
+        : (countFromTabs || kpiCount),
+      totalSales: dealerScoped
+        ? filtered.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
+        : kpiAmount,
+      periodStart: boundsForRange?.start?.toISOString() ?? null,
+      periodEnd: boundsForRange?.end?.toISOString() ?? new Date().toISOString(),
     };
-  }, [filtered, rangePreset, search, category, categoryCounts]);
+  }, [
+    rangePreset,
+    search,
+    category,
+    categoryCounts,
+    displayRows.length,
+    dealerScoped,
+    filtered,
+    kpiCount,
+    kpiAmount,
+  ]);
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
     || sort !== DEFAULT_SORT
     || selectedDealers.length > 0
     || aggregate;
+
+  const canGoNext = clientPaged ? page < totalPages : (hasMore || page < totalPages);
+  const rangeLabelStart = clientPaged
+    ? (page - 1) * LIST_PAGE_SIZE + 1
+    : (page - 1) * LIST_PAGE_SIZE + 1;
+  const rangeLabelEnd = clientPaged
+    ? Math.min(page * LIST_PAGE_SIZE, displayRows.length)
+    : Math.min(page * LIST_PAGE_SIZE, (page - 1) * LIST_PAGE_SIZE + pageRows.length);
+  const rangeLabelTotal = clientPaged ? displayRows.length : totalCount;
 
   const headerTools = useMemo(
     () => (
@@ -623,7 +752,7 @@ export const AdminInvoicesPage: React.FC = () => {
           </div>
         </div>
 
-        {(selectedDealers.length > 0 || aggregate) && (
+        {(selectedDealers.length > 0 || useAggregate || truncated) && (
           <p className="unified-so-dealer-filter-note text-muted text-sm">
             {[
               selectedDealers.length > 0
@@ -631,7 +760,8 @@ export const AdminInvoicesPage: React.FC = () => {
                   ? selectedDealers[0].label
                   : `${selectedDealers.length} dealers`}`
                 : null,
-              aggregate ? 'Showing one row per dealer' : null,
+              useAggregate ? 'Showing one row per dealer' : null,
+              truncated ? 'Aggregate capped for performance — narrow the date range for a full club' : null,
             ].filter(Boolean).join(' · ')}
             .
           </p>
@@ -690,10 +820,11 @@ export const AdminInvoicesPage: React.FC = () => {
         </div>
       ) : (
         <>
-          {totalPages > 1 && (
+          {(totalPages > 1 || hasMore || page > 1) && (
             <div className="invoices-pagination invoices-pagination--top" role="navigation" aria-label="Invoice list pagination">
               <span className="invoices-pagination__info text-muted text-sm">
-                {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, displayRows.length)} of {displayRows.length.toLocaleString('en-IN')}
+                {rangeLabelStart}–{rangeLabelEnd} of {rangeLabelTotal.toLocaleString('en-IN')}
+                {search.trim() && !clientPaged ? ' (this page)' : ''}
               </span>
               <div className="invoices-pagination__btns">
                 <button
@@ -705,12 +836,12 @@ export const AdminInvoicesPage: React.FC = () => {
                   Prev
                 </button>
                 <span className="invoices-pagination__page text-sm">
-                  {page} / {totalPages}
+                  {page}{clientPaged ? ` / ${totalPages}` : ''}
                 </span>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  disabled={page >= totalPages || loading}
+                  disabled={!canGoNext || loading}
                   onClick={() => setPage(p => p + 1)}
                 >
                   Next
@@ -869,10 +1000,10 @@ export const AdminInvoicesPage: React.FC = () => {
             })}
           </div>
         </div>
-          {totalPages > 1 && (
+          {(totalPages > 1 || hasMore || page > 1) && (
             <footer className="invoices-pagination invoices-pagination--sticky">
               <span className="invoices-pagination__info text-muted text-sm">
-                {(page - 1) * LIST_PAGE_SIZE + 1}–{Math.min(page * LIST_PAGE_SIZE, displayRows.length)} of {displayRows.length.toLocaleString('en-IN')}
+                {rangeLabelStart}–{rangeLabelEnd} of {rangeLabelTotal.toLocaleString('en-IN')}
               </span>
               <div className="invoices-pagination__btns">
                 <button
@@ -884,12 +1015,12 @@ export const AdminInvoicesPage: React.FC = () => {
                   Prev
                 </button>
                 <span className="invoices-pagination__page text-sm">
-                  {page} / {totalPages}
+                  {page}{clientPaged ? ` / ${totalPages}` : ''}
                 </span>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  disabled={page >= totalPages || loading}
+                  disabled={!canGoNext || loading}
                   onClick={() => setPage(p => p + 1)}
                 >
                   Next

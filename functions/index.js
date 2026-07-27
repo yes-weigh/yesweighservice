@@ -86,6 +86,10 @@ import {
 } from './lib/invoice-category.js';
 import { upsertInvoicesFromCsv } from './lib/invoice-csv-upsert.js';
 import {
+  archiveOldInvoices,
+  backfillInvoiceStatsAndSummaries,
+} from './lib/invoice-stats.js';
+import {
   listCachedZohoSalespersons,
   syncZohoSalespersonsToFirestore,
 } from './lib/zoho-salespersons.js';
@@ -2085,6 +2089,63 @@ export const upsertInvoicesFromCsvFn = onCall(
       }
       throw new HttpsError('internal', message);
     }
+  },
+);
+
+/**
+ * Rebuild invoiceStats + invoiceSummaries from hot invoices (one-shot / rare).
+ * Sets invoiceStats/config.listSource = summaries when done.
+ */
+export const backfillInvoiceStatsAndSummariesFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillInvoiceStatsAndSummaries();
+    } catch (err) {
+      console.error('backfillInvoiceStatsAndSummaries failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice stats backfill failed.');
+    }
+  },
+);
+
+/** Move invoices older than 24 months (default) into archive subcollections. */
+export const archiveOldInvoicesFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await archiveOldInvoices({
+        olderThanMonths: Number(request.data?.olderThanMonths) || undefined,
+        maxDocs: Number(request.data?.maxDocs) || 500,
+      });
+    } catch (err) {
+      console.error('archiveOldInvoices failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice archive failed.');
+    }
+  },
+);
+
+/** Scheduled monthly cold-archive of invoices older than 24 months. */
+export const archiveOldInvoicesScheduled = onSchedule(
+  {
+    schedule: '0 3 1 * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async () => {
+    const result = await archiveOldInvoices({ maxDocs: 2000 });
+    console.log('archiveOldInvoicesScheduled:', result);
   },
 );
 

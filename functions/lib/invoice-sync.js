@@ -19,6 +19,13 @@ import {
   classifyInvoiceFromLineItems,
   parseInvoiceCategory,
 } from './invoice-category.js';
+import {
+  amountExclGst,
+  deleteInvoiceSummary,
+  reconcileInvoiceStats,
+  sumInvoiceItemQuantity,
+  upsertInvoiceSummary,
+} from './invoice-stats.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const INVOICES_SUBCOLLECTION = 'invoices';
@@ -365,6 +372,12 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
     taxTotal: Number(invoiceRaw.tax_total ?? 0),
     notes: invoiceRaw.notes ? String(invoiceRaw.notes) : null,
     lineItems,
+    itemQuantity: sumInvoiceItemQuantity(lineItems),
+    amountExclGst: amountExclGst({
+      total: summary.total,
+      subtotal: Number(invoiceRaw.sub_total ?? 0),
+      taxTotal: Number(invoiceRaw.tax_total ?? 0),
+    }),
     invoiceCategory,
     zohoLastModified: invoiceRaw.last_modified_time
       ? String(invoiceRaw.last_modified_time)
@@ -517,6 +530,21 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
+  try {
+    const afterSnap = {
+      ...doc,
+      invoiceCategory: parseInvoiceCategory(doc.invoiceCategory) || doc.invoiceCategory,
+      date: doc.date ?? null,
+      total: doc.total,
+      subtotal: doc.subtotal,
+      taxTotal: doc.taxTotal,
+    };
+    await upsertInvoiceSummary(customerId, invoiceId, afterSnap);
+    await reconcileInvoiceStats(existing, afterSnap);
+  } catch (err) {
+    console.warn(`Invoice stats/summary update failed for ${invoiceId}:`, err?.message ?? err);
+  }
+
   return { customerId, invoiceId, updated: true };
 }
 
@@ -530,6 +558,12 @@ export async function deleteInvoiceFromFirestore(customerId, invoiceId) {
   const paths = [data.pdfStoragePath, data.salesOrderPdfStoragePath].filter(Boolean);
   await ref.delete();
   await invoiceIndexRef(invoiceId).delete().catch(() => {});
+  await deleteInvoiceSummary(customerId, invoiceId);
+  try {
+    await reconcileInvoiceStats(data, null);
+  } catch (err) {
+    console.warn(`Invoice stats remove failed for ${invoiceId}:`, err?.message ?? err);
+  }
   await Promise.all(paths.map(async path => {
     try {
       await bucket.file(path).delete({ ignoreNotFound: true });

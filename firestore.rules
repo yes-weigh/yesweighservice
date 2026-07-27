@@ -261,6 +261,21 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      match /invoiceSummaries/{invoiceId} {
+        allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
+        allow write: if false;
+      }
+
+      match /invoicesArchive/{invoiceId} {
+        allow read: if isSuperAdmin();
+        allow write: if false;
+      }
+
+      match /invoiceSummariesArchive/{invoiceId} {
+        allow read: if isSuperAdmin();
+        allow write: if false;
+      }
+
       match /invoiceMeta/{docId} {
         allow read, write: if false;
       }
@@ -276,12 +291,27 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /{path=**}/invoiceSummaries/{invoiceId} {
+      allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
+      allow write: if false;
+    }
+
     match /invoiceIndex/{invoiceId} {
       allow read, write: if false;
     }
 
     match /invoiceMeta/{docId} {
       allow read, write: if false;
+    }
+
+    match /invoiceStats/{docId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
+    match /invoiceMonthStats/{monthId} {
+      allow read: if isOpsUser();
+      allow write: if false;
     }
 
     // Org-wide Zoho purchase orders (vendor-scoped fields on each doc).
