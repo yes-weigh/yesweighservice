@@ -1985,6 +1985,73 @@
   margin: 0 auto;
 }
 
+.hr-salary-public__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.hr-salary-public__mode-toggle {
+  display: inline-flex;
+  padding: 0.2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.hr-salary-public__mode-toggle button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.4rem 0.95rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.hr-salary-public__mode-toggle button.is-active {
+  background: rgba(56, 189, 248, 0.18);
+  color: #e2e8f0;
+}
+
+.hr-salary-public__toolbar-hint {
+  margin: 0;
+}
+
+.hr-salary__share-save-status {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  text-align: right;
+}
+
+.hr-salary__expand--public .hr-salary__rate-input {
+  width: 8.5rem;
+  max-width: 100%;
+}
+
+.hr-salary__expand--public .hr-salary__project-name-input {
+  width: 6.5rem;
+  min-width: 0;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
+}
+
+.hr-salary__expand--public .hr-salary__project-remove {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  display: inline-flex;
+  padding: 0.15rem;
+  cursor: pointer;
+}
+
 .hr-salary__expand--public {
   max-width: none;
 }

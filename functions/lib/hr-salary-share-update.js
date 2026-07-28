@@ -1,0 +1,261 @@
+/**
+ * Token-gated public update of a salary share + private month doc.
+ * Possession of the unguessable share token is the credential (no Auth).
+ */
+import { getFirestore } from 'firebase-admin/firestore';
+import { HttpsError } from 'firebase-functions/v2/https';
+import { randomUUID } from 'node:crypto';
+
+const SHARE_COLLECTION = 'hrSalaryShares';
+const MONTH_COLLECTION = 'hrSalaryMonths';
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const MAX_PROJECTS = 40;
+const MAX_LEAVE = 62;
+const MAX_WORK_DAYS = 62;
+const MAX_OT = 200;
+
+function periodKey(year, month) {
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+function daysInMonth(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
+function countSundays(year, month) {
+  let count = 0;
+  const total = daysInMonth(year, month);
+  for (let day = 1; day <= total; day += 1) {
+    if (new Date(year, month - 1, day).getDay() === 0) count += 1;
+  }
+  return count;
+}
+
+function countWeekdayHolidays(holidays, year, month) {
+  const key = periodKey(year, month);
+  let count = 0;
+  for (const h of holidays) {
+    const date = String(h?.date ?? '').trim();
+    if (!date.startsWith(key)) continue;
+    const [y, m, d] = date.split('-').map(Number);
+    if (!y || !m || !d) continue;
+    if (new Date(y, m - 1, d).getDay() === 0) continue;
+    count += 1;
+  }
+  return count;
+}
+
+function salaryRateDays(year, month, holidays) {
+  return Math.max(
+    0,
+    daysInMonth(year, month) - countSundays(year, month) - countWeekdayHolidays(holidays, year, month),
+  );
+}
+
+function perDayFromMonthly(monthlySalary, rateDays) {
+  const monthly = Math.max(0, Number(monthlySalary) || 0);
+  if (!(monthly > 0) || !(rateDays > 0)) return 0;
+  return Math.round((monthly / rateDays) * 100) / 100;
+}
+
+function overtimeHours(startTime, endTime) {
+  const sm = TIME_RE.exec(String(startTime || '').trim());
+  const em = TIME_RE.exec(String(endTime || '').trim());
+  if (!sm || !em) return 0;
+  let mins = (Number(em[1]) * 60 + Number(em[2])) - (Number(sm[1]) * 60 + Number(sm[2]));
+  if (mins <= 0) mins += 24 * 60;
+  return Math.round((mins / 60) * 100) / 100;
+}
+
+function normalizeProjects(raw) {
+  if (!Array.isArray(raw)) return [];
+  if (raw.length > MAX_PROJECTS) {
+    throw new HttpsError('invalid-argument', `At most ${MAX_PROJECTS} projects allowed.`);
+  }
+  const seen = new Set();
+  const out = [];
+  for (const row of raw) {
+    const id = String(row?.id ?? '').trim() || randomUUID();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      name: String(row?.name ?? '').trim().slice(0, 80) || 'Project',
+      color: String(row?.color ?? '#94a3b8').trim().slice(0, 32) || '#94a3b8',
+    });
+  }
+  return out;
+}
+
+function normalizeLeave(raw, key) {
+  if (!Array.isArray(raw)) return [];
+  if (raw.length > MAX_LEAVE) {
+    throw new HttpsError('invalid-argument', `At most ${MAX_LEAVE} leave entries allowed.`);
+  }
+  const byDate = new Map();
+  for (const row of raw) {
+    const date = String(row?.date ?? '').trim();
+    if (!date.startsWith(key)) continue;
+    byDate.set(date, row?.kind === 'half' ? 'half' : 'full');
+  }
+  return [...byDate.entries()]
+    .map(([date, kind]) => ({ date, kind }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function normalizeWorkDays(raw, key, projectIds) {
+  if (!Array.isArray(raw)) return [];
+  if (raw.length > MAX_WORK_DAYS) {
+    throw new HttpsError('invalid-argument', `At most ${MAX_WORK_DAYS} work-day entries allowed.`);
+  }
+  const byDate = new Map();
+  for (const row of raw) {
+    const date = String(row?.date ?? '').trim();
+    const projectId = String(row?.projectId ?? '').trim();
+    if (!date.startsWith(key) || !projectIds.has(projectId)) continue;
+    byDate.set(date, projectId);
+  }
+  return [...byDate.entries()]
+    .map(([date, projectId]) => ({ date, projectId }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function normalizeOt(raw, key, projectIds) {
+  if (!Array.isArray(raw)) return [];
+  if (raw.length > MAX_OT) {
+    throw new HttpsError('invalid-argument', `At most ${MAX_OT} overtime entries allowed.`);
+  }
+  return raw
+    .map(row => {
+      const projectId = row?.projectId != null && String(row.projectId).trim()
+        ? String(row.projectId).trim()
+        : null;
+      return {
+        id: String(row?.id ?? '').trim() || randomUUID(),
+        date: String(row?.date ?? '').trim(),
+        startTime: String(row?.startTime ?? '').trim(),
+        endTime: String(row?.endTime ?? '').trim(),
+        projectId: projectId && projectIds.has(projectId) ? projectId : null,
+      };
+    })
+    .filter(e => (
+      e.date.startsWith(key)
+      && TIME_RE.test(e.startTime)
+      && TIME_RE.test(e.endTime)
+      && overtimeHours(e.startTime, e.endTime) > 0
+    ))
+    .sort((a, b) => {
+      const byDate = a.date.localeCompare(b.date);
+      if (byDate !== 0) return byDate;
+      return a.startTime.localeCompare(b.startTime);
+    });
+}
+
+function normalizeHolidays(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(h => ({
+      date: String(h?.date ?? '').trim(),
+      name: String(h?.name ?? '').trim().slice(0, 120) || 'Holiday',
+    }))
+    .filter(h => h.date);
+}
+
+/**
+ * @param {object} payload
+ * @returns {Promise<object>} updated share fields for the client
+ */
+export async function updatePublicSalaryShare(payload = {}) {
+  const token = String(payload.token ?? '').trim();
+  if (!token || token.length < 16 || token.length > 128) {
+    throw new HttpsError('invalid-argument', 'Invalid share token.');
+  }
+
+  const db = getFirestore();
+  const shareRef = db.collection(SHARE_COLLECTION).doc(token);
+  const shareSnap = await shareRef.get();
+  if (!shareSnap.exists) {
+    throw new HttpsError('not-found', 'This salary link is invalid or has been removed.');
+  }
+
+  const existing = shareSnap.data() || {};
+  const uid = String(existing.uid ?? '').trim();
+  const year = Number(existing.year) || 0;
+  const month = Number(existing.month) || 0;
+  if (!uid || !year || !month) {
+    throw new HttpsError('failed-precondition', 'Share document is incomplete.');
+  }
+
+  const key = periodKey(year, month);
+  const sourceDocId = String(existing.sourceDocId ?? '').trim() || `${uid}_${key}`;
+  const holidays = normalizeHolidays(existing.holidays);
+  const projects = normalizeProjects(payload.projects);
+  const projectIds = new Set(projects.map(p => p.id));
+  const leaveEntries = normalizeLeave(payload.leaveEntries, key);
+  const workDayEntries = normalizeWorkDays(payload.workDayEntries, key, projectIds);
+  const overtimeEntries = normalizeOt(payload.overtimeEntries, key, projectIds);
+  const monthlySalary = Math.max(0, Number(payload.monthlySalary) || 0);
+  const otPerDaySalary = Math.max(0, Number(payload.otPerDaySalary) || 0);
+  const rateDays = salaryRateDays(year, month, holidays);
+  const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
+  const now = new Date().toISOString();
+
+  const monthRef = db.collection(MONTH_COLLECTION).doc(sourceDocId);
+  const monthSnap = await monthRef.get();
+  const prevToken = monthSnap.exists
+    ? (monthSnap.data()?.publicShareToken ?? token)
+    : token;
+
+  await monthRef.set({
+    uid,
+    year,
+    month,
+    period: key,
+    monthlySalary,
+    perDaySalary,
+    otPerDaySalary,
+    sundayPerDaySalary: 0,
+    leaveEntries,
+    leaveDates: leaveEntries.filter(e => e.kind === 'full').map(e => e.date),
+    projects,
+    workDayEntries,
+    overtimeEntries,
+    overtimeDates: [],
+    publicShareToken: prevToken || token,
+    updatedAt: now,
+    updatedByUid: 'public_share',
+  }, { merge: true });
+
+  await shareRef.set({
+    sourceDocId,
+    uid,
+    displayName: String(existing.displayName ?? 'Staff').trim() || 'Staff',
+    year,
+    month,
+    period: key,
+    monthlySalary,
+    perDaySalary,
+    otPerDaySalary,
+    leaveEntries,
+    projects,
+    workDayEntries,
+    overtimeEntries,
+    holidays,
+    updatedAt: now,
+    createdAt: existing.createdAt || now,
+    createdByUid: existing.createdByUid ?? null,
+  }, { merge: true });
+
+  return {
+    token,
+    updatedAt: now,
+    monthlySalary,
+    perDaySalary,
+    otPerDaySalary,
+    leaveEntries,
+    projects,
+    workDayEntries,
+    overtimeEntries,
+    holidays,
+  };
+}

@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
+import { DayAttendanceSheet } from './DayAttendanceSheet';
 import {
   buildMonthDayCells,
   computeSalaryCalc,
@@ -6,21 +8,44 @@ import {
   formatLeaveDays,
   formatOtHours,
   formatTimeAmPm,
+  leaveKindForDate,
   overtimeEntryHours,
   projectWorkTotals,
   resolveSalaryRates,
+  workProjectIdForDate,
 } from '../../lib/hrSalary';
 import type { HrHoliday } from '../../types/hr-holiday';
 import {
   HR_SALARY_HOURS_PER_DAY,
   salaryPeriodLabel,
   type HrLeaveEntry,
+  type HrLeaveKind,
   type HrOvertimeEntry,
   type HrSalaryPeriod,
   type HrSalaryProject,
   type HrWorkDayEntry,
 } from '../../types/hr-salary';
 import type { HrSalaryShareHoliday } from '../../types/hr-salary-share';
+
+export type HrSalaryShareEditHandlers = {
+  monthlySalaryInput: string;
+  otPerDaySalaryInput: string;
+  onMonthlySalaryChange: (value: string) => void;
+  onOtPerDayChange: (value: string) => void;
+  onAddProject: () => void;
+  onRenameProject: (projectId: string, name: string) => void;
+  onRemoveProject: (projectId: string) => void;
+  selectedDate: string | null;
+  onSelectDate: (date: string | null) => void;
+  onSetLeave: (date: string, kind: HrLeaveKind | null) => void;
+  onSetDayProject: (date: string, projectId: string | null) => void;
+  onAddOt: (date: string) => void;
+  onPatchOt: (
+    entryId: string,
+    patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
+  ) => void;
+  onRemoveOt: (entryId: string) => void;
+};
 
 export type HrSalaryShareViewProps = {
   displayName: string;
@@ -34,6 +59,10 @@ export type HrSalaryShareViewProps = {
   workDayEntries: HrWorkDayEntry[];
   overtimeEntries: HrOvertimeEntry[];
   holidays: HrHoliday[] | HrSalaryShareHoliday[];
+  /** When set, rates / projects / calendar are editable. */
+  edit?: HrSalaryShareEditHandlers | null;
+  saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
+  saveError?: string;
 };
 
 function formatDayLabel(date: string): string {
@@ -75,8 +104,16 @@ export function HrSalaryShareView({
   workDayEntries,
   overtimeEntries,
   holidays: holidaysInput,
+  edit = null,
+  saveStatus = 'idle',
+  saveError = '',
 }: HrSalaryShareViewProps) {
+  const editable = Boolean(edit);
   const holidays = useMemo(() => toHrHolidays(holidaysInput), [holidaysInput]);
+  const holidayDateSet = useMemo(
+    () => new Set(holidays.map(h => h.date)),
+    [holidays],
+  );
   const resolvedMonthly = useMemo(
     () => resolveSalaryRates(
       {
@@ -154,8 +191,10 @@ export function HrSalaryShareView({
     [overtimeEntries, projects, calc.otHourlyRate],
   );
 
+  const selectedDate = edit?.selectedDate ?? null;
+
   return (
-    <div className="hr-salary__expand hr-salary__expand--public">
+    <div className={`hr-salary__expand hr-salary__expand--public${editable ? ' is-editing' : ''}`}>
       <header className="hr-salary__dash-header">
         <div className="hr-salary__dash-header-info">
           <h3>{displayName}</h3>
@@ -170,6 +209,17 @@ export function HrSalaryShareView({
               {calc.payableDays} days worked
             </p>
           </div>
+          {editable ? (
+            <p className="hr-salary__share-save-status" aria-live="polite">
+              {saveStatus === 'saving'
+                ? 'Saving…'
+                : saveStatus === 'saved'
+                  ? 'Saved'
+                  : saveStatus === 'error'
+                    ? (saveError || 'Save failed')
+                    : null}
+            </p>
+          ) : null}
         </div>
       </header>
 
@@ -177,31 +227,95 @@ export function HrSalaryShareView({
         <div className="hr-salary__rate-group">
           <div className="hr-salary__rate-item">
             <span>Per month</span>
-            <div className="hr-salary__rate-value-text">{formatInr(resolvedMonthly)}</div>
-            <span className="hr-salary__rate-sub">
-              {formatInr(calc.perDaySalary)}/day · {calc.rateDays} days
-            </span>
+            {editable && edit ? (
+              <>
+                <input
+                  type="number"
+                  className="input-field hr-salary__rate-input"
+                  min={0}
+                  step="any"
+                  value={edit.monthlySalaryInput}
+                  onChange={e => edit.onMonthlySalaryChange(e.target.value)}
+                />
+                <span className="hr-salary__rate-sub">
+                  {formatInr(calc.perDaySalary)}/day · {calc.rateDays} days
+                </span>
+              </>
+            ) : (
+              <>
+                <div className="hr-salary__rate-value-text">{formatInr(resolvedMonthly)}</div>
+                <span className="hr-salary__rate-sub">
+                  {formatInr(calc.perDaySalary)}/day · {calc.rateDays} days
+                </span>
+              </>
+            )}
           </div>
           <div className="hr-salary__rate-item">
             <span>OT per day ({HR_SALARY_HOURS_PER_DAY}hrs)</span>
-            <div className="hr-salary__rate-value-text">{formatInr(otPerDaySalary)}</div>
-            <span className="hr-salary__rate-sub">{formatInr(calc.otHourlyRate)}/hr</span>
+            {editable && edit ? (
+              <>
+                <input
+                  type="number"
+                  className="input-field hr-salary__rate-input"
+                  min={0}
+                  step="any"
+                  value={edit.otPerDaySalaryInput}
+                  onChange={e => edit.onOtPerDayChange(e.target.value)}
+                />
+                <span className="hr-salary__rate-sub">{formatInr(calc.otHourlyRate)}/hr</span>
+              </>
+            ) : (
+              <>
+                <div className="hr-salary__rate-value-text">{formatInr(otPerDaySalary)}</div>
+                <span className="hr-salary__rate-sub">{formatInr(calc.otHourlyRate)}/hr</span>
+              </>
+            )}
           </div>
         </div>
         <div className="hr-salary__project-selector">
           <span className="hr-salary__projects-label">Projects:</span>
-          {projects.length === 0 ? (
+          {projects.length === 0 && !editable ? (
             <span className="hr-salary__legend-item">None</span>
-          ) : projects.map(project => (
+          ) : null}
+          {projects.map(project => (
             <span
               key={project.id}
               className="hr-salary__project-pill"
               style={{ ['--proj-color' as string]: project.color }}
             >
               <i className="hr-salary__proj-dot" style={{ background: project.color }} />
-              {project.name}
+              {editable && edit ? (
+                <>
+                  <input
+                    className="input-field hr-salary__project-name-input"
+                    value={project.name}
+                    onChange={e => edit.onRenameProject(project.id, e.target.value)}
+                    aria-label="Project name"
+                  />
+                  <button
+                    type="button"
+                    className="hr-salary__project-remove"
+                    aria-label={`Remove ${project.name}`}
+                    onClick={() => edit.onRemoveProject(project.id)}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </>
+              ) : (
+                project.name
+              )}
             </span>
           ))}
+          {editable && edit ? (
+            <button
+              type="button"
+              className="hr-salary__btn-add"
+              onClick={edit.onAddProject}
+            >
+              <Plus size={14} aria-hidden />
+              Add project
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -235,9 +349,17 @@ export function HrSalaryShareView({
                   || cell.kind === 'working'
                 );
                 const showAsWorkday = hasWork && !fullLeave && !halfLeave && !sunday;
+                const DayTag = editable ? 'button' : 'div';
+                const dayProps = editable && edit
+                  ? {
+                    type: 'button' as const,
+                    onClick: () => edit.onSelectDate(cell.date),
+                  }
+                  : {};
                 return (
-                  <div
+                  <DayTag
                     key={cell.date}
+                    {...dayProps}
                     title={
                       hasOt
                         ? `${formatOtHours(cell.overtimeHours)} OT`
@@ -253,12 +375,13 @@ export function HrSalaryShareView({
                     }
                     className={[
                       'hr-salary__day',
-                      'is-readonly',
+                      editable ? '' : 'is-readonly',
                       hasWork ? 'has-work' : '',
                       hasOt ? 'has-ot' : '',
                       showAsWorkday ? 'is-regular' : '',
                       sunday && hasOt ? 'is-sunday-ot' : '',
                       `is-${cell.kind}`,
+                      selectedDate === cell.date ? 'is-selected' : '',
                       halfLeave && hasOt ? 'has-leave-half' : '',
                       fullLeave && hasOt ? 'has-leave' : '',
                     ].filter(Boolean).join(' ')}
@@ -276,7 +399,7 @@ export function HrSalaryShareView({
                         ))}
                       </span>
                     ) : null}
-                  </div>
+                  </DayTag>
                 );
               })}
             </div>
@@ -313,6 +436,29 @@ export function HrSalaryShareView({
               </span>
             ))}
           </div>
+
+          {editable && edit && selectedDate ? (
+            <DayAttendanceSheet
+              date={selectedDate}
+              canEdit
+              canSetLeave={
+                !isSundayDate(selectedDate) && !holidayDateSet.has(selectedDate)
+              }
+              leaveKind={leaveKindForDate(leaveEntries, selectedDate)}
+              holidayName={
+                holidays.find(h => h.date === selectedDate)?.name ?? null
+              }
+              projects={projects}
+              dayProjectId={workProjectIdForDate(workDayEntries, selectedDate)}
+              entries={overtimeEntries.filter(e => e.date === selectedDate)}
+              onClose={() => edit.onSelectDate(null)}
+              onSetLeave={kind => edit.onSetLeave(selectedDate, kind)}
+              onSetDayProject={projectId => edit.onSetDayProject(selectedDate, projectId)}
+              onAddOt={() => edit.onAddOt(selectedDate)}
+              onPatchOt={edit.onPatchOt}
+              onRemoveOt={edit.onRemoveOt}
+            />
+          ) : null}
         </div>
 
         <div className="hr-salary__card hr-salary__ot-detail">
@@ -345,7 +491,7 @@ export function HrSalaryShareView({
             <ul className="hr-salary__ot-detail-list">
               {otLines.map(line => (
                 <li key={line.id}>
-                  <div className="hr-salary__ot-detail-line is-readonly">
+                  <div className={`hr-salary__ot-detail-line${editable ? '' : ' is-readonly'}`}>
                     <span className="hr-salary__ot-detail-date">
                       {line.project ? (
                         <i

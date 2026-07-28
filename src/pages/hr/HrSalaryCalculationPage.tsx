@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Link2, Plus, RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { Camera, Link2, RefreshCw, Search, Trash2, UserPlus } from 'lucide-react';
 import { toPng } from 'html-to-image';
+import { DayAttendanceSheet } from '../../components/hr/DayAttendanceSheet';
 import { useAuth } from '../../context/AuthContext';
 import { fetchHrHolidays, holidaysInMonth } from '../../lib/hrHolidays';
 import {
@@ -124,232 +125,6 @@ function isSundayDate(date: string): boolean {
   return new Date(y, m - 1, d).getDay() === 0;
 }
 
-function DayAttendanceSheet({
-  date,
-  canEdit,
-  canSetLeave,
-  leaveKind,
-  holidayName,
-  projects,
-  dayProjectId,
-  entries,
-  onClose,
-  onSetLeave,
-  onSetDayProject,
-  onAddOt,
-  onPatchOt,
-  onRemoveOt,
-}: {
-  date: string;
-  canEdit: boolean;
-  canSetLeave: boolean;
-  leaveKind: HrLeaveKind | null;
-  holidayName: string | null;
-  projects: HrSalaryProject[];
-  dayProjectId: string | null;
-  entries: HrOvertimeEntry[];
-  onClose: () => void;
-  onSetLeave: (kind: HrLeaveKind | null) => void;
-  onSetDayProject: (projectId: string | null) => void;
-  onAddOt: () => void;
-  onPatchOt: (
-    entryId: string,
-    patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
-  ) => void;
-  onRemoveOt: (entryId: string) => void;
-}) {
-  const dayOtHours = entries.reduce(
-    (sum, e) => sum + overtimeEntryHours(e.startTime, e.endTime),
-    0,
-  );
-  const dayKindLabel = isSundayDate(date)
-    ? 'Sunday'
-    : holidayName
-      ? `Holiday · ${holidayName}`
-      : leaveKind === 'full'
-        ? 'Full-day leave'
-        : leaveKind === 'half'
-          ? 'Half-day leave'
-          : 'Working day';
-
-  return (
-    <div
-      className="hr-salary__day-sheet"
-      role="region"
-      aria-label={`Day attendance for ${formatDayLabel(date)}`}
-    >
-      <header className="hr-salary__day-sheet-head">
-        <div>
-          <h4 className="hr-salary__day-sheet-title">{formatDayLabel(date)}</h4>
-          <p className="text-sm text-muted hr-salary__day-sheet-sub">{dayKindLabel}</p>
-        </div>
-        <button
-          type="button"
-          className="hr-salary__day-sheet-close"
-          aria-label="Close day editor"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
-      </header>
-
-      <div className="hr-salary__day-sheet-body">
-        <section className="hr-salary__day-sheet-section">
-          <div className="hr-salary__day-sheet-section-head">
-            <span>Project</span>
-          </div>
-          {projects.length === 0 ? (
-            <p className="text-sm text-muted">Add a project above first.</p>
-          ) : (
-            <div className="hr-salary__project-chips" role="group" aria-label="Day project">
-              <button
-                type="button"
-                className={!dayProjectId ? 'is-active' : ''}
-                disabled={!canEdit}
-                onClick={() => onSetDayProject(null)}
-              >
-                None
-              </button>
-              {projects.map(project => (
-                <button
-                  key={project.id}
-                  type="button"
-                  className={dayProjectId === project.id ? 'is-active' : ''}
-                  disabled={!canEdit}
-                  style={{ ['--proj-color' as string]: project.color }}
-                  onClick={() => onSetDayProject(project.id)}
-                >
-                  <i className="hr-salary__proj-dot" style={{ background: project.color }} />
-                  {project.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="hr-salary__day-sheet-section">
-          <div className="hr-salary__day-sheet-section-head">
-            <span>Leave</span>
-            {!canSetLeave ? (
-              <span className="text-sm text-muted">N/A</span>
-            ) : null}
-          </div>
-          {canSetLeave ? (
-            <div className="hr-salary__leave-seg" role="group" aria-label="Leave type">
-              <button
-                type="button"
-                className={!leaveKind ? 'is-active' : ''}
-                disabled={!canEdit}
-                onClick={() => onSetLeave(null)}
-              >
-                Working
-              </button>
-              <button
-                type="button"
-                className={leaveKind === 'half' ? 'is-active' : ''}
-                disabled={!canEdit}
-                onClick={() => onSetLeave('half')}
-              >
-                Half day
-              </button>
-              <button
-                type="button"
-                className={leaveKind === 'full' ? 'is-active' : ''}
-                disabled={!canEdit}
-                onClick={() => onSetLeave('full')}
-              >
-                Full day
-              </button>
-            </div>
-          ) : null}
-        </section>
-
-        <section className="hr-salary__day-sheet-section">
-          <div className="hr-salary__day-sheet-section-head">
-            <span>Overtime shifts</span>
-            <span className="text-muted">{formatOtHours(dayOtHours)}</span>
-          </div>
-          {entries.length === 0 ? null : (
-            <ul className="hr-salary__ot-list">
-              {entries.map(entry => {
-                const project = projects.find(p => p.id === entry.projectId);
-                return (
-                  <li key={entry.id} className="hr-salary__ot-row hr-salary__ot-row--project">
-                    {projects.length > 0 ? (
-                      <label className="hr-salary__ot-project-field">
-                        <span>Project</span>
-                        <select
-                          className="input-field"
-                          value={entry.projectId ?? ''}
-                          disabled={!canEdit}
-                          onChange={e => onPatchOt(entry.id, {
-                            projectId: e.target.value || null,
-                          })}
-                        >
-                          <option value="">Unassigned</option>
-                          {projects.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
-                    <label>
-                      <span>Start</span>
-                      <input
-                        type="time"
-                        className="input-field"
-                        value={entry.startTime}
-                        disabled={!canEdit}
-                        onChange={e => onPatchOt(entry.id, { startTime: e.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>End</span>
-                      <input
-                        type="time"
-                        className="input-field"
-                        value={entry.endTime}
-                        disabled={!canEdit}
-                        onChange={e => onPatchOt(entry.id, { endTime: e.target.value })}
-                      />
-                    </label>
-                    <span className="hr-salary__ot-hours">
-                      {project ? (
-                        <i className="hr-salary__proj-dot" style={{ background: project.color }} />
-                      ) : null}
-                      {formatOtHours(overtimeEntryHours(entry.startTime, entry.endTime))}
-                    </span>
-                    {canEdit ? (
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm hr-salary__ot-remove"
-                        aria-label="Remove overtime shift"
-                        onClick={() => onRemoveOt(entry.id)}
-                      >
-                        <Trash2 size={14} aria-hidden />
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {canEdit ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm hr-salary__ot-add"
-              onClick={onAddOt}
-            >
-              <Plus size={14} aria-hidden />
-              Add OT shift
-            </button>
-          ) : null}
-        </section>
-      </div>
-    </div>
-  );
-}
-
 export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }) => {
   const { user } = useAuth();
   const canAccess = canViewHrSalary(user) && isLocalhostDev();
@@ -378,11 +153,15 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const draftsRef = useRef(drafts);
   const periodRef = useRef(period);
   const holidaysRef = useRef(holidays);
+  const shareTokensRef = useRef(shareTokens);
+  const rowsRef = useRef(rows);
   const skipAutosaveRef = useRef(false);
 
   draftsRef.current = drafts;
   periodRef.current = period;
   holidaysRef.current = holidays;
+  shareTokensRef.current = shareTokens;
+  rowsRef.current = rows;
 
   const monthValue = salaryPeriodKey(period);
 
@@ -456,6 +235,31 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
         user.uid,
         holidaysNow,
       );
+      const shareToken = shareTokensRef.current[uid]
+        || rowsRef.current.find(r => r.staffUid === uid)?.publicShareToken
+        || null;
+      if (shareToken) {
+        const row = rowsRef.current.find(r => r.staffUid === uid);
+        const monthHs = holidaysInMonth(holidaysNow, periodNow.year, periodNow.month);
+        await upsertSalaryShare(
+          {
+            token: shareToken,
+            uid,
+            displayName: row?.displayName || 'Staff',
+            period: periodNow,
+            monthlySalary,
+            otPerDaySalary,
+            leaveEntries,
+            projects,
+            workDayEntries,
+            overtimeEntries,
+            holidays: monthHs.map(h => ({ date: h.date, name: h.name })),
+          },
+          user.uid,
+        ).catch(err => {
+          console.warn('Could not refresh public salary share:', err);
+        });
+      }
       const calc = computeSalaryCalc(
         monthlySalary,
         otPerDaySalary,
@@ -654,15 +458,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     const nextWork = draft.workDayEntries.filter(e => e.date !== date);
     if (projectId) nextWork.push({ date, projectId });
     if (projectId) setActiveProjectId(projectId);
-    // Also stamp OT on this date to the same project when assigning.
-    const nextOt = projectId
-      ? draft.overtimeEntries.map(entry => (
-        entry.date === date ? { ...entry, projectId } : entry
-      ))
-      : draft.overtimeEntries;
+    // Daytime and OT projects are independent (e.g. yesone by day, gatc OT).
     updateDraft(uid, {
       workDayEntries: nextWork.sort((a, b) => a.date.localeCompare(b.date)),
-      overtimeEntries: nextOt,
     });
   };
 
@@ -671,7 +469,6 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     const draft = drafts[uid];
     if (!draft) return;
     let projects = draft.projects;
-    let workDayEntries = draft.workDayEntries;
     const dayProject = workProjectIdForDate(draft.workDayEntries, date);
     let projectId = (
       dayProject
@@ -684,19 +481,12 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
       projects = [project];
       projectId = project.id;
     }
-    if (!dayProject && projectId) {
-      workDayEntries = [
-        ...workDayEntries.filter(e => e.date !== date),
-        { date, projectId },
-      ];
-    }
     if (activeProjectId !== projectId) setActiveProjectId(projectId);
     const existing = draft.overtimeEntries.filter(e => e.date === date);
     const startTime = existing.length === 0 ? '18:00' : '06:00';
     const endTime = existing.length === 0 ? '20:00' : '08:00';
     updateDraft(uid, {
       projects,
-      workDayEntries,
       overtimeEntries: [
         ...draft.overtimeEntries,
         createOvertimeEntry(date, startTime, endTime, projectId),

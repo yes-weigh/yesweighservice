@@ -1,39 +1,115 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { HrSalaryShareView } from '../../components/hr/HrSalaryShareView';
-import { fetchSalaryShare } from '../../lib/hrSalaryShares';
-import type { HrSalaryShareRecord } from '../../types/hr-salary-share';
 import { APP_NAME } from '../../constants/brand';
+import {
+  createOvertimeEntry,
+  createSalaryProject,
+  workProjectIdForDate,
+} from '../../lib/hrSalary';
+import {
+  subscribeSalaryShare,
+  updatePublicSalaryShareViaCallable,
+} from '../../lib/hrSalaryShares';
+import type { HrSalaryShareRecord } from '../../types/hr-salary-share';
+import type {
+  HrLeaveEntry,
+  HrLeaveKind,
+  HrOvertimeEntry,
+  HrSalaryProject,
+  HrWorkDayEntry,
+} from '../../types/hr-salary';
+
+const AUTOSAVE_MS = 700;
+
+type DraftState = {
+  monthlySalary: string;
+  otPerDaySalary: string;
+  leaveEntries: HrLeaveEntry[];
+  projects: HrSalaryProject[];
+  workDayEntries: HrWorkDayEntry[];
+  overtimeEntries: HrOvertimeEntry[];
+};
+
+function rateInputValue(n: number): string {
+  if (!(n > 0)) return '';
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+
+function draftFromShare(share: HrSalaryShareRecord): DraftState {
+  return {
+    monthlySalary: rateInputValue(share.monthlySalary || share.perDaySalary),
+    otPerDaySalary: rateInputValue(share.otPerDaySalary),
+    leaveEntries: share.leaveEntries.map(e => ({ ...e })),
+    projects: share.projects.map(p => ({ ...p })),
+    workDayEntries: share.workDayEntries.map(e => ({ ...e })),
+    overtimeEntries: share.overtimeEntries.map(e => ({ ...e })),
+  };
+}
+
+function callableErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message: string }).message)
+      .replace(/^Firebase:\s*/i, '')
+      .replace(/\s*\([^)]*\)\s*$/, '');
+  }
+  return 'Could not save changes.';
+}
 
 export const HrSalaryPublicSharePage: React.FC = () => {
   const { token = '' } = useParams<{ token: string }>();
   const [share, setShare] = useState<HrSalaryShareRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [draft, setDraft] = useState<DraftState | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState('');
+  const dirtyRef = useRef(false);
+  const savingRef = useRef(false);
+  const draftRef = useRef<DraftState | null>(null);
+  const shareUpdatedAtRef = useRef('');
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
     setLoading(true);
     setError('');
     setShare(null);
-    void (async () => {
-      try {
-        const rec = await fetchSalaryShare(token);
-        if (cancelled) return;
-        if (!rec) {
+    setDraft(null);
+    setEditMode(false);
+    setSelectedDate(null);
+    dirtyRef.current = false;
+    const unsub = subscribeSalaryShare(
+      token,
+      next => {
+        setLoading(false);
+        if (!next) {
+          setShare(null);
           setError('This salary link is invalid or has been removed.');
           return;
         }
-        setShare(rec);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Unable to load this salary page.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+        setError('');
+        setShare(next);
+        shareUpdatedAtRef.current = next.updatedAt;
+        // Don't clobber local edits while dirty / mid-save.
+        if (!dirtyRef.current && !savingRef.current) {
+          setDraft(draftFromShare(next));
+        }
+      },
+      err => {
+        setLoading(false);
+        setError(err.message || 'Unable to load this salary page.');
+      },
+    );
     return () => {
-      cancelled = true;
+      unsub();
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
   }, [token]);
 
@@ -41,6 +117,184 @@ export const HrSalaryPublicSharePage: React.FC = () => {
     if (!share) return;
     document.title = `${share.displayName} · ${share.period} · ${APP_NAME}`;
   }, [share]);
+
+  const persistDraft = useCallback(async () => {
+    const current = draftRef.current;
+    if (!current || !token.trim() || savingRef.current) return;
+    savingRef.current = true;
+    setSaveStatus('saving');
+    setSaveError('');
+    try {
+      const result = await updatePublicSalaryShareViaCallable({
+        token: token.trim(),
+        monthlySalary: Math.max(0, Number.parseFloat(current.monthlySalary) || 0),
+        otPerDaySalary: Math.max(0, Number.parseFloat(current.otPerDaySalary) || 0),
+        leaveEntries: current.leaveEntries,
+        projects: current.projects,
+        workDayEntries: current.workDayEntries,
+        overtimeEntries: current.overtimeEntries,
+      });
+      dirtyRef.current = false;
+      if (result.updatedAt) shareUpdatedAtRef.current = result.updatedAt;
+      setSaveStatus('saved');
+      window.setTimeout(() => {
+        setSaveStatus(prev => (prev === 'saved' ? 'idle' : prev));
+      }, 1600);
+    } catch (err) {
+      setSaveStatus('error');
+      setSaveError(callableErrorMessage(err));
+    } finally {
+      savingRef.current = false;
+      if (dirtyRef.current) {
+        if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = setTimeout(() => {
+          void persistDraft();
+        }, AUTOSAVE_MS);
+      }
+    }
+  }, [token]);
+
+  const scheduleSave = useCallback(() => {
+    dirtyRef.current = true;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      void persistDraft();
+    }, AUTOSAVE_MS);
+  }, [persistDraft]);
+
+  const patchDraft = useCallback((patch: Partial<DraftState>) => {
+    setDraft(prev => {
+      if (!prev) return prev;
+      return { ...prev, ...patch };
+    });
+    scheduleSave();
+  }, [scheduleSave]);
+
+  const enterEdit = () => {
+    if (share) setDraft(draftFromShare(share));
+    setEditMode(true);
+    setSaveStatus('idle');
+    setSaveError('');
+  };
+
+  const exitEdit = () => {
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    if (dirtyRef.current) void persistDraft();
+    setEditMode(false);
+    setSelectedDate(null);
+  };
+
+  const display = useMemo(() => {
+    if (editMode && draft && share) {
+      return {
+        ...share,
+        monthlySalary: Math.max(0, Number.parseFloat(draft.monthlySalary) || 0),
+        otPerDaySalary: Math.max(0, Number.parseFloat(draft.otPerDaySalary) || 0),
+        leaveEntries: draft.leaveEntries,
+        projects: draft.projects,
+        workDayEntries: draft.workDayEntries,
+        overtimeEntries: draft.overtimeEntries,
+      };
+    }
+    return share;
+  }, [editMode, draft, share]);
+
+  const editHandlers = useMemo(() => {
+    if (!editMode || !draft) return null;
+    return {
+      monthlySalaryInput: draft.monthlySalary,
+      otPerDaySalaryInput: draft.otPerDaySalary,
+      onMonthlySalaryChange: (value: string) => patchDraft({ monthlySalary: value }),
+      onOtPerDayChange: (value: string) => patchDraft({ otPerDaySalary: value }),
+      onAddProject: () => {
+        const project = createSalaryProject(
+          `Project ${draft.projects.length + 1}`,
+          draft.projects,
+        );
+        setActiveProjectId(project.id);
+        patchDraft({ projects: [...draft.projects, project] });
+      },
+      onRenameProject: (projectId: string, name: string) => {
+        patchDraft({
+          projects: draft.projects.map(p => (
+            p.id === projectId ? { ...p, name } : p
+          )),
+        });
+      },
+      onRemoveProject: (projectId: string) => {
+        patchDraft({
+          projects: draft.projects.filter(p => p.id !== projectId),
+          workDayEntries: draft.workDayEntries.filter(e => e.projectId !== projectId),
+          overtimeEntries: draft.overtimeEntries.map(e => (
+            e.projectId === projectId ? { ...e, projectId: null } : e
+          )),
+        });
+        if (activeProjectId === projectId) {
+          setActiveProjectId(draft.projects.find(p => p.id !== projectId)?.id ?? null);
+        }
+      },
+      selectedDate,
+      onSelectDate: setSelectedDate,
+      onSetLeave: (date: string, kind: HrLeaveKind | null) => {
+        const next = draft.leaveEntries.filter(e => e.date !== date);
+        if (kind) next.push({ date, kind });
+        patchDraft({
+          leaveEntries: next.sort((a, b) => a.date.localeCompare(b.date)),
+        });
+      },
+      onSetDayProject: (date: string, projectId: string | null) => {
+        const next = draft.workDayEntries.filter(e => e.date !== date);
+        if (projectId) next.push({ date, projectId });
+        if (projectId) setActiveProjectId(projectId);
+        patchDraft({
+          workDayEntries: next.sort((a, b) => a.date.localeCompare(b.date)),
+        });
+      },
+      onAddOt: (date: string) => {
+        let projects = draft.projects;
+        const dayProject = workProjectIdForDate(draft.workDayEntries, date);
+        let projectId = (
+          dayProject
+          || (activeProjectId && projects.some(p => p.id === activeProjectId)
+            ? activeProjectId
+            : null)
+          || projects[0]?.id
+          || null
+        );
+        if (!projectId) {
+          const project = createSalaryProject('Project 1', projects);
+          projects = [project];
+          projectId = project.id;
+        }
+        if (activeProjectId !== projectId) setActiveProjectId(projectId);
+        const existing = draft.overtimeEntries.filter(e => e.date === date);
+        const startTime = existing.length === 0 ? '18:00' : '06:00';
+        const endTime = existing.length === 0 ? '20:00' : '08:00';
+        patchDraft({
+          projects,
+          overtimeEntries: [
+            ...draft.overtimeEntries,
+            createOvertimeEntry(date, startTime, endTime, projectId),
+          ],
+        });
+      },
+      onPatchOt: (
+        entryId: string,
+        patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
+      ) => {
+        patchDraft({
+          overtimeEntries: draft.overtimeEntries.map(entry => (
+            entry.id === entryId ? { ...entry, ...patch } : entry
+          )),
+        });
+      },
+      onRemoveOt: (entryId: string) => {
+        patchDraft({
+          overtimeEntries: draft.overtimeEntries.filter(e => e.id !== entryId),
+        });
+      },
+    };
+  }, [editMode, draft, selectedDate, activeProjectId, patchDraft]);
 
   if (loading) {
     return (
@@ -53,7 +307,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
     );
   }
 
-  if (error || !share) {
+  if (error || !share || !display) {
     return (
       <div className="hr-salary-public">
         <div className="hr-salary-public__state">
@@ -67,17 +321,43 @@ export const HrSalaryPublicSharePage: React.FC = () => {
   return (
     <div className="hr-salary-public">
       <div className="hr-salary-public__shell">
+        <div className="hr-salary-public__toolbar" role="group" aria-label="Page mode">
+          <div className="hr-salary-public__mode-toggle">
+            <button
+              type="button"
+              className={!editMode ? 'is-active' : ''}
+              onClick={exitEdit}
+            >
+              View
+            </button>
+            <button
+              type="button"
+              className={editMode ? 'is-active' : ''}
+              onClick={enterEdit}
+            >
+              Edit
+            </button>
+          </div>
+          {editMode ? (
+            <span className="hr-salary-public__toolbar-hint text-muted text-sm">
+              Changes save automatically to Firebase
+            </span>
+          ) : null}
+        </div>
         <HrSalaryShareView
-          displayName={share.displayName}
-          period={{ year: share.year, month: share.month }}
-          monthlySalary={share.monthlySalary}
-          perDaySalary={share.perDaySalary}
-          otPerDaySalary={share.otPerDaySalary}
-          leaveEntries={share.leaveEntries}
-          projects={share.projects}
-          workDayEntries={share.workDayEntries}
-          overtimeEntries={share.overtimeEntries}
-          holidays={share.holidays}
+          displayName={display.displayName}
+          period={{ year: display.year, month: display.month }}
+          monthlySalary={display.monthlySalary}
+          perDaySalary={display.perDaySalary}
+          otPerDaySalary={display.otPerDaySalary}
+          leaveEntries={display.leaveEntries}
+          projects={display.projects}
+          workDayEntries={display.workDayEntries}
+          overtimeEntries={display.overtimeEntries}
+          holidays={display.holidays}
+          edit={editHandlers}
+          saveStatus={editMode ? saveStatus : 'idle'}
+          saveError={saveError}
         />
       </div>
     </div>

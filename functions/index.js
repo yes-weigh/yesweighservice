@@ -171,6 +171,7 @@ import {
   deleteCatalogMediaFile as removeCatalogMediaFile,
   uploadCatalogMediaFile as storeCatalogMediaFile,
 } from './lib/catalog-media-upload.js';
+import { updatePublicSalaryShare as updatePublicSalaryShareRecord } from './lib/hr-salary-share-update.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -3668,6 +3669,27 @@ export const getYesStorePhotoUrlFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load warehouse photo.');
+    }
+  },
+);
+
+/**
+ * Public salary share edit — token is the credential (no Auth).
+ * Updates hrSalaryShares + hrSalaryMonths so admin HR stays in sync.
+ */
+export const updatePublicSalaryShare = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    try {
+      return await updatePublicSalaryShareRecord(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update salary share.');
     }
   },
 );

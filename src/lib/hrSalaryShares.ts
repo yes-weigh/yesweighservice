@@ -1,8 +1,15 @@
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { PUBLIC_APP_ORIGIN } from '../constants/brand';
-import { db } from '../firebase';
+import { app, db } from '../firebase';
 import type { HrSalaryShareInput, HrSalaryShareRecord } from '../types/hr-salary-share';
-import type { HrSalaryPeriod } from '../types/hr-salary';
+import type {
+  HrLeaveEntry,
+  HrOvertimeEntry,
+  HrSalaryPeriod,
+  HrSalaryProject,
+  HrWorkDayEntry,
+} from '../types/hr-salary';
 import { salaryPeriodKey } from '../types/hr-salary';
 import type { HrHoliday } from '../types/hr-holiday';
 import {
@@ -13,6 +20,7 @@ import {
 
 const SHARE_COLLECTION = 'hrSalaryShares';
 const MONTH_COLLECTION = 'hrSalaryMonths';
+const functions = getFunctions(app, 'asia-south1');
 
 export function createSalaryShareToken(): string {
   const bytes = new Uint8Array(18);
@@ -114,6 +122,55 @@ export async function fetchSalaryShare(token: string): Promise<HrSalaryShareReco
   const snap = await getDoc(doc(db, SHARE_COLLECTION, cleaned));
   if (!snap.exists()) return null;
   return mapShareDoc(snap.id, snap.data() as Record<string, unknown>);
+}
+
+/** Live subscription to a public salary share (token doc). */
+export function subscribeSalaryShare(
+  token: string,
+  onNext: (share: HrSalaryShareRecord | null) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  const cleaned = token.trim();
+  if (!cleaned) {
+    onNext(null);
+    return () => {};
+  }
+  return onSnapshot(
+    doc(db, SHARE_COLLECTION, cleaned),
+    snap => {
+      if (!snap.exists()) {
+        onNext(null);
+        return;
+      }
+      onNext(mapShareDoc(snap.id, snap.data() as Record<string, unknown>));
+    },
+    err => {
+      onError?.(err instanceof Error ? err : new Error(String(err)));
+    },
+  );
+}
+
+export type PublicSalaryShareUpdateInput = {
+  token: string;
+  monthlySalary: number;
+  otPerDaySalary: number;
+  leaveEntries: HrLeaveEntry[];
+  projects: HrSalaryProject[];
+  workDayEntries: HrWorkDayEntry[];
+  overtimeEntries: HrOvertimeEntry[];
+};
+
+/** Token-gated public edit — updates share + private month via Cloud Function. */
+export async function updatePublicSalaryShareViaCallable(
+  input: PublicSalaryShareUpdateInput,
+): Promise<{ updatedAt: string }> {
+  const fn = httpsCallable<PublicSalaryShareUpdateInput, { updatedAt?: string }>(
+    functions,
+    'updatePublicSalaryShare',
+    { timeout: 60_000 },
+  );
+  const result = await fn(input);
+  return { updatedAt: String(result.data?.updatedAt ?? '') };
 }
 
 /** Create or refresh a public share snapshot; returns the token. */
