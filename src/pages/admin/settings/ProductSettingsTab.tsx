@@ -21,9 +21,11 @@ import {
   saveModelNumbers,
   saveMrpRules,
   saveSpareGroups,
+  saveGatcStampingPrices,
   slugifySpareGroupId,
   spareGroupHasLinkedSpares,
   type CatalogSpareGroupOption,
+  type CatalogGatcStampingPriceEntry,
 } from '../../../lib/catalogProductSettings';
 import { calculateProductMrpBreakdown, getMrpFormulaOption } from '../../../lib/catalogMrp';
 import { PushFirebaseImagesToZohoSection } from './PushFirebaseImagesToZohoSection';
@@ -44,12 +46,19 @@ type MrpTestDraft = {
   taxPercent: string;
 };
 
-type ProductSettingsSubTab = 'packaging' | 'model-approval' | 'spare-groups' | 'images' | 'hidden-items';
+type ProductSettingsSubTab =
+  | 'packaging'
+  | 'model-approval'
+  | 'spare-groups'
+  | 'gatc'
+  | 'images'
+  | 'hidden-items';
 
 const PRODUCT_SETTINGS_SUBTABS: { id: ProductSettingsSubTab; label: string }[] = [
   { id: 'packaging', label: 'Carton & MRP' },
   { id: 'model-approval', label: 'Model & approval' },
   { id: 'spare-groups', label: 'Spare groups' },
+  { id: 'gatc', label: 'GATC' },
   { id: 'images', label: 'Images' },
   { id: 'hidden-items', label: 'Hidden items' },
 ];
@@ -217,9 +226,15 @@ export const ProductSettingsTab: React.FC = () => {
   const [modelNumbers, setModelNumbers] = useState<string[]>([]);
   const [approvalNumbers, setApprovalNumbers] = useState<CatalogApprovalNumberOption[]>([]);
   const [spareGroups, setSpareGroups] = useState<CatalogSpareGroupOption[]>([]);
+  const [gatcEntries, setGatcEntries] = useState<CatalogGatcStampingPriceEntry[]>([]);
   const [newModel, setNewModel] = useState('');
   const [newApproval, setNewApproval] = useState('');
   const [newSpareGroup, setNewSpareGroup] = useState('');
+  const [newGatcRange, setNewGatcRange] = useState('');
+  const [newGatcPrice, setNewGatcPrice] = useState('');
+  const [editingGatcId, setEditingGatcId] = useState<string | null>(null);
+  const [editingGatcRange, setEditingGatcRange] = useState('');
+  const [editingGatcPrice, setEditingGatcPrice] = useState('');
   const [editingSpareGroupId, setEditingSpareGroupId] = useState<string | null>(null);
   const [editingSpareGroupName, setEditingSpareGroupName] = useState('');
   const [subTab, setSubTab] = useState<ProductSettingsSubTab>('packaging');
@@ -242,6 +257,7 @@ export const ProductSettingsTab: React.FC = () => {
       setModelNumbers(settings.modelNumbers);
       setApprovalNumbers(settings.approvalNumbers);
       setSpareGroups(settings.spareGroups);
+      setGatcEntries(settings.gatcStampingPrices);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load product settings.');
     } finally {
@@ -477,6 +493,94 @@ export const ProductSettingsTab: React.FC = () => {
     } finally {
       setBusyKey(null);
     }
+  };
+
+  const persistGatcEntries = async (next: CatalogGatcStampingPriceEntry[], busy: string) => {
+    setBusyKey(busy);
+    setError('');
+    setSuccess('');
+    try {
+      setGatcEntries(await saveGatcStampingPrices(next, user?.uid ?? null));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save GATC entries.');
+      return false;
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleAddGatcEntry = async () => {
+    const stampingRange = newGatcRange.trim();
+    if (!stampingRange) {
+      setError('Enter a stamping range.');
+      return;
+    }
+    const price = Number(newGatcPrice.trim());
+    if (!Number.isFinite(price) || price < 0) {
+      setError('Price must be a number zero or greater.');
+      return;
+    }
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `gatc-${Date.now()}`;
+    const ok = await persistGatcEntries(
+      [...gatcEntries, { id, stampingRange, price: Math.round(price * 100) / 100 }],
+      `add-gatc-${id}`,
+    );
+    if (ok) {
+      setNewGatcRange('');
+      setNewGatcPrice('');
+    }
+  };
+
+  const startEditGatcEntry = (entry: CatalogGatcStampingPriceEntry) => {
+    setEditingGatcId(entry.id);
+    setEditingGatcRange(entry.stampingRange);
+    setEditingGatcPrice(String(entry.price));
+    setError('');
+    setSuccess('');
+  };
+
+  const cancelEditGatcEntry = () => {
+    setEditingGatcId(null);
+    setEditingGatcRange('');
+    setEditingGatcPrice('');
+  };
+
+  const handleSaveGatcEntry = async (entryId: string) => {
+    const stampingRange = editingGatcRange.trim();
+    if (!stampingRange) {
+      setError('Stamping range cannot be empty.');
+      return;
+    }
+    const price = Number(editingGatcPrice.trim());
+    if (!Number.isFinite(price) || price < 0) {
+      setError('Price must be a number zero or greater.');
+      return;
+    }
+    const next = gatcEntries.map(item =>
+      item.id === entryId
+        ? { ...item, stampingRange, price: Math.round(price * 100) / 100 }
+        : item,
+    );
+    const ok = await persistGatcEntries(next, `edit-gatc-${entryId}`);
+    if (ok) cancelEditGatcEntry();
+  };
+
+  const handleRemoveGatcEntry = async (entry: CatalogGatcStampingPriceEntry) => {
+    const ok = await confirm({
+      title: 'Remove GATC entry?',
+      message: `Delete stamping range “${entry.stampingRange}” (₹${entry.price})?`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
+    if (editingGatcId === entry.id) cancelEditGatcEntry();
+    await persistGatcEntries(
+      gatcEntries.filter(item => item.id !== entry.id),
+      `remove-gatc-${entry.id}`,
+    );
   };
 
   const handleAddApproval = async () => {
@@ -740,6 +844,157 @@ export const ProductSettingsTab: React.FC = () => {
     </div>
   );
 
+  const renderGatcSection = () => (
+    <div className="settings-product-qty__section">
+      <h4 className="settings-product-qty__title">GATC stamping prices</h4>
+      <p className="settings-product-qty__hint text-muted text-sm">
+        Each entry has a stamping range (free text) and a price.
+      </p>
+      {!loading && (
+        <>
+          <div className="settings-product-gatc" aria-label="GATC stamping prices">
+            {gatcEntries.length === 0 && (
+              <p className="text-muted text-sm">No GATC entries yet.</p>
+            )}
+            {gatcEntries.map(entry => (
+              <div key={entry.id} className="settings-product-gatc__row">
+                {editingGatcId === entry.id ? (
+                  <>
+                    <input
+                      type="text"
+                      className="settings-product-gatc__edit-range"
+                      value={editingGatcRange}
+                      onChange={e => setEditingGatcRange(e.target.value)}
+                      disabled={busyKey != null}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void handleSaveGatcEntry(entry.id);
+                        }
+                        if (e.key === 'Escape') cancelEditGatcEntry();
+                      }}
+                      autoFocus
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="settings-product-gatc__edit-price"
+                      value={editingGatcPrice}
+                      onChange={e => setEditingGatcPrice(e.target.value)}
+                      disabled={busyKey != null}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void handleSaveGatcEntry(entry.id);
+                        }
+                        if (e.key === 'Escape') cancelEditGatcEntry();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={
+                        busyKey != null
+                        || !editingGatcRange.trim()
+                        || editingGatcPrice.trim() === ''
+                      }
+                      onClick={() => void handleSaveGatcEntry(entry.id)}
+                    >
+                      <Save size={13} aria-hidden />
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={busyKey != null}
+                      onClick={cancelEditGatcEntry}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="settings-product-gatc__range">{entry.stampingRange}</span>
+                    <span className="settings-product-gatc__price">
+                      ₹{entry.price.toLocaleString('en-IN', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={busyKey != null || editingGatcId != null}
+                      onClick={() => startEditGatcEntry(entry)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-product-qty__chip-remove"
+                      disabled={busyKey != null}
+                      onClick={() => void handleRemoveGatcEntry(entry)}
+                      aria-label={`Remove ${entry.stampingRange}`}
+                    >
+                      <Trash2 size={13} aria-hidden />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="settings-locations__add-form settings-product-qty__add-form settings-product-gatc__add-form">
+            <label className="settings-locations__field settings-product-gatc__field-range">
+              <span>Stamping range</span>
+              <input
+                type="text"
+                value={newGatcRange}
+                placeholder="e.g. 1-50, 51-100"
+                onChange={e => setNewGatcRange(e.target.value)}
+                disabled={busyKey != null}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleAddGatcEntry();
+                  }
+                }}
+              />
+            </label>
+            <label className="settings-locations__field settings-product-gatc__field-price">
+              <span>Price</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={newGatcPrice}
+                placeholder="0"
+                onChange={e => setNewGatcPrice(e.target.value)}
+                disabled={busyKey != null}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleAddGatcEntry();
+                  }
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busyKey != null || !newGatcRange.trim() || newGatcPrice.trim() === ''}
+              onClick={() => void handleAddGatcEntry()}
+            >
+              <Plus size={15} aria-hidden />
+              Add
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   const renderApprovalOptionSection = () => (
     <div className="settings-product-qty__section">
       <h4 className="settings-product-qty__title">Approval numbers</h4>
@@ -852,7 +1107,7 @@ export const ProductSettingsTab: React.FC = () => {
         <div>
           <h3>Product settings</h3>
           <p className="text-muted text-sm">
-            Carton qty, MRP, model & approval options, spare groups, image tools, and hidden catalogue items.
+            Carton qty, MRP, model & approval options, spare groups, GATC, image tools, and hidden catalogue items.
           </p>
         </div>
       </header>
@@ -1010,6 +1265,7 @@ export const ProductSettingsTab: React.FC = () => {
           </>
         )}
         {subTab === 'spare-groups' && renderSpareGroupSection()}
+        {subTab === 'gatc' && renderGatcSection()}
         {subTab === 'images' && <PushFirebaseImagesToZohoSection />}
         {subTab === 'hidden-items' && <HiddenItemsSection />}
       </div>

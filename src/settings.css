@@ -353,6 +353,76 @@
   font: inherit;
 }
 
+.settings-product-gatc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.settings-product-gatc__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-product-gatc__range {
+  flex: 1;
+  min-width: 10rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settings-product-gatc__price {
+  min-width: 5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.settings-product-gatc__edit-range {
+  flex: 1;
+  min-width: 10rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.55);
+  color: #f8fafc;
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+}
+
+.settings-product-gatc__edit-price {
+  width: 7rem;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.55);
+  color: #f8fafc;
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+}
+
+.settings-product-gatc__add-form {
+  align-items: flex-end;
+}
+
+.settings-product-gatc__field-range {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.settings-product-gatc__field-price {
+  width: 8rem;
+  flex: 0 0 auto;
+}
+
 .settings-product-approval__list {
   display: flex;
   flex-direction: column;

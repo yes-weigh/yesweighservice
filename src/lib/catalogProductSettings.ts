@@ -8,12 +8,14 @@ import {
   DEFAULT_MODEL_NUMBERS,
   DEFAULT_MRP_RULES,
   DEFAULT_SPARE_GROUPS,
+  DEFAULT_GATC_STAMPING_PRICES,
   MRP_FORMULA_OPTIONS,
   type CatalogApprovalNumberOption,
   type CatalogMrpFormulaId,
   type CatalogMrpGroupRule,
   type CatalogMrpRules,
   type CatalogSpareGroupOption,
+  type CatalogGatcStampingPriceEntry,
 } from '../constants/catalogProductSettings';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -24,6 +26,7 @@ export type {
   CatalogMrpGroupRule,
   CatalogMrpRules,
   CatalogSpareGroupOption,
+  CatalogGatcStampingPriceEntry,
 };
 
 export interface CatalogProductSettings {
@@ -32,6 +35,7 @@ export interface CatalogProductSettings {
   modelNumbers: string[];
   approvalNumbers: CatalogApprovalNumberOption[];
   spareGroups: CatalogSpareGroupOption[];
+  gatcStampingPrices: CatalogGatcStampingPriceEntry[];
   updatedAt: string;
   updatedBy?: string | null;
 }
@@ -160,6 +164,42 @@ export function normalizeSpareGroups(
   );
 }
 
+export function normalizeGatcStampingPrices(
+  values: unknown,
+  fallback: CatalogGatcStampingPriceEntry[] = DEFAULT_GATC_STAMPING_PRICES,
+): CatalogGatcStampingPriceEntry[] {
+  if (!Array.isArray(values)) return fallback.map(e => ({ ...e }));
+
+  const entries: CatalogGatcStampingPriceEntry[] = [];
+  const usedIds = new Set<string>();
+
+  for (const raw of values) {
+    if (!raw || typeof raw !== 'object') continue;
+    const data = raw as Record<string, unknown>;
+    const stampingRange = String(data.stampingRange ?? data.range ?? '').trim();
+    if (!stampingRange) continue;
+
+    const priceRaw = data.price;
+    const price = typeof priceRaw === 'number' ? priceRaw : Number(priceRaw);
+    if (!Number.isFinite(price) || price < 0) continue;
+
+    let id = String(data.id ?? '').trim();
+    if (!id || usedIds.has(id)) {
+      id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `gatc-${Date.now()}-${entries.length}`;
+    }
+    usedIds.add(id);
+    entries.push({
+      id,
+      stampingRange,
+      price: Math.round(price * 100) / 100,
+    });
+  }
+
+  return entries;
+}
+
 export function normalizeMrpMultiplier(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
@@ -241,6 +281,7 @@ function emptySettings(): CatalogProductSettings {
     modelNumbers: [...DEFAULT_MODEL_NUMBERS],
     approvalNumbers: normalizeApprovalNumbers(DEFAULT_APPROVAL_NUMBERS),
     spareGroups: normalizeSpareGroups(DEFAULT_SPARE_GROUPS),
+    gatcStampingPrices: normalizeGatcStampingPrices(DEFAULT_GATC_STAMPING_PRICES),
     updatedAt: '',
   };
 }
@@ -259,6 +300,10 @@ export async function loadCatalogProductSettings(): Promise<CatalogProductSettin
       modelNumbers: normalizeOptionStrings(data.modelNumbers, DEFAULT_MODEL_NUMBERS),
       approvalNumbers: normalizeApprovalNumbers(data.approvalNumbers, DEFAULT_APPROVAL_NUMBERS),
       spareGroups: normalizeSpareGroups(data.spareGroups, DEFAULT_SPARE_GROUPS),
+      gatcStampingPrices: normalizeGatcStampingPrices(
+        data.gatcStampingPrices,
+        DEFAULT_GATC_STAMPING_PRICES,
+      ),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
     };
@@ -290,6 +335,11 @@ export async function loadApprovalNumberOptions(): Promise<CatalogApprovalNumber
 export async function loadSpareGroups(): Promise<CatalogSpareGroupOption[]> {
   const settings = await loadCatalogProductSettings();
   return settings.spareGroups;
+}
+
+export async function loadGatcStampingPrices(): Promise<CatalogGatcStampingPriceEntry[]> {
+  const settings = await loadCatalogProductSettings();
+  return settings.gatcStampingPrices;
 }
 
 /** Values only — for product select dropdowns. */
@@ -366,6 +416,15 @@ export async function saveSpareGroups(
   const spareGroups = normalizeSpareGroups(values);
   await touchSettings({ spareGroups }, updatedBy);
   return spareGroups;
+}
+
+export async function saveGatcStampingPrices(
+  values: CatalogGatcStampingPriceEntry[],
+  updatedBy?: string | null,
+): Promise<CatalogGatcStampingPriceEntry[]> {
+  const gatcStampingPrices = normalizeGatcStampingPrices(values);
+  await touchSettings({ gatcStampingPrices }, updatedBy);
+  return gatcStampingPrices;
 }
 
 /** True if at least one catalog product is assigned to this spare group. */

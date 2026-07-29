@@ -102,3 +102,12 @@ export interface CatalogSpareGroupOption {
   id: string;
   name: string;
 }
+
+/** GATC stamping range → price entry (range is free text: commas, spaces, etc.). */
+export interface CatalogGatcStampingPriceEntry {
+  id: string;
+  stampingRange: string;
+  price: number;
+}
+
+export const DEFAULT_GATC_STAMPING_PRICES: CatalogGatcStampingPriceEntry[] = [];
