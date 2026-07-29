@@ -512,18 +512,15 @@ export interface ShopCatalogCategoryOptions {
   filteredSpareProducts?: CatalogProduct[];
 }
 
-/** Categories grid for shop browse — includes Generic spare parts for staff catalog views. */
+/** Categories grid for shop browse — categorized finished goods only (no spare pool). */
 export function getShopCatalogCategories(
   categories: CatalogCategory[],
   shopProducts: CatalogProduct[],
-  spareProducts: CatalogProduct[],
+  _spareProducts: CatalogProduct[],
   options: ShopCatalogCategoryOptions = {},
 ): CatalogCategory[] {
   const filteredShop = options.filteredShopProducts ?? shopProducts;
-  const filteredSpare = options.filteredSpareProducts ?? spareProducts;
-  const filtersActive =
-    options.filteredShopProducts != null
-    || options.filteredSpareProducts != null;
+  const filtersActive = options.filteredShopProducts != null;
 
   const totalShopCounts = countProductsByCategoryId(shopProducts);
   const filteredShopCounts = countProductsByCategoryId(filteredShop);
@@ -540,28 +537,10 @@ export function getShopCatalogCategories(
       };
     })
     .filter((c): c is CatalogCategory => c !== null);
-  const included = new Set(fromShop.map(c => c.id));
 
-  // Categories tab: Generic Spare Parts card counts only items in that Zoho category
-  // (uncategorized stay on the Spare parts tab, not here).
-  const countGenericCategoryProducts = (list: CatalogProduct[], categoryId: string) =>
-    list.filter(p => p.categoryId === categoryId).length;
-
-  const genericSpareCategories = categories
-    .filter(c => isGenericSparePartsCategory(c) && !included.has(c.id))
-    .map(cat => {
-      const totalProductCount = countGenericCategoryProducts(spareProducts, cat.id);
-      const productCount = countGenericCategoryProducts(filteredSpare, cat.id);
-      if (productCount <= 0) return null;
-      return {
-        ...cat,
-        productCount,
-        ...(filtersActive ? { totalProductCount } : {}),
-      };
-    })
-    .filter((c): c is CatalogCategory => c !== null);
-
-  return [...fromShop, ...genericSpareCategories];
+  // Spare pool (Generic spare parts + uncategorized) lives on the Spare parts tab —
+  // do not inject those categories into the shop Categories grid.
+  return fromShop;
 }
 
 /** Products shown when drilling into a category from the shop browse grid. */

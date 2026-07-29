@@ -1069,7 +1069,15 @@ export const CatalogPage: React.FC = () => {
   const browseSwipeRef = useRef<HTMLDivElement>(null);
 
   const showShortcuts = !isSuperAdmin && searchFocused && !searchQuery.trim() && focus === 'browse';
-  const showActiveFocus = !isSuperAdmin && focus !== 'browse' && focus !== 'search';
+  // Persistent Categories | Spare parts tabs cover all-spares; only show chip for other focuses.
+  const showActiveFocus = (
+    !isSuperAdmin
+    && focus !== 'browse'
+    && focus !== 'search'
+    && focus !== 'all-spares'
+    && focus !== 'spare-grouping'
+  );
+  const showDealerCatalogTabs = !isSuperAdmin;
   const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit' && focus !== 'spare-grouping';
   const showHeaderSearch = showAdminSearch || !isSuperAdmin;
 
@@ -1484,7 +1492,7 @@ export const CatalogPage: React.FC = () => {
   );
 
   const hasSmartBarContent = isSuperAdmin
-    || canSpareGroup
+    || showDealerCatalogTabs
     || showShortcuts
     || showActiveFocus
     || showBrowseCategoryChips
@@ -1493,7 +1501,7 @@ export const CatalogPage: React.FC = () => {
   const smartBar = hasSmartBarContent ? (
     <div
       ref={smartBarRef}
-      className={`catalog-smart-bar spares-mode-bar${isSuperAdmin || canSpareGroup ? ' catalog-smart-bar--admin-tabs' : ''}${showBrowseCategoryChips ? ' catalog-smart-bar--category-chips' : ''}`}
+      className={`catalog-smart-bar spares-mode-bar${isSuperAdmin || showDealerCatalogTabs ? ' catalog-smart-bar--admin-tabs' : ''}${showBrowseCategoryChips ? ' catalog-smart-bar--category-chips' : ''}`}
     >
       {isSuperAdmin && (
         <div className="catalog-section-tabs">
@@ -1532,14 +1540,14 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
-      {canSpareGroup && !isSuperAdmin && (
+      {showDealerCatalogTabs && (
         <div className="catalog-section-tabs">
           <div className="spares-mode-toggle spares-mode-toggle--ops" role="tablist" aria-label="Catalog sections">
             <button
               type="button"
               role="tab"
-              aria-selected={focus === 'browse'}
-              className={`spares-mode-toggle__btn ${focus === 'browse' ? 'spares-mode-toggle__btn--active' : ''}`}
+              aria-selected={focus === 'browse' || focus === 'search'}
+              className={`spares-mode-toggle__btn ${focus === 'browse' || focus === 'search' ? 'spares-mode-toggle__btn--active' : ''}`}
               onClick={() => setFocus('browse')}
             >
               <LayoutGrid size={16} aria-hidden />
@@ -1548,13 +1556,28 @@ export const CatalogPage: React.FC = () => {
             <button
               type="button"
               role="tab"
-              aria-selected={focus === 'spare-grouping'}
-              className={`spares-mode-toggle__btn ${focus === 'spare-grouping' ? 'spares-mode-toggle__btn--active' : ''}`}
-              onClick={() => setFocus('spare-grouping')}
+              aria-selected={focus === 'all-spares'}
+              className={`spares-mode-toggle__btn ${focus === 'all-spares' ? 'spares-mode-toggle__btn--active' : ''}`}
+              onClick={() => setFocus('all-spares')}
             >
-              <Layers size={16} aria-hidden />
-              <span className="spares-mode-toggle__label">Spare grouping</span>
+              <Boxes size={16} aria-hidden />
+              <span className="spares-mode-toggle__label">Spare parts</span>
+              {spareParts.length > 0 ? (
+                <span className="spares-mode-toggle__badge">{spareParts.length}</span>
+              ) : null}
             </button>
+            {canSpareGroup ? (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={focus === 'spare-grouping'}
+                className={`spares-mode-toggle__btn ${focus === 'spare-grouping' ? 'spares-mode-toggle__btn--active' : ''}`}
+                onClick={() => setFocus('spare-grouping')}
+              >
+                <Layers size={16} aria-hidden />
+                <span className="spares-mode-toggle__label">Spare grouping</span>
+              </button>
+            ) : null}
           </div>
         </div>
       )}
@@ -1596,19 +1619,9 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
-      {showShortcuts && (
+      {showShortcuts && canSync && (
         <div className="catalog-smart-bar__shortcuts" role="list">
-          <button
-            type="button"
-            role="listitem"
-            className="catalog-smart-bar__shortcut"
-            onMouseDown={e => e.preventDefault()}
-            onClick={() => setFocus('all-spares')}
-          >
-            All spare parts
-            <span className="catalog-smart-bar__shortcut-meta">{spareParts.length}</span>
-          </button>
-          {canSync && unlinkedSpares.length > 0 && (
+          {unlinkedSpares.length > 0 && (
             <button
               type="button"
               role="listitem"
@@ -1620,21 +1633,19 @@ export const CatalogPage: React.FC = () => {
               <span className="catalog-smart-bar__shortcut-meta">{unlinkedSpares.length}</span>
             </button>
           )}
-          {canSync && (
-            <button
-              type="button"
-              role="listitem"
-              className="catalog-smart-bar__shortcut"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => setFocus('map')}
-            >
-              Map spares to products
-            </button>
-          )}
+          <button
+            type="button"
+            role="listitem"
+            className="catalog-smart-bar__shortcut"
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => setFocus('map')}
+          >
+            Map spares to products
+          </button>
         </div>
       )}
 
-      {showActiveFocus && focus !== 'spare-grouping' && (
+      {showActiveFocus && (
         <div className="catalog-smart-bar__active">
           <span>{FOCUS_LABELS[focus]}</span>
           <button type="button" className="catalog-smart-bar__active-clear" onClick={clearFocus}>
