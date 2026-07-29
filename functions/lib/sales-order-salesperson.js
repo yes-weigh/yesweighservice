@@ -1,5 +1,6 @@
 /**
- * Resolve Zoho salesperson from a dealer's assigned portal staff.
+ * Resolve Zoho salesperson from a dealer's assigned portal staff,
+ * or from the creating staff member for staff-placed orders.
  */
 import { getFirestore } from 'firebase-admin/firestore';
 
@@ -22,6 +23,54 @@ export function normalizeStaffZohoSalespersonIds(data = {}) {
     }
   }
   return [...ids];
+}
+
+async function resolveSalespersonName(user, salespersonId) {
+  let salespersonName = String(user.zohoSalespersonName ?? '').trim();
+  if (!salespersonName && Array.isArray(user.zohoSalespersonLinks)) {
+    const link = user.zohoSalespersonLinks.find(
+      row => String(row?.id ?? '').trim() === salespersonId,
+    );
+    salespersonName = String(link?.name ?? '').trim();
+  }
+  if (!salespersonName) {
+    const spSnap = await getFirestore().collection('zohoSalespersons').doc(salespersonId).get();
+    if (spSnap.exists) {
+      salespersonName = String(spSnap.data()?.name ?? '').trim();
+    }
+  }
+  if (!salespersonName) {
+    salespersonName = String(user.displayName ?? 'Salesperson').trim() || 'Salesperson';
+  }
+  return salespersonName;
+}
+
+/**
+ * Creating staff's top Zoho salesperson (primary id, else first linked).
+ * @returns {{ id: string, name: string, staffUid: string, staffName: string } | null}
+ */
+export async function resolveSalespersonForStaff(staffUid) {
+  const uid = String(staffUid ?? '').trim();
+  if (!uid) return null;
+
+  const userSnap = await getFirestore().doc(`users/${uid}`).get();
+  if (!userSnap.exists) return null;
+  const user = userSnap.data() || {};
+  if (user.active === false) return null;
+
+  const linkedIds = normalizeStaffZohoSalespersonIds(user);
+  if (!linkedIds.length) return null;
+
+  const primary = String(user.zohoSalespersonId ?? '').trim();
+  const salespersonId = primary && linkedIds.includes(primary) ? primary : linkedIds[0];
+  const salespersonName = await resolveSalespersonName(user, salespersonId);
+
+  return {
+    id: salespersonId,
+    name: salespersonName,
+    staffUid: uid,
+    staffName: String(user.displayName ?? 'Staff').trim() || 'Staff',
+  };
 }
 
 /**
@@ -48,23 +97,7 @@ export async function resolveSalespersonForCustomer(customerId) {
 
   const primary = String(user.zohoSalespersonId ?? '').trim();
   const salespersonId = primary && linkedIds.includes(primary) ? primary : linkedIds[0];
-
-  let salespersonName = String(user.zohoSalespersonName ?? '').trim();
-  if (!salespersonName && Array.isArray(user.zohoSalespersonLinks)) {
-    const link = user.zohoSalespersonLinks.find(
-      row => String(row?.id ?? '').trim() === salespersonId,
-    );
-    salespersonName = String(link?.name ?? '').trim();
-  }
-  if (!salespersonName) {
-    const spSnap = await db.collection('zohoSalespersons').doc(salespersonId).get();
-    if (spSnap.exists) {
-      salespersonName = String(spSnap.data()?.name ?? '').trim();
-    }
-  }
-  if (!salespersonName) {
-    salespersonName = String(user.displayName ?? 'Salesperson').trim() || 'Salesperson';
-  }
+  const salespersonName = await resolveSalespersonName(user, salespersonId);
 
   return {
     id: salespersonId,

@@ -13595,6 +13595,95 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.3rem;
 }
 
+.unified-so-price-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.18);
+  color: #f59e0b;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.so-draft-editor__rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.so-draft-editor__rate-input {
+  width: 6.5rem;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.875rem;
+}
+
+.so-detail__price-changes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.staff-create-so-page {
+  display: grid;
+  gap: 1rem;
+  max-width: 52rem;
+}
+
+.staff-create-so-page__section {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.staff-create-so-page__section h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.staff-create-so-page__dealer-selected,
+.staff-create-so-page__totals,
+.staff-create-so-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.staff-create-so-page__dealer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.staff-create-so-page__dealer-option {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.staff-create-so-page__dealer-option:hover {
+  border-color: rgba(245, 130, 32, 0.55);
+}
+
 .unified-sales-orders-page .unified-so-mobile-row .invoices-mobile-row__company {
   white-space: normal;
   overflow: visible;

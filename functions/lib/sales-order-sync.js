@@ -859,6 +859,7 @@ export function mapSalesOrderDoc(id, data) {
     searchBlob: data.searchBlob ?? '',
     pdfStoragePath: data.pdfStoragePath ?? null,
     yesOneStage,
+    yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
     paymentUtr: data.paymentUtr ?? null,
     paymentSubmittedAt: data.paymentSubmittedAt ?? null,
     paymentVerifiedAt: data.paymentVerifiedAt ?? null,
@@ -889,6 +890,7 @@ function mapSalesOrderListRow(id, data) {
     itemQuantity: full.itemQuantity,
     syncedAt: full.syncedAt,
     yesOneStage: full.yesOneStage,
+    yesOnePriceCustomized: full.yesOnePriceCustomized,
   };
 }
 

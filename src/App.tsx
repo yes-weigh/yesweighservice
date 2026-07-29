@@ -40,6 +40,7 @@ import { AdminSalesOrderDetailLayout } from './pages/admin/AdminSalesOrderDetail
 import { AdminSalesOrderDocumentPage } from './pages/admin/AdminSalesOrderDocumentPage';
 import { AdminSalesOrderPdfViewerPage } from './pages/admin/AdminSalesOrderPdfViewerPage';
 import { StaffOrderDetailPage } from './pages/staff/StaffOrderDetailPage';
+import { StaffCreateSalesOrderPage } from './pages/staff/StaffCreateSalesOrderPage';
 import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
@@ -291,6 +292,7 @@ const App: React.FC = () => (
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />
+              <Route path="sales-orders/new" element={<StaffCreateSalesOrderPage />} />
               <Route path="sales-orders/portal/:orderId" element={<StaffOrderDetailPage />} />
               <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>
                 <Route index element={<AdminSalesOrderDocumentPage />} />

@@ -10,7 +10,7 @@ import {
   createSalesOrderFromDealerOrder,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
-import { resolveSalespersonForCustomer } from './sales-order-salesperson.js';
+import { resolveSalespersonForCustomer, resolveSalespersonForStaff } from './sales-order-salesperson.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
@@ -168,8 +168,12 @@ async function loadCatalogProduct(productId) {
   };
 }
 
-function toOrderLine(product, quantity) {
+function toOrderLine(product, quantity, rateOverride = null) {
   const qty = Math.max(1, Math.floor(Number(quantity) || 0));
+  const catalogRate = Number(product.rate) || 0;
+  const rate = rateOverride != null && Number.isFinite(rateOverride) && rateOverride >= 0
+    ? Math.round(rateOverride * 100) / 100
+    : catalogRate;
   return {
     productId: product.productId,
     itemId: product.itemId,
@@ -177,10 +181,11 @@ function toOrderLine(product, quantity) {
     sku: product.sku,
     imageUrl: product.imageUrl,
     description: product.description,
-    rate: Number(product.rate) || 0,
+    rate,
+    catalogRate,
     unit: product.unit,
     quantity: qty,
-    lineTotal: lineTotal(product.rate, qty),
+    lineTotal: lineTotal(rate, qty),
     stockStatus: product.stockStatus,
     categoryName: product.categoryName,
     taxPercentage: product.taxPercentage,
@@ -188,7 +193,10 @@ function toOrderLine(product, quantity) {
   };
 }
 
-async function buildLinesFromInput(rawLines) {
+/**
+ * @returns {{ lines: object[], priceChanges: object[] }}
+ */
+async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {}) {
   if (!Array.isArray(rawLines) || rawLines.length === 0) {
     throw new HttpsError('invalid-argument', 'Add at least one product.');
   }
@@ -200,11 +208,24 @@ async function buildLinesFromInput(rawLines) {
     if (!productId || quantity < 1) {
       throw new HttpsError('invalid-argument', 'Each line needs a product and quantity ≥ 1.');
     }
-    merged.set(productId, (merged.get(productId) || 0) + quantity);
+    let rateOverride = null;
+    if (allowRateOverride && row?.rate != null && row.rate !== '') {
+      const parsed = Number(row.rate);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new HttpsError('invalid-argument', 'Each line rate must be a number ≥ 0.');
+      }
+      rateOverride = parsed;
+    }
+    const prev = merged.get(productId) || { quantity: 0, rateOverride: null };
+    merged.set(productId, {
+      quantity: prev.quantity + quantity,
+      rateOverride: rateOverride != null ? rateOverride : prev.rateOverride,
+    });
   }
 
   const lines = [];
-  for (const [productId, quantity] of merged) {
+  const priceChanges = [];
+  for (const [productId, entry] of merged) {
     const product = await loadCatalogProduct(productId);
     if (!product || product.hiddenFromCatalog || product.status === 'inactive') {
       throw new HttpsError('failed-precondition', `Product unavailable: ${productId}`);
@@ -215,9 +236,21 @@ async function buildLinesFromInput(rawLines) {
         `${product.name} is out of stock and cannot be ordered.`,
       );
     }
-    lines.push(toOrderLine(product, quantity));
+    const line = toOrderLine(product, entry.quantity, entry.rateOverride);
+    lines.push(line);
+    if (Math.round(line.rate * 100) !== Math.round(line.catalogRate * 100)) {
+      priceChanges.push({
+        productId: line.productId,
+        itemId: line.itemId,
+        name: line.name,
+        sku: line.sku,
+        catalogRate: line.catalogRate,
+        rate: line.rate,
+        quantity: line.quantity,
+      });
+    }
   }
-  return lines;
+  return { lines, priceChanges };
 }
 
 async function loadDealerProfile(dealerId, zohoCustomerId) {
@@ -271,7 +304,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     );
   }
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
-  const lines = await buildLinesFromInput(payload.lines);
+  const { lines } = await buildLinesFromInput(payload.lines);
 
   if (profile.canBuySpares === false) {
     const spare = lines.find(line => isSpareCategory(line.categoryName, null));
@@ -376,6 +409,169 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     dealerName: profile.dealerName,
     createdByUid: uid,
     createdByName: displayName(user),
+  };
+}
+
+/**
+ * Staff/ops create a Zoho Draft SO for any Zoho dealer (portal login optional),
+ * with optional per-line rate overrides and initial YesOne stage.
+ */
+export async function createStaffSalesOrder(uid, role, payload = {}, secrets, orgId) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+  if (!secrets) {
+    throw new HttpsError('failed-precondition', 'Zoho credentials are not configured.');
+  }
+
+  const zohoCustomerId = String(payload.zohoCustomerId ?? '').trim();
+  if (!zohoCustomerId) {
+    throw new HttpsError('invalid-argument', 'Select a dealer.');
+  }
+
+  const customerSnap = await getFirestore().doc(`${CUSTOMERS}/${zohoCustomerId}`).get();
+  if (!customerSnap.exists) {
+    throw new HttpsError('not-found', 'Dealer not found in Zoho customers.');
+  }
+
+  const stageTarget = String(payload.stage ?? 'review').trim() === 'ready_for_payment'
+    ? 'ready_for_payment'
+    : 'review';
+
+  const salesperson = await resolveSalespersonForStaff(uid);
+  if (!salesperson) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Link at least one Zoho salesperson to your staff account before creating orders.',
+    );
+  }
+
+  const profile = await loadDealerProfile(null, zohoCustomerId);
+  const { lines, priceChanges } = await buildLinesFromInput(payload.lines, {
+    allowRateOverride: true,
+  });
+
+  if (profile.canBuySpares === false) {
+    const spare = lines.find(line => isSpareCategory(line.categoryName, null));
+    if (spare) {
+      throw new HttpsError(
+        'failed-precondition',
+        'This dealer account is not allowed to order spare parts.',
+      );
+    }
+  }
+
+  const subtotal = sumSubtotal(lines);
+  if (profile.maxOrderLimit != null && profile.maxOrderLimit > 0 && subtotal > profile.maxOrderLimit) {
+    throw new HttpsError(
+      'failed-precondition',
+      `Order total exceeds this dealer’s limit of ₹${profile.maxOrderLimit.toLocaleString('en-IN')}.`,
+    );
+  }
+
+  const shippingSel = payload.shipping || {};
+  let shippingResolved;
+  try {
+    shippingResolved = await resolveShippingAddressId(secrets, orgId, zohoCustomerId, {
+      addressId: shippingSel.addressId || null,
+      kind: shippingSel.kind || null,
+      newAddress: shippingSel.newAddress || null,
+    });
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('invalid-argument', err?.message || 'Invalid shipping address.');
+  }
+
+  const remarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
+  const orderNumber = await nextOrderNumber();
+  const at = nowIso();
+  const actorName = displayName(user);
+  const pricedLines = lines.map(({ catalogRate: _c, ...line }) => line);
+
+  let salesOrderId = null;
+  let salesOrderNumber = null;
+  let status = 'draft';
+
+  try {
+    const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
+      id: orderNumber,
+      orderNumber,
+      zohoCustomerId,
+      lines: pricedLines,
+      subtotal,
+      remarks,
+      shippingAddressId: shippingResolved.shippingAddressId,
+      shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
+      salespersonId: salesperson.id,
+    });
+    salesOrderId = so.salesOrderId;
+    salesOrderNumber = so.salesOrderNumber;
+    status = so.status || 'draft';
+
+    const priceAudit = priceChanges.map(change => ({
+      ...change,
+      changedAt: at,
+      changedByUid: uid,
+      changedByName: actorName,
+    }));
+
+    const workflowExtras = {
+      yesOneCreatedByStaff: true,
+      yesOneCreatedFromCart: false,
+      yesOneCartReference: orderNumber,
+      yesOneCreatedByUid: uid,
+      yesOneCreatedByName: actorName,
+      shippingAddressId: shippingResolved.shippingAddressId || null,
+      shippingAddress: shippingResolved.address?.formatted || null,
+      salespersonId: salesperson.id,
+      salespersonName: salesperson.name,
+      yesOnePriceCustomized: priceAudit.length > 0,
+      yesOnePriceChanges: priceAudit,
+      ...(stageTarget === 'ready_for_payment'
+        ? {
+          yesOneStage: 'ready_for_payment',
+          readyForPaymentAt: at,
+          readyForPaymentByUid: uid,
+          readyForPaymentByName: actorName,
+          paymentAmount: subtotal,
+        }
+        : {}),
+    };
+
+    try {
+      await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+      await initYesOneSalesOrderWorkflow(salesOrderId, workflowExtras);
+    } catch (mirrorErr) {
+      console.warn(
+        `Staff create order ${orderNumber}: could not mirror SO ${salesOrderId}:`,
+        mirrorErr?.message ?? mirrorErr,
+      );
+      try {
+        await initYesOneSalesOrderWorkflow(salesOrderId, {
+          ...workflowExtras,
+          paymentAmount: stageTarget === 'ready_for_payment' ? subtotal : undefined,
+        });
+      } catch {
+        // best-effort
+      }
+    }
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('failed-precondition', err?.message || 'Could not create Zoho sales order.');
+  }
+
+  return {
+    zohoSalesOrderId: salesOrderId,
+    zohoSalesOrderNumber: salesOrderNumber,
+    orderNumber,
+    status,
+    yesOneStage: stageTarget,
+    subtotal,
+    itemCount: sumItemCount(lines),
+    zohoCustomerId,
+    dealerName: profile.dealerName,
+    priceCustomized: priceChanges.length > 0,
+    createdByUid: uid,
+    createdByName: actorName,
   };
 }
 

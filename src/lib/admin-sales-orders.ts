@@ -99,6 +99,8 @@ export interface AdminFirestoreSalesOrder {
   yesOneStage?: string | null;
   /** True when this Draft SO was created from a dealer cart submit. */
   yesOneCreatedFromCart?: boolean;
+  /** True when one or more line rates differ from catalog for this SO. */
+  yesOnePriceCustomized?: boolean;
 }
 
 export interface AdminSalesOrderDetail {
@@ -132,6 +134,21 @@ export interface AdminSalesOrderDetail {
   yesOneCreatedFromCart?: boolean;
   lineItems: DealerInvoiceLineItem[];
   yesOneStage?: string | null;
+  yesOnePriceCustomized?: boolean;
+  yesOnePriceChanges?: Array<{
+    productId: string;
+    itemId: string | null;
+    name: string;
+    sku: string | null;
+    catalogRate: number;
+    rate: number;
+    quantity: number;
+    changedAt: string | null;
+    changedByUid: string | null;
+    changedByName: string | null;
+  }>;
+  yesOneCreatedByStaff?: boolean;
+  yesOneCreatedByName?: string | null;
   paymentAmount?: number | null;
   paymentUtr?: string | null;
   paymentScreenshotStoragePath?: string | null;
@@ -205,6 +222,7 @@ export function mapAdminSalesOrderDoc(
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
     yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
     yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
+    yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
   };
 }
 
@@ -520,6 +538,7 @@ export function aggregateAdminSalesOrdersByDealer(
       salesOrderCategory: categories.size === 1 ? [...categories][0]! : null,
       yesOneStage: count === 1 ? latest.yesOneStage : null,
       yesOneCreatedFromCart: count === 1 ? latest.yesOneCreatedFromCart : false,
+      yesOnePriceCustomized: count === 1 ? Boolean(latest.yesOnePriceCustomized) : false,
     });
   }
 
@@ -807,6 +826,23 @@ export function mapAdminSalesOrderDetail(
     readyForPaymentByName: data.readyForPaymentByName ? String(data.readyForPaymentByName) : null,
     zohoInvoiceId: data.zohoInvoiceId ? String(data.zohoInvoiceId) : null,
     zohoInvoiceNumber: data.zohoInvoiceNumber ? String(data.zohoInvoiceNumber) : null,
+    yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
+    yesOnePriceChanges: Array.isArray(data.yesOnePriceChanges)
+      ? data.yesOnePriceChanges.map((raw: Record<string, unknown>) => ({
+        productId: String(raw.productId ?? ''),
+        itemId: raw.itemId != null ? String(raw.itemId) : null,
+        name: String(raw.name ?? 'Item'),
+        sku: raw.sku != null ? String(raw.sku) : null,
+        catalogRate: Number(raw.catalogRate ?? 0),
+        rate: Number(raw.rate ?? 0),
+        quantity: Number(raw.quantity ?? 0),
+        changedAt: raw.changedAt ? String(raw.changedAt) : null,
+        changedByUid: raw.changedByUid ? String(raw.changedByUid) : null,
+        changedByName: raw.changedByName ? String(raw.changedByName) : null,
+      }))
+      : [],
+    yesOneCreatedByStaff: Boolean(data.yesOneCreatedByStaff),
+    yesOneCreatedByName: data.yesOneCreatedByName ? String(data.yesOneCreatedByName) : null,
   };
 }
 
@@ -819,6 +855,7 @@ export function portalSalesOrderRemarks(
   const notes = so.notes?.trim() || '';
   if (!notes) return null;
   const fromPortal = Boolean(so.yesOneCreatedFromCart)
+    || Boolean((so as { yesOneCreatedByStaff?: boolean }).yesOneCreatedByStaff)
     || /^YES-ORD-/i.test(String(so.referenceNumber || ''));
   if (!fromPortal) return null;
   // Default placeholder written when the dealer left remarks blank.

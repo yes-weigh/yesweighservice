@@ -35,6 +35,8 @@ export interface UnifiedSalesOrderRow {
   isOrderPlaced: boolean;
   /** Stage seal stamp for list rows (null when none). */
   sealKind: SalesOrderSealKind | null;
+  /** Line rates customized for this SO. */
+  priceCustomized: boolean;
   category: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
@@ -171,6 +173,7 @@ export function mapZohoOrderToUnified(
     statusClass: display.statusClass,
     isOrderPlaced: display.isOrderPlaced,
     sealKind: display.sealKind,
+    priceCustomized: Boolean(so.yesOnePriceCustomized),
     category: so.salesOrderCategory,
     categories: so.categories,
     categoryAmounts: so.categoryAmounts,

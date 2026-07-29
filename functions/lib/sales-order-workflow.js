@@ -263,6 +263,15 @@ async function assertDealerOwnsSo(user, data) {
   }
 }
 
+/** Dealer owner, or staff/super_admin with orders.manage (phone-order payment proof). */
+async function assertCanSubmitPayment(user, data) {
+  if (OPS_ROLES.has(user.role)) {
+    requireOrdersManage(user);
+    return;
+  }
+  await assertDealerOwnsSo(user, data);
+}
+
 function lineTotal(rate, qty) {
   return Math.round(Number(rate) * Number(qty) * 100) / 100;
 }
@@ -298,7 +307,7 @@ async function loadCatalogProduct(productId) {
   };
 }
 
-async function buildLinesFromInput(rawLines, { allowOutOfStock = true } = {}) {
+async function buildLinesFromInput(rawLines, { allowOutOfStock = true, allowRateOverride = true } = {}) {
   if (!Array.isArray(rawLines) || rawLines.length === 0) {
     throw new HttpsError('invalid-argument', 'Add at least one product.');
   }
@@ -310,11 +319,24 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true } = {}) {
     if (!productId || quantity < 1) {
       throw new HttpsError('invalid-argument', 'Each line needs a product and quantity ≥ 1.');
     }
-    merged.set(productId, (merged.get(productId) || 0) + quantity);
+    let rateOverride = null;
+    if (allowRateOverride && row?.rate != null && row.rate !== '') {
+      const parsed = Number(row.rate);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new HttpsError('invalid-argument', 'Each line rate must be a number ≥ 0.');
+      }
+      rateOverride = parsed;
+    }
+    const prev = merged.get(productId) || { quantity: 0, rateOverride: null };
+    merged.set(productId, {
+      quantity: prev.quantity + quantity,
+      rateOverride: rateOverride != null ? rateOverride : prev.rateOverride,
+    });
   }
 
   const lines = [];
-  for (const [productId, quantity] of merged) {
+  const priceChanges = [];
+  for (const [productId, entry] of merged) {
     const product = await loadCatalogProduct(productId);
     if (!product || product.hiddenFromCatalog || product.status === 'inactive') {
       throw new HttpsError('failed-precondition', `Product unavailable: ${productId}`);
@@ -325,22 +347,37 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true } = {}) {
         `${product.name} is out of stock and cannot be ordered.`,
       );
     }
+    const catalogRate = Number(product.rate) || 0;
+    const rate = entry.rateOverride != null
+      ? Math.round(entry.rateOverride * 100) / 100
+      : catalogRate;
     lines.push({
       productId: product.productId,
       itemId: product.itemId,
       name: product.name,
       sku: product.sku,
       description: product.description,
-      rate: Number(product.rate) || 0,
+      rate,
       unit: product.unit,
-      quantity,
-      lineTotal: lineTotal(product.rate, quantity),
+      quantity: entry.quantity,
+      lineTotal: lineTotal(rate, entry.quantity),
       categoryName: product.categoryName,
       hsn: product.hsn,
       stockStatus: product.stockStatus,
     });
+    if (Math.round(rate * 100) !== Math.round(catalogRate * 100)) {
+      priceChanges.push({
+        productId: product.productId,
+        itemId: product.itemId,
+        name: product.name,
+        sku: product.sku,
+        catalogRate,
+        rate,
+        quantity: entry.quantity,
+      });
+    }
   }
-  return lines;
+  return { lines, priceChanges };
 }
 
 function firebaseDownloadUrl(bucketName, storagePath, token) {
@@ -396,6 +433,10 @@ async function detailPayload(id, data, { includePaymentUrl = false } = {}) {
   return {
     ...mapped,
     yesOneStage: yesOneStageOf(data),
+    yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
+    yesOnePriceChanges: Array.isArray(data.yesOnePriceChanges) ? data.yesOnePriceChanges : [],
+    yesOneCreatedByStaff: Boolean(data.yesOneCreatedByStaff),
+    yesOneCreatedByName: data.yesOneCreatedByName ? String(data.yesOneCreatedByName) : null,
     paymentAmount: data.paymentAmount != null ? Number(data.paymentAmount) : null,
     paymentUtr: data.paymentUtr ?? null,
     paymentScreenshotStoragePath: data.paymentScreenshotStoragePath ?? null,
@@ -437,16 +478,37 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
     );
   }
 
-  const lines = await buildLinesFromInput(payload.lines, { allowOutOfStock: true });
+  const { lines, priceChanges } = await buildLinesFromInput(payload.lines, {
+    allowOutOfStock: true,
+    allowRateOverride: true,
+  });
   await updateSalesOrderLines(secrets, orgId, id, lines);
   await mirrorSalesOrderFromZoho(secrets, orgId, id);
 
+  const at = nowIso();
+  const actorName = displayName(user);
+  const nextChanges = priceChanges.map(change => ({
+    ...change,
+    changedAt: at,
+    changedByUid: uid,
+    changedByName: actorName,
+  }));
+
   // Keep YesOne stage (review or ready_for_payment).
   await ref.set({
-    yesOneUpdatedAt: nowIso(),
-    yesOneLastEditedAt: nowIso(),
+    yesOneUpdatedAt: at,
+    yesOneLastEditedAt: at,
     yesOneLastEditedByUid: uid,
-    yesOneLastEditedByName: displayName(user),
+    yesOneLastEditedByName: actorName,
+    yesOnePriceCustomized: nextChanges.length > 0,
+    yesOnePriceChanges: nextChanges,
+    ...(stage === 'ready_for_payment'
+      ? {
+        paymentAmount: Math.round(
+          lines.reduce((s, l) => s + Number(l.lineTotal || 0), 0) * 100,
+        ) / 100,
+      }
+      : {}),
   }, { merge: true });
 
   const snap = await ref.get();
@@ -538,7 +600,7 @@ export async function markSalesOrderReadyForPayment(uid, role, salesOrderId) {
 export async function uploadSalesOrderPaymentScreenshot(uid, input = {}) {
   const user = await loadUser(uid);
   const { id, data } = await loadSoOrThrow(input.salesOrderId);
-  await assertDealerOwnsSo(user, data);
+  await assertCanSubmitPayment(user, data);
 
   const stage = yesOneStageOf(data);
   if (stage !== 'ready_for_payment' && stage !== 'payment_submitted') {
@@ -584,7 +646,7 @@ export async function uploadSalesOrderPaymentScreenshot(uid, input = {}) {
 export async function submitSalesOrderPayment(uid, role, payload = {}) {
   const user = await loadUser(uid);
   const { ref, id, data } = await loadSoOrThrow(payload.salesOrderId);
-  await assertDealerOwnsSo(user, data);
+  await assertCanSubmitPayment(user, data);
 
   const stage = yesOneStageOf(data);
   if (stage !== 'ready_for_payment' && stage !== 'payment_submitted') {

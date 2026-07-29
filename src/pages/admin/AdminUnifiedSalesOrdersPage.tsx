@@ -5,6 +5,7 @@ import {
   AlertCircle,
   ChevronRight,
   ClipboardList,
+  Plus,
   Search,
   SlidersHorizontal,
   X,
@@ -26,6 +27,7 @@ import {
   DealerMultiFilterPicker,
   type DealerFilterSelection,
 } from '../../components/dealers/DealerMultiFilterPicker';
+import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   aggregateAdminSalesOrdersByDealer,
   countZohoRowsByCategory,
@@ -303,6 +305,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     [dealersParam],
   );
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  const isStaffList = basePath === '/staff';
+  const canCreateStaffOrder = isStaffList && hasStaffPermission(user, 'orders.manage');
   const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
   const salespersonScopeKey = salespersonIds?.slice().sort().join(',') ?? '';
   const scrollRef = useRevealScrollbarOnScroll();
@@ -740,6 +744,17 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
             </button>
           )}
         </div>
+        {canCreateStaffOrder ? (
+          <button
+            type="button"
+            className="catalog-header-filter-btn"
+            onClick={() => navigate(`${basePath}/sales-orders/new`)}
+            aria-label="Create sales order"
+            title="Create sales order"
+          >
+            <Plus size={20} strokeWidth={2.25} />
+          </button>
+        ) : null}
         <button
           type="button"
           className={[
@@ -757,7 +772,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         </button>
       </div>
     ),
-    [search, filterOpen, hasActiveFilters],
+    [search, filterOpen, hasActiveFilters, canCreateStaffOrder, navigate, basePath],
   );
 
   useCatalogPageHeader({ mobileCompactHeader: true, title: 'Sales orders' }, true);
@@ -885,6 +900,11 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                                 categories={row.categories}
                                 invoiceCategory={row.category}
                               />
+                              {row.priceCustomized ? (
+                                <span className="unified-so-price-badge" title="Custom prices on this order">
+                                  Custom price
+                                </span>
+                              ) : null}
                               {row.sealKind ? (
                                 <SalesOrderStageSeal kind={row.sealKind} size="inline" />
                               ) : null}

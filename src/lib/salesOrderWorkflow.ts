@@ -110,10 +110,41 @@ async function call<TReq, TRes>(name: string, data?: TReq, timeout = 60_000): Pr
 
 export async function updateDraftSalesOrderLines(
   salesOrderId: string,
-  lines: Array<{ productId: string; quantity: number }>,
+  lines: Array<{ productId: string; quantity: number; rate?: number }>,
 ): Promise<SalesOrderWorkflowDetail> {
   try {
     return await call('updateDraftSalesOrderLines', { salesOrderId, lines }, 180_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function createStaffSalesOrder(input: {
+  zohoCustomerId: string;
+  lines: Array<{ productId: string; quantity: number; rate?: number }>;
+  shipping: ShippingSelection;
+  stage: 'review' | 'ready_for_payment';
+  remarks?: string;
+}): Promise<{
+  zohoSalesOrderId: string;
+  zohoSalesOrderNumber: string | null;
+  orderNumber: string;
+  yesOneStage: string;
+  subtotal: number;
+  priceCustomized: boolean;
+}> {
+  try {
+    return await call(
+      'createStaffSalesOrder',
+      {
+        zohoCustomerId: input.zohoCustomerId,
+        lines: input.lines,
+        shipping: shippingSelectionPayload(input.shipping),
+        stage: input.stage,
+        remarks: input.remarks ?? '',
+      },
+      180_000,
+    );
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }

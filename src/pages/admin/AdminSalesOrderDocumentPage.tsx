@@ -26,6 +26,7 @@ import {
   type ShippingAddress,
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
+import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   submitSalesOrderPayment,
   updateDraftSalesOrderLines,
@@ -39,6 +40,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const { user } = useAuth();
   const isDealer = user?.role === 'dealer' || user?.role === 'dealer_staff';
   const isOps = user?.role === 'staff' || user?.role === 'super_admin';
+  const canManageOrders = isOps && (
+    user?.role === 'super_admin' || hasStaffPermission(user, 'orders.manage')
+  );
   const {
     salesOrder,
     salesOrderId,
@@ -70,7 +74,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     && stage !== 'void';
   const canEditLines = canEditDraft;
   const canEditShipping = canEditDraft && Boolean(salesOrder?.customerId?.trim());
-  const canPay = isDealer && (stage === 'ready_for_payment' || stage === 'payment_submitted');
+  const canPay = (
+    (isDealer || canManageOrders)
+    && (stage === 'ready_for_payment' || stage === 'payment_submitted')
+  );
+  const canUploadPayment = canPay && stage === 'ready_for_payment';
   const pdfPath = `${listPath}/${salesOrderId}/view`;
 
   useEffect(() => {
@@ -141,6 +149,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const startEdit = () => {
     if (!salesOrder) return;
+    const priceByProduct = new Map(
+      (salesOrder.yesOnePriceChanges ?? []).map(change => [change.productId, change.catalogRate]),
+    );
     setEditLines(
       salesOrder.lineItems.map(line => {
         const productId = line.itemId || line.id;
@@ -149,13 +160,15 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           || catalogDescByItemId[line.id]
           || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
           || null;
+        const rate = Number(line.rate) || 0;
         return {
           productId,
           name: line.name,
           sku: line.sku ?? null,
           description,
           imageUrl: line.imageUrl ?? null,
-          rate: Number(line.rate) || 0,
+          rate,
+          catalogRate: priceByProduct.get(productId) ?? rate,
           unit: 'pcs',
           quantity: Math.max(1, Math.floor(line.quantity || 1)),
           stockStatus: null,
@@ -169,7 +182,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     if (!salesOrderId || savingLines) return;
     const lines = editLines
       .filter(line => line.productId && line.quantity > 0)
-      .map(line => ({ productId: line.productId, quantity: line.quantity }));
+      .map(line => ({
+        productId: line.productId,
+        quantity: line.quantity,
+        rate: line.rate,
+      }));
     if (!lines.length) {
       window.alert('Add at least one line item.');
       return;
@@ -221,7 +238,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       });
       setSalesOrder(next);
       setPaymentFile(null);
-      window.alert('Payment proof submitted. Staff will verify and complete your order.');
+      window.alert(
+        isDealer
+          ? 'Payment proof submitted. Staff will verify and complete your order.'
+          : 'Payment proof submitted. Super admin can verify and invoice.',
+      );
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
     } finally {
@@ -244,6 +265,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   );
   const showPayment = canPay
     || (isOps && (stage === 'payment_submitted' || stage === 'completed' || salesOrder.paymentScreenshotUrl));
+  const priceChanges = salesOrder.yesOnePriceChanges ?? [];
+  const showPriceChanges = Boolean(salesOrder.yesOnePriceCustomized && priceChanges.length);
 
   const paymentScreenshotUrl = salesOrder.paymentScreenshotUrl?.trim() || '';
   const topActionClass = paymentScreenshotUrl
@@ -387,6 +410,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               onSave={() => { void saveLines(); }}
               onCancel={() => setEditing(false)}
               embedded
+              allowRateEdit
             />
             <div className="so-detail__totals">
               <div className="so-detail__totals-row">
@@ -422,6 +446,31 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         )}
       </section>
 
+      {showPriceChanges ? (
+        <section className="so-detail__price-changes panel glass">
+          <h3 className="so-detail__section-title">Custom prices</h3>
+          <ul className="so-detail__price-changes-list">
+            {priceChanges.map(change => (
+              <li key={`${change.productId}-${change.changedAt ?? change.rate}`}>
+                <div>
+                  <strong>{change.name}</strong>
+                  {change.sku ? <span className="text-muted text-sm"> · {change.sku}</span> : null}
+                </div>
+                <p className="text-sm mb-0">
+                  {formatCurrency(change.catalogRate, salesOrder.currencyCode)}
+                  {' → '}
+                  <strong>{formatCurrency(change.rate, salesOrder.currencyCode)}</strong>
+                  {change.changedByName ? ` · ${change.changedByName}` : ''}
+                  {change.changedAt
+                    ? ` · ${new Date(change.changedAt).toLocaleString('en-IN')}`
+                    : ''}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {showPayment && (
         <section className="so-detail__payment">
           <h3 className="so-detail__section-title">Payment</h3>
@@ -433,7 +482,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           {salesOrder.paymentUtr && (
             <p className="text-sm mb-2">UTR: <strong>{salesOrder.paymentUtr}</strong></p>
           )}
-          {isDealer && stage === 'ready_for_payment' && (
+          {canUploadPayment && (
             <div className="so-detail__payment-form">
               <label className="text-sm">
                 UTR / reference
@@ -464,7 +513,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               </button>
             </div>
           )}
-          {isDealer && stage === 'payment_submitted' && (
+          {stage === 'payment_submitted' && !canUploadPayment && (
             <p className="text-muted text-sm mb-0">
               Payment submitted. Waiting for verification.
             </p>

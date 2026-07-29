@@ -374,6 +374,11 @@ export const DealerSalesOrdersPage: React.FC = () => {
                                 categories={row.categories}
                                 invoiceCategory={row.category}
                               />
+                              {row.priceCustomized ? (
+                                <span className="unified-so-price-badge" title="Custom prices on this order">
+                                  Custom price
+                                </span>
+                              ) : null}
                               {row.sealKind ? (
                                 <SalesOrderStageSeal kind={row.sealKind} size="inline" />
                               ) : null}

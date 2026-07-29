@@ -137,6 +137,7 @@ import {
 } from './lib/logistics-upload.js';
 import {
   submitDealerOrder as submitDealerOrderRecord,
+  createStaffSalesOrder as createStaffSalesOrderRecord,
   confirmMirroredSalesOrder as confirmMirroredSalesOrderRecord,
   voidMirroredSalesOrder as voidMirroredSalesOrderRecord,
   purgeAllDealerOrders as purgeAllDealerOrdersRecord,
@@ -3099,6 +3100,31 @@ export const submitDealerOrder = onCall(
   },
 );
 
+export const createStaffSalesOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await createStaffSalesOrderRecord(
+        uid,
+        role,
+        request.data ?? {},
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not create sales order.');
+    }
+  },
+);
+
 export const listDealerShippingAddresses = onCall(
   {
     region: 'asia-south1',
@@ -3348,7 +3374,7 @@ export const uploadSalesOrderPaymentScreenshotFn = onCall(
   { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
   async request => {
     const uid = request.auth?.uid;
-    await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    await requireActiveUser(uid, new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']));
     try {
       return await uploadSalesOrderPaymentScreenshotRecord(uid, request.data ?? {});
     } catch (err) {
@@ -3362,7 +3388,7 @@ export const submitSalesOrderPayment = onCall(
   { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']));
     try {
       return await submitSalesOrderPaymentRecord(uid, role, request.data ?? {});
     } catch (err) {

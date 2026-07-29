@@ -13,6 +13,8 @@ export interface DraftEditLine {
   description: string | null;
   imageUrl: string | null;
   rate: number;
+  /** Catalog list price when the line was added (for custom-price UI). */
+  catalogRate?: number;
   unit: string;
   quantity: number;
   stockStatus: string | null;
@@ -26,6 +28,11 @@ interface SalesOrderDraftLineEditorProps {
   onCancel: () => void;
   /** Flatten into parent surface (no outer panel chrome). */
   embedded?: boolean;
+  /** Allow editing unit rate (staff create / edit). */
+  allowRateEdit?: boolean;
+  saveLabel?: string;
+  title?: string;
+  hideActions?: boolean;
 }
 
 function useDebounce(value: string, delay: number): string {
@@ -38,13 +45,15 @@ function useDebounce(value: string, delay: number): string {
 }
 
 function toDraftLine(product: CatalogProduct, quantity = 1): DraftEditLine {
+  const rate = Number(product.rate) || 0;
   return {
     productId: product.id,
     name: product.name,
     sku: product.sku,
     description: product.description?.trim() || null,
     imageUrl: product.imageUrl,
-    rate: Number(product.rate) || 0,
+    rate,
+    catalogRate: rate,
     unit: product.unit || 'pcs',
     quantity,
     stockStatus: product.stockStatus ?? null,
@@ -58,6 +67,10 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   onSave,
   onCancel,
   embedded = false,
+  allowRateEdit = false,
+  saveLabel = 'Save to Zoho',
+  title = 'Edit items',
+  hideActions = false,
 }) => {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -128,6 +141,13 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     )));
   };
 
+  const setRate = (productId: string, rate: number) => {
+    const nextRate = Number.isFinite(rate) && rate >= 0 ? Math.round(rate * 100) / 100 : 0;
+    onChange(lines.map(line => (
+      line.productId === productId ? { ...line, rate: nextRate } : line
+    )));
+  };
+
   const removeLine = (productId: string) => {
     onChange(lines.filter(line => line.productId !== productId));
   };
@@ -154,31 +174,35 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     <section className={`so-draft-editor${embedded ? ' so-draft-editor--embedded' : ' panel glass mb-4'}`}>
       <header className="so-draft-editor__header">
         <div>
-          <h3 className="so-draft-editor__title">Edit items</h3>
+          <h3 className="so-draft-editor__title">{title}</h3>
           {!embedded && (
             <p className="so-draft-editor__subtitle text-muted text-sm">
-              Adjust quantities inline, then save to Zoho Draft.
+              {allowRateEdit
+                ? 'Adjust quantities and rates, then save.'
+                : 'Adjust quantities inline, then save to Zoho Draft.'}
             </p>
           )}
         </div>
-        <div className="so-draft-editor__actions">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={saving}
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={saving || lines.length === 0}
-            onClick={onSave}
-          >
-            {saving ? 'Saving…' : 'Save to Zoho'}
-          </button>
-        </div>
+        {!hideActions ? (
+          <div className="so-draft-editor__actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={saving}
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={saving || lines.length === 0}
+              onClick={onSave}
+            >
+              {saving ? 'Saving…' : saveLabel}
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <ul className="so-draft-editor__lines">
@@ -204,10 +228,32 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                 sku={line.sku}
                 description={line.description}
               >
-                <span className="text-muted text-sm">
-                  {formatCurrency(line.rate)}
-                  {line.stockStatus === 'out_of_stock' ? ' · Out of stock' : ''}
-                </span>
+                {allowRateEdit ? (
+                  <label className="so-draft-editor__rate">
+                    <span className="text-muted text-sm">Rate</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="input-field so-draft-editor__rate-input"
+                      value={line.rate}
+                      disabled={saving}
+                      onChange={e => setRate(line.productId, Number(e.target.value))}
+                      aria-label={`Rate for ${line.name}`}
+                    />
+                    {line.catalogRate != null
+                      && Math.round(line.catalogRate * 100) !== Math.round(line.rate * 100) ? (
+                        <span className="so-draft-editor__rate-was text-muted text-sm">
+                          was {formatCurrency(line.catalogRate)}
+                        </span>
+                      ) : null}
+                  </label>
+                ) : (
+                  <span className="text-muted text-sm">
+                    {formatCurrency(line.rate)}
+                    {line.stockStatus === 'out_of_stock' ? ' · Out of stock' : ''}
+                  </span>
+                )}
               </DocumentLineItemSpec>
               <QuantityStepper
                 value={line.quantity}
