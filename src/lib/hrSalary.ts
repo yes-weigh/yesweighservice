@@ -21,6 +21,7 @@ import type {
   HrSalaryPeriod,
   HrSalaryProject,
   HrWorkDayEntry,
+  HrWorkShiftEntry,
 } from '../types/hr-salary';
 import {
   HR_SALARY_HOURS_PER_DAY,
@@ -46,6 +47,7 @@ export type HrSalaryStaffRow = {
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
+  workShiftEntries: HrWorkShiftEntry[];
   overtimeEntries: HrOvertimeEntry[];
   /** Reused when copying a public share link for this staff+period. */
   publicShareToken: string | null;
@@ -193,6 +195,21 @@ export function createOvertimeEntry(
   };
 }
 
+export function createWorkShiftEntry(
+  date: string,
+  startTime = '09:00',
+  endTime = '13:00',
+  projectId: string | null = null,
+): HrWorkShiftEntry {
+  return {
+    id: newOvertimeEntryId(),
+    date,
+    startTime,
+    endTime,
+    projectId,
+  };
+}
+
 export function normalizeProjects(projects: HrSalaryProject[]): HrSalaryProject[] {
   const seen = new Set<string>();
   const normalized: HrSalaryProject[] = [];
@@ -263,6 +280,13 @@ export function normalizeOvertimeEntries(
     });
 }
 
+export function normalizeWorkShiftEntries(
+  entries: HrWorkShiftEntry[],
+  period: HrSalaryPeriod,
+): HrWorkShiftEntry[] {
+  return normalizeOvertimeEntries(entries, period);
+}
+
 export type HrProjectWorkTotal = {
   projectId: string | null;
   name: string;
@@ -302,6 +326,7 @@ export function projectWorkTotals(
   holidays: HrHoliday[],
   perDaySalary: number,
   otHourlyRate: number,
+  workShiftEntries: HrWorkShiftEntry[] = [],
 ): HrProjectWorkTotal[] {
   const byId = new Map<string, HrProjectWorkTotal>();
   for (const project of projects) {
@@ -311,6 +336,14 @@ export function projectWorkTotals(
   const ensureUnassigned = () => {
     if (!unassigned) unassigned = emptyProjectTotal(null, 'Unassigned', null);
     return unassigned;
+  };
+  const addRegular = (projectId: string | null, days: number) => {
+    if (!(days > 0)) return;
+    const row = projectId && byId.has(projectId)
+      ? byId.get(projectId)!
+      : ensureUnassigned();
+    row.regularDays = Math.round((row.regularDays + days) * 100) / 100;
+    row.regularPay = Math.round((row.regularPay + days * perDaySalary) * 100) / 100;
   };
 
   const monthHolidays = holidaysInMonth(holidays, period.year, period.month);
@@ -333,6 +366,12 @@ export function projectWorkTotals(
       new Set(projects.map(p => p.id)),
     ).map(e => [e.date, e.projectId]),
   );
+  const shiftsByDate = new Map<string, HrWorkShiftEntry[]>();
+  for (const entry of normalizeWorkShiftEntries(workShiftEntries, period)) {
+    const list = shiftsByDate.get(entry.date) ?? [];
+    list.push(entry);
+    shiftsByDate.set(entry.date, list);
+  }
 
   const total = daysInMonth(period.year, period.month);
   for (let day = 1; day <= total; day += 1) {
@@ -342,12 +381,28 @@ export function projectWorkTotals(
     const leaveKind = leaveMap.get(date);
     if (leaveKind === 'full') continue;
     const payable = leaveKind === 'half' ? 0.5 : 1;
-    const projectId = workMap.get(date) ?? null;
-    const row = projectId && byId.has(projectId)
-      ? byId.get(projectId)!
-      : ensureUnassigned();
-    row.regularDays = Math.round((row.regularDays + payable) * 100) / 100;
-    row.regularPay = Math.round((row.regularPay + payable * perDaySalary) * 100) / 100;
+    const shifts = shiftsByDate.get(date) ?? [];
+    if (shifts.length > 0) {
+      const portions = shifts.map(entry => {
+        const hours = overtimeEntryHours(entry.startTime, entry.endTime);
+        return {
+          projectId: entry.projectId && byId.has(entry.projectId) ? entry.projectId : null,
+          days: hours / HR_SALARY_HOURS_PER_DAY,
+        };
+      }).filter(p => p.days > 0);
+      const sumDays = portions.reduce((s, p) => s + p.days, 0);
+      const scale = sumDays > payable && sumDays > 0 ? payable / sumDays : 1;
+      let attributed = 0;
+      for (const portion of portions) {
+        const days = Math.round(portion.days * scale * 100) / 100;
+        attributed += days;
+        addRegular(portion.projectId, days);
+      }
+      const remainder = Math.round((payable - attributed) * 100) / 100;
+      if (remainder > 0.001) addRegular(null, remainder);
+    } else {
+      addRegular(workMap.get(date) ?? null, payable);
+    }
   }
 
   for (const entry of overtimeEntries) {
@@ -437,6 +492,7 @@ export function buildMonthDayCells(
   overtimeEntries: HrOvertimeEntry[] = [],
   projects: HrSalaryProject[] = [],
   workDayEntries: HrWorkDayEntry[] = [],
+  workShiftEntries: HrWorkShiftEntry[] = [],
 ): HrSalaryDayCell[] {
   const leaveMap = new Map(
     normalizeLeaveEntries(leaveEntries, period).map(e => [e.date, e.kind]),
@@ -463,6 +519,9 @@ export function buildMonthDayCells(
     colorsByDate.set(date, list);
   };
   for (const [date, projectId] of workMap) pushColor(date, projectId);
+  for (const entry of normalizeWorkShiftEntries(workShiftEntries, period)) {
+    pushColor(entry.date, entry.projectId);
+  }
   for (const entry of overtimeEntries) pushColor(entry.date, entry.projectId);
 
   const total = daysInMonth(period.year, period.month);
@@ -767,6 +826,23 @@ function mapLeaveEntries(data: Record<string, unknown>): HrLeaveEntry[] {
   return legacy.map(value => ({ date: String(value), kind: 'full' as const })).filter(e => e.date);
 }
 
+function mapWorkShiftEntries(data: Record<string, unknown>): HrWorkShiftEntry[] {
+  if (!Array.isArray(data.workShiftEntries)) return [];
+  return data.workShiftEntries.map((raw, index) => {
+    const row = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+    const projectId = row.projectId != null && String(row.projectId).trim()
+      ? String(row.projectId).trim()
+      : null;
+    return {
+      id: String(row.id ?? `workshift_${index}`),
+      date: String(row.date ?? ''),
+      startTime: String(row.startTime ?? ''),
+      endTime: String(row.endTime ?? ''),
+      projectId,
+    };
+  }).filter(e => e.date);
+}
+
 function mapSalaryDoc(id: string, data: Record<string, unknown>): HrSalaryMonthRecord {
   return {
     id,
@@ -780,6 +856,7 @@ function mapSalaryDoc(id: string, data: Record<string, unknown>): HrSalaryMonthR
     leaveEntries: mapLeaveEntries(data),
     projects: mapProjects(data),
     workDayEntries: mapWorkDayEntries(data),
+    workShiftEntries: mapWorkShiftEntries(data),
     overtimeEntries: mapOvertimeEntries(data),
     publicShareToken: data.publicShareToken != null && String(data.publicShareToken).trim()
       ? String(data.publicShareToken).trim()
@@ -817,7 +894,14 @@ export async function saveSalaryMonth(
   const leaveEntries = normalizeLeaveEntries(input.leaveEntries, period);
   const projects = normalizeProjects(input.projects);
   const projectIds = new Set(projects.map(p => p.id));
-  const workDayEntries = normalizeWorkDayEntries(input.workDayEntries, period, projectIds);
+  const workShiftEntries = normalizeWorkShiftEntries(input.workShiftEntries ?? [], period).map(entry => ({
+    ...entry,
+    projectId: entry.projectId && projectIds.has(entry.projectId) ? entry.projectId : null,
+  }));
+  const shiftDates = new Set(workShiftEntries.map(e => e.date));
+  // Whole-day XOR daytime shifts: drop whole-day rows for dates that have shifts.
+  const workDayEntries = normalizeWorkDayEntries(input.workDayEntries, period, projectIds)
+    .filter(e => !shiftDates.has(e.date));
   const overtimeEntries = normalizeOvertimeEntries(input.overtimeEntries, period).map(entry => ({
     ...entry,
     projectId: entry.projectId && projectIds.has(entry.projectId) ? entry.projectId : null,
@@ -841,6 +925,7 @@ export async function saveSalaryMonth(
       leaveDates: leaveEntries.filter(e => e.kind === 'full').map(e => e.date),
       projects,
       workDayEntries,
+      workShiftEntries,
       overtimeEntries,
       overtimeDates: [],
       updatedAt: new Date().toISOString(),
@@ -877,6 +962,7 @@ export async function buildSalaryCalculationRows(
       const leaveEntries = saved?.leaveEntries ?? [];
       const projects = saved?.projects ?? [];
       const workDayEntries = saved?.workDayEntries ?? [];
+      const workShiftEntries = saved?.workShiftEntries ?? [];
       const overtimeEntries = saved?.overtimeEntries ?? [];
       return {
         staffUid: key,
@@ -892,6 +978,7 @@ export async function buildSalaryCalculationRows(
         leaveEntries,
         projects,
         workDayEntries,
+        workShiftEntries,
         overtimeEntries,
         publicShareToken: saved?.publicShareToken ?? null,
         calc: computeSalaryCalc(

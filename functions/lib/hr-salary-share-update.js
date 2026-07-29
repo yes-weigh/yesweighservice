@@ -12,6 +12,7 @@ const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const MAX_PROJECTS = 40;
 const MAX_LEAVE = 62;
 const MAX_WORK_DAYS = 62;
+const MAX_WORK_SHIFTS = 200;
 const MAX_OT = 200;
 
 function periodKey(year, month) {
@@ -120,10 +121,10 @@ function normalizeWorkDays(raw, key, projectIds) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function normalizeOt(raw, key, projectIds) {
+function normalizeTimedShiftEntries(raw, key, projectIds, maxEntries, label) {
   if (!Array.isArray(raw)) return [];
-  if (raw.length > MAX_OT) {
-    throw new HttpsError('invalid-argument', `At most ${MAX_OT} overtime entries allowed.`);
+  if (raw.length > maxEntries) {
+    throw new HttpsError('invalid-argument', `At most ${maxEntries} ${label} entries allowed.`);
   }
   return raw
     .map(row => {
@@ -149,6 +150,14 @@ function normalizeOt(raw, key, projectIds) {
       if (byDate !== 0) return byDate;
       return a.startTime.localeCompare(b.startTime);
     });
+}
+
+function normalizeOt(raw, key, projectIds) {
+  return normalizeTimedShiftEntries(raw, key, projectIds, MAX_OT, 'overtime');
+}
+
+function normalizeWorkShifts(raw, key, projectIds) {
+  return normalizeTimedShiftEntries(raw, key, projectIds, MAX_WORK_SHIFTS, 'work-shift');
 }
 
 function normalizeHolidays(raw) {
@@ -192,7 +201,11 @@ export async function updatePublicSalaryShare(payload = {}) {
   const projects = normalizeProjects(payload.projects);
   const projectIds = new Set(projects.map(p => p.id));
   const leaveEntries = normalizeLeave(payload.leaveEntries, key);
-  const workDayEntries = normalizeWorkDays(payload.workDayEntries, key, projectIds);
+  const workShiftEntries = normalizeWorkShifts(payload.workShiftEntries, key, projectIds);
+  const shiftDates = new Set(workShiftEntries.map(e => e.date));
+  // Whole-day XOR daytime shifts: drop whole-day rows for dates that have shifts.
+  const workDayEntries = normalizeWorkDays(payload.workDayEntries, key, projectIds)
+    .filter(e => !shiftDates.has(e.date));
   const overtimeEntries = normalizeOt(payload.overtimeEntries, key, projectIds);
   const monthlySalary = Math.max(0, Number(payload.monthlySalary) || 0);
   const otPerDaySalary = Math.max(0, Number(payload.otPerDaySalary) || 0);
@@ -219,6 +232,7 @@ export async function updatePublicSalaryShare(payload = {}) {
     leaveDates: leaveEntries.filter(e => e.kind === 'full').map(e => e.date),
     projects,
     workDayEntries,
+    workShiftEntries,
     overtimeEntries,
     overtimeDates: [],
     publicShareToken: prevToken || token,
@@ -239,6 +253,7 @@ export async function updatePublicSalaryShare(payload = {}) {
     leaveEntries,
     projects,
     workDayEntries,
+    workShiftEntries,
     overtimeEntries,
     holidays,
     updatedAt: now,
@@ -255,6 +270,7 @@ export async function updatePublicSalaryShare(payload = {}) {
     leaveEntries,
     projects,
     workDayEntries,
+    workShiftEntries,
     overtimeEntries,
     holidays,
   };

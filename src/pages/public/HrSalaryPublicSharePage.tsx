@@ -5,6 +5,7 @@ import { APP_NAME } from '../../constants/brand';
 import {
   createOvertimeEntry,
   createSalaryProject,
+  createWorkShiftEntry,
   workProjectIdForDate,
 } from '../../lib/hrSalary';
 import {
@@ -18,6 +19,7 @@ import type {
   HrOvertimeEntry,
   HrSalaryProject,
   HrWorkDayEntry,
+  HrWorkShiftEntry,
 } from '../../types/hr-salary';
 
 const AUTOSAVE_MS = 700;
@@ -28,6 +30,7 @@ type DraftState = {
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
+  workShiftEntries: HrWorkShiftEntry[];
   overtimeEntries: HrOvertimeEntry[];
 };
 
@@ -43,6 +46,7 @@ function draftFromShare(share: HrSalaryShareRecord): DraftState {
     leaveEntries: share.leaveEntries.map(e => ({ ...e })),
     projects: share.projects.map(p => ({ ...p })),
     workDayEntries: share.workDayEntries.map(e => ({ ...e })),
+    workShiftEntries: (share.workShiftEntries ?? []).map(e => ({ ...e })),
     overtimeEntries: share.overtimeEntries.map(e => ({ ...e })),
   };
 }
@@ -132,6 +136,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         leaveEntries: current.leaveEntries,
         projects: current.projects,
         workDayEntries: current.workDayEntries,
+        workShiftEntries: current.workShiftEntries,
         overtimeEntries: current.overtimeEntries,
       });
       dirtyRef.current = false;
@@ -193,6 +198,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         leaveEntries: draft.leaveEntries,
         projects: draft.projects,
         workDayEntries: draft.workDayEntries,
+        workShiftEntries: draft.workShiftEntries,
         overtimeEntries: draft.overtimeEntries,
       };
     }
@@ -212,7 +218,20 @@ export const HrSalaryPublicSharePage: React.FC = () => {
           draft.projects,
         );
         setActiveProjectId(project.id);
-        patchDraft({ projects: [...draft.projects, project] });
+        const isFirst = draft.projects.length === 0;
+        patchDraft({
+          projects: [...draft.projects, project],
+          workShiftEntries: isFirst
+            ? draft.workShiftEntries.map(entry => (
+              entry.projectId ? entry : { ...entry, projectId: project.id }
+            ))
+            : draft.workShiftEntries,
+          overtimeEntries: isFirst
+            ? draft.overtimeEntries.map(entry => (
+              entry.projectId ? entry : { ...entry, projectId: project.id }
+            ))
+            : draft.overtimeEntries,
+        });
       },
       onRenameProject: (projectId: string, name: string) => {
         patchDraft({
@@ -225,6 +244,9 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         patchDraft({
           projects: draft.projects.filter(p => p.id !== projectId),
           workDayEntries: draft.workDayEntries.filter(e => e.projectId !== projectId),
+          workShiftEntries: draft.workShiftEntries.map(e => (
+            e.projectId === projectId ? { ...e, projectId: null } : e
+          )),
           overtimeEntries: draft.overtimeEntries.map(e => (
             e.projectId === projectId ? { ...e, projectId: null } : e
           )),
@@ -248,6 +270,51 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         if (projectId) setActiveProjectId(projectId);
         patchDraft({
           workDayEntries: next.sort((a, b) => a.date.localeCompare(b.date)),
+          workShiftEntries: draft.workShiftEntries.filter(e => e.date !== date),
+        });
+      },
+      onAddWorkShift: (date: string) => {
+        let projects = draft.projects;
+        const dayProject = workProjectIdForDate(draft.workDayEntries, date);
+        let projectId = (
+          dayProject
+          || (activeProjectId && projects.some(p => p.id === activeProjectId)
+            ? activeProjectId
+            : null)
+          || projects[0]?.id
+          || null
+        );
+        if (!projectId) {
+          const project = createSalaryProject('Project 1', projects);
+          projects = [project];
+          projectId = project.id;
+        }
+        if (activeProjectId !== projectId) setActiveProjectId(projectId);
+        const existing = draft.workShiftEntries.filter(e => e.date === date);
+        const startTime = existing.length === 0 ? '09:00' : '14:00';
+        const endTime = existing.length === 0 ? '13:00' : '18:00';
+        patchDraft({
+          projects,
+          workDayEntries: draft.workDayEntries.filter(e => e.date !== date),
+          workShiftEntries: [
+            ...draft.workShiftEntries,
+            createWorkShiftEntry(date, startTime, endTime, projectId),
+          ],
+        });
+      },
+      onPatchWorkShift: (
+        entryId: string,
+        patch: Partial<Pick<HrWorkShiftEntry, 'startTime' | 'endTime' | 'projectId'>>,
+      ) => {
+        patchDraft({
+          workShiftEntries: draft.workShiftEntries.map(entry => (
+            entry.id === entryId ? { ...entry, ...patch } : entry
+          )),
+        });
+      },
+      onRemoveWorkShift: (entryId: string) => {
+        patchDraft({
+          workShiftEntries: draft.workShiftEntries.filter(e => e.id !== entryId),
         });
       },
       onAddOt: (date: string) => {
@@ -353,6 +420,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
           leaveEntries={display.leaveEntries}
           projects={display.projects}
           workDayEntries={display.workDayEntries}
+          workShiftEntries={display.workShiftEntries}
           overtimeEntries={display.overtimeEntries}
           holidays={display.holidays}
           edit={editHandlers}

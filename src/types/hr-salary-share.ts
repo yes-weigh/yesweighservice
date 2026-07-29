@@ -4,6 +4,7 @@ import type {
   HrSalaryPeriod,
   HrSalaryProject,
   HrWorkDayEntry,
+  HrWorkShiftEntry,
 } from './hr-salary';
 
 /** Holiday fields embedded in a public salary share (no private holiday collection access). */
@@ -29,6 +30,7 @@ export type HrSalaryShareRecord = {
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
+  workShiftEntries: HrWorkShiftEntry[];
   overtimeEntries: HrOvertimeEntry[];
   holidays: HrSalaryShareHoliday[];
   createdAt: string;
@@ -46,6 +48,7 @@ export type HrSalaryShareInput = {
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
+  workShiftEntries: HrWorkShiftEntry[];
   overtimeEntries: HrOvertimeEntry[];
   holidays: HrSalaryShareHoliday[];
 };

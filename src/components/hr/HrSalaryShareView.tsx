@@ -24,6 +24,7 @@ import {
   type HrSalaryPeriod,
   type HrSalaryProject,
   type HrWorkDayEntry,
+  type HrWorkShiftEntry,
 } from '../../types/hr-salary';
 import type { HrSalaryShareHoliday } from '../../types/hr-salary-share';
 
@@ -39,6 +40,12 @@ export type HrSalaryShareEditHandlers = {
   onSelectDate: (date: string | null) => void;
   onSetLeave: (date: string, kind: HrLeaveKind | null) => void;
   onSetDayProject: (date: string, projectId: string | null) => void;
+  onAddWorkShift: (date: string) => void;
+  onPatchWorkShift: (
+    entryId: string,
+    patch: Partial<Pick<HrWorkShiftEntry, 'startTime' | 'endTime' | 'projectId'>>,
+  ) => void;
+  onRemoveWorkShift: (entryId: string) => void;
   onAddOt: (date: string) => void;
   onPatchOt: (
     entryId: string,
@@ -57,6 +64,7 @@ export type HrSalaryShareViewProps = {
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
+  workShiftEntries?: HrWorkShiftEntry[];
   overtimeEntries: HrOvertimeEntry[];
   holidays: HrHoliday[] | HrSalaryShareHoliday[];
   /** When set, rates / projects / calendar are editable. */
@@ -102,6 +110,7 @@ export function HrSalaryShareView({
   leaveEntries,
   projects,
   workDayEntries,
+  workShiftEntries = [],
   overtimeEntries,
   holidays: holidaysInput,
   edit = null,
@@ -145,8 +154,9 @@ export function HrSalaryShareView({
       overtimeEntries,
       projects,
       workDayEntries,
+      workShiftEntries,
     ),
-    [period, holidays, leaveEntries, overtimeEntries, projects, workDayEntries],
+    [period, holidays, leaveEntries, overtimeEntries, projects, workDayEntries, workShiftEntries],
   );
   const leadingPads = new Date(period.year, period.month - 1, 1).getDay();
   const projectTotals = useMemo(
@@ -159,6 +169,7 @@ export function HrSalaryShareView({
       holidays,
       calc.perDaySalary,
       calc.otHourlyRate,
+      workShiftEntries,
     ),
     [
       projects,
@@ -169,6 +180,7 @@ export function HrSalaryShareView({
       holidays,
       calc.perDaySalary,
       calc.otHourlyRate,
+      workShiftEntries,
     ],
   );
   const otLines = useMemo(
@@ -450,10 +462,16 @@ export function HrSalaryShareView({
               }
               projects={projects}
               dayProjectId={workProjectIdForDate(workDayEntries, selectedDate)}
+              workShifts={workShiftEntries
+                .filter(e => e.date === selectedDate)
+                .sort((a, b) => a.startTime.localeCompare(b.startTime))}
               entries={overtimeEntries.filter(e => e.date === selectedDate)}
               onClose={() => edit.onSelectDate(null)}
               onSetLeave={kind => edit.onSetLeave(selectedDate, kind)}
               onSetDayProject={projectId => edit.onSetDayProject(selectedDate, projectId)}
+              onAddWorkShift={() => edit.onAddWorkShift(selectedDate)}
+              onPatchWorkShift={edit.onPatchWorkShift}
+              onRemoveWorkShift={edit.onRemoveWorkShift}
               onAddOt={() => edit.onAddOt(selectedDate)}
               onPatchOt={edit.onPatchOt}
               onRemoveOt={edit.onRemoveOt}

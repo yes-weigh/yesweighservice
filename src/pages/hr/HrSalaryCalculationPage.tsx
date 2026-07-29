@@ -14,6 +14,7 @@ import {
   computeSalaryCalc,
   createOvertimeEntry,
   createSalaryProject,
+  createWorkShiftEntry,
   formatInr,
   formatLeaveDays,
   formatOtHours,
@@ -45,6 +46,7 @@ import {
   type HrSalaryPeriod,
   type HrSalaryProject,
   type HrWorkDayEntry,
+  type HrWorkShiftEntry,
 } from '../../types/hr-salary';
 import {
   STAFF_DEPARTMENTS,
@@ -64,6 +66,7 @@ type DraftRow = {
   leaveEntries: Array<{ date: string; kind: HrLeaveKind }>;
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
+  workShiftEntries: HrWorkShiftEntry[];
   overtimeEntries: HrOvertimeEntry[];
   dirty: boolean;
   saving: boolean;
@@ -101,6 +104,7 @@ function emptyDraft(row: HrSalaryStaffRow): DraftRow {
     leaveEntries: row.leaveEntries.map(e => ({ ...e })),
     projects: row.projects.map(p => ({ ...p })),
     workDayEntries: row.workDayEntries.map(e => ({ ...e })),
+    workShiftEntries: (row.workShiftEntries ?? []).map(e => ({ ...e })),
     overtimeEntries: row.overtimeEntries.map(e => ({ ...e })),
     dirty: false,
     saving: false,
@@ -219,6 +223,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
       const leaveEntries = draft.leaveEntries.map(e => ({ ...e }));
       const projects = draft.projects.map(p => ({ ...p }));
       const workDayEntries = draft.workDayEntries.map(e => ({ ...e }));
+      const workShiftEntries = draft.workShiftEntries.map(e => ({ ...e }));
       const overtimeEntries = draft.overtimeEntries.map(e => ({ ...e }));
       await saveSalaryMonth(
         {
@@ -230,6 +235,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           leaveEntries,
           projects,
           workDayEntries,
+          workShiftEntries,
           overtimeEntries,
         },
         user.uid,
@@ -252,6 +258,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
             leaveEntries,
             projects,
             workDayEntries,
+            workShiftEntries,
             overtimeEntries,
             holidays: monthHs.map(h => ({ date: h.date, name: h.name })),
           },
@@ -278,6 +285,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           leaveEntries,
           projects,
           workDayEntries,
+          workShiftEntries,
           overtimeEntries,
           calc,
         };
@@ -293,6 +301,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           || JSON.stringify(cur.leaveEntries) !== JSON.stringify(leaveEntries)
           || JSON.stringify(cur.projects) !== JSON.stringify(projects)
           || JSON.stringify(cur.workDayEntries) !== JSON.stringify(workDayEntries)
+          || JSON.stringify(cur.workShiftEntries) !== JSON.stringify(workShiftEntries)
           || JSON.stringify(cur.overtimeEntries) !== JSON.stringify(overtimeEntries)
         );
         return {
@@ -415,6 +424,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     const isFirst = draft.projects.length === 0;
     updateDraft(uid, {
       projects: [...draft.projects, project],
+      workShiftEntries: isFirst
+        ? draft.workShiftEntries.map(entry => (
+          entry.projectId ? entry : { ...entry, projectId: project.id }
+        ))
+        : draft.workShiftEntries,
       overtimeEntries: isFirst
         ? draft.overtimeEntries.map(entry => (
           entry.projectId ? entry : { ...entry, projectId: project.id }
@@ -441,6 +455,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     updateDraft(uid, {
       projects: draft.projects.filter(p => p.id !== projectId),
       workDayEntries: draft.workDayEntries.filter(e => e.projectId !== projectId),
+      workShiftEntries: draft.workShiftEntries.map(entry => (
+        entry.projectId === projectId ? { ...entry, projectId: null } : entry
+      )),
       overtimeEntries: draft.overtimeEntries.map(entry => (
         entry.projectId === projectId ? { ...entry, projectId: null } : entry
       )),
@@ -458,9 +475,64 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     const nextWork = draft.workDayEntries.filter(e => e.date !== date);
     if (projectId) nextWork.push({ date, projectId });
     if (projectId) setActiveProjectId(projectId);
-    // Daytime and OT projects are independent (e.g. yesone by day, gatc OT).
+    // Whole-day mode clears timed daytime shifts for this date.
     updateDraft(uid, {
       workDayEntries: nextWork.sort((a, b) => a.date.localeCompare(b.date)),
+      workShiftEntries: draft.workShiftEntries.filter(e => e.date !== date),
+    });
+  };
+
+  const addWorkShiftEntry = (uid: string, date: string) => {
+    if (!canEdit) return;
+    const draft = drafts[uid];
+    if (!draft) return;
+    let projects = draft.projects;
+    const dayProject = workProjectIdForDate(draft.workDayEntries, date);
+    let projectId = (
+      dayProject
+      || (activeProjectId && projects.some(p => p.id === activeProjectId) ? activeProjectId : null)
+      || projects[0]?.id
+      || null
+    );
+    if (!projectId) {
+      const project = createSalaryProject('Project 1', projects);
+      projects = [project];
+      projectId = project.id;
+    }
+    if (activeProjectId !== projectId) setActiveProjectId(projectId);
+    const existing = draft.workShiftEntries.filter(e => e.date === date);
+    const startTime = existing.length === 0 ? '09:00' : '14:00';
+    const endTime = existing.length === 0 ? '13:00' : '18:00';
+    updateDraft(uid, {
+      projects,
+      // Timed shifts override whole-day assignment.
+      workDayEntries: draft.workDayEntries.filter(e => e.date !== date),
+      workShiftEntries: [
+        ...draft.workShiftEntries,
+        createWorkShiftEntry(date, startTime, endTime, projectId),
+      ],
+    });
+  };
+
+  const patchWorkShiftEntry = (
+    uid: string,
+    entryId: string,
+    patch: Partial<Pick<HrWorkShiftEntry, 'startTime' | 'endTime' | 'projectId'>>,
+  ) => {
+    const draft = drafts[uid];
+    if (!draft) return;
+    updateDraft(uid, {
+      workShiftEntries: draft.workShiftEntries.map(entry => (
+        entry.id === entryId ? { ...entry, ...patch } : entry
+      )),
+    });
+  };
+
+  const removeWorkShiftEntry = (uid: string, entryId: string) => {
+    const draft = drafts[uid];
+    if (!draft) return;
+    updateDraft(uid, {
+      workShiftEntries: draft.workShiftEntries.filter(entry => entry.id !== entryId),
     });
   };
 
@@ -535,6 +607,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           leaveEntries: draft.leaveEntries,
           projects: draft.projects,
           workDayEntries: draft.workDayEntries,
+          workShiftEntries: draft.workShiftEntries,
           overtimeEntries: draft.overtimeEntries,
           holidays: monthHs.map(h => ({ date: h.date, name: h.name })),
         },
@@ -671,6 +744,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           leaveEntries: [],
           projects: [],
           workDayEntries: [],
+          workShiftEntries: [],
           overtimeEntries: [],
         },
         user.uid,
@@ -882,6 +956,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                 draft.overtimeEntries,
                 draft.projects,
                 draft.workDayEntries,
+                draft.workShiftEntries,
               );
               const leadingPads = new Date(period.year, period.month - 1, 1).getDay();
               const monthlyValue = Number.parseFloat(draft.monthlySalary) || 0;
@@ -895,6 +970,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                 holidays,
                 calc.perDaySalary,
                 calc.otHourlyRate,
+                draft.workShiftEntries,
               );
               const otLines = draft.overtimeEntries
                 .map(entry => {
@@ -1262,6 +1338,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                     draft.workDayEntries,
                                     selectedDate,
                                   )}
+                                  workShifts={draft.workShiftEntries
+                                    .filter(e => e.date === selectedDate)
+                                    .sort((a, b) => a.startTime.localeCompare(b.startTime))}
                                   entries={draft.overtimeEntries
                                     .filter(e => e.date === selectedDate)
                                     .sort((a, b) => a.startTime.localeCompare(b.startTime))}
@@ -1271,6 +1350,16 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                     row.staffUid,
                                     selectedDate,
                                     projectId,
+                                  )}
+                                  onAddWorkShift={() => addWorkShiftEntry(row.staffUid, selectedDate)}
+                                  onPatchWorkShift={(entryId, patch) => patchWorkShiftEntry(
+                                    row.staffUid,
+                                    entryId,
+                                    patch,
+                                  )}
+                                  onRemoveWorkShift={entryId => removeWorkShiftEntry(
+                                    row.staffUid,
+                                    entryId,
                                   )}
                                   onAddOt={() => addOtEntry(row.staffUid, selectedDate)}
                                   onPatchOt={(entryId, patch) => patchOtEntry(row.staffUid, entryId, patch)}

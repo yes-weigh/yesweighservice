@@ -9,6 +9,7 @@ import type {
   HrSalaryPeriod,
   HrSalaryProject,
   HrWorkDayEntry,
+  HrWorkShiftEntry,
 } from '../types/hr-salary';
 import { salaryPeriodKey } from '../types/hr-salary';
 import type { HrHoliday } from '../types/hr-holiday';
@@ -70,6 +71,20 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
         };
       }).filter(e => e.date && e.projectId)
     : [];
+  const workShiftEntries = Array.isArray(data.workShiftEntries)
+    ? data.workShiftEntries.map(raw => {
+        const row = raw as Record<string, unknown>;
+        return {
+          id: String(row.id ?? ''),
+          date: String(row.date ?? ''),
+          startTime: String(row.startTime ?? ''),
+          endTime: String(row.endTime ?? ''),
+          projectId: row.projectId != null && row.projectId !== ''
+            ? String(row.projectId)
+            : null,
+        };
+      }).filter(e => e.id && e.date)
+    : [];
   const overtimeEntries = Array.isArray(data.overtimeEntries)
     ? data.overtimeEntries.map(raw => {
         const row = raw as Record<string, unknown>;
@@ -108,6 +123,7 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
     leaveEntries,
     projects,
     workDayEntries,
+    workShiftEntries,
     overtimeEntries,
     holidays,
     createdAt: String(data.createdAt ?? ''),
@@ -157,6 +173,7 @@ export type PublicSalaryShareUpdateInput = {
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
+  workShiftEntries: HrWorkShiftEntry[];
   overtimeEntries: HrOvertimeEntry[];
 };
 
@@ -210,6 +227,7 @@ export async function upsertSalaryShare(
       leaveEntries: input.leaveEntries,
       projects: input.projects,
       workDayEntries: input.workDayEntries,
+      workShiftEntries: input.workShiftEntries ?? [],
       overtimeEntries: input.overtimeEntries,
       holidays: input.holidays,
       updatedAt: now,

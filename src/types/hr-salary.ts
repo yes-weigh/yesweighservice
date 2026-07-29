@@ -20,6 +20,19 @@ export type HrWorkDayEntry = {
   projectId: string;
 };
 
+/** Timed regular (non-OT) work on a calendar day — optional split across projects. */
+export type HrWorkShiftEntry = {
+  id: string;
+  /** `yyyy-MM-dd` */
+  date: string;
+  /** `HH:mm` 24h */
+  startTime: string;
+  /** `HH:mm` 24h — may be earlier than start when the shift crosses midnight */
+  endTime: string;
+  /** Owning project; null/empty = unassigned. */
+  projectId: string | null;
+};
+
 /** One overtime shift on a calendar day (morning / night / etc.). */
 export type HrOvertimeEntry = {
   id: string;
@@ -61,8 +74,10 @@ export type HrSalaryMonthRecord = {
   leaveEntries: HrLeaveEntry[];
   /** Projects for grouping regular work + OT in this month. */
   projects: HrSalaryProject[];
-  /** Regular work day → project assignments. */
+  /** Regular work day → project assignments (whole-day mode). */
   workDayEntries: HrWorkDayEntry[];
+  /** Timed daytime shifts (optional split across projects). */
+  workShiftEntries: HrWorkShiftEntry[];
   /** Timed OT shifts (one or more per day). */
   overtimeEntries: HrOvertimeEntry[];
   /** Unguessable token for `/s/salary/:token` public share page. */
@@ -80,6 +95,7 @@ export type HrSalaryMonthInput = {
   leaveEntries: HrLeaveEntry[];
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
+  workShiftEntries: HrWorkShiftEntry[];
   overtimeEntries: HrOvertimeEntry[];
 };
 
