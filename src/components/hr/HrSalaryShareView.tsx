@@ -361,6 +361,16 @@ export function HrSalaryShareView({
                   || cell.kind === 'working'
                 );
                 const showAsWorkday = hasWork && !fullLeave && !halfLeave && !sunday;
+                const dayTitle = [
+                  cell.hasUnassignedRegular
+                    ? 'Unassigned regular day — set a whole-day project or daytime shifts'
+                    : null,
+                  hasOt ? `${formatOtHours(cell.overtimeHours)} OT` : null,
+                  cell.kind === 'holiday' ? cell.holidayName : null,
+                  cell.kind === 'sunday' && !hasOt ? 'Sunday' : null,
+                  cell.kind === 'leave' ? 'Full-day leave' : null,
+                  cell.kind === 'leave_half' ? 'Half-day leave' : null,
+                ].filter(Boolean).join(' · ') || cell.date;
                 const DayTag = editable ? 'button' : 'div';
                 const dayProps = editable && edit
                   ? {
@@ -372,19 +382,7 @@ export function HrSalaryShareView({
                   <DayTag
                     key={cell.date}
                     {...dayProps}
-                    title={
-                      hasOt
-                        ? `${formatOtHours(cell.overtimeHours)} OT`
-                        : cell.kind === 'holiday'
-                          ? cell.holidayName
-                          : cell.kind === 'sunday'
-                            ? 'Sunday'
-                            : cell.kind === 'leave'
-                              ? 'Full-day leave'
-                              : cell.kind === 'leave_half'
-                                ? 'Half-day leave'
-                                : cell.date
-                    }
+                    title={dayTitle}
                     className={[
                       'hr-salary__day',
                       editable ? '' : 'is-readonly',
@@ -392,6 +390,7 @@ export function HrSalaryShareView({
                       hasOt ? 'has-ot' : '',
                       showAsWorkday ? 'is-regular' : '',
                       sunday && hasOt ? 'is-sunday-ot' : '',
+                      cell.hasUnassignedRegular ? 'has-unassigned' : '',
                       `is-${cell.kind}`,
                       selectedDate === cell.date ? 'is-selected' : '',
                       halfLeave && hasOt ? 'has-leave-half' : '',
@@ -400,7 +399,7 @@ export function HrSalaryShareView({
                   >
                     <span className="hr-salary__day-num">{cell.day}</span>
                     {hasOt ? <span className="hr-salary__day-ot-badge">OT</span> : null}
-                    {cell.projectColors.length > 0 ? (
+                    {cell.projectColors.length > 0 || cell.hasUnassignedRegular ? (
                       <span className="hr-salary__day-dots" aria-hidden>
                         {cell.projectColors.map(color => (
                           <i
@@ -409,6 +408,12 @@ export function HrSalaryShareView({
                             style={{ background: color }}
                           />
                         ))}
+                        {cell.hasUnassignedRegular ? (
+                          <i
+                            className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty"
+                            title="Unassigned"
+                          />
+                        ) : null}
                       </span>
                     ) : null}
                   </DayTag>
@@ -447,6 +452,10 @@ export function HrSalaryShareView({
                 {project.name}
               </span>
             ))}
+            <span className="hr-salary__legend-item">
+              <i className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty" />
+              Unassigned day
+            </span>
           </div>
 
           {editable && edit && selectedDate ? (

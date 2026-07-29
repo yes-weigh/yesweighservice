@@ -118,6 +118,12 @@ export type HrSalaryDayCell = {
   leaveKind?: HrLeaveKind | null;
   /** Distinct project colors tagged on this date (work day + OT). */
   projectColors: string[];
+  /**
+   * Payable weekday with regular pay not fully attributed to a project
+   * (no whole-day / daytime shifts, or under-filled shift remainder).
+   * OT-only project tags do not clear this.
+   */
+  hasUnassignedRegular: boolean;
 };
 
 export type HrSalaryCalc = {

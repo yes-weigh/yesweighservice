@@ -501,13 +501,29 @@ export function buildMonthDayCells(
   const holidayMap = new Map(
     holidaysInMonth(holidays, period.year, period.month).map(h => [h.date, h.name]),
   );
+  const projectIds = new Set(projects.map(p => p.id));
   const colorByProject = new Map(projects.map(p => [p.id, p.color]));
   const workMap = new Map(
     normalizeWorkDayEntries(
       workDayEntries,
       period,
-      new Set(projects.map(p => p.id)),
+      projectIds,
     ).map(e => [e.date, e.projectId]),
+  );
+  const shiftsByDate = new Map<string, HrWorkShiftEntry[]>();
+  for (const entry of normalizeWorkShiftEntries(workShiftEntries, period)) {
+    const list = shiftsByDate.get(entry.date) ?? [];
+    list.push(entry);
+    shiftsByDate.set(entry.date, list);
+  }
+  const weekdayHolidayDates = new Set(
+    holidaysInMonth(holidays, period.year, period.month)
+      .filter(h => {
+        const [y, m, d] = h.date.split('-').map(Number);
+        if (!y || !m || !d) return false;
+        return new Date(y, m - 1, d).getDay() !== 0;
+      })
+      .map(h => h.date),
   );
   const colorsByDate = new Map<string, string[]>();
   const pushColor = (date: string, projectId: string | null | undefined) => {
@@ -524,6 +540,31 @@ export function buildMonthDayCells(
   }
   for (const entry of overtimeEntries) pushColor(entry.date, entry.projectId);
 
+  const hasUnassignedRegular = (date: string, isSunday: boolean, leaveKind: HrLeaveKind | null) => {
+    if (isSunday || weekdayHolidayDates.has(date)) return false;
+    if (leaveKind === 'full') return false;
+    const payable = leaveKind === 'half' ? 0.5 : 1;
+    const shifts = shiftsByDate.get(date) ?? [];
+    if (shifts.length > 0) {
+      const portions = shifts.map(entry => {
+        const hours = overtimeEntryHours(entry.startTime, entry.endTime);
+        return {
+          projectId: entry.projectId && projectIds.has(entry.projectId) ? entry.projectId : null,
+          days: hours / HR_SALARY_HOURS_PER_DAY,
+        };
+      }).filter(p => p.days > 0);
+      if (portions.some(p => p.projectId == null)) return true;
+      const sumDays = portions.reduce((s, p) => s + p.days, 0);
+      const scale = sumDays > payable && sumDays > 0 ? payable / sumDays : 1;
+      let attributed = 0;
+      for (const portion of portions) {
+        attributed += Math.round(portion.days * scale * 100) / 100;
+      }
+      return Math.round((payable - attributed) * 100) / 100 > 0.001;
+    }
+    return !workMap.has(date);
+  };
+
   const total = daysInMonth(period.year, period.month);
   const cells: HrSalaryDayCell[] = [];
   for (let day = 1; day <= total; day += 1) {
@@ -534,6 +575,7 @@ export function buildMonthDayCells(
     const isSunday = dow === 0;
     const leaveKind = leaveMap.get(date) ?? null;
     const projectColors = colorsByDate.get(date) ?? [];
+    const unassignedRegular = hasUnassignedRegular(date, isSunday, leaveKind);
 
     if (hours > 0) {
       cells.push({
@@ -544,6 +586,7 @@ export function buildMonthDayCells(
         overtimeHours: hours,
         leaveKind,
         projectColors,
+        hasUnassignedRegular: unassignedRegular,
       });
     } else if (isSunday) {
       cells.push({
@@ -553,6 +596,7 @@ export function buildMonthDayCells(
         overtimeHours: 0,
         leaveKind: null,
         projectColors,
+        hasUnassignedRegular: false,
       });
     } else if (holidayName) {
       cells.push({
@@ -563,6 +607,7 @@ export function buildMonthDayCells(
         overtimeHours: 0,
         leaveKind: null,
         projectColors,
+        hasUnassignedRegular: unassignedRegular,
       });
     } else if (leaveKind === 'half') {
       cells.push({
@@ -572,6 +617,7 @@ export function buildMonthDayCells(
         overtimeHours: 0,
         leaveKind: 'half',
         projectColors,
+        hasUnassignedRegular: unassignedRegular,
       });
     } else if (leaveKind === 'full') {
       cells.push({
@@ -581,6 +627,7 @@ export function buildMonthDayCells(
         overtimeHours: 0,
         leaveKind: 'full',
         projectColors,
+        hasUnassignedRegular: false,
       });
     } else {
       cells.push({
@@ -590,6 +637,7 @@ export function buildMonthDayCells(
         overtimeHours: 0,
         leaveKind: null,
         projectColors,
+        hasUnassignedRegular: unassignedRegular,
       });
     }
   }

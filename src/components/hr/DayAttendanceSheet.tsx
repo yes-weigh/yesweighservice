@@ -266,6 +266,11 @@ export function DayAttendanceSheet({
               Timed daytime shifts are set — whole-day project is ignored.
             </p>
           ) : null}
+          {canSetLeave && !hasWorkShifts && !dayProjectId ? (
+            <p className="hr-salary__unassigned-hint" role="status">
+              Regular pay for this day is Unassigned — pick a project or add daytime shifts.
+            </p>
+          ) : null}
         </section>
 
         <ShiftRows
