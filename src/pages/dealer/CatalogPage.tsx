@@ -62,6 +62,7 @@ import {
   syncCatalog,
   uploadCatalogCategoryThumbnail,
   resolveSkuLabelRackStatus,
+  isGenericSparePartsCategory,
 } from '../../lib/catalog';
 import { getOpenAuditCycle, listOpenAuditCycles } from '../../lib/auditCycles/data';
 import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
@@ -1929,6 +1930,10 @@ export const CatalogPage: React.FC = () => {
       )}
 
       {focus === 'browse' && (() => {
+        const activeCategory = (catalog?.categories ?? []).find(c => c.id === categoryId);
+        const browseBasePath = activeCategory && isGenericSparePartsCategory(activeCategory)
+          ? `${pathname}/spare`
+          : pathname;
         const browsePanel = (
           <CatalogBrowse
             products={isSuperAdmin ? filteredBrowseProducts : browseProducts}
@@ -1940,7 +1945,7 @@ export const CatalogPage: React.FC = () => {
             onCategoriesReorder={canSync ? cats => void handleCategoriesReorder(cats) : undefined}
             onCategoryProductsReorder={canSync ? (catId, products) => void handleCategoryProductsReorder(catId, products) : undefined}
             onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
-            productsBasePath={pathname}
+            productsBasePath={browseBasePath}
             enableCart={canUseCart(user?.role)}
             showStockQuantity={showStockQuantity}
             hideFilterBar
