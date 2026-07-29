@@ -8967,6 +8967,53 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.2rem;
 }
 
+.product-detail-page__gatc-display {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  margin-top: 0.1rem;
+}
+
+.product-detail-page__gatc-display-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: inherit;
+  opacity: 0.72;
+}
+
+.product-detail-page__gatc-display-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.product-detail-page__gatc-display-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 58, 237, 0.22);
+  background: rgba(124, 58, 237, 0.08);
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.product-detail-page__gatc-display-range {
+  font-weight: 600;
+  color: inherit;
+}
+
+.product-detail-page__gatc-display-price {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.78;
+}
+
 .product-detail-page__gatc-hint {
   margin: 0.15rem 0 0.4rem;
   font-size: 0.78rem;
@@ -8998,14 +9045,92 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .product-detail-page__gatc-option.is-selected {
-  border-color: rgba(249, 115, 22, 0.85);
-  background: rgba(249, 115, 22, 0.18);
-  color: #ffedd5;
+  border-color: #ea580c;
+  background: #ea580c;
+  color: #fff7ed;
 }
 
 .product-detail-page__gatc-option:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.gatc-stamp-dialog {
+  width: min(420px, calc(100vw - 2rem));
+  max-height: min(90vh, 640px);
+  overflow: auto;
+  padding: 1.1rem 1.15rem 1.15rem;
+}
+
+.gatc-stamp-dialog__product {
+  margin: -0.35rem 0 0.85rem;
+}
+
+.gatc-stamp-dialog__choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.gatc-stamp-dialog__choice,
+.gatc-stamp-dialog__range {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.35);
+  color: inherit;
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.gatc-stamp-dialog__choice strong,
+.gatc-stamp-dialog__range {
+  font-weight: 700;
+}
+
+.gatc-stamp-dialog__choice span {
+  font-size: 0.82rem;
+  opacity: 0.78;
+}
+
+.gatc-stamp-dialog__choice:hover,
+.gatc-stamp-dialog__range:hover {
+  border-color: rgba(234, 88, 12, 0.55);
+}
+
+.gatc-stamp-dialog__choice.is-selected,
+.gatc-stamp-dialog__range.is-selected {
+  border-color: #ea580c;
+  background: rgba(234, 88, 12, 0.16);
+}
+
+.gatc-stamp-dialog__ranges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.gatc-stamp-dialog__summary {
+  margin: 0 0 0.85rem;
+}
+
+.orders-page__item-price-breakdown {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+}
+
+.orders-page__stamp-btn {
+  margin-top: 0.35rem;
 }
 
 .product-detail-page__meta-chips .product-detail-page__sku {

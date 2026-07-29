@@ -110,7 +110,13 @@ async function call<TReq, TRes>(name: string, data?: TReq, timeout = 60_000): Pr
 
 export async function updateDraftSalesOrderLines(
   salesOrderId: string,
-  lines: Array<{ productId: string; quantity: number; rate?: number }>,
+  lines: Array<{
+    productId: string;
+    quantity: number;
+    /** Staff: base product rate (server adds GATC fee). */
+    rate?: number;
+    gatcStampingPriceId?: string | null;
+  }>,
 ): Promise<SalesOrderWorkflowDetail> {
   try {
     return await call('updateDraftSalesOrderLines', { salesOrderId, lines }, 180_000);
@@ -121,7 +127,13 @@ export async function updateDraftSalesOrderLines(
 
 export async function createStaffSalesOrder(input: {
   zohoCustomerId: string;
-  lines: Array<{ productId: string; quantity: number; rate?: number }>;
+  lines: Array<{
+    productId: string;
+    quantity: number;
+    /** Staff: base product rate (server adds GATC fee). */
+    rate?: number;
+    gatcStampingPriceId?: string | null;
+  }>;
   shipping: ShippingSelection;
   stage: 'review' | 'ready_for_payment';
   remarks?: string;

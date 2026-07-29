@@ -4,11 +4,16 @@ import { IndianRupee, Package, ShoppingCart, Trash2 } from 'lucide-react';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
+import {
+  GatcStampingChoiceDialog,
+  type GatcStampingChoice,
+} from '../../components/catalog/GatcStampingChoiceDialog';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
 import { fetchCatalog, formatCurrency } from '../../lib/catalog';
+import { productHasLinkedGatc } from '../../lib/gatcCart';
 import { isSacHsn } from '../../lib/sacCatalog';
 import { dealerOrderErrorMessage, submitDealerOrder } from '../../lib/dealerOrders';
 import {
@@ -18,6 +23,8 @@ import {
 } from '../../lib/shippingAddresses';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
+import type { CartItem } from '../../types/cart';
+import type { CatalogProduct } from '../../types/catalog';
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
@@ -42,6 +49,7 @@ const DealerCartPage: React.FC = () => {
     setRemarks,
     setQuantity,
     removeItem,
+    updateStamping,
     clearCart,
   } = useCart();
   const [submitting, setSubmitting] = useState(false);
@@ -50,23 +58,28 @@ const DealerCartPage: React.FC = () => {
   const [addressesError, setAddressesError] = useState('');
   const [shipping, setShipping] = useState<ShippingSelection | null>(null);
   const [descByProductId, setDescByProductId] = useState<Record<string, string>>({});
+  const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
+  const [stampEditLine, setStampEditLine] = useState<CartItem | null>(null);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/catalog`;
 
   useEffect(() => {
     const missing = items.filter(item => !item.description?.trim()).map(item => item.productId);
-    if (missing.length === 0) return;
+    if (missing.length === 0 && items.length === 0) return;
     let cancelled = false;
     void fetchCatalog()
       .then(res => {
         if (cancelled) return;
-        const next: Record<string, string> = {};
+        const nextDesc: Record<string, string> = {};
+        const nextCatalog: Record<string, CatalogProduct> = {};
         for (const product of res.items) {
+          nextCatalog[product.id] = product;
           const desc = product.description?.trim();
-          if (desc && missing.includes(product.id)) next[product.id] = desc;
+          if (desc && missing.includes(product.id)) nextDesc[product.id] = desc;
         }
-        if (Object.keys(next).length) setDescByProductId(prev => ({ ...prev, ...next }));
+        if (Object.keys(nextDesc).length) setDescByProductId(prev => ({ ...prev, ...nextDesc }));
+        setCatalogById(nextCatalog);
       })
       .catch(() => { /* keep cart usable without specs */ });
     return () => { cancelled = true; };
@@ -99,7 +112,11 @@ const DealerCartPage: React.FC = () => {
     setSubmitting(true);
     try {
       const order = await submitDealerOrder(
-        items.map(item => ({ productId: item.productId, quantity: item.quantity })),
+        items.map(item => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          gatcStampingPriceId: item.gatcStampingPriceId ?? null,
+        })),
         shipping,
         remarks,
       );
@@ -114,6 +131,17 @@ const DealerCartPage: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const applyStampEdit = (choice: GatcStampingChoice) => {
+    if (!stampEditLine) return;
+    updateStamping(stampEditLine.cartLineId, {
+      withStamping: choice.withStamping,
+      gatcStampingPriceId: choice.gatcStampingPriceId,
+      gatcFeePerUnit: choice.gatcFeePerUnit,
+      gatcStampingRange: choice.gatcStampingRange,
+    });
+    setStampEditLine(null);
   };
 
   if (items.length === 0) {
@@ -166,10 +194,14 @@ const DealerCartPage: React.FC = () => {
               const lineTotal = item.rate * item.quantity;
               const unavailable = item.stockStatus === 'out_of_stock'
                 && !isSacHsn(item.hsn);
+              const catalogProduct = catalogById[item.productId];
+              const canEditStamp = catalogProduct
+                ? productHasLinkedGatc(catalogProduct)
+                : Boolean(item.gatcStampingPriceId);
 
               return (
                 <li
-                  key={item.productId}
+                  key={item.cartLineId}
                   className={`orders-page__item panel glass ${unavailable ? 'orders-page__item--unavailable' : ''}`}
                 >
                   <div className="orders-page__item-media">
@@ -191,6 +223,28 @@ const DealerCartPage: React.FC = () => {
                       <span>{item.rate.toLocaleString('en-IN')}</span>
                       <span className="text-muted text-sm">/ {item.unit}</span>
                     </div>
+                    {item.gatcFeePerUnit > 0 ? (
+                      <span className="orders-page__item-price-breakdown text-muted">
+                        {item.baseRate.toLocaleString('en-IN')}
+                        {' + '}
+                        {item.gatcFeePerUnit.toLocaleString('en-IN')} stamping
+                        {item.gatcStampingRange ? ` (${item.gatcStampingRange})` : ''}
+                      </span>
+                    ) : (
+                      <span className="orders-page__item-price-breakdown text-muted">
+                        Without stamping
+                      </span>
+                    )}
+                    {canEditStamp && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm orders-page__stamp-btn"
+                        disabled={submitting}
+                        onClick={() => setStampEditLine(item)}
+                      >
+                        Change stamping
+                      </button>
+                    )}
                     {unavailable && (
                       <p className="orders-page__item-warning">Currently out of stock — remove before placing order</p>
                     )}
@@ -199,7 +253,7 @@ const DealerCartPage: React.FC = () => {
                   <div className="orders-page__item-actions">
                     <QuantityStepper
                       value={item.quantity}
-                      onChange={next => setQuantity(item.productId, next)}
+                      onChange={next => setQuantity(item.cartLineId, next)}
                       className="orders-page__qty"
                       buttonClassName="orders-page__qty-btn"
                       inputClassName="orders-page__qty-input"
@@ -213,7 +267,7 @@ const DealerCartPage: React.FC = () => {
                     <button
                       type="button"
                       className="orders-page__remove"
-                      onClick={() => removeItem(item.productId)}
+                      onClick={() => removeItem(item.cartLineId)}
                       aria-label="Remove from cart"
                     >
                       <Trash2 size={18} />
@@ -279,6 +333,18 @@ const DealerCartPage: React.FC = () => {
           </button>
         </aside>
       </div>
+
+      {stampEditLine && catalogById[stampEditLine.productId] && (
+        <GatcStampingChoiceDialog
+          product={catalogById[stampEditLine.productId]}
+          open
+          mode="edit"
+          initialGatcStampingPriceId={stampEditLine.gatcStampingPriceId}
+          confirmLabel="Update"
+          onClose={() => setStampEditLine(null)}
+          onConfirm={applyStampEdit}
+        />
+      )}
     </div>
   );
 };

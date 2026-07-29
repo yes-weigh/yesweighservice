@@ -9,6 +9,11 @@ import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct } from '../../types/catalog';
 import { AuditedSealIcon } from './AuditedSealIcon';
 import { CategoryThumbnail } from './CategoryThumbnail';
+import {
+  GatcStampingChoiceDialog,
+  shouldPromptGatcStamping,
+  type GatcStampingChoice,
+} from './GatcStampingChoiceDialog';
 import { StockBadge, StockQuantity } from './StockBadge';
 
 const LONG_PRESS_MS = 480;
@@ -72,6 +77,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const { flyToCart } = useCartFly();
   const [addedFlash, setAddedFlash] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [gatcDialogOpen, setGatcDialogOpen] = useState(false);
+  const addFlyAnchor = useRef<HTMLElement | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
   const longPressFired = useRef(false);
@@ -145,6 +152,11 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (outOfStock) return;
+    if (shouldPromptGatcStamping(product)) {
+      addFlyAnchor.current = event.currentTarget;
+      setGatcDialogOpen(true);
+      return;
+    }
     if (addItem(product)) {
       flyToCart(event.currentTarget, { imageUrl: product.imageUrl });
       setAddedFlash(true);
@@ -152,7 +164,24 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
     }
   };
 
+  const confirmGatcAdd = (choice: GatcStampingChoice) => {
+    setGatcDialogOpen(false);
+    if (addItem(product, {
+      quantity: 1,
+      gatcStampingPriceId: choice.gatcStampingPriceId,
+      gatcFeePerUnit: choice.gatcFeePerUnit,
+      gatcStampingRange: choice.gatcStampingRange,
+    })) {
+      if (addFlyAnchor.current) {
+        flyToCart(addFlyAnchor.current, { imageUrl: product.imageUrl });
+      }
+      setAddedFlash(true);
+      window.setTimeout(() => setAddedFlash(false), 1200);
+    }
+  };
+
   return (
+    <>
     <article
       {...(editable ? dragProps : {})}
       style={cardStyle}
@@ -331,5 +360,14 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         </button>
       )}
     </article>
+    {enableCart && (
+      <GatcStampingChoiceDialog
+        product={product}
+        open={gatcDialogOpen}
+        onClose={() => setGatcDialogOpen(false)}
+        onConfirm={confirmGatcAdd}
+      />
+    )}
+    </>
   );
 };

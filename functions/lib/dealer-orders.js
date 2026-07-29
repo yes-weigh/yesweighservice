@@ -16,6 +16,11 @@ import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
+import {
+  loadGatcStampingPriceMap,
+  mergeKeyForLine,
+  resolveGatcFeeForProduct,
+} from './gatc-stamping.js';
 
 const PRODUCTS = 'catalogProducts';
 const CUSTOMERS = 'zohoCustomers';
@@ -165,15 +170,16 @@ async function loadCatalogProduct(productId) {
     hsn: data.hsn != null ? String(data.hsn) : null,
     status: String(data.status ?? 'active'),
     hiddenFromCatalog: Boolean(data.hiddenFromCatalog),
+    gatcStampingPriceIds: Array.isArray(data.gatcStampingPriceIds)
+      ? data.gatcStampingPriceIds.map(id => String(id ?? '').trim()).filter(Boolean)
+      : [],
   };
 }
 
-function toOrderLine(product, quantity, rateOverride = null) {
+function toOrderLine(product, quantity, finalRate, catalogBaseRate) {
   const qty = Math.max(1, Math.floor(Number(quantity) || 0));
-  const catalogRate = Number(product.rate) || 0;
-  const rate = rateOverride != null && Number.isFinite(rateOverride) && rateOverride >= 0
-    ? Math.round(rateOverride * 100) / 100
-    : catalogRate;
+  const catalogRate = Number(catalogBaseRate ?? product.rate) || 0;
+  const rate = Math.round(Number(finalRate) * 100) / 100;
   return {
     productId: product.productId,
     itemId: product.itemId,
@@ -201,34 +207,47 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
     throw new HttpsError('invalid-argument', 'Add at least one product.');
   }
 
+  const gatcMap = await loadGatcStampingPriceMap();
   const merged = new Map();
+
   for (const row of rawLines) {
     const productId = String(row?.productId ?? '').trim();
     const quantity = Math.floor(Number(row?.quantity ?? 0));
     if (!productId || quantity < 1) {
       throw new HttpsError('invalid-argument', 'Each line needs a product and quantity ≥ 1.');
     }
-    let rateOverride = null;
+    const gatcStampingPriceId = String(row?.gatcStampingPriceId ?? '').trim() || null;
+    let baseOverride = null;
     if (allowRateOverride && row?.rate != null && row.rate !== '') {
       const parsed = Number(row.rate);
       if (!Number.isFinite(parsed) || parsed < 0) {
         throw new HttpsError('invalid-argument', 'Each line rate must be a number ≥ 0.');
       }
-      rateOverride = parsed;
+      baseOverride = Math.round(parsed * 100) / 100;
     }
-    const prev = merged.get(productId) || { quantity: 0, rateOverride: null };
-    merged.set(productId, {
+
+    // Tentative merge key uses override or placeholder; refined after product load.
+    const tentativeBase = baseOverride != null ? baseOverride : '__catalog__';
+    const key = mergeKeyForLine(productId, gatcStampingPriceId, tentativeBase);
+    const prev = merged.get(key) || {
+      productId,
+      quantity: 0,
+      gatcStampingPriceId,
+      baseOverride,
+    };
+    merged.set(key, {
+      ...prev,
       quantity: prev.quantity + quantity,
-      rateOverride: rateOverride != null ? rateOverride : prev.rateOverride,
+      baseOverride: baseOverride != null ? baseOverride : prev.baseOverride,
     });
   }
 
   const lines = [];
   const priceChanges = [];
-  for (const [productId, entry] of merged) {
-    const product = await loadCatalogProduct(productId);
+  for (const entry of merged.values()) {
+    const product = await loadCatalogProduct(entry.productId);
     if (!product || product.hiddenFromCatalog || product.status === 'inactive') {
-      throw new HttpsError('failed-precondition', `Product unavailable: ${productId}`);
+      throw new HttpsError('failed-precondition', `Product unavailable: ${entry.productId}`);
     }
     if (product.stockStatus === 'out_of_stock' && !isSacHsn(product.hsn)) {
       throw new HttpsError(
@@ -236,16 +255,32 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
         `${product.name} is out of stock and cannot be ordered.`,
       );
     }
-    const line = toOrderLine(product, entry.quantity, entry.rateOverride);
+
+    const gatc = resolveGatcFeeForProduct(product, entry.gatcStampingPriceId, gatcMap);
+    const catalogBase = Math.round((Number(product.rate) || 0) * 100) / 100;
+    const baseRate = entry.baseOverride != null ? entry.baseOverride : catalogBase;
+    const finalRate = Math.round((baseRate + gatc.gatcFeePerUnit) * 100) / 100;
+
+    const line = toOrderLine(product, entry.quantity, finalRate, catalogBase);
+    if (gatc.gatcStampingPriceId) {
+      const stampNote = `Stamping: ${gatc.gatcStampingRange}`;
+      line.description = line.description
+        ? `${line.description}\n${stampNote}`
+        : stampNote;
+      line.gatcStampingPriceId = gatc.gatcStampingPriceId;
+      line.gatcFeePerUnit = gatc.gatcFeePerUnit;
+    }
     lines.push(line);
-    if (Math.round(line.rate * 100) !== Math.round(line.catalogRate * 100)) {
+
+    // Audit customizes base only — not the fixed GATC fee.
+    if (Math.round(baseRate * 100) !== Math.round(catalogBase * 100)) {
       priceChanges.push({
         productId: line.productId,
         itemId: line.itemId,
         name: line.name,
         sku: line.sku,
-        catalogRate: line.catalogRate,
-        rate: line.rate,
+        catalogRate: catalogBase,
+        rate: baseRate,
         quantity: line.quantity,
       });
     }

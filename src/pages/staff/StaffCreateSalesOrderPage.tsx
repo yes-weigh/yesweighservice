@@ -163,7 +163,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         lines: lines.map(line => ({
           productId: line.productId,
           quantity: line.quantity,
-          rate: line.rate,
+          rate: line.catalogRate,
+          gatcStampingPriceId: line.gatcStampingPriceId ?? null,
         })),
         shipping,
         stage,

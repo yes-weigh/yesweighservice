@@ -16,6 +16,7 @@ import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBo
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
   SalesOrderDraftLineEditor,
+  draftLinesFromSalesOrderItems,
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
 import { useAuth } from '../../context/AuthContext';
@@ -149,10 +150,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const startEdit = () => {
     if (!salesOrder) return;
-    const priceByProduct = new Map(
-      (salesOrder.yesOnePriceChanges ?? []).map(change => [change.productId, change.catalogRate]),
-    );
-    setEditLines(
+    void draftLinesFromSalesOrderItems(
       salesOrder.lineItems.map(line => {
         const productId = line.itemId || line.id;
         const description = line.description?.trim()
@@ -160,22 +158,25 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           || catalogDescByItemId[line.id]
           || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
           || null;
-        const rate = Number(line.rate) || 0;
         return {
           productId,
+          itemId: line.itemId,
           name: line.name,
           sku: line.sku ?? null,
           description,
           imageUrl: line.imageUrl ?? null,
-          rate,
-          catalogRate: priceByProduct.get(productId) ?? rate,
-          unit: 'pcs',
+          rate: Number(line.rate) || 0,
           quantity: Math.max(1, Math.floor(line.quantity || 1)),
+          unit: 'pcs',
           stockStatus: null,
         };
       }),
-    );
-    setEditing(true);
+    ).then(next => {
+      setEditLines(next);
+      setEditing(true);
+    }).catch(err => {
+      window.alert(err instanceof Error ? err.message : 'Could not open line editor.');
+    });
   };
 
   const saveLines = async () => {
@@ -185,7 +186,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       .map(line => ({
         productId: line.productId,
         quantity: line.quantity,
-        rate: line.rate,
+        rate: line.catalogRate,
+        gatcStampingPriceId: line.gatcStampingPriceId ?? null,
       }));
     if (!lines.length) {
       window.alert('Add at least one line item.');

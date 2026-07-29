@@ -2,19 +2,33 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Package, Search, Trash2 } from 'lucide-react';
 import { QuantityStepper } from '../QuantityStepper';
 import { CategoryThumbnail } from '../catalog/CategoryThumbnail';
+import {
+  GatcStampingChoiceDialog,
+  shouldPromptGatcStamping,
+  type GatcStampingChoice,
+} from '../catalog/GatcStampingChoiceDialog';
 import { DocumentLineItemSpec } from '../invoices/DocumentLineItemSpec';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
+import { combinedCartRate, newCartLineId, productHasLinkedGatc } from '../../lib/gatcCart';
+import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
 import type { CatalogProduct } from '../../types/catalog';
 
 export interface DraftEditLine {
+  /** Stable row id — same product can appear with/without stamping. */
+  lineId: string;
   productId: string;
   name: string;
   sku: string | null;
   description: string | null;
   imageUrl: string | null;
+  /** Combined unit rate = baseRate + gatcFeePerUnit (shown as line total rate). */
   rate: number;
-  /** Catalog list price when the line was added (for custom-price UI). */
-  catalogRate?: number;
+  /** Editable product base rate (staff). Catalog list price when added. */
+  catalogRate: number;
+  /** Fixed GATC fee from settings (0 if without stamping). */
+  gatcFeePerUnit: number;
+  gatcStampingPriceId?: string | null;
+  gatcStampingRange?: string | null;
   unit: string;
   quantity: number;
   stockStatus: string | null;
@@ -28,7 +42,7 @@ interface SalesOrderDraftLineEditorProps {
   onCancel: () => void;
   /** Flatten into parent surface (no outer panel chrome). */
   embedded?: boolean;
-  /** Allow editing unit rate (staff create / edit). */
+  /** Allow editing base unit rate (staff create / edit). GATC fee stays fixed. */
   allowRateEdit?: boolean;
   saveLabel?: string;
   title?: string;
@@ -44,16 +58,36 @@ function useDebounce(value: string, delay: number): string {
   return debounced;
 }
 
-function toDraftLine(product: CatalogProduct, quantity = 1): DraftEditLine {
-  const rate = Number(product.rate) || 0;
+function sameGatcKey(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a?.trim() || null) === (b?.trim() || null);
+}
+
+function toDraftLine(
+  product: CatalogProduct,
+  quantity = 1,
+  choice?: GatcStampingChoice,
+): DraftEditLine {
+  const catalogRate = Math.round((Number(product.rate) || 0) * 100) / 100;
+  const gatcStampingPriceId = choice?.withStamping
+    ? (choice.gatcStampingPriceId?.trim() || null)
+    : null;
+  const gatcFeePerUnit = gatcStampingPriceId
+    ? Math.round(Number(choice?.gatcFeePerUnit ?? 0) * 100) / 100
+    : 0;
   return {
+    lineId: newCartLineId(),
     productId: product.id,
     name: product.name,
     sku: product.sku,
     description: product.description?.trim() || null,
     imageUrl: product.imageUrl,
-    rate,
-    catalogRate: rate,
+    catalogRate,
+    gatcFeePerUnit,
+    gatcStampingPriceId,
+    gatcStampingRange: gatcStampingPriceId
+      ? (choice?.gatcStampingRange?.trim() || null)
+      : null,
+    rate: combinedCartRate(catalogRate, gatcFeePerUnit),
     unit: product.unit || 'pcs',
     quantity,
     stockStatus: product.stockStatus ?? null,
@@ -78,6 +112,8 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [pendingGatcProduct, setPendingGatcProduct] = useState<CatalogProduct | null>(null);
+  const [stampEditLineId, setStampEditLineId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debouncedQuery = useDebounce(query, 180);
@@ -114,6 +150,12 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [open]);
 
+  const productById = useMemo(() => {
+    const map = new Map<string, CatalogProduct>();
+    for (const p of products) map.set(p.id, p);
+    return map;
+  }, [products]);
+
   const selectedIds = useMemo(() => new Set(lines.map(line => line.productId)), [lines]);
 
   const matches = useMemo(() => {
@@ -134,38 +176,110 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     setActiveIndex(0);
   }, [debouncedQuery, open]);
 
-  const setQuantity = (productId: string, quantity: number) => {
+  const setQuantity = (lineId: string, quantity: number) => {
     const nextQty = Math.max(1, Math.floor(quantity) || 1);
     onChange(lines.map(line => (
-      line.productId === productId ? { ...line, quantity: nextQty } : line
+      line.lineId === lineId ? { ...line, quantity: nextQty } : line
     )));
   };
 
-  const setRate = (productId: string, rate: number) => {
-    const nextRate = Number.isFinite(rate) && rate >= 0 ? Math.round(rate * 100) / 100 : 0;
+  /** Staff edits base rate only; GATC fee stays fixed. */
+  const setBaseRate = (lineId: string, baseRate: number) => {
+    const nextBase = Number.isFinite(baseRate) && baseRate >= 0
+      ? Math.round(baseRate * 100) / 100
+      : 0;
     onChange(lines.map(line => (
-      line.productId === productId ? { ...line, rate: nextRate } : line
+      line.lineId === lineId
+        ? {
+            ...line,
+            catalogRate: nextBase,
+            rate: combinedCartRate(nextBase, line.gatcFeePerUnit),
+          }
+        : line
     )));
   };
 
-  const removeLine = (productId: string) => {
-    onChange(lines.filter(line => line.productId !== productId));
+  const removeLine = (lineId: string) => {
+    onChange(lines.filter(line => line.lineId !== lineId));
   };
 
-  const addProduct = (product: CatalogProduct) => {
-    const existing = lines.find(line => line.productId === product.id);
+  const insertOrMergeProduct = (product: CatalogProduct, choice?: GatcStampingChoice) => {
+    const gatcId = choice?.withStamping ? (choice.gatcStampingPriceId?.trim() || null) : null;
+    const existing = lines.find(
+      line => line.productId === product.id && sameGatcKey(line.gatcStampingPriceId, gatcId),
+    );
     if (existing) {
       onChange(lines.map(line => (
-        line.productId === product.id
+        line.lineId === existing.lineId
           ? { ...line, quantity: line.quantity + 1 }
           : line
       )));
     } else {
-      onChange([...lines, toDraftLine(product, 1)]);
+      onChange([...lines, toDraftLine(product, 1, choice)]);
     }
     setQuery('');
     setOpen(false);
     inputRef.current?.focus();
+  };
+
+  const addProduct = (product: CatalogProduct) => {
+    if (shouldPromptGatcStamping(product)) {
+      setPendingGatcProduct(product);
+      return;
+    }
+    insertOrMergeProduct(product);
+  };
+
+  const stampEditLine = stampEditLineId
+    ? lines.find(line => line.lineId === stampEditLineId) ?? null
+    : null;
+  const stampEditProduct = stampEditLine
+    ? productById.get(stampEditLine.productId) ?? null
+    : null;
+
+  const applyStampEdit = (choice: GatcStampingChoice) => {
+    if (!stampEditLine) return;
+    const nextGatcId = choice.withStamping ? choice.gatcStampingPriceId : null;
+    const nextFee = choice.withStamping ? choice.gatcFeePerUnit : 0;
+    const nextRange = choice.withStamping ? choice.gatcStampingRange : null;
+
+    const mergeInto = lines.find(
+      line => line.lineId !== stampEditLine.lineId
+        && line.productId === stampEditLine.productId
+        && sameGatcKey(line.gatcStampingPriceId, nextGatcId),
+    );
+
+    if (mergeInto) {
+      onChange(
+        lines
+          .filter(line => line.lineId !== stampEditLine.lineId)
+          .map(line => (
+            line.lineId === mergeInto.lineId
+              ? {
+                  ...line,
+                  quantity: line.quantity + stampEditLine.quantity,
+                  gatcFeePerUnit: nextFee,
+                  gatcStampingPriceId: nextGatcId,
+                  gatcStampingRange: nextRange,
+                  rate: combinedCartRate(line.catalogRate, nextFee),
+                }
+              : line
+          )),
+      );
+    } else {
+      onChange(lines.map(line => (
+        line.lineId === stampEditLine.lineId
+          ? {
+              ...line,
+              gatcFeePerUnit: nextFee,
+              gatcStampingPriceId: nextGatcId,
+              gatcStampingRange: nextRange,
+              rate: combinedCartRate(line.catalogRate, nextFee),
+            }
+          : line
+      )));
+    }
+    setStampEditLineId(null);
   };
 
   const estimatedSubtotal = lines.reduce((sum, line) => sum + line.rate * line.quantity, 0);
@@ -178,7 +292,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
           {!embedded && (
             <p className="so-draft-editor__subtitle text-muted text-sm">
               {allowRateEdit
-                ? 'Adjust quantities and rates, then save.'
+                ? 'Adjust quantities and base rates (stamping fee is fixed), then save.'
                 : 'Adjust quantities inline, then save to Zoho Draft.'}
             </p>
           )}
@@ -211,73 +325,108 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
             No items yet. Search the catalog below to add products.
           </li>
         ) : (
-          lines.map(line => (
-            <li key={line.productId} className="so-draft-editor__line">
-              <div className="so-draft-editor__line-media">
-                {line.imageUrl ? (
-                  <CategoryThumbnail src={line.imageUrl} knockout={false} />
-                ) : (
-                  <span className="so-draft-editor__line-placeholder" aria-hidden>
-                    <Package size={22} />
-                  </span>
-                )}
-              </div>
-              <DocumentLineItemSpec
-                className="so-draft-editor__line-info invoice-detail-item__body"
-                name={line.name}
-                sku={line.sku}
-                description={line.description}
-              >
-                {allowRateEdit ? (
-                  <label className="so-draft-editor__rate">
-                    <span className="text-muted text-sm">Rate</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      className="input-field so-draft-editor__rate-input"
-                      value={line.rate}
-                      disabled={saving}
-                      onChange={e => setRate(line.productId, Number(e.target.value))}
-                      aria-label={`Rate for ${line.name}`}
-                    />
-                    {line.catalogRate != null
-                      && Math.round(line.catalogRate * 100) !== Math.round(line.rate * 100) ? (
+          lines.map(line => {
+            const catalogProduct = productById.get(line.productId);
+            const canStamp = catalogProduct
+              ? productHasLinkedGatc(catalogProduct)
+              : Boolean(line.gatcStampingPriceId);
+            const listBase = line.catalogRate;
+            const customized = allowRateEdit
+              && catalogProduct != null
+              && Math.round((Number(catalogProduct.rate) || 0) * 100) !== Math.round(listBase * 100);
+
+            return (
+              <li key={line.lineId} className="so-draft-editor__line">
+                <div className="so-draft-editor__line-media">
+                  {line.imageUrl ? (
+                    <CategoryThumbnail src={line.imageUrl} knockout={false} />
+                  ) : (
+                    <span className="so-draft-editor__line-placeholder" aria-hidden>
+                      <Package size={22} />
+                    </span>
+                  )}
+                </div>
+                <DocumentLineItemSpec
+                  className="so-draft-editor__line-info invoice-detail-item__body"
+                  name={line.name}
+                  sku={line.sku}
+                  description={line.description}
+                >
+                  {allowRateEdit ? (
+                    <label className="so-draft-editor__rate">
+                      <span className="text-muted text-sm">Base rate</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="input-field so-draft-editor__rate-input"
+                        value={line.catalogRate}
+                        disabled={saving}
+                        onChange={e => setBaseRate(line.lineId, Number(e.target.value))}
+                        aria-label={`Base rate for ${line.name}`}
+                      />
+                      {customized ? (
                         <span className="so-draft-editor__rate-was text-muted text-sm">
-                          was {formatCurrency(line.catalogRate)}
+                          was {formatCurrency(Number(catalogProduct?.rate) || 0)}
                         </span>
                       ) : null}
-                  </label>
-                ) : (
-                  <span className="text-muted text-sm">
-                    {formatCurrency(line.rate)}
-                    {line.stockStatus === 'out_of_stock' ? ' · Out of stock' : ''}
-                  </span>
-                )}
-              </DocumentLineItemSpec>
-              <QuantityStepper
-                value={line.quantity}
-                onChange={next => setQuantity(line.productId, next)}
-                disabled={saving}
-                className="so-draft-editor__qty"
-                buttonClassName="so-draft-editor__qty-btn"
-                inputClassName="so-draft-editor__qty-input"
-                aria-label={`Quantity for ${line.name}`}
-              />
-              <div className="so-draft-editor__line-total">
-                {formatCurrency(line.rate * line.quantity)}
-              </div>
-              <button
-                type="button"
-                className="so-draft-editor__remove"
-                aria-label={`Remove ${line.name}`}
-                disabled={saving}
-                onClick={() => removeLine(line.productId)}
-              >
-                <Trash2 size={16} />
-              </button>
-            </li>
-          ))
+                      {line.gatcFeePerUnit > 0 ? (
+                        <span className="so-draft-editor__rate-was text-muted text-sm">
+                          + {formatCurrency(line.gatcFeePerUnit)} stamping
+                          {line.gatcStampingRange ? ` (${line.gatcStampingRange})` : ''}
+                          {' = '}
+                          {formatCurrency(line.rate)}
+                        </span>
+                      ) : (
+                        <span className="so-draft-editor__rate-was text-muted text-sm">
+                          Without stamping
+                        </span>
+                      )}
+                    </label>
+                  ) : (
+                    <span className="text-muted text-sm">
+                      {formatCurrency(line.rate)}
+                      {line.gatcFeePerUnit > 0
+                        ? ` · +${formatCurrency(line.gatcFeePerUnit)} stamp`
+                        : ''}
+                      {line.stockStatus === 'out_of_stock' ? ' · Out of stock' : ''}
+                    </span>
+                  )}
+                  {canStamp && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm orders-page__stamp-btn"
+                      disabled={saving || !catalogProduct}
+                      onClick={() => setStampEditLineId(line.lineId)}
+                    >
+                      Change stamping
+                    </button>
+                  )}
+                </DocumentLineItemSpec>
+                <QuantityStepper
+                  value={line.quantity}
+                  onChange={next => setQuantity(line.lineId, next)}
+                  disabled={saving}
+                  className="so-draft-editor__qty"
+                  buttonClassName="so-draft-editor__qty-btn"
+                  inputClassName="so-draft-editor__qty-input"
+                  aria-label={`Quantity for ${line.name}`}
+                />
+                <div className="so-draft-editor__line-total">
+                  {formatCurrency(line.rate * line.quantity)}
+                </div>
+                <button
+                  type="button"
+                  className="so-draft-editor__remove"
+                  aria-label={`Remove ${line.name}`}
+                  disabled={saving}
+                  onClick={() => removeLine(line.lineId)}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </li>
+            );
+          })
         )}
       </ul>
 
@@ -392,6 +541,107 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
         </span>
         <strong>{formatCurrency(estimatedSubtotal)}</strong>
       </footer>
+
+      {pendingGatcProduct && (
+        <GatcStampingChoiceDialog
+          product={pendingGatcProduct}
+          open
+          confirmLabel="Add item"
+          onClose={() => setPendingGatcProduct(null)}
+          onConfirm={choice => {
+            const product = pendingGatcProduct;
+            setPendingGatcProduct(null);
+            insertOrMergeProduct(product, choice);
+          }}
+        />
+      )}
+
+      {stampEditLine && stampEditProduct && (
+        <GatcStampingChoiceDialog
+          product={stampEditProduct}
+          open
+          mode="edit"
+          initialGatcStampingPriceId={stampEditLine.gatcStampingPriceId}
+          confirmLabel="Update"
+          onClose={() => setStampEditLineId(null)}
+          onConfirm={choice => {
+            applyStampEdit(choice);
+          }}
+        />
+      )}
     </section>
   );
 };
+
+/** Hydrate draft lines from an existing SO when opening the editor. */
+export async function draftLinesFromSalesOrderItems(
+  items: Array<{
+    itemId?: string | null;
+    productId?: string | null;
+    name?: string | null;
+    sku?: string | null;
+    description?: string | null;
+    imageUrl?: string | null;
+    rate?: number;
+    quantity?: number;
+    unit?: string | null;
+    stockStatus?: string | null;
+  }>,
+): Promise<DraftEditLine[]> {
+  const catalog = await fetchCatalog().catch(() => null);
+  const gatcEntries = await loadGatcStampingPrices().catch(() => []);
+  const byId = new Map((catalog?.items ?? []).map(p => [p.id, p]));
+
+  return items.map(item => {
+    const productId = String(item.productId || item.itemId || '').trim();
+    const product = byId.get(productId);
+    const catalogRate = product
+      ? Math.round(Number(product.rate) * 100) / 100
+      : Math.round(Number(item.rate ?? 0) * 100) / 100;
+    // Existing SO lines already have combined rate; we cannot recover fee without meta.
+    // Treat full rate as base with no stamping unless product has GATC and rate matches base+fee.
+    let gatcFeePerUnit = 0;
+    let gatcStampingPriceId: string | null = null;
+    let gatcStampingRange: string | null = null;
+    let baseRate = Math.round(Number(item.rate ?? catalogRate) * 100) / 100;
+
+    if (product && productHasLinkedGatc(product)) {
+      const linked = new Set(
+        (product.gatcStampingPriceIds ?? []).map(id => String(id).trim()).filter(Boolean),
+      );
+      const combined = Math.round(Number(item.rate ?? 0) * 100) / 100;
+      const match = gatcEntries.find(entry => (
+        linked.has(entry.id)
+        && Math.round((catalogRate + entry.price) * 100) / 100 === combined
+      ));
+      if (match) {
+        gatcStampingPriceId = match.id;
+        gatcFeePerUnit = match.price;
+        gatcStampingRange = match.stampingRange;
+        baseRate = catalogRate;
+      } else if (Math.round(combined * 100) === Math.round(catalogRate * 100)) {
+        baseRate = catalogRate;
+      } else {
+        // Custom base (or unknown stamping) — keep rate as base, fee 0 until user picks.
+        baseRate = combined;
+      }
+    }
+
+    return {
+      lineId: newCartLineId(),
+      productId,
+      name: String(item.name || product?.name || 'Item'),
+      sku: item.sku ?? product?.sku ?? null,
+      description: item.description?.trim() || product?.description?.trim() || null,
+      imageUrl: item.imageUrl ?? product?.imageUrl ?? null,
+      catalogRate: baseRate,
+      gatcFeePerUnit,
+      gatcStampingPriceId,
+      gatcStampingRange,
+      rate: combinedCartRate(baseRate, gatcFeePerUnit),
+      unit: item.unit || product?.unit || 'pcs',
+      quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
+      stockStatus: item.stockStatus ?? product?.stockStatus ?? null,
+    };
+  });
+}

@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { combinedCartRate, newCartLineId } from '../lib/gatcCart';
 import { effectiveCatalogStockStatus } from '../lib/sacCatalog';
 import type { CatalogProduct } from '../types/catalog';
-import { cartItemFromProduct, type CartItem } from '../types/cart';
+import {
+  cartItemFromProduct,
+  type AddCartItemOptions,
+  type CartItem,
+} from '../types/cart';
 import { useAuth } from './AuthContext';
-import { CartContext } from './cart-context';
+import { CartContext, type UpdateCartStampingInput } from './cart-context';
 
 const STORAGE_PREFIX = 'yesweigh-cart';
 /** Zoho SO notes max is 5000; keep a practical portal limit. */
@@ -13,11 +18,41 @@ function storageKey(uid: string): string {
   return `${STORAGE_PREFIX}:${uid}`;
 }
 
-function normalizeCartItem(item: CartItem): CartItem {
+function sameGatcKey(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a?.trim() || null) === (b?.trim() || null);
+}
+
+function normalizeCartItem(raw: Partial<CartItem> & { productId?: string }): CartItem | null {
+  const productId = String(raw.productId ?? '').trim();
+  if (!productId) return null;
+
+  const baseRateRaw = raw.baseRate != null ? Number(raw.baseRate) : Number(raw.rate);
+  const baseRate = Number.isFinite(baseRateRaw) ? Math.round(baseRateRaw * 100) / 100 : 0;
+  const gatcStampingPriceId = String(raw.gatcStampingPriceId ?? '').trim() || null;
+  const feeRaw = Number(raw.gatcFeePerUnit ?? 0);
+  const gatcFeePerUnit = gatcStampingPriceId && Number.isFinite(feeRaw)
+    ? Math.round(feeRaw * 100) / 100
+    : 0;
+
   return {
-    ...item,
-    description: item.description?.trim() || null,
-    stockStatus: effectiveCatalogStockStatus(item.stockStatus, item.hsn),
+    cartLineId: String(raw.cartLineId ?? '').trim() || newCartLineId(),
+    productId,
+    name: String(raw.name ?? 'Product'),
+    sku: raw.sku != null ? String(raw.sku) : null,
+    description: raw.description?.trim() || null,
+    imageUrl: raw.imageUrl != null ? String(raw.imageUrl) : null,
+    baseRate,
+    gatcFeePerUnit,
+    gatcStampingPriceId,
+    gatcStampingRange: gatcStampingPriceId
+      ? (raw.gatcStampingRange?.trim() || null)
+      : null,
+    rate: combinedCartRate(baseRate, gatcFeePerUnit),
+    unit: String(raw.unit ?? 'pcs'),
+    stockStatus: effectiveCatalogStockStatus(raw.stockStatus, raw.hsn),
+    categoryName: raw.categoryName != null ? String(raw.categoryName) : null,
+    hsn: raw.hsn ?? null,
+    quantity: Math.max(1, Math.floor(Number(raw.quantity) || 1)),
   };
 }
 
@@ -37,13 +72,17 @@ function readStoredCart(uid: string): StoredCart {
     const parsed = JSON.parse(raw) as CartItem[] | StoredCart;
     if (Array.isArray(parsed)) {
       return {
-        items: parsed.filter(item => item?.productId).map(normalizeCartItem),
+        items: parsed
+          .map(item => normalizeCartItem(item))
+          .filter((item): item is CartItem => Boolean(item)),
         remarks: '',
       };
     }
     const items = Array.isArray(parsed?.items) ? parsed.items : [];
     return {
-      items: items.filter(item => item?.productId).map(normalizeCartItem),
+      items: items
+        .map(item => normalizeCartItem(item))
+        .filter((item): item is CartItem => Boolean(item)),
       remarks: normalizeRemarks(parsed?.remarks),
     };
   } catch {
@@ -62,6 +101,20 @@ function writeStoredCart(uid: string, items: CartItem[], remarks: string): void 
   } catch {
     /* ignore quota errors */
   }
+}
+
+function parseAddOptions(options?: number | AddCartItemOptions): Required<
+  Pick<AddCartItemOptions, 'quantity'>
+> & AddCartItemOptions {
+  if (typeof options === 'number') {
+    return { quantity: options };
+  }
+  return {
+    quantity: options?.quantity ?? 1,
+    gatcStampingPriceId: options?.gatcStampingPriceId,
+    gatcFeePerUnit: options?.gatcFeePerUnit,
+    gatcStampingRange: options?.gatcStampingRange,
+  };
 }
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -86,18 +139,38 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [items, remarks, user?.uid]);
 
-  const addItem = useCallback((product: CatalogProduct, quantity = 1): boolean => {
+  const addItem = useCallback((
+    product: CatalogProduct,
+    options?: number | AddCartItemOptions,
+  ): boolean => {
+    const opts = parseAddOptions(options);
+    const quantity = Math.floor(Number(opts.quantity) || 0);
     const stockStatus = effectiveCatalogStockStatus(product.stockStatus, product.hsn);
     if (stockStatus === 'out_of_stock' || quantity < 1) return false;
 
+    const gatcStampingPriceId = opts.gatcStampingPriceId?.trim() || null;
+    const gatcFeePerUnit = gatcStampingPriceId
+      ? Math.round(Number(opts.gatcFeePerUnit ?? 0) * 100) / 100
+      : 0;
+    const baseRate = Math.round(Number(product.rate) * 100) / 100;
+
     setItems(prev => {
-      const existing = prev.find(item => item.productId === product.id);
+      const existing = prev.find(
+        item => item.productId === product.id
+          && sameGatcKey(item.gatcStampingPriceId, gatcStampingPriceId),
+      );
       if (existing) {
         return prev.map(item =>
-          item.productId === product.id
+          item.cartLineId === existing.cartLineId
             ? {
                 ...item,
-                rate: product.rate,
+                baseRate,
+                gatcFeePerUnit,
+                gatcStampingPriceId,
+                gatcStampingRange: gatcStampingPriceId
+                  ? (opts.gatcStampingRange?.trim() || item.gatcStampingRange || null)
+                  : null,
+                rate: combinedCartRate(baseRate, gatcFeePerUnit),
                 stockStatus,
                 hsn: product.hsn ?? item.hsn ?? null,
                 name: product.name,
@@ -108,23 +181,86 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : item,
         );
       }
-      return [...prev, cartItemFromProduct(product, quantity)];
+      return [
+        ...prev,
+        cartItemFromProduct(product, quantity, {
+          gatcStampingPriceId,
+          gatcFeePerUnit,
+          gatcStampingRange: opts.gatcStampingRange,
+        }),
+      ];
     });
     return true;
   }, []);
 
-  const removeItem = useCallback((productId: string) => {
-    setItems(prev => prev.filter(item => item.productId !== productId));
+  const removeItem = useCallback((cartLineId: string) => {
+    setItems(prev => prev.filter(item => item.cartLineId !== cartLineId));
   }, []);
 
-  const setQuantity = useCallback((productId: string, quantity: number) => {
+  const setQuantity = useCallback((cartLineId: string, quantity: number) => {
     if (quantity < 1) {
-      setItems(prev => prev.filter(item => item.productId !== productId));
+      setItems(prev => prev.filter(item => item.cartLineId !== cartLineId));
       return;
     }
     setItems(prev =>
-      prev.map(item => (item.productId === productId ? { ...item, quantity } : item)),
+      prev.map(item => (item.cartLineId === cartLineId ? { ...item, quantity } : item)),
     );
+  }, []);
+
+  const updateStamping = useCallback((cartLineId: string, input: UpdateCartStampingInput) => {
+    setItems(prev => {
+      const target = prev.find(item => item.cartLineId === cartLineId);
+      if (!target) return prev;
+
+      const nextGatcId = input.withStamping
+        ? (input.gatcStampingPriceId?.trim() || null)
+        : null;
+      if (input.withStamping && !nextGatcId) return prev;
+
+      const nextFee = nextGatcId
+        ? Math.round(Number(input.gatcFeePerUnit ?? 0) * 100) / 100
+        : 0;
+      const nextRange = nextGatcId
+        ? (input.gatcStampingRange?.trim() || null)
+        : null;
+
+      // Merge into an existing row with the same product + stamping choice.
+      const mergeInto = prev.find(
+        item => item.cartLineId !== cartLineId
+          && item.productId === target.productId
+          && sameGatcKey(item.gatcStampingPriceId, nextGatcId),
+      );
+
+      if (mergeInto) {
+        return prev
+          .filter(item => item.cartLineId !== cartLineId)
+          .map(item => (
+            item.cartLineId === mergeInto.cartLineId
+              ? {
+                  ...item,
+                  quantity: item.quantity + target.quantity,
+                  baseRate: target.baseRate,
+                  gatcFeePerUnit: nextFee,
+                  gatcStampingPriceId: nextGatcId,
+                  gatcStampingRange: nextRange,
+                  rate: combinedCartRate(target.baseRate, nextFee),
+                }
+              : item
+          ));
+      }
+
+      return prev.map(item => (
+        item.cartLineId === cartLineId
+          ? {
+              ...item,
+              gatcStampingPriceId: nextGatcId,
+              gatcFeePerUnit: nextFee,
+              gatcStampingRange: nextRange,
+              rate: combinedCartRate(item.baseRate, nextFee),
+            }
+          : item
+      ));
+    });
   }, []);
 
   const setRemarks = useCallback((next: string) => {
@@ -142,7 +278,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const getQuantity = useCallback(
-    (productId: string) => items.find(item => item.productId === productId)?.quantity ?? 0,
+    (productId: string) => items
+      .filter(item => item.productId === productId)
+      .reduce((sum, item) => sum + item.quantity, 0),
     [items],
   );
 
@@ -165,6 +303,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addItem,
       removeItem,
       setQuantity,
+      updateStamping,
       setRemarks,
       clearCart,
       isInCart,
@@ -178,6 +317,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addItem,
       removeItem,
       setQuantity,
+      updateStamping,
       setRemarks,
       clearCart,
       isInCart,
