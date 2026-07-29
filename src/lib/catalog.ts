@@ -751,6 +751,17 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     ...(typeof data.spareGroupId === 'string' && data.spareGroupId.trim()
       ? { spareGroupId: data.spareGroupId.trim() }
       : {}),
+    ...(Array.isArray(data.gatcStampingPriceIds)
+      ? {
+          gatcStampingPriceIds: [
+            ...new Set(
+              data.gatcStampingPriceIds
+                .map((id: unknown) => String(id ?? '').trim())
+                .filter(Boolean),
+            ),
+          ],
+        }
+      : {}),
     ...(typeof data.skuChangedAt === 'string' && data.skuChangedAt.trim()
       ? { skuChangedAt: data.skuChangedAt.trim() }
       : {}),
@@ -1604,18 +1615,20 @@ export async function updateCatalogProductDetails(
   }
 }
 
-/** Firestore-only model / approval / spare group — does not call Zoho. */
+/** Firestore-only model / approval / spare group / GATC — does not call Zoho. */
 export async function updateCatalogProductOverlays(
   productId: string,
   input: {
     modelNumber?: string | null;
     approvalNumber?: string | null;
     spareGroupId?: string | null;
+    gatcStampingPriceIds?: string[];
   },
 ): Promise<{
   modelNumber?: string | null;
   approvalNumber?: string | null;
   spareGroupId?: string | null;
+  gatcStampingPriceIds?: string[];
 }> {
   const callable = httpsCallable<
     {
@@ -1623,12 +1636,14 @@ export async function updateCatalogProductOverlays(
       modelNumber?: string | null;
       approvalNumber?: string | null;
       spareGroupId?: string | null;
+      gatcStampingPriceIds?: string[];
     },
     {
       ok: boolean;
       modelNumber?: string | null;
       approvalNumber?: string | null;
       spareGroupId?: string | null;
+      gatcStampingPriceIds?: string[];
     }
   >(functions, 'updateCatalogProductOverlays');
   try {
@@ -1637,6 +1652,9 @@ export async function updateCatalogProductOverlays(
       ...('modelNumber' in input ? { modelNumber: input.modelNumber ?? null } : {}),
       ...('approvalNumber' in input ? { approvalNumber: input.approvalNumber ?? null } : {}),
       ...('spareGroupId' in input ? { spareGroupId: input.spareGroupId ?? null } : {}),
+      ...('gatcStampingPriceIds' in input
+        ? { gatcStampingPriceIds: input.gatcStampingPriceIds ?? [] }
+        : {}),
     });
     return {
       ...('modelNumber' in result.data ? { modelNumber: result.data.modelNumber ?? null } : {}),
@@ -1645,6 +1663,9 @@ export async function updateCatalogProductOverlays(
         : {}),
       ...('spareGroupId' in result.data
         ? { spareGroupId: result.data.spareGroupId ?? null }
+        : {}),
+      ...('gatcStampingPriceIds' in result.data
+        ? { gatcStampingPriceIds: result.data.gatcStampingPriceIds ?? [] }
         : {}),
     };
   } catch (err) {

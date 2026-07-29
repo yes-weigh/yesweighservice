@@ -7,6 +7,7 @@
  *
  * Firestore-only overlays (never push to Zoho):
  *   packageInfo, modelNumber, approvalNumber (shop/categorized products only),
+ *   gatcStampingPriceIds (categorized non-spare), spareGroupId (spares),
  *   spare-link maps, catalogSiteInventory, yesStore audit links, displayOrder
  */
 import {
@@ -43,6 +44,7 @@ export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'modelNumber',
   'approvalNumber',
   'spareGroupId',
+  'gatcStampingPriceIds',
   'skuChangedAt',
   'nameChangedAt',
   'binLabelPrintedSku',
@@ -106,7 +108,7 @@ export async function mutateCatalogProductDetails(accessToken, organizationId, p
   };
 }
 
-/** Firestore-only model / approval / spare group updates — never calls Zoho. */
+/** Firestore-only model / approval / spare group / GATC updates — never calls Zoho. */
 export async function mutateCatalogProductOverlays(productId, input) {
   const patch = {};
   if ('modelNumber' in (input ?? {})) {
@@ -118,7 +120,19 @@ export async function mutateCatalogProductOverlays(productId, input) {
   if ('spareGroupId' in (input ?? {})) {
     patch.spareGroupId = String(input.spareGroupId ?? '').trim() || null;
   }
-  if (!('modelNumber' in patch) && !('approvalNumber' in patch) && !('spareGroupId' in patch)) {
+  if ('gatcStampingPriceIds' in (input ?? {})) {
+    const raw = input.gatcStampingPriceIds;
+    const ids = Array.isArray(raw)
+      ? [...new Set(raw.map(id => String(id ?? '').trim()).filter(Boolean))]
+      : [];
+    patch.gatcStampingPriceIds = ids;
+  }
+  if (
+    !('modelNumber' in patch)
+    && !('approvalNumber' in patch)
+    && !('spareGroupId' in patch)
+    && !('gatcStampingPriceIds' in patch)
+  ) {
     throw new Error('No Firestore-only fields to update.');
   }
   return patchProductOverlays(productId, patch);

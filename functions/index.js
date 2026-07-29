@@ -874,10 +874,11 @@ export const updateCatalogProductOverlays = onCall(
     const hasModel = 'modelNumber' in (request.data ?? {});
     const hasApproval = 'approvalNumber' in (request.data ?? {});
     const hasSpareGroup = 'spareGroupId' in (request.data ?? {});
-    if (!hasModel && !hasApproval && !hasSpareGroup) {
+    const hasGatc = 'gatcStampingPriceIds' in (request.data ?? {});
+    if (!hasModel && !hasApproval && !hasSpareGroup && !hasGatc) {
       throw new HttpsError(
         'invalid-argument',
-        'modelNumber, approvalNumber, or spareGroupId is required.',
+        'modelNumber, approvalNumber, spareGroupId, or gatcStampingPriceIds is required.',
       );
     }
 
@@ -886,6 +887,7 @@ export const updateCatalogProductOverlays = onCall(
         ...(hasModel ? { modelNumber: request.data.modelNumber } : {}),
         ...(hasApproval ? { approvalNumber: request.data.approvalNumber } : {}),
         ...(hasSpareGroup ? { spareGroupId: request.data.spareGroupId } : {}),
+        ...(hasGatc ? { gatcStampingPriceIds: request.data.gatcStampingPriceIds } : {}),
       });
       return { ok: true, ...saved };
     } catch (err) {

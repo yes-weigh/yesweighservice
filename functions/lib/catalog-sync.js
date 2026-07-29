@@ -767,10 +767,18 @@ export async function patchProductOverlays(productId, input) {
     payload.spareGroupId = spareGroupId || null;
   }
 
+  if ('gatcStampingPriceIds' in (input ?? {})) {
+    const raw = input.gatcStampingPriceIds;
+    payload.gatcStampingPriceIds = Array.isArray(raw)
+      ? [...new Set(raw.map(id => String(id ?? '').trim()).filter(Boolean))]
+      : [];
+  }
+
   if (
     !('modelNumber' in payload)
     && !('approvalNumber' in payload)
     && !('spareGroupId' in payload)
+    && !('gatcStampingPriceIds' in payload)
   ) {
     throw new Error('No Firestore-only fields to update.');
   }
@@ -785,6 +793,9 @@ export async function patchProductOverlays(productId, input) {
     ...('modelNumber' in payload ? { modelNumber: payload.modelNumber } : {}),
     ...('approvalNumber' in payload ? { approvalNumber: payload.approvalNumber } : {}),
     ...('spareGroupId' in payload ? { spareGroupId: payload.spareGroupId } : {}),
+    ...('gatcStampingPriceIds' in payload
+      ? { gatcStampingPriceIds: payload.gatcStampingPriceIds }
+      : {}),
   };
 }
 

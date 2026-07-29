@@ -47,9 +47,11 @@ import {
 } from '../../lib/catalog';
 import {
   loadApprovalNumberOptions,
+  loadGatcStampingPrices,
   loadModelNumbers,
   loadMrpRules,
   loadSpareGroups,
+  type CatalogGatcStampingPriceEntry,
   type CatalogSpareGroupOption,
 } from '../../lib/catalogProductSettings';
 import {
@@ -126,6 +128,26 @@ function themeIndexFromId(id: string): number {
     hash = (hash + id.charCodeAt(i) * (i + 1)) % 9973;
   }
   return hash;
+}
+
+function normalizeGatcIdList(ids: string[] | null | undefined): string[] {
+  if (!Array.isArray(ids)) return [];
+  return [...new Set(ids.map(id => String(id ?? '').trim()).filter(Boolean))];
+}
+
+function sameGatcIdList(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((id, i) => id === right[i]);
+}
+
+function formatGatcOptionLabel(entry: CatalogGatcStampingPriceEntry): string {
+  const price = entry.price.toLocaleString('en-IN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  return `${entry.stampingRange} · ₹${price}`;
 }
 
 export const ProductDetailView: React.FC<{
@@ -232,9 +254,11 @@ export const ProductDetailView: React.FC<{
   const [editModelNumber, setEditModelNumber] = useState('');
   const [editApprovalNumber, setEditApprovalNumber] = useState('');
   const [editSpareGroupId, setEditSpareGroupId] = useState('');
+  const [editGatcIds, setEditGatcIds] = useState<string[]>([]);
   const [modelNumberOptions, setModelNumberOptions] = useState<string[]>([]);
   const [approvalNumberOptions, setApprovalNumberOptions] = useState<CatalogApprovalNumberOption[]>([]);
   const [spareGroupOptions, setSpareGroupOptions] = useState<CatalogSpareGroupOption[]>([]);
+  const [gatcOptions, setGatcOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
   const [optionListsLoading, setOptionListsLoading] = useState(false);
   const [editCategoryId, setEditCategoryId] = useState('');
   const [categoryOptions, setCategoryOptions] = useState<CatalogCategory[]>([]);
@@ -409,15 +433,20 @@ export const ProductDetailView: React.FC<{
   useEffect(() => {
     if (!isCategorizedProduct) {
       setApprovalNumberOptions([]);
+      setGatcOptions([]);
       return;
     }
     let active = true;
-    void loadApprovalNumberOptions()
-      .then(approvals => {
-        if (active) setApprovalNumberOptions(approvals);
+    void Promise.all([loadApprovalNumberOptions(), loadGatcStampingPrices()])
+      .then(([approvals, gatc]) => {
+        if (!active) return;
+        setApprovalNumberOptions(approvals);
+        setGatcOptions(gatc);
       })
       .catch(() => {
-        if (active) setApprovalNumberOptions([]);
+        if (!active) return;
+        setApprovalNumberOptions([]);
+        setGatcOptions([]);
       });
     return () => {
       active = false;
@@ -1095,6 +1124,7 @@ export const ProductDetailView: React.FC<{
     setEditModelNumber(product.modelNumber ?? '');
     setEditApprovalNumber(product.approvalNumber ?? '');
     setEditSpareGroupId(product.spareGroupId ?? '');
+    setEditGatcIds(normalizeGatcIdList(product.gatcStampingPriceIds));
     setEditCategoryId(product.categoryId ?? '');
     setDetailsError(null);
     setStatusError(null);
@@ -1113,6 +1143,7 @@ export const ProductDetailView: React.FC<{
     setEditModelNumber('');
     setEditApprovalNumber('');
     setEditSpareGroupId('');
+    setEditGatcIds([]);
     setEditCategoryId('');
     setCategoryOptions([]);
     setModelNumberOptions([]);
@@ -1178,16 +1209,22 @@ export const ProductDetailView: React.FC<{
       });
 
     if (isCategorizedProduct) {
-      void Promise.all([loadModelNumbers(), loadApprovalNumberOptions()])
-        .then(([models, approvals]) => {
+      void Promise.all([
+        loadModelNumbers(),
+        loadApprovalNumberOptions(),
+        loadGatcStampingPrices(),
+      ])
+        .then(([models, approvals, gatc]) => {
           if (!active) return;
           setModelNumberOptions(models);
           setApprovalNumberOptions(approvals);
+          setGatcOptions(gatc);
         })
         .catch(() => {
           if (!active) return;
           setModelNumberOptions([]);
           setApprovalNumberOptions([]);
+          setGatcOptions([]);
         })
         .finally(() => {
           if (active) setOptionListsLoading(false);
@@ -1208,6 +1245,7 @@ export const ProductDetailView: React.FC<{
       setModelNumberOptions([]);
       setApprovalNumberOptions([]);
       setSpareGroupOptions([]);
+      setGatcOptions([]);
       setOptionListsLoading(false);
     }
 
@@ -1247,12 +1285,16 @@ export const ProductDetailView: React.FC<{
       mrpOverride = mrp === 0 ? null : Math.round(mrp * 100) / 100;
     }
 
-    // Model / approval are shop products only. Spare group is spares only.
+    // Model / approval / GATC are shop (categorized non-spare) products only.
+    // Spare group is spares only.
     const modelNumber = isCategorizedProduct
       ? (editModelNumber.trim() || null)
       : undefined;
     const approvalNumber = isCategorizedProduct
       ? (editApprovalNumber.trim() || null)
+      : undefined;
+    const gatcStampingPriceIds = isCategorizedProduct
+      ? normalizeGatcIdList(editGatcIds)
       : undefined;
     const spareGroupId = isSpareItem
       ? (editSpareGroupId.trim() || null)
@@ -1283,6 +1325,9 @@ export const ProductDetailView: React.FC<{
       || sku !== (product.sku ?? '')
       || roundedRate !== Number(product.rate ?? 0)
       || mrpOverride !== prevMrp;
+    const prevGatcIds = normalizeGatcIdList(product.gatcStampingPriceIds);
+    const gatcChanged = gatcStampingPriceIds !== undefined
+      && !sameGatcIdList(gatcStampingPriceIds, prevGatcIds);
     const overlayFieldsChanged = (
       modelNumber !== undefined
       && modelNumber !== (product.modelNumber ?? null)
@@ -1292,7 +1337,7 @@ export const ProductDetailView: React.FC<{
     ) || (
       spareGroupId !== undefined
       && spareGroupId !== (product.spareGroupId ?? null)
-    );
+    ) || gatcChanged;
 
     if (!zohoFieldsChanged && !overlayFieldsChanged && !categoryChanged) {
       setProductEditMode(false);
@@ -1306,11 +1351,19 @@ export const ProductDetailView: React.FC<{
         await assignProductCategory(product.id, nextCategoryId, nextCategoryName);
       }
 
+      const overlayPayload = {
+        ...(modelNumber !== undefined ? { modelNumber } : {}),
+        ...(approvalNumber !== undefined ? { approvalNumber } : {}),
+        ...(spareGroupId !== undefined ? { spareGroupId } : {}),
+        ...(gatcStampingPriceIds !== undefined ? { gatcStampingPriceIds } : {}),
+      };
+
       const applyOverlayLocally = (
         overlays: {
           modelNumber?: string | null;
           approvalNumber?: string | null;
           spareGroupId?: string | null;
+          gatcStampingPriceIds?: string[];
         },
       ) => {
         setProduct(prev => (
@@ -1326,6 +1379,12 @@ export const ProductDetailView: React.FC<{
                 ...(spareGroupId !== undefined
                   ? { spareGroupId: overlays.spareGroupId ?? spareGroupId }
                   : {}),
+                ...(gatcStampingPriceIds !== undefined
+                  ? {
+                      gatcStampingPriceIds:
+                        overlays.gatcStampingPriceIds ?? gatcStampingPriceIds,
+                    }
+                  : {}),
                 syncedAt: new Date().toISOString(),
                 ...(categoryChanged
                   ? { categoryId: nextCategoryId, categoryName: nextCategoryName }
@@ -1333,6 +1392,30 @@ export const ProductDetailView: React.FC<{
               }
             : prev
         ));
+      };
+
+      const saveOverlaysIfNeeded = async (includeModelApproval: boolean) => {
+        const payload = includeModelApproval
+          ? overlayPayload
+          : {
+              ...(spareGroupId !== undefined ? { spareGroupId } : {}),
+              ...(gatcStampingPriceIds !== undefined ? { gatcStampingPriceIds } : {}),
+            };
+        const hasKeys = Object.keys(payload).length > 0;
+        if (!hasKeys) return;
+        // Only call when something in this payload actually changed.
+        const needsCall = (
+          includeModelApproval && (
+            (modelNumber !== undefined && modelNumber !== (product.modelNumber ?? null))
+            || (approvalNumber !== undefined
+              && approvalNumber !== (product.approvalNumber ?? null))
+          )
+        ) || (
+          spareGroupId !== undefined && spareGroupId !== (product.spareGroupId ?? null)
+        ) || gatcChanged;
+        if (!needsCall) return;
+        const overlays = await updateCatalogProductOverlays(product.id, payload);
+        applyOverlayLocally(overlays);
       };
 
       if (zohoFieldsChanged) {
@@ -1367,15 +1450,12 @@ export const ProductDetailView: React.FC<{
                 }
               : prev
           ));
+          // Spare group / GATC are overlays-only — still persist after Zoho save.
+          await saveOverlaysIfNeeded(false);
         } catch (zohoErr) {
           // Zoho rate-limit / outage: still persist Firebase-only fields.
           if (overlayFieldsChanged) {
-            const overlays = await updateCatalogProductOverlays(product.id, {
-              ...(modelNumber !== undefined ? { modelNumber } : {}),
-              ...(approvalNumber !== undefined ? { approvalNumber } : {}),
-              ...(spareGroupId !== undefined ? { spareGroupId } : {}),
-            });
-            applyOverlayLocally(overlays);
+            await saveOverlaysIfNeeded(true);
             setDetailsError(
               `${zohoErr instanceof Error ? zohoErr.message : 'Zoho update failed.'} `
               + 'App-only fields were saved.',
@@ -1388,12 +1468,7 @@ export const ProductDetailView: React.FC<{
           throw zohoErr;
         }
       } else if (overlayFieldsChanged) {
-        const overlays = await updateCatalogProductOverlays(product.id, {
-          ...(modelNumber !== undefined ? { modelNumber } : {}),
-          ...(approvalNumber !== undefined ? { approvalNumber } : {}),
-          ...(spareGroupId !== undefined ? { spareGroupId } : {}),
-        });
-        applyOverlayLocally(overlays);
+        await saveOverlaysIfNeeded(true);
       } else if (categoryChanged) {
         setProduct(prev => (
           prev
@@ -1412,6 +1487,7 @@ export const ProductDetailView: React.FC<{
       setCategoryOptions([]);
       setModelNumberOptions([]);
       setApprovalNumberOptions([]);
+      setEditGatcIds([]);
     } catch (err) {
       setDetailsError(err instanceof Error ? err.message : 'Could not save item details.');
     } finally {
@@ -2001,6 +2077,48 @@ export const ProductDetailView: React.FC<{
                     )}
                   </div>
                 )}
+
+                {isCategorizedProduct && (
+                  <div className="product-detail-page__edit-row">
+                    <div className="product-detail-page__sku-field product-detail-page__edit-row-span">
+                      <span className="product-detail-page__sku-label">GATC</span>
+                      <p className="product-detail-page__gatc-hint">
+                        Select none, one, or many stamping ranges.
+                      </p>
+                      {optionListsLoading ? (
+                        <p className="product-detail-page__gatc-hint">Loading GATC options…</p>
+                      ) : gatcOptions.length === 0 ? (
+                        <p className="product-detail-page__gatc-hint">
+                          No GATC entries in Product settings yet.
+                        </p>
+                      ) : (
+                        <div className="product-detail-page__gatc-options" role="group" aria-label="GATC">
+                          {gatcOptions.map(opt => {
+                            const selected = editGatcIds.includes(opt.id);
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                className={`product-detail-page__gatc-option${selected ? ' is-selected' : ''}`}
+                                disabled={detailsSaving}
+                                aria-pressed={selected}
+                                onClick={() => {
+                                  setEditGatcIds(prev => (
+                                    selected
+                                      ? prev.filter(id => id !== opt.id)
+                                      : [...prev, opt.id]
+                                  ));
+                                }}
+                              >
+                                {formatGatcOptionLabel(opt)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               (product.sku) && (
@@ -2016,6 +2134,17 @@ export const ProductDetailView: React.FC<{
                 {isCategorizedProduct && product.approvalNumber && (
                   <p className="product-detail-page__sku">
                     Approval: {product.approvalNumber}
+                  </p>
+                )}
+                {isCategorizedProduct && normalizeGatcIdList(product.gatcStampingPriceIds).length > 0 && (
+                  <p className="product-detail-page__sku">
+                    GATC:{' '}
+                    {normalizeGatcIdList(product.gatcStampingPriceIds)
+                      .map(id => {
+                        const opt = gatcOptions.find(entry => entry.id === id);
+                        return opt ? formatGatcOptionLabel(opt) : id;
+                      })
+                      .join(' · ')}
                   </p>
                 )}
                 {isSpareItem && (
