@@ -1,4 +1,3 @@
-import React from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { formatOtHours, overtimeEntryHours } from '../../lib/hrSalary';
 import type {
