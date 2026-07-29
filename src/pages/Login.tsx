@@ -17,6 +17,11 @@ import { BRAND_TITLE, FIRM_NAME } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
 import { homePathForRole } from '../types';
 import { parseLoginId } from '../lib/loginAuth';
+import {
+  NO_AUTOFILL_FORM_PROPS,
+  NO_AUTOFILL_LOGIN_ID_PROPS,
+  NO_AUTOFILL_PASSWORD_PROPS,
+} from '../lib/disableAutofill';
 
 const SUPPORT_PHONE = '919567933252';
 const SUPPORT_TEL_HREF = `tel:+${SUPPORT_PHONE}`;
@@ -54,6 +59,9 @@ export const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  /** Blocks Chrome credential UI until the user interacts with the field. */
+  const [loginIdEditable, setLoginIdEditable] = useState(false);
+  const [passwordEditable, setPasswordEditable] = useState(false);
 
   useEffect(() => {
     if (!loading && user) {
@@ -111,7 +119,7 @@ export const Login: React.FC = () => {
             <span className="login-hero__signin-accent">ID and password</span>
           </h2>
 
-          <form onSubmit={handleSubmit} className="login-hero__form">
+          <form onSubmit={handleSubmit} className="login-hero__form" {...NO_AUTOFILL_FORM_PROPS}>
             {error && <div className="login-error">{error}</div>}
 
             <div className="form-group">
@@ -120,14 +128,17 @@ export const Login: React.FC = () => {
                 <UserRound size={18} className="input-icon" strokeWidth={1.75} />
                 <input
                   id="login-id"
+                  name="yw-login-id"
                   type="text"
                   className="input-field input-with-icon login-hero__input"
                   placeholder="Email, phone, Aadhaar, or User ID"
                   value={loginId}
                   onChange={e => setLoginId(e.target.value)}
+                  onFocus={() => setLoginIdEditable(true)}
+                  readOnly={!loginIdEditable}
                   required
                   autoFocus
-                  autoComplete="username"
+                  {...NO_AUTOFILL_LOGIN_ID_PROPS}
                 />
               </div>
               <p className="login-hero__hint">
@@ -141,13 +152,16 @@ export const Login: React.FC = () => {
                 <Lock size={18} className="input-icon" strokeWidth={1.75} />
                 <input
                   id="login-password"
+                  name="yw-login-password"
                   type={showPassword ? 'text' : 'password'}
                   className="input-field input-with-icon login-hero__input"
                   placeholder="Enter your password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
+                  onFocus={() => setPasswordEditable(true)}
+                  readOnly={!passwordEditable}
                   required
-                  autoComplete="current-password"
+                  {...NO_AUTOFILL_PASSWORD_PROPS}
                 />
                 <button
                   type="button"

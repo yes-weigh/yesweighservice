@@ -298,7 +298,11 @@ export const DealerLogin: React.FC = () => {
                   onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   required
                   autoFocus
-                  autoComplete="tel"
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
                 />
               </div>
               <p className="text-muted text-sm login-id-hint">
@@ -432,11 +436,16 @@ export const DealerLogin: React.FC = () => {
                 id="dealer-password"
                 type="password"
                 className="input-field"
+                name="yw-dealer-password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
                 autoFocus
                 autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                data-form-type="other"
               />
             </div>
 
@@ -446,10 +455,15 @@ export const DealerLogin: React.FC = () => {
                 id="dealer-password-confirm"
                 type="password"
                 className="input-field"
+                name="yw-dealer-password-confirm"
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
                 required
                 autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                data-form-type="other"
               />
             </div>
 

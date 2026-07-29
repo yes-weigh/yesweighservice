@@ -4,6 +4,11 @@ import { Copy, Eye, EyeOff, LogIn, Lock, UserRound } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
 import { isValidUsername, normalizeUsername } from '../../lib/loginAuth';
+import {
+  NO_AUTOFILL_FORM_PROPS,
+  NO_AUTOFILL_LOGIN_ID_PROPS,
+  NO_AUTOFILL_PASSWORD_PROPS,
+} from '../../lib/disableAutofill';
 import { YESSTORE_OPEN_DUPLICATES_KEY } from '../../lib/yesStore/possibleDuplicates';
 
 export const WarehouseLogin: React.FC = () => {
@@ -14,6 +19,8 @@ export const WarehouseLogin: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [loginIdEditable, setLoginIdEditable] = useState(false);
+  const [passwordEditable, setPasswordEditable] = useState(false);
 
   useEffect(() => {
     if (!loading && user) {
@@ -69,7 +76,7 @@ export const WarehouseLogin: React.FC = () => {
           <p className="text-muted text-sm">Sign in with your User ID</p>
         </header>
 
-        <form onSubmit={handleSubmit} className="warehouse-login__form">
+        <form onSubmit={handleSubmit} className="warehouse-login__form" {...NO_AUTOFILL_FORM_PROPS}>
           {error && <div className="login-error">{error}</div>}
 
           <div className="form-group">
@@ -78,14 +85,17 @@ export const WarehouseLogin: React.FC = () => {
               <UserRound size={18} className="input-icon" />
               <input
                 id="warehouse-login-id"
+                name="yw-warehouse-login-id"
                 type="text"
                 className="input-field input-with-icon"
                 placeholder="e.g. warehouse1"
                 value={loginId}
                 onChange={e => setLoginId(e.target.value.toLowerCase())}
+                onFocus={() => setLoginIdEditable(true)}
+                readOnly={!loginIdEditable}
                 required
                 autoFocus
-                autoComplete="username"
+                {...NO_AUTOFILL_LOGIN_ID_PROPS}
               />
             </div>
           </div>
@@ -96,13 +106,16 @@ export const WarehouseLogin: React.FC = () => {
               <Lock size={18} className="input-icon" />
               <input
                 id="warehouse-login-password"
+                name="yw-warehouse-login-password"
                 type={showPassword ? 'text' : 'password'}
                 className="input-field input-with-icon"
                 placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
+                onFocus={() => setPasswordEditable(true)}
+                readOnly={!passwordEditable}
                 required
-                autoComplete="current-password"
+                {...NO_AUTOFILL_PASSWORD_PROPS}
               />
               <button
                 type="button"
