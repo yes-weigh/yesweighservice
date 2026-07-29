@@ -179,6 +179,8 @@ export const CatalogPage: React.FC = () => {
   const canSpareGroup = isSuperAdmin || isStaff;
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const showAuditedLocations = isSuperAdmin || isStaff;
+  /** Matches firestore `canAccessYesStore` — staff cannot list yesStoreItems. */
+  const canReadYesStore = isSuperAdmin || user?.role === 'warehouse';
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [linkedSpareIds, setLinkedSpareIds] = useState<Set<string> | null>(null);
@@ -380,7 +382,7 @@ export const CatalogPage: React.FC = () => {
     setAuditLoading(true);
     try {
       const [items, cochinRecords, headOfficeRecords, ncSummaries] = await Promise.all([
-        listAllItems(null),
+        canReadYesStore ? listAllItems(null) : Promise.resolve([] as YesStoreItemDoc[]),
         listCochinSiteInventory(),
         listHeadOfficeSiteInventory(),
         listCatalogProductNcSummaries(),
@@ -402,11 +404,19 @@ export const CatalogPage: React.FC = () => {
         setAuditAuditorNames(new Map());
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load inventory audit records.');
+      setAuditItems([]);
+      setCochinInventory([]);
+      setHeadOfficeInventory([]);
+      setOpenNcQtyByProductId(new Map());
+      setAuditAuditorNames(new Map());
+      // Optional enrichment for location badges — never block catalog browse/search.
+      if (import.meta.env.DEV) {
+        console.warn('Catalog audit enrichment failed:', err);
+      }
     } finally {
       setAuditLoading(false);
     }
-  }, []);
+  }, [canReadYesStore]);
 
   const handleUnlinkGroup = useCallback(
     async (group: InventoryAuditLinkedGroup) => {
