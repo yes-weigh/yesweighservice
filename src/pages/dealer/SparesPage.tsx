@@ -4,7 +4,7 @@ import { AlertCircle, Boxes, Link2, Package, RefreshCw, Search } from 'lucide-re
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { useAuth } from '../../context/AuthContext';
-import { canViewCatalogStock } from '../../lib/dealerAccess';
+import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   fetchCatalog,
@@ -39,6 +39,7 @@ export const SparesPage: React.FC = () => {
   const { user } = useAuth();
   const canSync = hasStaffPermission(user, 'catalog.sync');
   const showStockQuantity = canSync || canViewCatalogStock(user);
+  const dealerView = isDealerPortalUser(user);
   const viewMode = parseViewMode(searchParams.get('view'), canSync);
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -419,6 +420,7 @@ export const SparesPage: React.FC = () => {
           productsBasePath={`${pathname}/product`}
           enableCart={canUseCart(user?.role)}
           showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
           spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
           searchPlaceholder="Search products to map spares…"
           simpleCategoryTiles
@@ -439,6 +441,7 @@ export const SparesPage: React.FC = () => {
           onSearchChange={setSparesSearch}
           productsBasePath={pathname}
           showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
           returnView="unlinked"
           manageItemLabel="Link to products"
           onManageItem={spare => void openLinkEditor(spare)}
@@ -468,6 +471,7 @@ export const SparesPage: React.FC = () => {
           productsBasePath={pathname}
           enableCart={canUseCart(user?.role)}
           showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
           returnView="spares"
         />
       )}

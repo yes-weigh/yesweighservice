@@ -1,8 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
-import { productHasLinkedGatc } from '../../lib/gatcCart';
+import { formatGatcOptionLabel, normalizeGatcIdList, productHasLinkedGatc } from '../../lib/gatcCart';
+import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
+import type { CatalogGatcStampingPriceEntry } from '../../constants/catalogProductSettings';
 import { formatAuditDate } from '../../lib/yesStore/format';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { useCart } from '../../context/useCart';
@@ -22,12 +24,26 @@ import { StampingShieldIcon } from './StampingShieldIcon';
 const LONG_PRESS_MS = 480;
 const LONG_PRESS_MOVE_PX = 10;
 
+let sharedGatcPricesPromise: Promise<CatalogGatcStampingPriceEntry[]> | null = null;
+
+function loadSharedGatcPrices(): Promise<CatalogGatcStampingPriceEntry[]> {
+  if (!sharedGatcPricesPromise) {
+    sharedGatcPricesPromise = loadGatcStampingPrices().catch(() => []);
+  }
+  return sharedGatcPricesPromise;
+}
+
 export interface ProductBrowseCardProps {
   product: CatalogProduct;
   index: number;
   onSelect: () => void;
   enableCart?: boolean;
   showStockQuantity?: boolean;
+  /**
+   * Dealer portal grid: hide missing-package icon; show stamping range labels.
+   * Staff / admin keep package-missing + shield-only badges.
+   */
+  dealerView?: boolean;
   manageLabel?: string;
   onManage?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   linkedSpareCount?: number;
@@ -65,6 +81,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   onSelect,
   enableCart = false,
   showStockQuantity = false,
+  dealerView = false,
   manageLabel,
   onManage,
   linkedSpareCount,
@@ -81,6 +98,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const [addedFlash, setAddedFlash] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [gatcDialogOpen, setGatcDialogOpen] = useState(false);
+  const [gatcOptions, setGatcOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
   const addFlyAnchor = useRef<HTMLElement | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
@@ -92,6 +110,37 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const hasPackageInfo = Boolean(
     product.packageInfo?.masterCarton || product.packageInfo?.singleBox,
   );
+  const missingPackageInfo = !hasPackageInfo;
+  const showPackageMissingIcon = !dealerView && missingPackageInfo;
+
+  useEffect(() => {
+    if (!dealerView || !hasStamping) {
+      setGatcOptions([]);
+      return;
+    }
+    let active = true;
+    void loadSharedGatcPrices().then(list => {
+      if (active) setGatcOptions(list);
+    });
+    return () => {
+      active = false;
+    };
+  }, [dealerView, hasStamping, product.id]);
+
+  const stampingChipLines = useMemo(() => {
+    if (!dealerView || !hasStamping) return [];
+    return normalizeGatcIdList(product.gatcStampingPriceIds).map(id => {
+      const opt = gatcOptions.find(entry => entry.id === id);
+      return {
+        id,
+        label: opt ? formatGatcOptionLabel(opt) : id,
+      };
+    });
+  }, [dealerView, hasStamping, product.gatcStampingPriceIds, gatcOptions]);
+
+  const showBottomLeft = showPackageMissingIcon
+    || hasStamping
+    || Boolean(auditedLocationLabel);
 
   const clearLongPress = () => {
     if (longPressTimer.current != null) {
@@ -235,18 +284,34 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             </span>
           )}
           <StockBadge status={product.stockStatus} overlay variant="tile" iconOnly />
-          {(hasPackageInfo || hasStamping || auditedLocationLabel) && (
+          {(showBottomLeft) && (
             <div className="catalog-product-card__media-bottom-left">
-              {hasPackageInfo && (
+              {showPackageMissingIcon && (
                 <span
                   className="catalog-product-card__package-badge"
-                  title="Package info available"
-                  aria-label="Package info available"
+                  title="Package info missing"
+                  aria-label="Package info missing"
                 >
                   <PackageInfoIcon size={28} aria-hidden />
                 </span>
               )}
-              {hasStamping && (
+              {hasStamping && dealerView && (
+                <div
+                  className="catalog-product-card__stamping-chip"
+                  title="Stamping available"
+                  aria-label="Stamping available"
+                >
+                  <StampingShieldIcon size={16} aria-hidden />
+                  <div className="catalog-product-card__stamping-chip-lines">
+                    {stampingChipLines.map(line => (
+                      <span key={line.id} className="catalog-product-card__stamping-chip-line">
+                        {line.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {hasStamping && !dealerView && (
                 <span
                   className="catalog-product-card__stamping-badge"
                   title="Stamping available"

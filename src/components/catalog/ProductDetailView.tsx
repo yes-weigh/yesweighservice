@@ -117,6 +117,7 @@ import { ProductWhatsAppShareDialog } from './ProductWhatsAppShareDialog';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { SpareLinkEditor } from './SpareLinkEditor';
 import { StockBadge, StockQuantity } from './StockBadge';
+import { StampingShieldIcon } from './StampingShieldIcon';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 
 function formatProductTitle(name: string): string {
@@ -1717,11 +1718,14 @@ export const ProductDetailView: React.FC<{
                     className="product-detail-page__stamping-chip"
                     aria-label="Stamping"
                   >
-                    {stampingChipLines.map(line => (
-                      <span key={line.id} className="product-detail-page__stamping-chip-line">
-                        {line.label}
-                      </span>
-                    ))}
+                    <StampingShieldIcon size={18} aria-hidden />
+                    <div className="product-detail-page__stamping-chip-lines">
+                      {stampingChipLines.map(line => (
+                        <span key={line.id} className="product-detail-page__stamping-chip-line">
+                          {line.label}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}

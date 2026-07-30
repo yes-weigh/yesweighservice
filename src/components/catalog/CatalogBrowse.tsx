@@ -57,6 +57,8 @@ export interface CatalogBrowseProps {
   searchPlaceholder?: string;
   /** Staff / super admin — show numeric stock on product tiles */
   showStockQuantity?: boolean;
+  /** Dealer portal — hide missing-package icon; show stamping ranges on tiles */
+  dealerView?: boolean;
   /** Title + image only on category tiles (no subtitle or item count) */
   simpleCategoryTiles?: boolean;
   /** When set, category selection is controlled by the parent (e.g. URL on spares page). */
@@ -224,6 +226,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   flatBrowse = false,
   searchPlaceholder,
   showStockQuantity = false,
+  dealerView = false,
   simpleCategoryTiles = false,
   activeCategoryId: controlledCategoryId,
   onActiveCategoryChange,
@@ -510,6 +513,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               onReorder={nextProducts => onCategoryProductsReorder!(activeCategory, nextProducts)}
               enableCart={enableCart}
               showStockQuantity={showStockQuantity}
+              dealerView={dealerView}
               manageItemLabel={onManageItem ? manageItemLabel : undefined}
               onManageItem={onManageItem}
               spareLinkCountByProductId={spareLinkCountByProductId}
@@ -528,6 +532,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   onSelect={() => openProduct(product)}
                   enableCart={enableCart}
                   showStockQuantity={showStockQuantity}
+                  dealerView={dealerView}
                   manageLabel={onManageItem ? manageItemLabel : undefined}
                   onManage={
                     onManageItem

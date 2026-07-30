@@ -23,6 +23,7 @@ export interface CatalogUnifiedResultsProps {
   sparesBasePath: string;
   enableCart?: boolean;
   showStockQuantity?: boolean;
+  dealerView?: boolean;
   unlinkedSpareIds?: Set<string>;
   onLinkSpare?: (spare: CatalogProduct) => void;
   isLoading?: boolean;
@@ -36,6 +37,7 @@ export const CatalogUnifiedResults: React.FC<CatalogUnifiedResultsProps> = ({
   sparesBasePath,
   enableCart = false,
   showStockQuantity = false,
+  dealerView = false,
   unlinkedSpareIds,
   onLinkSpare,
   isLoading = false,
@@ -112,6 +114,7 @@ export const CatalogUnifiedResults: React.FC<CatalogUnifiedResultsProps> = ({
                 onSelect={() => openProduct(product)}
                 enableCart={enableCart}
                 showStockQuantity={showStockQuantity}
+                dealerView={dealerView}
               />
             ))}
           </div>
@@ -133,6 +136,7 @@ export const CatalogUnifiedResults: React.FC<CatalogUnifiedResultsProps> = ({
                 onSelect={() => openSpare(spare)}
                 enableCart={enableCart}
                 showStockQuantity={showStockQuantity}
+                dealerView={dealerView}
                 manageLabel={onLinkSpare && unlinkedSpareIds?.has(spare.id) ? 'Link to products' : undefined}
                 onManage={
                   onLinkSpare && unlinkedSpareIds?.has(spare.id)

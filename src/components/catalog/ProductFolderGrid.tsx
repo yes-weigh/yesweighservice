@@ -8,6 +8,7 @@ export interface ProductFolderGridProps {
   onReorder: (products: CatalogProduct[]) => void;
   enableCart?: boolean;
   showStockQuantity?: boolean;
+  dealerView?: boolean;
   manageItemLabel?: string;
   onManageItem?: (product: CatalogProduct) => void;
   spareLinkCountByProductId?: Map<string, number>;
@@ -23,6 +24,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
   onReorder,
   enableCart = false,
   showStockQuantity = false,
+  dealerView = false,
   manageItemLabel,
   onManageItem,
   spareLinkCountByProductId,
@@ -79,6 +81,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
           onSelect={() => onProductSelect(product)}
           enableCart={enableCart}
           showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
           manageLabel={onManageItem ? manageItemLabel : undefined}
           onManage={
             onManageItem

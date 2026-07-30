@@ -13,7 +13,7 @@ import { InventoryAuditBatchLinkModal } from '../../components/yesStore/Inventor
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, usePageHeaderSlot, useTopBarAction } from '../../context/PageHeaderContext';
-import { canViewCatalogStock } from '../../lib/dealerAccess';
+import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   excludeHiddenCatalogProducts,
@@ -175,6 +175,7 @@ export const CatalogPage: React.FC = () => {
   const isSuperAdmin = user?.role === 'super_admin';
   const isStaff = user?.role === 'staff';
   const isMedia = user?.role === 'media';
+  const dealerView = isDealerPortalUser(user);
   const isMobile = useIsMobile();
   const canSync = hasStaffPermission(user, 'catalog.sync');
   const canSpareGroup = isSuperAdmin || isStaff;
@@ -1887,6 +1888,7 @@ export const CatalogPage: React.FC = () => {
           sparesBasePath={`${pathname}/spare`}
           enableCart={canUseCart(user?.role)}
           showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
           unlinkedSpareIds={linkedSpareIds ?? undefined}
           onLinkSpare={canSync ? spare => void openLinkEditor(spare) : undefined}
           isLoading={loading || (isMedia && mediaIndexLoading)}
@@ -1948,6 +1950,7 @@ export const CatalogPage: React.FC = () => {
             productsBasePath={browseBasePath}
             enableCart={canUseCart(user?.role)}
             showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
             hideFilterBar
             spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
             openNcQtyByProductId={isSuperAdmin ? openNcQtyByProductId : undefined}
@@ -2005,6 +2008,7 @@ export const CatalogPage: React.FC = () => {
           productsBasePath={`${pathname}/map`}
           enableCart={false}
           showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
           spareLinkCountByProductId={spareCountByProductId ?? undefined}
           hideFilterBar
           searchQuery={committedSearchQuery}
@@ -2029,6 +2033,7 @@ export const CatalogPage: React.FC = () => {
           onSearchChange={handleSearchChange}
           productsBasePath={`${pathname}/spare`}
           showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
           returnView="unlinked"
           manageItemLabel="Link to products"
           onManageItem={spare => void openLinkEditor(spare)}
@@ -2076,6 +2081,7 @@ export const CatalogPage: React.FC = () => {
               productsBasePath={`${pathname}/spare`}
               enableCart={canUseCart(user?.role)}
               showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
               returnView="spares"
               highlightedProductId={highlightProductId}
               onProductSelect={openSpareFromFilteredList}
