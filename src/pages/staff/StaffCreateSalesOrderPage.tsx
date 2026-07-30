@@ -9,7 +9,17 @@ import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPi
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
+import {
+  ensureDealersCached,
+  peekCachedDealers,
+  subscribeDealerCache,
+} from '../../lib/dealer-cache';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
+import {
+  dealerMatchesLogisticsQuery,
+  zohoDealerContactPerson,
+  zohoDealerToSnapshot,
+} from '../../lib/logisticsDealers';
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
@@ -21,25 +31,15 @@ import {
   listZohoSalespersons,
   type ZohoSalespersonOption,
 } from '../../lib/zohoSalespersons';
-import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
-import { db } from '../../firebase';
+import type { ZohoDealer } from '../../types/dealers';
 import type { User } from '../../types';
 
-type DealerOption = {
+type SelectedDealer = {
   id: string;
   label: string;
-  companyName: string | null;
-  code: string | null;
+  contactPerson: string | null;
+  mobile: string | null;
 };
-
-function useDebounce(value: string, delay: number): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delay);
-    return () => window.clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
 
 function userHasLinkedSalesperson(user: User | null | undefined): boolean {
   if (!user) return false;
@@ -55,6 +55,18 @@ function userHasLinkedSalesperson(user: User | null | undefined): boolean {
   return false;
 }
 
+function toSelectedDealer(dealer: ZohoDealer): SelectedDealer {
+  const snapshot = zohoDealerToSnapshot(dealer);
+  const label = snapshot.name;
+  const contactPerson = zohoDealerContactPerson(dealer);
+  return {
+    id: dealer.id,
+    label,
+    contactPerson: contactPerson !== '—' && contactPerson !== label ? contactPerson : null,
+    mobile: snapshot.mobile !== '—' ? snapshot.mobile : null,
+  };
+}
+
 export const StaffCreateSalesOrderPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -66,10 +78,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const needsSalespersonPicker = isFullSuperAdmin(user) && !userHasLinkedSalesperson(user);
 
   const [dealerQuery, setDealerQuery] = useState('');
-  const debouncedDealerQuery = useDebounce(dealerQuery, 220);
-  const [dealerOptions, setDealerOptions] = useState<DealerOption[]>([]);
+  const [dealers, setDealers] = useState<ZohoDealer[]>([]);
   const [dealersLoading, setDealersLoading] = useState(false);
-  const [selectedDealer, setSelectedDealer] = useState<DealerOption | null>(null);
+  const [selectedDealer, setSelectedDealer] = useState<SelectedDealer | null>(null);
 
   const [lines, setLines] = useState<DraftEditLine[]>([]);
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
@@ -118,49 +129,51 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     };
   }, [needsSalespersonPicker]);
 
+  // Same full dealer cache as logistics book-courier.
   useEffect(() => {
-    const q = debouncedDealerQuery.trim().toLowerCase();
-    if (q.length < 2) {
-      setDealerOptions([]);
-      return;
-    }
     let cancelled = false;
-    setDealersLoading(true);
-    void (async () => {
-      try {
-        const snap = await getDocs(
-          query(collection(db, 'zohoCustomers'), orderBy('contactName'), limit(80)),
-        );
-        if (cancelled) return;
-        const rows: DealerOption[] = snap.docs
-          .map(docSnap => {
-            const data = docSnap.data();
-            const contactName = String(data.contactName ?? '').trim();
-            const companyName = data.companyName ? String(data.companyName).trim() : null;
-            const code = data.customerCode
-              ? String(data.customerCode).trim()
-              : (data.cfDealerCode ? String(data.cfDealerCode).trim() : null);
-            const label = contactName || companyName || docSnap.id;
-            const hay = `${label} ${companyName ?? ''} ${code ?? ''} ${docSnap.id}`.toLowerCase();
-            if (!hay.includes(q)) return null;
-            return { id: docSnap.id, label, companyName, code };
-          })
-          .filter((row): row is DealerOption => Boolean(row))
-          .slice(0, 25);
-        setDealerOptions(rows);
-      } catch (err) {
+    const cached = peekCachedDealers();
+    if (cached?.length) {
+      setDealers(cached);
+      setDealersLoading(false);
+    } else {
+      setDealersLoading(true);
+    }
+
+    const unsubscribe = subscribeDealerCache((list, complete) => {
+      if (cancelled) return;
+      setDealers(list);
+      if (complete || list.length > 0) setDealersLoading(false);
+    });
+
+    void ensureDealersCached()
+      .then(list => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Could not search dealers.');
-          setDealerOptions([]);
+          setDealers(list);
+          setDealersLoading(false);
         }
-      } finally {
-        if (!cancelled) setDealersLoading(false);
-      }
-    })();
+      })
+      .catch(err => {
+        if (!cancelled && !peekCachedDealers()?.length) {
+          setDealers([]);
+          setDealersLoading(false);
+          setError(err instanceof Error ? err.message : 'Could not load dealers.');
+        }
+      });
+
     return () => {
       cancelled = true;
+      unsubscribe();
     };
-  }, [debouncedDealerQuery]);
+  }, []);
+
+  const filteredDealers = useMemo(() => {
+    const q = dealerQuery.trim();
+    if (q.length < 2) return [];
+    return dealers
+      .filter(dealer => dealerMatchesLogisticsQuery(dealer, q))
+      .slice(0, 40);
+  }, [dealers, dealerQuery]);
 
   const loadAddresses = useCallback(async (customerId: string) => {
     setAddressesLoading(true);
@@ -177,10 +190,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     }
   }, []);
 
-  const selectDealer = (dealer: DealerOption) => {
-    setSelectedDealer(dealer);
+  const selectDealer = (dealer: ZohoDealer) => {
+    setSelectedDealer(toSelectedDealer(dealer));
     setDealerQuery('');
-    setDealerOptions([]);
     setError('');
     void loadAddresses(dealer.id);
   };
@@ -263,11 +275,11 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           <div className="staff-create-so-page__dealer-selected">
             <div>
               <strong>{selectedDealer.label}</strong>
-              {selectedDealer.companyName && selectedDealer.companyName !== selectedDealer.label ? (
-                <p className="text-muted text-sm">{selectedDealer.companyName}</p>
+              {selectedDealer.contactPerson ? (
+                <p className="text-muted text-sm">{selectedDealer.contactPerson}</p>
               ) : null}
-              {selectedDealer.code ? (
-                <p className="text-muted text-sm">Code {selectedDealer.code}</p>
+              {selectedDealer.mobile ? (
+                <p className="text-muted text-sm">{selectedDealer.mobile}</p>
               ) : null}
             </div>
             <button
@@ -289,35 +301,49 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               <Search size={15} aria-hidden />
               <input
                 type="search"
-                placeholder="Search dealer name, company, or code…"
+                placeholder="Search dealer by name, code or mobile…"
                 value={dealerQuery}
                 onChange={e => setDealerQuery(e.target.value)}
                 aria-label="Search dealers"
               />
             </div>
-            {dealersLoading ? (
-              <p className="text-muted text-sm">Searching…</p>
-            ) : dealerOptions.length > 0 ? (
+            {dealersLoading && dealers.length === 0 ? (
+              <p className="text-muted text-sm">Loading dealers…</p>
+            ) : filteredDealers.length > 0 ? (
               <ul className="staff-create-so-page__dealer-list" role="listbox">
-                {dealerOptions.map(option => (
-                  <li key={option.id}>
-                    <button
-                      type="button"
-                      className="staff-create-so-page__dealer-option"
-                      onClick={() => selectDealer(option)}
-                    >
-                      <strong>{option.label}</strong>
-                      <span className="text-muted text-sm">
-                        {[option.companyName, option.code].filter(Boolean).join(' · ')}
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                {filteredDealers.map(dealer => {
+                  const snapshot = zohoDealerToSnapshot(dealer);
+                  return (
+                    <li key={dealer.id}>
+                      <button
+                        type="button"
+                        className="staff-create-so-page__dealer-option"
+                        onClick={() => selectDealer(dealer)}
+                      >
+                        <strong>{snapshot.name}</strong>
+                        <span className="text-muted text-sm">
+                          {[
+                            snapshot.contactPerson !== '—' ? snapshot.contactPerson : null,
+                            snapshot.mobile !== '—' ? snapshot.mobile : null,
+                            dealer.id,
+                          ].filter(Boolean).join(' · ')}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
-            ) : debouncedDealerQuery.trim().length >= 2 ? (
-              <p className="text-muted text-sm">No matching dealers.</p>
+            ) : dealerQuery.trim().length >= 2 ? (
+              <p className="text-muted text-sm">
+                {dealersLoading
+                  ? 'Still loading dealers…'
+                  : `No dealers match “${dealerQuery.trim()}”.`}
+              </p>
             ) : (
-              <p className="text-muted text-sm">Type at least 2 characters to search Zoho dealers.</p>
+              <p className="text-muted text-sm">
+                Type at least 2 characters to search
+                {dealersLoading ? ' (loading dealer list…)' : ` (${dealers.length} dealers loaded)`}.
+              </p>
             )}
           </div>
         )}
