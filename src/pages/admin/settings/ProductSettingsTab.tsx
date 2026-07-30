@@ -58,7 +58,7 @@ const PRODUCT_SETTINGS_SUBTABS: { id: ProductSettingsSubTab; label: string }[] =
   { id: 'packaging', label: 'Carton & MRP' },
   { id: 'model-approval', label: 'Model & approval' },
   { id: 'spare-groups', label: 'Spare groups' },
-  { id: 'gatc', label: 'GATC' },
+  { id: 'gatc', label: 'Stamping' },
   { id: 'images', label: 'Images' },
   { id: 'hidden-items', label: 'Hidden items' },
 ];
@@ -503,7 +503,7 @@ export const ProductSettingsTab: React.FC = () => {
       setGatcEntries(await saveGatcStampingPrices(next, user?.uid ?? null));
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save GATC entries.');
+      setError(err instanceof Error ? err.message : 'Could not save stamping entries.');
       return false;
     } finally {
       setBusyKey(null);
@@ -570,7 +570,7 @@ export const ProductSettingsTab: React.FC = () => {
 
   const handleRemoveGatcEntry = async (entry: CatalogGatcStampingPriceEntry) => {
     const ok = await confirm({
-      title: 'Remove GATC entry?',
+      title: 'Remove stamping entry?',
       message: `Delete stamping range “${entry.stampingRange}” (₹${entry.price})?`,
       confirmLabel: 'Remove',
       destructive: true,
@@ -846,15 +846,15 @@ export const ProductSettingsTab: React.FC = () => {
 
   const renderGatcSection = () => (
     <div className="settings-product-qty__section">
-      <h4 className="settings-product-qty__title">GATC stamping prices</h4>
+      <h4 className="settings-product-qty__title">Stamping prices</h4>
       <p className="settings-product-qty__hint text-muted text-sm">
         Each entry has a stamping range (free text) and a price.
       </p>
       {!loading && (
         <>
-          <div className="settings-product-gatc" aria-label="GATC stamping prices">
+          <div className="settings-product-gatc" aria-label="Stamping prices">
             {gatcEntries.length === 0 && (
-              <p className="text-muted text-sm">No GATC entries yet.</p>
+              <p className="text-muted text-sm">No stamping entries yet.</p>
             )}
             {gatcEntries.map(entry => (
               <div key={entry.id} className="settings-product-gatc__row">
@@ -1107,7 +1107,7 @@ export const ProductSettingsTab: React.FC = () => {
         <div>
           <h3>Product settings</h3>
           <p className="text-muted text-sm">
-            Carton qty, MRP, model & approval options, spare groups, GATC, image tools, and hidden catalogue items.
+            Carton qty, MRP, model & approval options, spare groups, stamping, image tools, and hidden catalogue items.
           </p>
         </div>
       </header>

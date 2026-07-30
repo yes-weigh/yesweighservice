@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, CheckCircle, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
+import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
@@ -16,6 +16,8 @@ import {
   type GatcStampingChoice,
 } from './GatcStampingChoiceDialog';
 import { StockBadge, StockQuantity } from './StockBadge';
+import { PackageInfoIcon } from './PackageInfoIcon';
+import { StampingShieldIcon } from './StampingShieldIcon';
 
 const LONG_PRESS_MS = 480;
 const LONG_PRESS_MOVE_PX = 10;
@@ -87,6 +89,9 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const outOfStock = product.stockStatus === 'out_of_stock';
   const inCart = isInCart(product.id);
   const hasStamping = productHasLinkedGatc(product);
+  const hasPackageInfo = Boolean(
+    product.packageInfo?.masterCarton || product.packageInfo?.singleBox,
+  );
 
   const clearLongPress = () => {
     if (longPressTimer.current != null) {
@@ -230,15 +235,24 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             </span>
           )}
           <StockBadge status={product.stockStatus} overlay variant="tile" iconOnly />
-          {(hasStamping || auditedLocationLabel) && (
+          {(hasPackageInfo || hasStamping || auditedLocationLabel) && (
             <div className="catalog-product-card__media-bottom-left">
+              {hasPackageInfo && (
+                <span
+                  className="catalog-product-card__package-badge"
+                  title="Package info available"
+                  aria-label="Package info available"
+                >
+                  <PackageInfoIcon size={28} aria-hidden />
+                </span>
+              )}
               {hasStamping && (
                 <span
                   className="catalog-product-card__stamping-badge"
                   title="Stamping available"
                   aria-label="Stamping available"
                 >
-                  <CheckCircle size={14} strokeWidth={2.5} aria-hidden />
+                  <StampingShieldIcon size={22} aria-hidden />
                 </span>
               )}
               {auditedLocationLabel && (

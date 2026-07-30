@@ -70,7 +70,7 @@ export const GatcStampingChoiceDialog: React.FC<{
       .catch(err => {
         if (!active) return;
         setOptions([]);
-        setLoadError(err instanceof Error ? err.message : 'Could not load GATC options.');
+        setLoadError(err instanceof Error ? err.message : 'Could not load stamping options.');
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -154,11 +154,11 @@ export const GatcStampingChoiceDialog: React.FC<{
         <p className="gatc-stamp-dialog__product text-muted text-sm">{product.name}</p>
 
         {loading ? (
-          <p className="text-muted text-sm">Loading GATC options…</p>
+          <p className="text-muted text-sm">Loading stamping options…</p>
         ) : loadError ? (
           <p className="dealers-modal__error text-sm">{loadError}</p>
         ) : options.length === 0 ? (
-          <p className="text-muted text-sm">No GATC options linked to this product.</p>
+          <p className="text-muted text-sm">No stamping options linked to this product.</p>
         ) : (
           <>
             <div className="gatc-stamp-dialog__choices" role="radiogroup" aria-label="Stamping">

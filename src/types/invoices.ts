@@ -106,7 +106,7 @@ export const INVOICE_CATEGORY_FILTER_OPTIONS: Array<{
   { value: 'spare', label: 'Spares' },
   { value: 'software_key', label: 'Software' },
   { value: 'service', label: 'Service charges' },
-  { value: 'gatc', label: 'GATC' },
+  { value: 'gatc', label: 'Stamping' },
 ];
 
 export interface InvoiceListResponse {

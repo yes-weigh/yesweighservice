@@ -930,7 +930,7 @@ export function invoiceCategoryLabel(category: InvoiceCategory | null | undefine
     case 'software_key':
       return 'Software';
     case 'gatc':
-      return 'GATC';
+      return 'Stamping';
     default:
       return '';
   }

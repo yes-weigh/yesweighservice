@@ -67,7 +67,7 @@ const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> 
   { value: 'spare', label: 'Spares' },
   { value: 'software_key', label: 'Software' },
   { value: 'service', label: 'Service' },
-  { value: 'gatc', label: 'GATC' },
+  { value: 'gatc', label: 'Stamping' },
 ];
 
 const EMPTY_CATEGORY_COUNTS: AdminInvoiceCategoryCounts = {

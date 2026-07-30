@@ -116,7 +116,7 @@ import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import { ProductWhatsAppShareDialog } from './ProductWhatsAppShareDialog';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { SpareLinkEditor } from './SpareLinkEditor';
-import { StockBadge } from './StockBadge';
+import { StockBadge, StockQuantity } from './StockBadge';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 
 function formatProductTitle(name: string): string {
@@ -418,6 +418,17 @@ export const ProductDetailView: React.FC<{
       pdfFileName: selected.pdfFileName ?? null,
     };
   }, [isCategorizedProduct, product?.approvalNumber, approvalNumberOptions]);
+
+  const stampingChipLines = useMemo(() => {
+    if (!isCategorizedProduct || !product) return [];
+    return normalizeGatcIdList(product.gatcStampingPriceIds).map(id => {
+      const opt = gatcOptions.find(entry => entry.id === id);
+      return {
+        id,
+        label: opt ? formatGatcOptionLabel(opt) : id,
+      };
+    });
+  }, [isCategorizedProduct, product, gatcOptions]);
 
   useEffect(() => {
     if (!isSpareItem) {
@@ -1672,8 +1683,79 @@ export const ProductDetailView: React.FC<{
                 productEditMode ? 'product-detail-page__image-stage--editing' : '',
               ].filter(Boolean).join(' ')}
             >
-              {showStockQuantity && (
-                <StockBadge status={product.stockStatus} overlay variant="tile" />
+              {(product.sku?.trim() || showStockQuantity) && (
+                <div className="product-detail-page__image-top-left">
+                  {product.sku?.trim() && (
+                    <span className="product-detail-page__sku-badge" title={product.sku.trim()}>
+                      {product.sku.trim()}
+                    </span>
+                  )}
+                  {showStockQuantity && (
+                    <span
+                      className="product-detail-page__zoho-stock-badge"
+                      title={`Zoho stock: ${formatStockQuantity(product.stock, product.unit)}`}
+                    >
+                      <StockBadge status={product.stockStatus} variant="tile" iconOnly />
+                      <StockQuantity
+                        stock={product.stock}
+                        unit={product.unit}
+                        status={product.stockStatus}
+                        compact
+                      />
+                    </span>
+                  )}
+                </div>
+              )}
+              {stampingChipLines.length > 0 && (
+                <div
+                  className={[
+                    'product-detail-page__image-bottom-left',
+                    galleryUrls.length > 1 ? 'product-detail-page__image-bottom-left--carousel' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  <div
+                    className="product-detail-page__stamping-chip"
+                    aria-label="Stamping"
+                  >
+                    {stampingChipLines.map(line => (
+                      <span key={line.id} className="product-detail-page__stamping-chip-line">
+                        {line.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(product.modelNumber?.trim()
+                || product.approvalNumber?.trim()
+                || galleryUrls.length > 1) && (
+                <div
+                  className={[
+                    'product-detail-page__image-bottom-right',
+                    galleryUrls.length > 1 ? 'product-detail-page__image-bottom-right--carousel' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  {product.modelNumber?.trim() && (
+                    <span
+                      className="product-detail-page__model-badge"
+                      title={product.modelNumber.trim()}
+                    >
+                      {product.modelNumber.trim()}
+                    </span>
+                  )}
+                  {product.approvalNumber?.trim() && (
+                    <span
+                      className="product-detail-page__model-badge"
+                      title={product.approvalNumber.trim()}
+                    >
+                      {product.approvalNumber.trim()}
+                    </span>
+                  )}
+                  {galleryUrls.length > 1 && (
+                    <span className="product-detail-page__carousel-count" aria-hidden>
+                      {activeGalleryIndex + 1}/{galleryUrls.length}
+                    </span>
+                  )}
+                </div>
               )}
               <div className="product-detail-page__hero-actions">
                 {!productEditMode && (
@@ -1718,9 +1800,6 @@ export const ProductDetailView: React.FC<{
                       </div>
                     ))}
                   </div>
-                  <span className="product-detail-page__carousel-count" aria-hidden>
-                    {activeGalleryIndex + 1}/{galleryUrls.length}
-                  </span>
                   <div
                     className="product-detail-page__carousel-dots"
                     role="tablist"
@@ -2111,18 +2190,18 @@ export const ProductDetailView: React.FC<{
                 {isCategorizedProduct && (
                   <div className="product-detail-page__edit-row">
                     <div className="product-detail-page__sku-field product-detail-page__edit-row-span">
-                      <span className="product-detail-page__sku-label">GATC</span>
+                      <span className="product-detail-page__sku-label">Stamping</span>
                       <p className="product-detail-page__gatc-hint">
                         Select none, one, or many stamping ranges.
                       </p>
                       {optionListsLoading ? (
-                        <p className="product-detail-page__gatc-hint">Loading GATC options…</p>
+                        <p className="product-detail-page__gatc-hint">Loading stamping options…</p>
                       ) : gatcOptions.length === 0 ? (
                         <p className="product-detail-page__gatc-hint">
-                          No GATC entries in Product settings yet.
+                          No stamping entries in Product settings yet.
                         </p>
                       ) : (
-                        <div className="product-detail-page__gatc-options" role="group" aria-label="GATC">
+                        <div className="product-detail-page__gatc-options" role="group" aria-label="Stamping">
                           {gatcOptions.map(opt => {
                             const selected = editGatcIds.includes(opt.id);
                             return (
@@ -2150,60 +2229,16 @@ export const ProductDetailView: React.FC<{
                   </div>
                 )}
               </div>
-            ) : (
-              (product.sku) && (
-                <p className="product-detail-page__sku">SKU: {product.sku}</p>
-              )
-            )}
+            ) : null}
 
-            {!productEditMode && (
+            {!productEditMode && isSpareItem && (
               <div className="product-detail-page__meta-chips">
-                {isCategorizedProduct && product.modelNumber && (
-                  <p className="product-detail-page__sku">Model: {product.modelNumber}</p>
-                )}
-                {isCategorizedProduct && product.approvalNumber && (
-                  <p className="product-detail-page__sku">
-                    Approval: {product.approvalNumber}
-                  </p>
-                )}
-                {isCategorizedProduct && normalizeGatcIdList(product.gatcStampingPriceIds).length > 0 && (
-                  <div className="product-detail-page__gatc-display">
-                    <span className="product-detail-page__gatc-display-label">GATC</span>
-                    <div className="product-detail-page__gatc-display-list">
-                      {normalizeGatcIdList(product.gatcStampingPriceIds).map(id => {
-                        const opt = gatcOptions.find(entry => entry.id === id);
-                        if (!opt) {
-                          return (
-                            <span key={id} className="product-detail-page__gatc-display-chip">
-                              {id}
-                            </span>
-                          );
-                        }
-                        return (
-                          <span key={id} className="product-detail-page__gatc-display-chip">
-                            <span className="product-detail-page__gatc-display-range">
-                              {opt.stampingRange}
-                            </span>
-                            <span className="product-detail-page__gatc-display-price">
-                              ₹{opt.price.toLocaleString('en-IN', {
-                                minimumFractionDigits: 0,
-                                maximumFractionDigits: 2,
-                              })}
-                            </span>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {isSpareItem && (
-                  <p className="product-detail-page__sku">
-                    Group:{' '}
-                    {spareGroupOptions.find(g => g.id === product.spareGroupId)?.name
-                      || product.spareGroupId
-                      || 'Unassigned'}
-                  </p>
-                )}
+                <p className="product-detail-page__sku">
+                  Group:{' '}
+                  {spareGroupOptions.find(g => g.id === product.spareGroupId)?.name
+                    || product.spareGroupId
+                    || 'Unassigned'}
+                </p>
               </div>
             )}
 
