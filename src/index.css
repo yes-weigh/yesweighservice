@@ -4770,12 +4770,34 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   letter-spacing: 0.02em;
 }
 
-.catalog-product-card__location-badge {
+.catalog-product-card__media-bottom-left {
   position: absolute;
   bottom: 0.4rem;
   left: 0.4rem;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.28rem;
   max-width: calc(50% - 0.5rem);
+  pointer-events: none;
+}
+
+.catalog-product-card__stamping-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  background: #047857;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+  flex-shrink: 0;
+}
+
+.catalog-product-card__location-badge {
+  max-width: 100%;
   padding: 0.18rem 0.4rem;
   border-radius: 6px;
   background: rgba(15, 23, 42, 0.78);
@@ -13794,6 +13816,63 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   padding: 0;
   display: grid;
   gap: 0.75rem;
+}
+
+.unified-so-create-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0 0.75rem;
+}
+
+.unified-so-create-fab {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .unified-so-create-header-btn,
+  .unified-so-create-bar {
+    display: none !important;
+  }
+
+  .unified-so-create-fab {
+    position: fixed;
+    right: max(1rem, env(safe-area-inset-right, 0px));
+    bottom: calc(
+      var(--invoices-pagination-height, 3.25rem)
+      + 0.75rem
+      + env(safe-area-inset-bottom, 0px)
+    );
+    z-index: 40;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: var(--accent-primary);
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(245, 130, 32, 0.45);
+    cursor: pointer;
+  }
+
+  .unified-so-create-fab:hover {
+    background: var(--accent-primary-hover);
+  }
+
+  .unified-so-create-fab:focus-visible {
+    outline: 2px solid var(--accent-primary-light);
+    outline-offset: 3px;
+  }
+
+  .unified-sales-orders-page:has(.unified-so-create-fab) .invoices-page__scroll {
+    padding-bottom: calc(
+      var(--invoices-pagination-height, 3.25rem)
+      + 4.5rem
+      + env(safe-area-inset-bottom, 0px)
+    );
+  }
 }
 
 .staff-create-so-page {

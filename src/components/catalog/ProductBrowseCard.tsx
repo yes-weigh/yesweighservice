@@ -1,7 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
+import { productHasLinkedGatc } from '../../lib/gatcCart';
 import { formatAuditDate } from '../../lib/yesStore/format';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { useCart } from '../../context/useCart';
@@ -85,6 +86,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const theme = getCategoryTheme(index);
   const outOfStock = product.stockStatus === 'out_of_stock';
   const inCart = isInCart(product.id);
+  const hasStamping = productHasLinkedGatc(product);
 
   const clearLongPress = () => {
     if (longPressTimer.current != null) {
@@ -228,10 +230,23 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             </span>
           )}
           <StockBadge status={product.stockStatus} overlay variant="tile" iconOnly />
-          {auditedLocationLabel && (
-            <span className="catalog-product-card__location-badge" title={auditedLocationLabel}>
-              {auditedLocationLabel}
-            </span>
+          {(hasStamping || auditedLocationLabel) && (
+            <div className="catalog-product-card__media-bottom-left">
+              {hasStamping && (
+                <span
+                  className="catalog-product-card__stamping-badge"
+                  title="Stamping available"
+                  aria-label="Stamping available"
+                >
+                  <CheckCircle size={14} strokeWidth={2.5} aria-hidden />
+                </span>
+              )}
+              {auditedLocationLabel && (
+                <span className="catalog-product-card__location-badge" title={auditedLocationLabel}>
+                  {auditedLocationLabel}
+                </span>
+              )}
+            </div>
           )}
           {product.imageUrl ? (
             <div className="catalog-product-card__visual" aria-hidden>

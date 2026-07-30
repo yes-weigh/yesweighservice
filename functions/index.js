@@ -406,6 +406,15 @@ export const getCatalogProductDetail = onCall(
       if (spareGroupId) {
         detail.spareGroupId = spareGroupId;
       }
+      if (Array.isArray(cachedData.gatcStampingPriceIds)) {
+        detail.gatcStampingPriceIds = [
+          ...new Set(
+            cachedData.gatcStampingPriceIds
+              .map(id => String(id ?? '').trim())
+              .filter(Boolean),
+          ),
+        ];
+      }
       if (typeof cachedData.skuChangedAt === 'string' && cachedData.skuChangedAt.trim()) {
         detail.skuChangedAt = cachedData.skuChangedAt.trim();
       }

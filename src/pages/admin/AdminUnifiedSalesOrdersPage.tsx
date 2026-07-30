@@ -747,7 +747,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         {canCreateStaffOrder ? (
           <button
             type="button"
-            className="catalog-header-filter-btn"
+            className="catalog-header-filter-btn unified-so-create-header-btn"
             onClick={() => navigate(`${basePath}/sales-orders/new`)}
             aria-label="Create sales order"
             title="Create sales order"
@@ -791,6 +791,17 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
             New sales order
           </button>
         </div>
+      ) : null}
+      {canCreateStaffOrder ? (
+        <button
+          type="button"
+          className="unified-so-create-fab"
+          onClick={() => navigate(`${basePath}/sales-orders/new`)}
+          aria-label="Create sales order"
+          title="Create sales order"
+        >
+          <Plus size={24} strokeWidth={2.5} aria-hidden />
+        </button>
       ) : null}
       <section className="invoices-summary" aria-label="Sales order summary">
         {(selectedDealers.length > 0 || useAggregate || truncated) && (
