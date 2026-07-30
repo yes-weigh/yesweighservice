@@ -4,13 +4,24 @@ import { formatStockQuantity, updateCatalogProductPackageInfo } from '../../lib/
 import { loadMasterCartonQuantities } from '../../lib/catalogProductSettings';
 import type { CatalogPackageCarton, CatalogPackageInfo, CatalogProduct } from '../../types/catalog';
 
-const VALUE_COLUMNS = [
+const MASTER_CARTON_COLUMNS = [
   { key: 'quantity' as const, label: 'Qty' },
   { key: 'weightKg' as const, label: 'Weight (kg)' },
   { key: 'lengthCm' as const, label: 'L (cm)' },
   { key: 'breadthCm' as const, label: 'B (cm)' },
   { key: 'heightCm' as const, label: 'H (cm)' },
 ];
+
+/** Single box is physical dimensions only — no per-package qty. */
+const SINGLE_BOX_COLUMNS = [
+  { key: 'weightKg' as const, label: 'Weight (kg)' },
+  { key: 'lengthCm' as const, label: 'L (cm)' },
+  { key: 'breadthCm' as const, label: 'B (cm)' },
+  { key: 'heightCm' as const, label: 'H (cm)' },
+];
+
+type CartonColumnKey = (typeof MASTER_CARTON_COLUMNS)[number]['key'];
+type CartonColumn = { key: CartonColumnKey; label: string };
 
 type EditableCarton = {
   quantity: string;
@@ -83,7 +94,11 @@ function parseEditableCarton(form: EditableCarton): CatalogPackageCarton | null 
 
 function parseEditableSingleBoxes(rows: EditableCarton[]): CatalogPackageCarton[] | null {
   const boxes = rows
-    .map(parseEditableCarton)
+    .map(row => {
+      const parsed = parseEditableCarton({ ...row, quantity: '' });
+      if (!parsed) return null;
+      return { ...parsed, quantity: null };
+    })
     .filter((row): row is CatalogPackageCarton => Boolean(row));
   return boxes.length ? boxes : null;
 }
@@ -129,11 +144,13 @@ function EditableCartonCells({
   label,
   form,
   onFormChange,
+  columns,
   quantityOptions,
 }: {
   label: string;
   form: EditableCarton;
   onFormChange: (next: EditableCarton) => void;
+  columns: CartonColumn[];
   quantityOptions?: number[] | null;
 }) {
   const quantitySelectOptions = useMemo(() => {
@@ -146,7 +163,7 @@ function EditableCartonCells({
 
   return (
     <>
-      {VALUE_COLUMNS.map(col => {
+      {columns.map(col => {
         const field = EDIT_FIELD_META[col.key];
         if (col.key === 'quantity' && quantityOptions) {
           return (
@@ -187,13 +204,15 @@ function EditableCartonCells({
 function ViewCartonCells({
   carton,
   product,
+  columns,
 }: {
   carton: CatalogPackageCarton | null | undefined;
   product: CatalogProduct;
+  columns: CartonColumn[];
 }) {
   return (
     <>
-      {VALUE_COLUMNS.map(col => (
+      {columns.map(col => (
         <td
           key={col.key}
           className={[
@@ -232,7 +251,7 @@ function MasterCartonSection({
         <table className="product-package__table">
           <thead>
             <tr>
-              {VALUE_COLUMNS.map(col => (
+              {MASTER_CARTON_COLUMNS.map(col => (
                 <th key={col.key} scope="col">{col.label}</th>
               ))}
             </tr>
@@ -244,10 +263,15 @@ function MasterCartonSection({
                   label="Master Carton"
                   form={form}
                   onFormChange={onFormChange}
+                  columns={MASTER_CARTON_COLUMNS}
                   quantityOptions={quantityOptions}
                 />
               ) : (
-                <ViewCartonCells carton={carton} product={product} />
+                <ViewCartonCells
+                  carton={carton}
+                  product={product}
+                  columns={MASTER_CARTON_COLUMNS}
+                />
               )}
             </tr>
           </tbody>
@@ -299,7 +323,7 @@ function SingleBoxSection({
         <table className={`product-package__table${multiRows ? ' product-package__table--multi' : ''}`}>
           <thead>
             <tr>
-              {VALUE_COLUMNS.map(col => (
+              {SINGLE_BOX_COLUMNS.map(col => (
                 <th key={col.key} scope="col">{col.label}</th>
               ))}
               {showRowActions ? (
@@ -315,6 +339,7 @@ function SingleBoxSection({
                       label={`Single Box ${index + 1}`}
                       form={row}
                       onFormChange={next => onFormChange(index, next)}
+                      columns={SINGLE_BOX_COLUMNS}
                     />
                     {showRowActions ? (
                       <td className="product-package__value-cell product-package__actions-cell">
@@ -332,7 +357,11 @@ function SingleBoxSection({
                 ))
               : viewRows.map((carton, index) => (
                   <tr key={`single-box-view-${index}`}>
-                    <ViewCartonCells carton={carton} product={product} />
+                    <ViewCartonCells
+                      carton={carton}
+                      product={product}
+                      columns={SINGLE_BOX_COLUMNS}
+                    />
                   </tr>
                 ))}
           </tbody>
