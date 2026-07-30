@@ -353,6 +353,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Portal invoice GATC stamping ledger (written by Cloud Functions on payment verify).
+    match /gatcReports/{invoiceId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
     // Zoho salesperson cache for HR staff linking (written by Admin SDK sync).
     match /zohoSalespersons/{salespersonId} {
       allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());

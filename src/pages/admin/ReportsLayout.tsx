@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { BarChart3 } from 'lucide-react';
+import { BadgeCheck, BarChart3 } from 'lucide-react';
 
 type ReportsLayoutProps = {
   basePath: '/super-admin' | '/staff';
@@ -17,6 +17,12 @@ export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
       path: `${basePath}/reports/audit-report`,
       icon: <BarChart3 size={16} />,
     },
+    {
+      id: 'gatc-report',
+      label: 'GATC report',
+      path: `${basePath}/reports/gatc-report`,
+      icon: <BadgeCheck size={16} />,
+    },
   ], [basePath]);
 
   useEffect(() => {
@@ -32,30 +38,24 @@ export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
     location.pathname === path || location.pathname.startsWith(`${path}/`);
 
   return (
-    <div className="settings-hub page-content fade-in">
-      <header className="settings-hub__header panel glass">
-        <div>
-          <h2>Reports</h2>
-          <p className="text-muted text-sm">
-            Operational reports across warehouse, store room, and audit cycles.
-          </p>
+    <div className="reports-hub page-content fade-in">
+      <div className="reports-hub__shell panel glass">
+        <nav className="reports-hub__tabs" aria-label="Report sections">
+          {tabs.map(tab => (
+            <Link
+              key={tab.id}
+              to={tab.path}
+              className={`reports-hub__tab ${isTabActive(tab.path) ? 'is-active' : ''}`}
+            >
+              {tab.icon}
+              {tab.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="reports-hub__body">
+          <Outlet />
         </div>
-      </header>
-
-      <nav className="settings-hub__tabs panel glass" aria-label="Report sections">
-        {tabs.map(tab => (
-          <Link
-            key={tab.id}
-            to={tab.path}
-            className={`settings-hub__tab ${isTabActive(tab.path) ? 'is-active' : ''}`}
-          >
-            {tab.icon}
-            {tab.label}
-          </Link>
-        ))}
-      </nav>
-
-      <Outlet />
+      </div>
     </div>
   );
 };

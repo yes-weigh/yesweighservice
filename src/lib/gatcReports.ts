@@ -1,0 +1,152 @@
+import {
+  collection,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+} from 'firebase/firestore';
+import { db } from '../firebase';
+
+export const GATC_REPORTS_COLLECTION = 'gatcReports';
+
+export type GatcReportLineItem = {
+  productId: string | null;
+  itemId: string | null;
+  sku: string | null;
+  name: string;
+  qty: number;
+  baseRate: number;
+  gatcFeePerUnit: number;
+  gatcStampingPriceId: string | null;
+  gatcStampingRange: string | null;
+  unitRate: number;
+  lineBaseTotal: number;
+  lineGatcTotal: number;
+  lineTotal: number;
+  hasStamping: boolean;
+};
+
+export type GatcReportTotals = {
+  lineCount: number;
+  stampedLineCount: number;
+  stampedQty: number;
+  baseTotal: number;
+  gatcFeeTotal: number;
+  lineTotal: number;
+};
+
+export type GatcReportDoc = {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string | null;
+  soId: string;
+  salesOrderNumber: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  salespersonId: string | null;
+  salespersonName: string | null;
+  invoiceDate: string | null;
+  soDate: string | null;
+  referenceNumber: string | null;
+  createdAt: string;
+  source: string;
+  hasStamping: boolean;
+  searchBlob: string;
+  lineItems: GatcReportLineItem[];
+  totals: GatcReportTotals;
+};
+
+function mapLine(raw: Record<string, unknown>): GatcReportLineItem {
+  const gatcFeePerUnit = Number(raw.gatcFeePerUnit) || 0;
+  const gatcStampingPriceId = String(raw.gatcStampingPriceId ?? '').trim() || null;
+  return {
+    productId: raw.productId != null ? String(raw.productId) : null,
+    itemId: raw.itemId != null ? String(raw.itemId) : null,
+    sku: raw.sku != null ? String(raw.sku) : null,
+    name: String(raw.name ?? 'Item'),
+    qty: Math.max(0, Math.floor(Number(raw.qty) || 0)),
+    baseRate: Number(raw.baseRate) || 0,
+    gatcFeePerUnit,
+    gatcStampingPriceId,
+    gatcStampingRange: raw.gatcStampingRange != null ? String(raw.gatcStampingRange) : null,
+    unitRate: Number(raw.unitRate) || 0,
+    lineBaseTotal: Number(raw.lineBaseTotal) || 0,
+    lineGatcTotal: Number(raw.lineGatcTotal) || 0,
+    lineTotal: Number(raw.lineTotal) || 0,
+    hasStamping: Boolean(raw.hasStamping ?? (gatcStampingPriceId && gatcFeePerUnit > 0)),
+  };
+}
+
+function mapReport(id: string, data: Record<string, unknown>): GatcReportDoc {
+  const lineItems = Array.isArray(data.lineItems)
+    ? data.lineItems
+      .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
+      .map(mapLine)
+    : [];
+  const totalsRaw = (data.totals && typeof data.totals === 'object'
+    ? data.totals as Record<string, unknown>
+    : {}) as Record<string, unknown>;
+  return {
+    id,
+    invoiceId: String(data.invoiceId ?? id),
+    invoiceNumber: data.invoiceNumber != null ? String(data.invoiceNumber) : null,
+    soId: String(data.soId ?? ''),
+    salesOrderNumber: data.salesOrderNumber != null ? String(data.salesOrderNumber) : null,
+    customerId: data.customerId != null ? String(data.customerId) : null,
+    customerName: data.customerName != null ? String(data.customerName) : null,
+    salespersonId: data.salespersonId != null ? String(data.salespersonId) : null,
+    salespersonName: data.salespersonName != null ? String(data.salespersonName) : null,
+    invoiceDate: data.invoiceDate != null ? String(data.invoiceDate) : null,
+    soDate: data.soDate != null ? String(data.soDate) : null,
+    referenceNumber: data.referenceNumber != null ? String(data.referenceNumber) : null,
+    createdAt: String(data.createdAt ?? ''),
+    source: String(data.source ?? 'portal_verify'),
+    hasStamping: Boolean(data.hasStamping),
+    searchBlob: String(data.searchBlob ?? ''),
+    lineItems,
+    totals: {
+      lineCount: Number(totalsRaw.lineCount) || lineItems.length,
+      stampedLineCount: Number(totalsRaw.stampedLineCount)
+        || lineItems.filter(line => line.hasStamping).length,
+      stampedQty: Number(totalsRaw.stampedQty)
+        || lineItems.filter(line => line.hasStamping).reduce((s, line) => s + line.qty, 0),
+      baseTotal: Number(totalsRaw.baseTotal)
+        || lineItems.reduce((s, line) => s + line.lineBaseTotal, 0),
+      gatcFeeTotal: Number(totalsRaw.gatcFeeTotal)
+        || lineItems.reduce((s, line) => s + line.lineGatcTotal, 0),
+      lineTotal: Number(totalsRaw.lineTotal)
+        || lineItems.reduce((s, line) => s + line.lineTotal, 0),
+    },
+  };
+}
+
+export async function listGatcReports(pageSize = 100): Promise<GatcReportDoc[]> {
+  const snap = await getDocs(
+    query(
+      collection(db, GATC_REPORTS_COLLECTION),
+      orderBy('createdAt', 'desc'),
+      limit(Math.max(1, Math.min(500, pageSize))),
+    ),
+  );
+  return snap.docs.map(docSnap => mapReport(docSnap.id, docSnap.data() as Record<string, unknown>));
+}
+
+export function gatcReportMatchesQuery(report: GatcReportDoc, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return true;
+  if (report.searchBlob.includes(q)) return true;
+  const hay = [
+    report.invoiceNumber,
+    report.salesOrderNumber,
+    report.customerName,
+    report.customerId,
+    report.referenceNumber,
+    report.salespersonName,
+    ...report.lineItems.flatMap(line => [
+      line.sku,
+      line.name,
+      line.gatcStampingRange,
+    ]),
+  ].join(' ').toLowerCase();
+  return hay.includes(q);
+}

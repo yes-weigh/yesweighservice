@@ -17,6 +17,7 @@ import {
 } from './sales-order-salesperson.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
+import { yesOneGatcPersistFields } from './gatc-report.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
@@ -266,13 +267,15 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
     const finalRate = Math.round((baseRate + gatc.gatcFeePerUnit) * 100) / 100;
 
     const line = toOrderLine(product, entry.quantity, finalRate, catalogBase);
+    line.baseRate = baseRate;
+    line.gatcStampingPriceId = gatc.gatcStampingPriceId;
+    line.gatcFeePerUnit = gatc.gatcFeePerUnit;
+    line.gatcStampingRange = gatc.gatcStampingRange;
     if (gatc.gatcStampingPriceId) {
       const stampNote = `Stamping: ${gatc.gatcStampingRange}`;
       line.description = line.description
         ? `${line.description}\n${stampNote}`
         : stampNote;
-      line.gatcStampingPriceId = gatc.gatcStampingPriceId;
-      line.gatcFeePerUnit = gatc.gatcFeePerUnit;
     }
     lines.push(line);
 
@@ -406,6 +409,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
         yesOneCartReference: orderNumber,
         shippingAddressId: shippingResolved.shippingAddressId || null,
         shippingAddress: shippingResolved.address?.formatted || null,
+        ...yesOneGatcPersistFields(lines),
         ...(salesperson ? {
           salespersonId: salesperson.id,
           salespersonName: salesperson.name,
@@ -422,6 +426,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
           yesOneCartReference: orderNumber,
           shippingAddressId: shippingResolved.shippingAddressId || null,
           shippingAddress: shippingResolved.address?.formatted || null,
+          ...yesOneGatcPersistFields(lines),
           ...(salesperson ? {
             salespersonId: salesperson.id,
             salespersonName: salesperson.name,
@@ -575,6 +580,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
       salespersonName: salesperson.name,
       yesOnePriceCustomized: priceAudit.length > 0,
       yesOnePriceChanges: priceAudit,
+      ...yesOneGatcPersistFields(lines),
       ...(stageTarget === 'ready_for_payment'
         ? {
           yesOneStage: 'ready_for_payment',

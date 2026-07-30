@@ -55,6 +55,7 @@ import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTa
 import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
 import { AuditCyclesTab } from './pages/admin/settings/AuditCyclesTab';
 import { AuditReportTab } from './pages/admin/settings/AuditReportTab';
+import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -265,6 +266,7 @@ const App: React.FC = () => (
               {superAdminOpsRoutes}
               <Route path="reports" element={<ReportsLayout basePath="/super-admin" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
+                <Route path="gatc-report" element={<GatcReportTab />} />
               </Route>
               <Route path="settings" element={<SettingsLayout />}>
                 <Route path="profile" element={<SettingsProfileTab />} />
@@ -305,6 +307,7 @@ const App: React.FC = () => (
               <Route path="purchase-orders/*" element={<Navigate to="/staff" replace />} />
               <Route path="reports" element={<ReportsLayout basePath="/staff" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
+                <Route path="gatc-report" element={<GatcReportTab />} />
               </Route>
               <Route path="hr" element={<HrLayout basePath="/staff" />}>
                 <Route path="staff" element={<HrStaffListPage basePath="/staff" />} />

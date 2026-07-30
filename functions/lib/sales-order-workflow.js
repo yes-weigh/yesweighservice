@@ -34,6 +34,7 @@ import {
   mergeKeyForLine,
   resolveGatcFeeForProduct,
 } from './gatc-stamping.js';
+import { writeGatcReportFromSalesOrder, yesOneGatcPersistFields } from './gatc-report.js';
 import { getAccessToken, resolveOrganizationId } from './zoho.js';
 import { fetchRawCustomerDetail } from './zoho-customers.js';
 import { extractZohoListFields } from './zoho-contact-fields.js';
@@ -385,18 +386,16 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true, allowRate
       sku: product.sku,
       description,
       rate,
+      baseRate,
       unit: product.unit,
       quantity: entry.quantity,
       lineTotal: lineTotal(rate, entry.quantity),
       categoryName: product.categoryName,
       hsn: product.hsn,
       stockStatus: product.stockStatus,
-      ...(gatc.gatcStampingPriceId
-        ? {
-            gatcStampingPriceId: gatc.gatcStampingPriceId,
-            gatcFeePerUnit: gatc.gatcFeePerUnit,
-          }
-        : {}),
+      gatcStampingPriceId: gatc.gatcStampingPriceId,
+      gatcFeePerUnit: gatc.gatcFeePerUnit,
+      gatcStampingRange: gatc.gatcStampingRange,
     });
 
     if (Math.round(baseRate * 100) !== Math.round(catalogBase * 100)) {
@@ -536,6 +535,7 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
     yesOneLastEditedByName: actorName,
     yesOnePriceCustomized: nextChanges.length > 0,
     yesOnePriceChanges: nextChanges,
+    ...yesOneGatcPersistFields(lines),
     ...(stage === 'ready_for_payment'
       ? {
         paymentAmount: Math.round(
@@ -796,6 +796,22 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       yesOneUpdatedAt: at,
       yesOneSyncError: null,
     }, { merge: true });
+
+    const soSnap = await ref.get();
+    const soData = soSnap.data() || data;
+    try {
+      await writeGatcReportFromSalesOrder({
+        soId: id,
+        soData,
+        invoiceId,
+        invoiceNumber,
+      });
+    } catch (gatcErr) {
+      console.warn(
+        `GATC report write failed for invoice ${invoiceId} (SO ${id}):`,
+        gatcErr?.message ?? gatcErr,
+      );
+    }
   } catch (err) {
     const message = err?.message || 'Could not complete sales order in Zoho.';
     await ref.set({

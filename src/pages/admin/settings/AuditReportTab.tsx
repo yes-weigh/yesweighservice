@@ -4,6 +4,7 @@ import {
   Building2,
   Eye,
   EyeOff,
+  FileDown,
   LayoutGrid,
   List,
   Maximize2,
@@ -23,6 +24,7 @@ import {
   type AgmShortageRow,
   type AgmShortageTotals,
 } from '../../../lib/auditCycles/cycleRows';
+import { downloadAuditReportPdf } from '../../../lib/auditCycles/auditReportPdf';
 import { fetchCatalog, formatCurrency } from '../../../lib/catalog';
 import {
   auditCycleSiteLabel,
@@ -134,6 +136,8 @@ export const AuditReportTab: React.FC = () => {
   const [editMode, setEditMode] = useState(false);
   const isLossMode = reportMode === 'loss';
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportError, setExportError] = useState('');
   const settingsRef = useRef<HTMLDivElement | null>(null);
 
   const loadAll = useCallback(async () => {
@@ -348,15 +352,43 @@ export const AuditReportTab: React.FC = () => {
     setPrefs(prev => ({ ...prev, hidden: [] }));
   };
 
+  const handleExportPdf = async () => {
+    if (exportingPdf || loading) return;
+    setExportingPdf(true);
+    setExportError('');
+    try {
+      const siteFilterLabel = siteFilter === 'all'
+        ? 'All sites'
+        : auditCycleSiteLabel(siteFilter);
+      await downloadAuditReportPdf({
+        mode: reportMode,
+        siteFilterLabel,
+        search,
+        showSiteColumn,
+        rows: filteredRows,
+        summary: {
+          skuCount: registerTotals.skuCount,
+          unitsOrQty: isLossMode ? registerTotals.unitsShort : registerTotals.auditedQty,
+          unitsOrQtyLabel: isLossMode ? 'Units short' : 'Audited qty',
+          value: isLossMode ? registerTotals.shortageValue : registerStockValue,
+          valueLabel: isLossMode ? 'Shortage value' : 'Stock value',
+        },
+      });
+      setSettingsOpen(false);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Could not export PDF.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const report = (
     <section
       className={[
         'agm-audit-report',
-        'panel',
-        'glass',
         highlightUncounted ? 'highlight-uncounted' : '',
         editMode ? 'is-editing' : '',
-        maximized ? 'agm-audit-report--maximized agm-audit-report__scroll' : '',
+        maximized ? 'agm-audit-report--maximized agm-audit-report__scroll panel glass' : '',
       ].filter(Boolean).join(' ')}
     >
       <header className="agm-audit-report__masthead">
@@ -388,6 +420,26 @@ export const AuditReportTab: React.FC = () => {
             </button>
             {settingsOpen && (
               <div className="agm-audit-report__settings-panel" role="dialog" aria-label="Report settings">
+                <button
+                  type="button"
+                  className="agm-audit-report__settings-export"
+                  disabled={exportingPdf || loading || selectedCycles.length === 0}
+                  onClick={() => void handleExportPdf()}
+                >
+                  <span>
+                    <strong>Export to PDF</strong>
+                    <em>
+                      {exportingPdf
+                        ? 'Building PDF…'
+                        : 'Current filters, search, and visible register lines'}
+                    </em>
+                  </span>
+                  <FileDown size={16} aria-hidden />
+                </button>
+                {exportError ? (
+                  <p className="agm-audit-report__settings-export-error text-sm">{exportError}</p>
+                ) : null}
+
                 <label className="agm-audit-report__settings-toggle">
                   <span>
                     <strong>Highlight uncounted</strong>
