@@ -31,6 +31,12 @@ export function isGenericSpareCategoryName(name) {
   );
 }
 
+/** Portal order segments: software keys + sanoft → software_key icon/filter. */
+export function isSoftwareSegmentCategoryName(name) {
+  const normalized = String(name ?? '').trim().toLowerCase();
+  return normalized === 'software keys' || normalized === 'sanoft';
+}
+
 export function isFreightLineItem(name, sku, hsn) {
   if (hsnMatchesCategory(normalizeHsn(hsn), INVOICE_CATEGORY_HSN.freight)) return true;
   const itemName = String(name ?? '').trim().toLowerCase();
@@ -82,6 +88,9 @@ export function classifyInvoiceLineItem(item, catalogByItemId = new Map()) {
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.gatc)) return 'gatc';
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.service)) return 'service';
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.software_key)) return 'software_key';
+  if (isSoftwareSegmentCategoryName(catalog?.categoryName) || isSoftwareSegmentCategoryName(item?.categoryName)) {
+    return 'software_key';
+  }
   if (isSpareCatalogItem(catalog)) return 'spare';
   return 'product';
 }

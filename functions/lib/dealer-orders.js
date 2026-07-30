@@ -21,6 +21,7 @@ import {
   classifyOrderLineSegment,
   groupLinesBySegment,
   segmentLabel,
+  segmentToInvoiceCategory,
   staffCanAddOrderSegment,
   ORDER_SEGMENTS,
 } from './sales-order-segments.js';
@@ -408,6 +409,9 @@ async function createSegmentSalesOrders({
       ...workflowBase,
       yesOneCartReference: orderNumber,
       yesOneOrderSegment: segment,
+      salesOrderCategory: segmentToInvoiceCategory(segment),
+      categories: [segmentToInvoiceCategory(segment)],
+      categoryAmounts: { [segmentToInvoiceCategory(segment)]: subtotal },
       shippingAddressId: shippingResolved.shippingAddressId || null,
       shippingAddress: shippingResolved.address?.formatted || null,
       ...yesOneGatcPersistFields(segmentLines),
@@ -421,7 +425,7 @@ async function createSegmentSalesOrders({
     };
 
     try {
-      await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+      await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId, { orderSegment: segment });
       await initYesOneSalesOrderWorkflow(salesOrderId, workflowExtras);
     } catch (mirrorErr) {
       console.warn(

@@ -70,6 +70,18 @@ export function segmentLabel(segment) {
   return 'Product';
 }
 
+export function segmentToInvoiceCategory(segment) {
+  if (segment === 'spare') return 'spare';
+  if (segment === 'software') return 'software_key';
+  return 'product';
+}
+
+export function parseOrderSegment(value) {
+  const segment = String(value ?? '').trim().toLowerCase();
+  if (segment === 'product' || segment === 'spare' || segment === 'software') return segment;
+  return null;
+}
+
 /**
  * Who may add a segment on staff/super-admin create paths.
  * Dealers are not gated here (cart path).

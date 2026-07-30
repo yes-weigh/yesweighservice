@@ -699,6 +699,12 @@ export function isGenericSpareCategoryName(name: string | null | undefined): boo
   );
 }
 
+/** Portal order segments: software keys + sanoft → software_key. */
+export function isSoftwareSegmentCategoryName(name: string | null | undefined): boolean {
+  const normalized = String(name ?? '').trim().toLowerCase();
+  return normalized === 'software keys' || normalized === 'sanoft';
+}
+
 /** Uncategorized, missing catalog, or Generic spare parts → spare. */
 export function isSpareCatalogItem(catalog: {
   categoryId?: string | null;
@@ -717,6 +723,7 @@ export type InvoiceCategoryLineInput = {
   sku?: string | null;
   itemId?: string | null;
   hsn?: string | null;
+  categoryName?: string | null;
 };
 
 export type InvoiceCategoryCatalogMeta = {
@@ -798,6 +805,12 @@ export function classifyInvoiceLineItem(
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.gatc)) return 'gatc';
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.service)) return 'service';
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.software_key)) return 'software_key';
+  if (
+    isSoftwareSegmentCategoryName(catalog?.categoryName)
+    || isSoftwareSegmentCategoryName(item?.categoryName)
+  ) {
+    return 'software_key';
+  }
   if (isSpareCatalogItem(catalog)) return 'spare';
   return 'product';
 }

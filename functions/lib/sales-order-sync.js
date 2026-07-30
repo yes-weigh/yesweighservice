@@ -18,6 +18,7 @@ import {
   parseInvoiceCategory,
   sumNonFreightQuantity,
 } from './invoice-category.js';
+import { parseOrderSegment, segmentToInvoiceCategory } from './sales-order-segments.js';
 import { reconcileSalesOrderStats } from './sales-order-stats.js';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import { formatZohoAddress } from './zoho-contact-fields.js';
@@ -280,23 +281,35 @@ async function upsertSalesOrderFromRaw(raw, options = {}) {
   const catalog = await loadCatalogMeta(mapped.lineItems.map(line => line.itemId).filter(Boolean));
   mapped.lineItems = attachCatalogImages(mapped.lineItems, catalog);
   const categoryBreakdown = classifyInvoiceCategoryBreakdown(mapped.lineItems, catalog);
-  const salesOrderCategory = categoryBreakdown.categories[0]
+  let salesOrderCategory = categoryBreakdown.categories[0]
     ?? classifyInvoiceFromLineItems(mapped.lineItems, catalog);
+  let categories = categoryBreakdown.categories;
+  let categoryAmounts = categoryBreakdown.categoryAmounts;
+
+  const ref = soCollection().doc(mapped.id);
+  const beforeSnap = await ref.get();
+  const before = beforeSnap.exists ? { id: beforeSnap.id, ...(beforeSnap.data() || {}) } : null;
+  const forcedSegment = parseOrderSegment(before?.yesOneOrderSegment)
+    || parseOrderSegment(options.orderSegment);
+  if (forcedSegment) {
+    const forced = segmentToInvoiceCategory(forcedSegment);
+    salesOrderCategory = forced;
+    categories = [forced];
+    categoryAmounts = { [forced]: Number(mapped.total ?? 0) };
+  }
+
   const now = Timestamp.now();
   const doc = {
     ...mapped,
     searchBlob: buildSearchBlob(mapped),
     salesOrderCategory,
-    categories: categoryBreakdown.categories,
-    categoryAmounts: categoryBreakdown.categoryAmounts,
+    categories,
+    categoryAmounts,
     itemQuantity: sumNonFreightQuantity(mapped.lineItems),
     syncedAt: now,
     contentFingerprint: `${mapped.zohoLastModified}|${mapped.lineItems.length}|${mapped.total}`,
   };
 
-  const ref = soCollection().doc(mapped.id);
-  const beforeSnap = await ref.get();
-  const before = beforeSnap.exists ? { id: beforeSnap.id, ...(beforeSnap.data() || {}) } : null;
   await ref.set(doc, { merge: true });
   await reconcileSalesOrderStats(before, { id: mapped.id, ...doc });
   return { id: mapped.id, salesOrderCategory };
@@ -895,14 +908,14 @@ function mapSalesOrderListRow(id, data) {
 }
 
 /** Pull one SO from Zoho into Firestore (used after portal approve). */
-export async function mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId) {
+export async function mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId, options = {}) {
   const id = String(salesOrderId ?? '').trim();
   if (!id) throw new Error('salesOrderId is required.');
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
   const raw = await fetchSalesOrderRaw(accessToken, organizationId, id);
   if (!raw) throw new Error('Sales order not found in Zoho.');
-  return upsertSalesOrderFromRaw(raw);
+  return upsertSalesOrderFromRaw(raw, options);
 }
 
 /**
