@@ -4,7 +4,12 @@ import { useAuth } from '../context/AuthContext';
 import type { User } from '../types';
 import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
-import { homePathForRole, canUseCart } from '../types';
+import { homePathForRole } from '../types';
+import { canUseOrderCart, orderCartPathForUser } from '../lib/salesOrderSegments';
+import {
+  canUseOrderCart,
+  orderCartPathForUser,
+} from '../lib/salesOrderSegments';
 import { navigateBack } from '../lib/navigation';
 import { canAccessNavFeature, canViewHr, type StaffNavFeature } from '../lib/staffAccess';
 import {
@@ -241,7 +246,7 @@ const LayoutShell: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
-  const showCartFlyTarget = canUseCart(user?.role)
+  const showCartFlyTarget = canUseOrderCart(user)
     && !topBarAction
     && !/\/warranty-support(\/|$)/.test(location.pathname);
 
@@ -603,7 +608,7 @@ const LayoutShell: React.FC = () => {
                 id="cart-fly-target"
                 type="button"
                 className={`cart-header-btn ${cartBump ? 'cart-header-btn--bump' : ''} ${itemCount > 0 ? 'cart-header-btn--has-items' : ''}`}
-                onClick={() => handleNavClick(`${home}/orders`)}
+                onClick={() => handleNavClick(orderCartPathForUser(user, home))}
                 aria-label={itemCount > 0 ? `View cart, ${itemCount} items` : 'View cart'}
                 title="View cart"
               >

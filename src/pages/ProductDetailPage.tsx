@@ -3,13 +3,13 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   homePathForRole,
-  canUseCart,
   canWriteCatalogMediaForUser,
   canEditCatalogProductImageForUser,
   isMediaRole,
 } from '../types';
 import { canViewCatalogStock, canViewWarehouseStock } from '../lib/dealerAccess';
 import { canSuperAdminWrite } from '../lib/staffAccess';
+import { canUseOrderCart, isCatalogProductCartable, orderCartPathForUser } from '../lib/salesOrderSegments';
 import { canNavigateBackInApp } from '../lib/navigation';
 import {
   catalogBaseForRole,
@@ -42,7 +42,13 @@ export const ProductDetailPage: React.FC = () => {
   const showWarehouseStock = !mediaOnly
     && (user?.role === 'staff' || user?.role === 'super_admin' || canViewWarehouseStock(user));
   const showStockQuantity = !mediaOnly && (showWarehouseStock || canViewCatalogStock(user));
-  const showCartActions = !mediaOnly && canUseCart(user?.role);
+  const showCartActions = !mediaOnly && canUseOrderCart(user);
+  const isCartable = useCallback(
+    (product: { categoryId?: string | null; categoryName?: string | null }) => (
+      isCatalogProductCartable(user, product)
+    ),
+    [user],
+  );
   const manageSpareLinks = !mediaOnly && (
     user?.role === 'staff' || canSuperAdminWrite(user)
   );
@@ -54,7 +60,8 @@ export const ProductDetailPage: React.FC = () => {
     !isPublic
     && !mediaOnly
     && (manageSpareLinks || user?.role === 'dealer' || user?.role === 'dealer_staff');
-  const ordersPath = user ? `${homePathForRole(user.role)}/orders` : '/dealer/orders';
+  const home = user ? homePathForRole(user.role) : '/dealer';
+  const ordersPath = orderCartPathForUser(user, home);
   const productsBasePath = catalogBase;
   const sparesBasePath = `${catalogBase}/spare`;
   const currentNavState = navState;
@@ -86,6 +93,7 @@ export const ProductDetailPage: React.FC = () => {
         showStockQuantity={showStockQuantity}
         showAuditedStock={showAuditedStock}
         showCartActions={showCartActions}
+        isCartable={isCartable}
         showRelatedLinks={showRelatedLinks}
         manageSpareLinks={manageSpareLinks}
         canEditProductDetails={canEditProductDetails}

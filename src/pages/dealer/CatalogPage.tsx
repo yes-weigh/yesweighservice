@@ -79,7 +79,7 @@ import type { CatalogSiteInventoryDoc } from '../../types/catalog-site-inventory
 import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import { rememberAuditReturnFocus } from '../../lib/yesStore/auditReturnFocus';
 import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
-import { canUseCart } from '../../types';
+import { canUseOrderCart, isCatalogProductCartable } from '../../lib/salesOrderSegments';
 import { effectiveCatalogStockStatus } from '../../lib/sacCatalog';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 import type { YesStoreItemDoc } from '../../types/yes-store';
@@ -176,6 +176,11 @@ export const CatalogPage: React.FC = () => {
   const isStaff = user?.role === 'staff';
   const isMedia = user?.role === 'media';
   const dealerView = isDealerPortalUser(user);
+  const orderCartEnabled = canUseOrderCart(user);
+  const isCartable = useCallback(
+    (product: CatalogProduct) => isCatalogProductCartable(user, product),
+    [user],
+  );
   const isMobile = useIsMobile();
   const canSync = hasStaffPermission(user, 'catalog.sync');
   const canSpareGroup = isSuperAdmin || isStaff;
@@ -1886,7 +1891,8 @@ export const CatalogPage: React.FC = () => {
           spares={catalogSpareParts}
           productsBasePath={pathname}
           sparesBasePath={`${pathname}/spare`}
-          enableCart={canUseCart(user?.role)}
+          enableCart={orderCartEnabled}
+          isCartable={isCartable}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
           unlinkedSpareIds={linkedSpareIds ?? undefined}
@@ -1948,7 +1954,8 @@ export const CatalogPage: React.FC = () => {
             onCategoryProductsReorder={canSync ? (catId, products) => void handleCategoryProductsReorder(catId, products) : undefined}
             onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
             productsBasePath={browseBasePath}
-            enableCart={canUseCart(user?.role)}
+            enableCart={orderCartEnabled}
+            isCartable={isCartable}
             showStockQuantity={showStockQuantity}
           dealerView={dealerView}
             hideFilterBar
@@ -2079,7 +2086,8 @@ export const CatalogPage: React.FC = () => {
               searchQuery={flatListSearch}
               onSearchChange={handleSearchChange}
               productsBasePath={`${pathname}/spare`}
-              enableCart={canUseCart(user?.role)}
+              enableCart={orderCartEnabled}
+              isCartable={isCartable}
               showStockQuantity={showStockQuantity}
           dealerView={dealerView}
               returnView="spares"

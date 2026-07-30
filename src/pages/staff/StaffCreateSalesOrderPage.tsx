@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Search } from 'lucide-react';
-import {
-  SalesOrderDraftLineEditor,
-  type DraftEditLine,
-} from '../../components/salesOrders/SalesOrderDraftLineEditor';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowLeft, Package, Search, ShoppingCart, Trash2 } from 'lucide-react';
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { ThemeSelect } from '../../components/ThemeSelect';
+import { QuantityStepper } from '../../components/QuantityStepper';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
+import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
+import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
+import { useCart } from '../../context/useCart';
 import { formatCurrency } from '../../lib/catalog';
+import { combinedCartRate } from '../../lib/gatcCart';
 import {
   ensureDealersCached,
   peekCachedDealers,
@@ -44,7 +45,7 @@ import {
 } from '../../lib/zohoSalespersons';
 import type { ZohoDealer } from '../../types/dealers';
 import type { User } from '../../types';
-import type { CatalogProduct } from '../../types/catalog';
+import type { CartItem } from '../../types/cart';
 
 type SelectedDealer = {
   id: string;
@@ -83,32 +84,56 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const {
+    items: cartItems,
+    setQuantity,
+    removeItem,
+    clearCart,
+    remarks: cartRemarks,
+    setRemarks: setCartRemarks,
+  } = useCart();
   const canManage = hasStaffPermission(user, 'orders.manage');
   const listPath = pathname.startsWith('/super-admin')
     ? '/super-admin/sales-orders'
     : '/staff/sales-orders';
-  const productFilter = useCallback(
-    (product: CatalogProduct) => catalogProductAllowedForUser(user, product),
-    [user],
-  );
+  const catalogPath = pathname.startsWith('/super-admin')
+    ? '/super-admin/catalog'
+    : '/staff/catalog';
 
   const [dealerQuery, setDealerQuery] = useState('');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
   const [dealersLoading, setDealersLoading] = useState(false);
   const [selectedDealer, setSelectedDealer] = useState<SelectedDealer | null>(null);
 
-  const [lines, setLines] = useState<DraftEditLine[]>([]);
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
   const [addressesLoading, setAddressesLoading] = useState(false);
   const [addressError, setAddressError] = useState('');
   const [shipping, setShipping] = useState<ShippingSelection | null>(null);
-  const [remarks, setRemarks] = useState('');
   const [salespersonId, setSalespersonId] = useState('');
   const [salespersons, setSalespersons] = useState<ZohoSalespersonOption[]>([]);
   const [salespersonsLoading, setSalespersonsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
+  /** Optional base-rate overrides keyed by cart line id. */
+  const [rateOverrides, setRateOverrides] = useState<Record<string, number>>({});
+
+  const allowedItems = useMemo(
+    () => cartItems.filter(item => catalogProductAllowedForUser(user, item)),
+    [cartItems, user],
+  );
+
+  const lines = useMemo(() => (
+    allowedItems.map(item => {
+      const override = rateOverrides[item.cartLineId];
+      const catalogRate = override != null ? override : item.baseRate;
+      return {
+        ...item,
+        catalogRate,
+        rate: combinedCartRate(catalogRate, item.gatcFeePerUnit),
+      };
+    })
+  ), [allowedItems, rateOverrides]);
 
   const hasProductLines = useMemo(
     () => lines.some(line => classifyOrderLineSegment(line) === 'product'),
@@ -154,7 +179,6 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     };
   }, [needsSalespersonPicker]);
 
-  // Same full dealer cache as logistics book-courier.
   useEffect(() => {
     let cancelled = false;
     const cached = peekCachedDealers();
@@ -229,9 +253,17 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
   const canSubmit = Boolean(
     lines.length
+    && selectedDealer
     && shipping
     && (!needsSalespersonPicker || salespersonId.trim()),
   );
+
+  const setLineBaseRate = (cartLineId: string, baseRate: number) => {
+    const nextBase = Number.isFinite(baseRate) && baseRate >= 0
+      ? Math.round(baseRate * 100) / 100
+      : 0;
+    setRateOverrides(prev => ({ ...prev, [cartLineId]: nextBase }));
+  };
 
   const save = async (stage: 'review' | 'ready_for_payment') => {
     if (!selectedDealer) {
@@ -239,7 +271,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       return;
     }
     if (!lines.length) {
-      setError('Add at least one item.');
+      setError('Add items from the catalog (cart icon on allowed products).');
       return;
     }
     if (!shipping) {
@@ -247,7 +279,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       return;
     }
     if (needsSalespersonPicker && !salespersonId.trim()) {
-      setError('Select a salesperson for this order.');
+      setError('Select a salesperson for the product sales order.');
       return;
     }
     setSaving(true);
@@ -263,11 +295,13 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         })),
         shipping,
         stage,
-        remarks: remarks.trim(),
+        remarks: cartRemarks.trim(),
         ...(needsSalespersonPicker
           ? { salespersonId: salespersonId.trim() }
           : {}),
       });
+      clearCart();
+      setRateOverrides({});
       const salesOrders = Array.isArray(result.salesOrders) && result.salesOrders.length > 0
         ? result.salesOrders
         : (result.zohoSalesOrderId
@@ -335,6 +369,62 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           <span>{error}</span>
         </div>
       ) : null}
+
+      <section className="panel glass staff-create-so-page__section">
+        <div className="staff-create-so-page__section-head">
+          <h2>Cart</h2>
+          <Link to={catalogPath} className="btn btn-secondary btn-sm">
+            <ShoppingCart size={14} aria-hidden />
+            Browse catalog
+          </Link>
+        </div>
+        <p className="text-muted text-sm staff-create-so-page__segment-hint">
+          Tap the cart icon on catalog tiles to add items (same animation as dealers).
+          {user?.spareIncharge && !isFullSuperAdmin(user)
+            ? ' Spare Incharge: spare parts only.'
+            : !isFullSuperAdmin(user)
+              ? ' Staff: product and software only — spares need Spare Incharge or super admin.'
+              : ''}
+        </p>
+
+        {lines.length === 0 ? (
+          <div className="staff-create-so-page__cart-empty">
+            <Package size={36} aria-hidden />
+            <p>Cart is empty</p>
+            <Link to={catalogPath} className="btn btn-primary btn-sm">
+              Open catalog
+            </Link>
+          </div>
+        ) : (
+          <ul className="staff-create-so-page__cart-list">
+            {lines.map(item => (
+              <StaffCartLine
+                key={item.cartLineId}
+                item={item}
+                disabled={saving}
+                onQuantity={qty => setQuantity(item.cartLineId, qty)}
+                onRate={rate => setLineBaseRate(item.cartLineId, rate)}
+                onRemove={() => {
+                  removeItem(item.cartLineId);
+                  setRateOverrides(prev => {
+                    const next = { ...prev };
+                    delete next[item.cartLineId];
+                    return next;
+                  });
+                }}
+              />
+            ))}
+          </ul>
+        )}
+
+        {segmentPreview.length > 1 ? (
+          <p className="text-muted text-sm staff-create-so-page__segment-hint">
+            This will create {segmentPreview.length} draft sales orders:
+            {' '}
+            {segmentPreview.map(segmentLabel).join(', ')}.
+          </p>
+        ) : null}
+      </section>
 
       <section className="panel glass staff-create-so-page__section">
         <h2>Dealer</h2>
@@ -417,111 +507,148 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       </section>
 
       {selectedDealer ? (
-        <>
-          <section className="panel glass staff-create-so-page__section">
-            <ShippingAddressPicker
-              addresses={addresses}
-              loading={addressesLoading}
-              error={addressError}
-              disabled={saving}
-              value={shipping}
-              onChange={setShipping}
-              onRefresh={() => void loadAddresses(selectedDealer.id)}
-            />
-          </section>
-
-          <SalesOrderDraftLineEditor
-            lines={lines}
-            onChange={setLines}
-            saving={saving}
-            allowRateEdit
-            hideActions
-            title="Items"
-            productFilter={productFilter}
-            onSave={() => {}}
-            onCancel={() => setLines([])}
+        <section className="panel glass staff-create-so-page__section">
+          <ShippingAddressPicker
+            addresses={addresses}
+            loading={addressesLoading}
+            error={addressError}
+            disabled={saving}
+            value={shipping}
+            onChange={setShipping}
+            onRefresh={() => void loadAddresses(selectedDealer.id)}
           />
-
-          {user?.spareIncharge && !isFullSuperAdmin(user) ? (
-            <p className="text-muted text-sm staff-create-so-page__segment-hint">
-              Spare Incharge can only add spare parts (generic spare parts and uncategorized).
-            </p>
-          ) : !isFullSuperAdmin(user) ? (
-            <p className="text-muted text-sm staff-create-so-page__segment-hint">
-              Staff can add product and software items. Spare parts require Spare Incharge or super admin.
-            </p>
-          ) : null}
-
-          {segmentPreview.length > 1 ? (
-            <p className="text-muted text-sm staff-create-so-page__segment-hint">
-              This will create {segmentPreview.length} draft sales orders:
-              {' '}
-              {segmentPreview.map(segmentLabel).join(', ')}.
-            </p>
-          ) : null}
-          <section className="panel glass staff-create-so-page__section">
-            <label htmlFor="staff-so-remarks">
-              Remarks
-              <textarea
-                id="staff-so-remarks"
-                className="input-field"
-                rows={3}
-                value={remarks}
-                disabled={saving}
-                onChange={e => setRemarks(e.target.value)}
-                placeholder="Optional notes for this sales order"
-              />
-            </label>
-
-            {needsSalespersonPicker ? (
-              <label className="staff-create-so-page__salesperson">
-                <span>Salesperson</span>
-                <ThemeSelect
-                  id="staff-so-salesperson"
-                  value={salespersonId}
-                  disabled={saving || salespersonsLoading}
-                  placeholder={
-                    salespersonsLoading ? 'Loading salespersons…' : 'Select salesperson…'
-                  }
-                  options={salespersons.map(row => ({
-                    value: row.id,
-                    label: row.name,
-                    hint: row.email || undefined,
-                  }))}
-                  onChange={setSalespersonId}
-                  aria-label="Salesperson"
-                />
-                <span className="text-muted text-sm">
-                  Required for the product sales order — your admin account has no linked Zoho salesperson.
-                </span>
-              </label>
-            ) : null}
-
-            <div className="staff-create-so-page__totals">
-              <span className="text-muted">Estimated subtotal</span>
-              <strong>{formatCurrency(subtotal)}</strong>
-            </div>
-            <div className="staff-create-so-page__actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={saving || !canSubmit}
-                onClick={() => void save('review')}
-              >
-                {saving ? 'Saving…' : 'Save as draft'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={saving || !canSubmit}
-                onClick={() => void save('ready_for_payment')}
-              >
-                {saving ? 'Saving…' : 'Save as awaiting payment'}
-              </button>
-            </div>
-          </section>
-        </>
+        </section>
       ) : null}
+
+      <section className="panel glass staff-create-so-page__section">
+        <label htmlFor="staff-so-remarks">
+          Remarks
+          <textarea
+            id="staff-so-remarks"
+            className="input-field"
+            rows={3}
+            value={cartRemarks}
+            disabled={saving}
+            onChange={e => setCartRemarks(e.target.value)}
+            placeholder="Optional notes for this sales order"
+          />
+        </label>
+
+        {needsSalespersonPicker ? (
+          <label className="staff-create-so-page__salesperson">
+            <span>Salesperson</span>
+            <ThemeSelect
+              id="staff-so-salesperson"
+              value={salespersonId}
+              disabled={saving || salespersonsLoading}
+              placeholder={
+                salespersonsLoading ? 'Loading salespersons…' : 'Select salesperson…'
+              }
+              options={salespersons.map(row => ({
+                value: row.id,
+                label: row.name,
+                hint: row.email || undefined,
+              }))}
+              onChange={setSalespersonId}
+              aria-label="Salesperson"
+            />
+            <span className="text-muted text-sm">
+              Required for the product sales order — your admin account has no linked Zoho salesperson.
+            </span>
+          </label>
+        ) : null}
+
+        <div className="staff-create-so-page__totals">
+          <span className="text-muted">Estimated subtotal</span>
+          <strong>{formatCurrency(subtotal)}</strong>
+        </div>
+        <div className="staff-create-so-page__actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={saving || !canSubmit}
+            onClick={() => void save('review')}
+          >
+            {saving ? 'Saving…' : 'Save as draft'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={saving || !canSubmit}
+            onClick={() => void save('ready_for_payment')}
+          >
+            {saving ? 'Saving…' : 'Ready for payment'}
+          </button>
+        </div>
+      </section>
     </div>
   );
 };
+
+function StaffCartLine({
+  item,
+  disabled,
+  onQuantity,
+  onRate,
+  onRemove,
+}: {
+  item: CartItem & { catalogRate: number; rate: number };
+  disabled?: boolean;
+  onQuantity: (qty: number) => void;
+  onRate: (rate: number) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <li className="staff-create-so-page__cart-item">
+      <div className="staff-create-so-page__cart-media">
+        {item.imageUrl ? (
+          <CategoryThumbnail src={item.imageUrl} knockout={false} />
+        ) : (
+          <Package size={24} aria-hidden />
+        )}
+      </div>
+      <DocumentLineItemSpec
+        className="staff-create-so-page__cart-info"
+        name={item.name}
+        sku={item.sku}
+        description={item.description}
+      >
+        <label className="staff-create-so-page__rate">
+          <span className="text-muted text-sm">Base rate</span>
+          <input
+            type="number"
+            className="input-field"
+            min={0}
+            step={0.01}
+            value={item.catalogRate}
+            disabled={disabled}
+            onChange={e => onRate(Number(e.target.value))}
+          />
+        </label>
+        {item.gatcFeePerUnit > 0 ? (
+          <span className="text-muted text-sm">
+            + {item.gatcFeePerUnit.toLocaleString('en-IN')} stamping
+            {item.gatcStampingRange ? ` (${item.gatcStampingRange})` : ''}
+          </span>
+        ) : null}
+        <strong>{formatCurrency(item.rate * item.quantity)}</strong>
+      </DocumentLineItemSpec>
+      <div className="staff-create-so-page__cart-actions">
+        <QuantityStepper
+          value={item.quantity}
+          onChange={onQuantity}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          disabled={disabled}
+          onClick={onRemove}
+          aria-label="Remove from cart"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
+    </li>
+  );
+}

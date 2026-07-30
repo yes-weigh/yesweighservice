@@ -52,6 +52,8 @@ export interface CatalogBrowseProps {
   productsBasePath?: string;
   /** Dealer — show add-to-cart on product tiles */
   enableCart?: boolean;
+  /** When enableCart is true, only show cart on products that pass this check. */
+  isCartable?: (product: CatalogProduct) => boolean;
   /** Spares — skip category grid and list all products with search */
   flatBrowse?: boolean;
   searchPlaceholder?: string;
@@ -223,6 +225,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   onCategoryThumbnail,
   productsBasePath,
   enableCart = false,
+  isCartable,
   flatBrowse = false,
   searchPlaceholder,
   showStockQuantity = false,
@@ -512,6 +515,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               onProductSelect={openProduct}
               onReorder={nextProducts => onCategoryProductsReorder!(activeCategory, nextProducts)}
               enableCart={enableCart}
+              isCartable={isCartable}
               showStockQuantity={showStockQuantity}
               dealerView={dealerView}
               manageItemLabel={onManageItem ? manageItemLabel : undefined}
@@ -531,6 +535,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   index={idx}
                   onSelect={() => openProduct(product)}
                   enableCart={enableCart}
+                  isCartable={isCartable}
                   showStockQuantity={showStockQuantity}
                   dealerView={dealerView}
                   manageLabel={onManageItem ? manageItemLabel : undefined}

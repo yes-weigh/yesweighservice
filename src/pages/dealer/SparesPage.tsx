@@ -22,7 +22,7 @@ import {
   syncCatalog,
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
-import { canUseCart } from '../../types';
+import { canUseOrderCart, isCatalogProductCartable } from '../../lib/salesOrderSegments';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 
 type SparesViewMode = 'product' | 'spares' | 'unlinked';
@@ -38,6 +38,11 @@ export const SparesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const canSync = hasStaffPermission(user, 'catalog.sync');
+  const orderCartEnabled = canUseOrderCart(user);
+  const isCartable = useCallback(
+    (product: CatalogProduct) => isCatalogProductCartable(user, product),
+    [user],
+  );
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const dealerView = isDealerPortalUser(user);
   const viewMode = parseViewMode(searchParams.get('view'), canSync);
@@ -418,7 +423,8 @@ export const SparesPage: React.FC = () => {
           onCategoryProductsReorder={canSync ? (catId, products) => void handleCategoryProductsReorder(catId, products) : undefined}
           onCategoryThumbnail={canSync ? handleCategoryThumbnail : undefined}
           productsBasePath={`${pathname}/product`}
-          enableCart={canUseCart(user?.role)}
+          enableCart={orderCartEnabled}
+          isCartable={isCartable}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
           spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
@@ -469,7 +475,8 @@ export const SparesPage: React.FC = () => {
           searchQuery={sparesSearch}
           onSearchChange={setSparesSearch}
           productsBasePath={pathname}
-          enableCart={canUseCart(user?.role)}
+          enableCart={orderCartEnabled}
+          isCartable={isCartable}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
           returnView="spares"

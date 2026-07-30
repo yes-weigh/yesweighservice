@@ -3,8 +3,9 @@ import {
   isGenericSparePartsCategory,
   isSoftwareKeysCategory,
 } from './catalog';
-import { isFullSuperAdmin } from './staffAccess';
-import type { Role, User } from '../types';
+import { hasStaffPermission, isFullSuperAdmin } from './staffAccess';
+import { canUseCart, type Role, type User } from '../types';
+import type { CatalogProduct } from '../types/catalog';
 
 export type OrderSegment = 'product' | 'spare' | 'software';
 
@@ -34,7 +35,6 @@ export function classifyOrderLineSegment(line: {
   if (line.categoryName && isSoftwareSegmentCategoryName(line.categoryName)) {
     return 'software';
   }
-  // software keys helper is exact-match only; sanoft handled above
   if (line.categoryName && isSoftwareKeysCategory({ name: line.categoryName })) {
     return 'software';
   }
@@ -96,4 +96,29 @@ export function catalogProductAllowedForUser(
 ): boolean {
   if (isDealerCartRole(user?.role)) return true;
   return staffCanAddOrderSegment(user, classifyOrderLineSegment(product));
+}
+
+/**
+ * Dealer cart, or staff/super-admin with orders.manage (create sales order from catalog).
+ */
+export function canUseOrderCart(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (canUseCart(user.role)) return true;
+  if (!hasStaffPermission(user, 'orders.manage')) return false;
+  return user.role === 'staff' || isFullSuperAdmin(user);
+}
+
+/** Show add-to-cart control for this product for the signed-in user. */
+export function isCatalogProductCartable(
+  user: User | null | undefined,
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+): boolean {
+  if (!canUseOrderCart(user)) return false;
+  return catalogProductAllowedForUser(user, product);
+}
+
+/** Checkout path after adding to cart. */
+export function orderCartPathForUser(user: User | null | undefined, homePath: string): string {
+  if (isDealerCartRole(user?.role)) return `${homePath}/orders`;
+  return `${homePath}/sales-orders/new`;
 }

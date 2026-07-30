@@ -7,6 +7,7 @@ export interface ProductFolderGridProps {
   onProductSelect: (product: CatalogProduct) => void;
   onReorder: (products: CatalogProduct[]) => void;
   enableCart?: boolean;
+  isCartable?: (product: CatalogProduct) => boolean;
   showStockQuantity?: boolean;
   dealerView?: boolean;
   manageItemLabel?: string;
@@ -23,6 +24,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
   onProductSelect,
   onReorder,
   enableCart = false,
+  isCartable,
   showStockQuantity = false,
   dealerView = false,
   manageItemLabel,
@@ -80,6 +82,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
           editable
           onSelect={() => onProductSelect(product)}
           enableCart={enableCart}
+          isCartable={isCartable}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
           manageLabel={onManageItem ? manageItemLabel : undefined}

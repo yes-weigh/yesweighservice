@@ -16,7 +16,7 @@ import {
   syncCatalog,
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
-import { canUseCart } from '../../types';
+import { canUseOrderCart, isCatalogProductCartable } from '../../lib/salesOrderSegments';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
 
 export const ProductsPage: React.FC = () => {
@@ -25,6 +25,11 @@ export const ProductsPage: React.FC = () => {
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const dealerView = isDealerPortalUser(user);
+  const orderCartEnabled = canUseOrderCart(user);
+  const isCartable = useCallback(
+    (product: CatalogProduct) => isCatalogProductCartable(user, product),
+    [user],
+  );
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,7 +221,8 @@ export const ProductsPage: React.FC = () => {
           ) : undefined
         }
         productsBasePath={pathname}
-        enableCart={canUseCart(user?.role)}
+        enableCart={orderCartEnabled}
+        isCartable={isCartable}
         showStockQuantity={showStockQuantity}
         dealerView={dealerView}
       />

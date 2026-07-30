@@ -114,6 +114,7 @@ export const ProductDetailTabs: React.FC<{
   manageSpareLinks: boolean;
   showStockQuantity: boolean;
   showCartActions: boolean;
+  isCartable?: (product: CatalogProduct) => boolean;
   productsBasePath: string;
   sparesBasePath: string;
   onOpenLinkEditor: () => void;
@@ -151,6 +152,7 @@ export const ProductDetailTabs: React.FC<{
   manageSpareLinks,
   showStockQuantity,
   showCartActions,
+  isCartable,
   productsBasePath,
   sparesBasePath,
   onOpenLinkEditor,
@@ -257,6 +259,7 @@ export const ProductDetailTabs: React.FC<{
                 loading={relatedLoading}
                 showStockQuantity={showStockQuantity}
                 enableCart={showCartActions && relatedKind === 'spares'}
+                isCartable={isCartable}
                 getLinkState={relatedLinkState}
                 embedded
                 onUnlink={manageSpareLinks ? onUnlinkRelated : undefined}

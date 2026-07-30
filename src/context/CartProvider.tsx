@@ -51,6 +51,7 @@ function normalizeCartItem(raw: Partial<CartItem> & { productId?: string }): Car
     unit: String(raw.unit ?? 'pcs'),
     stockStatus: effectiveCatalogStockStatus(raw.stockStatus, raw.hsn),
     categoryName: raw.categoryName != null ? String(raw.categoryName) : null,
+    categoryId: raw.categoryId != null ? String(raw.categoryId) : null,
     hsn: raw.hsn ?? null,
     quantity: Math.max(1, Math.floor(Number(raw.quantity) || 1)),
   };

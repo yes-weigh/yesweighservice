@@ -34,6 +34,8 @@ export interface ProductBrowseCardProps {
   index: number;
   onSelect: () => void;
   enableCart?: boolean;
+  /** When enableCart is true, hide cart button unless this returns true (defaults to always). */
+  isCartable?: (product: CatalogProduct) => boolean;
   showStockQuantity?: boolean;
   /**
    * Dealer portal grid: hide missing-package icon; show stamping range labels.
@@ -76,6 +78,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   index,
   onSelect,
   enableCart = false,
+  isCartable,
   showStockQuantity = false,
   dealerView = false,
   manageLabel,
@@ -100,6 +103,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const theme = getCategoryTheme(index);
   const outOfStock = product.stockStatus === 'out_of_stock';
   const inCart = isInCart(product.id);
+  const showCartButton = enableCart && (!isCartable || isCartable(product));
   const hasStamping = productHasLinkedGatc(product);
   const hasPackageInfo = Boolean(
     product.packageInfo?.masterCarton
@@ -425,7 +429,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         </button>
       )}
 
-      {enableCart && (
+      {showCartButton && (
         <button
           type="button"
           className={`catalog-product-card__cart-btn ${addedFlash ? 'catalog-product-card__cart-btn--added' : ''}`}

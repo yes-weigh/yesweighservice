@@ -93,6 +93,7 @@ export const RelatedCatalogItems: React.FC<{
   headerAction?: React.ReactNode;
   showStockQuantity?: boolean;
   enableCart?: boolean;
+  isCartable?: (product: CatalogProduct) => boolean;
   getLinkState?: (item: CatalogProduct) => CatalogNavState;
   /** Hide section heading when rendered inside product detail tabs. */
   embedded?: boolean;
@@ -108,6 +109,7 @@ export const RelatedCatalogItems: React.FC<{
   headerAction,
   showStockQuantity = false,
   enableCart = false,
+  isCartable,
   getLinkState,
   embedded = false,
   onUnlink,
@@ -249,7 +251,10 @@ export const RelatedCatalogItems: React.FC<{
                       {unlinking ? 'Unlinking…' : 'Unlink'}
                     </button>
                   )}
-                  <RelatedCatalogCartControls item={item} enableCart={enableCart} />
+                  <RelatedCatalogCartControls
+                    item={item}
+                    enableCart={enableCart && (!isCartable || isCartable(item))}
+                  />
                 </div>
               </li>
             );

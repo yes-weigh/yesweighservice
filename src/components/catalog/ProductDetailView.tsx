@@ -164,6 +164,7 @@ export const ProductDetailView: React.FC<{
   showStockQuantity?: boolean;
   showAuditedStock?: boolean;
   showCartActions?: boolean;
+  isCartable?: (product: CatalogProduct) => boolean;
   ordersPath?: string;
   showRelatedLinks?: boolean;
   manageSpareLinks?: boolean;
@@ -190,6 +191,7 @@ export const ProductDetailView: React.FC<{
   showStockQuantity = false,
   showAuditedStock = false,
   showCartActions = false,
+  isCartable,
   ordersPath = '/dealer/orders',
   showRelatedLinks = false,
   manageSpareLinks = false,
@@ -2418,7 +2420,7 @@ export const ProductDetailView: React.FC<{
             </div>
           )}
 
-          {showCartActions && (
+          {showCartActions && product && (!isCartable || isCartable(product)) && (
             <div className="product-detail-page__cart">
               <div className="product-detail-page__qty" aria-label="Quantity">
                 <button
@@ -2565,6 +2567,7 @@ export const ProductDetailView: React.FC<{
               manageSpareLinks={manageSpareLinks}
               showStockQuantity={showStockQuantity}
               showCartActions={showCartActions}
+              isCartable={isCartable}
               productsBasePath={productsBasePath ?? backPath}
               sparesBasePath={sparesBasePath ?? `${backPath}/spare`}
               onOpenLinkEditor={() => void openLinkEditor()}
