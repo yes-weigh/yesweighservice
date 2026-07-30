@@ -780,6 +780,18 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
 
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page unified-sales-orders-page">
+      {canCreateStaffOrder ? (
+        <div className="unified-so-create-bar">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => navigate(`${basePath}/sales-orders/new`)}
+          >
+            <Plus size={16} strokeWidth={2.5} aria-hidden />
+            New sales order
+          </button>
+        </div>
+      ) : null}
       <section className="invoices-summary" aria-label="Sales order summary">
         {(selectedDealers.length > 0 || useAggregate || truncated) && (
           <p className="unified-so-dealer-filter-note text-muted text-sm">

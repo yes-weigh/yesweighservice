@@ -167,6 +167,8 @@ export const DEPARTMENT_DEFAULT_PERMISSIONS: Record<StaffDepartment, StaffPermis
     'leads.manage',
     'catalog.view',
     'invoices.view',
+    'orders.view',
+    'orders.manage',
     'loyalty.view',
     'tasks.view',
     'advertisements.view',
