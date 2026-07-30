@@ -324,7 +324,9 @@ export async function buildAuditReportPdfBlob(input: AuditReportPdfInput): Promi
   }
 
   const bytes = await doc.save();
-  return new Blob([bytes], { type: 'application/pdf' });
+  // pdf-lib returns Uint8Array<ArrayBufferLike>; copy into a plain ArrayBuffer for BlobPart.
+  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  return new Blob([ab], { type: 'application/pdf' });
 }
 
 export async function downloadAuditReportPdf(input: AuditReportPdfInput): Promise<void> {
