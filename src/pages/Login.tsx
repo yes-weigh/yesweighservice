@@ -15,7 +15,7 @@ import {
 import { Logo } from '../components/Logo';
 import { BRAND_TITLE, FIRM_NAME } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
-import { homePathForRole } from '../types';
+import { landingPathForRole } from '../types';
 import { parseLoginId } from '../lib/loginAuth';
 import {
   NO_AUTOFILL_FORM_PROPS,
@@ -65,7 +65,7 @@ export const Login: React.FC = () => {
 
   useEffect(() => {
     if (!loading && user) {
-      navigate(homePathForRole(user.role), { replace: true });
+      navigate(landingPathForRole(user.role), { replace: true });
     }
   }, [user, loading, navigate]);
 

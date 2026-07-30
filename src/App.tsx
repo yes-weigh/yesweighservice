@@ -42,7 +42,7 @@ import { AdminSalesOrderDocumentPage } from './pages/admin/AdminSalesOrderDocume
 import { AdminSalesOrderPdfViewerPage } from './pages/admin/AdminSalesOrderPdfViewerPage';
 import { StaffOrderDetailPage } from './pages/staff/StaffOrderDetailPage';
 import { StaffCreateSalesOrderPage } from './pages/staff/StaffCreateSalesOrderPage';
-import { RoleDashboard, DealerMenuPages } from './pages/dealer/DealerPages';
+import { DealerMenuPages } from './pages/dealer/DealerPages';
 import { DealerTeamPage } from './pages/dealer/DealerTeamPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
 import { SettingsLayout } from './pages/admin/SettingsLayout';
@@ -181,7 +181,7 @@ const dealerSalesOrderRoutes = (
 
 const dealerRoutes = (
   <>
-    <Route index element={<RoleDashboard />} />
+    <Route index element={<Navigate to="catalog" replace />} />
     {portalMenuRoutes}
     {dealerInvoiceRoutes}
     {dealerSalesOrderRoutes}
@@ -351,7 +351,7 @@ const App: React.FC = () => (
 
           <Route element={<ProtectedRoute allowedRoles={['dealer_staff']} />}>
             <Route path="/dealer-staff" element={<Layout />}>
-              <Route index element={<RoleDashboard />} />
+              <Route index element={<Navigate to="catalog" replace />} />
               <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
               <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
               <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />

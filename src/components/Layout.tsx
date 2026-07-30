@@ -304,13 +304,11 @@ const LayoutShell: React.FC = () => {
       }
       case 'dealer':
         return [
-          { path: '/dealer', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           ...portalNavItems('/dealer', 'dealer'),
           { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
         ];
       case 'dealer_staff':
         return [
-          { path: '/dealer-staff', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           ...portalNavItems('/dealer-staff', 'dealer_staff'),
         ];
       case 'media':

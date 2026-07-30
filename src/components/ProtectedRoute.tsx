@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { homePathForRole, type Role } from '../types';
+import { landingPathForRole, type Role } from '../types';
 
 interface ProtectedRouteProps {
   allowedRoles: Role[];
@@ -22,7 +22,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles, lo
   if (!user) return <Navigate to={loginPath} replace />;
 
   if (!allowedRoles.includes(user.role)) {
-    return <Navigate to={homePathForRole(user.role)} replace />;
+    return <Navigate to={landingPathForRole(user.role)} replace />;
   }
 
   return <Outlet />;

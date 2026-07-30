@@ -4,7 +4,7 @@ import { ArrowLeft, KeyRound, Lock, Phone, Send, ShieldCheck } from 'lucide-reac
 import { Logo } from '../components/Logo';
 import { TAGLINE } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
-import { homePathForRole } from '../types';
+import { landingPathForRole } from '../types';
 import { isValidPhone, normalizePhone } from '../lib/loginAuth';
 import {
   completeDealerPasswordReset,
@@ -43,7 +43,7 @@ export const DealerLogin: React.FC = () => {
 
   useEffect(() => {
     if (!loading && user) {
-      navigate(homePathForRole(user.role), { replace: true });
+      navigate(landingPathForRole(user.role), { replace: true });
     }
   }, [user, loading, navigate]);
 
@@ -207,7 +207,7 @@ export const DealerLogin: React.FC = () => {
         await completeDealerSignup(normalizedPhone, setupToken, password);
       }
       await login(normalizedPhone, password);
-      navigate('/dealer', { replace: true });
+      navigate(landingPathForRole('dealer'), { replace: true });
     } catch (err) {
       setError(
         err instanceof Error

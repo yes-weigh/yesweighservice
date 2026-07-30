@@ -2,7 +2,6 @@ import React from 'react';
 import { PagePlaceholder } from '../../components/PagePlaceholder';
 import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
-import { DealerDashboard } from './DealerDashboard';
 import { OrdersPage } from './OrdersPage';
 import { Navigate } from 'react-router-dom';
 import { DealerOrderDetailPage } from './DealerOrderDetailPage';
@@ -68,7 +67,7 @@ export const RoleDashboard: React.FC = () => {
   const { user } = useAuth();
 
   if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
-    return <DealerDashboard basePath={homePathForRole(user.role)} />;
+    return <Navigate to={`${homePathForRole(user.role)}/catalog`} replace />;
   }
 
   return (

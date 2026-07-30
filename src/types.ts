@@ -195,6 +195,13 @@ export function homePathForRole(role: Role): string {
   }
 }
 
+/** First screen after login (dealers land on catalog — no dashboard). */
+export function landingPathForRole(role: Role): string {
+  if (role === 'dealer') return '/dealer/catalog';
+  if (role === 'dealer_staff') return '/dealer-staff/catalog';
+  return homePathForRole(role);
+}
+
 /** Roles this user may create / manage in the user admin screens */
 export function manageableRoles(actor: Role): Role[] {
   switch (actor) {
