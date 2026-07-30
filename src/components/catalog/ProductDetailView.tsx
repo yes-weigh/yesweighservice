@@ -30,6 +30,7 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   assignProductCategory,
+  expectsCatalogPackageInfo,
   formatCurrencyWhole,
   formatStockQuantity,
   getFinishedGoodsForSpareMapping,
@@ -395,6 +396,9 @@ export const ProductDetailView: React.FC<{
   const isSpareItem = product
     ? isCatalogSparePartProduct(product, spareClassificationCategories)
     : false;
+  const expectsPackageInfo = Boolean(
+    product && expectsCatalogPackageInfo(product, spareClassificationCategories),
+  );
   const isCategorizedProduct = Boolean(
     product && hasCatalogCategory(product) && !isSpareItem,
   );
@@ -2525,7 +2529,7 @@ export const ProductDetailView: React.FC<{
 
           {variant !== 'public' && product && (
             <div className="product-detail-page__tabbed-area">
-            {showAuditedStock && !isSpareDetail && !isSpareItem && (
+            {showAuditedStock && !isSpareDetail && expectsPackageInfo && (
               <ProductPackageInfo
                 product={product}
                 packageInfo={product.packageInfo}

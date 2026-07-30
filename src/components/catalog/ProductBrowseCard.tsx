@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
+import { expectsCatalogPackageInfo } from '../../lib/catalog';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
 import { normalizeGatcIdList, productHasLinkedGatc } from '../../lib/gatcCart';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
@@ -105,7 +106,9 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
     || (product.packageInfo?.singleBox?.length ?? 0) > 0,
   );
   const missingPackageInfo = !hasPackageInfo;
-  const showPackageMissingIcon = !dealerView && missingPackageInfo;
+  const showPackageMissingIcon = !dealerView
+    && missingPackageInfo
+    && expectsCatalogPackageInfo(product);
 
   useEffect(() => {
     if (!dealerView || !hasStamping) {

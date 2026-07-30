@@ -131,6 +131,30 @@ export function isSparesExcludedCategory(category: Pick<CatalogCategory, 'name'>
   return SPARES_EXCLUDED_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
 }
 
+export function isSoftwareKeysCategory(category: Pick<CatalogCategory, 'name'>): boolean {
+  return category.name.trim().toLowerCase() === 'software keys';
+}
+
+/**
+ * Package dimensions are only expected for finished shop products.
+ * Uncategorized, generic spare parts, and software keys skip the missing-package flag.
+ */
+export function expectsCatalogPackageInfo(
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+  categories: CatalogCategory[] = [],
+): boolean {
+  if (!hasCatalogCategory(product)) return false;
+  if (isCatalogSparePartProduct(product, categories)) return false;
+  if (product.categoryName && isSoftwareKeysCategory({ name: product.categoryName })) {
+    return false;
+  }
+  if (product.categoryId) {
+    const cat = categories.find(c => c.id === product.categoryId);
+    if (cat && isSoftwareKeysCategory(cat)) return false;
+  }
+  return true;
+}
+
 /** Product synced with a Zoho item category (has categoryId, excluding ROOT -1). */
 export function hasCatalogCategory(product: Pick<CatalogProduct, 'categoryId'>): boolean {
   const id = product.categoryId?.trim();
