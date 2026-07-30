@@ -5,7 +5,6 @@ import {
 } from './catalog';
 import { hasStaffPermission, isFullSuperAdmin } from './staffAccess';
 import { canUseCart, type Role, type User } from '../types';
-import type { CatalogProduct } from '../types/catalog';
 
 export type OrderSegment = 'product' | 'spare' | 'software';
 
@@ -111,7 +110,7 @@ export function canUseOrderCart(user: User | null | undefined): boolean {
 /** Show add-to-cart control for this product for the signed-in user. */
 export function isCatalogProductCartable(
   user: User | null | undefined,
-  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+  product: { categoryId?: string | null; categoryName?: string | null },
 ): boolean {
   if (!canUseOrderCart(user)) return false;
   return catalogProductAllowedForUser(user, product);

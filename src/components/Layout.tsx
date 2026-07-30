@@ -6,10 +6,6 @@ import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
 import { homePathForRole } from '../types';
 import { canUseOrderCart, orderCartPathForUser } from '../lib/salesOrderSegments';
-import {
-  canUseOrderCart,
-  orderCartPathForUser,
-} from '../lib/salesOrderSegments';
 import { navigateBack } from '../lib/navigation';
 import { canAccessNavFeature, canViewHr, type StaffNavFeature } from '../lib/staffAccess';
 import {

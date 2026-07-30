@@ -1,8 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
-import { formatCurrency } from '../lib/catalog';
-import type { SegmentSalesOrderResult } from '../lib/dealerOrders';
+import { formatCurrency } from '../../lib/catalog';
+import type { SegmentSalesOrderResult } from '../../lib/dealerOrders';
 
 type Props = {
   salesOrders: SegmentSalesOrderResult[];

@@ -105,13 +105,10 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const inCart = isInCart(product.id);
   const showCartButton = enableCart && (!isCartable || isCartable(product));
   const hasStamping = productHasLinkedGatc(product);
-  const hasPackageInfo = Boolean(
-    product.packageInfo?.masterCarton
-    || (product.packageInfo?.singleBox?.length ?? 0) > 0,
-  );
-  const missingPackageInfo = !hasPackageInfo;
+  // Grid badge: only single-box counts — master carton alone is not enough.
+  const hasSingleBoxPackageInfo = (product.packageInfo?.singleBox?.length ?? 0) > 0;
   const showPackageMissingIcon = !dealerView
-    && missingPackageInfo
+    && !hasSingleBoxPackageInfo
     && expectsCatalogPackageInfo(product);
 
   useEffect(() => {
