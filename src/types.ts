@@ -89,6 +89,11 @@ export interface User {
   dealerTier?: import('./types/dealer-access').DealerTier;
   dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
   dealerPermissions?: import('./types/dealer-access').DealerPermission[];
+  /**
+   * Best-effort flag mirrored from appSettings/spareIncharge.
+   * Roster in appSettings is the source of truth for HR assignment.
+   */
+  spareIncharge?: boolean;
   /** Company staff HR profile */
   hrPhotoUrl?: string | null;
   hrPhotoStoragePath?: string | null;
@@ -136,6 +141,7 @@ export interface FirestoreUserDoc {
   dealerTier?: import('./types/dealer-access').DealerTier;
   dealerAccessMode?: import('./types/dealer-access').DealerAccessMode;
   dealerPermissions?: import('./types/dealer-access').DealerPermission[];
+  spareIncharge?: boolean;
   hrPhotoUrl?: string | null;
   hrPhotoStoragePath?: string | null;
   hrResidentialAddress?: string | null;

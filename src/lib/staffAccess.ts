@@ -115,6 +115,11 @@ export function canManageWarehouseUsers(user: User | null | undefined): boolean 
   return canManageHr(user);
 }
 
+/** Assign staff / super admins as spare incharge (HR manage). */
+export function canManageSpareIncharge(user: User | null | undefined): boolean {
+  return canManageHr(user);
+}
+
 export function canManageStaffRolesInHr(user: User | null | undefined): boolean {
   return canSuperAdminWrite(user);
 }

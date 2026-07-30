@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { CalendarDays, Calculator, ClipboardList, Image as ImageIcon, KeyRound, Shield, Users, Warehouse } from 'lucide-react';
+import { CalendarDays, Calculator, ClipboardList, Image as ImageIcon, KeyRound, Shield, Users, Warehouse, Wrench } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalhostDev } from '../../lib/isLocalhost';
 import {
   canManageHr,
+  canManageSpareIncharge,
   canManageStaffRolesInHr,
   canManageSuperAdminsInHr,
   canManageWarehouseUsers,
@@ -24,6 +25,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
   const showRoles = canManageStaffRolesInHr(user);
   const showWarehouse = canManageWarehouseUsers(user);
   const showMedia = canManageWarehouseUsers(user);
+  const showSpareIncharge = canManageSpareIncharge(user);
   // Salary UI is localhost-only (dev system); data still persists to Firestore when used.
   const showSalary = canViewHrSalary(user) && isLocalhostDev();
 
@@ -77,6 +79,14 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
         icon: <ImageIcon size={16} />,
       });
     }
+    if (showSpareIncharge) {
+      items.push({
+        id: 'spare-incharge',
+        label: 'Spare Incharge',
+        path: `${basePath}/hr/spare-incharge`,
+        icon: <Wrench size={16} />,
+      });
+    }
     if (showSuperAdmins) {
       items.push({
         id: 'super-admins',
@@ -86,7 +96,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
       });
     }
     return items;
-  }, [basePath, showMedia, showRoles, showSalary, showSuperAdmins, showWarehouse]);
+  }, [basePath, showMedia, showRoles, showSalary, showSpareIncharge, showSuperAdmins, showWarehouse]);
 
   useEffect(() => {
     if (location.pathname === `${basePath}/hr` || location.pathname === `${basePath}/hr/`) {
@@ -113,7 +123,7 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
         <div>
           <h2>Human Resources</h2>
           {/* "warehouse" role/users in code = Stock auditor in the UI */}
-          <p className="text-muted text-sm">Staff records, work reports, holidays, salary, stock auditor and media users, roles, and super admins.</p>
+          <p className="text-muted text-sm">Staff records, work reports, holidays, salary, stock auditor, media, spare incharge, roles, and super admins.</p>
         </div>
         {canManageHr(user) && isTabActive(`${basePath}/hr/staff`) && (
           <Link to={`${basePath}/hr/staff/new`} className="btn btn-primary btn-sm">

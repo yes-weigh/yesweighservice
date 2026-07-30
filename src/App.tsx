@@ -22,6 +22,7 @@ import { HrHolidayCalendarPage } from './pages/hr/HrHolidayCalendarPage';
 import { HrSalaryCalculationPage } from './pages/hr/HrSalaryCalculationPage';
 import { HrWarehousePage } from './pages/hr/HrWarehousePage';
 import { HrMediaPage } from './pages/hr/HrMediaPage';
+import { HrSpareInchargePage } from './pages/hr/HrSpareInchargePage';
 import { MediaHomePage } from './pages/media/MediaHomePage';
 import { AdminDealersList } from './pages/admin/AdminDealersList';
 import { AdminDealerAccountsList } from './pages/admin/AdminDealerAccountsList';
@@ -233,6 +234,7 @@ const App: React.FC = () => (
                 <Route path="roles" element={<HrRolesPage />} />
                 <Route path="warehouse" element={<HrWarehousePage basePath="/super-admin" />} />
                 <Route path="media" element={<HrMediaPage basePath="/super-admin" />} />
+                <Route path="spare-incharge" element={<HrSpareInchargePage basePath="/super-admin" />} />
                 <Route path="me" element={<HrMyProfilePage />} />
               </Route>
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
@@ -319,6 +321,7 @@ const App: React.FC = () => (
                 <Route path="salary" element={<HrSalaryCalculationPage basePath="/staff" />} />
                 <Route path="warehouse" element={<HrWarehousePage basePath="/staff" />} />
                 <Route path="media" element={<HrMediaPage basePath="/staff" />} />
+                <Route path="spare-incharge" element={<HrSpareInchargePage basePath="/staff" />} />
                 <Route path="me" element={<HrMyProfilePage />} />
               </Route>
               <Route path="profile" element={<ProfilePage />} />
