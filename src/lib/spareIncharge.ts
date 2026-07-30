@@ -3,6 +3,12 @@ import { SPARE_INCHARGE_SETTINGS_DOC_ID } from '../constants/spareIncharge';
 import { db } from '../firebase';
 import type { FirestoreUserDoc, Role, UserRecord } from '../types';
 import { normalizeRole, ROLE_LABELS } from '../types';
+import {
+  assertZohoSalespersonIdsAvailable,
+  normalizeZohoSalespersonLinks,
+  zohoLinksToFirestoreFields,
+  type ZohoSalespersonLink,
+} from './zohoSalespersonStaff';
 
 export type SpareInchargeMember = {
   uid: string;
@@ -44,6 +50,15 @@ export function spareInchargeRoleLabel(role: SpareInchargeMember['role']): strin
   return ROLE_LABELS[role];
 }
 
+/** Primary (top) Zoho salesperson for a spare-incharge user, if any. */
+export function primaryZohoSalespersonForUser(user: Pick<
+  UserRecord,
+  'zohoSalespersonLinks' | 'zohoSalespersonIds' | 'zohoSalespersonId' | 'zohoSalespersonName'
+> | null | undefined): ZohoSalespersonLink | null {
+  if (!user) return null;
+  return normalizeZohoSalespersonLinks(user)[0] ?? null;
+}
+
 export async function loadSpareInchargeSettings(): Promise<SpareInchargeSettings> {
   try {
     const snap = await getDoc(doc(db, 'appSettings', SPARE_INCHARGE_SETTINGS_DOC_ID));
@@ -54,11 +69,29 @@ export async function loadSpareInchargeSettings(): Promise<SpareInchargeSettings
     const members = Array.isArray(data.members)
       ? data.members.map(normalizeMember).filter((m): m is SpareInchargeMember => m !== null)
       : [];
-    return {
-      members,
+    // Only one spare incharge is allowed — keep the first if older data had many.
+    const normalized: SpareInchargeSettings = {
+      members: members.slice(0, 1),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedByUid: typeof data.updatedByUid === 'string' ? data.updatedByUid : null,
     };
+
+    if (members.length > 1) {
+      const extras = members.slice(1);
+      await setDoc(
+        doc(db, 'appSettings', SPARE_INCHARGE_SETTINGS_DOC_ID),
+        {
+          members: normalized.members,
+          memberUids: normalized.members.map(m => m.uid),
+          updatedAt: new Date().toISOString(),
+          updatedByUid: normalized.updatedByUid ?? null,
+        },
+        { merge: true },
+      );
+      await Promise.all(extras.map(m => trySetUserSpareInchargeFlag(m.uid, false)));
+    }
+
+    return normalized;
   } catch {
     return { members: [], updatedAt: '' };
   }
@@ -102,7 +135,7 @@ export async function addSpareInchargeMember(
   }
 
   const current = await loadSpareInchargeSettings();
-  if (current.members.some(m => m.uid === user.uid)) {
+  if (current.members.length === 1 && current.members[0].uid === user.uid) {
     return current;
   }
 
@@ -113,8 +146,10 @@ export async function addSpareInchargeMember(
     loginId: String(user.loginId ?? '').trim(),
   };
 
+  const previousUids = current.members.map(m => m.uid).filter(uid => uid !== user.uid);
+
   const next: SpareInchargeSettings = {
-    members: [...current.members, member].sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    members: [member],
     updatedAt: new Date().toISOString(),
     updatedByUid: updatedByUid ?? null,
   };
@@ -130,7 +165,10 @@ export async function addSpareInchargeMember(
     { merge: true },
   );
 
-  await trySetUserSpareInchargeFlag(user.uid, true);
+  await Promise.all([
+    trySetUserSpareInchargeFlag(user.uid, true),
+    ...previousUids.map(uid => trySetUserSpareInchargeFlag(uid, false)),
+  ]);
   return next;
 }
 
@@ -163,6 +201,44 @@ export async function removeSpareInchargeMember(
 
   await trySetUserSpareInchargeFlag(uid, false);
   return next;
+}
+
+/**
+ * Set / replace the primary Zoho salesperson for a spare-incharge user.
+ * The previous primary is removed; any other secondary links are kept.
+ */
+export async function setSpareInchargeZohoSalesperson(
+  user: UserRecord,
+  link: ZohoSalespersonLink,
+): Promise<UserRecord> {
+  const id = String(link.id ?? '').trim();
+  if (!id) throw new Error('Choose a Zoho salesperson.');
+
+  await assertZohoSalespersonIdsAvailable([id], user.uid);
+
+  const existing = normalizeZohoSalespersonLinks(user);
+  const secondary = existing.slice(1).filter(row => row.id !== id);
+  const fields = zohoLinksToFirestoreFields([
+    { id, name: link.name ?? null },
+    ...secondary,
+  ]);
+  await updateDoc(doc(db, 'users', user.uid), {
+    ...fields,
+    updatedAt: new Date().toISOString(),
+  });
+
+  return {
+    ...user,
+    ...fields,
+  };
+}
+
+/** @deprecated Prefer setSpareInchargeZohoSalesperson */
+export async function associateZohoSalespersonToSpareIncharge(
+  user: UserRecord,
+  link: ZohoSalespersonLink,
+): Promise<UserRecord> {
+  return setSpareInchargeZohoSalesperson(user, link);
 }
 
 export function isSpareInchargeMember(

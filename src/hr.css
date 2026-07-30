@@ -2267,6 +2267,26 @@
 }
 
 /* Spare Incharge assignment */
+.hr-spare-incharge {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 1.1rem 1.15rem;
+  overflow: visible;
+}
+
+.hr-spare-incharge__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.hr-spare-incharge__header-copy {
+  min-width: 0;
+  flex: 1;
+}
+
 .hr-spare-incharge__title {
   display: inline-flex;
   align-items: center;
@@ -2274,9 +2294,13 @@
   margin: 0 0 0.25rem;
 }
 
+.hr-spare-incharge__refresh {
+  flex-shrink: 0;
+}
+
 .hr-spare-incharge__assign {
   position: relative;
-  margin: 0 0 1rem;
+  z-index: 5;
   max-width: 32rem;
 }
 
@@ -2291,8 +2315,8 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.15rem 0.55rem;
-  border-radius: 8px;
+  padding: 0.35rem 0.65rem;
+  border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.28);
   background: rgba(15, 23, 42, 0.45);
 }
@@ -2318,21 +2342,44 @@
   padding-right: 0 !important;
 }
 
-.hr-spare-incharge__options {
+.hr-spare-incharge__options,
+.hr-spare-incharge__zoho-options {
   position: absolute;
-  z-index: 30;
+  z-index: 40;
   left: 0;
   right: 0;
-  top: calc(100% + 4px);
   margin: 0;
-  padding: 0.25rem 0;
+  padding: 0.3rem;
   list-style: none;
-  max-height: 16rem;
+  max-height: 14rem;
   overflow: auto;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.28);
   background: #0f172a;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+}
+
+.hr-spare-incharge__options {
+  top: calc(100% + 4px);
+}
+
+.hr-spare-incharge__options::-webkit-scrollbar,
+.hr-spare-incharge__zoho-options::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.hr-spare-incharge__options::-webkit-scrollbar-thumb,
+.hr-spare-incharge__zoho-options::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.4);
+}
+
+.hr-spare-incharge__options::-webkit-scrollbar-track,
+.hr-spare-incharge__zoho-options::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .hr-spare-incharge__option-empty {
@@ -2348,6 +2395,7 @@
   width: 100%;
   padding: 0.5rem 0.75rem;
   border: none;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -2357,6 +2405,10 @@
 .hr-spare-incharge__option.is-active,
 .hr-spare-incharge__option:hover {
   background: rgba(249, 115, 22, 0.12);
+}
+
+.hr-spare-incharge__option.is-current .hr-spare-incharge__option-name {
+  color: rgba(251, 146, 60, 0.95);
 }
 
 .hr-spare-incharge__option.is-inactive .hr-spare-incharge__option-name {
@@ -2374,12 +2426,212 @@
 }
 
 .hr-spare-incharge__error {
-  margin: 0 0 0.75rem;
+  margin: 0;
+}
+
+.hr-spare-incharge__roster {
+  overflow: visible;
+  margin: 0 -0.15rem;
+}
+
+.hr-spare-incharge__table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.hr-spare-incharge__table th,
+.hr-spare-incharge__table td {
+  vertical-align: middle;
+}
+
+.hr-spare-incharge__table th:nth-child(1),
+.hr-spare-incharge__table td:nth-child(1) {
+  width: 22%;
+}
+
+.hr-spare-incharge__table th:nth-child(2),
+.hr-spare-incharge__table td:nth-child(2) {
+  width: 18%;
+}
+
+.hr-spare-incharge__table th:nth-child(3),
+.hr-spare-incharge__table td:nth-child(3) {
+  width: 14%;
+}
+
+.hr-spare-incharge__table th:nth-child(4),
+.hr-spare-incharge__table td:nth-child(4) {
+  width: 38%;
+}
+
+.hr-spare-incharge__table th:nth-child(5),
+.hr-spare-incharge__table td:nth-child(5) {
+  width: 8%;
+}
+
+.hr-spare-incharge__name {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.hr-spare-incharge__login {
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+  font-size: 0.8125rem;
+  color: rgba(203, 213, 225, 0.92);
 }
 
 .hr-spare-incharge__actions {
-  width: 3rem;
   text-align: right;
+  white-space: nowrap;
+}
+
+.hr-spare-incharge__zoho-cell {
+  overflow: visible;
+  position: relative;
+}
+
+.hr-spare-incharge__zoho {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.hr-spare-incharge__zoho-current {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.hr-spare-incharge__zoho-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.hr-spare-incharge__zoho-edit {
+  flex-shrink: 0;
+  margin-top: -0.1rem;
+}
+
+.hr-spare-incharge__zoho-editing {
+  margin: 0 0 0.35rem;
+}
+
+.hr-spare-incharge__zoho-name {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.hr-spare-incharge__zoho-id {
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+
+.hr-spare-incharge__zoho-associate {
+  position: relative;
+  z-index: 6;
+  min-width: 0;
+  width: 100%;
+  max-width: 18rem;
+}
+
+.hr-spare-incharge__zoho-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.hr-spare-incharge__zoho-search.is-open,
+.hr-spare-incharge__zoho-search:focus-within {
+  border-color: rgba(245, 130, 32, 0.45);
+}
+
+.hr-spare-incharge__zoho-search-icon,
+.hr-spare-incharge__zoho-spinner {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.hr-spare-incharge__zoho-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0 !important;
+  outline: none;
+}
+
+.hr-spare-incharge__zoho-options {
+  /* Open upward so the menu isn't clipped by the page bottom / scrollbars */
+  top: auto;
+  bottom: calc(100% + 4px);
+  max-height: 12rem;
+}
+
+.hr-spare-incharge-page.page-content,
+.hr-spare-incharge,
+.hr-spare-incharge__roster,
+.hr-spare-incharge__table,
+.hr-spare-incharge__table tbody,
+.hr-spare-incharge__table tr,
+.hr-spare-incharge__table td {
+  overflow: visible;
+}
+
+.hr-spare-incharge__zoho-error {
+  margin: 0.35rem 0 0;
+}
+
+@media (max-width: 900px) {
+  .hr-spare-incharge__table {
+    table-layout: auto;
+  }
+
+  .hr-spare-incharge__roster {
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+  }
+
+  .hr-spare-incharge__roster::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .hr-spare-incharge__roster::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.4);
+  }
+
+  .hr-spare-incharge__table th:nth-child(1),
+  .hr-spare-incharge__table td:nth-child(1),
+  .hr-spare-incharge__table th:nth-child(2),
+  .hr-spare-incharge__table td:nth-child(2),
+  .hr-spare-incharge__table th:nth-child(3),
+  .hr-spare-incharge__table td:nth-child(3),
+  .hr-spare-incharge__table th:nth-child(4),
+  .hr-spare-incharge__table td:nth-child(4),
+  .hr-spare-incharge__table th:nth-child(5),
+  .hr-spare-incharge__table td:nth-child(5) {
+    width: auto;
+  }
+
+  .hr-spare-incharge__zoho-associate {
+    min-width: 14rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -2398,5 +2650,9 @@
   .staff-role-editor__role-select,
   .staff-role-editor__team-input {
     max-width: 100%;
+  }
+
+  .hr-spare-incharge__header {
+    align-items: center;
   }
 }
