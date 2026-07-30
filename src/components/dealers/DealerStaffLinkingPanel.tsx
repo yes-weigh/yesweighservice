@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link2, Play, RefreshCw, UserPlus } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -8,9 +8,26 @@ import {
   claimDealersBySalesperson,
   dealerErrorMessage,
   listAssignableDealerStaff,
+  subscribeDealerStaffLinkingCheck,
   type DealerStaffLinkingAnalysis,
 } from '../../lib/dealers';
 import type { AssignableStaffOption } from '../../types/dealers';
+
+function formatUpdatedAt(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+  }
+  if (typeof value === 'object' && value && 'toDate' in value && typeof (value as { toDate: () => Date }).toDate === 'function') {
+    return (value as { toDate: () => Date }).toDate().toLocaleString();
+  }
+  if (typeof value === 'object' && value && 'seconds' in value) {
+    const seconds = Number((value as { seconds: number }).seconds);
+    if (Number.isFinite(seconds)) return new Date(seconds * 1000).toLocaleString();
+  }
+  return null;
+}
 
 export function DealerStaffLinkingPanel() {
   const confirm = useConfirm();
@@ -20,6 +37,7 @@ export function DealerStaffLinkingPanel() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [result, setResult] = useState<DealerStaffLinkingAnalysis | null>(null);
+  const [snapshotReady, setSnapshotReady] = useState(false);
   const [staffOptions, setStaffOptions] = useState<AssignableStaffOption[]>([]);
   const [staffBySalesperson, setStaffBySalesperson] = useState<Record<string, string>>({});
 
@@ -38,24 +56,43 @@ export function DealerStaffLinkingPanel() {
     };
   }, []);
 
+  useEffect(() => {
+    const unsub = subscribeDealerStaffLinkingCheck(
+      data => {
+        setResult(data);
+        setSnapshotReady(true);
+        if (data?.status === 'running') {
+          setLoading(true);
+        } else if (data?.status === 'ready' || data?.status === 'error') {
+          setLoading(false);
+        }
+        if (data?.status === 'error' && data.errorMessage) {
+          setError(data.errorMessage);
+        }
+      },
+      err => {
+        setSnapshotReady(true);
+        setError(err.message || 'Could not load saved linking check.');
+      },
+    );
+    return () => unsub();
+  }, []);
+
+  const updatedLabel = useMemo(
+    () => formatUpdatedAt(result?.updatedAt) || formatUpdatedAt(result?.runCompletedAt),
+    [result?.updatedAt, result?.runCompletedAt],
+  );
+
   const runCheck = async () => {
     setLoading(true);
     setError('');
     setSuccess('');
     try {
-      const data = await analyzeDealerStaffLinking();
-      setResult(data);
-      setStaffBySalesperson({});
-      setSuccess(
-        `Checked ${data.summary.totalDealers.toLocaleString()} dealers · `
-        + `${data.summary.alreadyAssignable} assignable · `
-        + `${data.summary.needStaffLink} need staff link · `
-        + `${data.summary.noUsableInvoice} no usable invoice`,
-      );
+      await analyzeDealerStaffLinking();
+      // Result arrives via realtime snapshot write from the function.
+      setSuccess('Linking check saved. Results update live as you claim dealers.');
     } catch (err) {
-      setResult(null);
       setError(dealerErrorMessage(err));
-    } finally {
       setLoading(false);
     }
   };
@@ -69,8 +106,7 @@ export function DealerStaffLinkingPanel() {
       setSuccess(
         `Assigned ${fill.filled} dealer${fill.filled === 1 ? '' : 's'} from linked salespersons.`,
       );
-      const data = await analyzeDealerStaffLinking();
-      setResult(data);
+      // Cache patch arrives via realtime snapshot — no full re-scan.
     } catch (err) {
       setError(dealerErrorMessage(err));
     } finally {
@@ -113,13 +149,12 @@ export function DealerStaffLinkingPanel() {
         `Claimed ${claim.assigned} dealer${claim.assigned === 1 ? '' : 's'} for ${claim.staffName}`
         + (claim.linkedSalesperson ? ' · Zoho salesperson linked' : ''),
       );
-      const data = await analyzeDealerStaffLinking();
-      setResult(data);
       setStaffBySalesperson(prev => {
         const next = { ...prev };
         delete next[row.zohoSalespersonId];
         return next;
       });
+      // Snapshot updates in realtime from the function cache patch.
     } catch (err) {
       setError(dealerErrorMessage(err));
     } finally {
@@ -128,6 +163,7 @@ export function DealerStaffLinkingPanel() {
   };
 
   const busy = loading || applying || Boolean(claimingId);
+  const hasReadyResult = Boolean(result?.summary && result.status !== 'error');
 
   return (
     <div className="dealer-linking-panel">
@@ -137,9 +173,14 @@ export function DealerStaffLinkingPanel() {
           <p className="text-muted text-sm">
             Resolve each unassigned dealer from their latest invoice salesperson
             (skipping {result?.ignoredSalespersons?.join(', ') || 'yescloud server, Cloud Charges, GATC SELF'}).
-            Salespersons already linked to portal staff can be assigned immediately;
-            others show as unlocks until you claim them for a portal owner.
+            Results are saved and update live when you claim or assign — re-run only when you need a fresh scan.
           </p>
+          {updatedLabel ? (
+            <p className="text-muted text-sm dealer-linking-panel__meta">
+              Last saved {updatedLabel}
+              {result?.status === 'running' ? ' · scan in progress' : ''}
+            </p>
+          ) : null}
         </div>
         <div className="dealer-linking-panel__hero-actions">
           <button
@@ -149,9 +190,9 @@ export function DealerStaffLinkingPanel() {
             onClick={() => void runCheck()}
           >
             {loading ? <RefreshCw size={16} className="spin-icon" /> : <Play size={16} />}
-            {loading ? 'Running check…' : 'Run dealer linking check'}
+            {loading ? 'Running check…' : hasReadyResult ? 'Re-run linking check' : 'Run dealer linking check'}
           </button>
-          {result && result.summary.alreadyAssignable > 0 ? (
+          {result && (result.summary?.alreadyAssignable ?? 0) > 0 ? (
             <button
               type="button"
               className="btn btn-secondary"
@@ -182,9 +223,11 @@ export function DealerStaffLinkingPanel() {
         </div>
       ) : null}
 
-      {loading && !result ? <FetchingLoader label="Scanning dealers and invoices…" /> : null}
+      {!snapshotReady || (loading && !hasReadyResult) ? (
+        <FetchingLoader label={loading ? 'Scanning dealers and invoices…' : 'Loading saved check…'} />
+      ) : null}
 
-      {result ? (
+      {hasReadyResult && result?.summary ? (
         <>
           <section className="dealer-linking-kpis" aria-label="Linking summary">
             <div className="panel glass dealer-linking-kpi">
@@ -205,7 +248,7 @@ export function DealerStaffLinkingPanel() {
             </div>
           </section>
 
-          {result.alreadyAssignableBySalesperson.length > 0 ? (
+          {(result.alreadyAssignableBySalesperson?.length ?? 0) > 0 ? (
             <section className="panel glass dealer-linking-section">
               <header className="dealer-linking-section__head">
                 <Link2 size={18} aria-hidden />
@@ -261,7 +304,7 @@ export function DealerStaffLinkingPanel() {
                 </p>
               </div>
             </header>
-            {result.unlocks.length === 0 ? (
+            {(result.unlocks?.length ?? 0) === 0 ? (
               <p className="text-muted dealer-linking-empty">No unlocks — every usable last-invoice salesperson is already linked.</p>
             ) : (
               <div className="dealer-linking-table-wrap">
@@ -340,14 +383,14 @@ export function DealerStaffLinkingPanel() {
                 <h3>No usable invoice</h3>
                 <p className="text-muted text-sm">
                   Unassigned dealers with no invoice salesperson after ignoring
-                  {' '}{result.ignoredSalespersons.join(', ')}.
+                  {' '}{(result.ignoredSalespersons || []).join(', ')}.
                 </p>
               </div>
               <span className="dealer-linking-section__count">
-                {result.noUsableInvoiceDealers.length.toLocaleString()}
+                {(result.noUsableInvoiceDealers?.length ?? 0).toLocaleString()}
               </span>
             </header>
-            {result.noUsableInvoiceDealers.length === 0 ? (
+            {(result.noUsableInvoiceDealers?.length ?? 0) === 0 ? (
               <p className="text-muted dealer-linking-empty">None.</p>
             ) : (
               <div className="dealer-linking-table-wrap">
@@ -384,6 +427,10 @@ export function DealerStaffLinkingPanel() {
             )}
           </section>
         </>
+      ) : snapshotReady && !loading ? (
+        <p className="text-muted dealer-linking-empty panel glass" style={{ padding: '1rem' }}>
+          No saved linking check yet. Run a check once to cache results for this tab.
+        </p>
       ) : null}
     </div>
   );

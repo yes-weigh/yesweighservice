@@ -1,5 +1,6 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app } from '../firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { app, db } from '../firebase';
 import type {
   AssignableStaffOption,
   DealerListParams,
@@ -282,6 +283,7 @@ export type DealerStaffLinkingUnlock = {
   zohoSalespersonId: string;
   zohoSalespersonName: string | null;
   unassignedDealers: number;
+  dealerIds?: string[];
 };
 
 export type DealerStaffLinkingAssignable = DealerStaffLinkingUnlock & {
@@ -300,6 +302,7 @@ export type DealerStaffLinkingNoInvoice = {
 };
 
 export type DealerStaffLinkingAnalysis = {
+  status?: 'running' | 'ready' | 'error' | string;
   ignoredSalespersons: string[];
   summary: {
     totalDealers: number;
@@ -311,7 +314,40 @@ export type DealerStaffLinkingAnalysis = {
   unlocks: DealerStaffLinkingUnlock[];
   alreadyAssignableBySalesperson: DealerStaffLinkingAssignable[];
   noUsableInvoiceDealers: DealerStaffLinkingNoInvoice[];
+  runByUid?: string | null;
+  runCompletedAt?: string | null;
+  updatedAt?: unknown;
+  lastMutation?: {
+    type?: string;
+    at?: string;
+    assigned?: number;
+    zohoSalespersonId?: string;
+    staffName?: string;
+  } | null;
+  errorMessage?: string | null;
 };
+
+export const DEALER_STAFF_LINKING_CHECK_DOC_ID = 'dealerStaffLinkingCheck';
+
+export function subscribeDealerStaffLinkingCheck(
+  onData: (data: DealerStaffLinkingAnalysis | null) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  const ref = doc(db, 'appSettings', DEALER_STAFF_LINKING_CHECK_DOC_ID);
+  return onSnapshot(
+    ref,
+    snap => {
+      if (!snap.exists()) {
+        onData(null);
+        return;
+      }
+      onData(snap.data() as DealerStaffLinkingAnalysis);
+    },
+    err => {
+      onError?.(err instanceof Error ? err : new Error(String(err)));
+    },
+  );
+}
 
 export async function analyzeDealerStaffLinking(): Promise<DealerStaffLinkingAnalysis> {
   const fn = httpsCallable<undefined, DealerStaffLinkingAnalysis>(

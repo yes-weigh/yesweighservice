@@ -21414,6 +21414,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 42rem;
 }
 
+.dealer-linking-panel__meta {
+  margin-top: 0.45rem !important;
+}
+
 .dealer-linking-panel__hero-actions {
   display: flex;
   flex-wrap: wrap;

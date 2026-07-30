@@ -18,6 +18,136 @@ export const IGNORED_INVOICE_SALESPERSON_LABELS = [
   'GATC SELF',
 ];
 
+/** Persisted snapshot for Dealers → Dealer linking check (super-admin). */
+export const DEALER_STAFF_LINKING_CHECK_DOC = 'appSettings/dealerStaffLinkingCheck';
+
+function linkingCheckRef() {
+  return getFirestore().doc(DEALER_STAFF_LINKING_CHECK_DOC);
+}
+
+function sortUnlockRows(a, b) {
+  return b.unassignedDealers - a.unassignedDealers
+    || String(a.zohoSalespersonName || '').localeCompare(String(b.zohoSalespersonName || ''));
+}
+
+async function readLinkingCheckCache() {
+  const snap = await linkingCheckRef().get();
+  if (!snap.exists) return null;
+  return { id: snap.id, ...snap.data() };
+}
+
+async function writeLinkingCheckCache(payload) {
+  await linkingCheckRef().set({
+    ...payload,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: false });
+}
+
+/**
+ * After claiming one unlock row, drop it from cache and bump summary counters.
+ */
+async function patchCacheAfterClaim({
+  zohoSalespersonId,
+  assignedCount,
+  staffUid,
+  staffName,
+  staffEmail = null,
+  zohoSalespersonName = null,
+}) {
+  const cache = await readLinkingCheckCache();
+  if (!cache?.summary) return null;
+
+  const unlocks = Array.isArray(cache.unlocks) ? [...cache.unlocks] : [];
+  const idx = unlocks.findIndex(row => row.zohoSalespersonId === zohoSalespersonId);
+  const removed = idx >= 0 ? unlocks.splice(idx, 1)[0] : null;
+  const claimed = Math.max(0, Number(assignedCount) || 0);
+  const fromRow = removed ? Number(removed.unassignedDealers) || claimed : claimed;
+
+  const alreadyAssignableBySalesperson = Array.isArray(cache.alreadyAssignableBySalesperson)
+    ? [...cache.alreadyAssignableBySalesperson]
+    : [];
+
+  const summary = {
+    ...cache.summary,
+    unassignedDealers: Math.max(0, (Number(cache.summary.unassignedDealers) || 0) - claimed),
+    needStaffLink: Math.max(0, (Number(cache.summary.needStaffLink) || 0) - fromRow),
+  };
+
+  // Claimed dealers are now assigned — they leave the "ready" pool too if they were listed there.
+  const readyIdx = alreadyAssignableBySalesperson.findIndex(
+    row => row.zohoSalespersonId === zohoSalespersonId,
+  );
+  if (readyIdx >= 0) {
+    const readyRow = alreadyAssignableBySalesperson[readyIdx];
+    const readyCount = Number(readyRow.unassignedDealers) || 0;
+    alreadyAssignableBySalesperson.splice(readyIdx, 1);
+    summary.alreadyAssignable = Math.max(0, (Number(summary.alreadyAssignable) || 0) - readyCount);
+  }
+
+  const next = {
+    ...cache,
+    status: 'ready',
+    ignoredSalespersons: cache.ignoredSalespersons || IGNORED_INVOICE_SALESPERSON_LABELS,
+    summary,
+    unlocks: unlocks.sort(sortUnlockRows),
+    alreadyAssignableBySalesperson: alreadyAssignableBySalesperson.sort(sortUnlockRows),
+    noUsableInvoiceDealers: Array.isArray(cache.noUsableInvoiceDealers)
+      ? cache.noUsableInvoiceDealers
+      : [],
+    lastMutation: {
+      type: 'claim',
+      zohoSalespersonId,
+      zohoSalespersonName: zohoSalespersonName || removed?.zohoSalespersonName || null,
+      staffUid,
+      staffName,
+      staffEmail,
+      assigned: claimed,
+      at: new Date().toISOString(),
+    },
+  };
+  delete next.id;
+  await writeLinkingCheckCache(next);
+  return next;
+}
+
+/**
+ * After filling ready-to-assign rows, clear that section from cache.
+ */
+async function patchCacheAfterFillAssignable({ filled }) {
+  const cache = await readLinkingCheckCache();
+  if (!cache?.summary) return null;
+
+  const ready = Array.isArray(cache.alreadyAssignableBySalesperson)
+    ? cache.alreadyAssignableBySalesperson
+    : [];
+  const readyCount = ready.reduce((sum, row) => sum + (Number(row.unassignedDealers) || 0), 0);
+  const claimed = Math.max(0, Number(filled) || readyCount);
+
+  const next = {
+    ...cache,
+    status: 'ready',
+    ignoredSalespersons: cache.ignoredSalespersons || IGNORED_INVOICE_SALESPERSON_LABELS,
+    summary: {
+      ...cache.summary,
+      unassignedDealers: Math.max(0, (Number(cache.summary.unassignedDealers) || 0) - claimed),
+      alreadyAssignable: 0,
+    },
+    unlocks: Array.isArray(cache.unlocks) ? cache.unlocks : [],
+    alreadyAssignableBySalesperson: [],
+    noUsableInvoiceDealers: Array.isArray(cache.noUsableInvoiceDealers)
+      ? cache.noUsableInvoiceDealers
+      : [],
+    lastMutation: {
+      type: 'fillAssignable',
+      assigned: claimed,
+      at: new Date().toISOString(),
+    },
+  };
+  delete next.id;
+  await writeLinkingCheckCache(next);
+  return next;
+}
+
 function normalizeZohoLinks(data = {}) {
   const ids = new Set();
   if (Array.isArray(data.zohoSalespersonIds)) {
@@ -144,14 +274,6 @@ export async function backfillDealerAssignedStaff({
   onProgress,
 } = {}) {
   const db = getFirestore();
-  const salespersonMap = await buildSalespersonToStaffMap();
-  const dealersSnap = await db.collection('zohoCustomers').select(
-    'assignedStaffUid',
-    'assignedStaffName',
-    'companyName',
-    'contactName',
-  ).get();
-
   const result = {
     dryRun: Boolean(dryRun),
     onlyFillUnassigned: Boolean(onlyFillUnassigned),
@@ -163,6 +285,7 @@ export async function backfillDealerAssignedStaff({
     unknownSalesperson: 0,
     unchanged: 0,
     skippedAlreadyAssigned: 0,
+    usedCache: false,
   };
 
   let batch = db.batch();
@@ -178,8 +301,79 @@ export async function backfillDealerAssignedStaff({
     batchOps = 0;
   };
 
+  // Fast path: fill from persisted linking-check dealerIds (no invoice re-scan).
+  if (onlyFillUnassigned) {
+    const cache = await readLinkingCheckCache();
+    const readyRows = Array.isArray(cache?.alreadyAssignableBySalesperson)
+      ? cache.alreadyAssignableBySalesperson
+      : [];
+    const plan = [];
+    for (const row of readyRows) {
+      const staffUid = String(row.linkedStaffUid || '').trim();
+      const staffName = String(row.linkedStaffName || 'Staff').trim() || 'Staff';
+      const ids = Array.isArray(row.dealerIds) ? row.dealerIds.map(String).filter(Boolean) : [];
+      if (!staffUid || !ids.length) continue;
+      for (const id of ids) plan.push({ id, staffUid, staffName });
+    }
+
+    if (plan.length) {
+      result.usedCache = true;
+      for (let i = 0; i < plan.length; i += 100) {
+        const chunk = plan.slice(i, i + 100);
+        const refs = chunk.map(item => db.collection('zohoCustomers').doc(item.id));
+        const snaps = await db.getAll(...refs);
+        for (let j = 0; j < snaps.length; j += 1) {
+          const snap = snaps[j];
+          const item = chunk[j];
+          result.scanned += 1;
+          if (!snap.exists) {
+            result.unchanged += 1;
+            continue;
+          }
+          const prevUid = snap.data()?.assignedStaffUid
+            ? String(snap.data().assignedStaffUid).trim()
+            : '';
+          if (prevUid) {
+            result.skippedAlreadyAssigned += 1;
+            result.unchanged += 1;
+            continue;
+          }
+          if (!dryRun) {
+            batch.set(snap.ref, {
+              assignedStaffUid: item.staffUid,
+              assignedStaffName: item.staffName,
+              updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+            batchOps += 1;
+            if (batchOps >= 400) await flush();
+          }
+          result.assigned += 1;
+          result.filled += 1;
+          onProgress?.({
+            scanned: result.scanned,
+            assigned: result.assigned,
+            filled: result.filled,
+            unassigned: result.unassigned,
+          });
+        }
+      }
+      await flush();
+      if (!dryRun) {
+        await patchCacheAfterFillAssignable({ filled: result.filled });
+      }
+      return result;
+    }
+  }
+
+  const salespersonMap = await buildSalespersonToStaffMap();
+  const dealersSnap = await db.collection('zohoCustomers').select(
+    'assignedStaffUid',
+    'assignedStaffName',
+    'companyName',
+    'contactName',
+  ).get();
+
   const docs = dealersSnap.docs;
-  // Resolve salespersons with concurrency, then write sequentially in batches.
   const resolved = await mapPool(docs, 40, async (dealerDoc) => {
     const prev = dealerDoc.data() || {};
     const prevUid = prev.assignedStaffUid ? String(prev.assignedStaffUid).trim() : '';
@@ -252,14 +446,26 @@ export async function backfillDealerAssignedStaff({
   }
 
   await flush();
+  if (!dryRun && onlyFillUnassigned && result.filled > 0) {
+    await patchCacheAfterFillAssignable({ filled: result.filled });
+  }
   return result;
 }
 
 /**
  * Dry analysis for the super-admin Dealers → Staff linking tab.
+ * Persists the snapshot to appSettings/dealerStaffLinkingCheck for realtime UI.
  */
-export async function analyzeDealerStaffLinking({ onProgress } = {}) {
+export async function analyzeDealerStaffLinking({ onProgress, runByUid = null } = {}) {
   const db = getFirestore();
+  await linkingCheckRef().set({
+    status: 'running',
+    ignoredSalespersons: IGNORED_INVOICE_SALESPERSON_LABELS,
+    runStartedAt: FieldValue.serverTimestamp(),
+    runByUid: runByUid || null,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+
   const salespersonMap = await buildSalespersonToStaffMap();
   const spNames = await loadSalespersonNames();
   const dealersSnap = await db.collection('zohoCustomers').select(
@@ -323,8 +529,10 @@ export async function analyzeDealerStaffLinking({ onProgress } = {}) {
         linkedStaffName: staff.displayName,
         linkedStaffEmail: staff.email,
         unassignedDealers: 0,
+        dealerIds: [],
       };
       entry.unassignedDealers += 1;
+      entry.dealerIds.push(dealerDoc.id);
       assignableBySp.set(match.id, entry);
       return;
     }
@@ -334,21 +542,20 @@ export async function analyzeDealerStaffLinking({ onProgress } = {}) {
       zohoSalespersonId: match.id,
       zohoSalespersonName: spName,
       unassignedDealers: 0,
+      dealerIds: [],
     };
     entry.unassignedDealers += 1;
+    entry.dealerIds.push(dealerDoc.id);
     unlocksBySp.set(match.id, entry);
   });
-
-  const sortByCount = (a, b) =>
-    b.unassignedDealers - a.unassignedDealers
-    || String(a.zohoSalespersonName || '').localeCompare(String(b.zohoSalespersonName || ''));
 
   noUsableInvoiceDealers.sort((a, b) =>
     String(a.companyName || a.contactName || a.id)
       .localeCompare(String(b.companyName || b.contactName || b.id)),
   );
 
-  return {
+  const payload = {
+    status: 'ready',
     ignoredSalespersons: IGNORED_INVOICE_SALESPERSON_LABELS,
     summary: {
       totalDealers: docs.length,
@@ -357,14 +564,24 @@ export async function analyzeDealerStaffLinking({ onProgress } = {}) {
       needStaffLink,
       noUsableInvoice,
     },
-    unlocks: [...unlocksBySp.values()].sort(sortByCount),
-    alreadyAssignableBySalesperson: [...assignableBySp.values()].sort(sortByCount),
+    unlocks: [...unlocksBySp.values()].sort(sortUnlockRows),
+    alreadyAssignableBySalesperson: [...assignableBySp.values()].sort(sortUnlockRows),
     noUsableInvoiceDealers,
+    runByUid: runByUid || null,
+    runCompletedAt: new Date().toISOString(),
+    lastMutation: {
+      type: 'fullCheck',
+      at: new Date().toISOString(),
+    },
   };
+
+  await writeLinkingCheckCache(payload);
+  return payload;
 }
 
 /**
  * Claim unassigned dealers for a Zoho salesperson onto a portal staff user.
+ * Prefer cached dealerIds from the linking check snapshot to avoid invoice re-scans.
  * Also links the Zoho salesperson to that staff for future invoice-based matching.
  */
 export async function claimUnassignedDealersForSalesperson({
@@ -390,13 +607,14 @@ export async function claimUnassignedDealersForSalesperson({
   if (userData.active === false) throw new Error('Assigned staff is inactive.');
 
   const displayName = String(userData.displayName ?? 'Staff').trim() || 'Staff';
+  const staffEmail = userData.email ? String(userData.email) : null;
   const spName = zohoSalespersonName
     ? String(zohoSalespersonName).trim()
     : ((await loadSalespersonNames()).get(spId) || null);
 
   const existingIds = normalizeZohoLinks(userData);
-  const linkedSalesperson = existingIds.includes(spId);
-  if (!linkedSalesperson) {
+  const alreadyLinked = existingIds.includes(spId);
+  if (!alreadyLinked) {
     const links = Array.isArray(userData.zohoSalespersonLinks)
       ? userData.zohoSalespersonLinks
         .map(link => ({
@@ -417,21 +635,27 @@ export async function claimUnassignedDealersForSalesperson({
     }, { merge: true });
   }
 
-  const dealersSnap = await db.collection('zohoCustomers').select(
-    'assignedStaffUid',
-    'assignedStaffName',
-  ).get();
+  const cache = await readLinkingCheckCache();
+  const cachedUnlock = Array.isArray(cache?.unlocks)
+    ? cache.unlocks.find(row => row.zohoSalespersonId === spId)
+    : null;
+  let dealerIds = Array.isArray(cachedUnlock?.dealerIds)
+    ? cachedUnlock.dealerIds.map(id => String(id)).filter(Boolean)
+    : [];
 
-  const unassigned = dealersSnap.docs.filter((doc) => {
-    const prevUid = doc.data()?.assignedStaffUid ? String(doc.data().assignedStaffUid).trim() : '';
-    return !prevUid;
-  });
-
-  const matchFlags = await mapPool(unassigned, 40, async (dealerDoc) => {
-    const match = await latestUsableInvoiceSalesperson(dealerDoc.id);
-    return match?.id === spId ? dealerDoc : null;
-  });
-  const matches = matchFlags.filter(Boolean);
+  // Fallback: invoice scan when cache missing / stale row without ids.
+  if (!dealerIds.length) {
+    const dealersSnap = await db.collection('zohoCustomers').select('assignedStaffUid').get();
+    const unassigned = dealersSnap.docs.filter((doc) => {
+      const prevUid = doc.data()?.assignedStaffUid ? String(doc.data().assignedStaffUid).trim() : '';
+      return !prevUid;
+    });
+    const matchFlags = await mapPool(unassigned, 40, async (dealerDoc) => {
+      const match = await latestUsableInvoiceSalesperson(dealerDoc.id);
+      return match?.id === spId ? dealerDoc.id : null;
+    });
+    dealerIds = matchFlags.filter(Boolean);
+  }
 
   let batch = db.batch();
   let ops = 0;
@@ -443,27 +667,48 @@ export async function claimUnassignedDealersForSalesperson({
     ops = 0;
   };
 
-  for (const dealerDoc of matches) {
-    batch.set(dealerDoc.ref, {
-      assignedStaffUid: uid,
-      assignedStaffName: displayName,
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    ops += 1;
-    assigned += 1;
-    if (ops >= 400) await flush();
-    onProgress?.({ assigned, total: matches.length });
+  // Chunk gets to verify still unassigned (cheap vs invoice lookback).
+  for (let i = 0; i < dealerIds.length; i += 100) {
+    const chunk = dealerIds.slice(i, i + 100);
+    const refs = chunk.map(id => db.collection('zohoCustomers').doc(id));
+    const snaps = await db.getAll(...refs);
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      const prevUid = snap.data()?.assignedStaffUid
+        ? String(snap.data().assignedStaffUid).trim()
+        : '';
+      if (prevUid) continue;
+      batch.set(snap.ref, {
+        assignedStaffUid: uid,
+        assignedStaffName: displayName,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      ops += 1;
+      assigned += 1;
+      if (ops >= 400) await flush();
+      onProgress?.({ assigned, total: dealerIds.length });
+    }
   }
   await flush();
+
+  await patchCacheAfterClaim({
+    zohoSalespersonId: spId,
+    assignedCount: assigned,
+    staffUid: uid,
+    staffName: displayName,
+    staffEmail,
+    zohoSalespersonName: spName,
+  });
 
   return {
     zohoSalespersonId: spId,
     zohoSalespersonName: spName,
     staffUid: uid,
     staffName: displayName,
-    linkedSalesperson: !linkedSalesperson,
-    matchedDealers: matches.length,
+    linkedSalesperson: !alreadyLinked,
+    matchedDealers: dealerIds.length,
     assigned,
+    usedCache: Boolean(cachedUnlock?.dealerIds?.length),
   };
 }
 

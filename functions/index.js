@@ -2190,9 +2190,21 @@ export const analyzeDealerStaffLinkingFn = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
     try {
-      return await analyzeDealerStaffLinking();
+      return await analyzeDealerStaffLinking({
+        runByUid: request.auth?.uid || null,
+      });
     } catch (err) {
       console.error('analyzeDealerStaffLinking failed:', err);
+      try {
+        const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
+        await getFirestore().doc('appSettings/dealerStaffLinkingCheck').set({
+          status: 'error',
+          errorMessage: err?.message ?? 'Dealer staff linking analysis failed.',
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      } catch {
+        // ignore secondary write failure
+      }
       throw new HttpsError('internal', err?.message ?? 'Dealer staff linking analysis failed.');
     }
   },
