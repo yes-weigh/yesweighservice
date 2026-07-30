@@ -357,4 +357,34 @@ export async function backfillDealerAssignedStaff(options?: {
   };
 }
 
+export async function claimDealersBySalesperson(input: {
+  zohoSalespersonId: string;
+  zohoSalespersonName?: string | null;
+  staffUid: string;
+}): Promise<{
+  zohoSalespersonId: string;
+  zohoSalespersonName: string | null;
+  staffUid: string;
+  staffName: string;
+  linkedSalesperson: boolean;
+  matchedDealers: number;
+  assigned: number;
+}> {
+  const fn = httpsCallable(functions, 'claimDealersBySalespersonFn', { timeout: 600_000 });
+  const result = await fn({
+    zohoSalespersonId: input.zohoSalespersonId,
+    zohoSalespersonName: input.zohoSalespersonName ?? null,
+    staffUid: input.staffUid,
+  });
+  return result.data as {
+    zohoSalespersonId: string;
+    zohoSalespersonName: string | null;
+    staffUid: string;
+    staffName: string;
+    linkedSalesperson: boolean;
+    matchedDealers: number;
+    assigned: number;
+  };
+}
+
 export { dealerErrorMessage };

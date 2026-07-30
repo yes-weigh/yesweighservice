@@ -94,6 +94,7 @@ import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
 import {
   analyzeDealerStaffLinking,
   backfillDealerAssignedStaff,
+  claimUnassignedDealersForSalesperson,
   wipeLegacyKamData,
 } from './lib/dealer-staff-assignment.js';
 import {
@@ -2193,6 +2194,30 @@ export const analyzeDealerStaffLinkingFn = onCall(
     } catch (err) {
       console.error('analyzeDealerStaffLinking failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Dealer staff linking analysis failed.');
+    }
+  },
+);
+
+/**
+ * Claim unassigned dealers for one Zoho salesperson onto a portal staff user.
+ */
+export const claimDealersBySalespersonFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await claimUnassignedDealersForSalesperson({
+        zohoSalespersonId: request.data?.zohoSalespersonId,
+        zohoSalespersonName: request.data?.zohoSalespersonName,
+        staffUid: request.data?.staffUid,
+      });
+    } catch (err) {
+      console.error('claimDealersBySalesperson failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not claim dealers for salesperson.');
     }
   },
 );

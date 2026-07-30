@@ -21488,6 +21488,20 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 700;
 }
 
+.dealer-linking-claim {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 16rem;
+}
+
+.dealer-linking-claim__select {
+  flex: 1 1 9rem;
+  min-width: 8.5rem;
+  max-width: 14rem;
+}
+
 .dealer-linking-empty {
   margin: 0;
   padding: 0.25rem 0 0.5rem;

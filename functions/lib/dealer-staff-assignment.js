@@ -364,6 +364,110 @@ export async function analyzeDealerStaffLinking({ onProgress } = {}) {
 }
 
 /**
+ * Claim unassigned dealers for a Zoho salesperson onto a portal staff user.
+ * Also links the Zoho salesperson to that staff for future invoice-based matching.
+ */
+export async function claimUnassignedDealersForSalesperson({
+  zohoSalespersonId,
+  zohoSalespersonName = null,
+  staffUid,
+  onProgress,
+} = {}) {
+  const spId = String(zohoSalespersonId ?? '').trim();
+  const uid = String(staffUid ?? '').trim();
+  if (!spId) throw new Error('zohoSalespersonId is required.');
+  if (!uid) throw new Error('staffUid is required.');
+
+  const db = getFirestore();
+  const userRef = db.collection('users').doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) throw new Error('Staff user not found.');
+  const userData = userSnap.data() || {};
+  const role = String(userData.role ?? '');
+  if (role !== 'staff' && role !== 'super_admin') {
+    throw new Error('Assigned user must be staff or super admin.');
+  }
+  if (userData.active === false) throw new Error('Assigned staff is inactive.');
+
+  const displayName = String(userData.displayName ?? 'Staff').trim() || 'Staff';
+  const spName = zohoSalespersonName
+    ? String(zohoSalespersonName).trim()
+    : ((await loadSalespersonNames()).get(spId) || null);
+
+  const existingIds = normalizeZohoLinks(userData);
+  const linkedSalesperson = existingIds.includes(spId);
+  if (!linkedSalesperson) {
+    const links = Array.isArray(userData.zohoSalespersonLinks)
+      ? userData.zohoSalespersonLinks
+        .map(link => ({
+          id: String(link?.id ?? '').trim(),
+          name: link?.name != null ? String(link.name) : null,
+        }))
+        .filter(link => link.id)
+      : existingIds.map(id => ({ id, name: null }));
+    links.push({ id: spId, name: spName });
+    const ids = [...new Set(links.map(link => link.id))];
+    const first = links[0] || null;
+    await userRef.set({
+      zohoSalespersonIds: ids,
+      zohoSalespersonLinks: links,
+      zohoSalespersonId: first?.id ?? spId,
+      zohoSalespersonName: first?.name ?? spName,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+
+  const dealersSnap = await db.collection('zohoCustomers').select(
+    'assignedStaffUid',
+    'assignedStaffName',
+  ).get();
+
+  const unassigned = dealersSnap.docs.filter((doc) => {
+    const prevUid = doc.data()?.assignedStaffUid ? String(doc.data().assignedStaffUid).trim() : '';
+    return !prevUid;
+  });
+
+  const matchFlags = await mapPool(unassigned, 40, async (dealerDoc) => {
+    const match = await latestUsableInvoiceSalesperson(dealerDoc.id);
+    return match?.id === spId ? dealerDoc : null;
+  });
+  const matches = matchFlags.filter(Boolean);
+
+  let batch = db.batch();
+  let ops = 0;
+  let assigned = 0;
+  const flush = async () => {
+    if (!ops) return;
+    await batch.commit();
+    batch = db.batch();
+    ops = 0;
+  };
+
+  for (const dealerDoc of matches) {
+    batch.set(dealerDoc.ref, {
+      assignedStaffUid: uid,
+      assignedStaffName: displayName,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    ops += 1;
+    assigned += 1;
+    if (ops >= 400) await flush();
+    onProgress?.({ assigned, total: matches.length });
+  }
+  await flush();
+
+  return {
+    zohoSalespersonId: spId,
+    zohoSalespersonName: spName,
+    staffUid: uid,
+    staffName: displayName,
+    linkedSalesperson: !linkedSalesperson,
+    matchedDealers: matches.length,
+    assigned,
+  };
+}
+
+/**
  * Delete legacy kams collection and strip kamId / staffKamId fields.
  */
 export async function wipeLegacyKamData({ onProgress } = {}) {

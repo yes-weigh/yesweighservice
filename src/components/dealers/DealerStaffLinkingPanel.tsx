@@ -1,19 +1,42 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link2, Play, RefreshCw, UserPlus } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
+import { useConfirm } from '../../context/ConfirmContext';
 import {
   analyzeDealerStaffLinking,
   backfillDealerAssignedStaff,
+  claimDealersBySalesperson,
   dealerErrorMessage,
+  listAssignableDealerStaff,
   type DealerStaffLinkingAnalysis,
 } from '../../lib/dealers';
+import type { AssignableStaffOption } from '../../types/dealers';
 
 export function DealerStaffLinkingPanel() {
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [claimingId, setClaimingId] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [result, setResult] = useState<DealerStaffLinkingAnalysis | null>(null);
+  const [staffOptions, setStaffOptions] = useState<AssignableStaffOption[]>([]);
+  const [staffBySalesperson, setStaffBySalesperson] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const staff = await listAssignableDealerStaff();
+        if (!cancelled) setStaffOptions(staff);
+      } catch {
+        if (!cancelled) setStaffOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const runCheck = async () => {
     setLoading(true);
@@ -22,6 +45,7 @@ export function DealerStaffLinkingPanel() {
     try {
       const data = await analyzeDealerStaffLinking();
       setResult(data);
+      setStaffBySalesperson({});
       setSuccess(
         `Checked ${data.summary.totalDealers.toLocaleString()} dealers · `
         + `${data.summary.alreadyAssignable} assignable · `
@@ -54,7 +78,56 @@ export function DealerStaffLinkingPanel() {
     }
   };
 
-  const busy = loading || applying;
+  const claimRow = async (row: {
+    zohoSalespersonId: string;
+    zohoSalespersonName: string | null;
+    unassignedDealers: number;
+  }) => {
+    const staffUid = staffBySalesperson[row.zohoSalespersonId] || '';
+    if (!staffUid) {
+      setError('Choose a portal owner before claiming dealers.');
+      return;
+    }
+    const staff = staffOptions.find(s => s.uid === staffUid);
+    const spLabel = row.zohoSalespersonName || row.zohoSalespersonId;
+    const ok = await confirm({
+      title: 'Claim these dealers?',
+      message:
+        `Move ${row.unassignedDealers} unassigned dealer${row.unassignedDealers === 1 ? '' : 's'} `
+        + `from ${spLabel} to ${staff?.displayName || 'selected staff'}, `
+        + 'and link this Zoho salesperson to their profile.',
+      confirmLabel: 'Claim dealers',
+    });
+    if (!ok) return;
+
+    setClaimingId(row.zohoSalespersonId);
+    setError('');
+    setSuccess('');
+    try {
+      const claim = await claimDealersBySalesperson({
+        zohoSalespersonId: row.zohoSalespersonId,
+        zohoSalespersonName: row.zohoSalespersonName,
+        staffUid,
+      });
+      setSuccess(
+        `Claimed ${claim.assigned} dealer${claim.assigned === 1 ? '' : 's'} for ${claim.staffName}`
+        + (claim.linkedSalesperson ? ' · Zoho salesperson linked' : ''),
+      );
+      const data = await analyzeDealerStaffLinking();
+      setResult(data);
+      setStaffBySalesperson(prev => {
+        const next = { ...prev };
+        delete next[row.zohoSalespersonId];
+        return next;
+      });
+    } catch (err) {
+      setError(dealerErrorMessage(err));
+    } finally {
+      setClaimingId('');
+    }
+  };
+
+  const busy = loading || applying || Boolean(claimingId);
 
   return (
     <div className="dealer-linking-panel">
@@ -65,7 +138,7 @@ export function DealerStaffLinkingPanel() {
             Resolve each unassigned dealer from their latest invoice salesperson
             (skipping {result?.ignoredSalespersons?.join(', ') || 'yescloud server, Cloud Charges, GATC SELF'}).
             Salespersons already linked to portal staff can be assigned immediately;
-            others show as unlocks until you link staff.
+            others show as unlocks until you claim them for a portal owner.
           </p>
         </div>
         <div className="dealer-linking-panel__hero-actions">
@@ -184,7 +257,7 @@ export function DealerStaffLinkingPanel() {
               <div>
                 <h3>Biggest unlocks if you link staff</h3>
                 <p className="text-muted text-sm">
-                  Unassigned dealers whose last usable invoice salesperson has no portal staff link.
+                  Pick a portal owner and claim every unassigned dealer for that Zoho salesperson.
                 </p>
               </div>
             </header>
@@ -198,21 +271,63 @@ export function DealerStaffLinkingPanel() {
                       <th>#</th>
                       <th>Zoho salesperson</th>
                       <th className="dealer-linking-table__num">Linkable dealers</th>
+                      <th>Assign to</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.unlocks.map((row, index) => (
-                      <tr key={row.zohoSalespersonId}>
-                        <td>{index + 1}</td>
-                        <td>
-                          <div className="dealer-linking-table__primary">
-                            {row.zohoSalespersonName || row.zohoSalespersonId}
-                          </div>
-                          <div className="text-muted text-sm">{row.zohoSalespersonId}</div>
-                        </td>
-                        <td className="dealer-linking-table__num">{row.unassignedDealers}</td>
-                      </tr>
-                    ))}
+                    {result.unlocks.map((row, index) => {
+                      const selected = staffBySalesperson[row.zohoSalespersonId] || '';
+                      const isClaiming = claimingId === row.zohoSalespersonId;
+                      return (
+                        <tr key={row.zohoSalespersonId}>
+                          <td>{index + 1}</td>
+                          <td>
+                            <div className="dealer-linking-table__primary">
+                              {row.zohoSalespersonName || row.zohoSalespersonId}
+                            </div>
+                            <div className="text-muted text-sm">{row.zohoSalespersonId}</div>
+                          </td>
+                          <td className="dealer-linking-table__num">{row.unassignedDealers}</td>
+                          <td>
+                            <div className="dealer-linking-claim">
+                              <select
+                                className="catalog-select dealer-linking-claim__select"
+                                value={selected}
+                                disabled={busy}
+                                aria-label={`Portal owner for ${row.zohoSalespersonName || row.zohoSalespersonId}`}
+                                onChange={e => {
+                                  const value = e.target.value;
+                                  setStaffBySalesperson(prev => ({
+                                    ...prev,
+                                    [row.zohoSalespersonId]: value,
+                                  }));
+                                }}
+                              >
+                                <option value="">Choose staff…</option>
+                                {staffOptions.map(staff => (
+                                  <option key={staff.uid} value={staff.uid}>
+                                    {staff.displayName}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                disabled={busy || !selected}
+                                onClick={() => void claimRow(row)}
+                              >
+                                {isClaiming ? (
+                                  <RefreshCw size={14} className="spin-icon" />
+                                ) : (
+                                  <UserPlus size={14} />
+                                )}
+                                {isClaiming ? 'Claiming…' : 'Claim dealers'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
