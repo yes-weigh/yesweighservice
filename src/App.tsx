@@ -246,6 +246,7 @@ const App: React.FC = () => (
               <Route path="invoices/import" element={<AdminInvoiceSyncPage />} />
               <Route path="invoices/sync" element={<Navigate to="/super-admin/invoices/import" replace />} />
               <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />
+              <Route path="sales-orders/new" element={<StaffCreateSalesOrderPage />} />
               <Route path="sales-orders/sync" element={<Navigate to="/super-admin/sales-orders" replace />} />
               <Route path="sales-orders/portal/:orderId" element={<StaffOrderDetailPage />} />
               <Route path="sales-orders/:salesOrderId" element={<AdminSalesOrderDetailLayout />}>

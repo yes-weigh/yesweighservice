@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Search } from 'lucide-react';
 import {
   SalesOrderDraftLineEditor,
@@ -10,15 +10,20 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
-import { hasStaffPermission } from '../../lib/staffAccess';
+import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
   listCustomerShippingAddresses,
   type ShippingAddress,
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
+import {
+  listZohoSalespersons,
+  type ZohoSalespersonOption,
+} from '../../lib/zohoSalespersons';
 import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
 import { db } from '../../firebase';
+import type { User } from '../../types';
 
 type DealerOption = {
   id: string;
@@ -36,11 +41,29 @@ function useDebounce(value: string, delay: number): string {
   return debounced;
 }
 
+function userHasLinkedSalesperson(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (String(user.zohoSalespersonId ?? '').trim()) return true;
+  if (Array.isArray(user.zohoSalespersonIds)
+    && user.zohoSalespersonIds.some(id => String(id ?? '').trim())) {
+    return true;
+  }
+  if (Array.isArray(user.zohoSalespersonLinks)
+    && user.zohoSalespersonLinks.some(link => String(link?.id ?? '').trim())) {
+    return true;
+  }
+  return false;
+}
+
 export const StaffCreateSalesOrderPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const canManage = hasStaffPermission(user, 'orders.manage');
-  const listPath = '/staff/sales-orders';
+  const listPath = pathname.startsWith('/super-admin')
+    ? '/super-admin/sales-orders'
+    : '/staff/sales-orders';
+  const needsSalespersonPicker = isFullSuperAdmin(user) && !userHasLinkedSalesperson(user);
 
   const [dealerQuery, setDealerQuery] = useState('');
   const debouncedDealerQuery = useDebounce(dealerQuery, 220);
@@ -54,6 +77,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [addressError, setAddressError] = useState('');
   const [shipping, setShipping] = useState<ShippingSelection | null>(null);
   const [remarks, setRemarks] = useState('');
+  const [salespersonId, setSalespersonId] = useState('');
+  const [salespersons, setSalespersons] = useState<ZohoSalespersonOption[]>([]);
+  const [salespersonsLoading, setSalespersonsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -69,6 +95,28 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       navigate(listPath, { replace: true });
     }
   }, [canManage, navigate, listPath]);
+
+  useEffect(() => {
+    if (!needsSalespersonPicker) return;
+    let cancelled = false;
+    setSalespersonsLoading(true);
+    void listZohoSalespersons()
+      .then(rows => {
+        if (!cancelled) setSalespersons(rows.filter(row => row.active));
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not load salespersons.');
+          setSalespersons([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSalespersonsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsSalespersonPicker]);
 
   useEffect(() => {
     const q = debouncedDealerQuery.trim().toLowerCase();
@@ -142,6 +190,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     [lines],
   );
 
+  const canSubmit = Boolean(
+    lines.length
+    && shipping
+    && (!needsSalespersonPicker || salespersonId.trim()),
+  );
+
   const save = async (stage: 'review' | 'ready_for_payment') => {
     if (!selectedDealer) {
       setError('Select a dealer.');
@@ -153,6 +207,10 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     }
     if (!shipping) {
       setError('Select a shipping address.');
+      return;
+    }
+    if (needsSalespersonPicker && !salespersonId.trim()) {
+      setError('Select a salesperson for this order.');
       return;
     }
     setSaving(true);
@@ -169,6 +227,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         shipping,
         stage,
         remarks: remarks.trim(),
+        ...(needsSalespersonPicker
+          ? { salespersonId: salespersonId.trim() }
+          : {}),
       });
       navigate(`${listPath}/${result.zohoSalesOrderId}`);
     } catch (err) {
@@ -301,6 +362,33 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 placeholder="Optional notes for this sales order"
               />
             </label>
+
+            {needsSalespersonPicker ? (
+              <label htmlFor="staff-so-salesperson" className="staff-create-so-page__salesperson">
+                Salesperson
+                <select
+                  id="staff-so-salesperson"
+                  className="input-field"
+                  value={salespersonId}
+                  disabled={saving || salespersonsLoading}
+                  onChange={e => setSalespersonId(e.target.value)}
+                  required
+                >
+                  <option value="">
+                    {salespersonsLoading ? 'Loading salespersons…' : 'Select salesperson…'}
+                  </option>
+                  {salespersons.map(row => (
+                    <option key={row.id} value={row.id}>
+                      {row.name}{row.email ? ` · ${row.email}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-muted text-sm">
+                  Required — your admin account has no linked Zoho salesperson.
+                </span>
+              </label>
+            ) : null}
+
             <div className="staff-create-so-page__totals">
               <span className="text-muted">Estimated subtotal</span>
               <strong>{formatCurrency(subtotal)}</strong>
@@ -309,7 +397,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-secondary"
-                disabled={saving || !lines.length || !shipping}
+                disabled={saving || !canSubmit}
                 onClick={() => void save('review')}
               >
                 {saving ? 'Saving…' : 'Save as draft'}
@@ -317,7 +405,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={saving || !lines.length || !shipping}
+                disabled={saving || !canSubmit}
                 onClick={() => void save('ready_for_payment')}
               >
                 {saving ? 'Saving…' : 'Save as awaiting payment'}

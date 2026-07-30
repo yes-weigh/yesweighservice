@@ -10,7 +10,11 @@ import {
   createSalesOrderFromDealerOrder,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
-import { resolveSalespersonForCustomer, resolveSalespersonForStaff } from './sales-order-salesperson.js';
+import {
+  resolveSalespersonForCustomer,
+  resolveSalespersonForStaff,
+  resolveSalespersonById,
+} from './sales-order-salesperson.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
@@ -472,11 +476,21 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     ? 'ready_for_payment'
     : 'review';
 
-  const salesperson = await resolveSalespersonForStaff(uid);
+  const salesperson = await resolveSalespersonForStaff(uid)
+    ?? (
+      isFullSuperAdmin(user)
+        ? await resolveSalespersonById(payload.salespersonId, {
+            staffUid: uid,
+            staffName: displayName(user),
+          })
+        : null
+    );
   if (!salesperson) {
     throw new HttpsError(
       'failed-precondition',
-      'Link at least one Zoho salesperson to your staff account before creating orders.',
+      isFullSuperAdmin(user)
+        ? 'Select a Zoho salesperson for this order.'
+        : 'Link at least one Zoho salesperson to your staff account before creating orders.',
     );
   }
 

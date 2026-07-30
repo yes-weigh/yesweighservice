@@ -74,6 +74,24 @@ export async function resolveSalespersonForStaff(staffUid) {
 }
 
 /**
+ * Explicit Zoho salesperson id (e.g. super admin picking on create).
+ * @returns {{ id: string, name: string, staffUid: string, staffName: string } | null}
+ */
+export async function resolveSalespersonById(salespersonId, actor = {}) {
+  const id = String(salespersonId ?? '').trim();
+  if (!id) return null;
+  const staffUid = String(actor.staffUid ?? '').trim();
+  const staffName = String(actor.staffName ?? 'Staff').trim() || 'Staff';
+  const name = await resolveSalespersonName({}, id);
+  return {
+    id,
+    name,
+    staffUid,
+    staffName,
+  };
+}
+
+/**
  * @returns {{ id: string, name: string, staffUid: string, staffName: string } | null}
  */
 export async function resolveSalespersonForCustomer(customerId) {

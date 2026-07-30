@@ -306,7 +306,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   );
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
   const isStaffList = basePath === '/staff';
-  const canCreateStaffOrder = isStaffList && hasStaffPermission(user, 'orders.manage');
+  const canCreateStaffOrder = hasStaffPermission(user, 'orders.manage');
   const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
   const salespersonScopeKey = salespersonIds?.slice().sort().join(',') ?? '';
   const scrollRef = useRevealScrollbarOnScroll();
