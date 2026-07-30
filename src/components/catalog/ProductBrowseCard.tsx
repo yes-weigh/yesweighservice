@@ -101,7 +101,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const inCart = isInCart(product.id);
   const hasStamping = productHasLinkedGatc(product);
   const hasPackageInfo = Boolean(
-    product.packageInfo?.masterCarton || product.packageInfo?.singleBox,
+    product.packageInfo?.masterCarton
+    || (product.packageInfo?.singleBox?.length ?? 0) > 0,
   );
   const missingPackageInfo = !hasPackageInfo;
   const showPackageMissingIcon = !dealerView && missingPackageInfo;

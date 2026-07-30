@@ -1,15 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pencil, Save, X } from 'lucide-react';
+import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 import { formatStockQuantity, updateCatalogProductPackageInfo } from '../../lib/catalog';
 import { loadMasterCartonQuantities } from '../../lib/catalogProductSettings';
 import type { CatalogPackageCarton, CatalogPackageInfo, CatalogProduct } from '../../types/catalog';
-
-type CartonKind = 'masterCarton' | 'singleBox';
-
-const CARTON_ROWS: { kind: CartonKind; label: string }[] = [
-  { kind: 'masterCarton', label: 'Master Carton' },
-  { kind: 'singleBox', label: 'Single Box' },
-];
 
 const VALUE_COLUMNS = [
   { key: 'quantity' as const, label: 'Qty' },
@@ -27,7 +20,10 @@ type EditableCarton = {
   heightCm: string;
 };
 
-type PackageForm = Record<CartonKind, EditableCarton>;
+type PackageForm = {
+  masterCarton: EditableCarton;
+  singleBox: EditableCarton[];
+};
 
 function emptyEditableCarton(): EditableCarton {
   return {
@@ -39,13 +35,6 @@ function emptyEditableCarton(): EditableCarton {
   };
 }
 
-function packageInfoToForm(info: CatalogPackageInfo | null | undefined): PackageForm {
-  return {
-    masterCarton: cartonToEditable(info?.masterCarton),
-    singleBox: cartonToEditable(info?.singleBox),
-  };
-}
-
 function cartonToEditable(carton: CatalogPackageCarton | null | undefined): EditableCarton {
   if (!carton) return emptyEditableCarton();
   return {
@@ -54,6 +43,16 @@ function cartonToEditable(carton: CatalogPackageCarton | null | undefined): Edit
     lengthCm: carton.lengthCm != null ? String(carton.lengthCm) : '',
     breadthCm: carton.breadthCm != null ? String(carton.breadthCm) : '',
     heightCm: carton.heightCm != null ? String(carton.heightCm) : '',
+  };
+}
+
+function packageInfoToForm(info: CatalogPackageInfo | null | undefined): PackageForm {
+  const boxes = info?.singleBox?.length
+    ? info.singleBox.map(cartonToEditable)
+    : [emptyEditableCarton()];
+  return {
+    masterCarton: cartonToEditable(info?.masterCarton),
+    singleBox: boxes,
   };
 }
 
@@ -82,6 +81,13 @@ function parseEditableCarton(form: EditableCarton): CatalogPackageCarton | null 
   return { quantity, weightKg, lengthCm, breadthCm, heightCm };
 }
 
+function parseEditableSingleBoxes(rows: EditableCarton[]): CatalogPackageCarton[] | null {
+  const boxes = rows
+    .map(parseEditableCarton)
+    .filter((row): row is CatalogPackageCarton => Boolean(row));
+  return boxes.length ? boxes : null;
+}
+
 function formatWeight(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
   return value.toFixed(2);
@@ -103,35 +109,33 @@ const EDIT_FIELD_META: Record<
   heightCm: { placeholder: '', label: 'Height in cm', step: '0.1', min: 0 },
 };
 
-function CartonSection({
+function cartonDisplayValue(
+  carton: CatalogPackageCarton | null | undefined,
+  key: keyof EditableCarton,
+  product: CatalogProduct,
+): string {
+  if (key === 'quantity') {
+    return carton?.quantity != null
+      ? formatStockQuantity(carton.quantity, product.unit)
+      : '—';
+  }
+  if (key === 'weightKg') return formatWeight(carton?.weightKg);
+  if (key === 'lengthCm') return formatDimension(carton?.lengthCm);
+  if (key === 'breadthCm') return formatDimension(carton?.breadthCm);
+  return formatDimension(carton?.heightCm);
+}
+
+function EditableCartonCells({
   label,
-  product,
-  carton,
-  editing,
   form,
   onFormChange,
   quantityOptions,
 }: {
   label: string;
-  product: CatalogProduct;
-  carton: CatalogPackageCarton | null | undefined;
-  editing: boolean;
   form: EditableCarton;
   onFormChange: (next: EditableCarton) => void;
   quantityOptions?: number[] | null;
 }) {
-  const displayValue = (key: keyof EditableCarton): string => {
-    if (key === 'quantity') {
-      return carton?.quantity != null
-        ? formatStockQuantity(carton.quantity, product.unit)
-        : '—';
-    }
-    if (key === 'weightKg') return formatWeight(carton?.weightKg);
-    if (key === 'lengthCm') return formatDimension(carton?.lengthCm);
-    if (key === 'breadthCm') return formatDimension(carton?.breadthCm);
-    return formatDimension(carton?.heightCm);
-  };
-
   const quantitySelectOptions = useMemo(() => {
     if (!quantityOptions) return [];
     const values = new Set(quantityOptions);
@@ -141,8 +145,88 @@ function CartonSection({
   }, [quantityOptions, form.quantity]);
 
   return (
+    <>
+      {VALUE_COLUMNS.map(col => {
+        const field = EDIT_FIELD_META[col.key];
+        if (col.key === 'quantity' && quantityOptions) {
+          return (
+            <td key={col.key} className="product-package__value-cell">
+              <select
+                className="product-package__input product-package__select"
+                value={form.quantity}
+                onChange={e => onFormChange({ ...form, quantity: e.target.value })}
+                aria-label={`${label} ${field.label}`}
+              >
+                <option value="">—</option>
+                {quantitySelectOptions.map(qty => (
+                  <option key={qty} value={String(qty)}>{qty}</option>
+                ))}
+              </select>
+            </td>
+          );
+        }
+        return (
+          <td key={col.key} className="product-package__value-cell">
+            <input
+              type="number"
+              min={field.min}
+              step={field.step}
+              className="product-package__input"
+              value={form[col.key]}
+              onChange={e => onFormChange({ ...form, [col.key]: e.target.value })}
+              placeholder={field.placeholder}
+              aria-label={`${label} ${field.label}`}
+            />
+          </td>
+        );
+      })}
+    </>
+  );
+}
+
+function ViewCartonCells({
+  carton,
+  product,
+}: {
+  carton: CatalogPackageCarton | null | undefined;
+  product: CatalogProduct;
+}) {
+  return (
+    <>
+      {VALUE_COLUMNS.map(col => (
+        <td
+          key={col.key}
+          className={[
+            'product-package__value-cell',
+            col.key === 'quantity' ? 'product-package__value-cell--qty' : '',
+            col.key === 'weightKg' ? 'product-package__value-cell--weight' : '',
+          ].filter(Boolean).join(' ')}
+        >
+          {cartonDisplayValue(carton, col.key, product)}
+        </td>
+      ))}
+    </>
+  );
+}
+
+function MasterCartonSection({
+  product,
+  carton,
+  editing,
+  form,
+  onFormChange,
+  quantityOptions,
+}: {
+  product: CatalogProduct;
+  carton: CatalogPackageCarton | null | undefined;
+  editing: boolean;
+  form: EditableCarton;
+  onFormChange: (next: EditableCarton) => void;
+  quantityOptions?: number[] | null;
+}) {
+  return (
     <section className={`product-package__section ${editing ? 'product-package__section--editing' : ''}`}>
-      <h3 className="product-package__section-title">{label}</h3>
+      <h3 className="product-package__section-title">Master Carton</h3>
 
       <div className="product-package__table-wrap">
         <table className="product-package__table">
@@ -156,55 +240,101 @@ function CartonSection({
           <tbody>
             <tr>
               {editing ? (
-                VALUE_COLUMNS.map(col => {
-                  const field = EDIT_FIELD_META[col.key];
-                  if (col.key === 'quantity' && quantityOptions) {
-                    return (
-                      <td key={col.key} className="product-package__value-cell">
-                        <select
-                          className="product-package__input product-package__select"
-                          value={form.quantity}
-                          onChange={e => onFormChange({ ...form, quantity: e.target.value })}
-                          aria-label={`${label} ${field.label}`}
-                        >
-                          <option value="">—</option>
-                          {quantitySelectOptions.map(qty => (
-                            <option key={qty} value={String(qty)}>{qty}</option>
-                          ))}
-                        </select>
-                      </td>
-                    );
-                  }
-                  return (
-                    <td key={col.key} className="product-package__value-cell">
-                      <input
-                        type="number"
-                        min={field.min}
-                        step={field.step}
-                        className="product-package__input"
-                        value={form[col.key]}
-                        onChange={e => onFormChange({ ...form, [col.key]: e.target.value })}
-                        placeholder={field.placeholder}
-                        aria-label={`${label} ${field.label}`}
-                      />
-                    </td>
-                  );
-                })
+                <EditableCartonCells
+                  label="Master Carton"
+                  form={form}
+                  onFormChange={onFormChange}
+                  quantityOptions={quantityOptions}
+                />
               ) : (
-                VALUE_COLUMNS.map(col => (
-                  <td
-                    key={col.key}
-                    className={[
-                      'product-package__value-cell',
-                      col.key === 'quantity' ? 'product-package__value-cell--qty' : '',
-                      col.key === 'weightKg' ? 'product-package__value-cell--weight' : '',
-                    ].filter(Boolean).join(' ')}
-                  >
-                    {displayValue(col.key)}
-                  </td>
-                ))
+                <ViewCartonCells carton={carton} product={product} />
               )}
             </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function SingleBoxSection({
+  product,
+  cartons,
+  editing,
+  formRows,
+  onFormChange,
+  onAddRow,
+  onRemoveRow,
+}: {
+  product: CatalogProduct;
+  cartons: CatalogPackageCarton[] | null | undefined;
+  editing: boolean;
+  formRows: EditableCarton[];
+  onFormChange: (index: number, next: EditableCarton) => void;
+  onAddRow: () => void;
+  onRemoveRow: (index: number) => void;
+}) {
+  const viewRows = cartons?.length ? cartons : [null];
+  const showRowActions = editing && formRows.length > 1;
+  const multiRows = editing ? formRows.length > 1 : viewRows.length > 1;
+
+  return (
+    <section className={`product-package__section ${editing ? 'product-package__section--editing' : ''}`}>
+      <div className="product-package__section-head">
+        <h3 className="product-package__section-title">Single Box</h3>
+        {editing && (
+          <button
+            type="button"
+            className="product-package__add-row-btn"
+            onClick={onAddRow}
+            aria-label="Add another single box row"
+          >
+            <Plus size={14} aria-hidden />
+            <span>Add box</span>
+          </button>
+        )}
+      </div>
+
+      <div className="product-package__table-wrap">
+        <table className={`product-package__table${multiRows ? ' product-package__table--multi' : ''}`}>
+          <thead>
+            <tr>
+              {VALUE_COLUMNS.map(col => (
+                <th key={col.key} scope="col">{col.label}</th>
+              ))}
+              {showRowActions ? (
+                <th scope="col" className="product-package__actions-col" aria-label="Remove" />
+              ) : null}
+            </tr>
+          </thead>
+          <tbody>
+            {editing
+              ? formRows.map((row, index) => (
+                  <tr key={`single-box-edit-${index}`}>
+                    <EditableCartonCells
+                      label={`Single Box ${index + 1}`}
+                      form={row}
+                      onFormChange={next => onFormChange(index, next)}
+                    />
+                    {showRowActions ? (
+                      <td className="product-package__value-cell product-package__actions-cell">
+                        <button
+                          type="button"
+                          className="product-package__icon-btn product-package__icon-btn--cancel"
+                          onClick={() => onRemoveRow(index)}
+                          aria-label={`Remove single box row ${index + 1}`}
+                        >
+                          <Trash2 size={13} aria-hidden />
+                        </button>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))
+              : viewRows.map((carton, index) => (
+                  <tr key={`single-box-view-${index}`}>
+                    <ViewCartonCells carton={carton} product={product} />
+                  </tr>
+                ))}
           </tbody>
         </table>
       </div>
@@ -277,7 +407,7 @@ export const ProductPackageInfo: React.FC<{
     try {
       const saved = await updateCatalogProductPackageInfo(product.id, {
         masterCarton: parseEditableCarton(form.masterCarton),
-        singleBox: parseEditableCarton(form.singleBox),
+        singleBox: parseEditableSingleBoxes(form.singleBox),
       });
       onPackageInfoChange?.(saved);
       setEditing(false);
@@ -334,24 +464,44 @@ export const ProductPackageInfo: React.FC<{
       {error && <p className="product-package__row-error">{error}</p>}
 
       <div className={`product-package__card ${editing ? 'product-package__card--editing' : ''}`}>
-        {CARTON_ROWS.map((row, index) => (
-          <React.Fragment key={row.kind}>
-            {index > 0 && <div className="product-package__divider" aria-hidden />}
-            <CartonSection
-              label={row.label}
-              product={product}
-              carton={packageInfo?.[row.kind] ?? null}
-              editing={editing}
-              form={form[row.kind]}
-              onFormChange={next => setForm(prev => ({ ...prev, [row.kind]: next }))}
-              quantityOptions={
-                row.kind === 'masterCarton' && masterCartonQuantities.length > 0
-                  ? masterCartonQuantities
-                  : null
+        <MasterCartonSection
+          product={product}
+          carton={packageInfo?.masterCarton ?? null}
+          editing={editing}
+          form={form.masterCarton}
+          onFormChange={next => setForm(prev => ({ ...prev, masterCarton: next }))}
+          quantityOptions={masterCartonQuantities.length > 0 ? masterCartonQuantities : null}
+        />
+        <div className="product-package__divider" aria-hidden />
+        <SingleBoxSection
+          product={product}
+          cartons={packageInfo?.singleBox ?? null}
+          editing={editing}
+          formRows={form.singleBox}
+          onFormChange={(index, next) => {
+            setForm(prev => ({
+              ...prev,
+              singleBox: prev.singleBox.map((row, i) => (i === index ? next : row)),
+            }));
+          }}
+          onAddRow={() => {
+            setForm(prev => ({
+              ...prev,
+              singleBox: [...prev.singleBox, emptyEditableCarton()],
+            }));
+          }}
+          onRemoveRow={index => {
+            setForm(prev => {
+              if (prev.singleBox.length <= 1) {
+                return { ...prev, singleBox: [emptyEditableCarton()] };
               }
-            />
-          </React.Fragment>
-        ))}
+              return {
+                ...prev,
+                singleBox: prev.singleBox.filter((_, i) => i !== index),
+              };
+            });
+          }}
+        />
       </div>
     </div>
   );

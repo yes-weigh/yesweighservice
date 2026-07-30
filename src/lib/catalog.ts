@@ -627,7 +627,7 @@ function mapWarehouse(data: unknown): CatalogProduct['warehouses'] {
 }
 
 function mapPackageCarton(data: unknown): CatalogPackageCarton | null {
-  if (!data || typeof data !== 'object') return null;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const row = data as Record<string, unknown>;
   const quantity = row.quantity != null ? Number(row.quantity) : null;
   const weightKg = row.weightKg != null ? Number(row.weightKg) : null;
@@ -647,11 +647,24 @@ function mapPackageCarton(data: unknown): CatalogPackageCarton | null {
   };
 }
 
+/** Normalize legacy single-object or array singleBox into CatalogPackageCarton[]. */
+function mapSingleBoxCartons(data: unknown): CatalogPackageCarton[] | null {
+  if (data == null) return null;
+  if (Array.isArray(data)) {
+    const boxes = data
+      .map(row => mapPackageCarton(row))
+      .filter((row): row is CatalogPackageCarton => Boolean(row));
+    return boxes.length ? boxes : null;
+  }
+  const one = mapPackageCarton(data);
+  return one ? [one] : null;
+}
+
 function mapPackageInfo(data: unknown): CatalogPackageInfo | null {
   if (!data || typeof data !== 'object') return null;
   const row = data as Record<string, unknown>;
   const masterCarton = mapPackageCarton(row.masterCarton);
-  const singleBox = mapPackageCarton(row.singleBox);
+  const singleBox = mapSingleBoxCartons(row.singleBox);
   if (!masterCarton && !singleBox) return null;
   return {
     masterCarton,
@@ -1718,14 +1731,14 @@ export async function updateCatalogProductPackageInfo(
   productId: string,
   input: {
     masterCarton: CatalogPackageCarton | null;
-    singleBox: CatalogPackageCarton | null;
+    singleBox: CatalogPackageCarton[] | null;
   },
 ): Promise<CatalogPackageInfo> {
   const callable = httpsCallable<
     {
       productId: string;
       masterCarton: CatalogPackageCarton | null;
-      singleBox: CatalogPackageCarton | null;
+      singleBox: CatalogPackageCarton[] | null;
     },
     { ok: boolean; packageInfo: CatalogPackageInfo }
   >(functions, 'updateCatalogProductPackageInfo');

@@ -13,7 +13,11 @@ export interface CatalogPackageCarton {
 
 export interface CatalogPackageInfo {
   masterCarton: CatalogPackageCarton | null;
-  singleBox: CatalogPackageCarton | null;
+  /**
+   * One or more boxes for a single item (e.g. platform box + display box).
+   * Legacy Firestore docs may store a single object; readers normalize to an array.
+   */
+  singleBox: CatalogPackageCarton[] | null;
   updatedAt?: string | null;
   updatedByUid?: string | null;
   updatedByName?: string | null;

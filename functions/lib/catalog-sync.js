@@ -834,7 +834,7 @@ function parseOptionalPositiveNumber(value, { allowZero = false, integer = false
 }
 
 function normalizePackageCarton(input) {
-  if (!input || typeof input !== 'object') return null;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const quantity = parseOptionalPositiveNumber(input.quantity, { integer: true });
   const weightKg = parseOptionalPositiveNumber(input.weightKg);
   const lengthCm = parseOptionalPositiveNumber(input.lengthCm);
@@ -845,8 +845,18 @@ function normalizePackageCarton(input) {
   return { quantity, weightKg, lengthCm, breadthCm, heightCm };
 }
 
+function normalizeSingleBoxCartons(input) {
+  if (input == null) return null;
+  if (Array.isArray(input)) {
+    const boxes = input.map(normalizePackageCarton).filter(Boolean);
+    return boxes.length ? boxes : null;
+  }
+  const one = normalizePackageCarton(input);
+  return one ? [one] : null;
+}
+
 function readPackageCarton(data) {
-  if (!data || typeof data !== 'object') return null;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const quantity = data.quantity != null ? Number(data.quantity) : null;
   const weightKg = data.weightKg != null ? Number(data.weightKg) : null;
   const lengthCm = data.lengthCm != null ? Number(data.lengthCm) : null;
@@ -865,10 +875,20 @@ function readPackageCarton(data) {
   };
 }
 
+function readSingleBoxCartons(data) {
+  if (data == null) return null;
+  if (Array.isArray(data)) {
+    const boxes = data.map(readPackageCarton).filter(Boolean);
+    return boxes.length ? boxes : null;
+  }
+  const one = readPackageCarton(data);
+  return one ? [one] : null;
+}
+
 export function readPackageInfo(data) {
   if (!data || typeof data !== 'object') return null;
   const masterCarton = readPackageCarton(data.masterCarton);
-  const singleBox = readPackageCarton(data.singleBox);
+  const singleBox = readSingleBoxCartons(data.singleBox);
   if (!masterCarton && !singleBox) return null;
   return {
     masterCarton,
@@ -885,7 +905,7 @@ export async function patchProductPackageInfo(productId, input, editor = {}) {
   if (!id) throw new Error('productId is required.');
 
   const masterCarton = normalizePackageCarton(input?.masterCarton);
-  const singleBox = normalizePackageCarton(input?.singleBox);
+  const singleBox = normalizeSingleBoxCartons(input?.singleBox);
   const now = new Date().toISOString();
 
   const db = getFirestore();
