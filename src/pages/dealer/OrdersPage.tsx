@@ -5,9 +5,9 @@ import { QuantityStepper } from '../../components/QuantityStepper';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import {
-  GatcStampingChoiceDialog,
   type GatcStampingChoice,
 } from '../../components/catalog/GatcStampingChoiceDialog';
+import { GatcStampingInlineControl } from '../../components/catalog/GatcStampingInlineControl';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
@@ -23,7 +23,6 @@ import {
 } from '../../lib/shippingAddresses';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
-import type { CartItem } from '../../types/cart';
 import type { CatalogProduct } from '../../types/catalog';
 
 export const OrdersPage: React.FC = () => {
@@ -37,11 +36,6 @@ export const OrdersPage: React.FC = () => {
 
   return <DealerCartPage />;
 };
-
-type StampDialogState =
-  | { kind: 'edit'; line: CartItem }
-  | { kind: 'addWith'; product: CatalogProduct }
-  | null;
 
 const DealerCartPage: React.FC = () => {
   const { user } = useAuth();
@@ -65,7 +59,6 @@ const DealerCartPage: React.FC = () => {
   const [shipping, setShipping] = useState<ShippingSelection | null>(null);
   const [descByProductId, setDescByProductId] = useState<Record<string, string>>({});
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
-  const [stampDialog, setStampDialog] = useState<StampDialogState>(null);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/catalog`;
@@ -149,24 +142,13 @@ const DealerCartPage: React.FC = () => {
     }
   };
 
-  const applyStampDialog = (choice: GatcStampingChoice) => {
-    if (!stampDialog) return;
-    if (stampDialog.kind === 'edit') {
-      updateStamping(stampDialog.line.cartLineId, {
-        withStamping: choice.withStamping,
-        gatcStampingPriceId: choice.gatcStampingPriceId,
-        gatcFeePerUnit: choice.gatcFeePerUnit,
-        gatcStampingRange: choice.gatcStampingRange,
-      });
-    } else if (choice.withStamping && choice.gatcStampingPriceId) {
-      addItem(stampDialog.product, {
-        quantity: 1,
-        gatcStampingPriceId: choice.gatcStampingPriceId,
-        gatcFeePerUnit: choice.gatcFeePerUnit,
-        gatcStampingRange: choice.gatcStampingRange,
-      });
-    }
-    setStampDialog(null);
+  const applyLineStamping = (cartLineId: string, choice: GatcStampingChoice) => {
+    updateStamping(cartLineId, {
+      withStamping: choice.withStamping,
+      gatcStampingPriceId: choice.gatcStampingPriceId,
+      gatcFeePerUnit: choice.gatcFeePerUnit,
+      gatcStampingRange: choice.gatcStampingRange,
+    });
   };
 
   if (items.length === 0) {
@@ -192,12 +174,6 @@ const DealerCartPage: React.FC = () => {
       </div>
     );
   }
-
-  const stampDialogProduct = stampDialog
-    ? (stampDialog.kind === 'edit'
-      ? catalogById[stampDialog.line.productId]
-      : stampDialog.product)
-    : null;
 
   return (
     <div className="page-content fade-in orders-page">
@@ -225,7 +201,7 @@ const DealerCartPage: React.FC = () => {
               ? '1 item can have stamping added.'
               : `${stampableWithoutStamping.length} items can have stamping added.`}
             {' '}
-            Use <strong>Change stamping</strong> on a line, or <strong>+ Add with stamping</strong> for a separate stamped line.
+            Use the stamping control on the line, or <strong>+ Add with stamping</strong> for a separate stamped line.
           </p>
         </div>
       )}
@@ -274,47 +250,31 @@ const DealerCartPage: React.FC = () => {
                         {item.gatcFeePerUnit.toLocaleString('en-IN')} stamping
                         {item.gatcStampingRange ? ` (${item.gatcStampingRange})` : ''}
                       </span>
-                    ) : (
+                    ) : canEditStamp ? null : (
                       <span className="orders-page__item-price-breakdown text-muted">
                         Without stamping
                       </span>
                     )}
-                    {canEditStamp && (
-                      <div className="orders-page__stamp-actions">
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm orders-page__stamp-btn"
-                          disabled={submitting}
-                          onClick={() => setStampDialog({ kind: 'edit', line: item })}
-                        >
-                          Change stamping
-                        </button>
-                        {hasStamping ? (
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm orders-page__stamp-btn"
-                            disabled={submitting || !catalogProduct}
-                            onClick={() => {
-                              if (!catalogProduct) return;
-                              addItem(catalogProduct, 1);
-                            }}
-                          >
-                            + Add without stamping
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm orders-page__stamp-btn"
-                            disabled={submitting || !catalogProduct}
-                            onClick={() => {
-                              if (!catalogProduct) return;
-                              setStampDialog({ kind: 'addWith', product: catalogProduct });
-                            }}
-                          >
-                            + Add with stamping
-                          </button>
-                        )}
-                      </div>
+                    {canEditStamp && catalogProduct && (
+                      <GatcStampingInlineControl
+                        product={catalogProduct}
+                        valueId={item.gatcStampingPriceId}
+                        hasStamping={hasStamping}
+                        disabled={submitting}
+                        onChange={choice => applyLineStamping(item.cartLineId, choice)}
+                        onAddSibling={choice => {
+                          if (!choice.withStamping) {
+                            addItem(catalogProduct, 1);
+                            return;
+                          }
+                          addItem(catalogProduct, {
+                            quantity: 1,
+                            gatcStampingPriceId: choice.gatcStampingPriceId,
+                            gatcFeePerUnit: choice.gatcFeePerUnit,
+                            gatcStampingRange: choice.gatcStampingRange,
+                          });
+                        }}
+                      />
                     )}
                     {unavailable && (
                       <p className="orders-page__item-warning">Currently out of stock — remove before placing order</p>
@@ -404,22 +364,6 @@ const DealerCartPage: React.FC = () => {
           </button>
         </aside>
       </div>
-
-      {stampDialog && stampDialogProduct && (
-        <GatcStampingChoiceDialog
-          product={stampDialogProduct}
-          open
-          mode={stampDialog.kind === 'edit' ? 'edit' : 'add'}
-          preferWithStamping={stampDialog.kind === 'addWith'}
-          initialGatcStampingPriceId={
-            stampDialog.kind === 'edit' ? stampDialog.line.gatcStampingPriceId : null
-          }
-          title={stampDialog.kind === 'addWith' ? 'Add with stamping' : undefined}
-          confirmLabel={stampDialog.kind === 'addWith' ? 'Add line' : 'Update'}
-          onClose={() => setStampDialog(null)}
-          onConfirm={applyStampDialog}
-        />
-      )}
     </div>
   );
 };

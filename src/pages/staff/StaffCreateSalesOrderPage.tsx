@@ -5,6 +5,7 @@ import {
   SalesOrderDraftLineEditor,
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
+import { ThemeSelect } from '../../components/ThemeSelect';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
@@ -390,25 +391,23 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
             </label>
 
             {needsSalespersonPicker ? (
-              <label htmlFor="staff-so-salesperson" className="staff-create-so-page__salesperson">
-                Salesperson
-                <select
+              <label className="staff-create-so-page__salesperson">
+                <span>Salesperson</span>
+                <ThemeSelect
                   id="staff-so-salesperson"
-                  className="input-field"
                   value={salespersonId}
                   disabled={saving || salespersonsLoading}
-                  onChange={e => setSalespersonId(e.target.value)}
-                  required
-                >
-                  <option value="">
-                    {salespersonsLoading ? 'Loading salespersons…' : 'Select salesperson…'}
-                  </option>
-                  {salespersons.map(row => (
-                    <option key={row.id} value={row.id}>
-                      {row.name}{row.email ? ` · ${row.email}` : ''}
-                    </option>
-                  ))}
-                </select>
+                  placeholder={
+                    salespersonsLoading ? 'Loading salespersons…' : 'Select salesperson…'
+                  }
+                  options={salespersons.map(row => ({
+                    value: row.id,
+                    label: row.name,
+                    hint: row.email || undefined,
+                  }))}
+                  onChange={setSalespersonId}
+                  aria-label="Salesperson"
+                />
                 <span className="text-muted text-sm">
                   Required — your admin account has no linked Zoho salesperson.
                 </span>
