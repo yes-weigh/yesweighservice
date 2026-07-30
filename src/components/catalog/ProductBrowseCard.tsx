@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
-import { formatGatcOptionLabel, normalizeGatcIdList, productHasLinkedGatc } from '../../lib/gatcCart';
+import { normalizeGatcIdList, productHasLinkedGatc } from '../../lib/gatcCart';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
 import type { CatalogGatcStampingPriceEntry } from '../../constants/catalogProductSettings';
 import { formatAuditDate } from '../../lib/yesStore/format';
@@ -12,11 +12,6 @@ import { useCartFly } from '../../context/useCartFly';
 import type { CatalogProduct } from '../../types/catalog';
 import { AuditedSealIcon } from './AuditedSealIcon';
 import { CategoryThumbnail } from './CategoryThumbnail';
-import {
-  GatcStampingChoiceDialog,
-  shouldPromptGatcStamping,
-  type GatcStampingChoice,
-} from './GatcStampingChoiceDialog';
 import { StockBadge, StockQuantity } from './StockBadge';
 import { PackageInfoIcon } from './PackageInfoIcon';
 import { StampingShieldIcon } from './StampingShieldIcon';
@@ -97,9 +92,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const { flyToCart } = useCartFly();
   const [addedFlash, setAddedFlash] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [gatcDialogOpen, setGatcDialogOpen] = useState(false);
   const [gatcOptions, setGatcOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
-  const addFlyAnchor = useRef<HTMLElement | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
   const longPressFired = useRef(false);
@@ -133,7 +126,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
       const opt = gatcOptions.find(entry => entry.id === id);
       return {
         id,
-        label: opt ? formatGatcOptionLabel(opt) : id,
+        // Dealer grid: range only — fee is shown when choosing stamping in cart.
+        label: opt ? opt.stampingRange : id,
       };
     });
   }, [dealerView, hasStamping, product.gatcStampingPriceIds, gatcOptions]);
@@ -208,29 +202,9 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (outOfStock) return;
-    if (shouldPromptGatcStamping(product)) {
-      addFlyAnchor.current = event.currentTarget;
-      setGatcDialogOpen(true);
-      return;
-    }
+    // Stampable items add without stamping; dealer configures in cart.
     if (addItem(product)) {
       flyToCart(event.currentTarget, { imageUrl: product.imageUrl });
-      setAddedFlash(true);
-      window.setTimeout(() => setAddedFlash(false), 1200);
-    }
-  };
-
-  const confirmGatcAdd = (choice: GatcStampingChoice) => {
-    setGatcDialogOpen(false);
-    if (addItem(product, {
-      quantity: 1,
-      gatcStampingPriceId: choice.gatcStampingPriceId,
-      gatcFeePerUnit: choice.gatcFeePerUnit,
-      gatcStampingRange: choice.gatcStampingRange,
-    })) {
-      if (addFlyAnchor.current) {
-        flyToCart(addFlyAnchor.current, { imageUrl: product.imageUrl });
-      }
       setAddedFlash(true);
       window.setTimeout(() => setAddedFlash(false), 1200);
     }
@@ -297,12 +271,14 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
               )}
               {hasStamping && dealerView && (
                 <div
-                  className="catalog-product-card__stamping-chip"
+                  className="catalog-product-card__stamping-stack"
                   title="Stamping available"
                   aria-label="Stamping available"
                 >
-                  <StampingShieldIcon size={16} aria-hidden />
-                  <div className="catalog-product-card__stamping-chip-lines">
+                  <span className="catalog-product-card__stamping-badge">
+                    <StampingShieldIcon size={18} aria-hidden />
+                  </span>
+                  <div className="catalog-product-card__stamping-chip">
                     {stampingChipLines.map(line => (
                       <span key={line.id} className="catalog-product-card__stamping-chip-line">
                         {line.label}
@@ -338,20 +314,24 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 
         <div className="catalog-product-card__body">
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>
-          <div className="catalog-product-card__price-row">
-            <div className="catalog-product-card__price">
-              <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-              <span>{product.rate.toLocaleString('en-IN')}</span>
+          {(showStockQuantity || !dealerView) && (
+            <div className="catalog-product-card__price-row">
+              {!dealerView && (
+                <div className="catalog-product-card__price">
+                  <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                  <span>{product.rate.toLocaleString('en-IN')}</span>
+                </div>
+              )}
+              {showStockQuantity && (
+                <StockQuantity
+                  stock={product.stock}
+                  unit={product.unit}
+                  status={product.stockStatus}
+                  compact
+                />
+              )}
             </div>
-            {showStockQuantity && (
-              <StockQuantity
-                stock={product.stock}
-                unit={product.unit}
-                status={product.stockStatus}
-                compact
-              />
-            )}
-          </div>
+          )}
 
           {openNcCount != null && openNcCount > 0 && (
             <span className="catalog-product-card__nc-badge">
@@ -454,14 +434,6 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         </button>
       )}
     </article>
-    {enableCart && (
-      <GatcStampingChoiceDialog
-        product={product}
-        open={gatcDialogOpen}
-        onClose={() => setGatcDialogOpen(false)}
-        onConfirm={confirmGatcAdd}
-      />
-    )}
     </>
   );
 };

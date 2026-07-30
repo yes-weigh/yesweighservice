@@ -27,6 +27,8 @@ export const GatcStampingChoiceDialog: React.FC<{
   mode?: Mode;
   /** Preselect when editing an existing cart/SO line. */
   initialGatcStampingPriceId?: string | null;
+  /** Prefer “With stamping” when opening (e.g. cart “Add with stamping”). */
+  preferWithStamping?: boolean;
   title?: string;
   confirmLabel?: string;
 }> = ({
@@ -36,6 +38,7 @@ export const GatcStampingChoiceDialog: React.FC<{
   onConfirm,
   mode = 'add',
   initialGatcStampingPriceId = null,
+  preferWithStamping = false,
   title,
   confirmLabel,
 }) => {
@@ -56,15 +59,19 @@ export const GatcStampingChoiceDialog: React.FC<{
         const next = resolveGatcOptionsForProduct(product, entries);
         setOptions(next);
         const initial = initialGatcStampingPriceId?.trim() || null;
+        const defaultSelected = next.length === 1 ? next[0].id : null;
         if (initial && next.some(opt => opt.id === initial)) {
           setWithStamping(true);
           setSelectedId(initial);
         } else if (mode === 'edit' && !initial) {
           setWithStamping(false);
-          setSelectedId(next.length === 1 ? next[0].id : null);
+          setSelectedId(defaultSelected);
+        } else if (preferWithStamping) {
+          setWithStamping(true);
+          setSelectedId(defaultSelected);
         } else {
           setWithStamping(false);
-          setSelectedId(next.length === 1 ? next[0].id : null);
+          setSelectedId(defaultSelected);
         }
       })
       .catch(err => {
@@ -78,7 +85,7 @@ export const GatcStampingChoiceDialog: React.FC<{
     return () => {
       active = false;
     };
-  }, [open, product, initialGatcStampingPriceId, mode]);
+  }, [open, product, initialGatcStampingPriceId, mode, preferWithStamping]);
 
   useEffect(() => {
     if (!open) return undefined;

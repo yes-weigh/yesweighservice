@@ -4,7 +4,6 @@ import { QuantityStepper } from '../QuantityStepper';
 import { CategoryThumbnail } from '../catalog/CategoryThumbnail';
 import {
   GatcStampingChoiceDialog,
-  shouldPromptGatcStamping,
   type GatcStampingChoice,
 } from '../catalog/GatcStampingChoiceDialog';
 import { DocumentLineItemSpec } from '../invoices/DocumentLineItemSpec';
@@ -62,6 +61,11 @@ function sameGatcKey(a: string | null | undefined, b: string | null | undefined)
   return (a?.trim() || null) === (b?.trim() || null);
 }
 
+type StampDialogState =
+  | { kind: 'edit'; lineId: string }
+  | { kind: 'addWith'; product: CatalogProduct }
+  | null;
+
 function toDraftLine(
   product: CatalogProduct,
   quantity = 1,
@@ -112,8 +116,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [pendingGatcProduct, setPendingGatcProduct] = useState<CatalogProduct | null>(null);
-  const [stampEditLineId, setStampEditLineId] = useState<string | null>(null);
+  const [stampDialog, setStampDialog] = useState<StampDialogState>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debouncedQuery = useDebounce(query, 180);
@@ -222,23 +225,44 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     inputRef.current?.focus();
   };
 
+  // Stampable items add without stamping; configure on the line (same UX as dealer cart).
   const addProduct = (product: CatalogProduct) => {
-    if (shouldPromptGatcStamping(product)) {
-      setPendingGatcProduct(product);
-      return;
-    }
     insertOrMergeProduct(product);
   };
 
-  const stampEditLine = stampEditLineId
-    ? lines.find(line => line.lineId === stampEditLineId) ?? null
+  const stampEditLine = stampDialog?.kind === 'edit'
+    ? lines.find(line => line.lineId === stampDialog.lineId) ?? null
     : null;
-  const stampEditProduct = stampEditLine
-    ? productById.get(stampEditLine.productId) ?? null
-    : null;
+  const stampDialogProduct = stampDialog?.kind === 'edit'
+    ? (stampEditLine ? productById.get(stampEditLine.productId) ?? null : null)
+    : stampDialog?.kind === 'addWith'
+      ? stampDialog.product
+      : null;
 
-  const applyStampEdit = (choice: GatcStampingChoice) => {
-    if (!stampEditLine) return;
+  const stampableWithoutStamping = useMemo(() => (
+    lines.filter(line => {
+      if (line.gatcStampingPriceId) return false;
+      const catalogProduct = productById.get(line.productId);
+      return catalogProduct ? productHasLinkedGatc(catalogProduct) : false;
+    })
+  ), [lines, productById]);
+
+  const applyStampDialog = (choice: GatcStampingChoice) => {
+    if (!stampDialog) return;
+
+    if (stampDialog.kind === 'addWith') {
+      if (choice.withStamping && choice.gatcStampingPriceId) {
+        insertOrMergeProduct(stampDialog.product, choice);
+      }
+      setStampDialog(null);
+      return;
+    }
+
+    if (!stampEditLine) {
+      setStampDialog(null);
+      return;
+    }
+
     const nextGatcId = choice.withStamping ? choice.gatcStampingPriceId : null;
     const nextFee = choice.withStamping ? choice.gatcFeePerUnit : 0;
     const nextRange = choice.withStamping ? choice.gatcStampingRange : null;
@@ -279,7 +303,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
           : line
       )));
     }
-    setStampEditLineId(null);
+    setStampDialog(null);
   };
 
   const estimatedSubtotal = lines.reduce((sum, line) => sum + line.rate * line.quantity, 0);
@@ -319,6 +343,18 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
         ) : null}
       </header>
 
+      {stampableWithoutStamping.length > 0 && (
+        <div className="orders-page__stamp-reminder so-draft-editor__stamp-reminder" role="status">
+          <p>
+            {stampableWithoutStamping.length === 1
+              ? '1 item can have stamping added.'
+              : `${stampableWithoutStamping.length} items can have stamping added.`}
+            {' '}
+            Use <strong>Change stamping</strong> on a line, or <strong>+ Add with stamping</strong> for a separate stamped line.
+          </p>
+        </div>
+      )}
+
       <ul className="so-draft-editor__lines">
         {lines.length === 0 ? (
           <li className="so-draft-editor__empty text-muted text-sm">
@@ -330,6 +366,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
             const canStamp = catalogProduct
               ? productHasLinkedGatc(catalogProduct)
               : Boolean(line.gatcStampingPriceId);
+            const hasStamping = Boolean(line.gatcStampingPriceId);
             const listBase = line.catalogRate;
             const customized = allowRateEdit
               && catalogProduct != null
@@ -388,19 +425,48 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                       {formatCurrency(line.rate)}
                       {line.gatcFeePerUnit > 0
                         ? ` · +${formatCurrency(line.gatcFeePerUnit)} stamp`
-                        : ''}
+                        : canStamp
+                          ? ' · Without stamping'
+                          : ''}
                       {line.stockStatus === 'out_of_stock' ? ' · Out of stock' : ''}
                     </span>
                   )}
                   {canStamp && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm orders-page__stamp-btn"
-                      disabled={saving || !catalogProduct}
-                      onClick={() => setStampEditLineId(line.lineId)}
-                    >
-                      Change stamping
-                    </button>
+                    <div className="orders-page__stamp-actions">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm orders-page__stamp-btn"
+                        disabled={saving || !catalogProduct}
+                        onClick={() => setStampDialog({ kind: 'edit', lineId: line.lineId })}
+                      >
+                        Change stamping
+                      </button>
+                      {hasStamping ? (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm orders-page__stamp-btn"
+                          disabled={saving || !catalogProduct}
+                          onClick={() => {
+                            if (!catalogProduct) return;
+                            insertOrMergeProduct(catalogProduct);
+                          }}
+                        >
+                          + Add without stamping
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm orders-page__stamp-btn"
+                          disabled={saving || !catalogProduct}
+                          onClick={() => {
+                            if (!catalogProduct) return;
+                            setStampDialog({ kind: 'addWith', product: catalogProduct });
+                          }}
+                        >
+                          + Add with stamping
+                        </button>
+                      )}
+                    </div>
                   )}
                 </DocumentLineItemSpec>
                 <QuantityStepper
@@ -542,31 +608,21 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
         <strong>{formatCurrency(estimatedSubtotal)}</strong>
       </footer>
 
-      {pendingGatcProduct && (
+      {stampDialog && stampDialogProduct && (
         <GatcStampingChoiceDialog
-          product={pendingGatcProduct}
+          product={stampDialogProduct}
           open
-          confirmLabel="Add item"
-          onClose={() => setPendingGatcProduct(null)}
-          onConfirm={choice => {
-            const product = pendingGatcProduct;
-            setPendingGatcProduct(null);
-            insertOrMergeProduct(product, choice);
-          }}
-        />
-      )}
-
-      {stampEditLine && stampEditProduct && (
-        <GatcStampingChoiceDialog
-          product={stampEditProduct}
-          open
-          mode="edit"
-          initialGatcStampingPriceId={stampEditLine.gatcStampingPriceId}
-          confirmLabel="Update"
-          onClose={() => setStampEditLineId(null)}
-          onConfirm={choice => {
-            applyStampEdit(choice);
-          }}
+          mode={stampDialog.kind === 'edit' ? 'edit' : 'add'}
+          preferWithStamping={stampDialog.kind === 'addWith'}
+          initialGatcStampingPriceId={
+            stampDialog.kind === 'edit' && stampEditLine
+              ? stampEditLine.gatcStampingPriceId
+              : null
+          }
+          title={stampDialog.kind === 'addWith' ? 'Add with stamping' : undefined}
+          confirmLabel={stampDialog.kind === 'addWith' ? 'Add line' : 'Update'}
+          onClose={() => setStampDialog(null)}
+          onConfirm={applyStampDialog}
         />
       )}
     </section>

@@ -79,11 +79,6 @@ import {
 } from '../../lib/catalogInventorySites';
 import { ProductDetailTabs, DEALER_PRODUCT_DETAIL_TABS, type ProductDetailTabId } from './ProductDetailTabs';
 import { ProductPackageInfo } from './ProductPackageInfo';
-import {
-  GatcStampingChoiceDialog,
-  shouldPromptGatcStamping,
-  type GatcStampingChoice,
-} from './GatcStampingChoiceDialog';
 import type { ProductNcExistingLocation } from './ProductNcPanel';
 import { ProductOpenNcTile } from './ProductOpenNcTile';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
@@ -291,9 +286,6 @@ export const ProductDetailView: React.FC<{
   const [whatsappShareOpen, setWhatsappShareOpen] = useState(false);
   const [auditRefreshBusy, setAuditRefreshBusy] = useState(false);
   const [auditRefreshError, setAuditRefreshError] = useState<string | null>(null);
-  const [gatcDialogOpen, setGatcDialogOpen] = useState(false);
-  const addToCartFlyAnchor = useRef<HTMLElement | null>(null);
-
   const scrolledHeaderTitle = useMemo(() => {
     if (variant !== 'app' || titleInView || !product) return null;
     return formatProductTitle(productEditMode ? editName || product.name : product.name);
@@ -982,31 +974,9 @@ export const ProductDetailView: React.FC<{
     if (!product || outOfStock) return;
     const quantity = parseQuantity(quantityText);
     setQuantityText(String(quantity));
-    if (shouldPromptGatcStamping(product)) {
-      addToCartFlyAnchor.current = event.currentTarget;
-      setGatcDialogOpen(true);
-      return;
-    }
+    // Stampable items add without stamping; dealer configures in cart.
     if (addItem(product, quantity)) {
       flyToCart(event.currentTarget, { imageUrl: product.imageUrl });
-      setAddedFlash(true);
-      window.setTimeout(() => setAddedFlash(false), 1500);
-    }
-  };
-
-  const confirmGatcAddToCart = (choice: GatcStampingChoice) => {
-    if (!product) return;
-    setGatcDialogOpen(false);
-    const quantity = parseQuantity(quantityText);
-    if (addItem(product, {
-      quantity,
-      gatcStampingPriceId: choice.gatcStampingPriceId,
-      gatcFeePerUnit: choice.gatcFeePerUnit,
-      gatcStampingRange: choice.gatcStampingRange,
-    })) {
-      if (addToCartFlyAnchor.current) {
-        flyToCart(addToCartFlyAnchor.current, { imageUrl: product.imageUrl });
-      }
       setAddedFlash(true);
       window.setTimeout(() => setAddedFlash(false), 1500);
     }
@@ -2643,14 +2613,6 @@ export const ProductDetailView: React.FC<{
         />
       )}
 
-      {showCartActions && product && (
-        <GatcStampingChoiceDialog
-          product={product}
-          open={gatcDialogOpen}
-          onClose={() => setGatcDialogOpen(false)}
-          onConfirm={confirmGatcAddToCart}
-        />
-      )}
     </div>
   );
 };

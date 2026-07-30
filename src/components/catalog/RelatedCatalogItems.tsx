@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { IndianRupee, Link2Off, Package, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/useCart';
@@ -7,11 +7,6 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import { QuantityStepper } from '../QuantityStepper';
 import { CategoryThumbnail } from './CategoryThumbnail';
-import {
-  GatcStampingChoiceDialog,
-  shouldPromptGatcStamping,
-  type GatcStampingChoice,
-} from './GatcStampingChoiceDialog';
 import { StockQuantity } from './StockBadge';
 
 function formatProductTitle(name: string): string {
@@ -31,42 +26,22 @@ function RelatedCatalogCartControls({
 }) {
   const { items, addItem, getQuantity, setQuantity } = useCart();
   const { flyToCart } = useCartFly();
-  const [gatcDialogOpen, setGatcDialogOpen] = useState(false);
-  const addFlyAnchor = useRef<HTMLElement | null>(null);
 
   if (!enableCart) return null;
 
   const outOfStock = item.stockStatus === 'out_of_stock';
   const cartQty = getQuantity(item.id);
-  const primaryLine = items.find(line => line.productId === item.id);
-  const canAdjustQty = Boolean(primaryLine) && !shouldPromptGatcStamping(item);
-
-  const commitAdd = (
-    choice?: GatcStampingChoice,
-    anchor?: HTMLElement | null,
-  ) => {
-    const ok = addItem(item, choice
-      ? {
-          quantity: 1,
-          gatcStampingPriceId: choice.gatcStampingPriceId,
-          gatcFeePerUnit: choice.gatcFeePerUnit,
-          gatcStampingRange: choice.gatcStampingRange,
-        }
-      : 1);
-    if (ok && anchor) {
-      flyToCart(anchor, { imageUrl: item.imageUrl });
-    }
-  };
+  // Prefer without-stamping line for qty stepper when multiple stamp variants exist.
+  const primaryLine = items.find(line => line.productId === item.id && !line.gatcStampingPriceId)
+    ?? items.find(line => line.productId === item.id);
 
   const handleAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (outOfStock) return;
-    if (shouldPromptGatcStamping(item)) {
-      addFlyAnchor.current = event.currentTarget;
-      setGatcDialogOpen(true);
-      return;
+    // Stampable items add without stamping; dealer configures in cart.
+    if (addItem(item, 1)) {
+      flyToCart(event.currentTarget, { imageUrl: item.imageUrl });
     }
-    commitAdd(undefined, event.currentTarget);
   };
 
   if (outOfStock) {
@@ -77,39 +52,28 @@ function RelatedCatalogCartControls({
     );
   }
 
-  if (cartQty === 0 || !canAdjustQty) {
+  if (cartQty === 0 || !primaryLine) {
     return (
-      <>
-        <div className="related-catalog__cart">
-          <button
-            type="button"
-            className="related-catalog__add-cart"
-            onClick={handleAdd}
-            aria-label={`Add ${item.name} to cart`}
-          >
-            <ShoppingCart size={16} aria-hidden />
-            <span>{cartQty > 0 ? `Add (${cartQty})` : 'Add'}</span>
-          </button>
-        </div>
-        <GatcStampingChoiceDialog
-          product={item}
-          open={gatcDialogOpen}
-          onClose={() => setGatcDialogOpen(false)}
-          onConfirm={choice => {
-            setGatcDialogOpen(false);
-            commitAdd(choice, addFlyAnchor.current);
-          }}
-        />
-      </>
+      <div className="related-catalog__cart">
+        <button
+          type="button"
+          className="related-catalog__add-cart"
+          onClick={handleAdd}
+          aria-label={`Add ${item.name} to cart`}
+        >
+          <ShoppingCart size={16} aria-hidden />
+          <span>Add</span>
+        </button>
+      </div>
     );
   }
 
   return (
     <div className="related-catalog__cart" aria-label={`Quantity in cart: ${cartQty}`}>
       <QuantityStepper
-        value={cartQty}
+        value={primaryLine.quantity}
         onChange={next => {
-          if (primaryLine) setQuantity(primaryLine.cartLineId, next);
+          setQuantity(primaryLine.cartLineId, next);
         }}
         className="related-catalog__qty"
         buttonClassName="related-catalog__qty-btn"

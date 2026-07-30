@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { IndianRupee, Package, ShoppingCart, Trash2 } from 'lucide-react';
 import { QuantityStepper } from '../../components/QuantityStepper';
@@ -38,6 +38,11 @@ export const OrdersPage: React.FC = () => {
   return <DealerCartPage />;
 };
 
+type StampDialogState =
+  | { kind: 'edit'; line: CartItem }
+  | { kind: 'addWith'; product: CatalogProduct }
+  | null;
+
 const DealerCartPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -49,6 +54,7 @@ const DealerCartPage: React.FC = () => {
     setRemarks,
     setQuantity,
     removeItem,
+    addItem,
     updateStamping,
     clearCart,
   } = useCart();
@@ -59,7 +65,7 @@ const DealerCartPage: React.FC = () => {
   const [shipping, setShipping] = useState<ShippingSelection | null>(null);
   const [descByProductId, setDescByProductId] = useState<Record<string, string>>({});
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
-  const [stampEditLine, setStampEditLine] = useState<CartItem | null>(null);
+  const [stampDialog, setStampDialog] = useState<StampDialogState>(null);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/catalog`;
@@ -103,6 +109,16 @@ const DealerCartPage: React.FC = () => {
     loadAddresses();
   }, [loadAddresses]);
 
+  const stampableWithoutStamping = useMemo(() => {
+    return items.filter(item => {
+      if (item.gatcStampingPriceId) return false;
+      const catalogProduct = catalogById[item.productId];
+      if (catalogProduct) return productHasLinkedGatc(catalogProduct);
+      // Fallback when catalog not loaded yet: treat known stampable cart fields as linked.
+      return false;
+    });
+  }, [items, catalogById]);
+
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
     if (!shipping) {
@@ -133,15 +149,24 @@ const DealerCartPage: React.FC = () => {
     }
   };
 
-  const applyStampEdit = (choice: GatcStampingChoice) => {
-    if (!stampEditLine) return;
-    updateStamping(stampEditLine.cartLineId, {
-      withStamping: choice.withStamping,
-      gatcStampingPriceId: choice.gatcStampingPriceId,
-      gatcFeePerUnit: choice.gatcFeePerUnit,
-      gatcStampingRange: choice.gatcStampingRange,
-    });
-    setStampEditLine(null);
+  const applyStampDialog = (choice: GatcStampingChoice) => {
+    if (!stampDialog) return;
+    if (stampDialog.kind === 'edit') {
+      updateStamping(stampDialog.line.cartLineId, {
+        withStamping: choice.withStamping,
+        gatcStampingPriceId: choice.gatcStampingPriceId,
+        gatcFeePerUnit: choice.gatcFeePerUnit,
+        gatcStampingRange: choice.gatcStampingRange,
+      });
+    } else if (choice.withStamping && choice.gatcStampingPriceId) {
+      addItem(stampDialog.product, {
+        quantity: 1,
+        gatcStampingPriceId: choice.gatcStampingPriceId,
+        gatcFeePerUnit: choice.gatcFeePerUnit,
+        gatcStampingRange: choice.gatcStampingRange,
+      });
+    }
+    setStampDialog(null);
   };
 
   if (items.length === 0) {
@@ -168,6 +193,12 @@ const DealerCartPage: React.FC = () => {
     );
   }
 
+  const stampDialogProduct = stampDialog
+    ? (stampDialog.kind === 'edit'
+      ? catalogById[stampDialog.line.productId]
+      : stampDialog.product)
+    : null;
+
   return (
     <div className="page-content fade-in orders-page">
       <div className="orders-page__header">
@@ -187,6 +218,18 @@ const DealerCartPage: React.FC = () => {
         </div>
       </div>
 
+      {stampableWithoutStamping.length > 0 && (
+        <div className="orders-page__stamp-reminder panel glass" role="status">
+          <p>
+            {stampableWithoutStamping.length === 1
+              ? '1 item can have stamping added.'
+              : `${stampableWithoutStamping.length} items can have stamping added.`}
+            {' '}
+            Use <strong>Change stamping</strong> on a line, or <strong>+ Add with stamping</strong> for a separate stamped line.
+          </p>
+        </div>
+      )}
+
       <div className="orders-page__layout">
         <div className="orders-page__cart-column">
           <ul className="orders-page__items">
@@ -198,6 +241,7 @@ const DealerCartPage: React.FC = () => {
               const canEditStamp = catalogProduct
                 ? productHasLinkedGatc(catalogProduct)
                 : Boolean(item.gatcStampingPriceId);
+              const hasStamping = Boolean(item.gatcStampingPriceId);
 
               return (
                 <li
@@ -236,14 +280,41 @@ const DealerCartPage: React.FC = () => {
                       </span>
                     )}
                     {canEditStamp && (
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm orders-page__stamp-btn"
-                        disabled={submitting}
-                        onClick={() => setStampEditLine(item)}
-                      >
-                        Change stamping
-                      </button>
+                      <div className="orders-page__stamp-actions">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm orders-page__stamp-btn"
+                          disabled={submitting}
+                          onClick={() => setStampDialog({ kind: 'edit', line: item })}
+                        >
+                          Change stamping
+                        </button>
+                        {hasStamping ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm orders-page__stamp-btn"
+                            disabled={submitting || !catalogProduct}
+                            onClick={() => {
+                              if (!catalogProduct) return;
+                              addItem(catalogProduct, 1);
+                            }}
+                          >
+                            + Add without stamping
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm orders-page__stamp-btn"
+                            disabled={submitting || !catalogProduct}
+                            onClick={() => {
+                              if (!catalogProduct) return;
+                              setStampDialog({ kind: 'addWith', product: catalogProduct });
+                            }}
+                          >
+                            + Add with stamping
+                          </button>
+                        )}
+                      </div>
                     )}
                     {unavailable && (
                       <p className="orders-page__item-warning">Currently out of stock — remove before placing order</p>
@@ -334,15 +405,19 @@ const DealerCartPage: React.FC = () => {
         </aside>
       </div>
 
-      {stampEditLine && catalogById[stampEditLine.productId] && (
+      {stampDialog && stampDialogProduct && (
         <GatcStampingChoiceDialog
-          product={catalogById[stampEditLine.productId]}
+          product={stampDialogProduct}
           open
-          mode="edit"
-          initialGatcStampingPriceId={stampEditLine.gatcStampingPriceId}
-          confirmLabel="Update"
-          onClose={() => setStampEditLine(null)}
-          onConfirm={applyStampEdit}
+          mode={stampDialog.kind === 'edit' ? 'edit' : 'add'}
+          preferWithStamping={stampDialog.kind === 'addWith'}
+          initialGatcStampingPriceId={
+            stampDialog.kind === 'edit' ? stampDialog.line.gatcStampingPriceId : null
+          }
+          title={stampDialog.kind === 'addWith' ? 'Add with stamping' : undefined}
+          confirmLabel={stampDialog.kind === 'addWith' ? 'Add line' : 'Update'}
+          onClose={() => setStampDialog(null)}
+          onConfirm={applyStampDialog}
         />
       )}
     </div>
