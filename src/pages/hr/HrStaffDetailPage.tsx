@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
-import { Pencil, ShieldCheck, Trash2, UserX } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Pencil, ShieldCheck, Trash2, UserX, X } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -9,7 +9,14 @@ import { HrStaffProfileView } from '../../components/hr/HrStaffProfileView';
 import { getHrFileUrl } from '../../lib/hrStaff';
 import { fetchStaffRoles, findStaffRole } from '../../lib/staffRoles';
 import { canManageHr, canManageSuperAdminsInHr, canSuperAdminWrite } from '../../lib/staffAccess';
-import { deactivateUser, deleteUserPermanently, promoteStaffToSuperAdmin } from '../../lib/userAdmin';
+import {
+  deactivateUser,
+  deleteUserPermanently,
+  promoteStaffToSuperAdmin,
+  setManagedUserPassword,
+} from '../../lib/userAdmin';
+import { resolveProfileLogin } from '../../lib/profileLogin';
+import { formatLoginIdDisplay, loginIdTypeLabel } from '../../lib/loginAuth';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
 import type { HrDocumentType } from '../../types/staff-hr';
@@ -30,6 +37,12 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [promoting, setPromoting] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+  const [showResetPw, setShowResetPw] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [resetSuccess, setResetSuccess] = useState('');
 
   const load = useCallback(async () => {
     if (!uid) return;
@@ -75,6 +88,46 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
   useEffect(() => {
     void load();
   }, [load]);
+
+  const closeResetModal = () => {
+    if (resetting) return;
+    setResetOpen(false);
+    setResetPassword('');
+    setShowResetPw(false);
+    setResetError('');
+  };
+
+  const openResetModal = () => {
+    setResetSuccess('');
+    setResetError('');
+    setResetPassword('');
+    setShowResetPw(false);
+    setResetOpen(true);
+  };
+
+  const handleResetPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!record || !canSuperAdminWrite(user) || record.uid === user?.uid) return;
+    const next = resetPassword.trim();
+    if (next.length < 6) {
+      setResetError('Password must be at least 6 characters.');
+      return;
+    }
+    setResetting(true);
+    setResetError('');
+    try {
+      await setManagedUserPassword(record.uid, next);
+      setResetSuccess(`Password updated for ${record.displayName}.`);
+      setResetOpen(false);
+      setResetPassword('');
+      setShowResetPw(false);
+      await load();
+    } catch (err: unknown) {
+      setResetError(err instanceof Error ? err.message : 'Could not reset password.');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleDeactivate = async () => {
     if (!record || record.uid === user?.uid) return;
@@ -148,10 +201,17 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
   }
 
   const canEdit = canManageHr(user);
+  const canResetPassword = canSuperAdminWrite(user) && record.uid !== user?.uid;
+  const login = resolveProfileLogin(record);
 
   return (
     <div className="hr-staff-detail">
       {error && <div className="login-error panel glass">{error}</div>}
+      {resetSuccess && (
+        <div className="hr-staff-detail__success panel glass" role="status">
+          {resetSuccess}
+        </div>
+      )}
 
       {canEdit && (
         <div className="hr-staff-detail__actions">
@@ -159,6 +219,16 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
             <Pencil size={15} />
             Edit
           </Link>
+          {canResetPassword && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={openResetModal}
+            >
+              <KeyRound size={15} />
+              Reset password
+            </button>
+          )}
           {canManageSuperAdminsInHr(user)
             && canSuperAdminWrite(user)
             && record.uid !== user?.uid
@@ -201,6 +271,85 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
           if (url) window.open(url, '_blank', 'noopener,noreferrer');
         }}
       />
+
+      {resetOpen && (
+        <div
+          className="dealers-modal-backdrop"
+          role="presentation"
+          onClick={closeResetModal}
+        >
+          <div
+            className="dealers-modal panel glass"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hr-reset-password-title"
+            onClick={e => e.stopPropagation()}
+          >
+            <header className="dealers-modal__header">
+              <h2 id="hr-reset-password-title">Reset password</h2>
+              <button
+                type="button"
+                className="dealers-modal__close"
+                onClick={closeResetModal}
+                aria-label="Close"
+                disabled={resetting}
+              >
+                <X size={18} aria-hidden />
+              </button>
+            </header>
+
+            <p className="text-muted text-sm" style={{ marginTop: 0 }}>
+              Set a new login password for <strong>{record.displayName}</strong>
+              {login ? (
+                <>
+                  {' '}({loginIdTypeLabel(login.type)} · {formatLoginIdDisplay(login.type, login.value)})
+                </>
+              ) : null}
+              .
+            </p>
+
+            <form className="dealers-modal__form" onSubmit={e => void handleResetPassword(e)}>
+              <label className="dealers-modal__field">
+                <span>New password</span>
+                <div className="dealers-modal__pw">
+                  <input
+                    type={showResetPw ? 'text' : 'password'}
+                    value={resetPassword}
+                    onChange={e => setResetPassword(e.target.value)}
+                    autoFocus
+                    required
+                    minLength={6}
+                    autoComplete="new-password"
+                    disabled={resetting}
+                  />
+                  <button
+                    type="button"
+                    className="dealers-modal__pw-toggle"
+                    onClick={() => setShowResetPw(v => !v)}
+                    aria-label={showResetPw ? 'Hide password' : 'Show password'}
+                  >
+                    {showResetPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </label>
+              {resetError && <p className="dealers-modal__error">{resetError}</p>}
+              <div className="dealers-modal__actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={closeResetModal}
+                  disabled={resetting}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={resetting}>
+                  {resetting ? 'Saving…' : 'Save password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
