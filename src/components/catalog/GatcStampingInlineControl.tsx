@@ -17,9 +17,13 @@ export const GatcStampingInlineControl: React.FC<{
   valueId?: string | null;
   disabled?: boolean;
   onChange: (choice: GatcStampingChoice) => void;
-  /** Compact sibling action for the opposite variant. */
+  /** Compact sibling action for the opposite / missing variant. */
   onAddSibling?: (choice: GatcStampingChoice) => void;
   hasStamping?: boolean;
+  /** Stamp price ids already used on other lines of this product in the order/cart. */
+  usedGatcIds?: string[];
+  /** True when an unstamped line for this product already exists. */
+  hasUnstampedSibling?: boolean;
 }> = ({
   product,
   valueId = null,
@@ -27,6 +31,8 @@ export const GatcStampingInlineControl: React.FC<{
   onChange,
   onAddSibling,
   hasStamping = Boolean(valueId),
+  usedGatcIds = [],
+  hasUnstampedSibling = false,
 }) => {
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
@@ -61,6 +67,21 @@ export const GatcStampingInlineControl: React.FC<{
 
   const selectValue = valueId?.trim() || NONE_VALUE;
 
+  const usedIdSet = useMemo(() => (
+    new Set(usedGatcIds.map(id => id.trim()).filter(Boolean))
+  ), [usedGatcIds]);
+
+  const unusedStampOptions = useMemo(
+    () => options.filter(opt => !usedIdSet.has(opt.id)),
+    [options, usedIdSet],
+  );
+
+  const showAddSibling = Boolean(onAddSibling) && (
+    hasStamping
+      ? !hasUnstampedSibling
+      : unusedStampOptions.length > 0
+  );
+
   const choiceFromId = (id: string | null): GatcStampingChoice => {
     if (!id) {
       return {
@@ -88,16 +109,16 @@ export const GatcStampingInlineControl: React.FC<{
   };
 
   const handleAddSibling = () => {
-    if (!onAddSibling) return;
+    if (!onAddSibling || !showAddSibling) return;
     if (hasStamping) {
       onAddSibling(choiceFromId(null));
       return;
     }
-    if (options.length === 1) {
-      onAddSibling(choiceFromId(options[0].id));
+    if (unusedStampOptions.length === 1) {
+      onAddSibling(choiceFromId(unusedStampOptions[0].id));
       return;
     }
-    if (options.length > 1) {
+    if (unusedStampOptions.length > 1) {
       setPickingAddRange(true);
     }
   };
@@ -114,11 +135,11 @@ export const GatcStampingInlineControl: React.FC<{
   );
 
   const addOptions = useMemo(
-    () => options.map(opt => ({
+    () => unusedStampOptions.map(opt => ({
       value: opt.id,
       label: formatGatcOptionLabel(opt),
     })),
-    [options],
+    [unusedStampOptions],
   );
 
   if (loading) {
@@ -146,7 +167,7 @@ export const GatcStampingInlineControl: React.FC<{
         />
       </div>
 
-      {onAddSibling ? (
+      {showAddSibling ? (
         <div className="gatc-stamp-inline__sibling">
           {pickingAddRange ? (
             <>
@@ -158,7 +179,7 @@ export const GatcStampingInlineControl: React.FC<{
                 disabled={disabled}
                 placeholder="Pick range to add…"
                 onChange={id => {
-                  if (!id.trim()) return;
+                  if (!id.trim() || !onAddSibling) return;
                   onAddSibling(choiceFromId(id));
                   setPickingAddRange(false);
                 }}
@@ -177,7 +198,7 @@ export const GatcStampingInlineControl: React.FC<{
             <button
               type="button"
               className="gatc-stamp-inline__add-btn"
-              disabled={disabled || (!hasStamping && options.length === 0)}
+              disabled={disabled}
               onClick={handleAddSibling}
             >
               {hasStamping ? '+ Add without stamping' : '+ Add with stamping'}

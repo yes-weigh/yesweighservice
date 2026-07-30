@@ -340,6 +340,12 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
               ? productHasLinkedGatc(catalogProduct)
               : Boolean(line.gatcStampingPriceId);
             const hasStamping = Boolean(line.gatcStampingPriceId);
+            const usedGatcIds = lines
+              .filter(other => other.productId === line.productId && other.gatcStampingPriceId)
+              .map(other => String(other.gatcStampingPriceId));
+            const hasUnstampedSibling = lines.some(
+              other => other.productId === line.productId && !other.gatcStampingPriceId,
+            );
             const listBase = line.catalogRate;
             const customized = allowRateEdit
               && catalogProduct != null
@@ -407,6 +413,8 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                       product={catalogProduct}
                       valueId={line.gatcStampingPriceId}
                       hasStamping={hasStamping}
+                      usedGatcIds={usedGatcIds}
+                      hasUnstampedSibling={hasUnstampedSibling}
                       disabled={saving}
                       onChange={choice => applyLineStamping(line.lineId, choice)}
                       onAddSibling={choice => insertOrMergeProduct(catalogProduct, choice)}

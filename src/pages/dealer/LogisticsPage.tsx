@@ -63,6 +63,8 @@ type FlowStep = 'closed' | 'partner' | 'book';
 type CardTone = 'all' | 'incomplete' | 'label' | 'shipped' | 'transit' | 'delivered' | 'exception';
 type StatFilterId = 'all' | LogisticsBookingStatus;
 
+const LIST_PAGE_SIZE = 10;
+
 const STATUS_STAT_META: ReadonlyArray<{
   id: StatFilterId;
   label: string;
@@ -226,6 +228,7 @@ export const LogisticsPage: React.FC = () => {
   const [dateRange, setDateRange] = useState(defaultDateRange);
   /** Super-admin wipe mode — off by default; only meaningful for super_admin. */
   const [superMode, setSuperMode] = useState(false);
+  const [page, setPage] = useState(1);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
@@ -291,6 +294,20 @@ export const LogisticsPage: React.FC = () => {
     if (!activeStatus) return source;
     return source.filter(booking => booking.status === activeStatus);
   }, [datedBookings, pipelineBookings, filters.status, statusFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, filters.status, filters.partnerId, filters.query, dateRange.from, dateRange.to]);
+
+  const totalPages = Math.max(1, Math.ceil(rangedBookings.length / LIST_PAGE_SIZE));
+  const pageBookings = useMemo(() => {
+    const start = (page - 1) * LIST_PAGE_SIZE;
+    return rangedBookings.slice(start, start + LIST_PAGE_SIZE);
+  }, [rangedBookings, page]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const stats = useMemo(() => {
     const counts: Record<StatFilterId, number> = {
@@ -772,7 +789,7 @@ export const LogisticsPage: React.FC = () => {
           ) : (
             <section className="logistics-page__list" aria-label="Logistics bookings">
               <ul className="logistics-page__entries">
-                {rangedBookings.map(booking => {
+                {pageBookings.map(booking => {
                   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
                   const tone = cardToneForStatus(booking);
                   const waybill = booking.trackingNo || booking.consignmentNo || '—';
@@ -865,6 +882,38 @@ export const LogisticsPage: React.FC = () => {
                   );
                 })}
               </ul>
+              {totalPages > 1 && (
+                <footer className="invoices-pagination invoices-pagination--sticky logistics-page__pagination">
+                  <span className="invoices-pagination__info text-muted text-sm">
+                    {pageBookings.length
+                      ? `${(page - 1) * LIST_PAGE_SIZE + 1}–${(page - 1) * LIST_PAGE_SIZE + pageBookings.length}`
+                      : '0'}
+                    {' of '}
+                    {rangedBookings.length.toLocaleString('en-IN')}
+                  </span>
+                  <div className="invoices-pagination__btns">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={page <= 1 || loading}
+                      onClick={() => setPage(p => p - 1)}
+                    >
+                      Prev
+                    </button>
+                    <span className="invoices-pagination__page text-sm">
+                      {page} / {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={page >= totalPages || loading}
+                      onClick={() => setPage(p => p + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </footer>
+              )}
             </section>
           )}
         </div>

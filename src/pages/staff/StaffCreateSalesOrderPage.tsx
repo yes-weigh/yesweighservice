@@ -353,7 +353,6 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       {selectedDealer ? (
         <>
           <section className="panel glass staff-create-so-page__section">
-            <h2>Shipping address</h2>
             <ShippingAddressPicker
               addresses={addresses}
               loading={addressesLoading}

@@ -218,6 +218,12 @@ const DealerCartPage: React.FC = () => {
                 ? productHasLinkedGatc(catalogProduct)
                 : Boolean(item.gatcStampingPriceId);
               const hasStamping = Boolean(item.gatcStampingPriceId);
+              const usedGatcIds = items
+                .filter(other => other.productId === item.productId && other.gatcStampingPriceId)
+                .map(other => String(other.gatcStampingPriceId));
+              const hasUnstampedSibling = items.some(
+                other => other.productId === item.productId && !other.gatcStampingPriceId,
+              );
 
               return (
                 <li
@@ -260,6 +266,8 @@ const DealerCartPage: React.FC = () => {
                         product={catalogProduct}
                         valueId={item.gatcStampingPriceId}
                         hasStamping={hasStamping}
+                        usedGatcIds={usedGatcIds}
+                        hasUnstampedSibling={hasUnstampedSibling}
                         disabled={submitting}
                         onChange={choice => applyLineStamping(item.cartLineId, choice)}
                         onAddSibling={choice => {

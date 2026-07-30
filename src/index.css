@@ -13374,6 +13374,77 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #f87171;
 }
 
+.ship-addr-picker__summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 130, 32, 0.28);
+  background: rgba(245, 130, 32, 0.08);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ship-addr-picker__summary:hover:not(:disabled) {
+  border-color: rgba(245, 130, 32, 0.5);
+  background: rgba(245, 130, 32, 0.12);
+}
+
+.ship-addr-picker__summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(245, 130, 32, 0.2);
+}
+
+.ship-addr-picker__summary-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.ship-addr-picker__summary-label {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--accent-primary-light, #ff9a3c);
+}
+
+.ship-addr-picker__summary-text {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: rgba(226, 232, 240, 0.78);
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ship-addr-picker__summary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.ship-addr-picker__expanded-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .ship-addr-picker__list {
   display: flex;
   flex-direction: column;
@@ -13393,13 +13464,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .ship-addr-picker__option.is-selected {
-  border-color: rgba(96, 165, 250, 0.55);
-  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(245, 130, 32, 0.55);
+  background: rgba(245, 130, 32, 0.12);
 }
 
 .ship-addr-picker__option input {
   margin-top: 0.2rem;
   flex-shrink: 0;
+  accent-color: var(--accent-primary, #f58220);
 }
 
 .ship-addr-picker__option-body {
@@ -16260,6 +16332,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   padding: 0;
 }
 
+.logistics-page__pagination {
+  --invoices-pad: 0;
+  margin: 0.75rem 0 0;
+  padding: 0.55rem 0;
+}
+
 .logistics-page__entries {
   list-style: none;
   margin: 0;
@@ -16267,6 +16345,17 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .logistics-page:has(.logistics-page__pagination) {
+    padding-bottom: calc(var(--invoices-pagination-height, 3.25rem) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .logistics-page .logistics-page__pagination.invoices-pagination--sticky {
+    padding-left: max(0.85rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.85rem, env(safe-area-inset-right, 0px));
+  }
 }
 
 .logistics-shipment {
