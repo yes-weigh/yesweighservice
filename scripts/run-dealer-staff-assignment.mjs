@@ -2,6 +2,7 @@
  * Run from repo root or functions/:
  *   node scripts/run-dealer-staff-assignment.mjs --dry-run
  *   node scripts/run-dealer-staff-assignment.mjs --all
+ *   node scripts/run-dealer-staff-assignment.mjs --fill-unassigned
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,7 +12,8 @@ import { pathToFileURL } from 'node:url';
 const args = new Set(process.argv.slice(2));
 const dryRun = args.has('--dry-run');
 const doWipe = args.has('--wipe') || args.has('--all');
-const doBackfill = !args.has('--wipe') || args.has('--all');
+const onlyFillUnassigned = args.has('--fill-unassigned');
+const doBackfill = onlyFillUnassigned || !args.has('--wipe') || args.has('--all');
 
 const functionsDir = path.resolve('functions');
 const requireFromFunctions = createRequire(path.join(functionsDir, 'package.json'));
@@ -51,9 +53,14 @@ const mod = await import(
 );
 
 if (doBackfill) {
-  console.log(dryRun ? 'Backfill dry-run…' : 'Backfill live…');
+  console.log(
+    dryRun
+      ? `Backfill dry-run${onlyFillUnassigned ? ' (fill unassigned only)' : ''}…`
+      : `Backfill live${onlyFillUnassigned ? ' (fill unassigned only)' : ''}…`,
+  );
   const result = await mod.backfillDealerAssignedStaff({
     dryRun,
+    onlyFillUnassigned,
     onProgress: p => console.log('progress', JSON.stringify(p)),
   });
   console.log('backfill result:', JSON.stringify(result, null, 2));

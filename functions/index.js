@@ -92,6 +92,7 @@ import {
 } from './lib/invoice-stats.js';
 import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
 import {
+  analyzeDealerStaffLinking,
   backfillDealerAssignedStaff,
   wipeLegacyKamData,
 } from './lib/dealer-staff-assignment.js';
@@ -2154,7 +2155,7 @@ export const backfillSalesOrderStatsFn = onCall(
 );
 
 /**
- * Assign dealers to portal staff from latest invoice salespersonId.
+ * Assign dealers to portal staff from latest usable invoice salespersonId.
  */
 export const backfillDealerAssignedStaffFn = onCall(
   {
@@ -2167,10 +2168,31 @@ export const backfillDealerAssignedStaffFn = onCall(
     try {
       return await backfillDealerAssignedStaff({
         dryRun: Boolean(request.data?.dryRun),
+        onlyFillUnassigned: Boolean(request.data?.onlyFillUnassigned),
       });
     } catch (err) {
       console.error('backfillDealerAssignedStaff failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Dealer staff assignment backfill failed.');
+    }
+  },
+);
+
+/**
+ * Super-admin Dealers tab: salesperson unlocks + dealers with no usable invoice.
+ */
+export const analyzeDealerStaffLinkingFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await analyzeDealerStaffLinking();
+    } catch (err) {
+      console.error('analyzeDealerStaffLinking failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Dealer staff linking analysis failed.');
     }
   },
 );

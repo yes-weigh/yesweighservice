@@ -23,7 +23,7 @@ export interface CatalogFilters {
   stockStatus?: string;
 }
 
-const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl', 'software keys', 'inactive']);
+const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl', 'inactive']);
 
 /** Replaced product images keep the same Storage path with a long cache TTL — bust with syncedAt. */
 export function withCatalogImageCacheBust(

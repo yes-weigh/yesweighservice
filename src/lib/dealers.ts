@@ -278,4 +278,83 @@ export async function backfillDealerLocations(): Promise<{
   };
 }
 
+export type DealerStaffLinkingUnlock = {
+  zohoSalespersonId: string;
+  zohoSalespersonName: string | null;
+  unassignedDealers: number;
+};
+
+export type DealerStaffLinkingAssignable = DealerStaffLinkingUnlock & {
+  linkedStaffUid: string;
+  linkedStaffName: string;
+  linkedStaffEmail: string | null;
+};
+
+export type DealerStaffLinkingNoInvoice = {
+  id: string;
+  companyName: string | null;
+  contactName: string | null;
+  dealerCode: string | null;
+  billingState: string | null;
+  billingCity: string | null;
+};
+
+export type DealerStaffLinkingAnalysis = {
+  ignoredSalespersons: string[];
+  summary: {
+    totalDealers: number;
+    unassignedDealers: number;
+    alreadyAssignable: number;
+    needStaffLink: number;
+    noUsableInvoice: number;
+  };
+  unlocks: DealerStaffLinkingUnlock[];
+  alreadyAssignableBySalesperson: DealerStaffLinkingAssignable[];
+  noUsableInvoiceDealers: DealerStaffLinkingNoInvoice[];
+};
+
+export async function analyzeDealerStaffLinking(): Promise<DealerStaffLinkingAnalysis> {
+  const fn = httpsCallable<undefined, DealerStaffLinkingAnalysis>(
+    functions,
+    'analyzeDealerStaffLinkingFn',
+    { timeout: 600_000 },
+  );
+  const result = await fn();
+  return result.data;
+}
+
+export async function backfillDealerAssignedStaff(options?: {
+  dryRun?: boolean;
+  onlyFillUnassigned?: boolean;
+}): Promise<{
+  dryRun: boolean;
+  onlyFillUnassigned: boolean;
+  scanned: number;
+  assigned: number;
+  filled: number;
+  unassigned: number;
+  noInvoice: number;
+  unknownSalesperson: number;
+  unchanged: number;
+  skippedAlreadyAssigned: number;
+}> {
+  const fn = httpsCallable(functions, 'backfillDealerAssignedStaffFn', { timeout: 600_000 });
+  const result = await fn({
+    dryRun: Boolean(options?.dryRun),
+    onlyFillUnassigned: Boolean(options?.onlyFillUnassigned),
+  });
+  return result.data as {
+    dryRun: boolean;
+    onlyFillUnassigned: boolean;
+    scanned: number;
+    assigned: number;
+    filled: number;
+    unassigned: number;
+    noInvoice: number;
+    unknownSalesperson: number;
+    unchanged: number;
+    skippedAlreadyAssigned: number;
+  };
+}
+
 export { dealerErrorMessage };

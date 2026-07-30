@@ -13,6 +13,7 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
+import { DealerStaffLinkingPanel } from '../../components/dealers/DealerStaffLinkingPanel';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { DEALER_STATUS_LEGEND } from '../../lib/dealerStatus';
@@ -31,6 +32,8 @@ import {
 import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
 import { homePathForRole, type Role } from '../../types';
 import { hasStaffPermission } from '../../lib/staffAccess';
+
+type DealersMainTab = 'roster' | 'linking';
 
 function dealersListBase(role: Role): string {
   return `${homePathForRole(role)}/dealers`;
@@ -51,8 +54,10 @@ export function ZohoDealersPage() {
   const { user } = useAuth();
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
   const isStaffScoped = user?.role === 'staff';
+  const isSuperAdmin = user?.role === 'super_admin';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
+  const [mainTab, setMainTab] = useState<DealersMainTab>('roster');
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
@@ -329,6 +334,33 @@ export function ZohoDealersPage() {
 
   return (
     <div className="page-content fade-in dealers-page">
+      {isSuperAdmin ? (
+        <div className="dealers-page-tabs" role="tablist" aria-label="Dealers sections">
+          <button
+            type="button"
+            role="tab"
+            className={`dealers-page-tabs__tab${mainTab === 'roster' ? ' dealers-page-tabs__tab--active' : ''}`}
+            aria-selected={mainTab === 'roster'}
+            onClick={() => setMainTab('roster')}
+          >
+            Dealer roster
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`dealers-page-tabs__tab${mainTab === 'linking' ? ' dealers-page-tabs__tab--active' : ''}`}
+            aria-selected={mainTab === 'linking'}
+            onClick={() => setMainTab('linking')}
+          >
+            Dealer linking check
+          </button>
+        </div>
+      ) : null}
+
+      {isSuperAdmin && mainTab === 'linking' ? (
+        <DealerStaffLinkingPanel />
+      ) : (
+      <>
       {success && (
         <div className="products-inline-error panel glass" style={{ borderColor: 'rgba(16,185,129,0.35)', color: '#6ee7b7' }}>
           <span>{success}</span>
@@ -575,6 +607,8 @@ export function ZohoDealersPage() {
             <X size={14} />
           </button>
         </div>
+      )}
+      </>
       )}
 
     </div>
