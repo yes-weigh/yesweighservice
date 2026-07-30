@@ -93,13 +93,18 @@ function parseEditableCarton(form: EditableCarton): CatalogPackageCarton | null 
 }
 
 function parseEditableSingleBoxes(rows: EditableCarton[]): CatalogPackageCarton[] | null {
-  const boxes = rows
-    .map(row => {
-      const parsed = parseEditableCarton({ ...row, quantity: '' });
-      if (!parsed) return null;
-      return { ...parsed, quantity: null };
-    })
-    .filter((row): row is CatalogPackageCarton => Boolean(row));
+  const boxes: CatalogPackageCarton[] = [];
+  for (const row of rows) {
+    const parsed = parseEditableCarton({ ...row, quantity: '' });
+    if (!parsed) continue;
+    boxes.push({
+      quantity: null,
+      weightKg: parsed.weightKg,
+      lengthCm: parsed.lengthCm,
+      breadthCm: parsed.breadthCm,
+      heightCm: parsed.heightCm,
+    });
+  }
   return boxes.length ? boxes : null;
 }
 
