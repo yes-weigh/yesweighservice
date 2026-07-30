@@ -14,7 +14,16 @@ import {
   resolveSalespersonForCustomer,
   resolveSalespersonForStaff,
   resolveSalespersonById,
+  resolveSpareInchargeSalesperson,
+  resolveCloudChargesSalesperson,
 } from './sales-order-salesperson.js';
+import {
+  classifyOrderLineSegment,
+  groupLinesBySegment,
+  segmentLabel,
+  staffCanAddOrderSegment,
+  ORDER_SEGMENTS,
+} from './sales-order-segments.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
@@ -199,6 +208,7 @@ function toOrderLine(product, quantity, finalRate, catalogBaseRate) {
     lineTotal: lineTotal(rate, qty),
     stockStatus: product.stockStatus,
     categoryName: product.categoryName,
+    categoryId: product.categoryId,
     taxPercentage: product.taxPercentage,
     hsn: product.hsn,
   };
@@ -317,15 +327,133 @@ async function loadDealerProfile(dealerId, zohoCustomerId) {
   };
 }
 
-function isSpareCategory(categoryName, categoryId) {
-  const name = String(categoryName ?? '').toLowerCase();
-  if (name.includes('spare')) return true;
-  const id = String(categoryId ?? '').toLowerCase();
-  return id.includes('spare');
+function isSpareSegmentLine(line) {
+  return classifyOrderLineSegment(line) === 'spare';
 }
 
 /**
- * Place cart as a Zoho Inventory Draft sales order and mirror it locally.
+ * Resolve salespersons required by non-empty segment groups.
+ * Product may be null for dealer path (KAM optional).
+ * Spare / software throw if missing.
+ */
+async function resolveSegmentSalespersons(groups, {
+  productResolver,
+}) {
+  const bySegment = {};
+  if (groups.product.length > 0) {
+    bySegment.product = await productResolver();
+  }
+  if (groups.spare.length > 0) {
+    try {
+      bySegment.spare = await resolveSpareInchargeSalesperson();
+    } catch (err) {
+      throw new HttpsError('failed-precondition', err?.message || 'Spare Incharge salesperson missing.');
+    }
+  }
+  if (groups.software.length > 0) {
+    try {
+      bySegment.software = await resolveCloudChargesSalesperson();
+    } catch (err) {
+      throw new HttpsError('failed-precondition', err?.message || 'Cloud Charges salesperson missing.');
+    }
+  }
+  return bySegment;
+}
+
+async function createSegmentSalesOrders({
+  secrets,
+  orgId,
+  zohoCustomerId,
+  shippingResolved,
+  remarks,
+  groups,
+  salespersonsBySegment,
+  orderNumberBase,
+  workflowBase,
+  pricedLineMapper = line => line,
+}) {
+  const created = [];
+  const segmentOrder = ORDER_SEGMENTS.filter(segment => groups[segment].length > 0);
+
+  for (let i = 0; i < segmentOrder.length; i += 1) {
+    const segment = segmentOrder[i];
+    const segmentLines = groups[segment].map(pricedLineMapper);
+    const subtotal = sumSubtotal(segmentLines);
+    const salesperson = salespersonsBySegment[segment] || null;
+    const orderNumber = segmentOrder.length === 1
+      ? orderNumberBase
+      : `${orderNumberBase}-${segment === 'spare' ? 'SP' : segment === 'software' ? 'SW' : 'P'}`;
+
+    const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
+      id: orderNumber,
+      orderNumber,
+      zohoCustomerId,
+      lines: segmentLines,
+      subtotal,
+      remarks: segmentOrder.length === 1
+        ? remarks
+        : (remarks
+          ? `${remarks}\n[${segmentLabel(segment)} segment]`
+          : `[${segmentLabel(segment)} segment]`),
+      shippingAddressId: shippingResolved.shippingAddressId,
+      shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
+      salespersonId: salesperson?.id || null,
+    });
+
+    const salesOrderId = so.salesOrderId;
+    const salesOrderNumber = so.salesOrderNumber;
+    const status = so.status || 'draft';
+
+    const workflowExtras = {
+      ...workflowBase,
+      yesOneCartReference: orderNumber,
+      yesOneOrderSegment: segment,
+      shippingAddressId: shippingResolved.shippingAddressId || null,
+      shippingAddress: shippingResolved.address?.formatted || null,
+      ...yesOneGatcPersistFields(segmentLines),
+      ...(salesperson ? {
+        salespersonId: salesperson.id,
+        salespersonName: salesperson.name,
+      } : {}),
+      ...(workflowBase.yesOneStage === 'ready_for_payment'
+        ? { paymentAmount: subtotal }
+        : {}),
+    };
+
+    try {
+      await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
+      await initYesOneSalesOrderWorkflow(salesOrderId, workflowExtras);
+    } catch (mirrorErr) {
+      console.warn(
+        `Order ${orderNumber}: could not mirror SO ${salesOrderId}:`,
+        mirrorErr?.message ?? mirrorErr,
+      );
+      try {
+        await initYesOneSalesOrderWorkflow(salesOrderId, workflowExtras);
+      } catch {
+        // Mirror may have failed entirely; workflow seed best-effort.
+      }
+    }
+
+    created.push({
+      segment,
+      segmentLabel: segmentLabel(segment),
+      orderNumber,
+      zohoSalesOrderId: salesOrderId,
+      zohoSalesOrderNumber: salesOrderNumber,
+      status,
+      subtotal,
+      itemCount: sumItemCount(segmentLines),
+      salespersonId: salesperson?.id || null,
+      salespersonName: salesperson?.name || null,
+    });
+  }
+
+  return created;
+}
+
+/**
+ * Place cart as one or more Zoho Inventory Draft sales orders (split by segment).
  * Does not write a portal dealerOrders document.
  */
 export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId) {
@@ -349,7 +477,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   const { lines } = await buildLinesFromInput(payload.lines);
 
   if (profile.canBuySpares === false) {
-    const spare = lines.find(line => isSpareCategory(line.categoryName, null));
+    const spare = lines.find(isSpareSegmentLine);
     if (spare) {
       throw new HttpsError(
         'failed-precondition',
@@ -380,72 +508,40 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   }
 
   const remarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
-
+  const groups = groupLinesBySegment(lines);
   const orderNumber = await nextOrderNumber();
-  let salesOrderId = null;
-  let salesOrderNumber = null;
-  let status = 'draft';
 
+  let salesOrders;
   try {
-    const salesperson = await resolveSalespersonForCustomer(zohoCustomerId);
-    const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
-      id: orderNumber,
-      orderNumber,
-      zohoCustomerId,
-      lines,
-      subtotal,
-      remarks,
-      shippingAddressId: shippingResolved.shippingAddressId,
-      shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
-      salespersonId: salesperson?.id || null,
+    const salespersonsBySegment = await resolveSegmentSalespersons(groups, {
+      productResolver: async () => resolveSalespersonForCustomer(zohoCustomerId),
     });
-    salesOrderId = so.salesOrderId;
-    salesOrderNumber = so.salesOrderNumber;
-    status = so.status || 'draft';
-    try {
-      await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
-      await initYesOneSalesOrderWorkflow(salesOrderId, {
+
+    salesOrders = await createSegmentSalesOrders({
+      secrets,
+      orgId,
+      zohoCustomerId,
+      shippingResolved,
+      remarks,
+      groups,
+      salespersonsBySegment,
+      orderNumberBase: orderNumber,
+      workflowBase: {
         yesOneCreatedFromCart: true,
-        yesOneCartReference: orderNumber,
-        shippingAddressId: shippingResolved.shippingAddressId || null,
-        shippingAddress: shippingResolved.address?.formatted || null,
-        ...yesOneGatcPersistFields(lines),
-        ...(salesperson ? {
-          salespersonId: salesperson.id,
-          salespersonName: salesperson.name,
-        } : {}),
-      });
-    } catch (mirrorErr) {
-      console.warn(
-        `Submit order ${orderNumber}: could not mirror SO ${salesOrderId}:`,
-        mirrorErr?.message ?? mirrorErr,
-      );
-      try {
-        await initYesOneSalesOrderWorkflow(salesOrderId, {
-          yesOneCreatedFromCart: true,
-          yesOneCartReference: orderNumber,
-          shippingAddressId: shippingResolved.shippingAddressId || null,
-          shippingAddress: shippingResolved.address?.formatted || null,
-          ...yesOneGatcPersistFields(lines),
-          ...(salesperson ? {
-            salespersonId: salesperson.id,
-            salespersonName: salesperson.name,
-          } : {}),
-        });
-      } catch {
-        // Mirror may have failed entirely; workflow seed best-effort.
-      }
-    }
+      },
+    });
   } catch (err) {
+    if (err instanceof HttpsError) throw err;
     const message = err?.message || 'Could not create Zoho sales order.';
     throw new HttpsError('failed-precondition', message);
   }
 
+  const primary = salesOrders[0] || null;
   return {
-    zohoSalesOrderId: salesOrderId,
-    zohoSalesOrderNumber: salesOrderNumber,
-    orderNumber,
-    status,
+    zohoSalesOrderId: primary?.zohoSalesOrderId || null,
+    zohoSalesOrderNumber: primary?.zohoSalesOrderNumber || null,
+    orderNumber: primary?.orderNumber || orderNumber,
+    status: primary?.status || 'draft',
     subtotal,
     itemCount: sumItemCount(lines),
     dealerId,
@@ -453,11 +549,12 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     dealerName: profile.dealerName,
     createdByUid: uid,
     createdByName: displayName(user),
+    salesOrders,
   };
 }
 
 /**
- * Staff/ops create a Zoho Draft SO for any Zoho dealer (portal login optional),
+ * Staff/ops create one or more Zoho Draft SOs for a Zoho dealer (split by segment),
  * with optional per-line rate overrides and initial YesOne stage.
  */
 export async function createStaffSalesOrder(uid, role, payload = {}, secrets, orgId) {
@@ -481,31 +578,13 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     ? 'ready_for_payment'
     : 'review';
 
-  const salesperson = await resolveSalespersonForStaff(uid)
-    ?? (
-      isFullSuperAdmin(user)
-        ? await resolveSalespersonById(payload.salespersonId, {
-            staffUid: uid,
-            staffName: displayName(user),
-          })
-        : null
-    );
-  if (!salesperson) {
-    throw new HttpsError(
-      'failed-precondition',
-      isFullSuperAdmin(user)
-        ? 'Select a Zoho salesperson for this order.'
-        : 'Link at least one Zoho salesperson to your staff account before creating orders.',
-    );
-  }
-
   const profile = await loadDealerProfile(null, zohoCustomerId);
   const { lines, priceChanges } = await buildLinesFromInput(payload.lines, {
     allowRateOverride: true,
   });
 
   if (profile.canBuySpares === false) {
-    const spare = lines.find(line => isSpareCategory(line.categoryName, null));
+    const spare = lines.find(isSpareSegmentLine);
     if (spare) {
       throw new HttpsError(
         'failed-precondition',
@@ -514,6 +593,26 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     }
   }
 
+  const fullSA = isFullSuperAdmin(user);
+  const actorForSegments = {
+    role: user.role,
+    spareIncharge: user.data?.spareIncharge === true,
+  };
+  for (const line of lines) {
+    const segment = classifyOrderLineSegment(line);
+    if (!staffCanAddOrderSegment(actorForSegments, segment, { isFullSuperAdmin: fullSA })) {
+      throw new HttpsError(
+        'permission-denied',
+        segment === 'spare'
+          ? 'Only super admins and Spare Incharge can add spare parts to a sales order.'
+          : actorForSegments.spareIncharge
+            ? 'Spare Incharge can only add spare parts to a sales order.'
+            : `You are not allowed to add ${segmentLabel(segment).toLowerCase()} items.`,
+      );
+    }
+  }
+
+  const groups = groupLinesBySegment(lines);
   const subtotal = sumSubtotal(lines);
   if (profile.maxOrderLimit != null && profile.maxOrderLimit > 0 && subtotal > profile.maxOrderLimit) {
     throw new HttpsError(
@@ -539,27 +638,30 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
   const orderNumber = await nextOrderNumber();
   const at = nowIso();
   const actorName = displayName(user);
-  const pricedLines = lines.map(({ catalogRate: _c, ...line }) => line);
 
-  let salesOrderId = null;
-  let salesOrderNumber = null;
-  let status = 'draft';
-
+  let salesOrders;
   try {
-    const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
-      id: orderNumber,
-      orderNumber,
-      zohoCustomerId,
-      lines: pricedLines,
-      subtotal,
-      remarks,
-      shippingAddressId: shippingResolved.shippingAddressId,
-      shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
-      salespersonId: salesperson.id,
+    const salespersonsBySegment = await resolveSegmentSalespersons(groups, {
+      productResolver: async () => {
+        const linked = await resolveSalespersonForStaff(uid);
+        if (linked) return linked;
+        if (fullSA) {
+          const picked = await resolveSalespersonById(payload.salespersonId, {
+            staffUid: uid,
+            staffName: actorName,
+          });
+          if (picked) return picked;
+          throw new HttpsError(
+            'failed-precondition',
+            'Select a Zoho salesperson for the product sales order.',
+          );
+        }
+        throw new HttpsError(
+          'failed-precondition',
+          'Link at least one Zoho salesperson to your staff account before creating product orders.',
+        );
+      },
     });
-    salesOrderId = so.salesOrderId;
-    salesOrderNumber = so.salesOrderNumber;
-    status = so.status || 'draft';
 
     const priceAudit = priceChanges.map(change => ({
       ...change,
@@ -568,57 +670,44 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
       changedByName: actorName,
     }));
 
-    const workflowExtras = {
-      yesOneCreatedByStaff: true,
-      yesOneCreatedFromCart: false,
-      yesOneCartReference: orderNumber,
-      yesOneCreatedByUid: uid,
-      yesOneCreatedByName: actorName,
-      shippingAddressId: shippingResolved.shippingAddressId || null,
-      shippingAddress: shippingResolved.address?.formatted || null,
-      salespersonId: salesperson.id,
-      salespersonName: salesperson.name,
-      yesOnePriceCustomized: priceAudit.length > 0,
-      yesOnePriceChanges: priceAudit,
-      ...yesOneGatcPersistFields(lines),
-      ...(stageTarget === 'ready_for_payment'
-        ? {
-          yesOneStage: 'ready_for_payment',
-          readyForPaymentAt: at,
-          readyForPaymentByUid: uid,
-          readyForPaymentByName: actorName,
-          paymentAmount: subtotal,
-        }
-        : {}),
-    };
-
-    try {
-      await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
-      await initYesOneSalesOrderWorkflow(salesOrderId, workflowExtras);
-    } catch (mirrorErr) {
-      console.warn(
-        `Staff create order ${orderNumber}: could not mirror SO ${salesOrderId}:`,
-        mirrorErr?.message ?? mirrorErr,
-      );
-      try {
-        await initYesOneSalesOrderWorkflow(salesOrderId, {
-          ...workflowExtras,
-          paymentAmount: stageTarget === 'ready_for_payment' ? subtotal : undefined,
-        });
-      } catch {
-        // best-effort
-      }
-    }
+    salesOrders = await createSegmentSalesOrders({
+      secrets,
+      orgId,
+      zohoCustomerId,
+      shippingResolved,
+      remarks,
+      groups,
+      salespersonsBySegment,
+      orderNumberBase: orderNumber,
+      pricedLineMapper: ({ catalogRate: _c, ...line }) => line,
+      workflowBase: {
+        yesOneCreatedByStaff: true,
+        yesOneCreatedFromCart: false,
+        yesOneCreatedByUid: uid,
+        yesOneCreatedByName: actorName,
+        yesOnePriceCustomized: priceAudit.length > 0,
+        yesOnePriceChanges: priceAudit,
+        ...(stageTarget === 'ready_for_payment'
+          ? {
+            yesOneStage: 'ready_for_payment',
+            readyForPaymentAt: at,
+            readyForPaymentByUid: uid,
+            readyForPaymentByName: actorName,
+          }
+          : {}),
+      },
+    });
   } catch (err) {
     if (err instanceof HttpsError) throw err;
     throw new HttpsError('failed-precondition', err?.message || 'Could not create Zoho sales order.');
   }
 
+  const primary = salesOrders[0] || null;
   return {
-    zohoSalesOrderId: salesOrderId,
-    zohoSalesOrderNumber: salesOrderNumber,
-    orderNumber,
-    status,
+    zohoSalesOrderId: primary?.zohoSalesOrderId || null,
+    zohoSalesOrderNumber: primary?.zohoSalesOrderNumber || null,
+    orderNumber: primary?.orderNumber || orderNumber,
+    status: primary?.status || 'draft',
     yesOneStage: stageTarget,
     subtotal,
     itemCount: sumItemCount(lines),
@@ -627,6 +716,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     priceCustomized: priceChanges.length > 0,
     createdByUid: uid,
     createdByName: actorName,
+    salesOrders,
   };
 }
 

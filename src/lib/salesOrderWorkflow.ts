@@ -137,15 +137,27 @@ export async function createStaffSalesOrder(input: {
   shipping: ShippingSelection;
   stage: 'review' | 'ready_for_payment';
   remarks?: string;
-  /** Full super admin without a linked Zoho salesperson: required override. */
+  /** Full super admin without a linked Zoho salesperson: required override for product segment. */
   salespersonId?: string | null;
 }): Promise<{
-  zohoSalesOrderId: string;
+  zohoSalesOrderId: string | null;
   zohoSalesOrderNumber: string | null;
   orderNumber: string;
   yesOneStage: string;
   subtotal: number;
   priceCustomized: boolean;
+  salesOrders?: Array<{
+    segment: 'product' | 'spare' | 'software';
+    segmentLabel: string;
+    orderNumber: string;
+    zohoSalesOrderId: string;
+    zohoSalesOrderNumber: string | null;
+    status: string;
+    subtotal: number;
+    itemCount: number;
+    salespersonId: string | null;
+    salespersonName: string | null;
+  }>;
 }> {
   try {
     return await call(

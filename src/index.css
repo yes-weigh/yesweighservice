@@ -13330,6 +13330,65 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 1.125rem;
 }
 
+.multi-so-success {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem !important;
+  max-width: 40rem;
+}
+
+.multi-so-success__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.multi-so-success__header svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: #34d399;
+}
+
+.multi-so-success__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.125rem;
+}
+
+.multi-so-success__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.multi-so-success__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.multi-so-success__item p {
+  margin: 0.15rem 0 0;
+}
+
+.multi-so-success__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.staff-create-so-page__segment-hint {
+  margin: 0.35rem 0 0;
+}
+
 .orders-page__remarks {
   display: flex;
   flex-direction: column;

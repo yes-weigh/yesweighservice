@@ -5,6 +5,7 @@ import {
   SalesOrderDraftLineEditor,
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
+import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { ThemeSelect } from '../../components/ThemeSelect';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -15,12 +16,21 @@ import {
   peekCachedDealers,
   subscribeDealerCache,
 } from '../../lib/dealer-cache';
-import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
+import {
+  dealerOrderErrorMessage,
+  type SegmentSalesOrderResult,
+} from '../../lib/dealerOrders';
 import {
   dealerMatchesLogisticsQuery,
   zohoDealerContactPerson,
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
+import {
+  catalogProductAllowedForUser,
+  classifyOrderLineSegment,
+  segmentLabel,
+  summarizeSegments,
+} from '../../lib/salesOrderSegments';
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
@@ -34,6 +44,7 @@ import {
 } from '../../lib/zohoSalespersons';
 import type { ZohoDealer } from '../../types/dealers';
 import type { User } from '../../types';
+import type { CatalogProduct } from '../../types/catalog';
 
 type SelectedDealer = {
   id: string;
@@ -76,7 +87,10 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const listPath = pathname.startsWith('/super-admin')
     ? '/super-admin/sales-orders'
     : '/staff/sales-orders';
-  const needsSalespersonPicker = isFullSuperAdmin(user) && !userHasLinkedSalesperson(user);
+  const productFilter = useCallback(
+    (product: CatalogProduct) => catalogProductAllowedForUser(user, product),
+    [user],
+  );
 
   const [dealerQuery, setDealerQuery] = useState('');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
@@ -94,6 +108,16 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [salespersonsLoading, setSalespersonsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
+
+  const hasProductLines = useMemo(
+    () => lines.some(line => classifyOrderLineSegment(line) === 'product'),
+    [lines],
+  );
+  const segmentPreview = useMemo(() => summarizeSegments(lines), [lines]);
+  const needsSalespersonPicker = isFullSuperAdmin(user)
+    && !userHasLinkedSalesperson(user)
+    && hasProductLines;
 
   useCatalogPageHeader({
     title: 'New sales order',
@@ -244,13 +268,55 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           ? { salespersonId: salespersonId.trim() }
           : {}),
       });
-      navigate(`${listPath}/${result.zohoSalesOrderId}`);
+      const salesOrders = Array.isArray(result.salesOrders) && result.salesOrders.length > 0
+        ? result.salesOrders
+        : (result.zohoSalesOrderId
+          ? [{
+              segment: 'product' as const,
+              segmentLabel: 'Product',
+              orderNumber: result.orderNumber,
+              zohoSalesOrderId: result.zohoSalesOrderId,
+              zohoSalesOrderNumber: result.zohoSalesOrderNumber,
+              status: 'draft',
+              subtotal: result.subtotal,
+              itemCount: lines.reduce((sum, line) => sum + line.quantity, 0),
+              salespersonId: null,
+              salespersonName: null,
+            }]
+          : []);
+      if (salesOrders.length > 1) {
+        setCreatedOrders(salesOrders);
+        return;
+      }
+      const soId = salesOrders[0]?.zohoSalesOrderId || result.zohoSalesOrderId;
+      if (soId) navigate(`${listPath}/${soId}`);
+      else navigate(listPath);
     } catch (err) {
       setError(dealerOrderErrorMessage(err));
     } finally {
       setSaving(false);
     }
   };
+
+  if (createdOrders && createdOrders.length > 0) {
+    return (
+      <div className="page-content fade-in staff-create-so-page">
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm staff-create-so-page__back"
+          onClick={() => navigate(listPath)}
+        >
+          <ArrowLeft size={16} aria-hidden />
+          Sales orders
+        </button>
+        <MultiSalesOrderSuccess
+          salesOrders={createdOrders}
+          detailBasePath={listPath}
+          listPath={listPath}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="page-content fade-in staff-create-so-page">
@@ -371,10 +437,28 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
             allowRateEdit
             hideActions
             title="Items"
+            productFilter={productFilter}
             onSave={() => {}}
             onCancel={() => setLines([])}
           />
 
+          {user?.spareIncharge && !isFullSuperAdmin(user) ? (
+            <p className="text-muted text-sm staff-create-so-page__segment-hint">
+              Spare Incharge can only add spare parts (generic spare parts and uncategorized).
+            </p>
+          ) : !isFullSuperAdmin(user) ? (
+            <p className="text-muted text-sm staff-create-so-page__segment-hint">
+              Staff can add product and software items. Spare parts require Spare Incharge or super admin.
+            </p>
+          ) : null}
+
+          {segmentPreview.length > 1 ? (
+            <p className="text-muted text-sm staff-create-so-page__segment-hint">
+              This will create {segmentPreview.length} draft sales orders:
+              {' '}
+              {segmentPreview.map(segmentLabel).join(', ')}.
+            </p>
+          ) : null}
           <section className="panel glass staff-create-so-page__section">
             <label htmlFor="staff-so-remarks">
               Remarks
@@ -408,7 +492,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                   aria-label="Salesperson"
                 />
                 <span className="text-muted text-sm">
-                  Required — your admin account has no linked Zoho salesperson.
+                  Required for the product sales order — your admin account has no linked Zoho salesperson.
                 </span>
               </label>
             ) : null}

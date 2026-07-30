@@ -4,6 +4,12 @@
  */
 import { getFirestore } from 'firebase-admin/firestore';
 
+/** Known Zoho id for Cloud Charges (fallback if name lookup fails). */
+export const CLOUD_CHARGES_SALESPERSON_ID = '99381000004019936';
+export const CLOUD_CHARGES_SALESPERSON_NAME = 'Cloud Charges';
+
+const SPARE_INCHARGE_SETTINGS_DOC = 'appSettings/spareIncharge';
+
 export function normalizeStaffZohoSalespersonIds(data = {}) {
   const ids = new Set();
   if (Array.isArray(data.zohoSalespersonIds)) {
@@ -122,5 +128,94 @@ export async function resolveSalespersonForCustomer(customerId) {
     name: salespersonName,
     staffUid,
     staffName: String(user.displayName ?? 'Staff').trim() || 'Staff',
+  };
+}
+
+/**
+ * Spare Incharge portal user's primary Zoho salesperson.
+ * @throws {Error} when missing incharge or Zoho link
+ */
+export async function resolveSpareInchargeSalesperson() {
+  const db = getFirestore();
+  const settingsSnap = await db.doc(SPARE_INCHARGE_SETTINGS_DOC).get();
+  const members = Array.isArray(settingsSnap.data()?.members)
+    ? settingsSnap.data().members
+    : [];
+  const memberUid = String(members[0]?.uid ?? '').trim();
+  if (!memberUid) {
+    throw new Error(
+      'Spare Incharge is not configured. Assign one in HR → Spare Incharge before ordering spare parts.',
+    );
+  }
+
+  const resolved = await resolveSalespersonForStaff(memberUid);
+  if (!resolved) {
+    throw new Error(
+      'Spare Incharge has no Zoho salesperson linked. Link one in HR → Spare Incharge before ordering spare parts.',
+    );
+  }
+  return resolved;
+}
+
+/**
+ * Zoho salesperson "Cloud Charges" for software-segment SOs.
+ * @throws {Error} when not found
+ */
+export async function resolveCloudChargesSalesperson() {
+  const db = getFirestore();
+  const byName = await db.collection('zohoSalespersons')
+    .where('name', '==', CLOUD_CHARGES_SALESPERSON_NAME)
+    .limit(5)
+    .get();
+
+  let match = null;
+  for (const docSnap of byName.docs) {
+    const data = docSnap.data() || {};
+    if (data.active === false) continue;
+    match = { id: docSnap.id, name: String(data.name ?? CLOUD_CHARGES_SALESPERSON_NAME).trim() };
+    break;
+  }
+
+  if (!match) {
+    const fallback = await db.collection('zohoSalespersons').doc(CLOUD_CHARGES_SALESPERSON_ID).get();
+    if (fallback.exists) {
+      const data = fallback.data() || {};
+      if (data.active !== false) {
+        match = {
+          id: fallback.id,
+          name: String(data.name ?? CLOUD_CHARGES_SALESPERSON_NAME).trim()
+            || CLOUD_CHARGES_SALESPERSON_NAME,
+        };
+      }
+    }
+  }
+
+  if (!match) {
+    // Case-insensitive scan if exact name query missed
+    const all = await db.collection('zohoSalespersons').select('name', 'active').get();
+    for (const docSnap of all.docs) {
+      const data = docSnap.data() || {};
+      if (data.active === false) continue;
+      if (String(data.name ?? '').trim().toLowerCase() === CLOUD_CHARGES_SALESPERSON_NAME.toLowerCase()) {
+        match = {
+          id: docSnap.id,
+          name: String(data.name ?? CLOUD_CHARGES_SALESPERSON_NAME).trim(),
+        };
+        break;
+      }
+    }
+  }
+
+  if (!match) {
+    throw new Error(
+      'Zoho salesperson “Cloud Charges” was not found. Sync salespersons or contact support before ordering software items.',
+    );
+  }
+
+  return {
+    id: match.id,
+    name: match.name || CLOUD_CHARGES_SALESPERSON_NAME,
+    staffUid: '',
+    staffName: CLOUD_CHARGES_SALESPERSON_NAME,
   };
 }

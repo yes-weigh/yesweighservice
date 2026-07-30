@@ -31,6 +31,8 @@ export interface DraftEditLine {
   unit: string;
   quantity: number;
   stockStatus: string | null;
+  categoryName?: string | null;
+  categoryId?: string | null;
 }
 
 interface SalesOrderDraftLineEditorProps {
@@ -46,6 +48,8 @@ interface SalesOrderDraftLineEditorProps {
   saveLabel?: string;
   title?: string;
   hideActions?: boolean;
+  /** Limit which catalog products can be added (segment permissions). */
+  productFilter?: (product: CatalogProduct) => boolean;
 }
 
 function useDebounce(value: string, delay: number): string {
@@ -90,6 +94,8 @@ function toDraftLine(
     unit: product.unit || 'pcs',
     quantity,
     stockStatus: product.stockStatus ?? null,
+    categoryName: product.categoryName ?? null,
+    categoryId: product.categoryId ?? null,
   };
 }
 
@@ -104,6 +110,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   saveLabel = 'Save to Zoho',
   title = 'Edit items',
   hideActions = false,
+  productFilter,
 }) => {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -159,13 +166,14 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     const q = debouncedQuery.trim().toLowerCase();
     if (!q) return [];
     return products
+      .filter(p => (productFilter ? productFilter(p) : true))
       .filter(p => (
         p.name.toLowerCase().includes(q)
         || (p.sku ?? '').toLowerCase().includes(q)
         || p.id.toLowerCase().includes(q)
       ))
       .slice(0, 40);
-  }, [products, debouncedQuery]);
+  }, [products, debouncedQuery, productFilter]);
 
   const showOptions = open && !catalogLoading && query.trim().length > 0;
 

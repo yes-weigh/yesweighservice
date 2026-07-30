@@ -27,6 +27,7 @@ export interface CartItem {
   unit: string;
   stockStatus: StockStatus;
   categoryName: string | null;
+  categoryId?: string | null;
   hsn?: string | null;
   quantity: number;
 }
@@ -64,6 +65,7 @@ export function cartItemFromProduct(
     unit: product.unit,
     stockStatus: effectiveCatalogStockStatus(product.stockStatus, product.hsn),
     categoryName: product.categoryName,
+    categoryId: product.categoryId ?? null,
     hsn: product.hsn ?? null,
     quantity,
   };

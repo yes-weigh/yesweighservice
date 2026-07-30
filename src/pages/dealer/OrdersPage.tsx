@@ -9,13 +9,22 @@ import {
 } from '../../components/catalog/GatcStampingChoiceDialog';
 import { GatcStampingInlineControl } from '../../components/catalog/GatcStampingInlineControl';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
+import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
 import { fetchCatalog, formatCurrency } from '../../lib/catalog';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
 import { isSacHsn } from '../../lib/sacCatalog';
-import { dealerOrderErrorMessage, submitDealerOrder } from '../../lib/dealerOrders';
+import {
+  dealerOrderErrorMessage,
+  submitDealerOrder,
+  type SegmentSalesOrderResult,
+} from '../../lib/dealerOrders';
+import {
+  segmentLabel,
+  summarizeSegments,
+} from '../../lib/salesOrderSegments';
 import {
   listDealerShippingAddresses,
   type ShippingAddress,
@@ -53,6 +62,7 @@ const DealerCartPage: React.FC = () => {
     clearCart,
   } = useCart();
   const [submitting, setSubmitting] = useState(false);
+  const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
   const [addressesLoading, setAddressesLoading] = useState(true);
   const [addressesError, setAddressesError] = useState('');
@@ -112,6 +122,17 @@ const DealerCartPage: React.FC = () => {
     });
   }, [items, catalogById]);
 
+  const segmentPreview = useMemo(() => {
+    const lines = items.map(item => {
+      const catalog = catalogById[item.productId];
+      return {
+        categoryId: item.categoryId ?? catalog?.categoryId ?? null,
+        categoryName: item.categoryName ?? catalog?.categoryName ?? null,
+      };
+    });
+    return summarizeSegments(lines);
+  }, [items, catalogById]);
+
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
     if (!shipping) {
@@ -130,7 +151,27 @@ const DealerCartPage: React.FC = () => {
         remarks,
       );
       clearCart();
-      const soId = order.zohoSalesOrderId?.trim();
+      const salesOrders = Array.isArray(order.salesOrders) && order.salesOrders.length > 0
+        ? order.salesOrders
+        : (order.zohoSalesOrderId
+          ? [{
+              segment: 'product' as const,
+              segmentLabel: 'Product',
+              orderNumber: order.orderNumber,
+              zohoSalesOrderId: order.zohoSalesOrderId,
+              zohoSalesOrderNumber: order.zohoSalesOrderNumber,
+              status: order.status,
+              subtotal: order.subtotal,
+              itemCount: order.itemCount,
+              salespersonId: null,
+              salespersonName: null,
+            }]
+          : []);
+      if (salesOrders.length > 1) {
+        setCreatedOrders(salesOrders);
+        return;
+      }
+      const soId = salesOrders[0]?.zohoSalesOrderId?.trim() || order.zohoSalesOrderId?.trim();
       navigate(
         soId ? `${base}/sales-orders/${soId}` : `${base}/sales-orders`,
         { replace: true },
@@ -150,6 +191,24 @@ const DealerCartPage: React.FC = () => {
       gatcStampingRange: choice.gatcStampingRange,
     });
   };
+
+  if (createdOrders && createdOrders.length > 0) {
+    return (
+      <div className="page-content fade-in orders-page">
+        <div className="dealer-orders-page__header">
+          <div>
+            <h2 className="orders-page__title">Order placed</h2>
+            <p className="text-muted text-sm">Draft sales orders were created in Zoho Inventory.</p>
+          </div>
+        </div>
+        <MultiSalesOrderSuccess
+          salesOrders={createdOrders}
+          detailBasePath={`${base}/sales-orders`}
+          listPath={`${base}/sales-orders`}
+        />
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -181,7 +240,10 @@ const DealerCartPage: React.FC = () => {
         <div>
           <h2 className="orders-page__title">Your cart</h2>
           <p className="text-muted text-sm">
-            {itemCount} {itemCount === 1 ? 'item' : 'items'} · creates a Zoho Draft sales order
+            {itemCount} {itemCount === 1 ? 'item' : 'items'}
+            {segmentPreview.length > 1
+              ? ` · creates ${segmentPreview.length} Zoho Draft sales orders (${segmentPreview.map(segmentLabel).join(', ')})`
+              : ' · creates a Zoho Draft sales order'}
           </p>
         </div>
         <div className="orders-page__header-actions">
@@ -329,7 +391,9 @@ const DealerCartPage: React.FC = () => {
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
           <p className="orders-page__summary-note text-muted text-sm">
-            Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.
+            {segmentPreview.length > 1
+              ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(segmentLabel).join(', ')}. Each segment uses its own Zoho salesperson.`
+              : 'Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.'}
           </p>
           <label className="orders-page__remarks">
             <span className="orders-page__remarks-label">Remarks</span>

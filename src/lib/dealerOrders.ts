@@ -22,8 +22,21 @@ async function call<TReq, TRes>(name: string, data?: TReq, timeout = 60_000): Pr
   return result.data;
 }
 
-export interface SubmitDealerOrderResult {
+export interface SegmentSalesOrderResult {
+  segment: 'product' | 'spare' | 'software';
+  segmentLabel: string;
+  orderNumber: string;
   zohoSalesOrderId: string;
+  zohoSalesOrderNumber: string | null;
+  status: string;
+  subtotal: number;
+  itemCount: number;
+  salespersonId: string | null;
+  salespersonName: string | null;
+}
+
+export interface SubmitDealerOrderResult {
+  zohoSalesOrderId: string | null;
   zohoSalesOrderNumber: string | null;
   orderNumber: string;
   status: string;
@@ -34,6 +47,7 @@ export interface SubmitDealerOrderResult {
   dealerName: string | null;
   createdByUid: string;
   createdByName: string;
+  salesOrders?: SegmentSalesOrderResult[];
 }
 
 /** Place cart as a Zoho Inventory Draft sales order. */
