@@ -2547,7 +2547,11 @@ export const ProductDetailView: React.FC<{
               onActiveTabChange={handleDetailTabChange}
               visibleTabs={
                 visibleTabs
-                ?? (showCartActions ? DEALER_PRODUCT_DETAIL_TABS : undefined)
+                ?? (
+                  user?.role === 'dealer' || user?.role === 'dealer_staff'
+                    ? DEALER_PRODUCT_DETAIL_TABS
+                    : undefined
+                )
               }
               showSpareTab={showLinksSection && (isCategorizedProduct || isSpareItem)}
               showAuditTab={showAuditedStock}
