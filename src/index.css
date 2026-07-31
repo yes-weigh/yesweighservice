@@ -14540,6 +14540,51 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 72rem;
 }
 
+.staff-create-so-page__dealer-continue {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}
+
+.staff-create-so-page__dealer-continue .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.staff-create-so-page__dealer-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.staff-create-so-page__ship-summary {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.staff-create-so-page__sp-title {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.staff-create-so-page__sp-error {
+  margin: 0.35rem 0 0.65rem;
+  color: #f87171;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.staff-create-so-page__sp-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
 .staff-create-so-page__stepper {
   display: flex;
   align-items: flex-start;
@@ -14746,6 +14791,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+}
+
+.staff-create-so-page__stamp-reminder {
+  margin: 0 0 0.75rem;
+}
+
+.staff-create-so-page__stamp-breakdown {
+  display: block;
 }
 
 .staff-create-so-page__cart-item {

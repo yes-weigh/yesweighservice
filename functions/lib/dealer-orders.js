@@ -663,9 +663,9 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
   try {
     const salespersonsBySegment = await resolveSegmentSalespersons(groups, {
       productResolver: async () => {
-        const linked = await resolveSalespersonForStaff(uid);
-        if (linked) return linked;
         if (fullSA) {
+          const kam = await resolveSalespersonForCustomer(zohoCustomerId);
+          if (kam) return kam;
           const picked = await resolveSalespersonById(payload.salespersonId, {
             staffUid: uid,
             staffName: actorName,
@@ -673,9 +673,11 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
           if (picked) return picked;
           throw new HttpsError(
             'failed-precondition',
-            'Select a Zoho salesperson for the product sales order.',
+            'Select a Zoho salesperson for the product sales order (no KAM linked on this dealer).',
           );
         }
+        const linked = await resolveSalespersonForStaff(uid);
+        if (linked) return linked;
         throw new HttpsError(
           'failed-precondition',
           'Link at least one Zoho salesperson to your staff account before creating product orders.',
