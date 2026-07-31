@@ -55,7 +55,6 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [editLines, setEditLines] = useState<DraftEditLine[]>([]);
   const [editing, setEditing] = useState(false);
   const [savingLines, setSavingLines] = useState(false);
-  const [paymentUtr, setPaymentUtr] = useState('');
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [editingShip, setEditingShip] = useState(false);
@@ -236,7 +235,6 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       const next = await submitSalesOrderPayment({
         salesOrderId,
         paymentScreenshotStoragePath: storagePath,
-        paymentUtr: paymentUtr.trim() || undefined,
       });
       setSalesOrder(next);
       setPaymentFile(null);
@@ -474,49 +472,56 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       ) : null}
 
       {showPayment && (
-        <section className="so-detail__payment">
-          <h3 className="so-detail__section-title">Payment</h3>
-          {salesOrder.paymentAmount != null && (
-            <p className="mb-2">
-              Amount due: <strong>{formatCurrency(salesOrder.paymentAmount, salesOrder.currencyCode)}</strong>
-            </p>
-          )}
-          {salesOrder.paymentUtr && (
-            <p className="text-sm mb-2">UTR: <strong>{salesOrder.paymentUtr}</strong></p>
-          )}
+        <section className="so-detail__payment panel glass">
+          <div className="so-detail__payment-head">
+            <h3 className="so-detail__section-title">Payment</h3>
+            {salesOrder.paymentAmount != null ? (
+              <div className="so-detail__payment-due">
+                <span className="so-detail__payment-due-label">Amount due</span>
+                <strong className="so-detail__payment-due-value">
+                  {formatCurrency(salesOrder.paymentAmount, salesOrder.currencyCode)}
+                </strong>
+              </div>
+            ) : null}
+          </div>
+
           {canUploadPayment && (
             <div className="so-detail__payment-form">
-              <label className="text-sm">
-                UTR / reference
-                <input
-                  type="text"
-                  className="input mt-1"
-                  value={paymentUtr}
-                  onChange={e => setPaymentUtr(e.target.value)}
-                  placeholder="Bank UTR or transaction id"
-                />
-              </label>
-              <label className="text-sm">
-                Payment screenshot
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="mt-1"
-                  onChange={e => setPaymentFile(e.target.files?.[0] ?? null)}
-                />
-              </label>
+              <div className="so-detail__payment-field">
+                <span>Payment screenshot</span>
+                <label className="so-detail__payment-file" htmlFor="so-payment-file">
+                  <span className="so-detail__payment-file-icon" aria-hidden>
+                    <ImageIcon size={18} />
+                  </span>
+                  <span className="so-detail__payment-file-copy">
+                    <strong>{paymentFile ? paymentFile.name : 'Choose image'}</strong>
+                    <span className="text-muted text-sm">
+                      {paymentFile ? 'Tap to replace' : 'PNG, JPG — bank transfer screenshot'}
+                    </span>
+                  </span>
+                  <input
+                    id="so-payment-file"
+                    type="file"
+                    accept="image/*"
+                    onChange={e => setPaymentFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+              </div>
+
               <button
                 type="button"
-                className="btn btn-primary"
+                className="btn btn-primary so-detail__payment-submit"
                 disabled={submittingPayment}
                 onClick={() => { void handleSubmitPayment(); }}
               >
+                <IndianRupee size={16} aria-hidden />
                 {submittingPayment ? 'Submitting…' : 'Submit payment proof'}
               </button>
             </div>
           )}
+
           {stage === 'payment_submitted' && !canUploadPayment && (
-            <p className="text-muted text-sm mb-0">
+            <p className="so-detail__payment-waiting text-muted text-sm mb-0">
               Payment submitted. Waiting for verification.
             </p>
           )}
