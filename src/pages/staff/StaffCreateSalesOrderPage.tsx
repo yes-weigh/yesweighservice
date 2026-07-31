@@ -1,17 +1,36 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Package, Search, ShoppingCart, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Cpu,
+  Package,
+  Search,
+  ShoppingCart,
+  Trash2,
+  Wrench,
+} from 'lucide-react';
+import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
+import { CatalogCategoryChips } from '../../components/catalog/CatalogCategoryChips';
+import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
+import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { ThemeSelect } from '../../components/ThemeSelect';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
-import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
-import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/useCart';
-import { formatCurrency } from '../../lib/catalog';
-import { combinedCartRate } from '../../lib/gatcCart';
+import { useCartFly } from '../../context/useCartFly';
+import {
+  excludeHiddenCatalogProducts,
+  fetchCatalog,
+  formatCurrency,
+  getCategoriesForProducts,
+  isHiddenCatalogCategory,
+} from '../../lib/catalog';
+import { combinedCartRate, newCartLineId } from '../../lib/gatcCart';
 import {
   ensureDealersCached,
   peekCachedDealers,
@@ -27,11 +46,15 @@ import {
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
 import {
-  catalogProductAllowedForUser,
   classifyOrderLineSegment,
+  isFreightOrderLine,
+  segmentAllowsFreight,
   segmentLabel,
+  staffAllowedOrderSegments,
   summarizeSegments,
+  type OrderSegment,
 } from '../../lib/salesOrderSegments';
+import { FREIGHT_LINE_OPTIONS } from '../../constants/freightLines';
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
@@ -43,9 +66,20 @@ import {
   listZohoSalespersons,
   type ZohoSalespersonOption,
 } from '../../lib/zohoSalespersons';
+import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import type { ZohoDealer } from '../../types/dealers';
 import type { User } from '../../types';
 import type { CartItem } from '../../types/cart';
+
+type FreightDraftLine = {
+  id: string;
+  productId: string;
+  sku: string;
+  name: string;
+  rate: number;
+};
+
+type WizardStep = 'segment' | 'catalog' | 'preview';
 
 type SelectedDealer = {
   id: string;
@@ -53,6 +87,32 @@ type SelectedDealer = {
   contactPerson: string | null;
   mobile: string | null;
 };
+
+const SEGMENT_OPTIONS: Array<{
+  id: OrderSegment;
+  title: string;
+  hint: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    id: 'product',
+    title: 'Product',
+    hint: 'Finished goods with a catalog category',
+    icon: <Package size={28} aria-hidden />,
+  },
+  {
+    id: 'spare',
+    title: 'Spare',
+    hint: 'Generic spare parts and uncategorized items',
+    icon: <Wrench size={28} aria-hidden />,
+  },
+  {
+    id: 'software',
+    title: 'Software',
+    hint: 'Software keys and Sanoft',
+    icon: <Cpu size={28} aria-hidden />,
+  },
+];
 
 function userHasLinkedSalesperson(user: User | null | undefined): boolean {
   if (!user) return false;
@@ -80,25 +140,49 @@ function toSelectedDealer(dealer: ZohoDealer): SelectedDealer {
   };
 }
 
+function progressClass(currentIndex: number, index: number): string {
+  if (index < currentIndex) return 'is-done';
+  if (index === currentIndex) return 'is-active';
+  return '';
+}
+
 export const StaffCreateSalesOrderPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const {
     items: cartItems,
+    itemCount,
     setQuantity,
     removeItem,
     clearCart,
     remarks: cartRemarks,
     setRemarks: setCartRemarks,
   } = useCart();
+  const { registerCartTarget, cartBump } = useCartFly();
+  const cartBtnRef = useRef<HTMLButtonElement>(null);
+
   const canManage = hasStaffPermission(user, 'orders.manage');
   const listPath = pathname.startsWith('/super-admin')
     ? '/super-admin/sales-orders'
     : '/staff/sales-orders';
-  const catalogPath = pathname.startsWith('/super-admin')
-    ? '/super-admin/catalog'
-    : '/staff/catalog';
+
+  const allowedSegments = useMemo(() => staffAllowedOrderSegments(user), [user]);
+  /** Staff/admin pick one segment per SO (dealers may multi-SO). Skip picker only if a single allowed segment. */
+  const showSegmentStep = allowedSegments.length > 1;
+
+  const [step, setStep] = useState<WizardStep>(() => (
+    allowedSegments.length > 1 ? 'segment' : 'catalog'
+  ));
+  const [selectedSegment, setSelectedSegment] = useState<OrderSegment | null>(
+    () => (allowedSegments.length === 1 ? (allowedSegments[0] ?? null) : null),
+  );
+
+  const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
+  const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+  const [browseCategoryId, setBrowseCategoryId] = useState('');
 
   const [dealerQuery, setDealerQuery] = useState('');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
@@ -115,12 +199,72 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
-  /** Optional base-rate overrides keyed by cart line id. */
   const [rateOverrides, setRateOverrides] = useState<Record<string, number>>({});
+  const [freightLines, setFreightLines] = useState<FreightDraftLine[]>([]);
+  const [freightSku, setFreightSku] = useState<string>(FREIGHT_LINE_OPTIONS[0].sku);
+  const [freightRateInput, setFreightRateInput] = useState('');
+
+  const activeSegments = useMemo((): OrderSegment[] => (
+    selectedSegment ? [selectedSegment] : []
+  ), [selectedSegment]);
+
+  const freightAllowed = segmentAllowsFreight(selectedSegment);
+
+  const steps = useMemo((): WizardStep[] => (
+    showSegmentStep ? ['segment', 'catalog', 'preview'] : ['catalog', 'preview']
+  ), [showSegmentStep]);
+
+  const stepIndex = Math.max(0, steps.indexOf(step));
+
+  const stepTitle = step === 'segment'
+    ? 'Select segment'
+    : step === 'catalog'
+      ? 'Add items'
+      : 'Preview & submit';
+
+  useCatalogPageHeader({
+    title: 'New sales order',
+    subtitle: stepTitle,
+    showBack: true,
+    onBack: () => navigate(listPath),
+    mobileCompactHeader: true,
+  }, true);
+
+  useEffect(() => {
+    if (!canManage) {
+      navigate(listPath, { replace: true });
+    }
+  }, [canManage, navigate, listPath]);
+
+  useEffect(() => {
+    if (allowedSegments.length === 1) {
+      setSelectedSegment(allowedSegments[0]);
+      setStep(prev => (prev === 'segment' ? 'catalog' : prev));
+    }
+  }, [allowedSegments]);
+
+  useEffect(() => {
+    if (!freightAllowed && freightLines.length) {
+      setFreightLines([]);
+      setFreightRateInput('');
+    }
+  }, [freightAllowed, freightLines.length]);
+
+  const productMatchesActiveSegments = useCallback(
+    (product: { categoryId?: string | null; categoryName?: string | null; productId?: string | null; id?: string | null; sku?: string | null }) => {
+      if (!activeSegments.length) return false;
+      if (isFreightOrderLine({ productId: product.productId ?? product.id, sku: product.sku })) {
+        return false;
+      }
+      const segment = classifyOrderLineSegment(product);
+      return Boolean(segment && activeSegments.includes(segment));
+    },
+    [activeSegments],
+  );
 
   const allowedItems = useMemo(
-    () => cartItems.filter(item => catalogProductAllowedForUser(user, item)),
-    [cartItems, user],
+    () => cartItems.filter(item => productMatchesActiveSegments(item)),
+    [cartItems, productMatchesActiveSegments],
   );
 
   const lines = useMemo(() => (
@@ -135,27 +279,116 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     })
   ), [allowedItems, rateOverrides]);
 
+  const submitLines = useMemo(() => ([
+    ...lines.map(line => ({
+      productId: line.productId,
+      quantity: line.quantity,
+      rate: line.catalogRate,
+      gatcStampingPriceId: line.gatcStampingPriceId ?? null,
+      name: line.name,
+      sku: line.sku,
+      categoryId: line.categoryId,
+      categoryName: line.categoryName,
+    })),
+    ...(freightAllowed
+      ? freightLines.map(line => ({
+          productId: line.productId,
+          quantity: 1,
+          rate: line.rate,
+          gatcStampingPriceId: null as string | null,
+          name: line.name,
+          sku: line.sku,
+          categoryId: null as string | null,
+          categoryName: null as string | null,
+        }))
+      : []),
+  ]), [lines, freightLines, freightAllowed]);
+
   const hasProductLines = useMemo(
     () => lines.some(line => classifyOrderLineSegment(line) === 'product'),
     [lines],
   );
-  const segmentPreview = useMemo(() => summarizeSegments(lines), [lines]);
+  const segmentPreview = useMemo(() => summarizeSegments(submitLines), [submitLines]);
+
+  const freightSubtotal = useMemo(
+    () => (freightAllowed ? freightLines.reduce((sum, line) => sum + line.rate, 0) : 0),
+    [freightAllowed, freightLines],
+  );
+
+  const subtotal = useMemo(
+    () => lines.reduce((sum, line) => sum + line.rate * line.quantity, 0) + freightSubtotal,
+    [lines, freightSubtotal],
+  );
   const needsSalespersonPicker = isFullSuperAdmin(user)
     && !userHasLinkedSalesperson(user)
     && hasProductLines;
 
-  useCatalogPageHeader({
-    title: 'New sales order',
-    showBack: true,
-    onBack: () => navigate(listPath),
-    mobileCompactHeader: true,
-  }, true);
+  const shopProducts = useMemo(
+    () => excludeHiddenCatalogProducts(catalogProducts, catalogCategories)
+      .filter(productMatchesActiveSegments),
+    [catalogProducts, catalogCategories, productMatchesActiveSegments],
+  );
+
+  const shopCategories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const product of shopProducts) {
+      if (!product.categoryId) continue;
+      counts.set(product.categoryId, (counts.get(product.categoryId) ?? 0) + 1);
+    }
+    return getCategoriesForProducts(catalogCategories, shopProducts)
+      .filter(c => c.id && !isHiddenCatalogCategory(c) && (counts.get(c.id) ?? 0) > 0)
+      .map(c => ({
+        ...c,
+        productCount: counts.get(c.id) ?? c.productCount,
+      }))
+      .sort((a, b) => {
+        const orderDiff = a.displayOrder - b.displayOrder;
+        if (orderDiff !== 0) return orderDiff;
+        return a.name.localeCompare(b.name);
+      });
+  }, [catalogCategories, shopProducts]);
+
+  const spareOnlyCatalog = activeSegments.length === 1 && activeSegments[0] === 'spare';
+  const showBrowseCategoryChips = !spareOnlyCatalog && shopCategories.length > 0;
 
   useEffect(() => {
-    if (!canManage) {
-      navigate(listPath, { replace: true });
+    setBrowseCategoryId('');
+  }, [activeSegments]);
+
+  useEffect(() => {
+    if (step !== 'catalog') {
+      registerCartTarget(null);
+      return;
     }
-  }, [canManage, navigate, listPath]);
+    registerCartTarget(cartBtnRef.current);
+    return () => registerCartTarget(null);
+  }, [registerCartTarget, step, itemCount]);
+
+  useEffect(() => {
+    if (step !== 'catalog' || activeSegments.length === 0) return;
+    let cancelled = false;
+    setCatalogLoading(true);
+    setCatalogError('');
+    void fetchCatalog()
+      .then(data => {
+        if (cancelled) return;
+        setCatalogProducts(data.items);
+        setCatalogCategories(data.categories);
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setCatalogError(err instanceof Error ? err.message : 'Could not load catalog.');
+          setCatalogProducts([]);
+          setCatalogCategories([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCatalogLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, activeSegments]);
 
   useEffect(() => {
     if (!needsSalespersonPicker) return;
@@ -246,11 +479,6 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     void loadAddresses(dealer.id);
   };
 
-  const subtotal = useMemo(
-    () => lines.reduce((sum, line) => sum + line.rate * line.quantity, 0),
-    [lines],
-  );
-
   const canSubmit = Boolean(
     lines.length
     && selectedDealer
@@ -265,13 +493,86 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     setRateOverrides(prev => ({ ...prev, [cartLineId]: nextBase }));
   };
 
+  const pruneCartToSegments = useCallback((segments: OrderSegment[]) => {
+    const allowed = new Set(segments);
+    const removeIds = cartItems
+      .filter(item => {
+        const segment = classifyOrderLineSegment(item);
+        return !segment || !allowed.has(segment);
+      })
+      .map(item => item.cartLineId);
+    for (const id of removeIds) removeItem(id);
+  }, [cartItems, removeItem]);
+
+  const addFreightLine = () => {
+    if (!freightAllowed) {
+      setError('Freight is not available for software sales orders.');
+      return;
+    }
+    const option = FREIGHT_LINE_OPTIONS.find(row => row.sku === freightSku);
+    if (!option) {
+      setError('Select a freight charge.');
+      return;
+    }
+    const rate = Math.round(Number(freightRateInput) * 100) / 100;
+    if (!Number.isFinite(rate) || rate < 0) {
+      setError('Enter a freight rate ≥ 0.');
+      return;
+    }
+    setError('');
+    setFreightLines(prev => [
+      ...prev,
+      {
+        id: newCartLineId(),
+        productId: option.productId,
+        sku: option.sku,
+        name: option.name,
+        rate,
+      },
+    ]);
+    setFreightRateInput('');
+  };
+
+  const goBack = () => {
+    setError('');
+    if (step === 'preview') {
+      setStep('catalog');
+      return;
+    }
+    if (step === 'catalog' && showSegmentStep) {
+      setStep('segment');
+      return;
+    }
+    navigate(listPath);
+  };
+
+  const selectSegmentAndContinue = (segment: OrderSegment) => {
+    setSelectedSegment(segment);
+    pruneCartToSegments([segment]);
+    if (!segmentAllowsFreight(segment)) {
+      setFreightLines([]);
+      setFreightRateInput('');
+    }
+    setError('');
+    setStep('catalog');
+  };
+
+  const goToPreview = () => {
+    if (!lines.length) {
+      setError('Add at least one item from the catalog.');
+      return;
+    }
+    setError('');
+    setStep('preview');
+  };
+
   const save = async (stage: 'review' | 'ready_for_payment') => {
     if (!selectedDealer) {
       setError('Select a dealer.');
       return;
     }
     if (!lines.length) {
-      setError('Add items from the catalog (cart icon on allowed products).');
+      setError('Add items from the catalog.');
       return;
     }
     if (!shipping) {
@@ -287,10 +588,10 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     try {
       const result = await createStaffSalesOrder({
         zohoCustomerId: selectedDealer.id,
-        lines: lines.map(line => ({
+        lines: submitLines.map(line => ({
           productId: line.productId,
           quantity: line.quantity,
-          rate: line.catalogRate,
+          rate: line.rate,
           gatcStampingPriceId: line.gatcStampingPriceId ?? null,
         })),
         shipping,
@@ -302,6 +603,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       });
       clearCart();
       setRateOverrides({});
+      setFreightLines([]);
       const salesOrders = Array.isArray(result.salesOrders) && result.salesOrders.length > 0
         ? result.salesOrders
         : (result.zohoSalesOrderId
@@ -352,16 +654,47 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     );
   }
 
+  const segmentChips = SEGMENT_OPTIONS.filter(option => allowedSegments.includes(option.id));
+
   return (
-    <div className="page-content fade-in staff-create-so-page">
+    <div className={`page-content fade-in staff-create-so-page staff-create-so-page--${step}`}>
       <button
         type="button"
         className="btn btn-ghost btn-sm staff-create-so-page__back"
-        onClick={() => navigate(listPath)}
+        onClick={goBack}
       >
         <ArrowLeft size={16} aria-hidden />
-        Sales orders
+        {step === 'segment' ? 'Sales orders' : 'Back'}
       </button>
+
+      <div
+        className={`staff-create-so-page__progress support-wizard__progress${
+          steps.length === 2 ? ' staff-create-so-page__progress--two' : ''
+        }`}
+        aria-label="Create sales order progress"
+      >
+        {steps.map((id, index) => (
+          <React.Fragment key={id}>
+            {index > 0 ? <span className="support-wizard__progress-line" /> : null}
+            <span className={progressClass(stepIndex, index)} title={
+              id === 'segment' ? 'Segment' : id === 'catalog' ? 'Catalog' : 'Preview'
+            }>
+              {index + 1}
+            </span>
+          </React.Fragment>
+        ))}
+      </div>
+
+      <div className="staff-create-so-page__progress-labels">
+        {steps.map((id, index) => (
+          <span
+            key={id}
+            className={index === stepIndex ? 'is-active' : index < stepIndex ? 'is-done' : ''}
+          >
+            {id === 'segment' ? 'Segment' : id === 'catalog' ? 'Catalog' : 'Preview'}
+          </span>
+        ))}
+      </div>
 
       {error ? (
         <div className="products-inline-error panel glass" role="alert">
@@ -370,217 +703,415 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         </div>
       ) : null}
 
-      <section className="panel glass staff-create-so-page__section">
-        <div className="staff-create-so-page__section-head">
-          <h2>Cart</h2>
-          <Link to={catalogPath} className="btn btn-secondary btn-sm">
-            <ShoppingCart size={14} aria-hidden />
-            Browse catalog
-          </Link>
-        </div>
-        <p className="text-muted text-sm staff-create-so-page__segment-hint">
-          Tap the cart icon on catalog tiles to add items (same animation as dealers).
-          {user?.spareIncharge && !isFullSuperAdmin(user)
-            ? ' Spare Incharge: spare parts only.'
-            : !isFullSuperAdmin(user)
-              ? ' Staff: product and software only — spares need Spare Incharge or super admin.'
-              : ''}
-        </p>
-
-        {lines.length === 0 ? (
-          <div className="staff-create-so-page__cart-empty">
-            <Package size={36} aria-hidden />
-            <p>Cart is empty</p>
-            <Link to={catalogPath} className="btn btn-primary btn-sm">
-              Open catalog
-            </Link>
-          </div>
-        ) : (
-          <ul className="staff-create-so-page__cart-list">
-            {lines.map(item => (
-              <StaffCartLine
-                key={item.cartLineId}
-                item={item}
-                disabled={saving}
-                onQuantity={qty => setQuantity(item.cartLineId, qty)}
-                onRate={rate => setLineBaseRate(item.cartLineId, rate)}
-                onRemove={() => {
-                  removeItem(item.cartLineId);
-                  setRateOverrides(prev => {
-                    const next = { ...prev };
-                    delete next[item.cartLineId];
-                    return next;
-                  });
-                }}
-              />
-            ))}
-          </ul>
-        )}
-
-        {segmentPreview.length > 1 ? (
-          <p className="text-muted text-sm staff-create-so-page__segment-hint">
-            This will create {segmentPreview.length} draft sales orders:
-            {' '}
-            {segmentPreview.map(segmentLabel).join(', ')}.
-          </p>
-        ) : null}
-      </section>
-
-      <section className="panel glass staff-create-so-page__section">
-        <h2>Dealer</h2>
-        {selectedDealer ? (
-          <div className="staff-create-so-page__dealer-selected">
-            <div>
-              <strong>{selectedDealer.label}</strong>
-              {selectedDealer.contactPerson ? (
-                <p className="text-muted text-sm">{selectedDealer.contactPerson}</p>
-              ) : null}
-              {selectedDealer.mobile ? (
-                <p className="text-muted text-sm">{selectedDealer.mobile}</p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={saving}
-              onClick={() => {
-                setSelectedDealer(null);
-                setAddresses([]);
-                setShipping(null);
-              }}
-            >
-              Change
-            </button>
-          </div>
-        ) : (
-          <div className="staff-create-so-page__dealer-search">
-            <div className="catalog-search">
-              <Search size={15} aria-hidden />
-              <input
-                type="search"
-                placeholder="Search dealer by name, code or mobile…"
-                value={dealerQuery}
-                onChange={e => setDealerQuery(e.target.value)}
-                aria-label="Search dealers"
-              />
-            </div>
-            {dealersLoading && dealers.length === 0 ? (
-              <p className="text-muted text-sm">Loading dealers…</p>
-            ) : filteredDealers.length > 0 ? (
-              <ul className="staff-create-so-page__dealer-list" role="listbox">
-                {filteredDealers.map(dealer => {
-                  const snapshot = zohoDealerToSnapshot(dealer);
-                  return (
-                    <li key={dealer.id}>
-                      <button
-                        type="button"
-                        className="staff-create-so-page__dealer-option"
-                        onClick={() => selectDealer(dealer)}
-                      >
-                        <strong>{snapshot.name}</strong>
-                        <span className="text-muted text-sm">
-                          {[
-                            snapshot.contactPerson !== '—' ? snapshot.contactPerson : null,
-                            snapshot.mobile !== '—' ? snapshot.mobile : null,
-                            dealer.id,
-                          ].filter(Boolean).join(' · ')}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : dealerQuery.trim().length >= 2 ? (
-              <p className="text-muted text-sm">
-                {dealersLoading
-                  ? 'Still loading dealers…'
-                  : `No dealers match “${dealerQuery.trim()}”.`}
-              </p>
-            ) : (
-              <p className="text-muted text-sm">
-                Type at least 2 characters to search
-                {dealersLoading ? ' (loading dealer list…)' : ` (${dealers.length} dealers loaded)`}.
-              </p>
-            )}
-          </div>
-        )}
-      </section>
-
-      {selectedDealer ? (
+      {step === 'segment' ? (
         <section className="panel glass staff-create-so-page__section">
-          <ShippingAddressPicker
-            addresses={addresses}
-            loading={addressesLoading}
-            error={addressError}
-            disabled={saving}
-            value={shipping}
-            onChange={setShipping}
-            onRefresh={() => void loadAddresses(selectedDealer.id)}
-          />
+          <h2>Select segment</h2>
+          <p className="text-muted text-sm">
+            One sales order per segment. Choose Product, Spare, or Software to continue.
+          </p>
+          <div className="staff-create-so-page__segment-grid" role="list">
+            {segmentChips.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                className="staff-create-so-page__segment-card"
+                onClick={() => selectSegmentAndContinue(option.id)}
+              >
+                <span className="staff-create-so-page__segment-icon">{option.icon}</span>
+                <strong>{option.title}</strong>
+                <span className="text-muted text-sm">{option.hint}</span>
+              </button>
+            ))}
+          </div>
         </section>
       ) : null}
 
-      <section className="panel glass staff-create-so-page__section">
-        <label htmlFor="staff-so-remarks">
-          Remarks
-          <textarea
-            id="staff-so-remarks"
-            className="input-field"
-            rows={3}
-            value={cartRemarks}
-            disabled={saving}
-            onChange={e => setCartRemarks(e.target.value)}
-            placeholder="Optional notes for this sales order"
-          />
-        </label>
+      {step === 'catalog' ? (
+        <section className="staff-create-so-page__catalog">
+          <div className="staff-create-so-page__catalog-bar panel glass">
+            <div>
+              <h2>
+                {showSegmentStep && selectedSegment
+                  ? `${segmentLabel(selectedSegment)} catalog`
+                  : 'Catalog'}
+              </h2>
+              <p className="text-muted text-sm">
+                Tap the cart icon on items. Only permitted segments are shown.
+              </p>
+            </div>
+            <button
+              ref={cartBtnRef}
+              type="button"
+              id="cart-fly-target"
+              className={`btn btn-primary btn-sm staff-create-so-page__cart-btn${
+                cartBump ? ' cart-header-btn--bump' : ''
+              }`}
+              disabled={!lines.length}
+              onClick={goToPreview}
+              aria-label={`Cart, ${itemCount} items`}
+            >
+              <ShoppingCart size={16} aria-hidden />
+              <span>Cart</span>
+              {lines.length > 0 ? (
+                <span className="staff-create-so-page__cart-badge">{lines.length}</span>
+              ) : null}
+            </button>
+          </div>
 
-        {needsSalespersonPicker ? (
-          <label className="staff-create-so-page__salesperson">
-            <span>Salesperson</span>
-            <ThemeSelect
-              id="staff-so-salesperson"
-              value={salespersonId}
-              disabled={saving || salespersonsLoading}
-              placeholder={
-                salespersonsLoading ? 'Loading salespersons…' : 'Select salesperson…'
-              }
-              options={salespersons.map(row => ({
-                value: row.id,
-                label: row.name,
-                hint: row.email || undefined,
-              }))}
-              onChange={setSalespersonId}
-              aria-label="Salesperson"
-            />
+          {catalogError ? (
+            <div className="products-inline-error panel glass" role="alert">
+              <AlertCircle size={18} />
+              <span>{catalogError}</span>
+            </div>
+          ) : (
+            <>
+              {showBrowseCategoryChips ? (
+                <div className="staff-create-so-page__category-chips panel glass">
+                  <CatalogCategoryChips
+                    categories={shopCategories}
+                    activeCategoryId={browseCategoryId}
+                    onSelect={setBrowseCategoryId}
+                  />
+                </div>
+              ) : null}
+              <CatalogBrowse
+                products={shopProducts}
+                categories={shopCategories}
+                isLoading={catalogLoading}
+                title=""
+                showToolbar={false}
+                filterMode="minimal"
+                dealerView
+                enableCart
+                isCartable={productMatchesActiveSegments}
+                flatBrowse={spareOnlyCatalog}
+                showCategoryGrid={!spareOnlyCatalog && !browseCategoryId}
+                searchPlaceholder="Search catalog…"
+                onProductSelect={() => undefined}
+                managePageHeader={false}
+                activeCategoryId={browseCategoryId}
+                onActiveCategoryChange={setBrowseCategoryId}
+                emptyTitle="No items in this segment"
+                emptyHint="Try another segment or sync the catalog."
+              />
+            </>
+          )}
+
+          <div className="staff-create-so-page__catalog-footer panel glass">
             <span className="text-muted text-sm">
-              Required for the product sales order — your admin account has no linked Zoho salesperson.
+              {lines.length
+                ? `${lines.length} line${lines.length === 1 ? '' : 's'} in cart`
+                : 'Cart is empty'}
             </span>
-          </label>
-        ) : null}
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!lines.length}
+              onClick={goToPreview}
+            >
+              Preview
+              <ArrowRight size={16} aria-hidden />
+            </button>
+          </div>
+        </section>
+      ) : null}
 
-        <div className="staff-create-so-page__totals">
-          <span className="text-muted">Estimated subtotal</span>
-          <strong>{formatCurrency(subtotal)}</strong>
-        </div>
-        <div className="staff-create-so-page__actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={saving || !canSubmit}
-            onClick={() => void save('review')}
-          >
-            {saving ? 'Saving…' : 'Save as draft'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={saving || !canSubmit}
-            onClick={() => void save('ready_for_payment')}
-          >
-            {saving ? 'Saving…' : 'Ready for payment'}
-          </button>
-        </div>
-      </section>
+      {step === 'preview' ? (
+        <>
+          <section className="panel glass staff-create-so-page__section">
+            <div className="staff-create-so-page__section-head">
+              <h2>Items</h2>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={saving}
+                onClick={() => setStep('catalog')}
+              >
+                Edit cart
+              </button>
+            </div>
+
+            {lines.length === 0 ? (
+              <div className="staff-create-so-page__cart-empty">
+                <Package size={36} aria-hidden />
+                <p>Cart is empty</p>
+              </div>
+            ) : (
+              <ul className="staff-create-so-page__cart-list">
+                {lines.map(item => (
+                  <StaffCartLine
+                    key={item.cartLineId}
+                    item={item}
+                    disabled={saving}
+                    onQuantity={qty => setQuantity(item.cartLineId, qty)}
+                    onRate={rate => setLineBaseRate(item.cartLineId, rate)}
+                    onRemove={() => {
+                      removeItem(item.cartLineId);
+                      setRateOverrides(prev => {
+                        const next = { ...prev };
+                        delete next[item.cartLineId];
+                        return next;
+                      });
+                    }}
+                  />
+                ))}
+              </ul>
+            )}
+
+            {segmentPreview.length > 1 ? (
+              <p className="text-muted text-sm staff-create-so-page__segment-hint">
+                This will create {segmentPreview.length} draft sales orders:
+                {' '}
+                {segmentPreview.map(segmentLabel).join(', ')}.
+              </p>
+            ) : null}
+          </section>
+
+          {freightAllowed ? (
+          <section className="panel glass staff-create-so-page__section">
+            <h2>Freight</h2>
+            <p className="text-muted text-sm">
+              Optional courier freight — qty 1, enter the full charge as rate
+              (ST / Trackon / Delhivery / Others).
+            </p>
+            {freightLines.length > 0 ? (
+              <ul className="staff-create-so-page__freight-list">
+                {freightLines.map(line => (
+                  <li key={line.id} className="staff-create-so-page__freight-item">
+                    <div className="staff-create-so-page__freight-info">
+                      <strong>{line.name}</strong>
+                      <span className="text-muted text-sm">{line.sku}</span>
+                    </div>
+                    <label className="staff-create-so-page__rate">
+                      <span className="text-muted text-sm">Rate</span>
+                      <input
+                        type="number"
+                        className="input-field"
+                        min={0}
+                        step={0.01}
+                        value={line.rate}
+                        disabled={saving}
+                        onChange={e => {
+                          const next = Math.round(Number(e.target.value) * 100) / 100;
+                          setFreightLines(prev => prev.map(row => (
+                            row.id === line.id
+                              ? { ...row, rate: Number.isFinite(next) && next >= 0 ? next : 0 }
+                              : row
+                          )));
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={saving}
+                      onClick={() => setFreightLines(prev => prev.filter(row => row.id !== line.id))}
+                      aria-label={`Remove ${line.name}`}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="staff-create-so-page__freight-add">
+              <label>
+                <span className="text-muted text-sm">Freight type</span>
+                <ThemeSelect
+                  id="staff-so-freight-sku"
+                  value={freightSku}
+                  disabled={saving}
+                  options={FREIGHT_LINE_OPTIONS.map(option => ({
+                    value: option.sku,
+                    label: option.name,
+                    hint: option.sku,
+                  }))}
+                  onChange={setFreightSku}
+                  aria-label="Freight type"
+                />
+              </label>
+              <label className="staff-create-so-page__rate">
+                <span className="text-muted text-sm">Rate</span>
+                <input
+                  type="number"
+                  className="input-field"
+                  min={0}
+                  step={0.01}
+                  placeholder="0.00"
+                  value={freightRateInput}
+                  disabled={saving}
+                  onChange={e => setFreightRateInput(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={saving}
+                onClick={addFreightLine}
+              >
+                Add freight
+              </button>
+            </div>
+          </section>
+          ) : null}
+
+          <section className="panel glass staff-create-so-page__section">
+            <h2>Dealer</h2>
+            {selectedDealer ? (
+              <div className="staff-create-so-page__dealer-selected">
+                <div>
+                  <strong>{selectedDealer.label}</strong>
+                  {selectedDealer.contactPerson ? (
+                    <p className="text-muted text-sm">{selectedDealer.contactPerson}</p>
+                  ) : null}
+                  {selectedDealer.mobile ? (
+                    <p className="text-muted text-sm">{selectedDealer.mobile}</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={saving}
+                  onClick={() => {
+                    setSelectedDealer(null);
+                    setAddresses([]);
+                    setShipping(null);
+                  }}
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div className="staff-create-so-page__dealer-search">
+                <div className="catalog-search">
+                  <Search size={15} aria-hidden />
+                  <input
+                    type="search"
+                    placeholder="Search dealer by name, code or mobile…"
+                    value={dealerQuery}
+                    onChange={e => setDealerQuery(e.target.value)}
+                    aria-label="Search dealers"
+                  />
+                </div>
+                {dealersLoading && dealers.length === 0 ? (
+                  <p className="text-muted text-sm">Loading dealers…</p>
+                ) : filteredDealers.length > 0 ? (
+                  <ul className="staff-create-so-page__dealer-list" role="listbox">
+                    {filteredDealers.map(dealer => {
+                      const snapshot = zohoDealerToSnapshot(dealer);
+                      return (
+                        <li key={dealer.id}>
+                          <button
+                            type="button"
+                            className="staff-create-so-page__dealer-option"
+                            onClick={() => selectDealer(dealer)}
+                          >
+                            <strong>{snapshot.name}</strong>
+                            <span className="text-muted text-sm">
+                              {[
+                                snapshot.contactPerson !== '—' ? snapshot.contactPerson : null,
+                                snapshot.mobile !== '—' ? snapshot.mobile : null,
+                                dealer.id,
+                              ].filter(Boolean).join(' · ')}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : dealerQuery.trim().length >= 2 ? (
+                  <p className="text-muted text-sm">
+                    {dealersLoading
+                      ? 'Still loading dealers…'
+                      : `No dealers match “${dealerQuery.trim()}”.`}
+                  </p>
+                ) : (
+                  <p className="text-muted text-sm">
+                    Type at least 2 characters to search
+                    {dealersLoading ? ' (loading dealer list…)' : ` (${dealers.length} dealers loaded)`}.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
+          {selectedDealer ? (
+            <section className="panel glass staff-create-so-page__section">
+              <ShippingAddressPicker
+                addresses={addresses}
+                loading={addressesLoading}
+                error={addressError}
+                disabled={saving}
+                value={shipping}
+                onChange={setShipping}
+                onRefresh={() => void loadAddresses(selectedDealer.id)}
+              />
+            </section>
+          ) : null}
+
+          <section className="panel glass staff-create-so-page__section">
+            <label htmlFor="staff-so-remarks">
+              Remarks
+              <textarea
+                id="staff-so-remarks"
+                className="input-field"
+                rows={3}
+                value={cartRemarks}
+                disabled={saving}
+                onChange={e => setCartRemarks(e.target.value)}
+                placeholder="Optional notes for this sales order"
+              />
+            </label>
+
+            {needsSalespersonPicker ? (
+              <label className="staff-create-so-page__salesperson">
+                <span>Salesperson</span>
+                <ThemeSelect
+                  id="staff-so-salesperson"
+                  value={salespersonId}
+                  disabled={saving || salespersonsLoading}
+                  placeholder={
+                    salespersonsLoading ? 'Loading salespersons…' : 'Select salesperson…'
+                  }
+                  options={salespersons.map(row => ({
+                    value: row.id,
+                    label: row.name,
+                    hint: row.email || undefined,
+                  }))}
+                  onChange={setSalespersonId}
+                  aria-label="Salesperson"
+                />
+                <span className="text-muted text-sm">
+                  Required for the product sales order — your admin account has no linked Zoho salesperson.
+                </span>
+              </label>
+            ) : null}
+
+            <div className="staff-create-so-page__totals">
+              <span className="text-muted">Estimated subtotal</span>
+              <strong>{formatCurrency(subtotal)}</strong>
+            </div>
+            <div className="staff-create-so-page__actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={saving || !canSubmit}
+                onClick={() => void save('review')}
+              >
+                {saving ? 'Saving…' : 'Save as draft'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={saving || !canSubmit}
+                onClick={() => void save('ready_for_payment')}
+              >
+                {saving ? 'Saving…' : 'Ready for payment'}
+              </button>
+            </div>
+          </section>
+        </>
+      ) : null}
     </div>
   );
 };

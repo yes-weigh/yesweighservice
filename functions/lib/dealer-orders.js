@@ -25,6 +25,7 @@ import {
   staffCanAddOrderSegment,
   ORDER_SEGMENTS,
 } from './sales-order-segments.js';
+import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
@@ -265,7 +266,10 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
     if (!product || product.hiddenFromCatalog || product.status === 'inactive') {
       throw new HttpsError('failed-precondition', `Product unavailable: ${entry.productId}`);
     }
-    if (product.stockStatus === 'out_of_stock' && !isSacHsn(product.hsn)) {
+    if (product.stockStatus === 'out_of_stock'
+      && !isSacHsn(product.hsn)
+      && !isFreightProductId(product.id)
+      && !isFreightSku(product.sku)) {
       throw new HttpsError(
         'failed-precondition',
         `${product.name} is out of stock and cannot be ordered.`,
@@ -603,7 +607,9 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     spareIncharge: user.data?.spareIncharge === true,
   };
   for (const line of lines) {
+    if (isFreightOrderLine(line)) continue;
     const segment = classifyOrderLineSegment(line);
+    if (!segment) continue;
     if (!staffCanAddOrderSegment(actorForSegments, segment, { isFullSuperAdmin: fullSA })) {
       throw new HttpsError(
         'permission-denied',
@@ -617,6 +623,16 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
   }
 
   const groups = groupLinesBySegment(lines);
+  const freightLinesOnly = lines.filter(isFreightOrderLine);
+  if (freightLinesOnly.length > 0) {
+    const host = groups.product.length > 0 ? 'product' : (groups.spare.length > 0 ? 'spare' : null);
+    if (!host) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Freight charges can only be added to product or spare sales orders — not software.',
+      );
+    }
+  }
   const subtotal = sumSubtotal(lines);
   if (profile.maxOrderLimit != null && profile.maxOrderLimit > 0 && subtotal > profile.maxOrderLimit) {
     throw new HttpsError(

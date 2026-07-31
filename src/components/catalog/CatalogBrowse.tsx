@@ -94,6 +94,8 @@ export interface CatalogBrowseProps {
   highlightedProductId?: string | null;
   /** Override default navigation when a product tile is opened. */
   onProductSelect?: (product: CatalogProduct) => void;
+  /** When false, do not touch the app page header (embed in another wizard). */
+  managePageHeader?: boolean;
 }
 
 function ProductListRow({
@@ -249,6 +251,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   onLongPressProduct,
   highlightedProductId = null,
   onProductSelect,
+  managePageHeader = true,
 }) => {
   const navigate = useNavigate();
   const [internalSearch, setInternalSearch] = useState('');
@@ -374,7 +377,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     title: browseHeaderTitle,
     showBack: Boolean(browseHeaderTitle),
     onBack: clearFilters,
-  }, !hideFilterBar);
+  }, managePageHeader && !hideFilterBar);
 
   const filterProps = {
     search,
@@ -479,7 +482,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
 
       {showProducts && (
         <div className="catalog-results">
-          {variant === 'public' && browseHeaderTitle && (
+          {variant === 'public' && browseHeaderTitle ? (
             <div className="catalog-results__bar panel glass">
               <button
                 type="button"
@@ -492,7 +495,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               </button>
               <span className="catalog-results__context">{browseHeaderTitle}</span>
             </div>
-          )}
+          ) : null}
 
           {isLoading ? (
             <div className="catalog-loading panel glass">

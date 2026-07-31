@@ -1,6 +1,10 @@
+import {
+  isFreightOrderLine,
+} from './freight-lines.js';
+
 /**
  * Strict catalog segment classification for multi-SO split.
- * spare = generic spare parts + uncategorized
+ * spare = generic spare parts + uncategorized (except freight SKUs)
  * software = software keys + sanoft
  * product = everything else with a real category
  */
@@ -28,10 +32,12 @@ export function isUncategorizedCategoryId(categoryId) {
 }
 
 /**
- * @param {{ categoryId?: string|null, categoryName?: string|null }} line
- * @returns {'product'|'spare'|'software'}
+ * @param {{ categoryId?: string|null, categoryName?: string|null, sku?: string|null, productId?: string|null, itemId?: string|null }} line
+ * @returns {'product'|'spare'|'software'|null} null = freight (attach to host segment)
  */
 export function classifyOrderLineSegment(line = {}) {
+  if (isFreightOrderLine(line)) return null;
+
   const categoryId = line.categoryId ?? null;
   const categoryName = line.categoryName ?? null;
 
@@ -57,11 +63,33 @@ export function groupLinesBySegment(lines) {
     spare: [],
     software: [],
   };
+  const freight = [];
   for (const line of lines) {
     const segment = classifyOrderLineSegment(line);
+    if (!segment) {
+      freight.push(line);
+      continue;
+    }
     groups[segment].push(line);
   }
+  if (freight.length) {
+    // Freight belongs on product or spare SOs only — never software.
+    const host = (['product', 'spare']).find(segment => groups[segment].length > 0) || null;
+    if (!host) {
+      // Software-only (or empty) cart — drop freight rather than attach to software.
+      // Callers that require freight should validate before grouping.
+    } else {
+      groups[host].push(...freight);
+    }
+  }
   return groups;
+}
+
+/** Host segment for freight lines: product, else spare; never software. */
+export function freightHostSegment(groups) {
+  if (groups?.product?.length) return 'product';
+  if (groups?.spare?.length) return 'spare';
+  return null;
 }
 
 export function segmentLabel(segment) {

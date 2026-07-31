@@ -14536,6 +14536,127 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 52rem;
 }
 
+.staff-create-so-page--catalog {
+  max-width: 72rem;
+}
+
+.staff-create-so-page__progress-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: -0.35rem;
+  margin-bottom: 0.25rem;
+  padding: 0 0.5rem;
+}
+
+.staff-create-so-page__progress-labels span {
+  flex: 1;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.staff-create-so-page__progress-labels span.is-active {
+  color: var(--accent-primary-light);
+}
+
+.staff-create-so-page__progress-labels span.is-done {
+  color: #86efac;
+}
+
+.staff-create-so-page__segment-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.staff-create-so-page__segment-card {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: start;
+  text-align: left;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.staff-create-so-page__segment-card:hover {
+  border-color: rgba(245, 130, 32, 0.45);
+  background: rgba(245, 130, 32, 0.08);
+}
+
+.staff-create-so-page__segment-icon {
+  display: inline-flex;
+  color: var(--accent-primary-light);
+  margin-bottom: 0.25rem;
+}
+
+.staff-create-so-page__catalog {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.staff-create-so-page__catalog-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.staff-create-so-page__catalog-bar h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+}
+
+.staff-create-so-page__category-chips {
+  padding: 0.55rem 0.75rem 0.35rem;
+  overflow: hidden;
+}
+
+.staff-create-so-page__cart-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.staff-create-so-page__cart-badge {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.staff-create-so-page__catalog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  position: sticky;
+  bottom: 0.5rem;
+  z-index: 2;
+}
+
+.staff-create-so-page__catalog-footer .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .staff-create-so-page__section {
   display: grid;
   gap: 0.75rem;
@@ -14636,6 +14757,41 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
+  }
+}
+
+.staff-create-so-page__freight-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.staff-create-so-page__freight-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.staff-create-so-page__freight-info {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.staff-create-so-page__freight-add {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: minmax(0, 1.4fr) minmax(6rem, 0.6fr) auto;
+  align-items: end;
+}
+
+@media (max-width: 640px) {
+  .staff-create-so-page__freight-item,
+  .staff-create-so-page__freight-add {
+    grid-template-columns: 1fr;
   }
 }
 
