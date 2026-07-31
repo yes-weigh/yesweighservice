@@ -24,11 +24,11 @@ export const FREIGHT_LINE_OPTIONS = [
 
 export type FreightLineSku = (typeof FREIGHT_LINE_OPTIONS)[number]['sku'];
 
-const FREIGHT_SKU_SET = new Set(
+const FREIGHT_SKU_SET = new Set<string>(
   FREIGHT_LINE_OPTIONS.map(option => option.sku.toUpperCase()),
 );
 
-const FREIGHT_PRODUCT_ID_SET = new Set(
+const FREIGHT_PRODUCT_ID_SET = new Set<string>(
   FREIGHT_LINE_OPTIONS.map(option => option.productId),
 );
 

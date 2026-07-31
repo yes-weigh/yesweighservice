@@ -166,6 +166,6 @@ export function isCatalogProductCartable(
 }
 
 /** Checkout path after adding to cart (dealer portal). */
-export function orderCartPathForUser(user: User | null | undefined, homePath: string): string {
+export function orderCartPathForUser(_user: User | null | undefined, homePath: string): string {
   return `${homePath}/orders`;
 }
