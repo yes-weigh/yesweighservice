@@ -313,11 +313,11 @@ export const CatalogPage: React.FC = () => {
     }
   }, [canSync]);
 
-  const loadCatalog = useCallback(async () => {
+  const loadCatalog = useCallback(async (opts?: { force?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchCatalog();
+      const data = await fetchCatalog({}, { force: opts?.force === true });
       setCatalog(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load catalog.');
@@ -1816,7 +1816,7 @@ export const CatalogPage: React.FC = () => {
           <h2>Could not load catalog</h2>
           <p className="text-muted">{error}</p>
           <div className="products-error-actions">
-            <button type="button" className="btn btn-primary" onClick={() => void loadCatalog()}>
+            <button type="button" className="btn btn-primary" onClick={() => void loadCatalog({ force: true })}>
               Try again
             </button>
             {canSync && (

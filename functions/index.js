@@ -468,7 +468,7 @@ export const syncZohoCatalogScheduled = onSchedule(
     );
 
     console.log(
-      `Scheduled catalog sync: ${result.syncedCount} products, ${result.categoryCount} categories (${result.categorizedProductCount} categorized).`,
+      `Scheduled catalog sync: wrote ${result.syncedCount}, skipped ${result.skippedCount ?? 0} unchanged, ${result.categoryCount} categories (${result.categorizedProductCount} categorized).`,
     );
   },
 );

@@ -26,6 +26,41 @@ const CATEGORIES_COLLECTION = 'catalogCategories';
 const META_DOC = 'catalogMeta/sync';
 const BULK_DETAIL_CHUNK = 50;
 
+/** Stable hash of Zoho-synced product fields — skip Firestore writes when unchanged. */
+function stableWarehousesFingerprint(warehouses) {
+  if (!Array.isArray(warehouses) || warehouses.length === 0) return '';
+  return warehouses
+    .map((w) => {
+      const id = String(w?.warehouseId ?? w?.warehouse_id ?? '');
+      const stock = Number(w?.stock ?? 0);
+      return `${id}:${Number.isFinite(stock) ? stock : 0}`;
+    })
+    .sort()
+    .join(',');
+}
+
+function catalogContentFingerprint(fields) {
+  return [
+    fields.name ?? '',
+    fields.sku ?? '',
+    fields.description ?? '',
+    fields.unit ?? '',
+    fields.rate ?? '',
+    fields.stock ?? '',
+    fields.stockStatus ?? '',
+    fields.imageUrl ?? '',
+    fields.categoryId ?? '',
+    fields.categoryName ?? '',
+    fields.status ?? '',
+    fields.hsn ?? '',
+    fields.taxName ?? '',
+    fields.taxPercentage ?? '',
+    fields.reorderLevel ?? '',
+    stableWarehousesFingerprint(fields.warehouses),
+    fields.organizationId ?? '',
+  ].join('|');
+}
+
 function publicStorageUrl(bucketName, storagePath) {
   const encoded = encodeURIComponent(storagePath).replace(/%2F/g, '%2F');
   return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encoded}?alt=media`;
@@ -310,6 +345,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
 
   let skipFurtherImages = false;
   let syncedCount = 0;
+  let skippedCount = 0;
   const syncedIds = new Set();
   const now = new Date().toISOString();
 
@@ -328,6 +364,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     syncedIds.add(product.id);
     const existing = existingMap.get(product.id);
     let imageUrl = existing?.imageUrl ?? null;
+    let imageDownloaded = false;
 
     const suppressZohoImageImport = Boolean(existing?.suppressZohoImageImport);
 
@@ -343,8 +380,39 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
         skipFurtherImages = true;
       } else {
         imageUrl = cached;
+        imageDownloaded = Boolean(cached);
         await new Promise(resolve => setTimeout(resolve, 300));
       }
+    }
+
+    const fingerprint = catalogContentFingerprint({
+      name: product.name,
+      sku: product.sku || null,
+      description: product.description || null,
+      unit: product.unit,
+      rate: product.rate,
+      stock: product.stock,
+      stockStatus: product.stockStatus,
+      imageUrl,
+      categoryId: product.categoryId || null,
+      categoryName: product.categoryName || null,
+      status: product.status,
+      hsn: product.hsn || null,
+      taxName: product.taxName || null,
+      taxPercentage: product.taxPercentage,
+      reorderLevel: product.reorderLevel,
+      warehouses: Array.isArray(product.warehouses) ? product.warehouses : [],
+      organizationId,
+    });
+
+    // Skip write when Zoho payload matches last synced fingerprint (still track id for stale deletes).
+    if (
+      !imageDownloaded
+      && existing
+      && existing.contentFingerprint === fingerprint
+    ) {
+      skippedCount += 1;
+      continue;
     }
 
     const doc = {
@@ -367,6 +435,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       warehouses: Array.isArray(product.warehouses) ? product.warehouses : [],
       syncedAt: now,
       organizationId,
+      contentFingerprint: fingerprint,
     };
 
     // Keep intentional local deletes from being re-pulled while Zoho still has the image.
@@ -510,7 +579,8 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
   const activeProducts = enrichedProducts.filter(p => p.status === 'active');
   const categorizedCount = activeProducts.filter(p => p.categoryId).length;
 
-  await db.doc(META_DOC).set({
+  const contentChanged = syncedCount > 0 || staleDeletes.length > 0;
+  const metaPayload = {
     lastSyncAt: now,
     productCount: products.length,
     activeProductCount: activeProducts.length,
@@ -518,11 +588,20 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     categoryCount: categories.length,
     organizationId,
     imageDownloadsSkipped: skipNewImages || skipFurtherImages,
+    skippedUnchangedCount: skippedCount,
+    writtenCount: syncedCount,
     updatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
+  };
+  // Client cache invalidates on this — only bump when product docs actually changed.
+  if (contentChanged) {
+    metaPayload.lastContentChangeAt = now;
+  }
+
+  await db.doc(META_DOC).set(metaPayload, { merge: true });
 
   return {
     syncedCount,
+    skippedCount,
     categoryCount: categories.length,
     categorizedProductCount: categorizedCount,
     syncedAt: now,
@@ -1976,6 +2055,12 @@ export async function deleteCatalogItemFromFirestore(itemId) {
   if (!id) return;
   const db = getFirestore();
   await db.collection(PRODUCTS_COLLECTION).doc(id).delete().catch(() => {});
+  const now = new Date().toISOString();
+  await db.doc(META_DOC).set({
+    lastContentChangeAt: now,
+    lastSyncAt: now,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true }).catch(() => {});
 }
 
 /**
@@ -1995,6 +2080,7 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
   const existingSnap = await db.collection(PRODUCTS_COLLECTION).doc(id).get();
   const existing = existingSnap.exists ? existingSnap.data() : null;
   let imageUrl = existing?.imageUrl ?? null;
+  let imageDownloaded = false;
   const suppressZohoImageImport = Boolean(existing?.suppressZohoImageImport);
   const now = new Date().toISOString();
 
@@ -2004,7 +2090,34 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
     && !suppressZohoImageImport
   ) {
     const cached = await cacheProductImage(accessToken, organizationId, id, imageUrl);
-    if (cached && cached !== 'RATE_LIMITED') imageUrl = cached;
+    if (cached && cached !== 'RATE_LIMITED') {
+      imageUrl = cached;
+      imageDownloaded = true;
+    }
+  }
+
+  const fingerprint = catalogContentFingerprint({
+    name: product.name,
+    sku: product.sku || null,
+    description: product.description || null,
+    unit: product.unit,
+    rate: product.rate,
+    stock: product.stock,
+    stockStatus: product.stockStatus,
+    imageUrl,
+    categoryId: product.categoryId || null,
+    categoryName: product.categoryName || null,
+    status: product.status,
+    hsn: product.hsn || null,
+    taxName: product.taxName || null,
+    taxPercentage: product.taxPercentage,
+    reorderLevel: product.reorderLevel,
+    warehouses: Array.isArray(product.warehouses) ? product.warehouses : [],
+    organizationId,
+  });
+
+  if (!imageDownloaded && existing && existing.contentFingerprint === fingerprint) {
+    return { id, created: false, skipped: true };
   }
 
   const doc = {
@@ -2027,6 +2140,7 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
     warehouses: Array.isArray(product.warehouses) ? product.warehouses : [],
     syncedAt: now,
     organizationId,
+    contentFingerprint: fingerprint,
   };
 
   if (suppressZohoImageImport && !imageUrl) {
@@ -2112,6 +2226,11 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
   }
 
   await db.collection(PRODUCTS_COLLECTION).doc(id).set(doc, { merge: true });
+  await db.doc(META_DOC).set({
+    lastContentChangeAt: now,
+    lastSyncAt: now,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
   return { id, created: !existingSnap.exists };
 }
 

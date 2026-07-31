@@ -55,7 +55,7 @@ try {
   );
 
   console.log(
-    `Catalog sync complete: ${result.syncedCount} products, ${result.categoryCount} categories.`,
+    `Catalog sync complete: wrote ${result.syncedCount}, skipped ${result.skippedCount ?? 0} unchanged, ${result.categoryCount} categories.`,
   );
 } catch (err) {
   console.error('Catalog sync failed:', err instanceof Error ? err.message : err);

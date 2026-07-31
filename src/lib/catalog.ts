@@ -14,6 +14,16 @@ import type {
 import { mapAuditSnapshot } from './catalogProductAudit/data';
 import { resolveAdjustedAuditDisplay } from './catalogProductAudit/display';
 import { effectiveCatalogStockStatus } from './sacCatalog';
+import {
+  clearCatalogCache,
+  getCatalogInflight,
+  peekCatalogCache,
+  peekCatalogCacheStale,
+  setCatalogCache,
+  setCatalogInflight,
+  touchCatalogCache,
+  type CatalogCachePayload,
+} from './catalog-cache';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -21,6 +31,11 @@ export interface CatalogFilters {
   search?: string;
   category?: string;
   stockStatus?: string;
+}
+
+export interface FetchCatalogOptions {
+  /** Bypass cache and reload from Firestore. */
+  force?: boolean;
 }
 
 const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl', 'inactive']);
@@ -978,38 +993,100 @@ function deriveCategoriesFromProducts(
 }
 
 /** Read cached catalog from Firestore (no Cloud Function — avoids callable/CORS issues). */
-export async function fetchCatalog(filters: CatalogFilters = {}): Promise<CatalogResponse> {
+export async function fetchCatalog(
+  filters: CatalogFilters = {},
+  options: FetchCatalogOptions = {},
+): Promise<CatalogResponse> {
   try {
-    const [productsSnap, categoriesSnap, metaSnap] = await Promise.all([
-      getDocs(query(collection(db, 'catalogProducts'), where('status', '==', 'active'))),
-      getDocs(collection(db, 'catalogCategories')),
-      getDoc(doc(db, 'catalogMeta', 'sync')),
-    ]);
-
-    const allItems = productsSnap.docs
-      .map(snap => mapProduct(snap.data() as Record<string, unknown>))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    const storedCategories = categoriesSnap.docs
-      .map(snap => mapCategory(snap.data() as Record<string, unknown>))
-      .filter(cat => cat.id);
-
-    const categories = deriveCategoriesFromProducts(allItems, storedCategories);
-
-    const items = filterItems(allItems, filters);
-    const meta = metaSnap.exists() ? metaSnap.data() : null;
-
+    const payload = await loadCatalogPayload(options);
+    const items = filterItems(payload.allItems, filters);
     return {
       items,
-      categories,
+      categories: payload.categories,
       total: items.length,
-      syncedAt: (meta?.lastSyncAt as string | null) ?? null,
-      stats: buildStats(allItems, categories),
+      syncedAt: payload.syncedAt,
+      stats: payload.stats,
     };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
 }
+
+async function loadCatalogPayload(options: FetchCatalogOptions): Promise<CatalogCachePayload> {
+  if (options.force) {
+    const promise = fetchCatalogPayloadFromFirestore().finally(() => {
+      setCatalogInflight(null);
+    });
+    setCatalogInflight(promise);
+    return promise;
+  }
+
+  const fresh = peekCatalogCache();
+  if (fresh) return fresh;
+
+  const stale = peekCatalogCacheStale();
+  if (stale) {
+    // Soft TTL expired — one meta read; skip full catalog if Zoho sync wrote nothing new.
+    try {
+      const metaSnap = await getDoc(doc(db, 'catalogMeta', 'sync'));
+      const meta = metaSnap.exists() ? metaSnap.data() : null;
+      const contentKey = catalogContentKey(meta);
+      if (contentKey && contentKey === stale.contentKey) {
+        touchCatalogCache();
+        return stale;
+      }
+    } catch {
+      // Fall through to full fetch.
+    }
+  }
+
+  const existing = getCatalogInflight();
+  if (existing) return existing;
+
+  const promise = fetchCatalogPayloadFromFirestore().finally(() => {
+    setCatalogInflight(null);
+  });
+  setCatalogInflight(promise);
+  return promise;
+}
+
+function catalogContentKey(meta: Record<string, unknown> | null | undefined): string | null {
+  if (!meta) return null;
+  const key = (meta.lastContentChangeAt ?? meta.lastSyncAt) as string | null | undefined;
+  return key ? String(key) : null;
+}
+
+async function fetchCatalogPayloadFromFirestore(): Promise<CatalogCachePayload> {
+  const [productsSnap, categoriesSnap, metaSnap] = await Promise.all([
+    getDocs(query(collection(db, 'catalogProducts'), where('status', '==', 'active'))),
+    getDocs(collection(db, 'catalogCategories')),
+    getDoc(doc(db, 'catalogMeta', 'sync')),
+  ]);
+
+  const allItems = productsSnap.docs
+    .map(snap => mapProduct(snap.data() as Record<string, unknown>))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const storedCategories = categoriesSnap.docs
+    .map(snap => mapCategory(snap.data() as Record<string, unknown>))
+    .filter(cat => cat.id);
+
+  const categories = deriveCategoriesFromProducts(allItems, storedCategories);
+  const meta = metaSnap.exists() ? metaSnap.data() : null;
+  const syncedAt = (meta?.lastSyncAt as string | null) ?? null;
+  const payload: CatalogCachePayload = {
+    allItems,
+    categories,
+    syncedAt,
+    contentKey: catalogContentKey(meta as Record<string, unknown> | null),
+    stats: buildStats(allItems, categories),
+  };
+  setCatalogCache(payload);
+  return payload;
+}
+
+/** Drop in-memory / session catalog cache (call after mutations or manual sync). */
+export { clearCatalogCache };
 
 /** All synced Zoho items (active + inactive) for SKU audit / correction tools. */
 export async function fetchAllCatalogProductsForSkuCorrection(): Promise<CatalogProduct[]> {
@@ -1116,6 +1193,7 @@ export async function applyCatalogSkuRepairs(): Promise<CatalogSkuRepairResult> 
   );
   try {
     const result = await callable({});
+    clearCatalogCache();
     return result.data;
   } catch (err) {
     if (err && typeof err === 'object') {
@@ -1149,6 +1227,7 @@ export async function applyBulkCatalogSkuUpdates(
   );
   try {
     const result = await callable({ updates });
+    clearCatalogCache();
     return result.data;
   } catch (err) {
     if (err && typeof err === 'object') {
@@ -1214,6 +1293,7 @@ export async function recordCatalogBinLabelPrint(
       sku: sku.trim(),
       ...(trimmedName ? { name: trimmedName } : {}),
     });
+    clearCatalogCache();
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -1282,6 +1362,7 @@ export async function saveCatalogCategoryOrder(
   >(functions, 'saveCatalogCategoryOrder');
   try {
     await callable({ categories });
+    clearCatalogCache();
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -1297,6 +1378,7 @@ export async function saveCatalogCategoryProductOrder(
   >(functions, 'saveCatalogCategoryProductOrder');
   try {
     await callable({ categoryId, products });
+    clearCatalogCache();
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -1321,6 +1403,7 @@ export async function uploadCatalogCategoryThumbnail(
       contentType: compressed.type || 'image/jpeg',
       imageBase64,
     });
+    clearCatalogCache();
     return withCatalogImageCacheBust(result.data.thumbnailUrl, Date.now()) ?? result.data.thumbnailUrl;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
@@ -1440,6 +1523,7 @@ export async function uploadCatalogProductImage(
       ...doc,
       url: withCatalogImageCacheBust(doc.url, syncedAt) ?? doc.url,
     }));
+    clearCatalogCache();
     return { imageUrl, imageUrls, imageDocs };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
@@ -1477,6 +1561,7 @@ export async function deleteCatalogProductImage(
     const imageUrls = (result.data.imageUrls ?? (imageUrl ? [imageUrl] : []))
       .map(url => withCatalogImageCacheBust(url, syncedAt) ?? url)
       .filter(Boolean);
+    clearCatalogCache();
     return {
       imageUrl,
       imageUrls,
@@ -1547,6 +1632,7 @@ export async function syncCatalog(): Promise<{ syncedCount: number; syncedAt: st
   );
   try {
     const result = await callable();
+    clearCatalogCache();
     return result.data;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
@@ -1565,6 +1651,7 @@ export async function assignProductCategory(
   >(functions, 'assignCatalogProductCategory');
   try {
     await callable({ productId, categoryId, categoryName });
+    clearCatalogCache();
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -1583,6 +1670,7 @@ export async function setCatalogProductStatus(
   >(functions, 'setCatalogProductStatus');
   try {
     await callable({ productId, status });
+    clearCatalogCache();
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -1637,6 +1725,7 @@ export async function updateCatalogProductDetails(
       ...('modelNumber' in input ? { modelNumber: input.modelNumber ?? null } : {}),
       ...('approvalNumber' in input ? { approvalNumber: input.approvalNumber ?? null } : {}),
     });
+    clearCatalogCache();
     return {
       name: result.data.name,
       sku: result.data.sku,
@@ -1693,6 +1782,7 @@ export async function updateCatalogProductOverlays(
         ? { gatcStampingPriceIds: input.gatcStampingPriceIds ?? [] }
         : {}),
     });
+    clearCatalogCache();
     return {
       ...('modelNumber' in result.data ? { modelNumber: result.data.modelNumber ?? null } : {}),
       ...('approvalNumber' in result.data
@@ -1721,6 +1811,7 @@ export async function setCatalogProductHidden(
   >(functions, 'setCatalogProductHidden');
   try {
     const result = await callable({ productId, hidden });
+    clearCatalogCache();
     return { hiddenFromCatalog: result.data.hiddenFromCatalog === true };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
@@ -1741,6 +1832,7 @@ export async function assignCatalogSpareGroups(
       productIds,
       spareGroupId,
     });
+    clearCatalogCache();
     return {
       updated: Number(result.data.updated ?? 0),
       spareGroupId: result.data.spareGroupId ?? null,
@@ -1772,6 +1864,7 @@ export async function updateCatalogProductPackageInfo(
       masterCarton: input.masterCarton,
       singleBox: input.singleBox,
     });
+    clearCatalogCache();
     return result.data.packageInfo;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
@@ -1816,6 +1909,7 @@ export async function saveCatalogProductSpareLinks(
   >(functions, 'saveCatalogSpareLinks');
   try {
     await callable({ productId, spareIds });
+    clearCatalogCache();
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
@@ -1831,6 +1925,7 @@ export async function saveCatalogSpareProductLinks(
   >(functions, 'saveCatalogSpareLinks');
   try {
     await callable({ spareId, productIds });
+    clearCatalogCache();
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
