@@ -4,21 +4,33 @@ export const FREIGHT_LINE_OPTIONS = [
     productId: '99381000031675143',
     sku: 'STFRC',
     name: 'ST COURIER FREIGHT',
+    label: 'ST Courier',
+    tagline: 'Kerala & Tamil Nadu',
+    image: '/logistics/st-courier.png',
   },
   {
     productId: '99381000031675164',
     sku: 'TRFRC',
     name: 'TRACKON COURIER FREIGHT',
+    label: 'Trackon',
+    tagline: 'Tamil Nadu',
+    image: '/logistics/trackon.png',
   },
   {
     productId: '99381000031675199',
     sku: 'DELFRC',
     name: 'DELHIVERY COURIER FREIGHT',
+    label: 'Delhivery',
+    tagline: 'All India',
+    image: '/logistics/delhivery.png',
   },
   {
     productId: '99381000031675218',
     sku: 'FRC',
     name: 'OTHERS FREIGHT CHARGES',
+    label: 'Others',
+    tagline: 'Other freight charges',
+    image: '/logistics/own-vehicle.png',
   },
 ] as const;
 

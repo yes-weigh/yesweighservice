@@ -35,7 +35,7 @@ import {
   getCategoriesForProducts,
   isHiddenCatalogCategory,
 } from '../../lib/catalog';
-import { combinedCartRate, newCartLineId, productHasLinkedGatc } from '../../lib/gatcCart';
+import { combinedCartRate, productHasLinkedGatc } from '../../lib/gatcCart';
 import {
   ensureDealersCached,
   peekCachedDealers,
@@ -59,7 +59,7 @@ import {
   summarizeSegments,
   type OrderSegment,
 } from '../../lib/salesOrderSegments';
-import { FREIGHT_LINE_OPTIONS } from '../../constants/freightLines';
+import { FREIGHT_LINE_OPTIONS, freightOptionBySku } from '../../constants/freightLines';
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
@@ -294,7 +294,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
   const [rateOverrides, setRateOverrides] = useState<Record<string, number>>({});
   const [freightLines, setFreightLines] = useState<FreightDraftLine[]>([]);
-  const [freightSku, setFreightSku] = useState<string>(FREIGHT_LINE_OPTIONS[0].sku);
+  const [freightSku, setFreightSku] = useState<string | null>(null);
   const [freightRateInput, setFreightRateInput] = useState('');
 
   const activeSegments = useMemo((): OrderSegment[] => (
@@ -364,9 +364,44 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   useEffect(() => {
     if (!freightAllowed && freightLines.length) {
       setFreightLines([]);
+      setFreightSku(null);
       setFreightRateInput('');
     }
   }, [freightAllowed, freightLines.length]);
+
+  const syncFreightLine = useCallback((sku: string | null, rateRaw: string) => {
+    const option = freightOptionBySku(sku);
+    const trimmed = rateRaw.trim();
+    const rate = Math.round(Number(trimmed) * 100) / 100;
+    if (!option || trimmed === '' || !Number.isFinite(rate) || rate < 0) {
+      setFreightLines([]);
+      return;
+    }
+    setFreightLines([{
+      id: 'freight-line',
+      productId: option.productId,
+      sku: option.sku,
+      name: option.name,
+      rate,
+    }]);
+  }, []);
+
+  const selectFreightPartner = (sku: string) => {
+    setError('');
+    setFreightSku(sku);
+    syncFreightLine(sku, freightRateInput);
+  };
+
+  const onFreightAmountChange = (value: string) => {
+    setFreightRateInput(value);
+    syncFreightLine(freightSku, value);
+  };
+
+  const clearFreight = () => {
+    setFreightSku(null);
+    setFreightRateInput('');
+    setFreightLines([]);
+  };
 
   const productMatchesActiveSegments = useCallback(
     (product: { categoryId?: string | null; categoryName?: string | null; productId?: string | null; id?: string | null; sku?: string | null }) => {
@@ -842,35 +877,6 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     for (const id of removeIds) removeItem(id);
   }, [cartItems, removeItem]);
 
-  const addFreightLine = () => {
-    if (!freightAllowed) {
-      setError('Freight is not available for software sales orders.');
-      return;
-    }
-    const option = FREIGHT_LINE_OPTIONS.find(row => row.sku === freightSku);
-    if (!option) {
-      setError('Select a freight charge.');
-      return;
-    }
-    const rate = Math.round(Number(freightRateInput) * 100) / 100;
-    if (!Number.isFinite(rate) || rate < 0) {
-      setError('Enter a freight rate ≥ 0.');
-      return;
-    }
-    setError('');
-    setFreightLines(prev => [
-      ...prev,
-      {
-        id: newCartLineId(),
-        productId: option.productId,
-        sku: option.sku,
-        name: option.name,
-        rate,
-      },
-    ]);
-    setFreightRateInput('');
-  };
-
   const goToSegmentStep = useCallback(async () => {
     if (!showSegmentStep || step === 'segment') return;
     setError('');
@@ -890,6 +896,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     clearCart();
     setRateOverrides({});
     setFreightLines([]);
+    setFreightSku(null);
     setFreightRateInput('');
     setStep('segment');
   }, [showSegmentStep, step, lines.length, freightLines.length, confirm, clearCart]);
@@ -920,6 +927,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     pruneCartToSegments([segment]);
     if (!segmentAllowsFreight(segment)) {
       setFreightLines([]);
+      setFreightSku(null);
       setFreightRateInput('');
     }
     setError('');
@@ -1026,6 +1034,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       clearCart();
       setRateOverrides({});
       setFreightLines([]);
+      setFreightSku(null);
+      setFreightRateInput('');
       const salesOrders = Array.isArray(result.salesOrders) && result.salesOrders.length > 0
         ? result.salesOrders
         : (result.zohoSalesOrderId
@@ -1490,87 +1500,85 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           <section className="panel glass staff-create-so-page__section">
             <h2>Freight</h2>
             <p className="text-muted text-sm">
-              Optional courier freight — qty 1, enter the full charge as rate
-              (ST / Trackon / Delhivery / Others).
+              Optional — pick a courier partner and enter the freight amount (qty 1).
             </p>
-            {freightLines.length > 0 ? (
-              <ul className="staff-create-so-page__freight-list">
-                {freightLines.map(line => (
-                  <li key={line.id} className="staff-create-so-page__freight-item">
-                    <div className="staff-create-so-page__freight-info">
-                      <strong>{line.name}</strong>
-                      <span className="text-muted text-sm">{line.sku}</span>
-                    </div>
-                    <label className="staff-create-so-page__rate">
-                      <span className="text-muted text-sm">Rate</span>
-                      <input
-                        type="number"
-                        className="input-field"
-                        min={0}
-                        step={0.01}
-                        value={line.rate}
-                        disabled={saving}
-                        onChange={e => {
-                          const next = Math.round(Number(e.target.value) * 100) / 100;
-                          setFreightLines(prev => prev.map(row => (
-                            row.id === line.id
-                              ? { ...row, rate: Number.isFinite(next) && next >= 0 ? next : 0 }
-                              : row
-                          )));
-                        }}
-                      />
-                    </label>
+
+            <div
+              className="staff-create-so-page__freight-partners"
+              role="radiogroup"
+              aria-label="Choose logistics partner"
+            >
+              <p className="staff-create-so-page__freight-partners-label">
+                Choose logistics partner
+              </p>
+              {FREIGHT_LINE_OPTIONS.map(option => {
+                const selected = freightSku === option.sku;
+                return (
+                  <div
+                    key={option.sku}
+                    className={`staff-create-so-page__freight-partner${
+                      selected ? ' is-selected' : ''
+                    }`}
+                  >
                     <button
                       type="button"
-                      className="btn btn-ghost btn-sm"
+                      role="radio"
+                      aria-checked={selected}
+                      className="staff-create-so-page__freight-partner-main"
                       disabled={saving}
-                      onClick={() => setFreightLines(prev => prev.filter(row => row.id !== line.id))}
-                      aria-label={`Remove ${line.name}`}
+                      onClick={() => selectFreightPartner(option.sku)}
                     >
-                      <Trash2 size={16} />
+                      <span
+                        className={`staff-create-so-page__freight-radio${
+                          selected ? ' is-on' : ''
+                        }`}
+                        aria-hidden
+                      />
+                      <span className="staff-create-so-page__freight-logo-wrap">
+                        <img
+                          src={option.image}
+                          alt=""
+                          className="staff-create-so-page__freight-logo"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      </span>
+                      <span className="staff-create-so-page__freight-partner-copy">
+                        <strong>{option.label}</strong>
+                        <span className="text-muted text-sm">{option.tagline}</span>
+                      </span>
                     </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <div className="staff-create-so-page__freight-add">
-              <label>
-                <span className="text-muted text-sm">Freight type</span>
-                <ThemeSelect
-                  id="staff-so-freight-sku"
-                  value={freightSku}
-                  disabled={saving}
-                  options={FREIGHT_LINE_OPTIONS.map(option => ({
-                    value: option.sku,
-                    label: option.name,
-                    hint: option.sku,
-                  }))}
-                  onChange={setFreightSku}
-                  aria-label="Freight type"
-                />
-              </label>
-              <label className="staff-create-so-page__rate">
-                <span className="text-muted text-sm">Rate</span>
-                <input
-                  type="number"
-                  className="input-field"
-                  min={0}
-                  step={0.01}
-                  placeholder="0.00"
-                  value={freightRateInput}
-                  disabled={saving}
-                  onChange={e => setFreightRateInput(e.target.value)}
-                />
-              </label>
+                    {selected ? (
+                      <label className="staff-create-so-page__freight-amount">
+                        <span className="text-muted text-sm">Amount (₹)</span>
+                        <input
+                          type="number"
+                          className="input-field"
+                          min={0}
+                          step={0.01}
+                          placeholder="0.00"
+                          value={freightRateInput}
+                          disabled={saving}
+                          autoFocus
+                          onChange={e => onFreightAmountChange(e.target.value)}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            {freightSku || freightRateInput ? (
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className="btn btn-ghost btn-sm staff-create-so-page__freight-clear"
                 disabled={saving}
-                onClick={addFreightLine}
+                onClick={clearFreight}
               >
-                Add freight
+                Clear freight
               </button>
-            </div>
+            ) : null}
           </section>
           ) : null}
 
