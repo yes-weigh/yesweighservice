@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
-  ArrowLeft,
   ArrowRight,
   Cpu,
   Package,
@@ -21,6 +20,7 @@ import { QuantityStepper } from '../../components/QuantityStepper';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import {
@@ -150,6 +150,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const confirm = useConfirm();
   const {
     items: cartItems,
     itemCount,
@@ -219,14 +220,20 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const stepTitle = step === 'segment'
     ? 'Select segment'
     : step === 'catalog'
-      ? 'Add items'
+      ? (selectedSegment ? `${segmentLabel(selectedSegment)} catalog` : 'Catalog')
       : 'Preview & submit';
 
+  const goBackRef = useRef<() => void>(() => {
+    navigate(listPath);
+  });
+
   useCatalogPageHeader({
-    title: 'New sales order',
-    subtitle: stepTitle,
+    title: createdOrders?.length ? 'Orders created' : 'New sales order',
+    subtitle: createdOrders?.length ? null : stepTitle,
     showBack: true,
-    onBack: () => navigate(listPath),
+    onBack: () => {
+      goBackRef.current();
+    },
     mobileCompactHeader: true,
   }, true);
 
@@ -533,18 +540,45 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     setFreightRateInput('');
   };
 
-  const goBack = () => {
+  const goToSegmentStep = useCallback(async () => {
+    if (!showSegmentStep || step === 'segment') return;
+    setError('');
+    if (!(lines.length > 0 || freightLines.length > 0)) {
+      setStep('segment');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Change segment?',
+      message:
+        'Your cart has items for the current segment. Changing segment will clear the cart and freight lines. Continue?',
+      confirmLabel: 'Clear cart & change',
+      cancelLabel: 'Stay here',
+      destructive: true,
+    });
+    if (!ok) return;
+    clearCart();
+    setRateOverrides({});
+    setFreightLines([]);
+    setFreightRateInput('');
+    setStep('segment');
+  }, [showSegmentStep, step, lines.length, freightLines.length, confirm, clearCart]);
+
+  const goBack = useCallback(() => {
     setError('');
     if (step === 'preview') {
       setStep('catalog');
       return;
     }
     if (step === 'catalog' && showSegmentStep) {
-      setStep('segment');
+      void goToSegmentStep();
       return;
     }
     navigate(listPath);
-  };
+  }, [step, showSegmentStep, goToSegmentStep, navigate, listPath]);
+
+  goBackRef.current = createdOrders?.length
+    ? () => navigate(listPath)
+    : goBack;
 
   const selectSegmentAndContinue = (segment: OrderSegment) => {
     setSelectedSegment(segment);
@@ -564,6 +598,24 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     }
     setError('');
     setStep('preview');
+  };
+
+  const onProgressStepClick = (target: WizardStep) => {
+    if (target === step) return;
+    if (target === 'segment') {
+      void goToSegmentStep();
+      return;
+    }
+    if (target === 'catalog') {
+      if (step === 'preview' || (step === 'segment' && selectedSegment)) {
+        setError('');
+        setStep('catalog');
+      }
+      return;
+    }
+    if (target === 'preview') {
+      goToPreview();
+    }
   };
 
   const save = async (stage: 'review' | 'ready_for_payment') => {
@@ -637,14 +689,6 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   if (createdOrders && createdOrders.length > 0) {
     return (
       <div className="page-content fade-in staff-create-so-page">
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm staff-create-so-page__back"
-          onClick={() => navigate(listPath)}
-        >
-          <ArrowLeft size={16} aria-hidden />
-          Sales orders
-        </button>
         <MultiSalesOrderSuccess
           salesOrders={createdOrders}
           detailBasePath={listPath}
@@ -658,43 +702,41 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
   return (
     <div className={`page-content fade-in staff-create-so-page staff-create-so-page--${step}`}>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm staff-create-so-page__back"
-        onClick={goBack}
-      >
-        <ArrowLeft size={16} aria-hidden />
-        {step === 'segment' ? 'Sales orders' : 'Back'}
-      </button>
-
-      <div
-        className={`staff-create-so-page__progress support-wizard__progress${
-          steps.length === 2 ? ' staff-create-so-page__progress--two' : ''
-        }`}
-        aria-label="Create sales order progress"
-      >
-        {steps.map((id, index) => (
-          <React.Fragment key={id}>
-            {index > 0 ? <span className="support-wizard__progress-line" /> : null}
-            <span className={progressClass(stepIndex, index)} title={
-              id === 'segment' ? 'Segment' : id === 'catalog' ? 'Catalog' : 'Preview'
-            }>
-              {index + 1}
-            </span>
-          </React.Fragment>
-        ))}
-      </div>
-
-      <div className="staff-create-so-page__progress-labels">
-        {steps.map((id, index) => (
-          <span
-            key={id}
-            className={index === stepIndex ? 'is-active' : index < stepIndex ? 'is-done' : ''}
-          >
-            {id === 'segment' ? 'Segment' : id === 'catalog' ? 'Catalog' : 'Preview'}
-          </span>
-        ))}
-      </div>
+      <nav className="staff-create-so-page__stepper" aria-label="Create sales order progress">
+        {steps.map((id, index) => {
+          const label = id === 'segment' ? 'Segment' : id === 'catalog' ? 'Catalog' : 'Preview';
+          const clickable = id === 'segment'
+            ? showSegmentStep && step !== 'segment'
+            : id === 'catalog'
+              ? step === 'preview' || (step === 'segment' && Boolean(selectedSegment))
+              : id === 'preview' && step === 'catalog' && lines.length > 0;
+          const stateClass = progressClass(stepIndex, index);
+          return (
+            <React.Fragment key={id}>
+              {index > 0 ? (
+                <span
+                  className={`staff-create-so-page__stepper-line${
+                    index <= stepIndex ? ' is-done' : ''
+                  }`}
+                  aria-hidden
+                />
+              ) : null}
+              <button
+                type="button"
+                className={`staff-create-so-page__stepper-item ${stateClass}${
+                  clickable ? ' is-clickable' : ''
+                }`}
+                disabled={!clickable}
+                aria-current={step === id ? 'step' : undefined}
+                onClick={() => onProgressStepClick(id)}
+              >
+                <span className="staff-create-so-page__stepper-num">{index + 1}</span>
+                <span className="staff-create-so-page__stepper-label">{label}</span>
+              </button>
+            </React.Fragment>
+          );
+        })}
+      </nav>
 
       {error ? (
         <div className="products-inline-error panel glass" role="alert">
@@ -729,16 +771,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       {step === 'catalog' ? (
         <section className="staff-create-so-page__catalog">
           <div className="staff-create-so-page__catalog-bar panel glass">
-            <div>
-              <h2>
-                {showSegmentStep && selectedSegment
-                  ? `${segmentLabel(selectedSegment)} catalog`
-                  : 'Catalog'}
-              </h2>
-              <p className="text-muted text-sm">
-                Tap the cart icon on items. Only permitted segments are shown.
-              </p>
-            </div>
+            <p className="text-muted text-sm staff-create-so-page__catalog-hint">
+              Tap the cart icon on an item to add it
+            </p>
             <button
               ref={cartBtnRef}
               type="button"

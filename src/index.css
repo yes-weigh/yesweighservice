@@ -14532,7 +14532,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .staff-create-so-page {
   display: grid;
-  gap: 1rem;
+  gap: 0.85rem;
   max-width: 52rem;
 }
 
@@ -14540,29 +14540,78 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 72rem;
 }
 
-.staff-create-so-page__progress-labels {
+.staff-create-so-page__stepper {
   display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-top: -0.35rem;
-  margin-bottom: 0.25rem;
-  padding: 0 0.5rem;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0 0.25rem;
 }
 
-.staff-create-so-page__progress-labels span {
-  flex: 1;
-  text-align: center;
-  font-size: 0.72rem;
-  font-weight: 600;
+.staff-create-so-page__stepper-line {
+  flex: 0 0 1.75rem;
+  height: 1px;
+  margin-top: 0.85rem;
+  background: var(--border-glass);
+}
+
+.staff-create-so-page__stepper-line.is-done {
+  background: rgba(134, 239, 172, 0.45);
+}
+
+.staff-create-so-page__stepper-item {
+  display: grid;
+  justify-items: center;
+  gap: 0.28rem;
+  min-width: 3.5rem;
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--text-muted);
+  cursor: default;
 }
 
-.staff-create-so-page__progress-labels span.is-active {
+.staff-create-so-page__stepper-num {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-glass);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.staff-create-so-page__stepper-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.staff-create-so-page__stepper-item.is-active {
   color: var(--accent-primary-light);
 }
 
-.staff-create-so-page__progress-labels span.is-done {
+.staff-create-so-page__stepper-item.is-active .staff-create-so-page__stepper-num {
+  border-color: rgba(245, 130, 32, 0.5);
+  background: rgba(245, 130, 32, 0.12);
+}
+
+.staff-create-so-page__stepper-item.is-done {
   color: #86efac;
+}
+
+.staff-create-so-page__stepper-item.is-done .staff-create-so-page__stepper-num {
+  border-color: rgba(134, 239, 172, 0.35);
+}
+
+.staff-create-so-page__stepper-item.is-clickable:not(:disabled) {
+  cursor: pointer;
+}
+
+.staff-create-so-page__stepper-item:disabled {
+  opacity: 1;
 }
 
 .staff-create-so-page__segment-grid {
@@ -14603,15 +14652,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .staff-create-so-page__catalog-bar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.85rem 1rem;
+  padding: 0.65rem 0.85rem;
 }
 
-.staff-create-so-page__catalog-bar h2 {
-  margin: 0 0 0.2rem;
-  font-size: 1rem;
+.staff-create-so-page__catalog-hint {
+  margin: 0;
 }
 
 .staff-create-so-page__category-chips {
