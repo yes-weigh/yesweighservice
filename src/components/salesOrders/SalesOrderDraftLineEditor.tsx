@@ -285,7 +285,11 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     onChange(lines.filter(line => line.lineId !== lineId));
   };
 
-  const insertOrMergeProduct = (product: CatalogProduct, choice?: GatcStampingChoice) => {
+  const insertOrMergeProduct = (
+    product: CatalogProduct,
+    choice?: GatcStampingChoice,
+    insertAfterLineId?: string | null,
+  ) => {
     const gatcId = choice?.withStamping ? (choice.gatcStampingPriceId?.trim() || null) : null;
     const existing = lines.find(
       line => line.productId === product.id && sameGatcKey(line.gatcStampingPriceId, gatcId),
@@ -297,7 +301,20 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
           : line
       )));
     } else {
-      onChange([...lines, toDraftLine(product, 1, choice)]);
+      const nextLine = toDraftLine(product, 1, choice);
+      const afterId = String(insertAfterLineId ?? '').trim();
+      if (afterId) {
+        const afterIndex = lines.findIndex(line => line.lineId === afterId);
+        if (afterIndex >= 0) {
+          const next = [...lines];
+          next.splice(afterIndex + 1, 0, nextLine);
+          onChange(next);
+        } else {
+          onChange([...lines, nextLine]);
+        }
+      } else {
+        onChange([...lines, nextLine]);
+      }
     }
     setQuery('');
     setOpen(false);
@@ -502,7 +519,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                       hasUnstampedSibling={hasUnstampedSibling}
                       disabled={saving}
                       onChange={choice => applyLineStamping(line.lineId, choice)}
-                      onAddSibling={choice => insertOrMergeProduct(catalogProduct, choice)}
+                      onAddSibling={choice => insertOrMergeProduct(catalogProduct, choice, line.lineId)}
                     />
                   )}
                 </DocumentLineItemSpec>

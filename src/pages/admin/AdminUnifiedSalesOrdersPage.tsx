@@ -453,7 +453,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       category: 'all',
       statusIn: null,
       sort,
-      salespersonIds,
+      // Dealer drill-down: any ops staff may see that dealer's full SO history.
+      salespersonIds: null,
     })
       .then(rows => {
         if (cancelled) return;
@@ -482,8 +483,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     sort,
     dateStart,
     dateEnd,
-    salespersonIds,
-    salespersonScopeKey,
   ]);
 
   useEffect(() => {

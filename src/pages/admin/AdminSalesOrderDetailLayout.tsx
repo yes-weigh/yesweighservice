@@ -30,7 +30,6 @@ import {
   yesOneStageStatusClass,
 } from '../../lib/salesOrderWorkflow';
 import { sealKindForSalesOrder } from '../../lib/unified-sales-orders';
-import { staffCanAccessSalespersonDoc } from '../../lib/salespersonScope';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
 import type {
   AdminSalesOrderDetailOutletContext,
@@ -124,11 +123,6 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       : fetchAdminSalesOrderDetail(salesOrderId);
     void load
       .then(data => {
-        if (!isDealerView && !staffCanAccessSalespersonDoc(user, data.salespersonId)) {
-          setSalesOrder(null);
-          setError('You can only view sales orders assigned to you.');
-          return;
-        }
         setSalesOrder(data);
         setError('');
       })
@@ -137,7 +131,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
         setError(invoiceErrorMessage(err));
       })
       .finally(() => setLoading(false));
-  }, [salesOrderId, isDealerView, user]);
+  }, [salesOrderId, isDealerView]);
 
   useEffect(() => {
     reload();

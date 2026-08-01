@@ -115,6 +115,7 @@ function parseAddOptions(options?: number | AddCartItemOptions): Required<
     gatcStampingPriceId: options?.gatcStampingPriceId,
     gatcFeePerUnit: options?.gatcFeePerUnit,
     gatcStampingRange: options?.gatcStampingRange,
+    insertAfterCartLineId: options?.insertAfterCartLineId,
   };
 }
 
@@ -182,14 +183,21 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : item,
         );
       }
-      return [
-        ...prev,
-        cartItemFromProduct(product, quantity, {
-          gatcStampingPriceId,
-          gatcFeePerUnit,
-          gatcStampingRange: opts.gatcStampingRange,
-        }),
-      ];
+      const nextItem = cartItemFromProduct(product, quantity, {
+        gatcStampingPriceId,
+        gatcFeePerUnit,
+        gatcStampingRange: opts.gatcStampingRange,
+      });
+      const afterId = String(opts.insertAfterCartLineId ?? '').trim();
+      if (afterId) {
+        const afterIndex = prev.findIndex(item => item.cartLineId === afterId);
+        if (afterIndex >= 0) {
+          const next = [...prev];
+          next.splice(afterIndex + 1, 0, nextItem);
+          return next;
+        }
+      }
+      return [...prev, nextItem];
     });
     return true;
   }, []);

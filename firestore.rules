@@ -45,17 +45,6 @@ service cloud.firestore {
       return isSuperAdmin() || isStaff();
     }
 
-    /** Staff may read SO/invoice docs only when salespersonId is one of theirs. */
-    function staffOwnsSalespersonResource() {
-      return isStaff()
-        && resource.data.keys().hasAll(['salespersonId'])
-        && resource.data.salespersonId is string
-        && (
-          resource.data.salespersonId in userDoc().get('zohoSalespersonIds', [])
-          || resource.data.salespersonId == userDoc().get('zohoSalespersonId', '')
-        );
-    }
-
     function canWriteCatalogMedia() {
       return isFullSuperAdmin() || isMedia();
     }
@@ -257,12 +246,12 @@ service cloud.firestore {
       allow write: if false;
 
       match /invoices/{invoiceId} {
-        allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
+        allow read: if isOpsUser();
         allow write: if false;
       }
 
       match /invoiceSummaries/{invoiceId} {
-        allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
+        allow read: if isOpsUser();
         allow write: if false;
       }
 
@@ -287,12 +276,12 @@ service cloud.firestore {
 
     // Required for admin collectionGroup(db, 'invoices') live queries.
     match /{path=**}/invoices/{invoiceId} {
-      allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
+      allow read: if isOpsUser();
       allow write: if false;
     }
 
     match /{path=**}/invoiceSummaries/{invoiceId} {
-      allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
+      allow read: if isOpsUser();
       allow write: if false;
     }
 
@@ -345,8 +334,9 @@ service cloud.firestore {
     }
 
     // Org-wide Zoho sales orders (customer-scoped fields on each doc).
+    // All ops staff may read — client still scopes org-wide lists by salesperson.
     match /salesOrders/{soId} {
-      allow read: if isSuperAdmin() || staffOwnsSalespersonResource();
+      allow read: if isOpsUser();
       allow write: if false;
     }
 
@@ -360,14 +350,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Zoho salesperson cache for HR staff linking (written by Admin SDK sync).
+    // Zoho salesperson cache — ops need this for create-SO (Cloud Charges, pickers).
     match /zohoSalespersons/{salespersonId} {
-      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
+      allow read: if isActiveUser() && (isOpsUser() || staffHasHrView());
       allow write: if false;
     }
 
     match /zohoSalespersonMeta/{docId} {
-      allow read: if isActiveUser() && (isSuperAdmin() || staffHasHrView());
+      allow read: if isActiveUser() && (isOpsUser() || staffHasHrView());
       allow write: if false;
     }
 

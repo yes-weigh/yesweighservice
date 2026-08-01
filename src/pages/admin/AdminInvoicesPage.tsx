@@ -544,7 +544,8 @@ export const AdminInvoicesPage: React.FC = () => {
       dateEnd,
       category: 'all',
       sort,
-      salespersonIds,
+      // Dealer drill-down: any ops staff may see that dealer's full invoice history.
+      salespersonIds: null,
     })
       .then(next => {
         if (cancelled) return;
@@ -575,8 +576,6 @@ export const AdminInvoicesPage: React.FC = () => {
     dateEnd,
     sort,
     selectedCustomerIds,
-    salespersonIds,
-    salespersonScopeKey,
   ]);
 
   const filtered = useMemo(

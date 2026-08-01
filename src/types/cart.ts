@@ -38,6 +38,8 @@ export type AddCartItemOptions = {
   gatcStampingPriceId?: string | null;
   gatcFeePerUnit?: number;
   gatcStampingRange?: string | null;
+  /** When set, insert the new line immediately after this cart line (sibling stamping). */
+  insertAfterCartLineId?: string | null;
 };
 
 export function cartItemFromProduct(

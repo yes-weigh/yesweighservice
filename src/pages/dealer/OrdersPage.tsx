@@ -334,11 +334,15 @@ const DealerCartPage: React.FC = () => {
                         onChange={choice => applyLineStamping(item.cartLineId, choice)}
                         onAddSibling={choice => {
                           if (!choice.withStamping) {
-                            addItem(catalogProduct, 1);
+                            addItem(catalogProduct, {
+                              quantity: 1,
+                              insertAfterCartLineId: item.cartLineId,
+                            });
                             return;
                           }
                           addItem(catalogProduct, {
                             quantity: 1,
+                            insertAfterCartLineId: item.cartLineId,
                             gatcStampingPriceId: choice.gatcStampingPriceId,
                             gatcFeePerUnit: choice.gatcFeePerUnit,
                             gatcStampingRange: choice.gatcStampingRange,

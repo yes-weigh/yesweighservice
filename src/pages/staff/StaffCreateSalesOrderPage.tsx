@@ -62,6 +62,10 @@ import {
 } from '../../lib/salesOrderSegments';
 import { freightOptionBySku } from '../../constants/freightLines';
 import type { FreightLineSku } from '../../constants/freightLines';
+import {
+  CLOUD_CHARGES_SALESPERSON_ID,
+  CLOUD_CHARGES_SALESPERSON_NAME,
+} from '../../constants/cloudChargesSalesperson';
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
@@ -115,8 +119,6 @@ type SalespersonPreview = {
   error: string | null;
   loading: boolean;
 };
-
-const CLOUD_CHARGES_NAME = 'Cloud Charges';
 
 function formatShippingSummary(
   shipping: ShippingSelection | null,
@@ -626,31 +628,23 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     void (async () => {
       try {
         if (segment === 'software') {
-          const rows = await listZohoSalespersonsFromFirestore();
-          const match = rows.find(row => (
-            row.active
-            && row.name.trim().toLowerCase() === CLOUD_CHARGES_NAME.toLowerCase()
-          ));
-          if (cancelled) return;
-          if (!match) {
-            setSpPreview({
-              source: 'cloud',
-              title: 'Cloud Charges',
-              salespersonId: null,
-              salespersonName: null,
-              staffName: null,
-              hint: null,
-              error: 'Zoho salesperson “Cloud Charges” was not found. Sync salespersons first.',
-              loading: false,
-            });
-            return;
+          let match: ZohoSalespersonOption | null = null;
+          try {
+            const rows = await listZohoSalespersonsFromFirestore();
+            match = rows.find(row => (
+              row.active
+              && row.name.trim().toLowerCase() === CLOUD_CHARGES_SALESPERSON_NAME.toLowerCase()
+            )) ?? null;
+          } catch {
+            // Staff without HR view may be denied Firestore salesperson cache — use known id.
           }
+          if (cancelled) return;
           setSpPreview({
             source: 'cloud',
             title: 'Cloud Charges',
-            salespersonId: match.id,
-            salespersonName: match.name,
-            staffName: CLOUD_CHARGES_NAME,
+            salespersonId: match?.id || CLOUD_CHARGES_SALESPERSON_ID,
+            salespersonName: match?.name || CLOUD_CHARGES_SALESPERSON_NAME,
+            staffName: CLOUD_CHARGES_SALESPERSON_NAME,
             hint: 'Software sales orders go to Cloud Charges.',
             error: null,
             loading: false,
@@ -1465,11 +1459,15 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                       onAddSibling={choice => {
                         if (!catalogProduct) return;
                         if (!choice.withStamping) {
-                          addItem(catalogProduct, 1);
+                          addItem(catalogProduct, {
+                            quantity: 1,
+                            insertAfterCartLineId: item.cartLineId,
+                          });
                           return;
                         }
                         addItem(catalogProduct, {
                           quantity: 1,
+                          insertAfterCartLineId: item.cartLineId,
                           gatcStampingPriceId: choice.gatcStampingPriceId,
                           gatcFeePerUnit: choice.gatcFeePerUnit,
                           gatcStampingRange: choice.gatcStampingRange,

@@ -14,7 +14,6 @@ import {
   buildInvoiceBookingDraftPatch,
   canBookCourierForInvoice,
 } from '../../lib/logisticsPrefill';
-import { staffCanAccessSalespersonDoc } from '../../lib/salespersonScope';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
@@ -64,11 +63,6 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     fetchAdminInvoiceDetail(customerId, invoiceId)
       .then(data => {
         if (cancelled) return;
-        if (!staffCanAccessSalespersonDoc(user, data.salespersonId)) {
-          setInvoice(null);
-          setError('You can only view invoices assigned to you.');
-          return;
-        }
         setInvoice(data);
         setError('');
       })
@@ -85,7 +79,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [customerId, invoiceId, user]);
+  }, [customerId, invoiceId]);
 
   const courierEntry = useMemo(() => {
     if (!invoice || !customerId || !invoiceId || !user) return null;
