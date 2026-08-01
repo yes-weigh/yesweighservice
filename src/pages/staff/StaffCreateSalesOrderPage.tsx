@@ -98,7 +98,7 @@ type FreightDraftLine = {
   rate: number;
 };
 
-type WizardStep = 'segment' | 'dealer' | 'catalog' | 'preview';
+type WizardStep = 'orderType' | 'dealer' | 'catalog' | 'preview';
 
 type SelectedDealer = {
   id: string;
@@ -259,7 +259,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const showSegmentStep = allowedSegments.length > 1;
 
   const [step, setStep] = useState<WizardStep>(() => (
-    allowedSegments.length > 1 ? 'segment' : 'dealer'
+    allowedSegments.length > 1 ? 'orderType' : 'dealer'
   ));
   const [selectedSegment, setSelectedSegment] = useState<OrderSegment | null>(
     () => (allowedSegments.length === 1 ? (allowedSegments[0] ?? null) : null),
@@ -309,7 +309,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
   const steps = useMemo((): WizardStep[] => (
     showSegmentStep
-      ? ['segment', 'dealer', 'catalog', 'preview']
+      ? ['orderType', 'dealer', 'catalog', 'preview']
       : ['dealer', 'catalog', 'preview']
   ), [showSegmentStep]);
 
@@ -330,13 +330,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         : Boolean(spPreview.salespersonId)
     );
 
-  const stepTitle = step === 'segment'
-    ? 'Select segment'
-    : step === 'dealer'
-      ? 'Dealer & address'
-      : step === 'catalog'
-        ? (selectedSegment ? `${segmentLabel(selectedSegment)} catalog` : 'Catalog')
-        : 'Preview & submit';
+  const stepTitle = `Step ${stepIndex + 1} of ${steps.length}`;
 
   const goBackRef = useRef<() => void>(() => {
     navigate(listPath);
@@ -349,7 +343,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     onBack: () => {
       goBackRef.current();
     },
-    mobileCompactHeader: true,
+    accentTitle: !createdOrders?.length,
+    mobileCompactHeader: false,
   }, true);
 
   useEffect(() => {
@@ -361,7 +356,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   useEffect(() => {
     if (allowedSegments.length === 1) {
       setSelectedSegment(allowedSegments[0]);
-      setStep(prev => (prev === 'segment' ? 'dealer' : prev));
+      setStep(prev => (prev === 'orderType' ? 'dealer' : prev));
     }
   }, [allowedSegments]);
 
@@ -874,16 +869,16 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   }, [cartItems, removeItem]);
 
   const goToSegmentStep = useCallback(async () => {
-    if (!showSegmentStep || step === 'segment') return;
+    if (!showSegmentStep || step === 'orderType') return;
     setError('');
     if (!(lines.length > 0 || freightLines.length > 0)) {
-      setStep('segment');
+      setStep('orderType');
       return;
     }
     const ok = await confirm({
-      title: 'Change segment?',
+      title: 'Change order type?',
       message:
-        'Your cart has items for the current segment. Changing segment will clear the cart and freight lines. Continue?',
+        'Your cart has items for the current order type. Changing order type will clear the cart and freight lines. Continue?',
       confirmLabel: 'Clear cart & change',
       cancelLabel: 'Stay here',
       destructive: true,
@@ -894,7 +889,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     setFreightLines([]);
     setFreightSku(null);
     setFreightRateInput('');
-    setStep('segment');
+    setStep('orderType');
   }, [showSegmentStep, step, lines.length, freightLines.length, confirm, clearCart]);
 
   const goBack = useCallback(() => {
@@ -932,7 +927,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
   const goToCatalog = () => {
     if (!selectedSegment) {
-      setError('Select a segment first.');
+      setError('Select an order type first.');
       return;
     }
     if (!selectedDealer) {
@@ -967,12 +962,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
   const onProgressStepClick = (target: WizardStep) => {
     if (target === step) return;
-    if (target === 'segment') {
+    if (target === 'orderType') {
       void goToSegmentStep();
       return;
     }
     if (target === 'dealer') {
-      if (step === 'segment' && !selectedSegment) return;
+      if (step === 'orderType' && !selectedSegment) return;
       setError('');
       setStep('dealer');
       return;
@@ -1006,7 +1001,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       return;
     }
     if (!salespersonReady) {
-      setError(spPreview.error || 'Salesperson is not resolved for this segment.');
+      setError(spPreview.error || 'Salesperson is not resolved for this order type.');
       return;
     }
     setSaving(true);
@@ -1080,17 +1075,17 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     <div className={`page-content fade-in staff-create-so-page staff-create-so-page--${step}`}>
       <nav className="staff-create-so-page__stepper" aria-label="Create sales order progress">
         {steps.map((id, index) => {
-          const label = id === 'segment'
-            ? 'Segment'
+          const label = id === 'orderType'
+            ? 'Order Type'
             : id === 'dealer'
-              ? 'Dealer'
+              ? 'Dealer Details'
               : id === 'catalog'
-                ? 'Catalog'
-                : 'Preview';
-          const clickable = id === 'segment'
-            ? showSegmentStep && step !== 'segment'
+                ? 'Items'
+                : 'Review & Confirm';
+          const clickable = id === 'orderType'
+            ? showSegmentStep && step !== 'orderType'
             : id === 'dealer'
-              ? step !== 'dealer' && (step !== 'segment' || Boolean(selectedSegment))
+              ? step !== 'dealer' && (step !== 'orderType' || Boolean(selectedSegment))
               : id === 'catalog'
                 ? dealerReady && salespersonReady && Boolean(selectedSegment)
                   && (step === 'preview' || step === 'dealer')
@@ -1102,7 +1097,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               {index > 0 ? (
                 <span
                   className={`staff-create-so-page__stepper-line${
-                    index <= stepIndex ? ' is-done' : ''
+                    index <= stepIndex + 1 ? ' is-done' : ''
                   }`}
                   aria-hidden
                 />
@@ -1131,21 +1126,21 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         </div>
       ) : null}
 
-      {step === 'segment' ? (
+      {step === 'orderType' ? (
         <section className="panel glass staff-create-so-page__section">
-          <h2>Select segment</h2>
+          <h2>Order type</h2>
           <p className="text-muted text-sm">
-            One sales order per segment. Choose Product, Spare, or Software to continue.
+            One sales order per type. Choose Product, Spare, or Software to continue.
           </p>
-          <div className="staff-create-so-page__segment-grid" role="list">
+          <div className="staff-create-so-page__order-type-grid" role="list">
             {segmentChips.map(option => (
               <button
                 key={option.id}
                 type="button"
-                className="staff-create-so-page__segment-card"
+                className="staff-create-so-page__order-type-card"
                 onClick={() => selectSegmentAndContinue(option.id)}
               >
-                <span className="staff-create-so-page__segment-icon">{option.icon}</span>
+                <span className="staff-create-so-page__order-type-icon">{option.icon}</span>
                 <strong>{option.title}</strong>
                 <span className="text-muted text-sm">{option.hint}</span>
               </button>
@@ -1157,7 +1152,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       {step === 'dealer' ? (
         <>
           <section className="panel glass staff-create-so-page__section">
-            <h2>Dealer</h2>
+            <h2>Dealer details</h2>
             <p className="text-muted text-sm">
               Pick the dealer and shipping address before browsing the catalog.
             </p>
@@ -1371,8 +1366,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 managePageHeader={false}
                 activeCategoryId={browseCategoryId}
                 onActiveCategoryChange={setBrowseCategoryId}
-                emptyTitle="No items in this segment"
-                emptyHint="Try another segment or sync the catalog."
+                emptyTitle="No items for this order type"
+                emptyHint="Try another order type or sync the catalog."
               />
             </>
           )}
@@ -1389,7 +1384,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               disabled={!lines.length}
               onClick={goToPreview}
             >
-              Preview
+              Review & confirm
               <ArrowRight size={16} aria-hidden />
             </button>
           </div>
@@ -1488,7 +1483,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
             )}
 
             {segmentPreview.length > 1 ? (
-              <p className="text-muted text-sm staff-create-so-page__segment-hint">
+              <p className="text-muted text-sm staff-create-so-page__order-type-hint">
                 This will create {segmentPreview.length} draft sales orders:
                 {' '}
                 {segmentPreview.map(segmentLabel).join(', ')}.

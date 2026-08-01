@@ -16,6 +16,8 @@ export type PageHeaderConfig = {
   onBack?: (() => void) | null;
   onTitleClick?: (() => void) | null;
   titleExpanded?: boolean;
+  /** Orange uppercase title (e.g. create-SO wizard). */
+  accentTitle?: boolean;
   /** Mobile: menu + inline search + action in one row (hide page title). */
   mobileCompactHeader?: boolean;
 };
@@ -51,6 +53,7 @@ function configsEqual(a: PageHeaderConfig, b: PageHeaderConfig): boolean {
     && a.onBack === b.onBack
     && a.onTitleClick === b.onTitleClick
     && a.titleExpanded === b.titleExpanded
+    && a.accentTitle === b.accentTitle
     && a.mobileCompactHeader === b.mobileCompactHeader;
 }
 
@@ -162,6 +165,7 @@ export function useCatalogPageHeader(config: PageHeaderConfig, enabled = true) {
     onBack = null,
     onTitleClick = null,
     titleExpanded = false,
+    accentTitle = false,
     mobileCompactHeader = false,
   } = config;
   const onBackRef = useRef(onBack);
@@ -192,10 +196,21 @@ export function useCatalogPageHeader(config: PageHeaderConfig, enabled = true) {
       onBack: stableOnBack,
       onTitleClick: stableOnTitleClick,
       titleExpanded,
+      accentTitle,
       mobileCompactHeader,
     });
     return () => setPageHeader(emptyConfig);
-  }, [setPageHeader, enabled, title, subtitle, showBack, onTitleClick, titleExpanded, mobileCompactHeader]);
+  }, [
+    setPageHeader,
+    enabled,
+    title,
+    subtitle,
+    showBack,
+    onTitleClick,
+    titleExpanded,
+    accentTitle,
+    mobileCompactHeader,
+  ]);
 }
 
 function useOwnedHeaderSlot(

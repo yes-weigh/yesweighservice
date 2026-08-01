@@ -27,7 +27,7 @@ export const MultiSalesOrderSuccess: React.FC<Props> = ({
             {count === 1 ? 'Sales order created' : `${count} sales orders created`}
           </h2>
           <p className="text-muted text-sm">
-            Items were split by Product, Spare, and Software segments where needed.
+            Items were split by Product, Spare, and Software order types where needed.
           </p>
         </div>
       </div>

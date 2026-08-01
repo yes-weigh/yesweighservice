@@ -531,7 +531,10 @@ const LayoutShell: React.FC = () => {
               onClick={() => navigateBack(navigate, dealerListPath)}
             >
               <span className="page-title__copy">
-                <span className="page-title__text">{displayTitle}</span>
+                <span className={[
+                  'page-title__text',
+                  pageHeader.accentTitle ? 'page-title__text--accent' : '',
+                ].filter(Boolean).join(' ')}>{displayTitle}</span>
                 {pageHeader.subtitle && (
                   <span className="page-subtitle">{pageHeader.subtitle}</span>
                 )}
@@ -554,7 +557,10 @@ const LayoutShell: React.FC = () => {
             >
               <span className="page-title__copy">
                 <span className="top-bar__title-row">
-                  <span className="page-title__text">{displayTitle}</span>
+                  <span className={[
+                    'page-title__text',
+                    pageHeader.accentTitle ? 'page-title__text--accent' : '',
+                  ].filter(Boolean).join(' ')}>{displayTitle}</span>
                   <ChevronDown size={18} className="top-bar__title-chevron" aria-hidden />
                 </span>
                 {pageHeader.subtitle && (
@@ -572,7 +578,10 @@ const LayoutShell: React.FC = () => {
             >
               <div className="page-title__copy">
                 <h1 className="page-title">
-                  <span className="page-title__text">{displayTitle}</span>
+                  <span className={[
+                    'page-title__text',
+                    pageHeader.accentTitle ? 'page-title__text--accent' : '',
+                  ].filter(Boolean).join(' ')}>{displayTitle}</span>
                 </h1>
                 {pageHeader.subtitle && (
                   <p className="page-subtitle">{pageHeader.subtitle}</p>

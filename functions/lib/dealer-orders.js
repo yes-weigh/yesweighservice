@@ -399,8 +399,8 @@ async function createSegmentSalesOrders({
       remarks: segmentOrder.length === 1
         ? remarks
         : (remarks
-          ? `${remarks}\n[${segmentLabel(segment)} segment]`
-          : `[${segmentLabel(segment)} segment]`),
+          ? `${remarks}\n[${segmentLabel(segment)} order type]`
+          : `[${segmentLabel(segment)} order type]`),
       shippingAddressId: shippingResolved.shippingAddressId,
       shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
       salespersonId: salesperson?.id || null,
