@@ -3,11 +3,17 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowRight,
+  BadgeCheck,
+  ChevronRight,
+  ClipboardList,
   Cpu,
+  Headset,
   Package,
   Search,
   ShoppingCart,
+  ShieldCheck,
   Trash2,
+  Truck,
   Wrench,
 } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
@@ -184,29 +190,64 @@ function ownSalespersonFromUser(user: User | null | undefined): {
   return { salespersonId: link.id, salespersonName: link.name };
 }
 
-const SEGMENT_OPTIONS: Array<{
+const ORDER_TYPE_OPTIONS: Array<{
   id: OrderSegment;
+  tone: 'product' | 'spare' | 'software';
+  title: string;
+  subtitle: string;
+  description: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    id: 'product',
+    tone: 'product',
+    title: 'Finished Goods',
+    subtitle: 'Buy complete weighing scales & systems',
+    description: 'Browse our full range of weighing products with specifications and pricing.',
+    icon: <Package size={22} aria-hidden />,
+  },
+  {
+    id: 'spare',
+    tone: 'spare',
+    title: 'Spare House',
+    subtitle: 'Genuine Spare Parts',
+    description: 'Find and order original spare parts for all our products.',
+    icon: <Wrench size={22} aria-hidden />,
+  },
+  {
+    id: 'software',
+    tone: 'software',
+    title: 'Software Solutions',
+    subtitle: 'Licenses, Keys & Digital Products',
+    description: 'Purchase software licenses, activation keys and digital services.',
+    icon: <Cpu size={22} aria-hidden />,
+  },
+];
+
+const ORDER_TYPE_TRUST_ITEMS: Array<{
   title: string;
   hint: string;
   icon: React.ReactNode;
 }> = [
   {
-    id: 'product',
-    title: 'Product',
-    hint: 'Finished goods with a catalog category',
-    icon: <Package size={28} aria-hidden />,
+    title: '100% Genuine',
+    hint: 'Original quality you can trust',
+    icon: <ShieldCheck size={18} aria-hidden />,
   },
   {
-    id: 'spare',
-    title: 'Spare',
-    hint: 'Generic spare parts and uncategorized items',
-    icon: <Wrench size={28} aria-hidden />,
+    title: 'Fast Dispatch',
+    hint: 'Quick processing & timely delivery',
+    icon: <Truck size={18} aria-hidden />,
   },
   {
-    id: 'software',
-    title: 'Software',
-    hint: 'Software keys and Sanoft',
-    icon: <Cpu size={28} aria-hidden />,
+    title: 'Secure Ordering',
+    hint: 'Safe, reliable & verified orders',
+    icon: <BadgeCheck size={18} aria-hidden />,
+  },
+  {
+    title: 'Dealer Support',
+    hint: 'We are here to assist you 24/7',
+    icon: <Headset size={18} aria-hidden />,
   },
 ];
 
@@ -1069,7 +1110,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     );
   }
 
-  const segmentChips = SEGMENT_OPTIONS.filter(option => allowedSegments.includes(option.id));
+  const orderTypeOptions = ORDER_TYPE_OPTIONS.filter(option => (
+    allowedSegments.includes(option.id)
+  ));
 
   return (
     <div className={`page-content fade-in staff-create-so-page staff-create-so-page--${step}`}>
@@ -1127,25 +1170,60 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       ) : null}
 
       {step === 'orderType' ? (
-        <section className="panel glass staff-create-so-page__section">
-          <h2>Order type</h2>
-          <p className="text-muted text-sm">
-            One sales order per type. Choose Product, Spare, or Software to continue.
-          </p>
-          <div className="staff-create-so-page__order-type-grid" role="list">
-            {segmentChips.map(option => (
-              <button
-                key={option.id}
-                type="button"
-                className="staff-create-so-page__order-type-card"
-                onClick={() => selectSegmentAndContinue(option.id)}
-              >
-                <span className="staff-create-so-page__order-type-icon">{option.icon}</span>
-                <strong>{option.title}</strong>
-                <span className="text-muted text-sm">{option.hint}</span>
-              </button>
-            ))}
+        <section className="staff-create-so-page__order-type-stage">
+          <div className="staff-create-so-page__order-type-panel">
+            <header className="staff-create-so-page__order-type-head">
+              <span className="staff-create-so-page__order-type-head-icon" aria-hidden>
+                <ClipboardList size={22} />
+              </span>
+              <div>
+                <h2>Choose Order Type</h2>
+                <p>
+                  Each sales order must belong to one type. Select the category that matches your
+                  requirement.
+                </p>
+              </div>
+            </header>
+
+            <div className="staff-create-so-page__order-type-list" role="list">
+              {orderTypeOptions.map(option => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`staff-create-so-page__order-type-card staff-create-so-page__order-type-card--${option.tone}`}
+                  onClick={() => selectSegmentAndContinue(option.id)}
+                >
+                  <span className="staff-create-so-page__order-type-icon" aria-hidden>
+                    {option.icon}
+                  </span>
+                  <span className="staff-create-so-page__order-type-copy">
+                    <strong>{option.title}</strong>
+                    <span className="staff-create-so-page__order-type-subtitle">{option.subtitle}</span>
+                    <span className="staff-create-so-page__order-type-desc">{option.description}</span>
+                  </span>
+                  <ChevronRight
+                    size={20}
+                    className="staff-create-so-page__order-type-chevron"
+                    aria-hidden
+                  />
+                </button>
+              ))}
+            </div>
           </div>
+
+          <ul className="staff-create-so-page__order-type-trust" aria-label="Ordering benefits">
+            {ORDER_TYPE_TRUST_ITEMS.map(item => (
+              <li key={item.title}>
+                <span className="staff-create-so-page__order-type-trust-icon" aria-hidden>
+                  {item.icon}
+                </span>
+                <span>
+                  <strong>{item.title}</strong>
+                  <span>{item.hint}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
