@@ -1485,10 +1485,8 @@
   font-weight: 600;
 }
 
-.hr-salary__summary-table th:nth-child(3),
-.hr-salary__summary-table td:nth-child(3),
-.hr-salary__summary-table th:last-child,
-.hr-salary__summary-table td:last-child {
+.hr-salary__summary-table th:nth-child(n+2),
+.hr-salary__summary-table td:nth-child(n+2) {
   text-align: right;
 }
 

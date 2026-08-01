@@ -8,8 +8,10 @@ import {
   formatLeaveDays,
   formatOtHours,
   formatTimeAmPm,
+  formatWorkPercent,
   leaveKindForDate,
   overtimeEntryHours,
+  projectWorkSharePercents,
   projectWorkTotals,
   resolveSalaryRates,
   workProjectIdForDate,
@@ -182,6 +184,10 @@ export function HrSalaryShareView({
       calc.otHourlyRate,
       workShiftEntries,
     ],
+  );
+  const projectSharePercents = useMemo(
+    () => projectWorkSharePercents(projectTotals),
+    [projectTotals],
   );
   const otLines = useMemo(
     () => overtimeEntries
@@ -556,6 +562,7 @@ export function HrSalaryShareView({
           <thead>
             <tr>
               <th>Project</th>
+              <th>%</th>
               <th>Days</th>
               <th>OT</th>
               <th>Amount</th>
@@ -576,13 +583,18 @@ export function HrSalaryShareView({
                     {total.name}
                   </div>
                 </td>
+                <td>
+                  {formatWorkPercent(
+                    projectSharePercents.get(total.projectId ?? '__unassigned') ?? 0,
+                  )}
+                </td>
                 <td>{total.regularDays}d</td>
                 <td>{formatOtHours(total.otHours)}</td>
                 <td>{formatInr(total.totalPay)}</td>
               </tr>
             ))}
             <tr className="hr-salary__summary-total-row">
-              <td colSpan={3}>Total Earned</td>
+              <td colSpan={4}>Total Earned</td>
               <td>{formatInr(calc.earnedSalary)}</td>
             </tr>
           </tbody>

@@ -424,6 +424,45 @@ export function projectWorkTotals(
   ));
 }
 
+/** Regular hours + OT hours attributed to a project (for share %). */
+export function projectWorkHours(row: Pick<HrProjectWorkTotal, 'regularDays' | 'otHours'>): number {
+  return Math.round(
+    (Number(row.regularDays || 0) * HR_SALARY_HOURS_PER_DAY + Number(row.otHours || 0)) * 100,
+  ) / 100;
+}
+
+/**
+ * Share of each project's work (regular + OT hours) as 0–100.
+ * Keys are `projectId` or `__unassigned`.
+ */
+export function projectWorkSharePercents(rows: HrProjectWorkTotal[]): Map<string, number> {
+  const total = rows.reduce((sum, row) => sum + projectWorkHours(row), 0);
+  const out = new Map<string, number>();
+  if (!(total > 0)) {
+    for (const row of rows) out.set(row.projectId ?? '__unassigned', 0);
+    return out;
+  }
+  let allocated = 0;
+  rows.forEach((row, index) => {
+    const key = row.projectId ?? '__unassigned';
+    if (index === rows.length - 1) {
+      out.set(key, Math.round((100 - allocated) * 10) / 10);
+      return;
+    }
+    const pct = Math.round((projectWorkHours(row) / total) * 1000) / 10;
+    allocated += pct;
+    out.set(key, pct);
+  });
+  return out;
+}
+
+export function formatWorkPercent(percent: number): string {
+  const n = Number(percent) || 0;
+  if (n === 0) return '0%';
+  if (Number.isInteger(n)) return `${n}%`;
+  return `${n.toFixed(1)}%`;
+}
+
 export function overtimeHoursByDate(entries: HrOvertimeEntry[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const entry of entries) {

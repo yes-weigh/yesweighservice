@@ -19,8 +19,10 @@ import {
   formatLeaveDays,
   formatOtHours,
   formatTimeAmPm,
+  formatWorkPercent,
   leaveKindForDate,
   overtimeEntryHours,
+  projectWorkSharePercents,
   projectWorkTotals,
   saveSalaryMonth,
   workProjectIdForDate,
@@ -972,6 +974,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                 calc.otHourlyRate,
                 draft.workShiftEntries,
               );
+              const projectSharePercents = projectWorkSharePercents(projectTotals);
               const otLines = draft.overtimeEntries
                 .map(entry => {
                   const hours = overtimeEntryHours(entry.startTime, entry.endTime);
@@ -1452,6 +1455,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                               <thead>
                                 <tr>
                                   <th>Project</th>
+                                  <th>%</th>
                                   <th>Days</th>
                                   <th>OT</th>
                                   <th>Amount</th>
@@ -1472,13 +1476,18 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                         {total.name}
                                       </div>
                                     </td>
+                                    <td>
+                                      {formatWorkPercent(
+                                        projectSharePercents.get(total.projectId ?? '__unassigned') ?? 0,
+                                      )}
+                                    </td>
                                     <td>{total.regularDays}d</td>
                                     <td>{formatOtHours(total.otHours)}</td>
                                     <td>{formatInr(total.totalPay)}</td>
                                   </tr>
                                 ))}
                                 <tr className="hr-salary__summary-total-row">
-                                  <td colSpan={3}>Total Earned</td>
+                                  <td colSpan={4}>Total Earned</td>
                                   <td>{formatInr(calc.earnedSalary)}</td>
                                 </tr>
                               </tbody>
