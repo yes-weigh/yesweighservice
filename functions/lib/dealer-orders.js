@@ -485,6 +485,13 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
   const { lines } = await buildLinesFromInput(payload.lines);
 
+  if (lines.some(isFreightOrderLine)) {
+    throw new HttpsError(
+      'permission-denied',
+      'Freight charges can only be added by staff. Place the order without freight.',
+    );
+  }
+
   if (profile.canBuySpares === false) {
     const spare = lines.find(isSpareSegmentLine);
     if (spare) {
