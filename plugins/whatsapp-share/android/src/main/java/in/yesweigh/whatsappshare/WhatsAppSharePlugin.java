@@ -73,7 +73,7 @@ public class WhatsAppSharePlugin extends Plugin {
                 send.setClipData(ClipData.newRawUri(resolvedName, uri));
                 send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-                Intent chooser = Intent.createChooser(send, "Share image");
+                Intent chooser = Intent.createChooser(send, "Share");
                 chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 getActivity().startActivity(chooser);
 
