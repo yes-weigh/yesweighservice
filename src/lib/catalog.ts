@@ -152,7 +152,10 @@ export function isSoftwareKeysCategory(category: Pick<CatalogCategory, 'name'>):
 
 /** Software Keys — orderable without on-hand stock (subscriptions / licence keys). */
 export function catalogProductIgnoresStockForCart(
-  product: Pick<CatalogProduct, 'categoryName' | 'categoryId'>,
+  product: {
+    categoryName?: string | null;
+    categoryId?: string | null;
+  },
   categories: CatalogCategory[] = [],
 ): boolean {
   if (product.categoryName && isSoftwareKeysCategory({ name: product.categoryName })) {
@@ -170,8 +173,12 @@ export function cartLineBlockedByStock(line: {
   stockStatus?: string | null;
   hsn?: string | null;
   categoryName?: string | null;
+  categoryId?: string | null;
 }): boolean {
-  if (catalogProductIgnoresStockForCart({ categoryName: line.categoryName ?? null })) {
+  if (catalogProductIgnoresStockForCart({
+    categoryName: line.categoryName ?? null,
+    categoryId: line.categoryId ?? null,
+  })) {
     return false;
   }
   if (isSacHsn(line.hsn)) return false;
