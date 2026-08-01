@@ -13,7 +13,7 @@ import type {
 } from '../types/catalog';
 import { mapAuditSnapshot } from './catalogProductAudit/data';
 import { resolveAdjustedAuditDisplay } from './catalogProductAudit/display';
-import { effectiveCatalogStockStatus } from './sacCatalog';
+import { effectiveCatalogStockStatus, isSacHsn } from './sacCatalog';
 import {
   clearCatalogCache,
   getCatalogInflight,
@@ -148,6 +148,34 @@ export function isSparesExcludedCategory(category: Pick<CatalogCategory, 'name'>
 
 export function isSoftwareKeysCategory(category: Pick<CatalogCategory, 'name'>): boolean {
   return category.name.trim().toLowerCase() === 'software keys';
+}
+
+/** Software Keys — orderable without on-hand stock (subscriptions / licence keys). */
+export function catalogProductIgnoresStockForCart(
+  product: Pick<CatalogProduct, 'categoryName' | 'categoryId'>,
+  categories: CatalogCategory[] = [],
+): boolean {
+  if (product.categoryName && isSoftwareKeysCategory({ name: product.categoryName })) {
+    return true;
+  }
+  if (product.categoryId && categories.length) {
+    const cat = categories.find(c => c.id === product.categoryId);
+    if (cat && isSoftwareKeysCategory(cat)) return true;
+  }
+  return false;
+}
+
+/** Whether a cart line should block checkout / show as unavailable. */
+export function cartLineBlockedByStock(line: {
+  stockStatus?: string | null;
+  hsn?: string | null;
+  categoryName?: string | null;
+}): boolean {
+  if (catalogProductIgnoresStockForCart({ categoryName: line.categoryName ?? null })) {
+    return false;
+  }
+  if (isSacHsn(line.hsn)) return false;
+  return line.stockStatus === 'out_of_stock';
 }
 
 export {

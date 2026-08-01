@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
-import { expectsCatalogPackageInfo } from '../../lib/catalog';
+import { expectsCatalogPackageInfo, catalogProductIgnoresStockForCart } from '../../lib/catalog';
 import {
   catalogGridStockQty,
   resolveAdjustedAuditDisplay,
@@ -104,7 +104,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
   const longPressFired = useRef(false);
   const theme = getCategoryTheme(index);
-  const outOfStock = product.stockStatus === 'out_of_stock';
+  const outOfStock = product.stockStatus === 'out_of_stock'
+    && !catalogProductIgnoresStockForCart(product);
   const inCart = isInCart(product.id);
   const showCartButton = enableCart && (!isCartable || isCartable(product));
   const hasStamping = productHasLinkedGatc(product);
@@ -331,24 +332,20 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 
         <div className="catalog-product-card__body">
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>
-          {(showStockQuantity || !dealerView) && (
-            <div className="catalog-product-card__price-row">
-              {!dealerView && (
-                <div className="catalog-product-card__price">
-                  <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-                  <span>{product.rate.toLocaleString('en-IN')}</span>
-                </div>
-              )}
-              {showStockQuantity && (
-                <StockQuantity
-                  stock={gridStockQty}
-                  unit={product.unit}
-                  status={gridStockStatus}
-                  compact
-                />
-              )}
+          <div className="catalog-product-card__price-row">
+            <div className="catalog-product-card__price">
+              <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+              <span>{product.rate.toLocaleString('en-IN')}</span>
             </div>
-          )}
+            {showStockQuantity && (
+              <StockQuantity
+                stock={gridStockQty}
+                unit={product.unit}
+                status={gridStockStatus}
+                compact
+              />
+            )}
+          </div>
 
           {openNcCount != null && openNcCount > 0 && (
             <span className="catalog-product-card__nc-badge">

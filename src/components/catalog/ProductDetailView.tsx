@@ -30,6 +30,7 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   assignProductCategory,
+  catalogProductIgnoresStockForCart,
   expectsCatalogPackageInfo,
   formatCurrencyWhole,
   formatStockQuantity,
@@ -959,7 +960,8 @@ export const ProductDetailView: React.FC<{
     () => detail?.warehouses?.filter(w => w.warehouseName && w.stock > 0) ?? [],
     [detail?.warehouses],
   );
-  const outOfStock = product?.stockStatus === 'out_of_stock';
+  const outOfStock = product?.stockStatus === 'out_of_stock'
+    && !catalogProductIgnoresStockForCart(product ?? { categoryName: null, categoryId: null });
   const cartQty = product ? getQuantity(product.id) : 0;
 
   const parseQuantity = useCallback((value: string) => Math.max(1, parseInt(value, 10) || 1), []);
@@ -1989,7 +1991,7 @@ export const ProductDetailView: React.FC<{
                   <Printer size={16} aria-hidden />
                 </button>
               )}
-              {!productEditMode && (showStockQuantity || showCartActions) && (
+              {!productEditMode && (
                 <div className="product-detail-page__title-price" aria-label="Dealer price">
                   <div className="product-detail-page__title-price-amount">
                     <IndianRupee size={16} strokeWidth={2.5} aria-hidden />

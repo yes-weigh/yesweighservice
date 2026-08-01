@@ -31,7 +31,7 @@ import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
-import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
+import { catalogProductIgnoresStockForCart, effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
 import {
   loadGatcStampingPriceMap,
   mergeKeyForLine,
@@ -270,6 +270,7 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
     }
     if (product.stockStatus === 'out_of_stock'
       && !isSacHsn(product.hsn)
+      && !catalogProductIgnoresStockForCart(product)
       && !isFreight) {
       throw new HttpsError(
         'failed-precondition',

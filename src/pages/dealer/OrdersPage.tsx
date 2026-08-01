@@ -13,9 +13,8 @@ import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesO
 import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
-import { fetchCatalog, formatCurrency } from '../../lib/catalog';
+import { cartLineBlockedByStock, fetchCatalog, formatCurrency } from '../../lib/catalog';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
-import { isSacHsn } from '../../lib/sacCatalog';
 import {
   dealerOrderErrorMessage,
   submitDealerOrder,
@@ -273,8 +272,7 @@ const DealerCartPage: React.FC = () => {
           <ul className="orders-page__items">
             {items.map(item => {
               const lineTotal = item.rate * item.quantity;
-              const unavailable = item.stockStatus === 'out_of_stock'
-                && !isSacHsn(item.hsn);
+              const unavailable = cartLineBlockedByStock(item);
               const catalogProduct = catalogById[item.productId];
               const canEditStamp = catalogProduct
                 ? productHasLinkedGatc(catalogProduct)
@@ -432,7 +430,7 @@ const DealerCartPage: React.FC = () => {
               submitting
               || !shipping
               || addressesLoading
-              || items.some(i => i.stockStatus === 'out_of_stock' && !isSacHsn(i.hsn))
+              || items.some(cartLineBlockedByStock)
             }
             onClick={() => void handlePlaceOrder()}
           >

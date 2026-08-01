@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { IndianRupee, Link2Off, Package, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
-import type { CatalogProduct } from '../../types/catalog';
+import { catalogProductIgnoresStockForCart } from '../../lib/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
+import type { CatalogProduct } from '../../types/catalog';
 import { QuantityStepper } from '../QuantityStepper';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { StockQuantity } from './StockBadge';
@@ -29,7 +30,8 @@ function RelatedCatalogCartControls({
 
   if (!enableCart) return null;
 
-  const outOfStock = item.stockStatus === 'out_of_stock';
+  const outOfStock = item.stockStatus === 'out_of_stock'
+    && !catalogProductIgnoresStockForCart(item);
   const cartQty = getQuantity(item.id);
   // Prefer without-stamping line for qty stepper when multiple stamp variants exist.
   const primaryLine = items.find(line => line.productId === item.id && !line.gatcStampingPriceId)

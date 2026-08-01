@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { combinedCartRate, newCartLineId } from '../lib/gatcCart';
+import { catalogProductIgnoresStockForCart } from '../lib/catalog';
 import { effectiveCatalogStockStatus } from '../lib/sacCatalog';
 import type { CatalogProduct } from '../types/catalog';
 import {
@@ -147,8 +148,14 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): boolean => {
     const opts = parseAddOptions(options);
     const quantity = Math.floor(Number(opts.quantity) || 0);
+    if (quantity < 1) return false;
     const stockStatus = effectiveCatalogStockStatus(product.stockStatus, product.hsn);
-    if (stockStatus === 'out_of_stock' || quantity < 1) return false;
+    if (
+      !catalogProductIgnoresStockForCart(product)
+      && stockStatus === 'out_of_stock'
+    ) {
+      return false;
+    }
 
     const gatcStampingPriceId = opts.gatcStampingPriceId?.trim() || null;
     const gatcFeePerUnit = gatcStampingPriceId

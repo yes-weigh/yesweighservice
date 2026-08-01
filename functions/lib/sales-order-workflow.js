@@ -28,7 +28,7 @@ import {
 } from './sales-order-sync.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
-import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
+import { catalogProductIgnoresStockForCart, effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
 import {
   loadGatcStampingPriceMap,
@@ -505,6 +505,7 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true, allowRate
       !allowOutOfStock
       && product.stockStatus === 'out_of_stock'
       && !isSacHsn(product.hsn)
+      && !catalogProductIgnoresStockForCart(product)
       && !isFreight
     ) {
       throw new HttpsError(
