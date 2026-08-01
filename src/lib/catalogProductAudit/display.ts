@@ -1,5 +1,18 @@
 import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
+/**
+ * Quantity for catalog grid/list stock pills.
+ * Uses last audited physical qty only — never Zoho book stock.
+ * Returns 0 when the product has never been audited.
+ */
+export function catalogGridAuditedStockQty(
+  snapshot: CatalogProductAuditSnapshot | null | undefined,
+): number {
+  if (!snapshot) return 0;
+  const qty = Number(snapshot.physicalQtyAtAudit);
+  return Number.isFinite(qty) ? qty : 0;
+}
+
 export interface AdjustedAuditDisplay {
   hasAuditSnapshot: boolean;
   /**

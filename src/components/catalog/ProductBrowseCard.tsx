@@ -2,7 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import { expectsCatalogPackageInfo } from '../../lib/catalog';
-import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
+import {
+  catalogGridAuditedStockQty,
+  resolveAdjustedAuditDisplay,
+} from '../../lib/catalogProductAudit/display';
 import { normalizeGatcIdList, productHasLinkedGatc } from '../../lib/gatcCart';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
 import type { CatalogGatcStampingPriceEntry } from '../../constants/catalogProductSettings';
@@ -191,6 +194,17 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
     });
   }, [showStockQuantity, product.auditSnapshot, product.stock]);
 
+  /** Grid qty pill: audited stock only — never Zoho; 0 when never audited. */
+  const gridAuditedStockQty = showStockQuantity
+    ? catalogGridAuditedStockQty(product.auditSnapshot)
+    : 0;
+
+  const gridStockStatus = gridAuditedStockQty <= 0
+    ? 'out_of_stock' as const
+    : product.stockStatus === 'low_stock'
+      ? 'low_stock' as const
+      : 'in_stock' as const;
+
   const auditDiff = auditDisplay?.displayDifference ?? null;
   const auditDiffState =
     auditDiff == null ? null
@@ -329,9 +343,9 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
               )}
               {showStockQuantity && (
                 <StockQuantity
-                  stock={product.stock}
+                  stock={gridAuditedStockQty}
                   unit={product.unit}
-                  status={product.stockStatus}
+                  status={gridStockStatus}
                   compact
                 />
               )}
