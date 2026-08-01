@@ -1,7 +1,7 @@
 import { fetchDealers } from './dealers';
 import type { ZohoDealer } from '../types/dealers';
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SESSION_KEY = `yws.dealers.${CACHE_VERSION}`;
 const TTL_MS = 30 * 60 * 1000;
 const PAGE_SIZE = 150;

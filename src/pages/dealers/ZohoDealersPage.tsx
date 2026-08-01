@@ -53,7 +53,6 @@ export function ZohoDealersPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
-  const isStaffScoped = user?.role === 'staff';
   const isSuperAdmin = user?.role === 'super_admin';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
@@ -99,9 +98,7 @@ export function ZohoDealersPage() {
     limit: effectivePaginationOn ? limit : 99999,
     status: 'all',
     ...(debouncedSearch ? { q: debouncedSearch } : {}),
-    ...(!isStaffScoped && staffFilter.length
-      ? { assignedStaffUid: staffFilter.join(',') }
-      : {}),
+    ...(staffFilter.length ? { assignedStaffUid: staffFilter.join(',') } : {}),
     ...(statusFilter.length ? { dealerStatus: statusFilter.join(',') } : {}),
     ...(stateFilter.length ? { billingState: stateFilter.join(',') } : {}),
     ...(districtFilter.length ? { district: districtFilter.join(',') } : {}),
@@ -109,7 +106,7 @@ export function ZohoDealersPage() {
     sortField,
     sortDir,
   }), [
-    effectivePaginationOn, page, debouncedSearch, isStaffScoped, staffFilter, statusFilter, stateFilter,
+    effectivePaginationOn, page, debouncedSearch, staffFilter, statusFilter, stateFilter,
     districtFilter, categoryFilter, sortField, sortDir,
   ]);
 
@@ -373,14 +370,6 @@ export function ZohoDealersPage() {
         </div>
       )}
 
-      {isStaffScoped && (
-        <div className="staff-kam-scope-banner panel glass">
-          <span className="text-sm">
-            Showing dealers assigned to you only.
-          </span>
-        </div>
-      )}
-
       <div className="dealers-toolbar panel glass">
         <div className="dealers-toolbar__row">
           <div className="catalog-search dealers-search">
@@ -424,17 +413,15 @@ export function ZohoDealersPage() {
             )}
           </summary>
           <div className="dealers-filters">
-          {!isStaffScoped && (
-            <MultiSelect
-              placeholder="Assigned staff"
-              value={staffFilter}
-              onChange={setStaffFilter}
-              options={[
-                { value: 'unassigned', label: 'Unassigned' },
-                ...assignableStaff.map(s => ({ value: s.uid, label: s.displayName })),
-              ]}
-            />
-          )}
+          <MultiSelect
+            placeholder="Assigned staff"
+            value={staffFilter}
+            onChange={setStaffFilter}
+            options={[
+              { value: 'unassigned', label: 'Unassigned' },
+              ...assignableStaff.map(s => ({ value: s.uid, label: s.displayName })),
+            ]}
+          />
           <MultiSelect
             placeholder="Status"
             value={statusFilter}

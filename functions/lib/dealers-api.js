@@ -85,12 +85,10 @@ function assertAssignableDealerStaff(userSnap) {
   return userData;
 }
 
-function applyStaffScope(query, { role, uid } = {}) {
-  const next = { ...(query || {}) };
-  if (role === 'staff' && uid) {
-    next.assignedStaffUid = uid;
-  }
-  return next;
+function applyStaffScope(query, _scope = {}) {
+  // All staff and super admins see the full dealer roster.
+  // Optional `assignedStaffUid` query filter still works when the client sends it.
+  return { ...(query || {}) };
 }
 
 export async function listDealers(query = {}, scope = {}) {
