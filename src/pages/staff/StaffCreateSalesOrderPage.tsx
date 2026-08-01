@@ -75,6 +75,7 @@ import {
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
+  addressesFromDealerCache,
   listCustomerShippingAddresses,
   type ShippingAddress,
   type ShippingSelection,
@@ -862,26 +863,35 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       .slice(0, 40);
   }, [dealers, dealerQuery]);
 
-  const loadAddresses = useCallback(async (customerId: string) => {
+  const loadAddresses = useCallback(async (customerId: string, dealerHint?: ZohoDealer | null) => {
     setAddressesLoading(true);
     setAddressError('');
     setShipping(null);
+    const cachedDealer = dealerHint
+      ?? dealers.find(dealer => dealer.id === customerId)
+      ?? null;
     try {
       const next = await listCustomerShippingAddresses(customerId);
       setAddresses(next);
     } catch (err) {
-      setAddresses([]);
-      setAddressError(err instanceof Error ? err.message : 'Could not load addresses.');
+      const fallback = addressesFromDealerCache(cachedDealer);
+      if (fallback.length) {
+        setAddresses(fallback);
+        setAddressError('');
+      } else {
+        setAddresses([]);
+        setAddressError(err instanceof Error ? err.message : 'Could not load addresses.');
+      }
     } finally {
       setAddressesLoading(false);
     }
-  }, []);
+  }, [dealers]);
 
   const selectDealer = (dealer: ZohoDealer) => {
     setSelectedDealer(toSelectedDealer(dealer));
     setDealerQuery('');
     setError('');
-    void loadAddresses(dealer.id);
+    void loadAddresses(dealer.id, dealer);
   };
 
   const canSubmit = Boolean(

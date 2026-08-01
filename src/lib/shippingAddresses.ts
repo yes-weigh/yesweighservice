@@ -1,5 +1,6 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
+import type { ZohoAddressRaw, ZohoDealer } from '../types/dealers';
 import { dealerOrderErrorMessage } from './dealerOrders';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -129,4 +130,53 @@ export function validateNewShippingAddress(
   if (!addr.country.trim()) return 'Country is required.';
   if (!addr.phone.trim()) return 'Phone is required.';
   return null;
+}
+
+function formatRawAddress(raw: ZohoAddressRaw | null | undefined): string | null {
+  if (!raw) return null;
+  const parts = [
+    raw.address,
+    raw.street2,
+    [raw.city, raw.state].filter(Boolean).join(', '),
+    raw.zip,
+    raw.country,
+  ]
+    .map(part => String(part ?? '').trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(', ') : null;
+}
+
+function mapRawDealerAddress(
+  raw: ZohoAddressRaw | null | undefined,
+  kind: 'billing' | 'shipping',
+  label: string,
+): ShippingAddress | null {
+  if (!raw) return null;
+  const formatted = formatRawAddress(raw);
+  if (!formatted) return null;
+  return {
+    addressId: null,
+    kind,
+    label,
+    formatted,
+    attention: null,
+    address: raw.address?.trim() || null,
+    street2: raw.street2?.trim() || null,
+    city: raw.city?.trim() || null,
+    state: raw.state?.trim() || null,
+    zip: raw.zip != null ? String(raw.zip).trim() : null,
+    country: raw.country?.trim() || null,
+    phone: raw.phone?.trim() || null,
+  };
+}
+
+/** Build selectable addresses from a synced dealer when Zoho address APIs fail. */
+export function addressesFromDealerCache(
+  dealer: Pick<ZohoDealer, 'zohoBillingAddressRaw' | 'zohoShippingAddressRaw'> | null | undefined,
+): ShippingAddress[] {
+  if (!dealer) return [];
+  return [
+    mapRawDealerAddress(dealer.zohoBillingAddressRaw, 'billing', 'Billing address'),
+    mapRawDealerAddress(dealer.zohoShippingAddressRaw, 'shipping', 'Default shipping'),
+  ].filter((row): row is ShippingAddress => Boolean(row));
 }

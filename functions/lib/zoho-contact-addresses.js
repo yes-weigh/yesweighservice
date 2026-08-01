@@ -126,23 +126,23 @@ async function fetchContactAddresses(accessToken, orgId, contactId) {
   return Array.isArray(payload?.addresses) ? payload.addresses : [];
 }
 
-/**
- * List selectable addresses for a Zoho customer (billing, default shipping, additional).
- */
-export async function listContactAddressesForCustomer(secrets, configuredOrgId, customerId) {
-  const contactId = String(customerId || '').trim();
-  if (!contactId) throw new HttpsError('invalid-argument', 'customerId is required.');
+function isZohoAuthDeniedError(err) {
+  const msg = String(err?.message ?? err ?? '').toLowerCase();
+  return (
+    msg.includes('not authorized to perform this operation')
+    || msg.includes('unauthorized')
+    || msg.includes('invalid oauth token')
+    || msg.includes('insufficient privilege')
+    || msg.includes('permission denied')
+  );
+}
 
-  const accessToken = await getAccessToken(secrets);
-  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
-
-  const [contact, additional] = await Promise.all([
-    fetchContactDetail(accessToken, orgId, contactId),
-    fetchContactAddresses(accessToken, orgId, contactId),
-  ]);
-
+function buildAddressRowsFromContact(contact, additional = []) {
   const rows = [];
-  const billing = mapAddressRow(contact?.billing_address, { kind: 'billing', label: 'Billing address' });
+  const billing = mapAddressRow(contact?.billing_address, {
+    kind: 'billing',
+    label: 'Billing address',
+  });
   if (billing) {
     // Billing may not always expose address_id; keep it selectable via kind when id missing.
     rows.push(billing);
@@ -161,15 +161,129 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
     if (mapped.addressId) seen.add(mapped.addressId);
     rows.push(mapped);
   }
+  return rows;
+}
+
+/** Prefer previously synced addresses when Zoho address APIs are denied. */
+async function loadCachedCustomerAddresses(contactId) {
+  try {
+    const snap = await getFirestore().collection('zohoCustomers').doc(contactId).get();
+    if (!snap.exists) return [];
+    const data = snap.data() || {};
+
+    if (Array.isArray(data.zohoAddresses) && data.zohoAddresses.length) {
+      return data.zohoAddresses
+        .map(row => {
+          if (!row || typeof row !== 'object') return null;
+          const kind = String(row.kind || 'additional');
+          return mapAddressRow({
+            address_id: row.addressId ?? row.address_id ?? null,
+            attention: row.attention,
+            address: row.address,
+            street2: row.street2,
+            city: row.city,
+            state: row.state,
+            zip: row.zip,
+            country: row.country,
+            phone: row.phone,
+          }, {
+            kind,
+            label: row.label
+              || (kind === 'billing'
+                ? 'Billing address'
+                : kind === 'shipping'
+                  ? 'Default shipping'
+                  : 'Saved address'),
+          });
+        })
+        .filter(Boolean);
+    }
+
+    return buildAddressRowsFromContact({
+      billing_address: data.zohoBillingAddressRaw || null,
+      shipping_address: data.zohoShippingAddressRaw || null,
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * List selectable addresses for a Zoho customer (billing, default shipping, additional).
+ * Soft-fails Zoho address APIs and falls back to synced Firestore dealer addresses.
+ */
+export async function listContactAddressesForCustomer(secrets, configuredOrgId, customerId) {
+  const contactId = String(customerId || '').trim();
+  if (!contactId) throw new HttpsError('invalid-argument', 'customerId is required.');
+
+  let contact = null;
+  let additional = [];
+  let zohoError = null;
+
+  try {
+    const accessToken = await getAccessToken(secrets);
+    const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+
+    const [contactResult, addressResult] = await Promise.allSettled([
+      fetchContactDetail(accessToken, orgId, contactId),
+      fetchContactAddresses(accessToken, orgId, contactId),
+    ]);
+
+    if (contactResult.status === 'fulfilled') {
+      contact = contactResult.value;
+    } else {
+      zohoError = contactResult.reason;
+      console.warn('listContactAddressesForCustomer contact detail failed:', {
+        contactId,
+        message: contactResult.reason?.message ?? String(contactResult.reason),
+      });
+    }
+
+    if (addressResult.status === 'fulfilled') {
+      additional = addressResult.value;
+    } else {
+      zohoError = zohoError || addressResult.reason;
+      console.warn('listContactAddressesForCustomer address list failed:', {
+        contactId,
+        message: addressResult.reason?.message ?? String(addressResult.reason),
+      });
+    }
+  } catch (err) {
+    zohoError = err;
+    console.warn('listContactAddressesForCustomer Zoho auth/setup failed:', {
+      contactId,
+      message: err?.message ?? String(err),
+    });
+  }
+
+  let rows = buildAddressRowsFromContact(contact, additional);
+
+  if (!rows.length) {
+    rows = await loadCachedCustomerAddresses(contactId);
+  }
+
+  if (!rows.length) {
+    const message = zohoError?.message
+      || 'Could not load shipping addresses from Zoho.';
+    if (isZohoAuthDeniedError(zohoError)) {
+      throw new HttpsError(
+        'failed-precondition',
+        `${message} The Zoho connection may lack Contacts access — re-authorize the Inventory OAuth app with ZohoInventory.contacts.READ (and CREATE to add addresses).`,
+      );
+    }
+    throw new HttpsError('internal', message);
+  }
 
   // Cache on customer doc for offline/fast UI (best-effort).
-  try {
-    await getFirestore().collection('zohoCustomers').doc(contactId).set({
-      zohoAddresses: rows,
-      zohoAddressesSyncedAt: new Date().toISOString(),
-    }, { merge: true });
-  } catch {
-    // ignore cache write failures
+  if (contact || additional.length) {
+    try {
+      await getFirestore().collection('zohoCustomers').doc(contactId).set({
+        zohoAddresses: rows,
+        zohoAddressesSyncedAt: new Date().toISOString(),
+      }, { merge: true });
+    } catch {
+      // ignore cache write failures
+    }
   }
 
   return { customerId: contactId, addresses: rows };
