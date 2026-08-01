@@ -411,6 +411,14 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               onCancel={() => setEditing(false)}
               embedded
               allowRateEdit
+              allowFreight={
+                salesOrder.salesOrderCategory === 'product'
+                || salesOrder.salesOrderCategory === 'spare'
+                || (
+                  !salesOrder.salesOrderCategory
+                  && !(salesOrder.categories ?? []).includes('software_key')
+                )
+              }
             />
             <div className="so-detail__totals">
               <div className="so-detail__totals-row">

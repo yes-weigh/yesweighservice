@@ -14861,13 +14861,23 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
-.staff-create-so-page__freight-partners {
+.freight-partner-picker {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
 }
 
-.staff-create-so-page__freight-partners-label {
+.freight-partner-picker__hint {
+  margin: 0;
+}
+
+.freight-partner-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.freight-partner-picker__label {
   margin: 0.15rem 0 0.1rem;
   font-size: 0.72rem;
   font-weight: 700;
@@ -14876,7 +14886,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: var(--accent-primary);
 }
 
-.staff-create-so-page__freight-partner {
+.freight-partner-picker__row {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -14887,12 +14897,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.staff-create-so-page__freight-partner.is-selected {
+.freight-partner-picker__row.is-selected {
   border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
   background: color-mix(in srgb, var(--accent-primary) 10%, rgba(15, 23, 42, 0.4));
 }
 
-.staff-create-so-page__freight-partner-main {
+.freight-partner-picker__main {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
   gap: 0.7rem;
@@ -14907,12 +14917,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   cursor: pointer;
 }
 
-.staff-create-so-page__freight-partner-main:disabled {
+.freight-partner-picker__main:disabled {
   cursor: not-allowed;
   opacity: 0.65;
 }
 
-.staff-create-so-page__freight-radio {
+.freight-partner-picker__radio {
   width: 1.05rem;
   height: 1.05rem;
   border-radius: 999px;
@@ -14921,12 +14931,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex-shrink: 0;
 }
 
-.staff-create-so-page__freight-radio.is-on {
+.freight-partner-picker__radio.is-on {
   border-color: var(--accent-primary);
   box-shadow: inset 0 0 0 3px var(--accent-primary);
 }
 
-.staff-create-so-page__freight-logo-wrap {
+.freight-partner-picker__logo-wrap {
   width: 2.35rem;
   height: 2.35rem;
   border-radius: 999px;
@@ -14937,39 +14947,43 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex-shrink: 0;
 }
 
-.staff-create-so-page__freight-logo {
+.freight-partner-picker__logo {
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 
-.staff-create-so-page__freight-partner-copy {
+.freight-partner-picker__copy {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
   min-width: 0;
 }
 
-.staff-create-so-page__freight-partner-copy strong {
+.freight-partner-picker__copy strong {
   font-size: 0.95rem;
   line-height: 1.25;
 }
 
-.staff-create-so-page__freight-amount {
+.freight-partner-picker__amount {
   display: grid;
   gap: 0.3rem;
   padding-left: calc(1.05rem + 0.7rem + 2.35rem + 0.7rem);
 }
 
-.staff-create-so-page__freight-clear {
+.freight-partner-picker__clear {
   align-self: flex-start;
-  margin-top: 0.35rem;
+  margin-top: 0.15rem;
 }
 
 @media (max-width: 480px) {
-  .staff-create-so-page__freight-amount {
+  .freight-partner-picker__amount {
     padding-left: 0;
   }
+}
+
+.staff-create-so-page__freight-partners {
+  display: contents;
 }
 
 .staff-create-so-page__dealer-selected,
@@ -36799,6 +36813,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   align-items: flex-end;
   gap: 0.1rem;
   font-variant-numeric: tabular-nums;
+}
+
+.so-draft-editor__freight {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.so-draft-editor__freight-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 .so-draft-editor__footer {

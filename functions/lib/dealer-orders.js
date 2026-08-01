@@ -263,13 +263,14 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
   const priceChanges = [];
   for (const entry of merged.values()) {
     const product = await loadCatalogProduct(entry.productId);
-    if (!product || product.hiddenFromCatalog || product.status === 'inactive') {
+    const isFreight = isFreightProductId(product?.id) || isFreightSku(product?.sku)
+      || isFreightOrderLine({ productId: entry.productId });
+    if (!product || product.status === 'inactive' || (product.hiddenFromCatalog && !isFreight)) {
       throw new HttpsError('failed-precondition', `Product unavailable: ${entry.productId}`);
     }
     if (product.stockStatus === 'out_of_stock'
       && !isSacHsn(product.hsn)
-      && !isFreightProductId(product.id)
-      && !isFreightSku(product.sku)) {
+      && !isFreight) {
       throw new HttpsError(
         'failed-precondition',
         `${product.name} is out of stock and cannot be ordered.`,

@@ -22,6 +22,7 @@ import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItem
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { ThemeSelect } from '../../components/ThemeSelect';
 import { QuantityStepper } from '../../components/QuantityStepper';
+import { FreightPartnerPicker } from '../../components/orders/FreightPartnerPicker';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
@@ -59,7 +60,8 @@ import {
   summarizeSegments,
   type OrderSegment,
 } from '../../lib/salesOrderSegments';
-import { FREIGHT_LINE_OPTIONS, freightOptionBySku } from '../../constants/freightLines';
+import { freightOptionBySku } from '../../constants/freightLines';
+import type { FreightLineSku } from '../../constants/freightLines';
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
@@ -386,7 +388,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     }]);
   }, []);
 
-  const selectFreightPartner = (sku: string) => {
+  const selectFreightPartner = (sku: FreightLineSku) => {
     setError('');
     setFreightSku(sku);
     syncFreightLine(sku, freightRateInput);
@@ -1499,86 +1501,14 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           {freightAllowed ? (
           <section className="panel glass staff-create-so-page__section">
             <h2>Freight</h2>
-            <p className="text-muted text-sm">
-              Optional — pick a courier partner and enter the freight amount (qty 1).
-            </p>
-
-            <div
-              className="staff-create-so-page__freight-partners"
-              role="radiogroup"
-              aria-label="Choose logistics partner"
-            >
-              <p className="staff-create-so-page__freight-partners-label">
-                Choose logistics partner
-              </p>
-              {FREIGHT_LINE_OPTIONS.map(option => {
-                const selected = freightSku === option.sku;
-                return (
-                  <div
-                    key={option.sku}
-                    className={`staff-create-so-page__freight-partner${
-                      selected ? ' is-selected' : ''
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      className="staff-create-so-page__freight-partner-main"
-                      disabled={saving}
-                      onClick={() => selectFreightPartner(option.sku)}
-                    >
-                      <span
-                        className={`staff-create-so-page__freight-radio${
-                          selected ? ' is-on' : ''
-                        }`}
-                        aria-hidden
-                      />
-                      <span className="staff-create-so-page__freight-logo-wrap">
-                        <img
-                          src={option.image}
-                          alt=""
-                          className="staff-create-so-page__freight-logo"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      </span>
-                      <span className="staff-create-so-page__freight-partner-copy">
-                        <strong>{option.label}</strong>
-                        <span className="text-muted text-sm">{option.tagline}</span>
-                      </span>
-                    </button>
-                    {selected ? (
-                      <label className="staff-create-so-page__freight-amount">
-                        <span className="text-muted text-sm">Amount (₹)</span>
-                        <input
-                          type="number"
-                          className="input-field"
-                          min={0}
-                          step={0.01}
-                          placeholder="0.00"
-                          value={freightRateInput}
-                          disabled={saving}
-                          autoFocus
-                          onChange={e => onFreightAmountChange(e.target.value)}
-                        />
-                      </label>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-
-            {freightSku || freightRateInput ? (
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm staff-create-so-page__freight-clear"
-                disabled={saving}
-                onClick={clearFreight}
-              >
-                Clear freight
-              </button>
-            ) : null}
+            <FreightPartnerPicker
+              selectedSku={freightSku}
+              amount={freightRateInput}
+              disabled={saving}
+              onSelect={selectFreightPartner}
+              onAmountChange={onFreightAmountChange}
+              onClear={clearFreight}
+            />
           </section>
           ) : null}
 

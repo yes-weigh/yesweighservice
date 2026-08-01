@@ -6,7 +6,16 @@ import {
   type GatcStampingChoice,
 } from '../catalog/GatcStampingChoiceDialog';
 import { GatcStampingInlineControl } from '../catalog/GatcStampingInlineControl';
+import { FreightPartnerPicker } from '../orders/FreightPartnerPicker';
 import { DocumentLineItemSpec } from '../invoices/DocumentLineItemSpec';
+import {
+  FREIGHT_LINE_OPTIONS,
+  freightOptionByProductId,
+  freightOptionBySku,
+  isFreightProductId,
+  isFreightSku,
+  type FreightLineSku,
+} from '../../constants/freightLines';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import { combinedCartRate, newCartLineId, productHasLinkedGatc } from '../../lib/gatcCart';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
@@ -50,6 +59,35 @@ interface SalesOrderDraftLineEditorProps {
   hideActions?: boolean;
   /** Limit which catalog products can be added (segment permissions). */
   productFilter?: (product: CatalogProduct) => boolean;
+  /** Product/spare SOs — show courier freight radio + amount (staff/admin). */
+  allowFreight?: boolean;
+}
+
+function isFreightDraftLine(line: Pick<DraftEditLine, 'productId' | 'sku'>): boolean {
+  return isFreightProductId(line.productId) || isFreightSku(line.sku);
+}
+
+function freightDraftLine(sku: FreightLineSku, rate: number): DraftEditLine {
+  const option = FREIGHT_LINE_OPTIONS.find(row => row.sku === sku)!;
+  const nextRate = Math.round(rate * 100) / 100;
+  return {
+    lineId: 'freight-line',
+    productId: option.productId,
+    name: option.name,
+    sku: option.sku,
+    description: null,
+    imageUrl: option.image,
+    catalogRate: nextRate,
+    gatcFeePerUnit: 0,
+    gatcStampingPriceId: null,
+    gatcStampingRange: null,
+    rate: nextRate,
+    unit: 'pcs',
+    quantity: 1,
+    stockStatus: null,
+    categoryName: null,
+    categoryId: null,
+  };
 }
 
 function useDebounce(value: string, delay: number): string {
@@ -111,6 +149,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   title = 'Edit items',
   hideActions = false,
   productFilter,
+  allowFreight = false,
 }) => {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -118,9 +157,46 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [freightSku, setFreightSku] = useState<string | null>(null);
+  const [freightAmount, setFreightAmount] = useState('');
+  const freightHydratedRef = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debouncedQuery = useDebounce(query, 180);
+
+  const productLines = useMemo(
+    () => lines.filter(line => !isFreightDraftLine(line)),
+    [lines],
+  );
+
+  useEffect(() => {
+    if (!allowFreight) {
+      freightHydratedRef.current = false;
+      setFreightSku(null);
+      setFreightAmount('');
+      return;
+    }
+    if (freightHydratedRef.current) return;
+    freightHydratedRef.current = true;
+    const freight = lines.find(isFreightDraftLine);
+    if (!freight) return;
+    const option = freightOptionByProductId(freight.productId)
+      || freightOptionBySku(freight.sku);
+    setFreightSku(option?.sku ?? null);
+    setFreightAmount(String(freight.catalogRate ?? freight.rate ?? ''));
+  }, [allowFreight, lines]);
+
+  const applyFreight = (sku: string | null, amountRaw: string) => {
+    const withoutFreight = lines.filter(line => !isFreightDraftLine(line));
+    const option = freightOptionBySku(sku);
+    const trimmed = amountRaw.trim();
+    const rate = Math.round(Number(trimmed) * 100) / 100;
+    if (!option || trimmed === '' || !Number.isFinite(rate) || rate < 0) {
+      onChange(withoutFreight);
+      return;
+    }
+    onChange([...withoutFreight, freightDraftLine(option.sku, rate)]);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -160,12 +236,13 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     return map;
   }, [products]);
 
-  const selectedIds = useMemo(() => new Set(lines.map(line => line.productId)), [lines]);
+  const selectedIds = useMemo(() => new Set(productLines.map(line => line.productId)), [productLines]);
 
   const matches = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
     if (!q) return [];
     return products
+      .filter(p => !isFreightProductId(p.id) && !isFreightSku(p.sku))
       .filter(p => (productFilter ? productFilter(p) : true))
       .filter(p => (
         p.name.toLowerCase().includes(q)
@@ -280,12 +357,12 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   };
 
   const stampableWithoutStamping = useMemo(() => (
-    lines.filter(line => {
+    productLines.filter(line => {
       if (line.gatcStampingPriceId) return false;
       const catalogProduct = productById.get(line.productId);
       return catalogProduct ? productHasLinkedGatc(catalogProduct) : false;
     })
-  ), [lines, productById]);
+  ), [productLines, productById]);
 
   const estimatedSubtotal = lines.reduce((sum, line) => sum + line.rate * line.quantity, 0);
 
@@ -315,7 +392,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={saving || lines.length === 0}
+              disabled={saving || productLines.length === 0}
               onClick={onSave}
             >
               {saving ? 'Saving…' : saveLabel}
@@ -337,21 +414,21 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       )}
 
       <ul className="so-draft-editor__lines">
-        {lines.length === 0 ? (
+        {productLines.length === 0 ? (
           <li className="so-draft-editor__empty text-muted text-sm">
             No items yet. Search the catalog below to add products.
           </li>
         ) : (
-          lines.map(line => {
+          productLines.map(line => {
             const catalogProduct = productById.get(line.productId);
             const canStamp = catalogProduct
               ? productHasLinkedGatc(catalogProduct)
               : Boolean(line.gatcStampingPriceId);
             const hasStamping = Boolean(line.gatcStampingPriceId);
-            const usedGatcIds = lines
+            const usedGatcIds = productLines
               .filter(other => other.productId === line.productId && other.gatcStampingPriceId)
               .map(other => String(other.gatcStampingPriceId));
-            const hasUnstampedSibling = lines.some(
+            const hasUnstampedSibling = productLines.some(
               other => other.productId === line.productId && !other.gatcStampingPriceId,
             );
             const listBase = line.catalogRate;
@@ -560,6 +637,30 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
           </ul>
         )}
       </div>
+
+      {allowFreight ? (
+        <div className="so-draft-editor__freight">
+          <h4 className="so-draft-editor__freight-title">Freight</h4>
+          <FreightPartnerPicker
+            selectedSku={freightSku}
+            amount={freightAmount}
+            disabled={saving}
+            onSelect={sku => {
+              setFreightSku(sku);
+              applyFreight(sku, freightAmount);
+            }}
+            onAmountChange={value => {
+              setFreightAmount(value);
+              applyFreight(freightSku, value);
+            }}
+            onClear={() => {
+              setFreightSku(null);
+              setFreightAmount('');
+              applyFreight(null, '');
+            }}
+          />
+        </div>
+      ) : null}
 
       <footer className="so-draft-editor__footer">
         <span className="text-muted text-sm">
