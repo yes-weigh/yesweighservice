@@ -7,7 +7,6 @@ import {
   Check,
   ChevronRight,
   ClipboardList,
-  Cpu,
   Headset,
   MapPin,
   Package,
@@ -19,8 +18,8 @@ import {
   Truck,
   UserCircle,
   Users,
-  Wrench,
 } from 'lucide-react';
+import { orderSegmentIconNode } from '../../components/invoices/InvoiceCategoryVisual';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogCategoryChips } from '../../components/catalog/CatalogCategoryChips';
@@ -210,7 +209,7 @@ const ORDER_TYPE_OPTIONS: Array<{
     title: 'Finished Goods',
     subtitle: 'Buy complete weighing scales & systems',
     description: 'Browse our full range of weighing products with specifications and pricing.',
-    icon: <Package size={22} aria-hidden />,
+    icon: orderSegmentIconNode('product', 22),
   },
   {
     id: 'spare',
@@ -218,7 +217,7 @@ const ORDER_TYPE_OPTIONS: Array<{
     title: 'Spare House',
     subtitle: 'Genuine Spare Parts',
     description: 'Find and order original spare parts for all our products.',
-    icon: <Wrench size={22} aria-hidden />,
+    icon: orderSegmentIconNode('spare', 22),
   },
   {
     id: 'software',
@@ -226,7 +225,7 @@ const ORDER_TYPE_OPTIONS: Array<{
     title: 'Software Solutions',
     subtitle: 'Licenses, Keys & Digital Products',
     description: 'Purchase software licenses, activation keys and digital services.',
-    icon: <Cpu size={22} aria-hidden />,
+    icon: orderSegmentIconNode('software', 22),
   },
 ];
 

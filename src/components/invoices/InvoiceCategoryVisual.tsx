@@ -5,22 +5,58 @@ import {
   invoiceCategoryClassName,
   invoiceCategoryLabel,
 } from '../../lib/invoices';
+import type { OrderSegment } from '../../lib/salesOrderSegments';
 import type { InvoiceCategory } from '../../types/invoices';
 
-const CATEGORY_ICONS: Record<InvoiceCategory, React.ReactNode> = {
-  product: <Box size={18} strokeWidth={2} />,
-  spare: <Cog size={18} strokeWidth={2} />,
-  software_key: <KeyRound size={18} strokeWidth={2} />,
-  service: <Wrench size={18} strokeWidth={2} />,
-  gatc: <BadgeCheck size={18} strokeWidth={2} />,
+const INVOICE_CATEGORIES = new Set<InvoiceCategory>([
+  'product',
+  'spare',
+  'software_key',
+  'service',
+  'gatc',
+]);
+
+const ORDER_SEGMENT_CATEGORY: Record<OrderSegment, InvoiceCategory> = {
+  product: 'product',
+  spare: 'spare',
+  software: 'software_key',
 };
+
+export function invoiceCategoryIconNode(
+  category: InvoiceCategory,
+  size = 18,
+  strokeWidth = 2,
+): React.ReactNode {
+  switch (category) {
+    case 'product':
+      return <Box size={size} strokeWidth={strokeWidth} />;
+    case 'spare':
+      return <Cog size={size} strokeWidth={strokeWidth} />;
+    case 'software_key':
+      return <KeyRound size={size} strokeWidth={strokeWidth} />;
+    case 'service':
+      return <Wrench size={size} strokeWidth={strokeWidth} />;
+    case 'gatc':
+      return <BadgeCheck size={size} strokeWidth={strokeWidth} />;
+    default:
+      return <Box size={size} strokeWidth={strokeWidth} />;
+  }
+}
+
+export function orderSegmentIconNode(
+  segment: OrderSegment,
+  size = 18,
+  strokeWidth = 2,
+): React.ReactNode {
+  return invoiceCategoryIconNode(ORDER_SEGMENT_CATEGORY[segment], size, strokeWidth);
+}
 
 export function InvoiceCategoryIcon({
   category,
 }: {
   category: InvoiceCategory | null | undefined;
 }) {
-  const key = category && CATEGORY_ICONS[category] ? category : null;
+  const key = category && INVOICE_CATEGORIES.has(category) ? category : null;
   return (
     <span
       className={[
@@ -29,7 +65,7 @@ export function InvoiceCategoryIcon({
       ].join(' ')}
       aria-hidden
     >
-      {key ? CATEGORY_ICONS[key] : <Box size={18} strokeWidth={2} />}
+      {key ? invoiceCategoryIconNode(key) : invoiceCategoryIconNode('product')}
     </span>
   );
 }
