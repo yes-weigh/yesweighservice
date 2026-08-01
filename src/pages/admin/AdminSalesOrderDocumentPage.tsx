@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
+import { ThemeSelect } from '../../components/ThemeSelect';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
@@ -30,6 +31,7 @@ import {
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   submitSalesOrderPayment,
+  canEditSalesOrderDraft,
   updateDraftSalesOrderLines,
   updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
@@ -64,14 +66,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [shipSelection, setShipSelection] = useState<ShippingSelection | null>(null);
   const [savingShip, setSavingShip] = useState(false);
   const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
+  const [salespersonStaffUid, setSalespersonStaffUid] = useState('');
 
   const stage = String(salesOrder?.yesOneStage || '');
-  const zohoStatus = String(salesOrder?.status || '').toLowerCase().replace(/\s+/g, '_');
   const canEditDraft = isOps
-    && (zohoStatus === 'draft' || zohoStatus === 'pending')
-    && stage !== 'payment_submitted'
-    && stage !== 'completed'
-    && stage !== 'void';
+    && (user?.role === 'super_admin' || canManageOrders)
+    && canEditSalesOrderDraft({
+      role: user?.role,
+      yesOneStage: stage,
+      zohoStatus: salesOrder?.status,
+    });
   const canEditLines = canEditDraft;
   const canEditShipping = canEditDraft && Boolean(salesOrder?.customerId?.trim());
   const canPay = (
@@ -250,6 +254,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (!workflowActions?.assignableStaff.length || salespersonStaffUid) return;
+    setSalespersonStaffUid(workflowActions.assignableStaff[0]?.uid ?? '');
+  }, [workflowActions?.assignableStaff, salespersonStaffUid]);
+
   if (!salesOrder) return null;
 
   const showWorkflowActions = Boolean(
@@ -259,6 +268,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       || workflowActions.canVerify
       || workflowActions.needsSalesperson
       || workflowActions.canApplySalesperson
+      || workflowActions.canAssignSalespersonStaff
       || workflowActions.canVoid
       || workflowActions.canDelete
     ),
@@ -376,19 +386,49 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       {isOps && workflowActions?.needsSalesperson ? (
         <div className="products-inline-error panel glass so-detail__salesperson-banner">
           <UserRound size={18} aria-hidden />
-          <span>
-            Sales staff is required before Verify &amp; invoice.
-            {workflowActions.dealerPath ? (
-              <>
-                {' '}
-                <Link to={workflowActions.dealerPath}>Open dealer</Link>
-                {' '}
-                to assign sales staff (with a linked Zoho salesperson), then apply it here.
-              </>
-            ) : (
-              <> Assign sales staff on the dealer first, then apply it here.</>
-            )}
-          </span>
+          <div className="so-detail__salesperson-banner-copy">
+            <span>
+              Sales staff is required before Verify &amp; invoice.
+              {workflowActions.dealerPath ? (
+                <>
+                  {' '}
+                  <Link to={workflowActions.dealerPath}>Open dealer</Link>
+                  {' '}
+                  to assign a KAM with a linked Zoho salesperson, or pick staff below.
+                </>
+              ) : (
+                <> Assign sales staff on the dealer, or pick staff below.</>
+              )}
+            </span>
+            {workflowActions.canAssignSalespersonStaff ? (
+              <div className="so-detail__salesperson-assign">
+                <ThemeSelect
+                  id="so-salesperson-staff"
+                  value={salespersonStaffUid}
+                  placeholder="Select staff…"
+                  options={workflowActions.assignableStaff.map(staff => ({
+                    value: staff.uid,
+                    label: staff.displayName,
+                  }))}
+                  onChange={setSalespersonStaffUid}
+                  aria-label="Sales staff"
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={
+                    !salespersonStaffUid.trim()
+                    || Boolean(workflowActions.actionBusy)
+                  }
+                  onClick={() => workflowActions.onApplySalespersonFromStaff(salespersonStaffUid)}
+                >
+                  {workflowActions.actionBusy === 'applySalespersonStaff'
+                    ? 'Applying…'
+                    : 'Set salesperson'}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -562,6 +602,35 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                 : 'Apply salesperson from dealer'}
             </button>
           )}
+          {workflowActions.canAssignSalespersonStaff && !workflowActions.needsSalesperson ? (
+            <div className="so-detail__actions-staff">
+              <ThemeSelect
+                id="so-salesperson-staff-footer"
+                value={salespersonStaffUid}
+                placeholder="Select staff…"
+                options={workflowActions.assignableStaff.map(staff => ({
+                  value: staff.uid,
+                  label: staff.displayName,
+                }))}
+                onChange={setSalespersonStaffUid}
+                aria-label="Sales staff"
+              />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={
+                  !salespersonStaffUid.trim()
+                  || Boolean(workflowActions.actionBusy)
+                }
+                onClick={() => workflowActions.onApplySalespersonFromStaff(salespersonStaffUid)}
+              >
+                <UserRound size={16} aria-hidden />
+                {workflowActions.actionBusy === 'applySalespersonStaff'
+                  ? 'Applying…'
+                  : 'Set salesperson'}
+              </button>
+            </div>
+          ) : null}
           {workflowActions.needsSalesperson && !workflowActions.canVerify && (
             <button
               type="button"

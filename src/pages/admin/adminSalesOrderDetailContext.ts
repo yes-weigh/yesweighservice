@@ -7,6 +7,7 @@ export type SalesOrderActionBusy =
   | 'void'
   | 'delete'
   | 'applySalesperson'
+  | 'applySalespersonStaff'
   | null;
 
 export interface SalesOrderWorkflowActions {
@@ -16,12 +17,15 @@ export interface SalesOrderWorkflowActions {
   /** True when Verify is blocked only because salesperson is missing. */
   needsSalesperson: boolean;
   canApplySalesperson: boolean;
+  canAssignSalespersonStaff: boolean;
+  assignableStaff: Array<{ uid: string; displayName: string }>;
   canVoid: boolean;
   canDelete: boolean;
   dealerPath: string | null;
   onReady: () => void;
   onVerify: () => void;
   onApplySalesperson: () => void;
+  onApplySalespersonFromStaff: (staffUid: string) => void;
   onVoid: () => void;
   onDelete: () => void;
 }

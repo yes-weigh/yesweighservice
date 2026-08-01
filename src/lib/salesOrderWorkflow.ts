@@ -88,6 +88,53 @@ export function yesOneStageStatusClass(stage: string | null | undefined): string
   return 'invoices-status invoices-status--draft';
 }
 
+const BLOCKED_YESONE_EDIT_STAGES = new Set<YesOneSalesOrderStage | string>([
+  'payment_submitted',
+  'completed',
+  'void',
+]);
+
+const BLOCKED_ZOHO_EDIT_STATUSES = new Set([
+  'void',
+  'cancelled',
+  'canceled',
+  'closed',
+  'invoiced',
+]);
+
+const DRAFT_ZOHO_EDIT_STATUSES = new Set(['draft', 'pending']);
+
+const OPEN_ZOHO_EDIT_STATUSES = new Set([
+  'draft',
+  'pending',
+  'open',
+  'confirmed',
+  'approved',
+]);
+
+export function normalizeSalesOrderZohoStatus(status: string | null | undefined): string {
+  return String(status || '').toLowerCase().replace(/\s+/g, '_');
+}
+
+/** Whether lines/shipping on a portal SO can still be edited. */
+export function canEditSalesOrderDraft(input: {
+  role?: string | null;
+  yesOneStage?: string | null;
+  zohoStatus?: string | null;
+}): boolean {
+  const stage = String(input.yesOneStage || '').trim();
+  if (BLOCKED_YESONE_EDIT_STAGES.has(stage)) return false;
+
+  const zoho = normalizeSalesOrderZohoStatus(input.zohoStatus);
+  if (BLOCKED_ZOHO_EDIT_STATUSES.has(zoho)) return false;
+
+  if (input.role === 'super_admin' && stage === 'ready_for_payment') {
+    return OPEN_ZOHO_EDIT_STATUSES.has(zoho) || !zoho;
+  }
+
+  return DRAFT_ZOHO_EDIT_STATUSES.has(zoho);
+}
+
 export interface SalesOrderWorkflowDetail extends AdminSalesOrderDetail {
   yesOneStage: YesOneSalesOrderStage | string | null;
   paymentAmount: number | null;
@@ -253,6 +300,18 @@ export async function applySalesOrderSalespersonFromDealer(
 ): Promise<SalesOrderWorkflowDetail> {
   try {
     return await call('applySalesOrderSalespersonFromDealer', { salesOrderId }, 120_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+/** Apply a portal staff member's Zoho salesperson onto this SO. */
+export async function applySalesOrderSalespersonFromStaff(
+  salesOrderId: string,
+  staffUid: string,
+): Promise<SalesOrderWorkflowDetail> {
+  try {
+    return await call('applySalesOrderSalespersonFromStaff', { salesOrderId, staffUid }, 120_000);
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }

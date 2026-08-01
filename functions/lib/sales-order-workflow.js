@@ -19,7 +19,7 @@ import {
   updateSalesOrderShippingAddress,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
-import { resolveSalespersonForCustomer } from './sales-order-salesperson.js';
+import { resolveSalespersonForCustomer, resolveSalespersonForStaff } from './sales-order-salesperson.js';
 import {
   mapSalesOrderDoc,
   mirrorSalesOrderFromZoho,
@@ -130,6 +130,33 @@ function requireSalespersonOnSalesOrder(data) {
 }
 
 /**
+ * Write resolved Zoho salesperson onto SO (Zoho + Firestore mirror).
+ */
+async function applySalespersonResolvedToOrder(
+  uid,
+  user,
+  ref,
+  id,
+  resolved,
+  secrets,
+  orgId,
+) {
+  await setSalesOrderSalesperson(secrets, orgId, id, {
+    salespersonId: resolved.id,
+    salespersonName: resolved.name,
+  });
+  await mirrorSalesOrderFromZoho(secrets, orgId, id);
+  await ref.set({
+    salespersonId: resolved.id,
+    salespersonName: resolved.name,
+    yesOneUpdatedAt: nowIso(),
+    yesOneLastEditedAt: nowIso(),
+    yesOneLastEditedByUid: uid,
+    yesOneLastEditedByName: displayName(user),
+  }, { merge: true });
+}
+
+/**
  * Admin action: copy dealer assigned staff → Zoho salesperson onto this SO.
  */
 export async function applySalesOrderSalespersonFromDealer(
@@ -157,19 +184,7 @@ export async function applySalesOrderSalespersonFromDealer(
   }
 
   try {
-    await setSalesOrderSalesperson(secrets, orgId, id, {
-      salespersonId: resolved.id,
-      salespersonName: resolved.name,
-    });
-    await mirrorSalesOrderFromZoho(secrets, orgId, id);
-    await ref.set({
-      salespersonId: resolved.id,
-      salespersonName: resolved.name,
-      yesOneUpdatedAt: nowIso(),
-      yesOneLastEditedAt: nowIso(),
-      yesOneLastEditedByUid: uid,
-      yesOneLastEditedByName: displayName(user),
-    }, { merge: true });
+    await applySalespersonResolvedToOrder(uid, user, ref, id, resolved, secrets, orgId);
   } catch (err) {
     const message = err?.message || 'Could not set salesperson on the sales order.';
     throw new HttpsError('internal', message);
@@ -177,6 +192,103 @@ export async function applySalesOrderSalespersonFromDealer(
 
   const snap = await ref.get();
   return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
+}
+
+/**
+ * Admin action: apply a portal staff member's Zoho salesperson onto this SO.
+ */
+export async function applySalesOrderSalespersonFromStaff(
+  uid,
+  role,
+  salesOrderId,
+  staffUid,
+  secrets,
+  orgId,
+) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+
+  const targetUid = String(staffUid ?? '').trim();
+  if (!targetUid) {
+    throw new HttpsError('invalid-argument', 'staffUid is required.');
+  }
+
+  const { ref, id, data } = await loadSoOrThrow(salesOrderId);
+  const stage = yesOneStageOf(data);
+  if (stage === 'completed' || stage === 'void') {
+    throw new HttpsError(
+      'failed-precondition',
+      'Salesperson cannot be changed after the order is completed or voided.',
+    );
+  }
+
+  const resolved = await resolveSalespersonForStaff(targetUid);
+  if (!resolved?.id) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Selected staff has no linked Zoho salesperson.',
+    );
+  }
+
+  try {
+    await applySalespersonResolvedToOrder(uid, user, ref, id, resolved, secrets, orgId);
+  } catch (err) {
+    const message = err?.message || 'Could not set salesperson on the sales order.';
+    throw new HttpsError('internal', message);
+  }
+
+  const snap = await ref.get();
+  return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
+}
+
+/**
+ * When dealer assigned staff changes, backfill open SOs missing a salesperson.
+ */
+export async function backfillOpenSalesOrdersSalespersonForCustomer(
+  customerId,
+  secrets,
+  orgId,
+) {
+  const id = String(customerId ?? '').trim();
+  if (!id) return { updated: 0 };
+
+  const resolved = await resolveSalespersonForCustomer(id);
+  if (!resolved?.id) return { updated: 0 };
+
+  const db = getFirestore();
+  const snap = await db.collection(SO_COLLECTION)
+    .where('customerId', '==', id)
+    .get();
+
+  let updated = 0;
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() || {};
+    if (String(data.salespersonId ?? '').trim()) continue;
+    const stage = yesOneStageOf(data);
+    if (stage === 'completed' || stage === 'void') continue;
+
+    try {
+      await setSalesOrderSalesperson(secrets, orgId, docSnap.id, {
+        salespersonId: resolved.id,
+        salespersonName: resolved.name,
+      });
+      await mirrorSalesOrderFromZoho(secrets, orgId, docSnap.id);
+      await docSnap.ref.set({
+        salespersonId: resolved.id,
+        salespersonName: resolved.name,
+        yesOneUpdatedAt: nowIso(),
+      }, { merge: true });
+      updated += 1;
+    } catch (err) {
+      console.warn('backfillOpenSalesOrdersSalespersonForCustomer failed:', {
+        salesOrderId: docSnap.id,
+        customerId: id,
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+
+  return { updated };
 }
 
 const MAX_PAYMENT_BYTES = 8 * 1024 * 1024;
@@ -258,6 +370,31 @@ function normalizeZohoStatus(status) {
 function yesOneStageOf(data) {
   const stage = String(data.yesOneStage || '').trim();
   return STAGES.has(stage) ? stage : 'review';
+}
+
+const BLOCKED_YESONE_EDIT_STAGES = new Set(['payment_submitted', 'completed', 'void']);
+const BLOCKED_ZOHO_EDIT_STATUSES = new Set(['void', 'cancelled', 'canceled', 'closed', 'invoiced']);
+const DRAFT_ZOHO_EDIT_STATUSES = new Set(['draft', 'pending']);
+const OPEN_ZOHO_EDIT_STATUSES = new Set(['draft', 'pending', 'open', 'confirmed', 'approved']);
+
+function canEditSalesOrderContent(user, data) {
+  const stage = yesOneStageOf(data);
+  if (BLOCKED_YESONE_EDIT_STAGES.has(stage)) return false;
+
+  const zohoStatus = normalizeZohoStatus(data.status);
+  if (BLOCKED_ZOHO_EDIT_STATUSES.has(zohoStatus)) return false;
+
+  if (user.role === 'super_admin' && stage === 'ready_for_payment') {
+    return OPEN_ZOHO_EDIT_STATUSES.has(zohoStatus) || !zohoStatus;
+  }
+
+  return DRAFT_ZOHO_EDIT_STATUSES.has(zohoStatus);
+}
+
+function assertCanEditSalesOrder(user, data, action = 'edited') {
+  if (!canEditSalesOrderContent(user, data)) {
+    throw new HttpsError('failed-precondition', `This sales order cannot be ${action}.`);
+  }
 }
 
 async function assertDealerOwnsSo(user, data) {
@@ -507,17 +644,7 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
   requireOrdersManage(user);
 
   const { ref, id, data } = await loadSoOrThrow(payload.salesOrderId);
-  const zohoStatus = normalizeZohoStatus(data.status);
-  if (zohoStatus !== 'draft' && zohoStatus !== 'pending') {
-    throw new HttpsError('failed-precondition', 'Only Draft sales orders can be edited.');
-  }
-  const stage = yesOneStageOf(data);
-  if (stage === 'payment_submitted' || stage === 'completed' || stage === 'void') {
-    throw new HttpsError(
-      'failed-precondition',
-      'This sales order can no longer be edited.',
-    );
-  }
+  assertCanEditSalesOrder(user, data, 'edited');
 
   const { lines, priceChanges } = await buildLinesFromInput(payload.lines, {
     allowOutOfStock: true,
@@ -536,6 +663,7 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
   }));
 
   // Keep YesOne stage (review or ready_for_payment).
+  const stage = yesOneStageOf(data);
   await ref.set({
     yesOneUpdatedAt: at,
     yesOneLastEditedAt: at,
@@ -563,14 +691,7 @@ export async function updateDraftSalesOrderShipping(uid, role, payload = {}, sec
   requireOrdersManage(user);
 
   const { ref, id, data } = await loadSoOrThrow(payload.salesOrderId);
-  const zohoStatus = normalizeZohoStatus(data.status);
-  if (zohoStatus !== 'draft' && zohoStatus !== 'pending') {
-    throw new HttpsError('failed-precondition', 'Only Draft sales orders can change shipping address.');
-  }
-  const stage = yesOneStageOf(data);
-  if (stage === 'payment_submitted' || stage === 'completed' || stage === 'void') {
-    throw new HttpsError('failed-precondition', 'This sales order can no longer change shipping address.');
-  }
+  assertCanEditSalesOrder(user, data, 'updated for shipping');
 
   const customerId = String(data.customerId || '').trim();
   if (!customerId) {

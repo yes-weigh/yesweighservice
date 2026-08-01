@@ -4,16 +4,21 @@ import {
   AlertCircle,
   ArrowRight,
   BadgeCheck,
+  Check,
   ChevronRight,
   ClipboardList,
   Cpu,
   Headset,
+  MapPin,
   Package,
   Search,
   ShoppingCart,
   ShieldCheck,
+  Store,
   Trash2,
   Truck,
+  UserCircle,
+  Users,
   Wrench,
 } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
@@ -270,6 +275,23 @@ function progressClass(currentIndex: number, index: number): string {
   if (index < currentIndex) return 'is-done';
   if (index === currentIndex) return 'is-active';
   return '';
+}
+
+function dealerLocationLabel(dealer: ZohoDealer): string | null {
+  const city = (
+    dealer.zohoShippingAddressRaw?.city
+    || dealer.zohoBillingAddressRaw?.city
+    || dealer.district
+    || ''
+  ).trim();
+  const state = (
+    dealer.zohoShippingAddressRaw?.state
+    || dealer.zohoBillingAddressRaw?.state
+    || dealer.billingState
+    || ''
+  ).trim();
+  const parts = [city, state].filter(Boolean);
+  return parts.length ? parts.join(', ') : null;
 }
 
 export const StaffCreateSalesOrderPage: React.FC = () => {
@@ -1164,7 +1186,13 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 aria-current={step === id ? 'step' : undefined}
                 onClick={() => onProgressStepClick(id)}
               >
-                <span className="staff-create-so-page__stepper-num">{index + 1}</span>
+                <span className="staff-create-so-page__stepper-num">
+                  {stateClass === 'is-done' ? (
+                    <Check size={14} strokeWidth={3} aria-hidden />
+                  ) : (
+                    index + 1
+                  )}
+                </span>
                 <span className="staff-create-so-page__stepper-label">{label}</span>
               </button>
             </React.Fragment>
@@ -1239,11 +1267,28 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
       {step === 'dealer' ? (
         <>
-          <section className="panel glass staff-create-so-page__section">
-            <h2>Dealer details</h2>
-            <p className="text-muted text-sm">
-              Pick the dealer and shipping address before browsing the catalog.
-            </p>
+          <section className="staff-create-so-page__dealer-stage">
+            <header className="staff-create-so-page__dealer-hero">
+              <span className="staff-create-so-page__dealer-hero-icon" aria-hidden>
+                <Store size={22} />
+              </span>
+              <div className="staff-create-so-page__dealer-hero-copy">
+                <h2>Select Dealer &amp; Shipping Address</h2>
+                <p>
+                  Choose the dealer and shipping address to continue with the catalog.
+                </p>
+              </div>
+              <span className="staff-create-so-page__dealer-hero-art" aria-hidden>
+                <MapPin size={28} />
+                <Package size={24} />
+              </span>
+            </header>
+
+            <div className="staff-create-so-page__dealer-panel panel glass">
+              <h3 className="staff-create-so-page__dealer-panel-title">Dealer details</h3>
+              <p className="text-muted text-sm staff-create-so-page__dealer-panel-hint">
+                Pick the dealer and shipping address before browsing the catalog.
+              </p>
             {selectedDealer ? (
               <div className="staff-create-so-page__dealer-selected">
                 <div>
@@ -1269,7 +1314,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               </div>
             ) : (
               <div className="staff-create-so-page__dealer-search">
-                <div className="catalog-search">
+                <div className="catalog-search staff-create-so-page__dealer-search-input">
                   <Search size={15} aria-hidden />
                   <input
                     type="search"
@@ -1285,6 +1330,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                   <ul className="staff-create-so-page__dealer-list" role="listbox">
                     {filteredDealers.map(dealer => {
                       const snapshot = zohoDealerToSnapshot(dealer);
+                      const location = dealerLocationLabel(dealer);
+                      const phone = snapshot.mobile !== '—' ? snapshot.mobile : null;
+                      const meta = [snapshot.code, phone].filter(Boolean).join(' • ');
                       return (
                         <li key={dealer.id}>
                           <button
@@ -1292,13 +1340,20 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                             className="staff-create-so-page__dealer-option"
                             onClick={() => selectDealer(dealer)}
                           >
-                            <strong>{snapshot.name}</strong>
-                            <span className="text-muted text-sm">
-                              {[
-                                snapshot.contactPerson !== '—' ? snapshot.contactPerson : null,
-                                snapshot.mobile !== '—' ? snapshot.mobile : null,
-                                dealer.id,
-                              ].filter(Boolean).join(' · ')}
+                            <span className="staff-create-so-page__dealer-option-main">
+                              <strong>{snapshot.name}</strong>
+                              {meta ? (
+                                <span className="staff-create-so-page__dealer-option-meta">{meta}</span>
+                              ) : null}
+                            </span>
+                            <span className="staff-create-so-page__dealer-option-side">
+                              {location ? (
+                                <span className="staff-create-so-page__dealer-option-location">
+                                  <MapPin size={13} aria-hidden />
+                                  {location}
+                                </span>
+                              ) : null}
+                              <ChevronRight size={18} className="staff-create-so-page__dealer-option-chevron" aria-hidden />
                             </span>
                           </button>
                         </li>
@@ -1314,15 +1369,23 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 ) : (
                   <p className="text-muted text-sm">
                     Type at least 2 characters to search
-                    {dealersLoading ? ' (loading dealer list…)' : ` (${dealers.length} dealers loaded)`}.
+                    {dealersLoading ? ' (loading dealer list…)' : '.'}
                   </p>
                 )}
+                <p className="staff-create-so-page__dealer-loaded">
+                  <Users size={14} aria-hidden />
+                  <span>
+                    {dealersLoading && dealers.length === 0
+                      ? 'Loading dealers…'
+                      : `${dealers.length.toLocaleString('en-IN')} dealers loaded`}
+                  </span>
+                </p>
               </div>
             )}
-          </section>
+            </div>
 
           {selectedDealer ? (
-            <section className="panel glass staff-create-so-page__section">
+            <div className="staff-create-so-page__dealer-panel panel glass">
               <ShippingAddressPicker
                 addresses={addresses}
                 loading={addressesLoading}
@@ -1331,11 +1394,19 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 onChange={setShipping}
                 onRefresh={() => void loadAddresses(selectedDealer.id)}
               />
-            </section>
+            </div>
           ) : null}
 
-          <section className="panel glass staff-create-so-page__section">
-            <h2>Salesperson for this SO</h2>
+          <div className="staff-create-so-page__dealer-panel panel glass staff-create-so-page__salesperson-panel">
+            <header className="staff-create-so-page__salesperson-head">
+              <span className="staff-create-so-page__salesperson-icon" aria-hidden>
+                <UserCircle size={22} />
+              </span>
+              <div>
+                <h2>Salesperson for this SO</h2>
+                <p className="text-muted text-sm">Assign a salesperson to this order</p>
+              </div>
+            </header>
             {spPreview.loading ? (
               <p className="text-muted text-sm">Resolving salesperson…</p>
             ) : (
@@ -1380,16 +1451,17 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 ) : null}
               </>
             )}
+          </div>
           </section>
 
-          <div className="staff-create-so-page__dealer-continue">
+          <div className="staff-create-so-page__dealer-continue staff-create-so-page__dealer-continue--sticky">
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-primary staff-create-so-page__dealer-continue-btn"
               disabled={!dealerReady || !salespersonReady}
               onClick={goToCatalog}
             >
-              Continue to catalog
+              Continue to Catalog
               <ArrowRight size={16} aria-hidden />
             </button>
           </div>

@@ -23,12 +23,14 @@ import {
 import { canNavigateBackInApp } from '../../lib/navigation';
 import {
   applySalesOrderSalespersonFromDealer,
+  applySalesOrderSalespersonFromStaff,
   deleteDraftSalesOrder,
   markSalesOrderReadyForPayment,
   verifySalesOrderPayment,
   yesOneStageLabelForAudience,
   yesOneStageStatusClass,
 } from '../../lib/salesOrderWorkflow';
+import { listAssignableDealerStaff } from '../../lib/dealers';
 import { sealKindForSalesOrder } from '../../lib/unified-sales-orders';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
 import type {
@@ -59,6 +61,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionBusy, setActionBusy] = useState<SalesOrderActionBusy>(null);
+  const [assignableStaff, setAssignableStaff] = useState<Array<{ uid: string; displayName: string }>>([]);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -137,6 +140,22 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     reload();
   }, [reload]);
 
+  useEffect(() => {
+    if (isDealerView || !canManageZoho) {
+      setAssignableStaff([]);
+      return;
+    }
+    let cancelled = false;
+    void listAssignableDealerStaff()
+      .then(rows => {
+        if (!cancelled) setAssignableStaff(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setAssignableStaff([]);
+      });
+    return () => { cancelled = true; };
+  }, [isDealerView, canManageZoho]);
+
   const statusKey = String(salesOrder?.status || '').toLowerCase().replace(/\s+/g, '_');
   const stage = String(salesOrder?.yesOneStage || 'review');
   const hasSalesperson = Boolean(String(salesOrder?.salespersonId || '').trim());
@@ -154,6 +173,9 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && stage !== 'completed'
     && stage !== 'void'
     && salesOrder?.customerId,
+  );
+  const canAssignSalespersonStaff = Boolean(
+    canApplySalesperson && assignableStaff.length > 0,
   );
   const canDelete = Boolean(
     (canManageZoho || isDealerView)
@@ -251,6 +273,19 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     }
   }, [salesOrderId, actionBusy]);
 
+  const handleApplySalespersonFromStaff = useCallback(async (staffUid: string) => {
+    if (!salesOrderId || actionBusy || !staffUid.trim()) return;
+    setActionBusy('applySalespersonStaff');
+    try {
+      const next = await applySalesOrderSalespersonFromStaff(salesOrderId, staffUid.trim());
+      setSalesOrder(next);
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setActionBusy(null);
+    }
+  }, [salesOrderId, actionBusy]);
+
   const workflowActions = useMemo<SalesOrderWorkflowActions | null>(() => {
     if (isPdfView) return null;
     if (isDealerView) {
@@ -261,12 +296,15 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
         canVerify: false,
         needsSalesperson: false,
         canApplySalesperson: false,
+        canAssignSalespersonStaff: false,
+        assignableStaff: [],
         canVoid: false,
         canDelete,
         dealerPath: null,
         onReady: () => {},
         onVerify: () => {},
         onApplySalesperson: () => {},
+        onApplySalespersonFromStaff: () => {},
         onVoid: () => {},
         onDelete: () => { void handleDelete(); },
       };
@@ -277,12 +315,17 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       canVerify,
       needsSalesperson,
       canApplySalesperson,
+      canAssignSalespersonStaff,
+      assignableStaff,
       canVoid,
       canDelete,
       dealerPath,
       onReady: () => { void handleReady(); },
       onVerify: () => { void handleVerify(); },
       onApplySalesperson: () => { void handleApplySalesperson(); },
+      onApplySalespersonFromStaff: (staffUid: string) => {
+        void handleApplySalespersonFromStaff(staffUid);
+      },
       onVoid: () => { void handleVoid(); },
       onDelete: () => { void handleDelete(); },
     };
@@ -294,12 +337,15 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     canVerify,
     needsSalesperson,
     canApplySalesperson,
+    canAssignSalespersonStaff,
+    assignableStaff,
     canVoid,
     canDelete,
     dealerPath,
     handleReady,
     handleVerify,
     handleApplySalesperson,
+    handleApplySalespersonFromStaff,
     handleVoid,
     handleDelete,
   ]);

@@ -152,6 +152,8 @@ import {
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
   applySalesOrderSalespersonFromDealer as applySalesOrderSalespersonFromDealerRecord,
+  applySalesOrderSalespersonFromStaff as applySalesOrderSalespersonFromStaffRecord,
+  backfillOpenSalesOrdersSalespersonForCustomer as backfillOpenSalesOrdersSalespersonForCustomerRecord,
   voidSalesOrderWithWorkflow as voidSalesOrderWithWorkflowRecord,
   deleteDraftSalesOrder as deleteDraftSalesOrderRecord,
 } from './lib/sales-order-workflow.js';
@@ -2748,14 +2750,28 @@ export const lookupDealerPincode = onCall(
 
 /** Patch dealer overrides — staff / super admin. */
 export const patchDealer = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     const id = String(request.data?.id ?? '').trim();
     if (!id) throw new HttpsError('invalid-argument', 'id is required.');
+    const patch = request.data?.patch ?? {};
     try {
-      const updated = await patchDealerRecord(id, request.data?.patch ?? {});
-      return { dealer: updated };
+      const updated = await patchDealerRecord(id, patch);
+      let salespersonBackfill = null;
+      if ('assignedStaffUid' in patch && patch.assignedStaffUid) {
+        salespersonBackfill = await backfillOpenSalesOrdersSalespersonForCustomerRecord(
+          id,
+          zohoSecrets(),
+          zohoOrganizationId.value(),
+        );
+      }
+      return { dealer: updated, salespersonBackfill };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not update dealer.');
@@ -3509,6 +3525,33 @@ export const applySalesOrderSalespersonFromDealer = onCall(
         uid,
         role,
         request.data?.salesOrderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not apply salesperson.');
+    }
+  },
+);
+
+/** Apply a portal staff member's Zoho salesperson onto a sales order. */
+export const applySalesOrderSalespersonFromStaff = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SYNC_ROLES);
+    try {
+      return await applySalesOrderSalespersonFromStaffRecord(
+        uid,
+        role,
+        request.data?.salesOrderId,
+        request.data?.staffUid,
         zohoSecrets(),
         zohoOrganizationId.value(),
       );
