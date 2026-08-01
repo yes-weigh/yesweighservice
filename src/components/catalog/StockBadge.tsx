@@ -43,21 +43,16 @@ export const StockQuantity: React.FC<{
   unit?: string;
   compact?: boolean;
   status?: StockStatus;
-  /** Ledger closing stock (Software Keys) — blue styling in grid. */
-  tone?: 'default' | 'ledger';
-}> = ({ stock, unit = 'pcs', compact = false, status, tone = 'default' }) => {
+}> = ({ stock, unit = 'pcs', compact = false, status }) => {
   const formatted = formatStockQuantity(stock, unit);
-  const statusClass = tone === 'ledger' || !status
-    ? ''
-    : ` catalog-stock-qty--${status.replace(/_/g, '-')}`;
-  const toneClass = tone === 'ledger' ? ' catalog-stock-qty--ledger' : '';
+  const statusClass = status ? ` catalog-stock-qty--${status.replace(/_/g, '-')}` : '';
   const spaceIndex = formatted.indexOf(' ');
   const qtyValue = spaceIndex === -1 ? formatted : formatted.slice(0, spaceIndex);
   const qtyUnit = spaceIndex === -1 ? '' : formatted.slice(spaceIndex + 1);
 
   if (compact) {
     return (
-      <span className={`catalog-stock-qty catalog-stock-qty--compact${statusClass}${toneClass}`}>
+      <span className={`catalog-stock-qty catalog-stock-qty--compact${statusClass}`}>
         <strong className="catalog-stock-qty__value">{qtyValue}</strong>
         {qtyUnit && <span className="catalog-stock-qty__unit">{qtyUnit}</span>}
       </span>
@@ -65,7 +60,7 @@ export const StockQuantity: React.FC<{
   }
 
   return (
-    <span className={`catalog-stock-qty${statusClass}${toneClass}`}>
+    <span className={`catalog-stock-qty${statusClass}`}>
       <span className="catalog-stock-qty__label">Stock:</span>
       <strong className="catalog-stock-qty__value">{qtyValue}</strong>
       {qtyUnit && <span className="catalog-stock-qty__unit">{qtyUnit}</span>}

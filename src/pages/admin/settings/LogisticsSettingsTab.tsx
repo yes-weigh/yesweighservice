@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ChevronDown, MapPin, Save, Truck } from 'lucide-react';
+import { MapPin, Save, Truck } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
   listHrStaffUsers,
@@ -20,8 +20,17 @@ import {
 } from '../../../types/staff-logistics';
 import { StCourierRatesSettings } from './StCourierRatesSettings';
 
+type LogisticsSettingsSubTab = 'sites' | 'courier-rates' | 'staff';
+
+const LOGISTICS_SETTINGS_SUBTABS: { id: LogisticsSettingsSubTab; label: string }[] = [
+  { id: 'sites', label: 'Sites' },
+  { id: 'courier-rates', label: 'Courier rates' },
+  { id: 'staff', label: 'Staff' },
+];
+
 export const LogisticsSettingsTab: React.FC = () => {
   const { user } = useAuth();
+  const [subTab, setSubTab] = useState<LogisticsSettingsSubTab>('sites');
   const [defaultSite, setDefaultSite] = useState<StaffLogisticsSite>('head_office');
   const [draftDefaultSite, setDraftDefaultSite] = useState<StaffLogisticsSite>('head_office');
   const [fromAddresses, setFromAddresses] = useState<Record<StaffLogisticsSite, string>>({
@@ -36,8 +45,6 @@ export const LogisticsSettingsTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [defaultSiteOpen, setDefaultSiteOpen] = useState(false);
-  const defaultSiteRef = useRef<HTMLDivElement>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -63,21 +70,11 @@ export const LogisticsSettingsTab: React.FC = () => {
     void loadAll();
   }, [loadAll]);
 
-  useEffect(() => {
-    if (!defaultSiteOpen) return undefined;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!defaultSiteRef.current?.contains(event.target as Node)) {
-        setDefaultSiteOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [defaultSiteOpen]);
-
   const defaultDirty = draftDefaultSite !== defaultSite;
   const fromAddressesDirty = STAFF_LOGISTICS_SITES.some(
     site => draftFromAddresses[site] !== fromAddresses[site],
   );
+  const sitesDirty = defaultDirty || fromAddressesDirty;
 
   const staffBySite = useMemo(() => {
     const counts: Record<StaffLogisticsSite, number> = {
@@ -90,29 +87,30 @@ export const LogisticsSettingsTab: React.FC = () => {
     return counts;
   }, [staff]);
 
-  const handleSaveDefault = async () => {
-    setBusyKey('default');
+  const handleSaveSites = async () => {
+    setBusyKey('sites');
     setError('');
     try {
-      const saved = await saveDefaultStaffLogisticsSite(draftDefaultSite, user?.uid ?? null);
-      setDefaultSite(saved);
-      setDraftDefaultSite(saved);
+      const tasks: Promise<unknown>[] = [];
+      if (defaultDirty) {
+        tasks.push(
+          saveDefaultStaffLogisticsSite(draftDefaultSite, user?.uid ?? null).then(saved => {
+            setDefaultSite(saved);
+            setDraftDefaultSite(saved);
+          }),
+        );
+      }
+      if (fromAddressesDirty) {
+        tasks.push(
+          saveLogisticsFromAddresses(draftFromAddresses, user?.uid ?? null).then(saved => {
+            setFromAddresses(saved);
+            setDraftFromAddresses(saved);
+          }),
+        );
+      }
+      await Promise.all(tasks);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save default logistics location.');
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
-  const handleSaveFromAddresses = async () => {
-    setBusyKey('from-addresses');
-    setError('');
-    try {
-      const saved = await saveLogisticsFromAddresses(draftFromAddresses, user?.uid ?? null);
-      setFromAddresses(saved);
-      setDraftFromAddresses(saved);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save ship-from addresses.');
+      setError(err instanceof Error ? err.message : 'Could not save logistics sites.');
     } finally {
       setBusyKey(null);
     }
@@ -139,204 +137,190 @@ export const LogisticsSettingsTab: React.FC = () => {
         <div>
           <h3>Logistics</h3>
           <p className="text-muted text-sm">
-            Map HR staff to Cochin or Head Office. New staff accounts use the default location below.
+            Configure ship-from sites, courier rates, and staff warehouse assignments.
           </p>
         </div>
       </header>
 
       {error && <p className="settings-locations__error text-sm">{error}</p>}
 
+      <div
+        className="settings-sku-correction__subtabs settings-product__subtabs"
+        role="tablist"
+        aria-label="Logistics settings sections"
+      >
+        {LOGISTICS_SETTINGS_SUBTABS.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={subTab === tab.id}
+            className={`settings-sku-correction__subtab ${subTab === tab.id ? 'is-active' : ''}`}
+            onClick={() => {
+              setSubTab(tab.id);
+              setError('');
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       <div className="settings-logistics">
-        <div className="settings-logistics__default panel">
+        {subTab === 'sites' && (
+        <div className="settings-logistics__section panel">
           <div className="settings-logistics__default-head">
             <div>
-              <h4 className="settings-logistics__title">Default logistics location</h4>
+              <h4 className="settings-logistics__title">Logistics sites</h4>
               <p className="text-muted text-sm">
-                Pre-selected when creating a new staff member.
+                Origin address on courier labels. One site is the default for new staff.
               </p>
             </div>
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={!defaultDirty || busyKey != null}
-              onClick={() => void handleSaveDefault()}
+              disabled={!sitesDirty || busyKey != null}
+              onClick={() => void handleSaveSites()}
             >
               <Save size={15} aria-hidden />
-              Save default
+              Save sites
             </button>
           </div>
-          <div className="settings-logistics__site-field" ref={defaultSiteRef}>
-            <span id="settings-logistics-default-label">Location</span>
-            <button
-              type="button"
-              className={`settings-logistics__site-trigger${defaultSiteOpen ? ' is-open' : ''}`}
-              aria-haspopup="listbox"
-              aria-expanded={defaultSiteOpen}
-              aria-labelledby="settings-logistics-default-label"
-              disabled={busyKey === 'default'}
-              onClick={() => setDefaultSiteOpen(open => !open)}
-            >
-              <span className="settings-logistics__site-trigger-copy">
-                <strong>{STAFF_LOGISTICS_SITE_LABELS[draftDefaultSite]}</strong>
-                {(draftFromAddresses[draftDefaultSite] ?? '').trim() ? (
-                  <span className="settings-logistics__site-trigger-address">
-                    {draftFromAddresses[draftDefaultSite].trim()}
-                  </span>
-                ) : null}
-              </span>
-              <ChevronDown size={16} strokeWidth={2.25} aria-hidden />
-            </button>
-            {defaultSiteOpen && (
-              <div
-                className="settings-logistics__site-menu"
-                role="listbox"
-                aria-label="Default logistics location"
-              >
-                {STAFF_LOGISTICS_SITES.map(site => {
-                  const selected = draftDefaultSite === site;
-                  const address = (draftFromAddresses[site] ?? '').trim();
-                  return (
-                    <button
-                      key={site}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      className={`settings-logistics__site-option${selected ? ' is-selected' : ''}`}
-                      onClick={() => {
-                        setDraftDefaultSite(site);
-                        setDefaultSiteOpen(false);
-                      }}
-                    >
-                      <span className="settings-logistics__site-option-head">
-                        <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
-                        {selected ? <Check size={14} strokeWidth={2.5} aria-hidden /> : null}
-                      </span>
-                      {address ? (
-                        <span className="settings-logistics__site-option-address">{address}</span>
-                      ) : (
-                        <span className="settings-logistics__site-option-address settings-logistics__site-option-address--empty">
-                          No from-address configured
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
 
-        <div className="settings-logistics__default panel">
-          <div className="settings-logistics__default-head">
-            <div>
-              <h4 className="settings-logistics__title">Ship-from addresses</h4>
-              <p className="text-muted text-sm">
-                Free-text origin address used on courier labels for each logistics site.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={!fromAddressesDirty || busyKey != null}
-              onClick={() => void handleSaveFromAddresses()}
-            >
-              <Save size={15} aria-hidden />
-              Save addresses
-            </button>
-          </div>
-          <div className="settings-logistics__from-grid">
-            {STAFF_LOGISTICS_SITES.map(site => (
-              <label key={site} className="settings-logistics__from-card">
-                <span className="settings-logistics__from-card-head">
-                  <MapPin size={15} aria-hidden />
-                  <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
-                </span>
-                <textarea
-                  rows={4}
-                  value={draftFromAddresses[site]}
-                  disabled={busyKey === 'from-addresses'}
-                  onChange={event => setDraftFromAddresses(prev => ({
-                    ...prev,
-                    [site]: event.target.value,
-                  }))}
-                  placeholder="Company name, address lines, city, state, pincode, phone"
-                />
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <StCourierRatesSettings onError={setError} />
-
-        <div className="settings-logistics__summary">
-          {STAFF_LOGISTICS_SITES.map(site => (
-            <span key={site} className="settings-logistics__summary-chip">
-              <MapPin size={14} aria-hidden />
-              {STAFF_LOGISTICS_SITE_LABELS[site]}: {staffBySite[site]}
-            </span>
-          ))}
-        </div>
-
-        {loading ? (
-          <div className="settings-locations__loading">
-            <div className="loader-ring" />
-          </div>
-        ) : staff.length === 0 ? (
-          <div className="settings-locations__empty">
-            <Truck size={28} aria-hidden />
-            <p>No HR staff accounts yet.</p>
-          </div>
-        ) : (
           <div className="settings-logistics__table-wrap">
-            <table className="settings-logistics__table">
+            <table className="settings-logistics__table settings-logistics__table--sites">
               <thead>
                 <tr>
+                  <th scope="col">Site</th>
+                  <th scope="col">Ship-from address</th>
+                  <th scope="col">Default</th>
                   <th scope="col">Staff</th>
-                  <th scope="col">Department</th>
-                  <th scope="col">Logistics location</th>
                 </tr>
               </thead>
               <tbody>
-                {staff.map(record => (
-                  <tr key={record.uid}>
-                    <td>
-                      <Link to={`/super-admin/hr/staff/${record.uid}`} className="settings-logistics__staff-link">
-                        {record.displayName}
-                      </Link>
-                      {record.active === false && (
-                        <span className="settings-logistics__inactive text-muted text-sm">Inactive</span>
-                      )}
+                {STAFF_LOGISTICS_SITES.map(site => (
+                  <tr key={site}>
+                    <td className="settings-logistics__site-name">
+                      <MapPin size={15} aria-hidden />
+                      <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
                     </td>
-                    <td>{staffDepartmentLabel(record.staffDepartment)}</td>
                     <td>
-                      <select
-                        className="settings-logistics__site-select"
-                        value={record.staffLogisticsSite ?? ''}
-                        disabled={busyKey != null}
-                        onChange={e => {
-                          const site = e.target.value as StaffLogisticsSite;
-                          if (!site) return;
-                          void handleStaffSiteChange(record, site);
-                        }}
-                      >
-                        <option value="" disabled>Select location</option>
-                        {STAFF_LOGISTICS_SITES.map(site => (
-                          <option key={site} value={site}>
-                            {STAFF_LOGISTICS_SITE_LABELS[site]}
-                          </option>
-                        ))}
-                      </select>
-                      {!record.staffLogisticsSite && (
-                        <span className="settings-logistics__unassigned text-muted text-sm">
-                          Not set · shows as {staffLogisticsSiteLabel(defaultSite)} for new staff only
+                      <label className="settings-logistics__address-field">
+                        <span className="sr-only">
+                          {STAFF_LOGISTICS_SITE_LABELS[site]} ship-from address
                         </span>
-                      )}
+                        <textarea
+                          rows={3}
+                          value={draftFromAddresses[site]}
+                          disabled={busyKey === 'sites'}
+                          onChange={event => setDraftFromAddresses(prev => ({
+                            ...prev,
+                            [site]: event.target.value,
+                          }))}
+                          placeholder="Company name, address, city, state, pincode, phone"
+                        />
+                      </label>
+                    </td>
+                    <td className="settings-logistics__default-cell">
+                      <label className="settings-logistics__default-radio">
+                        <input
+                          type="radio"
+                          name="default-logistics-site"
+                          checked={draftDefaultSite === site}
+                          disabled={busyKey === 'sites'}
+                          onChange={() => setDraftDefaultSite(site)}
+                        />
+                        <span>{draftDefaultSite === site ? 'Default' : '—'}</span>
+                      </label>
+                    </td>
+                    <td className="settings-logistics__staff-count">
+                      {staffBySite[site]}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        </div>
+        )}
+
+        {subTab === 'courier-rates' && (
+          <StCourierRatesSettings onError={setError} />
+        )}
+
+        {subTab === 'staff' && (
+        <div className="settings-logistics__section panel">
+          <div className="settings-logistics__default-head">
+            <div>
+              <h4 className="settings-logistics__title">Staff assignments</h4>
+              <p className="text-muted text-sm">
+                Each HR staff member ships from Cochin or Head Office.
+              </p>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="settings-locations__loading">
+              <div className="loader-ring" />
+            </div>
+          ) : staff.length === 0 ? (
+            <div className="settings-locations__empty">
+              <Truck size={28} aria-hidden />
+              <p>No HR staff accounts yet.</p>
+            </div>
+          ) : (
+            <div className="settings-logistics__table-wrap">
+              <table className="settings-logistics__table">
+                <thead>
+                  <tr>
+                    <th scope="col">Staff</th>
+                    <th scope="col">Department</th>
+                    <th scope="col">Logistics site</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staff.map(record => (
+                    <tr key={record.uid}>
+                      <td>
+                        <Link to={`/super-admin/hr/staff/${record.uid}`} className="settings-logistics__staff-link">
+                          {record.displayName}
+                        </Link>
+                        {record.active === false && (
+                          <span className="settings-logistics__inactive text-muted text-sm">Inactive</span>
+                        )}
+                      </td>
+                      <td>{staffDepartmentLabel(record.staffDepartment)}</td>
+                      <td>
+                        <select
+                          className="settings-logistics__site-select"
+                          value={record.staffLogisticsSite ?? ''}
+                          disabled={busyKey != null}
+                          onChange={e => {
+                            const site = e.target.value as StaffLogisticsSite;
+                            if (!site) return;
+                            void handleStaffSiteChange(record, site);
+                          }}
+                        >
+                          <option value="" disabled>Select site</option>
+                          {STAFF_LOGISTICS_SITES.map(site => (
+                            <option key={site} value={site}>
+                              {STAFF_LOGISTICS_SITE_LABELS[site]}
+                            </option>
+                          ))}
+                        </select>
+                        {!record.staffLogisticsSite && (
+                          <span className="settings-logistics__unassigned text-muted text-sm">
+                            Not set · new staff default is {staffLogisticsSiteLabel(defaultSite)}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
         )}
       </div>
     </section>

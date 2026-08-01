@@ -4,7 +4,6 @@ import { getCategoryTheme } from '../../lib/category-display';
 import { expectsCatalogPackageInfo } from '../../lib/catalog';
 import {
   catalogGridStockQty,
-  catalogGridStockUsesLedger,
   resolveAdjustedAuditDisplay,
 } from '../../lib/catalogProductAudit/display';
 import { normalizeGatcIdList, productHasLinkedGatc } from '../../lib/gatcCart';
@@ -196,16 +195,13 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   }, [showStockQuantity, product.auditSnapshot, product.stock]);
 
   /** Grid qty pill: audited stock, or ledger closing for Software Keys 997331. */
-  const gridUsesLedgerStock = showStockQuantity && catalogGridStockUsesLedger(product);
   const gridStockQty = showStockQuantity ? catalogGridStockQty(product) : 0;
 
-  const gridStockStatus = gridUsesLedgerStock
-    ? (gridStockQty <= 0 ? 'out_of_stock' as const : 'in_stock' as const)
-    : gridStockQty <= 0
-      ? 'out_of_stock' as const
-      : product.stockStatus === 'low_stock'
-        ? 'low_stock' as const
-        : 'in_stock' as const;
+  const gridStockStatus = gridStockQty <= 0
+    ? 'out_of_stock' as const
+    : product.stockStatus === 'low_stock'
+      ? 'low_stock' as const
+      : 'in_stock' as const;
 
   const auditDiff = auditDisplay?.displayDifference ?? null;
   const auditDiffState =
@@ -347,8 +343,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
                 <StockQuantity
                   stock={gridStockQty}
                   unit={product.unit}
-                  status={gridUsesLedgerStock ? undefined : gridStockStatus}
-                  tone={gridUsesLedgerStock ? 'ledger' : 'default'}
+                  status={gridStockStatus}
                   compact
                 />
               )}

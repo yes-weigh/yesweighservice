@@ -6927,12 +6927,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #b91c1c;
 }
 
-.catalog-stock-qty--compact.catalog-stock-qty--ledger {
-  background: rgba(29, 78, 216, 0.12);
-  border-color: rgba(29, 78, 216, 0.28);
-  color: #1d4ed8;
-}
-
 .catalog-row__main .catalog-stock-qty--compact {
   display: inline-flex;
   margin-top: 0.35rem;

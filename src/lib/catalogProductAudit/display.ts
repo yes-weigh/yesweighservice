@@ -15,7 +15,7 @@ export function catalogGridAuditedStockQty(
   return Number.isFinite(qty) ? qty : 0;
 }
 
-/** Software Keys + HSN 997331 — grid shows ledger closing stock in blue. */
+/** Software Keys + HSN 997331 — grid qty uses ledger closing stock. */
 export function catalogGridStockUsesLedger(product: CatalogProduct): boolean {
   return isSoftwareKeysLedgerStockProduct(product);
 }

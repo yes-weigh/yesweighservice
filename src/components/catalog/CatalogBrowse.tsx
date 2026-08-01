@@ -10,7 +10,7 @@ import {
   Search,
 } from 'lucide-react';
 import { compareCatalogProductsInCategory, isHiddenCatalogCategory } from '../../lib/catalog';
-import { catalogGridStockQty, catalogGridStockUsesLedger } from '../../lib/catalogProductAudit/display';
+import { catalogGridStockQty } from '../../lib/catalogProductAudit/display';
 import { buildProductNavState, buildSpareNavState, catalogOriginFromReturnView } from '../../lib/catalogNav';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -108,15 +108,12 @@ function ProductListRow({
   onSelect: () => void;
   showStockQuantity?: boolean;
 }) {
-  const usesLedgerStock = catalogGridStockUsesLedger(product);
   const gridStockQty = catalogGridStockQty(product);
-  const gridStockStatus = usesLedgerStock
-    ? (gridStockQty <= 0 ? 'out_of_stock' as const : 'in_stock' as const)
-    : gridStockQty <= 0
-      ? 'out_of_stock' as const
-      : product.stockStatus === 'low_stock'
-        ? 'low_stock' as const
-        : 'in_stock' as const;
+  const gridStockStatus = gridStockQty <= 0
+    ? 'out_of_stock' as const
+    : product.stockStatus === 'low_stock'
+      ? 'low_stock' as const
+      : 'in_stock' as const;
 
   return (
     <button type="button" className="catalog-row panel glass" onClick={onSelect}>
@@ -131,8 +128,7 @@ function ProductListRow({
           <StockQuantity
             stock={gridStockQty}
             unit={product.unit}
-            status={usesLedgerStock ? undefined : gridStockStatus}
-            tone={usesLedgerStock ? 'ledger' : 'default'}
+            status={gridStockStatus}
             compact
           />
         )}
