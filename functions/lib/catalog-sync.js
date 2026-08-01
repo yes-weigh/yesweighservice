@@ -19,6 +19,7 @@ import {
   normaliseCategoryId,
 } from './zoho.js';
 import { buildZohoSyncAuditAdjustment } from './catalog-product-audit.js';
+import { syncLedgerClosingStockForProducts } from './zoho-stock-movements.js';
 import { extractWebhookEvent } from './invoice-sync.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
@@ -529,6 +530,13 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       if (existing.hiddenFromCatalogByUid) doc.hiddenFromCatalogByUid = existing.hiddenFromCatalogByUid;
     }
 
+    if (Number.isFinite(Number(existing?.ledgerClosingStock))) {
+      doc.ledgerClosingStock = Number(existing.ledgerClosingStock);
+    }
+    if (typeof existing?.ledgerClosingStockAt === 'string' && existing.ledgerClosingStockAt.trim()) {
+      doc.ledgerClosingStockAt = existing.ledgerClosingStockAt.trim();
+    }
+
     if (batchCount >= batchSize) {
       await commitBatch();
     }
@@ -598,6 +606,21 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
   }
 
   await db.doc(META_DOC).set(metaPayload, { merge: true });
+
+  try {
+    const ledgerSync = await syncLedgerClosingStockForProducts(
+      secrets,
+      configuredOrgId,
+      enrichedProducts,
+    );
+    if (ledgerSync.updated > 0) {
+      console.info(
+        `syncLedgerClosingStock: ${ledgerSync.updated}/${ledgerSync.total} software-key products`,
+      );
+    }
+  } catch (err) {
+    console.warn('syncLedgerClosingStockForProducts failed:', err?.message ?? err);
+  }
 
   return {
     syncedCount,

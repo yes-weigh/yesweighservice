@@ -150,6 +150,12 @@ export function isSoftwareKeysCategory(category: Pick<CatalogCategory, 'name'>):
   return category.name.trim().toLowerCase() === 'software keys';
 }
 
+export {
+  isSoftwareKeysLedgerStockProduct,
+  normalizeCatalogHsn,
+  SOFTWARE_KEYS_LEDGER_HSN,
+} from './softwareKeysLedgerStock';
+
 /**
  * Package dimensions are only expected for finished shop products.
  * Uncategorized, generic spare parts, and software keys skip the missing-package flag.
@@ -830,6 +836,12 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
       ? { binLabelPrintedAt: data.binLabelPrintedAt.trim() }
       : {}),
     ...(data.hiddenFromCatalog === true ? { hiddenFromCatalog: true } : {}),
+    ...(Number.isFinite(Number(data.ledgerClosingStock))
+      ? { ledgerClosingStock: Number(data.ledgerClosingStock) }
+      : {}),
+    ...(typeof data.ledgerClosingStockAt === 'string' && data.ledgerClosingStockAt.trim()
+      ? { ledgerClosingStockAt: data.ledgerClosingStockAt.trim() }
+      : {}),
   };
 }
 

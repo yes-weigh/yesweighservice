@@ -86,6 +86,12 @@ export interface CatalogProduct {
   binLabelPrintedAt?: string | null;
   /** Super admin — excluded from dealer/public catalogue browse. Firestore only. */
   hiddenFromCatalog?: boolean;
+  /**
+   * Lifetime ledger closing stock (Software Keys + HSN 997331 only).
+   * Mirrors Stock tab closing qty — Firestore only, synced from Zoho movements.
+   */
+  ledgerClosingStock?: number | null;
+  ledgerClosingStockAt?: string | null;
 }
 
 export interface CatalogCategory {

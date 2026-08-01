@@ -615,5 +615,54 @@ export async function getLifetimeStockMovements(
     configuredOrgId,
     itemId,
   );
-  return stripExcludedLedgerMovements(fresh);
+  const result = stripExcludedLedgerMovements(fresh);
+  void persistLedgerClosingStockIfEligible(itemId, result).catch(err => {
+    console.warn(`persistLedgerClosingStockIfEligible ${itemId}:`, err?.message ?? err);
+  });
+  return result;
+}
+
+const SOFTWARE_KEYS_LEDGER_HSN = '997331';
+
+function isSoftwareKeysCategoryName(name) {
+  return String(name ?? '').trim().toLowerCase() === 'software keys';
+}
+
+export function isSoftwareKeysLedgerStockProduct(product) {
+  const hsn = String(product?.hsn ?? '').replace(/\s+/g, '').trim();
+  if (hsn !== SOFTWARE_KEYS_LEDGER_HSN) return false;
+  return isSoftwareKeysCategoryName(product?.categoryName);
+}
+
+async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResult) {
+  const db = getFirestore();
+  const ref = db.collection('catalogProducts').doc(catalogProductId);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  if (!isSoftwareKeysLedgerStockProduct(snap.data())) return;
+
+  const closing = Number(ledgerResult?.netDelta);
+  await ref.set({
+    ledgerClosingStock: Number.isFinite(closing) ? closing : 0,
+    ledgerClosingStockAt: ledgerResult?.fetchedAt ?? new Date().toISOString(),
+  }, { merge: true });
+}
+
+/** Refresh ledger closing stock on catalogProducts for Software Keys + HSN 997331. */
+export async function syncLedgerClosingStockForProducts(secrets, configuredOrgId, products) {
+  const eligible = (products ?? []).filter(
+    p => p?.status === 'active' && isSoftwareKeysLedgerStockProduct(p),
+  );
+  if (eligible.length === 0) return { updated: 0, total: 0 };
+
+  let updated = 0;
+  for (const product of eligible) {
+    try {
+      await getLifetimeStockMovements(secrets, configuredOrgId, product.id);
+      updated += 1;
+    } catch (err) {
+      console.warn(`syncLedgerClosingStock ${product.id}:`, err?.message ?? err);
+    }
+  }
+  return { updated, total: eligible.length };
 }

@@ -1,3 +1,5 @@
+import { isSoftwareKeysLedgerStockProduct } from '../softwareKeysLedgerStock';
+import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
 /**
@@ -11,6 +13,22 @@ export function catalogGridAuditedStockQty(
   if (!snapshot) return 0;
   const qty = Number(snapshot.physicalQtyAtAudit);
   return Number.isFinite(qty) ? qty : 0;
+}
+
+/** Software Keys + HSN 997331 — grid shows ledger closing stock in blue. */
+export function catalogGridStockUsesLedger(product: CatalogProduct): boolean {
+  return isSoftwareKeysLedgerStockProduct(product);
+}
+
+/**
+ * Grid stock qty: ledger closing for Software Keys 997331; otherwise audited stock.
+ */
+export function catalogGridStockQty(product: CatalogProduct): number {
+  if (catalogGridStockUsesLedger(product)) {
+    const qty = Number(product.ledgerClosingStock);
+    return Number.isFinite(qty) ? qty : 0;
+  }
+  return catalogGridAuditedStockQty(product.auditSnapshot);
 }
 
 export interface AdjustedAuditDisplay {
