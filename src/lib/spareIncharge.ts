@@ -3,6 +3,7 @@ import { SPARE_INCHARGE_SETTINGS_DOC_ID } from '../constants/spareIncharge';
 import { db } from '../firebase';
 import type { FirestoreUserDoc, Role, UserRecord } from '../types';
 import { normalizeRole, ROLE_LABELS } from '../types';
+import { whatsappPhoneDigits } from './whatsappShareCard';
 import {
   assertZohoSalespersonIdsAvailable,
   normalizeZohoSalespersonLinks,
@@ -19,9 +20,26 @@ export type SpareInchargeMember = {
 
 export type SpareInchargeSettings = {
   members: SpareInchargeMember[];
+  /** Display form as entered (e.g. +91 95679 33252). Normalized at share time. */
+  whatsappNumber: string;
   updatedAt: string;
   updatedByUid?: string | null;
 };
+
+function normalizeWhatsappNumber(raw: unknown): string {
+  return String(raw ?? '').trim();
+}
+
+/** Validate / normalize for save. Empty clears. Accepts +, spaces, country codes. */
+export function normalizeSpareInchargeWhatsappInput(raw: string): string {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return '';
+  const digits = whatsappPhoneDigits(trimmed);
+  if (!digits) {
+    throw new Error('Enter a valid WhatsApp number (10+ digits, with or without +91).');
+  }
+  return trimmed;
+}
 
 const ELIGIBLE_ROLES = new Set<Role>(['staff', 'super_admin']);
 
@@ -63,7 +81,7 @@ export async function loadSpareInchargeSettings(): Promise<SpareInchargeSettings
   try {
     const snap = await getDoc(doc(db, 'appSettings', SPARE_INCHARGE_SETTINGS_DOC_ID));
     if (!snap.exists()) {
-      return { members: [], updatedAt: '' };
+      return { members: [], whatsappNumber: '', updatedAt: '' };
     }
     const data = snap.data() as Record<string, unknown>;
     const members = Array.isArray(data.members)
@@ -72,6 +90,7 @@ export async function loadSpareInchargeSettings(): Promise<SpareInchargeSettings
     // Only one spare incharge is allowed — keep the first if older data had many.
     const normalized: SpareInchargeSettings = {
       members: members.slice(0, 1),
+      whatsappNumber: normalizeWhatsappNumber(data.whatsappNumber),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedByUid: typeof data.updatedByUid === 'string' ? data.updatedByUid : null,
     };
@@ -83,6 +102,7 @@ export async function loadSpareInchargeSettings(): Promise<SpareInchargeSettings
         {
           members: normalized.members,
           memberUids: normalized.members.map(m => m.uid),
+          whatsappNumber: normalized.whatsappNumber,
           updatedAt: new Date().toISOString(),
           updatedByUid: normalized.updatedByUid ?? null,
         },
@@ -93,8 +113,35 @@ export async function loadSpareInchargeSettings(): Promise<SpareInchargeSettings
 
     return normalized;
   } catch {
-    return { members: [], updatedAt: '' };
+    return { members: [], whatsappNumber: '', updatedAt: '' };
   }
+}
+
+/** Save / clear the WhatsApp number used by “Share to spare incharge”. */
+export async function saveSpareInchargeWhatsappNumber(
+  whatsappNumber: string,
+  updatedByUid?: string | null,
+): Promise<SpareInchargeSettings> {
+  const current = await loadSpareInchargeSettings();
+  const normalized = normalizeSpareInchargeWhatsappInput(whatsappNumber);
+  const next: SpareInchargeSettings = {
+    ...current,
+    whatsappNumber: normalized,
+    updatedAt: new Date().toISOString(),
+    updatedByUid: updatedByUid ?? null,
+  };
+
+  await setDoc(
+    doc(db, 'appSettings', SPARE_INCHARGE_SETTINGS_DOC_ID),
+    {
+      whatsappNumber: next.whatsappNumber,
+      updatedAt: next.updatedAt,
+      updatedByUid: next.updatedByUid,
+    },
+    { merge: true },
+  );
+
+  return next;
 }
 
 export async function listSpareInchargeEligibleUsers(): Promise<UserRecord[]> {
@@ -150,6 +197,7 @@ export async function addSpareInchargeMember(
 
   const next: SpareInchargeSettings = {
     members: [member],
+    whatsappNumber: current.whatsappNumber,
     updatedAt: new Date().toISOString(),
     updatedByUid: updatedByUid ?? null,
   };
@@ -159,6 +207,7 @@ export async function addSpareInchargeMember(
     {
       members: next.members,
       memberUids: next.members.map(m => m.uid),
+      whatsappNumber: next.whatsappNumber,
       updatedAt: next.updatedAt,
       updatedByUid: next.updatedByUid,
     },
@@ -184,6 +233,7 @@ export async function removeSpareInchargeMember(
 
   const next: SpareInchargeSettings = {
     members: nextMembers,
+    whatsappNumber: current.whatsappNumber,
     updatedAt: new Date().toISOString(),
     updatedByUid: updatedByUid ?? null,
   };
@@ -193,6 +243,7 @@ export async function removeSpareInchargeMember(
     {
       members: next.members,
       memberUids: next.members.map(m => m.uid),
+      whatsappNumber: next.whatsappNumber,
       updatedAt: next.updatedAt,
       updatedByUid: next.updatedByUid,
     },

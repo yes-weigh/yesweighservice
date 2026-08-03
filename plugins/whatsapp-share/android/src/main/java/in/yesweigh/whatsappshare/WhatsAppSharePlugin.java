@@ -24,6 +24,7 @@ public class WhatsAppSharePlugin extends Plugin {
         String dataBase64 = call.getString("dataBase64");
         String fileName = call.getString("fileName", "share.png");
         String mimeType = call.getString("mimeType", "image/png");
+        String phoneRaw = call.getString("phone");
 
         if (dataBase64 == null || dataBase64.isEmpty()) {
             call.reject("Image data is required.");
@@ -39,6 +40,9 @@ public class WhatsAppSharePlugin extends Plugin {
 
         final String resolvedName = fileName;
         final String resolvedMime = mimeType.trim();
+        final String phoneDigits = phoneRaw == null
+            ? ""
+            : phoneRaw.replaceAll("[^0-9]", "");
 
         getActivity().runOnUiThread(() -> {
             try {
@@ -73,9 +77,29 @@ public class WhatsAppSharePlugin extends Plugin {
                 send.setClipData(ClipData.newRawUri(resolvedName, uri));
                 send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-                Intent chooser = Intent.createChooser(send, "Share");
-                chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                getActivity().startActivity(chooser);
+                if (phoneDigits.length() >= 10) {
+                    // Open WhatsApp directly to this chat with the image attached.
+                    send.putExtra("jid", phoneDigits + "@s.whatsapp.net");
+                    send.setPackage("com.whatsapp");
+                    try {
+                        getActivity().startActivity(send);
+                    } catch (Exception primary) {
+                        // Fallback to WhatsApp Business, then chooser.
+                        send.setPackage("com.whatsapp.w4b");
+                        try {
+                            getActivity().startActivity(send);
+                        } catch (Exception business) {
+                            send.setPackage(null);
+                            Intent chooser = Intent.createChooser(send, "Share");
+                            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            getActivity().startActivity(chooser);
+                        }
+                    }
+                } else {
+                    Intent chooser = Intent.createChooser(send, "Share");
+                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    getActivity().startActivity(chooser);
+                }
 
                 JSObject result = new JSObject();
                 result.put("ok", true);

@@ -5,6 +5,11 @@ export interface WhatsAppShareImageOptions {
   fileName?: string;
   /** MIME type; default image/png */
   mimeType?: string;
+  /**
+   * Optional international digits (e.g. 919567933252).
+   * When set on Android, opens WhatsApp directly to that chat with the image.
+   */
+  phone?: string;
 }
 
 export interface WhatsAppShareImageResult {

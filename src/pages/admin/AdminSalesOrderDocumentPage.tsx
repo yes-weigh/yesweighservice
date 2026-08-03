@@ -40,11 +40,10 @@ import {
 } from '../../lib/salesOrderWorkflow';
 import { formatInvoiceDate } from '../../lib/invoices';
 import { captureAndShareElement } from '../../lib/shareElementScreenshot';
+import { loadSpareInchargeSettings } from '../../lib/spareIncharge';
+import { prepareWhatsAppWindow, whatsappPhoneDigits } from '../../lib/whatsappShareCard';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
-
-/** Spare incharge WhatsApp for SO screenshot share. */
-const SPARE_INCHARGE_WHATSAPP = '919567933252';
 
 function WhatsAppIcon({ size = 16 }: { size?: number }) {
   return (
@@ -281,10 +280,21 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const handleShareScreenshot = useCallback(async () => {
     const el = shareCaptureRef.current;
     if (!el || !salesOrder || sharing) return;
+    // Open the tab during the click — required so WhatsApp is not blocked after capture/upload.
+    const whatsappWindow = prepareWhatsAppWindow();
     setSharing(true);
     // Hide sticky Share / Delete / other action UI so it cannot appear in the shot.
     soDetailRef.current?.classList.add('is-sharing');
     try {
+      const settings = await loadSpareInchargeSettings();
+      const sparePhone = whatsappPhoneDigits(settings.whatsappNumber);
+      if (!sparePhone) {
+        whatsappWindow?.close();
+        window.alert(
+          'No spare incharge WhatsApp number set. Add it under HR → Spare Incharge.',
+        );
+        return;
+      }
       const soNumber = salesOrder.salesOrderNumber || salesOrderId || 'sales-order';
       const safeName = soNumber.replace(/[^\w\-]+/g, '-').slice(0, 48);
       const dateLabel = salesOrder.date ? formatInvoiceDate(salesOrder.date) : '';
@@ -293,9 +303,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         title: soNumber,
         text: [soNumber, dateLabel].filter(Boolean).join(' · '),
         backgroundColor: '#13151b',
-        whatsappPhone: SPARE_INCHARGE_WHATSAPP,
+        whatsappPhone: sparePhone,
+        whatsappWindow,
       });
     } catch (err) {
+      whatsappWindow?.close();
       if (err instanceof Error && err.name === 'AbortError') return;
       window.alert(err instanceof Error ? err.message : 'Could not share screenshot.');
     } finally {
