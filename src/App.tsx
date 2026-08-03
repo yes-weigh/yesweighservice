@@ -61,7 +61,6 @@ import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
 import { HrSalaryPublicSharePage } from './pages/public/HrSalaryPublicSharePage';
-import { SalesOrderPublicSharePage } from './pages/public/SalesOrderPublicSharePage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { SpareProductMapPage } from './pages/SpareProductMapPage';
 import {
@@ -205,8 +204,6 @@ const App: React.FC = () => (
           <Route path="/oc" element={<OpenCatalogPage />} />
           <Route path="/oc/:productId" element={<ProductDetailPage />} />
           <Route path="/s/salary/:token" element={<HrSalaryPublicSharePage />} />
-          {/* 6-letter case-sensitive SO share links — ranked below static routes like /dealer */}
-          <Route path="/:shareCode" element={<SalesOrderPublicSharePage />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/admin/*" element={<Navigate to="/super-admin" replace />} />
           <Route path="/director-staff/*" element={<LegacyPathRedirect from="/director-staff" to="/dealer-staff" />} />

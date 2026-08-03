@@ -2296,38 +2296,6 @@
   flex-shrink: 0;
 }
 
-.hr-spare-incharge__whatsapp {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  max-width: 32rem;
-  padding: 0.75rem 0.85rem;
-  border-radius: 12px;
-  border: 1px solid rgba(37, 211, 102, 0.28);
-  background: rgba(18, 140, 78, 0.08);
-}
-
-.hr-spare-incharge__whatsapp-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.hr-spare-incharge__whatsapp-input {
-  flex: 1 1 12rem;
-  min-width: 0;
-}
-
-.hr-spare-incharge__whatsapp-hint {
-  margin: 0;
-}
-
-.hr-spare-incharge__whatsapp-ok {
-  margin: 0;
-  color: #86efac;
-}
-
 .hr-spare-incharge__assign {
   position: relative;
   z-index: 5;

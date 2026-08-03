@@ -1,11 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { toPng } from 'html-to-image';
 import { WhatsAppShare } from 'whatsapp-share';
-import {
-  openWhatsAppWithText,
-  uploadWhatsAppShareCard,
-  whatsappPhoneDigits,
-} from './whatsappShareCard';
+import { openWhatsAppWithText, uploadWhatsAppShareCard } from './whatsappShareCard';
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -128,64 +124,15 @@ export async function captureElementScreenshot(
   }
 }
 
-/**
- * Share a PNG screenshot.
- * When `whatsappPhone` is set:
- * - Native APK: attaches the image and opens that WhatsApp chat
- * - Web: uploads image, then opens that chat with the image link
- *   (pass `whatsappWindow` from prepareWhatsAppWindow() in the click handler)
- */
+/** Share a PNG screenshot via native share sheet / Web Share / WhatsApp fallback. */
 export async function shareScreenshotBlob(
   blob: Blob,
-  options: {
-    fileName: string;
-    title: string;
-    text?: string;
-    /** Phone digits or wa.me URL — opens that chat instead of the share sheet. */
-    whatsappPhone?: string | null;
-    /** Pre-opened window from prepareWhatsAppWindow() so popups are not blocked. */
-    whatsappWindow?: Window | null;
-  },
+  options: { fileName: string; title: string; text?: string },
 ): Promise<void> {
   const fileName = options.fileName;
   const title = options.title;
   const text = String(options.text ?? title).trim() || title;
   const mimeType = blob.type || 'image/png';
-  const phoneDigits = whatsappPhoneDigits(options.whatsappPhone);
-  const whatsappWindow = options.whatsappWindow ?? null;
-
-  if (phoneDigits && Capacitor.isNativePlatform()) {
-    whatsappWindow?.close();
-    const dataBase64 = await blobToBase64(blob);
-    if (!dataBase64 || dataBase64.length < 64) {
-      throw new Error('Screenshot was empty — try again.');
-    }
-    await WhatsAppShare.shareImage({
-      dataBase64,
-      fileName,
-      mimeType: 'image/png',
-      phone: phoneDigits,
-      text,
-    });
-    return;
-  }
-
-  if (phoneDigits) {
-    try {
-      const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
-      openWhatsAppWithText(
-        [text, imageUrl].filter(Boolean).join('\n'),
-        phoneDigits,
-        whatsappWindow,
-      );
-      return;
-    } catch (err) {
-      whatsappWindow?.close();
-      throw err;
-    }
-  }
-
-  whatsappWindow?.close();
 
   if (Capacitor.isNativePlatform()) {
     const dataBase64 = await blobToBase64(blob);
@@ -231,8 +178,6 @@ export async function captureAndShareElement(
     title: string;
     text?: string;
     backgroundColor?: string;
-    whatsappPhone?: string | null;
-    whatsappWindow?: Window | null;
   },
 ): Promise<void> {
   const shot = await captureElementScreenshot(el, {
@@ -243,7 +188,5 @@ export async function captureAndShareElement(
     fileName: shot.fileName,
     title: options.title,
     text: options.text,
-    whatsappPhone: options.whatsappPhone,
-    whatsappWindow: options.whatsappWindow,
   });
 }

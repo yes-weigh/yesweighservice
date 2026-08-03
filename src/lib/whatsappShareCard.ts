@@ -30,117 +30,27 @@ export async function uploadWhatsAppShareCard(
   }
 }
 
-/**
- * Normalize a phone or wa.me URL to international digits for WhatsApp deep links.
- * Indian 10-digit numbers become `91…`.
- */
-export function whatsappPhoneDigits(
-  phoneOrHref: string | null | undefined,
-): string | null {
-  const raw = String(phoneOrHref || '').trim();
-  if (!raw) return null;
-
-  const fromHref = /wa\.me\/(\d+)/i.exec(raw)?.[1]
-    || /[?&]phone=(\d+)/i.exec(raw)?.[1];
-  if (fromHref && fromHref.length >= 10) return fromHref;
-
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 10) return `91${digits}`;
-  if (digits.length >= 11) return digits;
-  return null;
-}
-
-export function buildWhatsAppSendUrl(
-  text: string,
-  phoneOrHref?: string | null,
-): string {
+/** Open WhatsApp app/web directly (no system share sheet). */
+export function openWhatsAppWithText(text: string): void {
   const encoded = encodeURIComponent(text);
-  const phone = whatsappPhoneDigits(phoneOrHref);
-  if (phone) return `https://wa.me/${phone}?text=${encoded}`;
-  return `https://wa.me/?text=${encoded}`;
-}
-
-/**
- * Open a blank tab synchronously (must run in the click handler before awaits)
- * so WhatsApp can still open after async capture/upload.
- */
-export function prepareWhatsAppWindow(): Window | null {
-  try {
-    const win = window.open('about:blank', 'yw-wa-share');
-    if (win) {
-      try {
-        win.document.title = 'Opening WhatsApp…';
-        win.document.body.innerHTML =
-          '<p style="font-family:sans-serif;padding:1.5rem">Opening WhatsApp…</p>';
-      } catch {
-        // cross-origin / opaque — ignore
-      }
-    }
-    return win;
-  } catch {
-    return null;
-  }
-}
-
-/** Open WhatsApp app/web directly (no system share sheet). Optional phone opens that chat. */
-export function openWhatsAppWithText(
-  text: string,
-  phoneOrHref?: string | null,
-  existingWindow?: Window | null,
-): void {
-  const encoded = encodeURIComponent(text);
-  const phone = whatsappPhoneDigits(phoneOrHref);
   const ua = navigator.userAgent || '';
   const isAndroid = /Android/i.test(ua);
   const isIos = /iPhone|iPad|iPod/i.test(ua);
-  const waMe = buildWhatsAppSendUrl(text, phoneOrHref);
-
-  const navigate = (url: string) => {
-    if (existingWindow && !existingWindow.closed) {
-      try {
-        existingWindow.location.href = url;
-        existingWindow.focus();
-        return;
-      } catch {
-        // fall through
-      }
-    }
-    try {
-      const opened = window.open(url, 'yw-wa-share');
-      if (opened) {
-        opened.focus();
-        return;
-      }
-    } catch {
-      // fall through
-    }
-    // Last resort (works for Android intent handoff after async work).
-    window.location.assign(url);
-  };
 
   if (isAndroid) {
-    const fallback = encodeURIComponent(waMe);
-    const phonePart = phone ? `phone=${phone}&` : '';
-    navigate(
-      `intent://send?${phonePart}text=${encoded}`
+    // Opens WhatsApp (or Business) directly; falls back to wa.me in the browser
+    const fallback = encodeURIComponent(`https://wa.me/?text=${encoded}`);
+    window.location.href =
+      `intent://send?text=${encoded}`
       + '#Intent;scheme=whatsapp;package=com.whatsapp;'
-      + `S.browser_fallback_url=${fallback};end`,
-    );
+      + `S.browser_fallback_url=${fallback};end`;
     return;
   }
 
   if (isIos) {
-    navigate(
-      phone
-        ? `whatsapp://send?phone=${phone}&text=${encoded}`
-        : `whatsapp://send?text=${encoded}`,
-    );
+    window.location.href = `whatsapp://send?text=${encoded}`;
     return;
   }
 
-  navigate(
-    phone
-      ? `https://web.whatsapp.com/send?phone=${phone}&text=${encoded}`
-      : `https://web.whatsapp.com/send?text=${encoded}`,
-  );
+  window.open(`https://web.whatsapp.com/send?text=${encoded}`, '_blank', 'noopener,noreferrer');
 }

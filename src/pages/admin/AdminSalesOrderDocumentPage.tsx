@@ -39,18 +39,7 @@ import {
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
 import { formatInvoiceDate } from '../../lib/invoices';
-import { Capacitor } from '@capacitor/core';
-import {
-  buildSoShareDocument,
-  buildSpareInchargeSoShareMessage,
-  createSoShareLink,
-} from '../../lib/soShareLinks';
-import { loadSpareInchargeSettings } from '../../lib/spareIncharge';
-import {
-  openWhatsAppWithText,
-  prepareWhatsAppWindow,
-  whatsappPhoneDigits,
-} from '../../lib/whatsappShareCard';
+import { captureAndShareElement } from '../../lib/shareElementScreenshot';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
 
@@ -287,55 +276,26 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   }, [workflowActions?.assignableStaff, salespersonStaffUid]);
 
   const handleShareScreenshot = useCallback(async () => {
-    if (!salesOrder || sharing) return;
-    // Web: pre-open so WhatsApp is not popup-blocked after the quick Firestore write.
-    const isNative = Capacitor.isNativePlatform();
-    const whatsappWindow = isNative ? null : prepareWhatsAppWindow();
+    const el = shareCaptureRef.current;
+    if (!el || !salesOrder || sharing) return;
     setSharing(true);
+    // Hide sticky Share / Delete / other action UI so it cannot appear in the shot.
+    soDetailRef.current?.classList.add('is-sharing');
     try {
       const soNumber = salesOrder.salesOrderNumber || salesOrderId || 'sales-order';
+      const safeName = soNumber.replace(/[^\w\-]+/g, '-').slice(0, 48);
       const dateLabel = salesOrder.date ? formatInvoiceDate(salesOrder.date) : '';
-      const document = buildSoShareDocument({
-        salesOrderId,
-        salesOrderNumber: soNumber,
-        dateLabel,
-        customerName: salesOrder.customerName,
-        shippingAddress: salesOrder.shippingAddress,
-        currencyCode: salesOrder.currencyCode,
-        subtotal: salesOrder.subtotal,
-        taxTotal: salesOrder.taxTotal,
-        total: salesOrder.total,
-        notes: portalSalesOrderRemarks(salesOrder),
-        lineItems: salesOrder.lineItems,
+      await captureAndShareElement(el, {
+        fileName: `${safeName}.png`,
+        title: soNumber,
+        text: [soNumber, dateLabel].filter(Boolean).join(' · '),
+        backgroundColor: '#13151b',
       });
-
-      const [settings, link] = await Promise.all([
-        loadSpareInchargeSettings(),
-        createSoShareLink(document),
-      ]);
-      const sparePhone = whatsappPhoneDigits(settings.whatsappNumber);
-      if (!sparePhone) {
-        whatsappWindow?.close();
-        window.alert(
-          'No spare incharge WhatsApp number set. Add it under HR → Spare Incharge.',
-        );
-        return;
-      }
-
-      openWhatsAppWithText(
-        buildSpareInchargeSoShareMessage({
-          salesOrderNumber: soNumber,
-          dateLabel,
-          shareUrl: link.url,
-        }),
-        sparePhone,
-        whatsappWindow,
-      );
     } catch (err) {
-      whatsappWindow?.close();
       if (err instanceof Error && err.name === 'AbortError') return;
-      window.alert(err instanceof Error ? err.message : 'Could not share sales order.');
+      window.alert(err instanceof Error ? err.message : 'Could not share screenshot.');
     } finally {
+      soDetailRef.current?.classList.remove('is-sharing');
       setSharing(false);
     }
   }, [salesOrder, salesOrderId, sharing]);
@@ -676,10 +636,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           className="btn btn-primary so-detail__share-btn so-detail__share-btn--whatsapp"
           disabled={sharing || Boolean(workflowActions?.actionBusy)}
           onClick={() => { void handleShareScreenshot(); }}
-          aria-label="Share to spare incharge"
+          aria-label="Share on WhatsApp"
         >
           <WhatsAppIcon size={16} />
-          {sharing ? 'Sharing…' : 'Share to spare incharge'}
+          {sharing ? 'Sharing…' : 'WhatsApp'}
         </button>
         {showWorkflowActions && workflowActions && (
           <>

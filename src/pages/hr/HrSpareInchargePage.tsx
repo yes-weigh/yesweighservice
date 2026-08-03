@@ -10,12 +10,10 @@ import {
   loadSpareInchargeSettings,
   primaryZohoSalespersonForUser,
   removeSpareInchargeMember,
-  saveSpareInchargeWhatsappNumber,
   setSpareInchargeZohoSalesperson,
   spareInchargeRoleLabel,
   type SpareInchargeMember,
 } from '../../lib/spareIncharge';
-import { whatsappPhoneDigits } from '../../lib/whatsappShareCard';
 import {
   clearZohoSalespersonsCache,
   listZohoSalespersons,
@@ -296,10 +294,6 @@ export const HrSpareInchargePage: React.FC<HrSpareInchargePageProps> = ({ basePa
 
   const [members, setMembers] = useState<SpareInchargeMember[]>([]);
   const [eligible, setEligible] = useState<UserRecord[]>([]);
-  const [whatsappNumber, setWhatsappNumber] = useState('');
-  const [whatsappDraft, setWhatsappDraft] = useState('');
-  const [whatsappSaving, setWhatsappSaving] = useState(false);
-  const [whatsappMessage, setWhatsappMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -308,13 +302,10 @@ export const HrSpareInchargePage: React.FC<HrSpareInchargePageProps> = ({ basePa
   const [activeIndex, setActiveIndex] = useState(0);
 
   const canManage = canManageSpareIncharge(user);
-  const whatsappDirty = whatsappDraft.trim() !== whatsappNumber.trim();
-  const whatsappPreview = whatsappPhoneDigits(whatsappDraft);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
-    setWhatsappMessage('');
     try {
       const [settings, users] = await Promise.all([
         loadSpareInchargeSettings(),
@@ -322,14 +313,10 @@ export const HrSpareInchargePage: React.FC<HrSpareInchargePageProps> = ({ basePa
       ]);
       setMembers(settings.members);
       setEligible(users);
-      setWhatsappNumber(settings.whatsappNumber);
-      setWhatsappDraft(settings.whatsappNumber);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load spare incharge assignments.');
       setMembers([]);
       setEligible([]);
-      setWhatsappNumber('');
-      setWhatsappDraft('');
     } finally {
       setLoading(false);
     }
@@ -419,27 +406,6 @@ export const HrSpareInchargePage: React.FC<HrSpareInchargePageProps> = ({ basePa
     }
   };
 
-  const saveWhatsapp = async () => {
-    if (whatsappSaving || !whatsappDirty) return;
-    setWhatsappSaving(true);
-    setWhatsappMessage('');
-    setError('');
-    try {
-      const next = await saveSpareInchargeWhatsappNumber(whatsappDraft, user?.uid ?? null);
-      setWhatsappNumber(next.whatsappNumber);
-      setWhatsappDraft(next.whatsappNumber);
-      setWhatsappMessage(
-        next.whatsappNumber
-          ? 'WhatsApp number saved. Sales order share will use this number.'
-          : 'WhatsApp number cleared.',
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save WhatsApp number.');
-    } finally {
-      setWhatsappSaving(false);
-    }
-  };
-
   const showOptions = open && !saving;
 
   return (
@@ -453,76 +419,19 @@ export const HrSpareInchargePage: React.FC<HrSpareInchargePageProps> = ({ basePa
             </h3>
             <p className="text-muted text-sm">
               Only one spare incharge at a time. Shows their primary Zoho salesperson,
-              or lets you link one if missing. Set the WhatsApp number used by
-              “Share to spare incharge” on sales orders.
+              or lets you link one if missing.
             </p>
           </div>
           <button
             type="button"
             className="btn btn-secondary btn-sm hr-spare-incharge__refresh"
             onClick={() => void load()}
-            disabled={loading || saving || whatsappSaving}
+            disabled={loading || saving}
             aria-label="Refresh"
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
-        </div>
-
-        <div className="hr-spare-incharge__whatsapp">
-          <label className="hr-spare-incharge__label" htmlFor="spare-incharge-whatsapp">
-            WhatsApp number for SO share
-          </label>
-          <div className="hr-spare-incharge__whatsapp-row">
-            <input
-              id="spare-incharge-whatsapp"
-              type="tel"
-              className="input-field hr-spare-incharge__whatsapp-input"
-              placeholder="+91 95679 33252"
-              value={whatsappDraft}
-              disabled={loading || whatsappSaving}
-              autoComplete="tel"
-              onChange={e => {
-                setWhatsappDraft(e.target.value);
-                setWhatsappMessage('');
-              }}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void saveWhatsapp();
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={loading || whatsappSaving || !whatsappDirty}
-              onClick={() => void saveWhatsapp()}
-            >
-              {whatsappSaving ? 'Saving…' : 'Save'}
-            </button>
-            {whatsappDirty ? (
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                disabled={whatsappSaving}
-                onClick={() => {
-                  setWhatsappDraft(whatsappNumber);
-                  setWhatsappMessage('');
-                }}
-              >
-                Cancel
-              </button>
-            ) : null}
-          </div>
-          <p className="text-muted text-sm hr-spare-incharge__whatsapp-hint">
-            Accepts numbers with or without + and country code
-            {whatsappPreview ? ` · will open as +${whatsappPreview}` : ''}.
-            Leave blank to clear.
-          </p>
-          {whatsappMessage ? (
-            <p className="text-sm hr-spare-incharge__whatsapp-ok">{whatsappMessage}</p>
-          ) : null}
         </div>
 
         <div className="hr-spare-incharge__assign" ref={rootRef}>
