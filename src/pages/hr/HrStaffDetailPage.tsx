@@ -169,7 +169,7 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
     ) return;
     const ok = await confirm({
       title: 'Promote to Super Admin',
-      message: `Promote ${record.displayName} to Super Admin? They will leave the staff directory and gain full super admin access. Login and HR profile stay the same.`,
+      message: `Promote ${record.displayName} to Super Admin? They will leave the staff directory and gain full super admin access. Zoho salesperson links and dealer assignments are kept. Login and HR profile stay the same.`,
       confirmLabel: 'Promote',
     });
     if (!ok) return;

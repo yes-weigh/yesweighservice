@@ -163,7 +163,7 @@ export const StaffRolePermissionsPanel: React.FC<StaffRolePermissionsPanelProps>
   );
 };
 
-function ZohoSalespersonPicker({
+export function ZohoSalespersonPicker({
   links,
   disabled,
   loadEnabled,

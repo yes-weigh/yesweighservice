@@ -99,6 +99,11 @@ export function zohoLinksToFirestoreFields(links: ZohoSalespersonLink[]): {
   };
 }
 
+/** Staff and super admins can link Zoho salespersons for dealer assignment + SOs. */
+export function roleSupportsZohoSalespersonLinks(role: string): boolean {
+  return role === 'staff' || role === 'super_admin';
+}
+
 export function staffHasZohoSalespersonLink(input: {
   zohoSalespersonLinks?: ZohoSalespersonLink[] | null;
   zohoSalespersonIds?: string[] | null;

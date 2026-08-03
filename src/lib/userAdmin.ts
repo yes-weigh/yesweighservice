@@ -19,6 +19,7 @@ import { authErrorMessage } from './authErrors';
 import { reserveLoginIndex } from './loginIndex';
 import { contactFieldsForLogin } from './profileLogin';
 import type { FirestoreUserDoc, Role, SuperAdminAccess } from '../types';
+import { roleSupportsZohoSalespersonLinks } from './zohoSalespersonStaff';
 import { normalizeRole, normalizeSuperAdminAccess } from '../types';
 import type { StaffDepartment, StaffPermission } from '../types/staff-access';
 import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
@@ -157,10 +158,18 @@ export async function createUserProfile(
     staffAccessMode: input.role === 'staff' ? input.staffAccessMode ?? 'role' : undefined,
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
     staffTeamId: input.role === 'staff' ? input.staffTeamId ?? null : undefined,
-    zohoSalespersonIds: input.role === 'staff' ? input.zohoSalespersonIds ?? [] : undefined,
-    zohoSalespersonLinks: input.role === 'staff' ? input.zohoSalespersonLinks ?? [] : undefined,
-    zohoSalespersonId: input.role === 'staff' ? input.zohoSalespersonId ?? null : undefined,
-    zohoSalespersonName: input.role === 'staff' ? input.zohoSalespersonName ?? null : undefined,
+    zohoSalespersonIds: roleSupportsZohoSalespersonLinks(input.role)
+      ? input.zohoSalespersonIds ?? []
+      : undefined,
+    zohoSalespersonLinks: roleSupportsZohoSalespersonLinks(input.role)
+      ? input.zohoSalespersonLinks ?? []
+      : undefined,
+    zohoSalespersonId: roleSupportsZohoSalespersonLinks(input.role)
+      ? input.zohoSalespersonId ?? null
+      : undefined,
+    zohoSalespersonName: roleSupportsZohoSalespersonLinks(input.role)
+      ? input.zohoSalespersonName ?? null
+      : undefined,
     staffLogisticsSite: input.role === 'staff' ? input.staffLogisticsSite ?? null : undefined,
     dealerTier: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerTier ?? 'standard' : undefined,
     dealerAccessMode: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerAccessMode ?? 'tier' : undefined,
@@ -224,7 +233,7 @@ export async function updateUserProfile(
   );
 }
 
-/** Promote an existing staff account to super_admin. Keeps login/HR profile; clears staff access fields. */
+/** Promote an existing staff account to super_admin. Keeps login/HR profile and Zoho salesperson links. */
 export async function promoteStaffToSuperAdmin(
   db: Firestore,
   uid: string,
@@ -249,10 +258,6 @@ export async function promoteStaffToSuperAdmin(
     staffPermissions: deleteField(),
     staffTeamId: deleteField(),
     staffLogisticsSite: deleteField(),
-    zohoSalespersonIds: deleteField(),
-    zohoSalespersonLinks: deleteField(),
-    zohoSalespersonId: deleteField(),
-    zohoSalespersonName: deleteField(),
     updatedAt: new Date().toISOString(),
   });
 }

@@ -71,7 +71,8 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       }
     }
 
-    const zohoSalespersonLinks = role === 'staff'
+    const roleHasZohoLinks = role === 'staff' || role === 'super_admin';
+    const zohoSalespersonLinks = roleHasZohoLinks
       ? normalizeZohoSalespersonLinks({
         zohoSalespersonLinks: data.zohoSalespersonLinks,
         zohoSalespersonIds: data.zohoSalespersonIds,
@@ -99,10 +100,10 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       staffAccessMode: data.staffAccessMode,
       staffPermissions: data.staffPermissions,
       staffTeamId: data.staffTeamId ?? null,
-      zohoSalespersonIds: role === 'staff' ? zohoSalespersonIds : undefined,
-      zohoSalespersonLinks: role === 'staff' ? zohoSalespersonLinks : undefined,
-      zohoSalespersonId: role === 'staff' ? (zohoSalespersonIds[0] ?? null) : undefined,
-      zohoSalespersonName: role === 'staff' ? (zohoSalespersonLinks[0]?.name ?? null) : undefined,
+      zohoSalespersonIds: roleHasZohoLinks ? zohoSalespersonIds : undefined,
+      zohoSalespersonLinks: roleHasZohoLinks ? zohoSalespersonLinks : undefined,
+      zohoSalespersonId: roleHasZohoLinks ? (zohoSalespersonIds[0] ?? null) : undefined,
+      zohoSalespersonName: roleHasZohoLinks ? (zohoSalespersonLinks[0]?.name ?? null) : undefined,
       spareIncharge: data.spareIncharge === true,
       staffLogisticsSite: data.staffLogisticsSite ?? null,
       dealerTier,

@@ -36,6 +36,14 @@ import {
   dealerRoleDraftToPayload,
   type DealerRoleDraft,
 } from '../../components/admin/DealerRoleEditor';
+import { ZohoSalespersonPicker } from '../../components/admin/StaffRoleEditor';
+import {
+  assertZohoSalespersonIdsAvailable,
+  normalizeZohoSalespersonLinks,
+  staffHasZohoSalespersonLink,
+  zohoLinksToFirestoreFields,
+  type ZohoSalespersonLink,
+} from '../../lib/zohoSalespersonStaff';
 import { DEALER_TIER_LABELS } from '../../types';
 
 const EMPTY_FORM = {
@@ -88,7 +96,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [roleDraft, setRoleDraft] = useState<DealerRoleDraft>(EMPTY_DEALER_ROLE_DRAFT);
+  const [zohoSalespersonLinks, setZohoSalespersonLinks] = useState<ZohoSalespersonLink[]>([]);
+  const [zohoDetailsOpen, setZohoDetailsOpen] = useState(false);
   const showDealerAccess = role === 'dealer' || role === 'dealer_staff';
+  const showSuperAdminZohoLinks = role === 'super_admin';
   /** Access column / toggle / form — localhost only so production super admins don't see tiers. */
   const showSuperAdminAccess = role === 'super_admin' && isLocalhostDev();
   const canWriteUsers = canSuperAdminWrite(user) || (
@@ -145,6 +156,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const resetForm = () => {
     setForm({ ...EMPTY_FORM, dealerId: scopedDealerId ?? '' });
     setRoleDraft(EMPTY_DEALER_ROLE_DRAFT);
+    setZohoSalespersonLinks([]);
+    setZohoDetailsOpen(false);
     setEditingUid(null);
     setShowForm(false);
     setError('');
@@ -156,6 +169,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     setForm({ ...EMPTY_FORM, dealerId: scopedDealerId ?? '', superAdminAccess: 'full' });
     const parent = role === 'dealer_staff' ? parentDealerRecord(scopedDealerId) : null;
     setRoleDraft(parent ? dealerRoleDraftFromRecord(parent) : EMPTY_DEALER_ROLE_DRAFT);
+    setZohoSalespersonLinks([]);
+    setZohoDetailsOpen(false);
     setEditingUid(null);
     setShowForm(true);
     setError('');
@@ -164,6 +179,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const openEdit = (record: UserRecord) => {
     if (!canWriteUsers) return;
     const login = resolveProfileLogin(record);
+    const links = normalizeZohoSalespersonLinks(record);
     setForm({
       loginId: login?.value ?? '',
       password: '',
@@ -174,6 +190,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       superAdminAccess: normalizeSuperAdminAccess(record.superAdminAccess),
     });
     setRoleDraft(dealerRoleDraftFromRecord(record));
+    setZohoSalespersonLinks(links);
+    setZohoDetailsOpen(links.length > 0);
     setEditingUid(record.uid);
     setShowForm(true);
     setError('');
@@ -194,6 +212,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       const superAccessPayload = showSuperAdminAccess
         ? { superAdminAccess: normalizeSuperAdminAccess(form.superAdminAccess) }
         : {};
+      const zohoPayload = showSuperAdminZohoLinks
+        ? zohoLinksToFirestoreFields(zohoSalespersonLinks)
+        : {};
+      if (showSuperAdminZohoLinks && zohoPayload.zohoSalespersonIds.length) {
+        await assertZohoSalespersonIdsAvailable(zohoPayload.zohoSalespersonIds, editingUid);
+      }
       if (editingUid) {
         await updateUserProfile(db, editingUid, {
           displayName: form.displayName,
@@ -203,6 +227,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           ...accessPayload,
           ...superAccessPayload,
+          ...zohoPayload,
         });
         const nextPassword = form.password.trim();
         if (nextPassword) {
@@ -236,6 +261,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           ...accessPayload,
           ...superAccessPayload,
+          ...zohoPayload,
           createdByUid: user.uid,
         });
       }
@@ -485,6 +511,31 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 </div>
               )}
 
+              {showSuperAdminZohoLinks && (
+                <div className="col-span-all user-management__access panel glass">
+                  <details
+                    className="staff-role-editor__optional"
+                    open={zohoDetailsOpen}
+                    onToggle={event => {
+                      setZohoDetailsOpen(event.currentTarget.open);
+                    }}
+                  >
+                    <summary>Zoho salesperson (dealer assignment + SO / invoice)</summary>
+                    <ZohoSalespersonPicker
+                      links={zohoSalespersonLinks}
+                      disabled={submitting}
+                      loadEnabled={zohoDetailsOpen}
+                      excludeUid={editingUid}
+                      onChange={setZohoSalespersonLinks}
+                    />
+                    <p className="staff-role-editor__hint text-muted text-sm">
+                      Link Zoho salespersons so this admin can be assigned as a dealer&apos;s portal owner
+                      and appear on sales orders. Super admins keep these links after promotion from staff.
+                    </p>
+                  </details>
+                </div>
+              )}
+
               <div className="form-group">
                 <label htmlFor="user-password">
                   {editingUid ? 'Reset password' : 'Password'}
@@ -563,6 +614,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   <th>Phone</th>
                   {showDealerAccess && <th>Access</th>}
                   {showSuperAdminAccess && <th>Access</th>}
+                  {showSuperAdminZohoLinks && <th>Zoho SP</th>}
                   {role === 'dealer_staff' && !scopedDealerId && <th>Dealer</th>}
                   <th>Status</th>
                   <th className="text-right">Actions</th>
@@ -601,6 +653,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                           >
                             {SUPER_ADMIN_ACCESS_LABELS[access]}
                           </span>
+                        </td>
+                      )}
+                      {showSuperAdminZohoLinks && (
+                        <td>
+                          {staffHasZohoSalespersonLink(record) ? (
+                            <span className="text-sm">
+                              {normalizeZohoSalespersonLinks(record)
+                                .map(link => link.name || link.id)
+                                .join(', ')}
+                            </span>
+                          ) : (
+                            <span className="text-muted text-sm">Not linked</span>
+                          )}
                         </td>
                       )}
                       {role === 'dealer_staff' && !scopedDealerId && (
