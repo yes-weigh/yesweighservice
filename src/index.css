@@ -22512,6 +22512,38 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-bottom: 0;
 }
 
+.zoho-sp-panel__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(8, 12, 20, 0.55);
+}
+
+.zoho-sp-panel__modal {
+  width: min(32rem, 100%);
+  padding: 1.15rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.zoho-sp-panel__modal h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.zoho-sp-panel__modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
 .staff-role-editor__zoho-readonly {
   gap: 0.35rem;
 }

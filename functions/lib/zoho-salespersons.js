@@ -119,17 +119,179 @@ export async function loadHiddenZohoSalespersonIds() {
   return ids;
 }
 
+function normalizeUserZohoIds(data = {}) {
+  const ids = new Set();
+  if (Array.isArray(data.zohoSalespersonIds)) {
+    for (const raw of data.zohoSalespersonIds) {
+      const trimmed = String(raw ?? '').trim();
+      if (trimmed) ids.add(trimmed);
+    }
+  }
+  if (data.zohoSalespersonId) {
+    const trimmed = String(data.zohoSalespersonId).trim();
+    if (trimmed) ids.add(trimmed);
+  }
+  if (Array.isArray(data.zohoSalespersonLinks)) {
+    for (const link of data.zohoSalespersonLinks) {
+      const trimmed = String(link?.id ?? '').trim();
+      if (trimmed) ids.add(trimmed);
+    }
+  }
+  return [...ids];
+}
+
+async function findPortalOwnerForSalesperson(salespersonId) {
+  const id = String(salespersonId ?? '').trim();
+  if (!id) return null;
+  const db = getFirestore();
+
+  const arraySnap = await db.collection('users')
+    .where('zohoSalespersonIds', 'array-contains', id)
+    .limit(5)
+    .get();
+  for (const doc of arraySnap.docs) {
+    const data = doc.data() || {};
+    const role = String(data.role ?? '');
+    if (role !== 'staff' && role !== 'super_admin') continue;
+    if (data.active === false) continue;
+    return {
+      uid: doc.id,
+      displayName: String(data.displayName ?? 'Staff').trim() || 'Staff',
+    };
+  }
+
+  const legacySnap = await db.collection('users')
+    .where('zohoSalespersonId', '==', id)
+    .limit(5)
+    .get();
+  for (const doc of legacySnap.docs) {
+    const data = doc.data() || {};
+    const role = String(data.role ?? '');
+    if (role !== 'staff' && role !== 'super_admin') continue;
+    if (data.active === false) continue;
+    return {
+      uid: doc.id,
+      displayName: String(data.displayName ?? 'Staff').trim() || 'Staff',
+    };
+  }
+  return null;
+}
+
+async function countDealersForStaffUid(staffUid) {
+  const uid = String(staffUid ?? '').trim();
+  if (!uid) return 0;
+  const snap = await getFirestore()
+    .collection('zohoCustomers')
+    .where('assignedStaffUid', '==', uid)
+    .select('assignedStaffUid')
+    .get();
+  return snap.size;
+}
+
+async function reassignDealersBetweenStaff(fromUid, toUid) {
+  const from = String(fromUid ?? '').trim();
+  const to = String(toUid ?? '').trim();
+  if (!from || !to) throw new Error('Both source and target portal owners are required.');
+  if (from === to) throw new Error('Choose a different portal owner for reassignment.');
+
+  const db = getFirestore();
+  const targetSnap = await db.collection('users').doc(to).get();
+  if (!targetSnap.exists) throw new Error('Target portal owner not found.');
+  const target = targetSnap.data() || {};
+  const role = String(target.role ?? '');
+  if (role !== 'staff' && role !== 'super_admin') {
+    throw new Error('Target must be staff or super admin.');
+  }
+  if (target.active === false) throw new Error('Target portal owner is inactive.');
+  if (!normalizeUserZohoIds(target).length) {
+    throw new Error('Target portal owner must have at least one Zoho salesperson linked.');
+  }
+  const targetName = String(target.displayName ?? 'Staff').trim() || 'Staff';
+
+  const dealersSnap = await db.collection('zohoCustomers')
+    .where('assignedStaffUid', '==', from)
+    .select('assignedStaffUid')
+    .get();
+
+  let batch = db.batch();
+  let ops = 0;
+  let moved = 0;
+  const commit = async () => {
+    if (!ops) return;
+    await batch.commit();
+    batch = db.batch();
+    ops = 0;
+  };
+
+  for (const doc of dealersSnap.docs) {
+    batch.set(doc.ref, {
+      assignedStaffUid: to,
+      assignedStaffName: targetName,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    ops += 1;
+    moved += 1;
+    if (ops >= 400) await commit();
+  }
+  await commit();
+  return { moved, targetUid: to, targetName };
+}
+
 /**
- * Toggle portal visibility for a Zoho salesperson. Does not unlink portal owners
- * or change Zoho; only affects pickers and dealer linking.
+ * Preview impact before hiding a Zoho salesperson.
+ * Dealers are assigned to portal users (not Zoho SPs directly).
  */
-export async function setZohoSalespersonHiddenFromPortal(salespersonId, hidden) {
+export async function getZohoSalespersonHideImpact(salespersonId) {
+  const id = String(salespersonId ?? '').trim();
+  if (!id) throw new Error('salespersonId is required.');
+  const ref = getFirestore().collection(SALESPERSONS_COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Zoho salesperson not found. Sync salespersons first.');
+  const data = snap.data() || {};
+  const linkedStaff = await findPortalOwnerForSalesperson(id);
+  const dealerCount = linkedStaff ? await countDealersForStaffUid(linkedStaff.uid) : 0;
+  return {
+    id,
+    name: String(data.name ?? id),
+    hiddenFromPortal: data.hiddenFromPortal === true,
+    linkedStaff,
+    dealerCount,
+    requiresReassign: dealerCount > 0,
+  };
+}
+
+/**
+ * Toggle portal visibility for a Zoho salesperson.
+ * When hiding and the linked portal owner has dealers, reassignToStaffUid is required
+ * (dealers link to portal users, not Zoho salesperson ids).
+ */
+export async function setZohoSalespersonHiddenFromPortal(
+  salespersonId,
+  hidden,
+  { reassignToStaffUid = null } = {},
+) {
   const id = String(salespersonId ?? '').trim();
   if (!id) throw new Error('salespersonId is required.');
   const ref = getFirestore().collection(SALESPERSONS_COLLECTION).doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new Error('Zoho salesperson not found. Sync salespersons first.');
   const nextHidden = Boolean(hidden);
+
+  let reassigned = null;
+  if (nextHidden) {
+    const impact = await getZohoSalespersonHideImpact(id);
+    if (impact.requiresReassign) {
+      const toUid = String(reassignToStaffUid ?? '').trim();
+      if (!toUid) {
+        throw new Error(
+          `${impact.dealerCount} dealer(s) are assigned to ${impact.linkedStaff.displayName}. `
+          + 'Reassign them to another portal owner before hiding.',
+        );
+      }
+      reassigned = await reassignDealersBetweenStaff(impact.linkedStaff.uid, toUid);
+    }
+  }
+
   await ref.set({
     hiddenFromPortal: nextHidden,
     updatedAt: FieldValue.serverTimestamp(),
@@ -141,6 +303,7 @@ export async function setZohoSalespersonHiddenFromPortal(salespersonId, hidden) 
     email: data.email != null && String(data.email).trim() ? String(data.email).trim() : null,
     active: data.active !== false,
     hiddenFromPortal: nextHidden,
+    reassigned,
   };
 }
 

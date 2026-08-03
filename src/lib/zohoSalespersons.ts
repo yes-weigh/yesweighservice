@@ -103,16 +103,58 @@ export function clearZohoSalespersonsCache(): void {
   memoryCache = null;
 }
 
+export type ZohoSalespersonHideImpact = {
+  id: string;
+  name: string;
+  hiddenFromPortal: boolean;
+  linkedStaff: { uid: string; displayName: string } | null;
+  dealerCount: number;
+  requiresReassign: boolean;
+};
+
+export type SetZohoSalespersonPortalHiddenResult = ZohoSalespersonOption & {
+  reassigned?: { moved: number; targetUid: string; targetName: string } | null;
+};
+
+/** Preview dealer reassignment needs before hiding. */
+export async function fetchZohoSalespersonHideImpact(
+  salespersonId: string,
+): Promise<ZohoSalespersonHideImpact> {
+  const callable = httpsCallable<{ salespersonId: string }, ZohoSalespersonHideImpact>(
+    functions,
+    'getZohoSalespersonHideImpactFn',
+  );
+  const result = await callable({ salespersonId });
+  return {
+    id: String(result.data?.id ?? salespersonId).trim(),
+    name: String(result.data?.name ?? salespersonId).trim(),
+    hiddenFromPortal: result.data?.hiddenFromPortal === true,
+    linkedStaff: result.data?.linkedStaff
+      ? {
+        uid: String(result.data.linkedStaff.uid),
+        displayName: String(result.data.linkedStaff.displayName ?? 'Staff'),
+      }
+      : null,
+    dealerCount: Number(result.data?.dealerCount ?? 0) || 0,
+    requiresReassign: Boolean(result.data?.requiresReassign),
+  };
+}
+
 /** Hide or unhide a Zoho salesperson from portal pickers + dealer linking. */
 export async function setZohoSalespersonPortalHidden(
   salespersonId: string,
   hidden: boolean,
-): Promise<ZohoSalespersonOption> {
+  options?: { reassignToStaffUid?: string | null },
+): Promise<SetZohoSalespersonPortalHiddenResult> {
   const callable = httpsCallable<
-    { salespersonId: string; hidden: boolean },
-    ZohoSalespersonOption
+    { salespersonId: string; hidden: boolean; reassignToStaffUid?: string | null },
+    SetZohoSalespersonPortalHiddenResult
   >(functions, 'setZohoSalespersonPortalHidden');
-  const result = await callable({ salespersonId, hidden });
+  const result = await callable({
+    salespersonId,
+    hidden,
+    reassignToStaffUid: options?.reassignToStaffUid ?? null,
+  });
   clearZohoSalespersonsCache();
   return {
     id: String(result.data?.id ?? salespersonId).trim(),
@@ -122,6 +164,7 @@ export async function setZohoSalespersonPortalHidden(
       : null,
     active: result.data?.active !== false,
     hiddenFromPortal: result.data?.hiddenFromPortal === true,
+    reassigned: result.data?.reassigned ?? null,
   };
 }
 

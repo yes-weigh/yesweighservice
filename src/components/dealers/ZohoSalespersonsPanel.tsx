@@ -16,20 +16,30 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
 import {
   clearZohoSalespersonsCache,
+  fetchZohoSalespersonHideImpact,
   listZohoSalespersons,
   setZohoSalespersonPortalHidden,
   syncZohoSalespersonsFromZoho,
+  type ZohoSalespersonHideImpact,
   type ZohoSalespersonOption,
 } from '../../lib/zohoSalespersons';
 import {
   linkZohoSalespersonToPortalUser,
   listClaimedZohoSalespersonIds,
+  staffHasZohoSalespersonLink,
   unlinkZohoSalespersonFromPortalUser,
 } from '../../lib/zohoSalespersonStaff';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
 
 type FilterKey = 'all' | 'unlinked' | 'linked' | 'hidden' | 'inactive';
+
+type HideDialogState = {
+  row: ZohoSalespersonOption;
+  impact: ZohoSalespersonHideImpact | null;
+  loadingImpact: boolean;
+  reassignToStaffUid: string;
+};
 
 export function ZohoSalespersonsPanel() {
   const { user } = useAuth();
@@ -49,6 +59,7 @@ export function ZohoSalespersonsPanel() {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pickUid, setPickUid] = useState('');
+  const [hideDialog, setHideDialog] = useState<HideDialogState | null>(null);
 
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -151,24 +162,90 @@ export function ZohoSalespersonsPanel() {
     setSuccess('Synced salespersons from Zoho.');
   };
 
+  const reassignTargets = useMemo(() => {
+    const ownerUid = hideDialog?.impact?.linkedStaff?.uid;
+    return portalUsers.filter(
+      u => u.uid !== ownerUid && staffHasZohoSalespersonLink(u),
+    );
+  }, [portalUsers, hideDialog?.impact?.linkedStaff?.uid]);
+
+  const openHideDialog = async (row: ZohoSalespersonOption) => {
+    if (!canEdit) return;
+    setError('');
+    setSuccess('');
+    setHideDialog({
+      row,
+      impact: null,
+      loadingImpact: true,
+      reassignToStaffUid: '',
+    });
+    try {
+      const impact = await fetchZohoSalespersonHideImpact(row.id);
+      setHideDialog(prev => (prev && prev.row.id === row.id
+        ? { ...prev, impact, loadingImpact: false }
+        : prev));
+    } catch (err) {
+      setHideDialog(null);
+      setError(err instanceof Error ? err.message : 'Could not check dealers for hide.');
+    }
+  };
+
+  const closeHideDialog = () => {
+    if (busyId) return;
+    setHideDialog(null);
+  };
+
+  const confirmHideDialog = async () => {
+    if (!canEdit || !hideDialog) return;
+    const { row, impact, reassignToStaffUid } = hideDialog;
+    if (impact?.requiresReassign && !reassignToStaffUid.trim()) {
+      setError('Choose another portal owner (salesperson) to receive these dealers before hiding.');
+      return;
+    }
+    setBusyId(row.id);
+    setError('');
+    setSuccess('');
+    try {
+      const next = await setZohoSalespersonPortalHidden(row.id, true, {
+        reassignToStaffUid: impact?.requiresReassign ? reassignToStaffUid.trim() : null,
+      });
+      setRows(prev => prev.map(r => (r.id === row.id ? { ...r, ...next } : r)));
+      setHighlightedId(row.id);
+      const moved = next.reassigned?.moved ?? 0;
+      setSuccess(
+        moved > 0
+          ? `Hidden ${row.name}. Reassigned ${moved} dealer${moved === 1 ? '' : 's'} to ${next.reassigned?.targetName}.`
+          : `Hidden ${row.name} from portal.`,
+      );
+      setHideDialog(null);
+      closeEdit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not hide salesperson.');
+    } finally {
+      setBusyId('');
+    }
+  };
+
   const handleHide = async (row: ZohoSalespersonOption, hidden: boolean) => {
     if (!canEdit) return;
+    if (hidden) {
+      await openHideDialog(row);
+      return;
+    }
     const ok = await confirm({
-      title: hidden ? 'Hide from portal?' : 'Show in portal?',
-      message: hidden
-        ? `${row.name} will be hidden from pickers and skipped in dealer linking. Existing dealer assignments stay.`
-        : `${row.name} will appear in pickers and dealer linking again.`,
-      confirmLabel: hidden ? 'Hide' : 'Unhide',
+      title: 'Show in portal?',
+      message: `${row.name} will appear in pickers and dealer linking again.`,
+      confirmLabel: 'Unhide',
     });
     if (!ok) return;
     setBusyId(row.id);
     setError('');
     setSuccess('');
     try {
-      const next = await setZohoSalespersonPortalHidden(row.id, hidden);
+      const next = await setZohoSalespersonPortalHidden(row.id, false);
       setRows(prev => prev.map(r => (r.id === row.id ? { ...r, ...next } : r)));
       setHighlightedId(row.id);
-      setSuccess(hidden ? `Hidden ${row.name} from portal.` : `Unhid ${row.name}.`);
+      setSuccess(`Unhid ${row.name}.`);
       closeEdit();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update visibility.');
@@ -276,10 +353,99 @@ export function ZohoSalespersonsPanel() {
     }
   };
 
+  const hideDialogUi = hideDialog ? (
+    <div className="zoho-sp-panel__modal-backdrop" role="presentation" onClick={closeHideDialog}>
+      <div
+        className="panel glass zoho-sp-panel__modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="zoho-sp-hide-title"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 id="zoho-sp-hide-title">Hide {hideDialog.row.name} from portal?</h3>
+        <p className="text-muted text-sm">
+          Dealers are assigned to <strong>portal users</strong>, not Zoho salespersons directly.
+          Zoho salesperson → portal owner → dealers.
+        </p>
+        {hideDialog.loadingImpact ? (
+          <FetchingLoader label="Checking assigned dealers…" />
+        ) : hideDialog.impact?.requiresReassign ? (
+          <>
+            <p className="text-sm">
+              Linked to <strong>{hideDialog.impact.linkedStaff?.displayName}</strong>, who currently
+              owns <strong>{hideDialog.impact.dealerCount}</strong> dealer
+              {hideDialog.impact.dealerCount === 1 ? '' : 's'}.
+              Reassign those dealers to another portal owner before hiding.
+            </p>
+            <div className="form-group">
+              <label htmlFor="zoho-sp-reassign-owner">Reassign dealers to</label>
+              <select
+                id="zoho-sp-reassign-owner"
+                className="input-field catalog-select"
+                value={hideDialog.reassignToStaffUid}
+                disabled={Boolean(busyId)}
+                onChange={e => setHideDialog(prev => (prev
+                  ? { ...prev, reassignToStaffUid: e.target.value }
+                  : prev))}
+              >
+                <option value="">Choose portal owner…</option>
+                {reassignTargets.map(u => (
+                  <option key={u.uid} value={u.uid}>
+                    {u.displayName}
+                    {u.role === 'super_admin' ? ' (Super Admin)' : ''}
+                  </option>
+                ))}
+              </select>
+              {reassignTargets.length === 0 ? (
+                <p className="text-muted text-sm">
+                  No other portal owners with a Zoho salesperson link. Link someone in this tab first.
+                </p>
+              ) : null}
+            </div>
+          </>
+        ) : (
+          <p className="text-sm">
+            {hideDialog.impact?.linkedStaff
+              ? `${hideDialog.impact.linkedStaff.displayName} has no dealers assigned — safe to hide.`
+              : 'No portal owner linked — safe to hide.'}
+            {' '}This salesperson will leave pickers and dealer linking.
+          </p>
+        )}
+        {error ? <div className="login-error mt-3">{error}</div> : null}
+        <div className="zoho-sp-panel__modal-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={Boolean(busyId)}
+            onClick={closeHideDialog}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={
+              Boolean(busyId)
+              || hideDialog.loadingImpact
+              || (Boolean(hideDialog.impact?.requiresReassign) && !hideDialog.reassignToStaffUid)
+            }
+            onClick={() => void confirmHideDialog()}
+          >
+            {busyId === hideDialog.row.id
+              ? <RefreshCw size={16} className="spin-icon" />
+              : <EyeOff size={16} />}
+            {hideDialog.impact?.requiresReassign ? 'Reassign & hide' : 'Hide from portal'}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   if (editingRow) {
     const busy = busyId === editingRow.id;
     return (
       <div className="panel glass zoho-sp-panel zoho-sp-panel--editor fade-in">
+        {hideDialogUi}
         <div className="form-panel-topbar">
           <h2>Edit Zoho salesperson</h2>
           <button type="button" className="btn btn-secondary btn-sm" onClick={closeEdit} disabled={busy}>
@@ -287,7 +453,7 @@ export function ZohoSalespersonsPanel() {
           </button>
         </div>
         <div className="form-panel-body">
-          {error ? <div className="login-error mb-3">{error}</div> : null}
+          {error && !hideDialog ? <div className="login-error mb-3">{error}</div> : null}
           <div className="zoho-sp-panel__editor-head">
             <div>
               <div className="zoho-sp-panel__name">{editingRow.name}</div>
@@ -364,12 +530,13 @@ export function ZohoSalespersonsPanel() {
 
   return (
     <div className="zoho-sp-panel fade-in">
+      {hideDialogUi}
       <section className="panel glass zoho-sp-panel__hero">
         <div>
           <h2>Zoho salespersons</h2>
           <p className="text-muted text-sm">
-            Link portal staff or super admins to Zoho salespersons. Hide noise accounts from pickers
-            and dealer linking without changing Zoho.
+            Link portal staff or super admins to Zoho salespersons. Dealers are assigned to those
+            portal owners. Hide noise accounts from pickers and dealer linking without changing Zoho.
           </p>
         </div>
         <div className="zoho-sp-panel__hero-actions">

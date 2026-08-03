@@ -98,6 +98,7 @@ import {
   wipeLegacyKamData,
 } from './lib/dealer-staff-assignment.js';
 import {
+  getZohoSalespersonHideImpact,
   listCachedZohoSalespersons,
   setZohoSalespersonHiddenFromPortal,
   syncZohoSalespersonsToFirestore,
@@ -2338,12 +2339,34 @@ export const syncZohoSalespersons = onCall(
   },
 );
 
+/** Preview dealer impact before hiding a Zoho salesperson. */
+export const getZohoSalespersonHideImpactFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const salespersonId = String(request.data?.salespersonId ?? '').trim();
+    if (!salespersonId) {
+      throw new HttpsError('invalid-argument', 'salespersonId is required.');
+    }
+    try {
+      return await getZohoSalespersonHideImpact(salespersonId);
+    } catch (err) {
+      console.error('getZohoSalespersonHideImpactFn failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not load hide impact.');
+    }
+  },
+);
+
 /** Hide / unhide a Zoho salesperson from portal pickers and dealer linking. */
 export const setZohoSalespersonPortalHidden = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 30,
-    memory: '256MiB',
+    timeoutSeconds: 120,
+    memory: '512MiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
@@ -2354,11 +2377,22 @@ export const setZohoSalespersonPortalHidden = onCall(
     if (typeof request.data?.hidden !== 'boolean') {
       throw new HttpsError('invalid-argument', 'hidden must be a boolean.');
     }
+    const reassignToStaffUid = request.data?.reassignToStaffUid != null
+      ? String(request.data.reassignToStaffUid).trim() || null
+      : null;
     try {
-      return await setZohoSalespersonHiddenFromPortal(salespersonId, request.data.hidden);
+      return await setZohoSalespersonHiddenFromPortal(
+        salespersonId,
+        request.data.hidden,
+        { reassignToStaffUid },
+      );
     } catch (err) {
       console.error('setZohoSalespersonPortalHidden failed:', err);
-      throw new HttpsError('internal', err?.message ?? 'Could not update salesperson visibility.');
+      const message = err?.message ?? 'Could not update salesperson visibility.';
+      if (/Reassign them|different portal owner|Target/i.test(message)) {
+        throw new HttpsError('failed-precondition', message);
+      }
+      throw new HttpsError('internal', message);
     }
   },
 );
