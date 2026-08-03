@@ -5,7 +5,6 @@ import {
   Inbox,
   MessageSquare,
   Package,
-  RefreshCw,
   RotateCcw,
   UserRound,
 } from 'lucide-react';
@@ -13,7 +12,6 @@ import { FetchingLoader } from '../FetchingLoader';
 import { SupportLifecycleFilterBlocks } from './SupportLifecycleFilterBlocks';
 import { useAuth } from '../../context/AuthContext';
 import {
-  fetchOpsSupportRequests,
   subscribeOpsSupportRequests,
   supportDetailPath,
 } from '../../lib/dealerSupport';
@@ -76,15 +74,6 @@ export const StaffSupportQueue: React.FC = () => {
     return unsub;
   }, [user]);
 
-  const refresh = () => {
-    if (!user) return;
-    setLoading(true);
-    void fetchOpsSupportRequests()
-      .then(rows => setRequests(rows))
-      .catch(err => setError(err instanceof Error ? err.message : 'Could not refresh queue.'))
-      .finally(() => setLoading(false));
-  };
-
   const scopedRequests = useMemo(
     () => filterSupportRequestsForUser(user, requests),
     [user, requests],
@@ -128,28 +117,12 @@ export const StaffSupportQueue: React.FC = () => {
   return (
     <div className="staff-support-queue">
       <div className="staff-support-queue__filters">
-        <div className="staff-support-queue__lifecycle-row">
-          <SupportLifecycleFilterBlocks
-            value={lifecycleFilter}
-            counts={counts}
-            loading={loading && scopedRequests.length === 0}
-            onChange={handleLifecycleChange}
-          />
-          <button
-            type="button"
-            className="staff-support-queue__refresh"
-            aria-label="Refresh"
-            title={
-              loading && scopedRequests.length === 0
-                ? 'Loading…'
-                : `${counts.all.toLocaleString('en-IN')} tickets`
-            }
-            disabled={loading}
-            onClick={refresh}
-          >
-            <RefreshCw size={15} className={loading ? 'spin-icon' : undefined} />
-          </button>
-        </div>
+        <SupportLifecycleFilterBlocks
+          value={lifecycleFilter}
+          counts={counts}
+          loading={loading && scopedRequests.length === 0}
+          onChange={handleLifecycleChange}
+        />
 
         {lifecycleFilter === 'open' && (
           <div className="staff-support-queue__stage-rail" role="tablist" aria-label="Filter open stages">

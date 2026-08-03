@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import {
   BadgeCheck,
@@ -8,6 +8,7 @@ import {
   ImageIcon,
   IndianRupee,
   Pencil,
+  Share2,
   Trash2,
   UserRound,
 } from 'lucide-react';
@@ -38,6 +39,8 @@ import {
   updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
+import { formatInvoiceDate } from '../../lib/invoices';
+import { captureAndShareElement } from '../../lib/shareElementScreenshot';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
 
@@ -70,6 +73,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
   const [salespersonStaffUid, setSalespersonStaffUid] = useState('');
   const [showPaymentProof, setShowPaymentProof] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const shareCaptureRef = useRef<HTMLDivElement>(null);
+  const soDetailRef = useRef<HTMLDivElement>(null);
 
   const stage = String(salesOrder?.yesOneStage || '');
   const canEditDraft = isOps
@@ -262,6 +268,31 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     setSalespersonStaffUid(workflowActions.assignableStaff[0]?.uid ?? '');
   }, [workflowActions?.assignableStaff, salespersonStaffUid]);
 
+  const handleShareScreenshot = useCallback(async () => {
+    const el = shareCaptureRef.current;
+    if (!el || !salesOrder || sharing) return;
+    setSharing(true);
+    // Hide sticky Share / Delete / other action UI so it cannot appear in the shot.
+    soDetailRef.current?.classList.add('is-sharing');
+    try {
+      const soNumber = salesOrder.salesOrderNumber || salesOrderId || 'sales-order';
+      const safeName = soNumber.replace(/[^\w\-]+/g, '-').slice(0, 48);
+      const dateLabel = salesOrder.date ? formatInvoiceDate(salesOrder.date) : '';
+      await captureAndShareElement(el, {
+        fileName: `${safeName}.png`,
+        title: soNumber,
+        text: [soNumber, dateLabel].filter(Boolean).join(' · '),
+        backgroundColor: '#13151b',
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      window.alert(err instanceof Error ? err.message : 'Could not share screenshot.');
+    } finally {
+      soDetailRef.current?.classList.remove('is-sharing');
+      setSharing(false);
+    }
+  }, [salesOrder, salesOrderId, sharing]);
+
   if (!salesOrder) return null;
 
   const showWorkflowActions = Boolean(
@@ -288,10 +319,18 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     : 'invoice-detail-top__actions invoice-detail-top__actions--single';
 
   return (
-    <div className={`so-detail${showWorkflowActions ? ' so-detail--with-actions' : ''}`}>
+    <div ref={soDetailRef} className="so-detail so-detail--with-actions">
+      <div ref={shareCaptureRef} className="so-detail__share-capture">
+        <div className="so-detail__share-title">
+          <strong>{salesOrder.salesOrderNumber || 'Sales order'}</strong>
+          {salesOrder.date ? (
+            <span>{formatInvoiceDate(salesOrder.date)}</span>
+          ) : null}
+        </div>
+
       {/* Compact header: PDF (+ payment screenshot) + customer + shipping */}
       <header className="so-detail__header">
-        <div className="invoice-detail-top so-detail__top-actions">
+        <div className="invoice-detail-top so-detail__top-actions" data-capture-ignore="1">
           <div className={topActionClass} role="group" aria-label="Sales order actions">
             <Link
               to={pdfPath}
@@ -387,7 +426,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       </header>
 
       {isOps && workflowActions?.needsSalesperson ? (
-        <div className="products-inline-error panel glass so-detail__salesperson-banner">
+        <div
+          className="products-inline-error panel glass so-detail__salesperson-banner"
+          data-capture-ignore="1"
+        >
           <UserRound size={18} aria-hidden />
           <div className="so-detail__salesperson-banner-copy">
             <span>
@@ -481,7 +523,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         ) : (
           <>
             {canEditLines && (
-              <div className="so-detail__doc-toolbar">
+              <div className="so-detail__doc-toolbar" data-capture-ignore="1">
                 <button type="button" className="so-detail__edit-btn" onClick={startEdit}>
                   <Pencil size={14} aria-hidden />
                   Edit items
@@ -523,7 +565,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       ) : null}
 
       {showPayment && (
-        <section className="so-detail__payment panel glass">
+        <section className="so-detail__payment panel glass" data-capture-ignore="1">
           <div className="so-detail__payment-head">
             <h3 className="so-detail__section-title">Payment</h3>
             {salesOrder.paymentAmount != null ? (
@@ -537,7 +579,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           </div>
 
           {canUploadPayment && (
-            <div className="so-detail__payment-form">
+            <div className="so-detail__payment-form" data-capture-ignore="1">
               <div className="so-detail__payment-field">
                 <span>Payment screenshot</span>
                 <label className="so-detail__payment-file" htmlFor="so-payment-file">
@@ -579,8 +621,20 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         </section>
       )}
 
-      {showWorkflowActions && workflowActions && (
-        <footer className="so-detail__actions">
+      </div>
+
+      <footer className="so-detail__actions" data-capture-ignore="1">
+        <button
+          type="button"
+          className="btn btn-primary so-detail__share-btn"
+          disabled={sharing || Boolean(workflowActions?.actionBusy)}
+          onClick={() => { void handleShareScreenshot(); }}
+        >
+          <Share2 size={16} aria-hidden />
+          {sharing ? 'Sharing…' : 'Share'}
+        </button>
+        {showWorkflowActions && workflowActions && (
+          <>
           {workflowActions.canReady && (
             <button
               type="button"
@@ -690,8 +744,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               {workflowActions.actionBusy === 'delete' ? 'Deleting…' : 'Delete draft'}
             </button>
           )}
-        </footer>
-      )}
+          </>
+        )}
+      </footer>
 
       {showPaymentProof && paymentScreenshotUrl ? (
         <ZoomableImageDialog
