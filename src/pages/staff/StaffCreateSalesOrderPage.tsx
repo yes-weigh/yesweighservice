@@ -31,6 +31,7 @@ import { GatcStampingInlineControl } from '../../components/catalog/GatcStamping
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { ThemeSelect } from '../../components/ThemeSelect';
+import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { FreightPartnerPicker } from '../../components/orders/FreightPartnerPicker';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
@@ -1831,14 +1832,17 @@ function StaffCartLine({
       >
         <label className="staff-create-so-page__rate">
           <span className="text-muted text-sm">Base rate</span>
-          <input
-            type="number"
+          <DecimalAmountInput
             className="input-field"
-            min={0}
-            step={0.01}
             value={item.catalogRate}
+            min={0}
+            decimals={2}
             disabled={disabled}
-            onChange={e => onRate(Number(e.target.value))}
+            onChange={next => {
+              if (next == null) return;
+              onRate(next);
+            }}
+            aria-label={`Base rate for ${item.name}`}
           />
         </label>
         {item.gatcFeePerUnit > 0 ? (

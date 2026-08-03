@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, Link2, RefreshCw, Search, Trash2, UserPlus } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { DayAttendanceSheet } from '../../components/hr/DayAttendanceSheet';
+import { DecimalTextInput } from '../../components/DecimalAmountInput';
 import { useAuth } from '../../context/AuthContext';
 import { fetchHrHolidays, holidaysInMonth } from '../../lib/hrHolidays';
 import {
@@ -871,24 +872,20 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
             </label>
             <label>
               <span>Per month</span>
-              <input
-                type="number"
-                min={0}
-                step={500}
+              <DecimalTextInput
                 className="input-field"
                 value={payrollForm.monthlySalary}
-                onChange={e => setPayrollForm(f => ({ ...f, monthlySalary: e.target.value }))}
+                onChange={monthlySalary => setPayrollForm(f => ({ ...f, monthlySalary }))}
+                aria-label="Monthly salary"
               />
             </label>
             <label>
               <span>OT per day ({HR_SALARY_HOURS_PER_DAY} hrs)</span>
-              <input
-                type="number"
-                min={0}
-                step={50}
+              <DecimalTextInput
                 className="input-field"
                 value={payrollForm.otPerDaySalary}
-                onChange={e => setPayrollForm(f => ({ ...f, otPerDaySalary: e.target.value }))}
+                onChange={otPerDaySalary => setPayrollForm(f => ({ ...f, otPerDaySalary }))}
+                aria-label="OT per day salary"
               />
             </label>
           </div>
@@ -1105,14 +1102,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                             <div className="hr-salary__rate-group">
                               <label className="hr-salary__rate-item">
                                 <span>Per month</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step={500}
+                                <DecimalTextInput
                                   className="hr-salary__rate-value-input"
                                   value={draft.monthlySalary}
                                   disabled={!canEdit}
-                                  onChange={e => updateDraft(row.staffUid, { monthlySalary: e.target.value })}
+                                  onChange={monthlySalary => updateDraft(row.staffUid, { monthlySalary })}
                                   aria-label={`Monthly salary for ${row.displayName}`}
                                 />
                                 <span className="hr-salary__rate-sub">
@@ -1124,14 +1118,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                               </label>
                               <label className="hr-salary__rate-item">
                                 <span>OT per day ({HR_SALARY_HOURS_PER_DAY}hrs)</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step={50}
+                                <DecimalTextInput
                                   className="hr-salary__rate-value-input"
                                   value={draft.otPerDaySalary}
                                   disabled={!canEdit}
-                                  onChange={e => updateDraft(row.staffUid, { otPerDaySalary: e.target.value })}
+                                  onChange={otPerDaySalary => updateDraft(row.staffUid, { otPerDaySalary })}
                                   aria-label={`OT per day salary for ${row.displayName}`}
                                 />
                                 <span className="hr-salary__rate-sub">

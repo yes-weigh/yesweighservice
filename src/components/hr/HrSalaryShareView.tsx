@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import { DecimalTextInput } from '../DecimalAmountInput';
 import { DayAttendanceSheet } from './DayAttendanceSheet';
 import {
   buildMonthDayCells,
@@ -247,13 +248,11 @@ export function HrSalaryShareView({
             <span>Per month</span>
             {editable && edit ? (
               <>
-                <input
-                  type="number"
+                <DecimalTextInput
                   className="input-field hr-salary__rate-input"
-                  min={0}
-                  step="any"
                   value={edit.monthlySalaryInput}
-                  onChange={e => edit.onMonthlySalaryChange(e.target.value)}
+                  onChange={edit.onMonthlySalaryChange}
+                  aria-label="Monthly salary"
                 />
                 <span className="hr-salary__rate-sub">
                   {formatInr(calc.perDaySalary)}/day · {calc.rateDays} days
@@ -272,13 +271,11 @@ export function HrSalaryShareView({
             <span>OT per day ({HR_SALARY_HOURS_PER_DAY}hrs)</span>
             {editable && edit ? (
               <>
-                <input
-                  type="number"
+                <DecimalTextInput
                   className="input-field hr-salary__rate-input"
-                  min={0}
-                  step="any"
                   value={edit.otPerDaySalaryInput}
-                  onChange={e => edit.onOtPerDayChange(e.target.value)}
+                  onChange={edit.onOtPerDayChange}
+                  aria-label="OT per day salary"
                 />
                 <span className="hr-salary__rate-sub">{formatInr(calc.otHourlyRate)}/hr</span>
               </>

@@ -72,6 +72,7 @@ import {
   type InventoryAuditGroupTotals,
 } from '../../lib/yesStore/inventoryAudit';
 import type { CatalogProduct, CatalogProductDetail, CatalogCategory } from '../../types/catalog';
+import { DecimalTextInput } from '../DecimalAmountInput';
 import { useAuth } from '../../context/AuthContext';
 import { canSuperAdminWrite } from '../../lib/staffAccess';
 import { getCatalogSiteInventory } from '../../lib/catalogSiteInventory/data';
@@ -2020,13 +2021,10 @@ export const ProductDetailView: React.FC<{
                     <span className="product-detail-page__sku-label">Price</span>
                     <div className="product-detail-page__title-price-amount">
                       <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
+                      <DecimalTextInput
                         className="product-detail-page__rate-input"
                         value={editRate}
-                        onChange={e => setEditRate(e.target.value)}
+                        onChange={setEditRate}
                         disabled={detailsSaving}
                         aria-label="Dealer price"
                       />
@@ -2048,13 +2046,10 @@ export const ProductDetailView: React.FC<{
                     </div>
                     <label className="product-detail-page__title-price-amount">
                       <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
+                      <DecimalTextInput
                         className="product-detail-page__rate-input"
                         value={editMrpOverride}
-                        onChange={e => setEditMrpOverride(e.target.value)}
+                        onChange={setEditMrpOverride}
                         disabled={detailsSaving || applyingMrpEquation}
                         aria-label="MRP"
                       />

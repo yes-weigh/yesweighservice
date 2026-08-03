@@ -7,6 +7,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { DecimalTextInput } from '../DecimalAmountInput';
 import {
   addCatalogNcLine,
   deleteCatalogNcPhoto,
@@ -212,7 +213,7 @@ export const ProductOpenNcTile: React.FC<{
             />
             <label>
               <span>Qty</span>
-              <input type="number" min={1} step={1} value={qty} onChange={e => setQty(e.target.value)} />
+              <DecimalTextInput decimals={0} value={qty} onChange={setQty} aria-label="NC quantity" />
             </label>
             <label>
               <span>Reason</span>

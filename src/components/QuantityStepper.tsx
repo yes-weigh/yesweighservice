@@ -27,6 +27,7 @@ function clamp(n: number, min: number, max?: number): number {
 /**
  * +/- quantity control with a tappable center field that opens the
  * mobile numeric keyboard (PWA / Capacitor WebView).
+ * Typing updates the parent as soon as the value is a valid integer.
  */
 export const QuantityStepper: React.FC<QuantityStepperProps> = ({
   value,
@@ -40,11 +41,12 @@ export const QuantityStepper: React.FC<QuantityStepperProps> = ({
   'aria-label': ariaLabel = 'Quantity',
   stopPropagation = false,
 }) => {
+  const [editing, setEditing] = useState(false);
   const [text, setText] = useState(String(value));
 
   useEffect(() => {
-    setText(String(value));
-  }, [value]);
+    if (!editing) setText(String(value));
+  }, [value, editing]);
 
   const commit = (raw: string) => {
     if (raw.trim() === '') {
@@ -95,11 +97,19 @@ export const QuantityStepper: React.FC<QuantityStepperProps> = ({
         aria-label={ariaLabel}
         onChange={e => {
           const next = e.target.value;
-          if (next === '' || /^\d+$/.test(next)) setText(next);
+          if (!(next === '' || /^\d+$/.test(next))) return;
+          setText(next);
+          if (next === '') return;
+          const n = clamp(Number(next), min, max);
+          if (n !== value) onChange(n);
         }}
-        onBlur={e => commit(e.target.value)}
+        onBlur={e => {
+          setEditing(false);
+          commit(e.target.value);
+        }}
         onFocus={e => {
           guard(e);
+          setEditing(true);
           e.target.select();
         }}
         onKeyDown={e => {

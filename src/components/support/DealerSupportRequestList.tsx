@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LifeBuoy, Plus, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
+import { RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { SupportRequestCard } from './SupportRequestCard';
 import { useAuth } from '../../context/AuthContext';
@@ -21,7 +21,6 @@ interface DealerSupportRequestListProps {
   requests: DealerSupportRequest[];
   loading: boolean;
   onOpenRequest: (request: DealerSupportRequest) => void;
-  onNewRequest: () => void;
   onRefresh?: () => void;
 }
 
@@ -32,7 +31,6 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   requests,
   loading,
   onOpenRequest,
-  onNewRequest,
   onRefresh,
 }) => {
   const { user } = useAuth();
@@ -275,25 +273,16 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
       </div>
 
       {visibleRequests.length === 0 ? (
-        <div className="warranty-support-page__empty panel glass">
-          <LifeBuoy size={40} aria-hidden />
-          <h3>No requests in this view</h3>
-          <p className="text-muted text-sm">
-            {!hasNonDefaultFilters
-              ? 'Start a new warranty / support request when you are ready.'
-              : 'No tickets match your current filters. Try a broader status or clear filters.'}
-          </p>
-          {hasNonDefaultFilters ? (
+        hasNonDefaultFilters ? (
+          <div className="warranty-support-page__empty panel glass">
+            <p className="text-muted text-sm">
+              No tickets match your current filters. Try a broader status or clear filters.
+            </p>
             <button type="button" className="btn btn-secondary btn-sm" onClick={resetFilters}>
               Clear filters
             </button>
-          ) : (
-            <button type="button" className="btn btn-primary btn-sm" onClick={onNewRequest}>
-              <Plus size={16} />
-              New request
-            </button>
-          )}
-        </div>
+          </div>
+        ) : null
       ) : (
         <ul className="support-request-list__cards">
           {visibleRequests.map(request => (

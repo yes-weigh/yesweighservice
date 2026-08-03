@@ -1,5 +1,6 @@
 import React from 'react';
 import { FREIGHT_LINE_OPTIONS, type FreightLineSku } from '../../constants/freightLines';
+import { DecimalAmountInput } from '../DecimalAmountInput';
 
 export type FreightPartnerPickerProps = {
   selectedSku: string | null;
@@ -67,16 +68,22 @@ export const FreightPartnerPicker: React.FC<FreightPartnerPickerProps> = ({
             {selected ? (
               <label className="freight-partner-picker__amount">
                 <span className="text-muted text-sm">Amount (₹)</span>
-                <input
-                  type="number"
+                <DecimalAmountInput
                   className="input-field"
                   min={0}
-                  step={0.01}
+                  decimals={2}
+                  allowEmpty
                   placeholder="0.00"
-                  value={amount}
+                  value={(() => {
+                    const trimmed = amount.trim();
+                    if (!trimmed) return null;
+                    const n = Number(trimmed);
+                    return Number.isFinite(n) ? n : null;
+                  })()}
                   disabled={disabled}
                   autoFocus
-                  onChange={e => onAmountChange(e.target.value)}
+                  aria-label="Freight amount"
+                  onChange={next => onAmountChange(next == null ? '' : String(next))}
                 />
               </label>
             ) : null}

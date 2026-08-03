@@ -11,6 +11,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
 import { DealerStatusIndicator } from '../../components/dealers/DealerStatusIndicator';
+import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
 import {
@@ -833,20 +834,17 @@ export const DealerDetailPage: React.FC = () => {
           />
           <label className="dealers-detail__field">
             <FieldLabel label="Max order limit (₹)" source="local" />
-            <input
+            <DecimalAmountInput
               className="input-field"
-              type="number"
               min={0}
-              step={1}
+              decimals={0}
+              allowEmpty
               disabled={saving}
-              value={draft.maxOrderLimit ?? ''}
+              value={draft.maxOrderLimit ?? null}
               placeholder="No limit"
-              onChange={e => {
-                const raw = e.target.value.trim();
-                setDraft(d => d ? {
-                  ...d,
-                  maxOrderLimit: raw === '' ? null : Number(raw),
-                } : d);
+              aria-label="Max order limit in rupees"
+              onChange={next => {
+                setDraft(d => (d ? { ...d, maxOrderLimit: next } : d));
               }}
             />
           </label>

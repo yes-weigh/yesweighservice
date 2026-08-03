@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CircleOff, Pencil, Plus, Printer, Save, Trash2, X } from 'lucide-react';
+import { DecimalTextInput } from '../DecimalAmountInput';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
   formatStockQuantity,
@@ -240,13 +241,11 @@ function HeadOfficeEditRow({
       />
       <label className="product-site-stock__dropdown-field">
         <span className="product-site-stock__dropdown-label">Qty</span>
-        <input
-          type="number"
+        <DecimalTextInput
           className="product-site-stock__dropdown product-site-stock__dropdown--qty"
-          min={1}
-          step={1}
           value={row.quantity}
-          onChange={e => onUpdate({ quantity: e.target.value })}
+          decimals={0}
+          onChange={quantity => onUpdate({ quantity })}
           disabled={saving}
           aria-label="Counted qty"
         />
@@ -742,13 +741,11 @@ function CochinEditRow({
       />
       <label className="product-site-stock__dropdown-field">
         <span className="product-site-stock__dropdown-label">Qty</span>
-        <input
-          type="number"
+        <DecimalTextInput
           className="product-site-stock__dropdown product-site-stock__dropdown--qty"
-          min={0}
-          step={1}
           value={row.quantity}
-          onChange={e => onUpdate({ quantity: e.target.value })}
+          decimals={0}
+          onChange={quantity => onUpdate({ quantity })}
           disabled={saving}
           aria-label="Counted qty"
         />

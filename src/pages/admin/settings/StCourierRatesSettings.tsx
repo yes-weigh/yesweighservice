@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Save } from 'lucide-react';
+import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import { useAuth } from '../../../context/AuthContext';
 import { defaultStCourierRatesByOrigin } from '../../../constants/logisticsCourierRates';
 import {
@@ -36,12 +37,6 @@ function ratesEqual(a: StCourierOriginRates, b: StCourierOriginRates): boolean {
     a.zones[zone].envelopeFixedInr === b.zones[zone].envelopeFixedInr
     && a.zones[zone].boxPerKgInr === b.zones[zone].boxPerKgInr
   ));
-}
-
-function parseMoneyInput(raw: string): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return n;
 }
 
 type Props = {
@@ -231,16 +226,16 @@ export const StCourierRatesSettings: React.FC<Props> = ({ onError }) => {
 
               <label className="settings-courier-rates__field settings-courier-rates__field--plain">
                 <span>Size-to-weight divisor</span>
-                <input
-                  type="number"
+                <DecimalAmountInput
                   min={1}
-                  step={1}
-                  inputMode="numeric"
+                  decimals={0}
                   value={activeRates.volumetricDivisor}
                   disabled={saving || !activeRates.useChargeableWeight}
-                  onChange={e => patchOrigin({
-                    volumetricDivisor: Math.max(1, parseMoneyInput(e.target.value) || 5000),
-                  })}
+                  aria-label="Size-to-weight divisor"
+                  onChange={next => {
+                    if (next == null) return;
+                    patchOrigin({ volumetricDivisor: next });
+                  }}
                 />
               </label>
               <p className="text-muted text-sm settings-courier-rates__hint">
@@ -250,16 +245,16 @@ export const StCourierRatesSettings: React.FC<Props> = ({ onError }) => {
               <label className="settings-courier-rates__field settings-courier-rates__field--plain">
                 <span>Minimum billable weight</span>
                 <div className="settings-courier-rates__suffix-input">
-                  <input
-                    type="number"
+                  <DecimalAmountInput
                     min={0}
-                    step={0.1}
-                    inputMode="decimal"
+                    decimals={1}
                     value={activeRates.minimumChargeableWeightKg}
                     disabled={saving}
-                    onChange={e => patchOrigin({
-                      minimumChargeableWeightKg: parseMoneyInput(e.target.value),
-                    })}
+                    aria-label="Minimum billable weight in kilograms"
+                    onChange={next => {
+                      if (next == null) return;
+                      patchOrigin({ minimumChargeableWeightKg: next });
+                    }}
                   />
                   <span aria-hidden>kg</span>
                 </div>
@@ -277,16 +272,16 @@ export const StCourierRatesSettings: React.FC<Props> = ({ onError }) => {
               <label className="settings-courier-rates__field settings-courier-rates__field--plain">
                 <span>Fuel surcharge</span>
                 <div className="settings-courier-rates__suffix-input">
-                  <input
-                    type="number"
+                  <DecimalAmountInput
                     min={0}
-                    step={0.1}
-                    inputMode="decimal"
+                    decimals={1}
                     value={activeRates.fuelSurchargePercent}
                     disabled={saving}
-                    onChange={e => patchOrigin({
-                      fuelSurchargePercent: parseMoneyInput(e.target.value),
-                    })}
+                    aria-label="Fuel surcharge percent"
+                    onChange={next => {
+                      if (next == null) return;
+                      patchOrigin({ fuelSurchargePercent: next });
+                    }}
                   />
                   <span aria-hidden>%</span>
                 </div>
@@ -326,14 +321,16 @@ export const StCourierRatesSettings: React.FC<Props> = ({ onError }) => {
                           <span className="sr-only">
                             {ST_COURIER_ZONE_LABELS[zone]} document or envelope flat ₹
                           </span>
-                          <input
-                            type="number"
+                          <DecimalAmountInput
                             min={0}
-                            step={0.01}
-                            inputMode="decimal"
+                            decimals={2}
                             value={activeRates.zones[zone].envelopeFixedInr}
                             disabled={saving}
-                            onChange={e => patchZone(zone, 'envelopeFixedInr', parseMoneyInput(e.target.value))}
+                            aria-label={`${ST_COURIER_ZONE_LABELS[zone]} document or envelope flat rupees`}
+                            onChange={next => {
+                              if (next == null) return;
+                              patchZone(zone, 'envelopeFixedInr', next);
+                            }}
                           />
                         </label>
                       </td>
@@ -342,14 +339,16 @@ export const StCourierRatesSettings: React.FC<Props> = ({ onError }) => {
                           <span className="sr-only">
                             {ST_COURIER_ZONE_LABELS[zone]} box ₹ per kg
                           </span>
-                          <input
-                            type="number"
+                          <DecimalAmountInput
                             min={0}
-                            step={0.01}
-                            inputMode="decimal"
+                            decimals={2}
                             value={activeRates.zones[zone].boxPerKgInr}
                             disabled={saving}
-                            onChange={e => patchZone(zone, 'boxPerKgInr', parseMoneyInput(e.target.value))}
+                            aria-label={`${ST_COURIER_ZONE_LABELS[zone]} box rupees per kilogram`}
+                            onChange={next => {
+                              if (next == null) return;
+                              patchZone(zone, 'boxPerKgInr', next);
+                            }}
                           />
                         </label>
                       </td>

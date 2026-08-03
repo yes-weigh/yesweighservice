@@ -8,6 +8,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { DecimalTextInput } from '../DecimalAmountInput';
 import {
   addCatalogNcLine,
   deleteCatalogNcPhoto,
@@ -381,7 +382,7 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
                 />
                 <label>
                   <span>Qty</span>
-                  <input type="number" min={1} step={1} value={qty} onChange={e => setQty(e.target.value)} />
+                  <DecimalTextInput decimals={0} value={qty} onChange={setQty} aria-label="NC quantity" />
                 </label>
                 <label>
                   <span>Reason</span>
@@ -534,12 +535,11 @@ export const ProductNcPanel: React.FC<ProductNcPanelProps> = ({
                                   <div className="product-nc-panel__form-grid">
                                     <label>
                                       <span>Qty to resolve</span>
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        max={line.qty}
+                                      <DecimalTextInput
+                                        decimals={0}
                                         value={resolveQty}
-                                        onChange={e => setResolveQty(e.target.value)}
+                                        onChange={setResolveQty}
+                                        aria-label="Qty to resolve"
                                       />
                                     </label>
                                     <label>

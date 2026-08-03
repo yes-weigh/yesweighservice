@@ -547,6 +547,7 @@ export const WarehouseBinEditor: React.FC<WarehouseBinEditorProps> = ({
                         className="wh-item-row__qty"
                         placeholder="Qty"
                         value={row.quantity}
+                        onFocus={e => e.target.select()}
                         onChange={e => {
                           const v = e.target.value;
                           if (v === '' || /^\d+$/.test(v)) {

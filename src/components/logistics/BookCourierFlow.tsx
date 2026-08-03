@@ -21,6 +21,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { DecimalTextInput } from '../DecimalAmountInput';
 import { FIRM_NAME } from '../../constants/brand';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
@@ -2028,11 +2029,10 @@ const BoxCard: React.FC<BoxCardProps> = ({
               <label className="book-courier__dim-card" key={key}>
                 <span className="book-courier__dim-card-title">{label}</span>
                 <span className="book-courier__dim-card-value">
-                  <input
-                    type="number"
-                    min="0"
+                  <DecimalTextInput
                     value={box[key]}
-                    onChange={event => onField(key, event.target.value)}
+                    onChange={next => onField(key, next)}
+                    decimals={1}
                     placeholder="—"
                     aria-label={`${label} (optional)`}
                   />
@@ -2047,12 +2047,9 @@ const BoxCard: React.FC<BoxCardProps> = ({
             <label className="book-courier__weight-card">
               <span className="book-courier__weight-card-title"><Lock size={13} aria-hidden /> Actual Weight</span>
               <span className="book-courier__weight-card-value">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                <DecimalTextInput
                   value={box.weightKg}
-                  onChange={event => onField('weightKg', event.target.value)}
+                  onChange={next => onField('weightKg', next)}
                   placeholder="0.00"
                   aria-label="Actual weight in kg"
                 />

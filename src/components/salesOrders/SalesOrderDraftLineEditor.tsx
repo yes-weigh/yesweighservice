@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Package, Search, Trash2 } from 'lucide-react';
+import { DecimalAmountInput } from '../DecimalAmountInput';
 import { QuantityStepper } from '../QuantityStepper';
 import { CategoryThumbnail } from '../catalog/CategoryThumbnail';
 import {
@@ -473,14 +474,16 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                   {allowRateEdit ? (
                     <label className="so-draft-editor__rate">
                       <span className="text-muted text-sm">Base rate</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
+                      <DecimalAmountInput
                         className="input-field so-draft-editor__rate-input"
                         value={line.catalogRate}
+                        min={0}
+                        decimals={2}
                         disabled={saving}
-                        onChange={e => setBaseRate(line.lineId, Number(e.target.value))}
+                        onChange={next => {
+                          if (next == null) return;
+                          setBaseRate(line.lineId, next);
+                        }}
                         aria-label={`Base rate for ${line.name}`}
                       />
                       {customized ? (

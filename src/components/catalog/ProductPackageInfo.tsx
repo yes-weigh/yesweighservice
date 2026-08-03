@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { DecimalTextInput } from '../DecimalAmountInput';
 import { formatStockQuantity, updateCatalogProductPackageInfo } from '../../lib/catalog';
 import { loadMasterCartonQuantities } from '../../lib/catalogProductSettings';
 import type { CatalogPackageCarton, CatalogPackageInfo, CatalogProduct } from '../../types/catalog';
@@ -189,13 +190,11 @@ function EditableCartonCells({
         }
         return (
           <td key={col.key} className="product-package__value-cell">
-            <input
-              type="number"
-              min={field.min}
-              step={field.step}
+            <DecimalTextInput
               className="product-package__input"
               value={form[col.key]}
-              onChange={e => onFormChange({ ...form, [col.key]: e.target.value })}
+              onChange={next => onFormChange({ ...form, [col.key]: next })}
+              decimals={Number(field.step) >= 1 ? 0 : Number(field.step) <= 0.01 ? 2 : 1}
               placeholder={field.placeholder}
               aria-label={`${label} ${field.label}`}
             />

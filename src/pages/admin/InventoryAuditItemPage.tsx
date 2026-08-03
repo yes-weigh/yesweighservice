@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Link2, Printer, Unlink } from 'lucide-react';
+import { QuantityStepper } from '../../components/QuantityStepper';
 import { CatalogProductLinkPicker } from '../../components/yesStore/CatalogProductLinkPicker';
 import { InventoryAuditQtyEditor } from '../../components/yesStore/InventoryAuditQtyEditor';
 import { YesStorePhotoImg } from '../../components/yesStore/YesStorePhotoImg';
@@ -444,15 +445,12 @@ export const InventoryAuditItemPage: React.FC = () => {
                   </label>
                   <label className="catalog-inventory-audit-detail__part-field">
                     <span>Required per Zoho unit</span>
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
+                    <QuantityStepper
                       value={unitsPerProduct}
-                      onChange={event =>
-                        setUnitsPerProduct(Math.max(1, Number(event.target.value) || 1))
-                      }
+                      min={1}
                       disabled={linking}
+                      aria-label="Required per Zoho unit"
+                      onChange={setUnitsPerProduct}
                     />
                   </label>
                 </div>

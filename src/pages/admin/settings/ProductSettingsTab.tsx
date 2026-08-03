@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Package, Paperclip, Plus, Save, Trash2, X } from 'lucide-react';
+import { DecimalTextInput } from '../../../components/DecimalAmountInput';
 import { useAuth } from '../../../context/AuthContext';
 import { useConfirm } from '../../../context/ConfirmContext';
 import {
@@ -152,12 +153,10 @@ function MrpGroupEditor({
       {showMultiplier && (
         <label className="settings-locations__field">
           <span>Mult</span>
-          <input
-            type="number"
-            min={0.001}
-            step={0.1}
+          <DecimalTextInput
             value={draft.multiplier}
-            onChange={e => onChange({ ...draft, multiplier: e.target.value })}
+            onChange={multiplier => onChange({ ...draft, multiplier })}
+            decimals={3}
             disabled={disabled}
             aria-label={`${title} multiplier`}
           />
@@ -168,24 +167,18 @@ function MrpGroupEditor({
         <div className="settings-product-mrp__test-grid">
           <label className="settings-locations__field">
             <span>Rate</span>
-            <input
-              type="number"
-              min={0}
-              step={0.01}
+            <DecimalTextInput
               value={test.rate}
-              onChange={e => onTestChange({ ...test, rate: e.target.value })}
+              onChange={rate => onTestChange({ ...test, rate })}
               disabled={disabled}
               aria-label={`${title} test rate`}
             />
           </label>
           <label className="settings-locations__field">
             <span>Tax%</span>
-            <input
-              type="number"
-              min={0}
-              step={0.01}
+            <DecimalTextInput
               value={test.taxPercent}
-              onChange={e => onTestChange({ ...test, taxPercent: e.target.value })}
+              onChange={taxPercent => onTestChange({ ...test, taxPercent })}
               disabled={disabled}
               aria-label={`${title} test tax percent`}
             />
@@ -875,14 +868,12 @@ export const ProductSettingsTab: React.FC = () => {
                       }}
                       autoFocus
                     />
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
+                    <DecimalTextInput
                       className="settings-product-gatc__edit-price"
                       value={editingGatcPrice}
-                      onChange={e => setEditingGatcPrice(e.target.value)}
+                      onChange={setEditingGatcPrice}
                       disabled={busyKey != null}
+                      aria-label="GATC stamping price"
                       onKeyDown={e => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -964,14 +955,12 @@ export const ProductSettingsTab: React.FC = () => {
             </label>
             <label className="settings-locations__field settings-product-gatc__field-price">
               <span>Price</span>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
+              <DecimalTextInput
                 value={newGatcPrice}
                 placeholder="0"
-                onChange={e => setNewGatcPrice(e.target.value)}
+                onChange={setNewGatcPrice}
                 disabled={busyKey != null}
+                aria-label="New GATC stamping price"
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
@@ -1173,14 +1162,13 @@ export const ProductSettingsTab: React.FC = () => {
                   <div className="settings-locations__add-form settings-product-qty__add-form">
                     <label className="settings-locations__field">
                       <span>Add quantity</span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
+                      <DecimalTextInput
+                        decimals={0}
                         value={newQty}
                         placeholder="e.g. 10"
-                        onChange={e => setNewQty(e.target.value)}
+                        onChange={setNewQty}
                         disabled={busyKey != null}
+                        aria-label="Add master carton quantity"
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
                             e.preventDefault();

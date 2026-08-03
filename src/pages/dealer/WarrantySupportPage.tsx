@@ -212,7 +212,6 @@ export const WarrantySupportPage: React.FC = () => {
           requests={requests}
           loading={loading}
           onOpenRequest={openRequest}
-          onNewRequest={startNewRequest}
           onRefresh={() => void load()}
         />
       )}
