@@ -214,8 +214,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         : {};
       const zohoPayload = showSuperAdminZohoLinks
         ? zohoLinksToFirestoreFields(zohoSalespersonLinks)
-        : {};
-      if (showSuperAdminZohoLinks && zohoPayload.zohoSalespersonIds.length) {
+        : null;
+      if (zohoPayload?.zohoSalespersonIds.length) {
         await assertZohoSalespersonIdsAvailable(zohoPayload.zohoSalespersonIds, editingUid);
       }
       if (editingUid) {
@@ -227,7 +227,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           ...accessPayload,
           ...superAccessPayload,
-          ...zohoPayload,
+          ...(zohoPayload ?? {}),
         });
         const nextPassword = form.password.trim();
         if (nextPassword) {
@@ -261,7 +261,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           ...accessPayload,
           ...superAccessPayload,
-          ...zohoPayload,
+          ...(zohoPayload ?? {}),
           createdByUid: user.uid,
         });
       }
