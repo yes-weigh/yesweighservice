@@ -123,21 +123,23 @@ export async function buildAuditReportPdfBlob(input: AuditReportPdfInput): Promi
         { key: 'rank', label: '#', width: 28, align: 'right' as const },
         { key: 'site', label: 'Site', width: 72, align: 'left' as const },
         { key: 'sku', label: 'SKU', width: 78, align: 'left' as const },
-        { key: 'name', label: 'Item', width: 210, align: 'left' as const },
+        { key: 'name', label: 'Item', width: 198, align: 'left' as const },
         { key: 'zoho', label: 'Zoho', width: 52, align: 'right' as const },
         { key: 'audited', label: 'Audited', width: 52, align: 'right' as const },
         { key: 'date', label: 'Date', width: 70, align: 'left' as const },
         { key: 'diff', label: 'Diff', width: 48, align: 'right' as const },
+        { key: 'rate', label: 'Unit price', width: 64, align: 'right' as const },
         { key: 'value', label: valueColLabel, width: 78, align: 'right' as const },
       ]
     : [
         { key: 'rank', label: '#', width: 28, align: 'right' as const },
         { key: 'sku', label: 'SKU', width: 90, align: 'left' as const },
-        { key: 'name', label: 'Item', width: 250, align: 'left' as const },
+        { key: 'name', label: 'Item', width: 238, align: 'left' as const },
         { key: 'zoho', label: 'Zoho', width: 55, align: 'right' as const },
         { key: 'audited', label: 'Audited', width: 55, align: 'right' as const },
         { key: 'date', label: 'Date', width: 72, align: 'left' as const },
         { key: 'diff', label: 'Diff', width: 52, align: 'right' as const },
+        { key: 'rate', label: 'Unit price', width: 64, align: 'right' as const },
         { key: 'value', label: valueColLabel, width: 84, align: 'right' as const },
       ];
 
@@ -254,6 +256,7 @@ export async function buildAuditReportPdfBlob(input: AuditReportPdfInput): Promi
         audited: row.auditedQty.toLocaleString('en-IN'),
         date: formatAuditDate(row.auditedAt),
         diff: formatSignedQty(row.auditDiff),
+        rate: formatPdfCurrency(row.rate),
         value: formatPdfCurrency(
           input.mode === 'loss' ? row.diffValue : row.auditedQty * row.rate,
         ),
@@ -303,12 +306,13 @@ export async function buildAuditReportPdfBlob(input: AuditReportPdfInput): Promi
   }
 
   const pageCount = doc.getPageCount();
+  const generatedFooter = winAnsiSafe(`Generated: ${generatedAt}`);
   for (let i = 0; i < pageCount; i += 1) {
     const p = doc.getPage(i);
     const label = `Page ${i + 1} of ${pageCount}`;
-    const w = font.widthOfTextAtSize(label, 8);
+    const pageLabelWidth = font.widthOfTextAtSize(label, 8);
     p.drawText(label, {
-      x: PAGE_W - MARGIN - w,
+      x: PAGE_W - MARGIN - pageLabelWidth,
       y: 14,
       size: 8,
       font,
@@ -316,6 +320,14 @@ export async function buildAuditReportPdfBlob(input: AuditReportPdfInput): Promi
     });
     p.drawText('YesOne Platform | Audit report', {
       x: MARGIN,
+      y: 14,
+      size: 8,
+      font,
+      color: MUTE,
+    });
+    const generatedWidth = font.widthOfTextAtSize(generatedFooter, 8);
+    p.drawText(generatedFooter, {
+      x: (PAGE_W - generatedWidth) / 2,
       y: 14,
       size: 8,
       font,
