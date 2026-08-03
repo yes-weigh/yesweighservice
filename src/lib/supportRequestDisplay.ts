@@ -28,10 +28,10 @@ export type SupportTypeFilter = 'all' | import('../types/dealer-support').Suppor
 export type SupportLifecycleFilter = 'all' | 'open' | 'resolved' | 'cancelled';
 
 export const SUPPORT_LIFECYCLE_FILTERS: Array<{ value: SupportLifecycleFilter; label: string }> = [
-  { value: 'open', label: 'Open' },
-  { value: 'resolved', label: 'Resolved' },
-  { value: 'cancelled', label: 'Cancelled' },
-  { value: 'all', label: 'All' },
+  { value: 'all', label: 'all' },
+  { value: 'open', label: 'open' },
+  { value: 'resolved', label: 'resolved' },
+  { value: 'cancelled', label: 'cancelled' },
 ];
 
 export const SUPPORT_STAGE_FILTERS: Array<{
@@ -270,6 +270,58 @@ export function formatSupportDaysAgo(createdAt: string | null | undefined): stri
   return `${days} ago`;
 }
 
+/** Open-ticket waiting label for list card aside (days since booking). */
+export function formatSupportWaitingLabel(createdAt: string | null | undefined): string {
+  const days = formatSupportDaysSinceSubmission(createdAt);
+  if (days === '—') return '';
+  if (days === '0 days') return 'Waiting today';
+  if (days === '1 day') return '1 day waiting';
+  return `${days} waiting`;
+}
+
+export type SupportCardAsideBottom = {
+  kind: 'resolved' | 'cancelled' | 'waiting';
+  date: string;
+  time: string;
+  waitingLabel: string;
+};
+
+/** Right-side bottom meta: resolved/cancelled datetime, or open waiting age. */
+export function supportRequestCardAsideBottom(
+  request: DealerSupportRequest,
+): SupportCardAsideBottom | null {
+  if (request.lifecycle === 'resolved') {
+    const at = request.resolvedAt || request.updatedAt;
+    return {
+      kind: 'resolved',
+      date: formatSupportSubmittedDate(at),
+      time: formatSupportSubmittedTime(at),
+      waitingLabel: '',
+    };
+  }
+  if (request.lifecycle === 'cancelled') {
+    const at = request.resolvedAt || request.updatedAt;
+    return {
+      kind: 'cancelled',
+      date: formatSupportSubmittedDate(at),
+      time: formatSupportSubmittedTime(at),
+      waitingLabel: '',
+    };
+  }
+  if (isSupportOpen(request) || request.lifecycle === 'draft') {
+    const waitingFrom = request.reopenedAt || request.createdAt;
+    const waitingLabel = formatSupportWaitingLabel(waitingFrom);
+    if (!waitingLabel) return null;
+    return {
+      kind: 'waiting',
+      date: '',
+      time: '',
+      waitingLabel,
+    };
+  }
+  return null;
+}
+
 /** Submitted date for list cards — date only, drops year when it matches the current year. */
 export function formatSupportSubmittedDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -310,9 +362,9 @@ export function supportRequestCardTitle(request: DealerSupportRequest): string {
 export function supportRequestDueDate(request: DealerSupportRequest): Date | null {
   if (isSupportClosed(request) || isSupportDraft(request)) return null;
   if (slaPausedForStage(request.openStage)) return null;
-  const created = Date.parse(request.createdAt);
-  if (Number.isNaN(created)) return null;
-  const due = new Date(created);
+  const openFrom = Date.parse(request.reopenedAt || request.createdAt);
+  if (Number.isNaN(openFrom)) return null;
+  const due = new Date(openFrom);
   due.setDate(due.getDate() + SLA_DAYS);
   return due;
 }

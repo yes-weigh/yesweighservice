@@ -477,8 +477,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   });
   const [dockHeight, setDockHeight] = useState(0);
 
-  const chatDisabled = readOnly
-    || (!isInternalOpsUser(user) && isSupportClosed(request));
+  const chatDisabled = readOnly;
 
   const outgoingRef = useRef<OutgoingChatMessage[]>([]);
 
@@ -590,12 +589,12 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
     [messages, outgoingMessages, user, retryOutgoing],
   );
 
-  const statusHint = chatDisabled && !readOnly && isSupportClosed(request)
-    ? request.lifecycle === 'cancelled'
-      ? 'This request is cancelled. History is read-only.'
-      : 'This request is resolved. History is read-only.'
-    : readOnly
-      ? 'Read-only history'
+  const statusHint = readOnly
+    ? 'Read-only history'
+    : isSupportClosed(request)
+      ? request.lifecycle === 'cancelled'
+        ? 'Cancelled — send a message to reopen this ticket.'
+        : 'Resolved — send a message to reopen this ticket.'
       : 'Enter for a new line · Send button to send';
 
   useEffect(() => {

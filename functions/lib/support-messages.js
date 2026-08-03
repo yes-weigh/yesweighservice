@@ -1,4 +1,4 @@
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { assertSupportRequestAccess } from './support-attachments.js';
 
@@ -43,6 +43,39 @@ function messageStageUpdates(role, req, isInitial) {
   return {};
 }
 
+function reopenUpdates(req, role, authorUid, authorName, now) {
+  if (!isSupportClosedData(req)) return null;
+
+  const previousLifecycle = req.lifecycle === 'cancelled' || req.status === 'cancelled'
+    ? 'cancelled'
+    : 'resolved';
+  const previousResolvedAt = req.resolvedAt
+    ? String(req.resolvedAt)
+    : (req.updatedAt ? String(req.updatedAt) : now);
+
+  const event = {
+    at: now,
+    byUid: authorUid,
+    byName: authorName,
+    byRole: role,
+    previousLifecycle,
+    previousResolvedAt,
+  };
+
+  const priorCount = Number(req.reopenCount ?? 0);
+  const reopenCount = Number.isFinite(priorCount) ? priorCount + 1 : 1;
+
+  return {
+    lifecycle: 'open',
+    openStage: 'under_review',
+    status: 'in_progress',
+    reopenedAt: now,
+    reopenCount,
+    reopenHistory: FieldValue.arrayUnion(event),
+    updatedAt: now,
+  };
+}
+
 export async function appendSupportMessage(uid, input) {
   const requestId = String(input?.requestId ?? '').trim();
   const messageId = String(input?.messageId ?? '').trim();
@@ -61,9 +94,6 @@ export async function appendSupportMessage(uid, input) {
 
   const isOps = OPS_ROLES.has(role);
 
-  if (!isOps && isSupportClosedData(req)) {
-    throw new HttpsError('failed-precondition', 'This request is closed.');
-  }
   if (!isOps && isSupportDraftData(req) && !isInitial) {
     throw new HttpsError('failed-precondition', 'Submit the draft before messaging.');
   }
@@ -90,18 +120,26 @@ export async function appendSupportMessage(uid, input) {
 
   await ref.set(payload);
 
+  const reopen = !isInitial ? reopenUpdates(req, role, uid, authorName, now) : null;
+
   const updates = {
     updatedAt: now,
     lastMessageAt: now,
     lastMessagePreview: previewText(text, attachments.length),
-    ...messageStageUpdates(role, req, isInitial),
+    ...(reopen || messageStageUpdates(role, req, isInitial)),
   };
 
-  if (isOps && isSupportOpenData(req) && req.openStage === 'submitted' && (req.type === 'complaint' || req.type === 'chat')) {
+  if (
+    !reopen
+    && isOps
+    && isSupportOpenData(req)
+    && req.openStage === 'submitted'
+    && (req.type === 'complaint' || req.type === 'chat')
+  ) {
     updates.openStage = 'under_review';
   }
 
   await db.doc(`dealerSupportRequests/${requestId}`).update(updates);
 
-  return { id: ref.id, ...payload };
+  return { id: ref.id, ...payload, reopened: Boolean(reopen) };
 }

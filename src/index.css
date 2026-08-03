@@ -26895,9 +26895,13 @@ button.invoice-detail-top__card {
 .warranty-support-page {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
   max-width: 960px;
   margin: 0 auto;
+}
+
+.warranty-support-page:has(.staff-support-queue) {
+  gap: 0.3rem;
 }
 
 .support-request-list__filter-head {
@@ -26907,8 +26911,39 @@ button.invoice-detail-top__card {
   align-items: stretch;
 }
 
+.support-request-list__filter-head--blocks {
+  grid-template-columns: 1fr;
+  gap: 0.4rem;
+}
+
+.support-request-list__filter-head--blocks .support-request-list__filter-head-actions {
+  flex-direction: row;
+  justify-content: flex-end;
+  align-self: stretch;
+}
+
 .support-request-list__filter-head .support-request-list__lifecycle {
   min-width: 0;
+}
+
+.support-lifecycle-blocks {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.unified-so-stage-block__icon--open {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+}
+
+.unified-so-stage-block__icon--resolved {
+  background: rgba(74, 222, 128, 0.18);
+  color: #86efac;
+}
+
+.unified-so-stage-block__icon--cancelled {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fca5a5;
 }
 
 .support-request-list__refresh,
@@ -27753,10 +27788,10 @@ button.invoice-detail-top__card {
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  gap: 0.35rem;
+  gap: 0.3rem;
   padding-left: 0.5rem;
   border-left: 1px solid var(--border-glass);
-  min-width: 5rem;
+  min-width: 5.25rem;
   align-self: stretch;
 }
 
@@ -27765,20 +27800,30 @@ button.invoice-detail-top__card {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 0.12rem;
+  gap: 0.08rem;
   width: 100%;
 }
 
+.support-ticket-card__when--booked {
+  margin-top: 0.05rem;
+}
+
+.support-ticket-card__when--resolved,
+.support-ticket-card__when--cancelled,
+.support-ticket-card__when--waiting {
+  margin-top: auto;
+}
+
 .support-ticket-card__when-label {
-  font-size: 0.58rem;
+  font-size: 0.54rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
 .support-ticket-card__when-date {
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 800;
   line-height: 1.15;
   color: var(--text-main);
@@ -27786,24 +27831,33 @@ button.invoice-detail-top__card {
 }
 
 .support-ticket-card__when-time {
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 600;
   line-height: 1.2;
   color: var(--accent-primary-light);
   white-space: nowrap;
 }
 
+.support-ticket-card__when--resolved .support-ticket-card__when-label {
+  color: #86efac;
+}
+
+.support-ticket-card__when--cancelled .support-ticket-card__when-label {
+  color: #fca5a5;
+}
+
 .support-ticket-card__when-ago {
   font-size: 0.66rem;
   color: #fcd34d;
   font-weight: 700;
-  white-space: nowrap;
-  margin-top: 0.08rem;
+  white-space: normal;
+  line-height: 1.2;
+  max-width: 5.5rem;
 }
 
 .support-ticket-card__chevron {
   color: var(--text-muted);
-  margin-top: 0;
+  margin-top: 0.05rem;
   flex-shrink: 0;
 }
 
@@ -29363,6 +29417,20 @@ button.invoice-detail-top__card {
   font-weight: 700;
 }
 
+.support-ticket-flow__reopen-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  background: rgba(245, 130, 32, 0.14);
+  color: #fdba74;
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
 .support-ticket-flow__current {
   display: flex;
   flex-direction: column;
@@ -30197,8 +30265,379 @@ button.invoice-detail-top__card {
   }
 }
 
-.staff-support-queue__tabs {
-  margin-bottom: 0.65rem;
+.staff-support-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.staff-support-queue__filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.staff-support-queue__lifecycle-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.3rem;
+  align-items: stretch;
+}
+
+.staff-support-queue__filters .support-lifecycle-blocks {
+  margin: 0;
+}
+
+.staff-support-queue__lifecycle-row .unified-so-stage-block {
+  padding: 0.28rem 0.06rem 0.24rem;
+  gap: 0.08rem;
+}
+
+.staff-support-queue__lifecycle-row .unified-so-stage-block__icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 0.38rem;
+}
+
+.staff-support-queue__lifecycle-row .unified-so-stage-block__icon svg {
+  width: 0.78rem;
+  height: 0.78rem;
+}
+
+.staff-support-queue__lifecycle-row .unified-so-category-block__label {
+  font-size: 0.5rem;
+  min-height: 0;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.staff-support-queue__lifecycle-row .unified-so-category-block__count {
+  font-size: 0.72rem;
+}
+
+.staff-support-queue__refresh {
+  width: 2.15rem;
+  min-height: 100%;
+  border-radius: 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(17, 24, 39, 0.72);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.staff-support-queue__refresh:hover:not(:disabled) {
+  border-color: rgba(245, 130, 32, 0.45);
+  color: var(--accent-primary-light);
+}
+
+.staff-support-queue__refresh:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.staff-support-queue__stage-rail {
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.18rem;
+  border-radius: 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 14, 22, 0.55);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.staff-support-queue__stage-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.staff-support-queue__stage {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.7rem;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.staff-support-queue__stage:hover {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.staff-support-queue__stage.is-active {
+  color: #fdba74;
+  border-color: rgba(245, 130, 32, 0.35);
+  background: rgba(245, 130, 32, 0.14);
+}
+
+.staff-support-queue__stage-count {
+  min-width: 0.95rem;
+  height: 0.95rem;
+  padding: 0 0.22rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.58rem;
+  font-weight: 750;
+  line-height: 0.95rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.staff-support-queue__stage.is-active .staff-support-queue__stage-count {
+  background: rgba(245, 130, 32, 0.22);
+  color: #fdba74;
+}
+
+.staff-support-queue__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.25rem;
+  padding: 1.25rem 1rem;
+  border-radius: 0.9rem;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  background: rgba(17, 24, 39, 0.45);
+}
+
+.staff-support-queue__empty-icon {
+  width: 2.6rem;
+  height: 2.6rem;
+  margin-bottom: 0.15rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.staff-support-queue__empty-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 750;
+  color: var(--text-main);
+}
+
+.staff-support-queue__empty-copy {
+  margin: 0;
+  max-width: 18rem;
+}
+
+.staff-support-queue__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.staff-support-queue__ticket {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 2.35rem minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.8rem 0.85rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+    rgba(17, 24, 39, 0.72);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.staff-support-queue__ticket:hover {
+  border-color: rgba(245, 130, 32, 0.38);
+  background:
+    linear-gradient(180deg, rgba(245, 130, 32, 0.08), rgba(255, 255, 255, 0.02)),
+    rgba(17, 24, 39, 0.8);
+}
+
+.staff-support-queue__ticket:active {
+  transform: scale(0.995);
+}
+
+.staff-support-queue__ticket-icon {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+
+.staff-support-queue__ticket--service .staff-support-queue__ticket-icon {
+  background: rgba(96, 165, 250, 0.14);
+  color: #93c5fd;
+}
+
+.staff-support-queue__ticket--return .staff-support-queue__ticket-icon {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+}
+
+.staff-support-queue__ticket--complaint .staff-support-queue__ticket-icon {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
+}
+
+.staff-support-queue__ticket--chat .staff-support-queue__ticket-icon {
+  background: rgba(167, 139, 250, 0.14);
+  color: #c4b5fd;
+}
+
+.staff-support-queue__ticket-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.staff-support-queue__ticket-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.staff-support-queue__ticket-titles {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.staff-support-queue__dealer {
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-main);
+}
+
+.staff-support-queue__product {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staff-support-queue__preview {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.staff-support-queue__ticket-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+  margin-top: 0.1rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.staff-support-queue__ref {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+}
+
+.staff-support-queue__type-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+}
+
+.staff-support-queue__assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--text-secondary);
+}
+
+.staff-support-queue__ticket-when {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  gap: 0.1rem;
+  flex-shrink: 0;
+  min-width: 3.6rem;
+  padding-top: 0.1rem;
+}
+
+.staff-support-queue__ticket-when strong {
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.staff-support-queue__ticket-when span {
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--accent-primary-light);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .staff-support-queue__ticket {
+    grid-template-columns: 2.1rem minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    padding: 0.7rem 0.7rem;
+  }
+
+  .staff-support-queue__ticket-icon {
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 0.6rem;
+  }
+
+  .staff-support-queue__dealer {
+    font-size: 0.86rem;
+  }
+
+  .staff-support-queue__ticket-when {
+    min-width: 3.25rem;
+  }
 }
 
 .support-assignee {
@@ -30214,10 +30653,6 @@ button.invoice-detail-top__card {
 
 .support-assignee__error {
   color: #f87171;
-}
-
-.staff-support-queue__assignee {
-  display: inline;
 }
 
 .related-support {
@@ -32814,33 +33249,6 @@ button.invoice-detail-top__card {
   color: inherit;
 }
 
-.staff-support-queue__card {
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  border: none;
-  font: inherit;
-  color: inherit;
-}
-
-.staff-support-queue__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 0.35rem;
-}
-
-.staff-support-queue__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.65rem;
-}
-
-.staff-support-queue__header h3 {
-  margin: 0 0 0.15rem;
-}
 
 .support-wizard__success-icon {
   width: 3rem;

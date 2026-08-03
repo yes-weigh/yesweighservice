@@ -37,6 +37,7 @@ import type {
   SupportMessageReceiptStatus,
   SupportOnBehalfDealer,
   SupportOpenStage,
+  SupportReopenEvent,
   SupportRequestType,
 } from '../types/dealer-support';
 import { uploadSupportAttachments, type SupportSubmitProgress } from './supportAttachments';
@@ -78,7 +79,7 @@ async function persistSupportMessage(
     createdAt: string;
     isInitial: boolean;
   },
-  updates: Record<string, string | null>,
+  updates: Record<string, unknown>,
 ): Promise<void> {
   try {
     const callable = httpsCallable<
@@ -126,7 +127,10 @@ async function persistSupportMessage(
   await setDoc(messageRef, writePayload);
 
   try {
-    await updateDoc(doc(db, 'dealerSupportRequests', requestId), updates);
+    await updateDoc(
+      doc(db, 'dealerSupportRequests', requestId),
+      updates as Record<string, string | number | null | SupportReopenEvent[]>,
+    );
   } catch (updateErr) {
     if (!isFirestorePermissionDenied(updateErr)) {
       console.error('Support request metadata update failed:', updateErr);
@@ -304,7 +308,34 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
     receivedAt: data.receivedAt ? String(data.receivedAt) : null,
     resolvedAt: data.resolvedAt ? String(data.resolvedAt) : null,
     resolutionSummary: data.resolutionSummary ? String(data.resolutionSummary) : null,
+    reopenedAt: data.reopenedAt ? String(data.reopenedAt) : null,
+    reopenCount: Number(data.reopenCount ?? 0) || 0,
+    reopenHistory: mapReopenHistory(data.reopenHistory),
   };
+}
+
+function mapReopenHistory(raw: unknown): SupportReopenEvent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row): SupportReopenEvent | null => {
+      if (!row || typeof row !== 'object') return null;
+      const event = row as Record<string, unknown>;
+      const at = event.at != null ? String(event.at) : '';
+      if (!at) return null;
+      const previousLifecycle = event.previousLifecycle === 'cancelled' ? 'cancelled' : 'resolved';
+      return {
+        at,
+        byUid: event.byUid != null ? String(event.byUid) : '',
+        byName: event.byName != null ? String(event.byName) : 'User',
+        byRole: event.byRole != null ? String(event.byRole) : '',
+        previousLifecycle,
+        previousResolvedAt: event.previousResolvedAt != null
+          ? String(event.previousResolvedAt)
+          : null,
+      };
+    })
+    .filter((row): row is SupportReopenEvent => Boolean(row))
+    .sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0));
 }
 
 export function supportBasePath(role: User['role']): string {
@@ -368,6 +399,34 @@ function messageStageUpdates(
   }
 
   return {};
+}
+
+/** Client fallback when callable is unavailable — mirrors functions/lib/support-messages.js */
+function buildReopenRequestUpdates(
+  user: User,
+  request: DealerSupportRequest,
+  now: string,
+): Record<string, unknown> | null {
+  if (!isSupportClosed(request)) return null;
+
+  const previousLifecycle = request.lifecycle === 'cancelled' ? 'cancelled' : 'resolved';
+  const event: SupportReopenEvent = {
+    at: now,
+    byUid: user.uid,
+    byName: user.displayName || 'User',
+    byRole: user.role,
+    previousLifecycle,
+    previousResolvedAt: request.resolvedAt || request.updatedAt || now,
+  };
+
+  return {
+    lifecycle: 'open',
+    openStage: 'under_review',
+    status: 'in_progress',
+    reopenedAt: now,
+    reopenCount: (request.reopenCount || 0) + 1,
+    reopenHistory: [...request.reopenHistory, event],
+  };
 }
 
 export async function sendSupportMessage(
@@ -459,9 +518,6 @@ async function sendSupportMessageOnce(
   if (!canUserAccessSupportRequest(user, request)) {
     throw new Error('You do not have permission to message this request.');
   }
-  if (!isInternalOpsUser(user) && isSupportClosed(request)) {
-    throw new Error('This request is closed and cannot receive new messages.');
-  }
   if (!isInternalOpsUser(user) && isSupportDraft(request) && !input.isInitial) {
     throw new Error('Submit the draft before sending messages.');
   }
@@ -491,17 +547,22 @@ async function sendSupportMessageOnce(
   const now = new Date(baseMs + (options?.createdAtOffsetMs ?? 0)).toISOString();
   const isInitial = input.isInitial === true;
 
-  const updates: Record<string, string | null> = options?.updateRequestMeta === false
+  const reopenPatch = !isInitial && options?.updateRequestMeta !== false
+    ? buildReopenRequestUpdates(user, request, now)
+    : null;
+
+  const updates: Record<string, unknown> = options?.updateRequestMeta === false
     ? {}
     : {
         updatedAt: now,
         lastMessageAt: now,
         lastMessagePreview: previewText(text, attachments.length),
-        ...messageStageUpdates(user, request, isInitial),
+        ...(reopenPatch || messageStageUpdates(user, request, isInitial)),
       };
 
   if (
-    options?.updateRequestMeta !== false
+    !reopenPatch
+    && options?.updateRequestMeta !== false
     && canManageSupportOps(user)
     && isSupportOpen(request)
     && request.openStage === 'submitted'
@@ -603,6 +664,9 @@ function buildSupportRequestDocument(
     dealerName: dealerFields.dealerName,
     zohoCustomerId: dealerFields.zohoCustomerId,
     createdOnBehalfOf: dealerFields.createdOnBehalfOf,
+    reopenedAt: null,
+    reopenCount: 0,
+    reopenHistory: [],
     assignedToUid: null,
     assignedToName: null,
     assignedAt: null,

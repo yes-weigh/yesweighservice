@@ -8,6 +8,7 @@ import {
   Hourglass,
   MessageCircle,
   Package,
+  RotateCcw,
   Search,
   Send,
   ShieldCheck,
@@ -54,6 +55,15 @@ function StepIcon({ stepId }: { stepId: string }) {
     case 'cancelled':
       return <XCircle size={size} strokeWidth={strokeWidth} />;
     default:
+      if (stepId.startsWith('reopened')) {
+        return <RotateCcw size={size} strokeWidth={strokeWidth} />;
+      }
+      if (stepId.startsWith('closed-cancelled')) {
+        return <XCircle size={size} strokeWidth={strokeWidth} />;
+      }
+      if (stepId.startsWith('closed')) {
+        return <CheckCircle2 size={size} strokeWidth={strokeWidth} />;
+      }
       return <Building2 size={size} strokeWidth={strokeWidth} />;
   }
 }
@@ -131,6 +141,7 @@ export const SupportTicketFlowTimeline: React.FC<SupportTicketFlowTimelineProps>
   );
   const currentStatus = useMemo(() => ticketFlowCurrentStatusLabel(steps), [steps]);
   const showContactFooter = audience === 'dealer' && isSupportOpen(request) && onContactSupport;
+  const reopenCount = request.reopenCount || request.reopenHistory?.length || 0;
 
   return (
     <section className="support-ticket-flow" aria-label="Ticket progress">
@@ -138,6 +149,11 @@ export const SupportTicketFlowTimeline: React.FC<SupportTicketFlowTimelineProps>
         <div className="support-ticket-flow__progress-title">
           <BarChart3 size={18} aria-hidden />
           <h3>Ticket progress</h3>
+          {reopenCount > 0 && (
+            <span className="support-ticket-flow__reopen-count">
+              Reopened {reopenCount}×
+            </span>
+          )}
         </div>
         <div className="support-ticket-flow__current">
           <span className="support-ticket-flow__current-label text-sm text-muted">Current status</span>

@@ -1,12 +1,12 @@
 import React from 'react';
-import { ChevronRight, Package } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { SupportChatLogo } from './SupportChatLogo';
 import { complaintCategoryEmoji, type DealerSupportRequest } from '../../types/dealer-support';
 import {
-  formatSupportDaysAgo,
   formatSupportInvoiceListDate,
   formatSupportSubmittedDate,
   formatSupportSubmittedTime,
+  supportRequestCardAsideBottom,
   supportRequestCardTitle,
   supportRequestIssueSummary,
   supportRequestStageSubtitle,
@@ -30,7 +30,7 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
   const statusTone = supportRequestStatusTone(request);
   const stageSubtitle = supportRequestStageSubtitle(request);
   const title = supportRequestCardTitle(request);
-  const daysAgo = formatSupportDaysAgo(request.createdAt);
+  const asideBottom = supportRequestCardAsideBottom(request);
   const categoryEmoji = request.type === 'complaint'
     ? complaintCategoryEmoji(request.category) ?? complaintCategoryEmoji(request.subject)
     : null;
@@ -87,18 +87,38 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
       </div>
 
       <div className="support-ticket-card__aside">
-        <div className="support-ticket-card__when">
+        <div className="support-ticket-card__when support-ticket-card__when--booked">
+          <span className="support-ticket-card__when-label">Booked</span>
           <strong className="support-ticket-card__when-date">
             {formatSupportSubmittedDate(request.createdAt)}
           </strong>
           <span className="support-ticket-card__when-time">
             {formatSupportSubmittedTime(request.createdAt)}
           </span>
-          {daysAgo && (
-            <span className="support-ticket-card__when-ago">{daysAgo}</span>
-          )}
         </div>
-        <ChevronRight size={18} className="support-ticket-card__chevron" aria-hidden />
+
+        {asideBottom && (
+          <div
+            className={[
+              'support-ticket-card__when',
+              `support-ticket-card__when--${asideBottom.kind}`,
+            ].join(' ')}
+          >
+            {asideBottom.kind === 'waiting' ? (
+              <span className="support-ticket-card__when-ago">{asideBottom.waitingLabel}</span>
+            ) : (
+              <>
+                <span className="support-ticket-card__when-label">
+                  {asideBottom.kind === 'resolved' ? 'Resolved' : 'Cancelled'}
+                </span>
+                <strong className="support-ticket-card__when-date">{asideBottom.date}</strong>
+                {asideBottom.time && (
+                  <span className="support-ticket-card__when-time">{asideBottom.time}</span>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
     </button>
   );

@@ -34,6 +34,10 @@ function applicableStages(type: SupportRequestType): SupportOpenStage[] {
 }
 
 function stepTone(id: string): FlowStepTone {
+  if (id.startsWith('reopened')) return 'orange';
+  if (id.startsWith('closed-cancelled')) return 'muted';
+  if (id.startsWith('closed')) return 'green';
+
   switch (id) {
     case 'submitted':
       return 'green';
@@ -189,7 +193,7 @@ function stageTimestamp(
     case 'submitted':
       return request.createdAt;
     case 'under_review':
-      return request.assignedAt;
+      return request.reopenedAt || request.assignedAt;
     case 'in_transit':
       return request.shippedAt;
     case 'in_workshop':
@@ -205,9 +209,13 @@ function stageTimestamp(
   return null;
 }
 
-export function buildSupportTicketFlow(
+function renumber(steps: TicketFlowStep[]): TicketFlowStep[] {
+  return steps.map((step, index) => ({ ...step, stepNumber: index + 1 }));
+}
+
+function buildLinearFlow(
   request: DealerSupportRequest,
-  audience: 'dealer' | 'staff' = 'dealer',
+  audience: 'dealer' | 'staff',
 ): TicketFlowStep[] {
   const stages = applicableStages(request.type);
   const progressIndex = inferProgressIndex(request, stages);
@@ -253,6 +261,132 @@ export function buildSupportTicketFlow(
   }
 
   return steps;
+}
+
+function buildFlowWithReopenHistory(
+  request: DealerSupportRequest,
+  audience: 'dealer' | 'staff',
+): TicketFlowStep[] {
+  const history = request.reopenHistory ?? [];
+  const steps: TicketFlowStep[] = [];
+
+  steps.push({
+    id: 'submitted',
+    stepNumber: 1,
+    title: stepTitle('submitted', audience),
+    description: stageDescription('submitted', request.type, audience),
+    status: 'complete',
+    statusLabel: stepStatusLabel('complete'),
+    timestamp: request.createdAt,
+    tone: stepTone('submitted'),
+  });
+
+  history.forEach((event, index) => {
+    const closedId = `closed-${event.previousLifecycle}-${index}`;
+    steps.push({
+      id: closedId,
+      stepNumber: steps.length + 1,
+      title: event.previousLifecycle === 'cancelled'
+        ? stepTitle('cancelled', audience)
+        : stepTitle('resolved', audience),
+      description: event.previousLifecycle === 'cancelled'
+        ? 'Ticket was cancelled, then reopened later.'
+        : (request.resolutionSummary?.trim() || 'Ticket was resolved, then reopened later.'),
+      status: 'complete',
+      statusLabel: stepStatusLabel('complete'),
+      timestamp: event.previousResolvedAt,
+      tone: stepTone(closedId),
+    });
+
+    const reopenLabel = history.length > 1
+      ? `Reopened (${index + 1} of ${history.length})`
+      : 'Reopened';
+    steps.push({
+      id: `reopened-${index}`,
+      stepNumber: steps.length + 1,
+      title: reopenLabel,
+      description: audience === 'staff'
+        ? `Reopened by ${event.byName || 'user'} via chat.`
+        : `Conversation continued — ticket reopened by ${event.byName || 'you'}.`,
+      status: 'complete',
+      statusLabel: stepStatusLabel('complete'),
+      timestamp: event.at,
+      tone: stepTone(`reopened-${index}`),
+    });
+  });
+
+  const stages = applicableStages(request.type).filter(stage => stage !== 'submitted');
+  const progressIndex = request.lifecycle === 'open' && request.openStage
+    ? stages.indexOf(request.openStage)
+    : request.lifecycle === 'open'
+      ? 0
+      : -1;
+
+  for (let index = 0; index < stages.length; index += 1) {
+    const stage = stages[index];
+    let status: TicketFlowStepStatus = 'upcoming';
+    if (request.lifecycle === 'resolved' || request.lifecycle === 'cancelled') {
+      status = 'complete';
+    } else if (progressIndex < 0) {
+      status = 'upcoming';
+    } else if (index < progressIndex) {
+      status = 'complete';
+    } else if (index === progressIndex) {
+      status = 'current';
+    }
+
+    steps.push({
+      id: stage,
+      stepNumber: steps.length + 1,
+      title: stepTitle(stage, audience),
+      description: stageDescription(stage, request.type, audience),
+      status,
+      statusLabel: stepStatusLabel(status),
+      timestamp: stageTimestamp(stage, request, status),
+      tone: stepTone(stage),
+    });
+  }
+
+  if (request.lifecycle === 'resolved') {
+    steps.push({
+      id: 'resolved',
+      stepNumber: steps.length + 1,
+      title: stepTitle('resolved', audience),
+      description: request.resolutionSummary?.trim() || 'This request has been completed.',
+      status: 'complete',
+      statusLabel: stepStatusLabel('complete'),
+      timestamp: request.resolvedAt,
+      tone: stepTone('resolved'),
+    });
+  } else if (request.lifecycle === 'cancelled') {
+    steps.push({
+      id: 'cancelled',
+      stepNumber: steps.length + 1,
+      title: stepTitle('cancelled', audience),
+      description: 'This request was closed without resolution.',
+      status: 'complete',
+      statusLabel: stepStatusLabel('complete'),
+      timestamp: request.resolvedAt ?? request.updatedAt,
+      tone: stepTone('cancelled'),
+    });
+  }
+
+  return renumber(steps);
+}
+
+export function buildSupportTicketFlow(
+  request: DealerSupportRequest,
+  audience: 'dealer' | 'staff' = 'dealer',
+): TicketFlowStep[] {
+  const hasReopenHistory = (request.reopenHistory?.length ?? 0) > 0
+    || Boolean(request.reopenedAt)
+    || (request.reopenCount ?? 0) > 0;
+
+  if (!hasReopenHistory) {
+    return buildLinearFlow(request, audience);
+  }
+
+  return buildFlowWithReopenHistory(request, audience);
 }
 
 export function ticketFlowCurrentStatusLabel(steps: TicketFlowStep[]): string {

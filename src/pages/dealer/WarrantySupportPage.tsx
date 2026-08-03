@@ -154,24 +154,7 @@ export const WarrantySupportPage: React.FC = () => {
             onSuccess={handleWizardSuccess}
           />
         ) : (
-          <>
-            <div className="warranty-support-page__ops-bar">
-              <p className="text-muted text-sm warranty-support-page__intro">
-                Review dealer tickets or create a backdated request for any Zoho dealer.
-              </p>
-              {canCreateOnBehalf && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={startNewRequest}
-                >
-                  <Plus size={16} />
-                  New request
-                </button>
-              )}
-            </div>
-            <StaffSupportQueue />
-          </>
+          <StaffSupportQueue />
         )}
       </div>
     );

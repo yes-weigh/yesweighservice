@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
+import { SupportLifecycleFilterBlocks } from './SupportLifecycleFilterBlocks';
 import { SupportRequestCard } from './SupportRequestCard';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCatalogImagesForItemIds } from '../../lib/invoiceLineItemImages';
@@ -25,7 +26,7 @@ interface DealerSupportRequestListProps {
 }
 
 const TYPE_OPTIONS = ['all', 'service', 'return', 'complaint', 'chat'] as const;
-const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'open';
+const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'all';
 
 export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> = ({
   requests,
@@ -155,26 +156,13 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   return (
     <div className="support-request-list">
       <div className="support-request-list__filters">
-        <div className="support-request-list__filter-head">
-          <div
-            className="support-request-list__lifecycle"
-            role="tablist"
-            aria-label="Filter by lifecycle"
-          >
-            {SUPPORT_LIFECYCLE_FILTERS.map(tab => (
-              <button
-                key={tab.value}
-                type="button"
-                role="tab"
-                aria-selected={lifecycleFilter === tab.value}
-                className={`support-request-list__lifecycle-btn ${lifecycleFilter === tab.value ? 'is-active' : ''}`}
-                onClick={() => setLifecycleFilter(tab.value)}
-              >
-                <span className="support-request-list__lifecycle-label">{tab.label}</span>
-                <span className="support-request-list__lifecycle-count">{counts[tab.value]}</span>
-              </button>
-            ))}
-          </div>
+        <div className="support-request-list__filter-head support-request-list__filter-head--blocks">
+          <SupportLifecycleFilterBlocks
+            value={lifecycleFilter}
+            counts={counts}
+            loading={loading && requests.length === 0}
+            onChange={setLifecycleFilter}
+          />
 
           <div className="support-request-list__filter-head-actions">
             {onRefresh && (

@@ -86,10 +86,14 @@ function buildActivities(
 ): ActivityItem[] {
   const items: ActivityItem[] = [];
 
-  for (const inv of invoices.slice(0, 8)) {
+  const seenInvoiceKeys = new Set<string>();
+  for (const inv of invoices) {
+    const key = `inv-${inv.customerId}-${inv.id}`;
+    if (seenInvoiceKeys.has(key)) continue;
+    seenInvoiceKeys.add(key);
     const statusLabel = invoiceStatusLabel(inv.status);
     items.push({
-      id: `inv-${inv.id}`,
+      id: key,
       title: `Invoice ${inv.invoiceNumber || inv.id}`,
       description: `${inv.customerName ?? 'Dealer'} — ${statusLabel}`,
       time: formatInvoiceRelativeTime(inv.date),
@@ -98,9 +102,13 @@ function buildActivities(
       path: `${BASE}/invoices`,
       sortAt: inv.date ? Date.parse(inv.date) : 0,
     });
+    if (seenInvoiceKeys.size >= 8) break;
   }
 
-  for (const req of support.slice(0, 8)) {
+  const seenSupportKeys = new Set<string>();
+  for (const req of support) {
+    if (seenSupportKeys.has(req.id)) continue;
+    seenSupportKeys.add(req.id);
     items.push({
       id: `sup-${req.id}`,
       title: `${req.requestNumber} — ${req.dealerName ?? 'Dealer'}`,
@@ -111,6 +119,7 @@ function buildActivities(
       path: `${BASE}/warranty-support/${req.id}`,
       sortAt: Date.parse(req.updatedAt) || 0,
     });
+    if (seenSupportKeys.size >= 8) break;
   }
 
   return items

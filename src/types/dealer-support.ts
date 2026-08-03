@@ -30,6 +30,16 @@ export interface SupportProductRef {
   serialNumber: string | null;
 }
 
+/** Recorded each time a closed ticket is reopened by a new message. */
+export interface SupportReopenEvent {
+  at: string;
+  byUid: string;
+  byName: string;
+  byRole: string;
+  previousLifecycle: 'resolved' | 'cancelled';
+  previousResolvedAt: string | null;
+}
+
 export interface DealerSupportRequest {
   id: string;
   type: SupportRequestType;
@@ -62,6 +72,10 @@ export interface DealerSupportRequest {
   receivedAt: string | null;
   resolvedAt: string | null;
   resolutionSummary: string | null;
+  /** Most recent reopen time — used for waiting age; createdAt stays the booking date. */
+  reopenedAt: string | null;
+  reopenCount: number;
+  reopenHistory: SupportReopenEvent[];
 }
 
 export type SupportAttachmentKind = 'image' | 'video' | 'audio' | 'document';
