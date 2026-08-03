@@ -1346,6 +1346,43 @@ export async function recordCatalogBinLabelPrint(
   }
 }
 
+export function mergeCatalogProductLedgerStock<T extends CatalogProduct>(
+  product: T,
+  fallback?: Pick<CatalogProduct, 'ledgerClosingStock' | 'ledgerClosingStockAt'> | null,
+): T {
+  if (!fallback || product.ledgerClosingStock != null) return product;
+  if (fallback.ledgerClosingStock == null) return product;
+  return {
+    ...product,
+    ledgerClosingStock: fallback.ledgerClosingStock,
+    ...(fallback.ledgerClosingStockAt
+      ? { ledgerClosingStockAt: fallback.ledgerClosingStockAt }
+      : {}),
+  };
+}
+
+async function supplementCatalogProductLedgerStock(
+  productId: string,
+  detail: CatalogProductDetail,
+): Promise<CatalogProductDetail> {
+  if (detail.ledgerClosingStock != null) return detail;
+  try {
+    const snap = await getDoc(doc(db, 'catalogProducts', productId));
+    if (!snap.exists()) return detail;
+    const data = snap.data() ?? {};
+    if (!Number.isFinite(Number(data.ledgerClosingStock))) return detail;
+    return {
+      ...detail,
+      ledgerClosingStock: Number(data.ledgerClosingStock),
+      ...(typeof data.ledgerClosingStockAt === 'string' && data.ledgerClosingStockAt.trim()
+        ? { ledgerClosingStockAt: data.ledgerClosingStockAt.trim() }
+        : {}),
+    };
+  } catch {
+    return detail;
+  }
+}
+
 export async function fetchCatalogProductDetail(productId: string): Promise<CatalogProductDetail> {
   const callable = httpsCallable<{ productId: string }, CatalogProductDetail>(
     functions,
@@ -1365,12 +1402,12 @@ export async function fetchCatalogProductDetail(productId: string): Promise<Cata
         .map(url => withCatalogImageCacheBust(url, syncedAt))
         .filter((url): url is string => Boolean(url))
       : undefined;
-    return {
+    return supplementCatalogProductLedgerStock(productId, {
       ...detail,
       imageUrl,
       ...(imageUrls?.length ? { imageUrls } : {}),
       ...(imageDocs?.length ? { imageDocs } : {}),
-    };
+    });
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

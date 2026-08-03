@@ -400,6 +400,31 @@ export async function saveModelNumbers(
   return modelNumbers;
 }
 
+export async function renameModelNumber(
+  fromValue: string,
+  toValue: string,
+  _updatedBy?: string | null,
+): Promise<{ modelNumbers: string[]; productsUpdated: number }> {
+  const from = fromValue.trim();
+  const to = toValue.trim();
+  if (!from || !to) {
+    throw new Error('Model number is required.');
+  }
+  const callable = httpsCallable<
+    { from: string; to: string },
+    { ok: boolean; modelNumbers: string[]; productsUpdated: number }
+  >(functions, 'renameCatalogModelNumber');
+  try {
+    const result = await callable({ from, to });
+    return {
+      modelNumbers: normalizeOptionStrings(result.data.modelNumbers),
+      productsUpdated: Number(result.data.productsUpdated ?? 0),
+    };
+  } catch (err) {
+    throw callableError(err, 'Could not rename model number.');
+  }
+}
+
 export async function saveApprovalNumbers(
   values: CatalogApprovalNumberOption[] | string[],
   updatedBy?: string | null,

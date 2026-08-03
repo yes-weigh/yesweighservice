@@ -442,6 +442,12 @@ export const getCatalogProductDetail = onCall(
       if (cachedData.hiddenFromCatalog === true) {
         detail.hiddenFromCatalog = true;
       }
+      if (Number.isFinite(Number(cachedData.ledgerClosingStock))) {
+        detail.ledgerClosingStock = Number(cachedData.ledgerClosingStock);
+      }
+      if (typeof cachedData.ledgerClosingStockAt === 'string' && cachedData.ledgerClosingStockAt.trim()) {
+        detail.ledgerClosingStockAt = cachedData.ledgerClosingStockAt.trim();
+      }
     }
 
     if (!zohoLive) {
@@ -911,6 +917,67 @@ export const updateCatalogProductOverlays = onCall(
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update product overlays.');
     }
+  },
+);
+
+/** Rename a model number in Product settings and on assigned catalog products. Super admin only. */
+export const renameCatalogModelNumber = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const fromValue = String(request.data?.from ?? '').trim();
+    const toValue = String(request.data?.to ?? '').trim();
+    if (!fromValue || !toValue) {
+      throw new HttpsError('invalid-argument', 'from and to are required.');
+    }
+
+    const db = getFirestore();
+    const settingsRef = db.collection('appSettings').doc('productSettings');
+    const settingsSnap = await settingsRef.get();
+    const raw = Array.isArray(settingsSnap.data()?.modelNumbers)
+      ? settingsSnap.data().modelNumbers
+        .map(value => String(value ?? '').trim())
+        .filter(Boolean)
+      : [];
+
+    if (!raw.includes(fromValue)) {
+      throw new HttpsError('not-found', 'Model number is not in the settings list.');
+    }
+    if (
+      raw.some(
+        value => value !== fromValue && value.toLowerCase() === toValue.toLowerCase(),
+      )
+    ) {
+      throw new HttpsError('invalid-argument', 'That model number already exists.');
+    }
+
+    const modelNumbers = [...new Set(
+      raw.map(value => (value === fromValue ? toValue : value)),
+    )].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+    let productsUpdated = 0;
+    if (fromValue !== toValue) {
+      const productsSnap = await db.collection('catalogProducts')
+        .where('modelNumber', '==', fromValue)
+        .get();
+      for (const productDoc of productsSnap.docs) {
+        await mutateCatalogProductOverlays(productDoc.id, { modelNumber: toValue });
+        productsUpdated += 1;
+      }
+    }
+
+    await settingsRef.set({
+      modelNumbers,
+      updatedAt: new Date().toISOString(),
+      ...(request.auth?.uid ? { updatedBy: request.auth.uid } : {}),
+    }, { merge: true });
+
+    return { ok: true, modelNumbers, productsUpdated };
   },
 );
 

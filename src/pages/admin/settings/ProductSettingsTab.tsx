@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileText, Package, Paperclip, Plus, Save, Trash2, X } from 'lucide-react';
+import { FileText, Package, Paperclip, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 import { DecimalTextInput } from '../../../components/DecimalAmountInput';
 import { useAuth } from '../../../context/AuthContext';
 import { useConfirm } from '../../../context/ConfirmContext';
@@ -20,6 +20,7 @@ import {
   saveApprovalNumbers,
   saveMasterCartonQuantities,
   saveModelNumbers,
+  renameModelNumber,
   saveMrpRules,
   saveSpareGroups,
   saveGatcStampingPrices,
@@ -230,6 +231,8 @@ export const ProductSettingsTab: React.FC = () => {
   const [editingGatcPrice, setEditingGatcPrice] = useState('');
   const [editingSpareGroupId, setEditingSpareGroupId] = useState<string | null>(null);
   const [editingSpareGroupName, setEditingSpareGroupName] = useState('');
+  const [editingModelOriginal, setEditingModelOriginal] = useState<string | null>(null);
+  const [editingModelValue, setEditingModelValue] = useState('');
   const [subTab, setSubTab] = useState<ProductSettingsSubTab>('packaging');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -408,6 +411,44 @@ export const ProductSettingsTab: React.FC = () => {
       modelNumbers.filter(item => item !== value),
       `remove-model-${value}`,
     );
+  };
+
+  const handleRenameModelNumber = async (original: string) => {
+    const value = editingModelValue.trim();
+    if (!value) {
+      setError('Model number cannot be empty.');
+      return;
+    }
+    if (
+      modelNumbers.some(
+        item => item !== original && item.toLowerCase() === value.toLowerCase(),
+      )
+    ) {
+      setError(`${value} already exists.`);
+      return;
+    }
+    setBusyKey(`rename-model-${original}`);
+    setError('');
+    setSuccess('');
+    try {
+      const { modelNumbers: next, productsUpdated } = await renameModelNumber(
+        original,
+        value,
+        user?.uid ?? null,
+      );
+      setModelNumbers(next);
+      setEditingModelOriginal(null);
+      setEditingModelValue('');
+      setSuccess(
+        productsUpdated > 0
+          ? `Renamed to “${value}” on ${productsUpdated} product${productsUpdated === 1 ? '' : 's'}.`
+          : `Renamed to “${value}”.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not rename model number.');
+    } finally {
+      setBusyKey(null);
+    }
   };
 
   const persistSpareGroups = async (next: CatalogSpareGroupOption[], busy: string) => {
@@ -677,16 +718,80 @@ export const ProductSettingsTab: React.FC = () => {
           <div className="settings-product-qty__chips" aria-label="Model numbers">
             {modelNumbers.map(value => (
               <span key={value} className="settings-product-qty__chip">
-                <span>{value}</span>
-                <button
-                  type="button"
-                  className="settings-product-qty__chip-remove"
-                  onClick={() => void handleRemoveModelNumber(value)}
-                  disabled={busyKey != null}
-                  aria-label={`Remove ${value}`}
-                >
-                  <Trash2 size={13} aria-hidden />
-                </button>
+                {editingModelOriginal === value ? (
+                  <input
+                    type="text"
+                    className="settings-product-spare-groups__rename-input settings-product-qty__chip-edit-input"
+                    value={editingModelValue}
+                    onChange={e => setEditingModelValue(e.target.value)}
+                    disabled={busyKey != null}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleRenameModelNumber(value);
+                      }
+                      if (e.key === 'Escape') {
+                        setEditingModelOriginal(null);
+                        setEditingModelValue('');
+                      }
+                    }}
+                    autoFocus
+                  />
+                ) : (
+                  <span>{value}</span>
+                )}
+                {editingModelOriginal === value ? (
+                  <>
+                    <button
+                      type="button"
+                      className="settings-product-qty__chip-action settings-product-qty__chip-action--save"
+                      disabled={busyKey != null || !editingModelValue.trim()}
+                      onClick={() => void handleRenameModelNumber(value)}
+                      aria-label={`Save ${value}`}
+                      title="Save"
+                    >
+                      <Save size={13} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-product-qty__chip-action"
+                      disabled={busyKey != null}
+                      onClick={() => {
+                        setEditingModelOriginal(null);
+                        setEditingModelValue('');
+                      }}
+                      aria-label="Cancel edit"
+                      title="Cancel"
+                    >
+                      <X size={13} aria-hidden />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="settings-product-qty__chip-action"
+                      onClick={() => {
+                        setEditingModelOriginal(value);
+                        setEditingModelValue(value);
+                      }}
+                      disabled={busyKey != null || editingModelOriginal != null}
+                      aria-label={`Edit ${value}`}
+                      title="Edit"
+                    >
+                      <Pencil size={13} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-product-qty__chip-remove"
+                      onClick={() => void handleRemoveModelNumber(value)}
+                      disabled={busyKey != null || editingModelOriginal != null}
+                      aria-label={`Remove ${value}`}
+                    >
+                      <Trash2 size={13} aria-hidden />
+                    </button>
+                  </>
+                )}
               </span>
             ))}
           </div>

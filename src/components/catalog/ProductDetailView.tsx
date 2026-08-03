@@ -38,6 +38,7 @@ import {
   getSparesForSpareMapping,
   hasCatalogCategory,
   isCatalogSparePartProduct,
+  mergeCatalogProductLedgerStock,
   saveCatalogProductSpareLinks,
   saveCatalogSpareProductLinks,
   setCatalogProductHidden,
@@ -86,7 +87,11 @@ import type { ProductNcExistingLocation } from './ProductNcPanel';
 import { ProductOpenNcTile } from './ProductOpenNcTile';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { listOpenAuditCycles } from '../../lib/auditCycles/data';
-import { resolveAdjustedAuditDisplay } from '../../lib/catalogProductAudit/display';
+import {
+  catalogGridStockQty,
+  catalogGridStockUsesLedger,
+  resolveAdjustedAuditDisplay,
+} from '../../lib/catalogProductAudit/display';
 import { refreshHeadOfficeAuditSnapshot } from '../../lib/catalogProductAudit/data';
 import { getCatalogProductNc } from '../../lib/catalogNc/data';
 import type { AuditCycleDoc } from '../../types/audit-cycle';
@@ -343,15 +348,16 @@ export const ProductDetailView: React.FC<{
         if (!detail.imageUrl && preview?.imageUrl) {
           detail.imageUrl = preview.imageUrl;
         }
+        const merged = mergeCatalogProductLedgerStock(detail, preview);
         // Server omitted auditSnapshot (deleted) — do not keep a stale preview snapshot.
-        if (!detail.auditSnapshot) {
-          const { auditSnapshot: _removed, ...rest } = detail as CatalogProductDetail & {
+        if (!merged.auditSnapshot) {
+          const { auditSnapshot: _removed, ...rest } = merged as CatalogProductDetail & {
             auditSnapshot?: CatalogProduct['auditSnapshot'];
           };
           setProduct(rest);
           return;
         }
-        setProduct(detail);
+        setProduct(merged);
       })
       .catch(err => {
         if (!active) return;
@@ -668,6 +674,27 @@ export const ProductDetailView: React.FC<{
     }),
     [product?.stock, product?.auditSnapshot, livePhysicalQty],
   );
+
+  /** Top-left qty pill: audited stock, or ledger in/out closing for Software Keys 997331. */
+  const detailGridStockQty = useMemo(
+    () => (product && showStockQuantity ? catalogGridStockQty(product) : 0),
+    [product, showStockQuantity],
+  );
+
+  const detailGridStockStatus = useMemo(() => {
+    if (detailGridStockQty <= 0) return 'out_of_stock' as const;
+    if (product?.stockStatus === 'low_stock') return 'low_stock' as const;
+    return 'in_stock' as const;
+  }, [detailGridStockQty, product?.stockStatus]);
+
+  const detailGridStockTitle = useMemo(() => {
+    if (!product) return '';
+    const qtyLabel = formatStockQuantity(detailGridStockQty, product.unit);
+    if (catalogGridStockUsesLedger(product)) {
+      return `In/out stock: ${qtyLabel}`;
+    }
+    return `Audited stock: ${qtyLabel}`;
+  }, [product, detailGridStockQty]);
 
   const summaryAuditedQty = showAuditedStock ? adjustedAudit.displayAuditedQty : null;
   const summaryDifference = showAuditedStock ? adjustedAudit.displayDifference : null;
@@ -1673,13 +1700,13 @@ export const ProductDetailView: React.FC<{
                   {showStockQuantity && (
                     <span
                       className="product-detail-page__zoho-stock-badge"
-                      title={`Zoho stock: ${formatStockQuantity(product.stock, product.unit)}`}
+                      title={detailGridStockTitle}
                     >
-                      <StockBadge status={product.stockStatus} variant="tile" iconOnly />
+                      <StockBadge status={detailGridStockStatus} variant="tile" iconOnly />
                       <StockQuantity
-                        stock={product.stock}
+                        stock={detailGridStockQty}
                         unit={product.unit}
-                        status={product.stockStatus}
+                        status={detailGridStockStatus}
                         compact
                       />
                     </span>

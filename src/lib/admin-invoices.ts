@@ -582,30 +582,60 @@ export async function countAdminInvoices(options: {
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const listCollection = await resolveAdminInvoiceListCollection();
-  const constraints: QueryConstraint[] = [];
 
-  if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
-    return 0;
-  }
-  if (category && category !== 'all') {
-    constraints.push(where('categories', 'array-contains', category));
-  }
-  if (dateStart || dateEnd) {
-    if (dateStart) constraints.push(where('date', '>=', dateStart));
-    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-    constraints.push(orderBy('date', 'desc'));
-  } else {
-    constraints.push(orderBy('date', 'desc'));
-  }
+  const buildConstraints = (categoryFilter: QueryConstraint | null): QueryConstraint[] => {
+    const next: QueryConstraint[] = [];
+    if (appendSalespersonIdConstraint(next, options.salespersonIds) === 'empty') {
+      return next;
+    }
+    if (categoryFilter) next.push(categoryFilter);
+    if (dateStart || dateEnd) {
+      if (dateStart) next.push(where('date', '>=', dateStart));
+      if (dateEnd) next.push(where('date', '<=', dateEnd));
+      next.push(orderBy('date', 'desc'));
+    } else {
+      next.push(orderBy('date', 'desc'));
+    }
+    return next;
+  };
 
-  const countQuery = query(collectionGroup(db, listCollection), ...constraints);
+  const countForConstraints = async (queryConstraints: QueryConstraint[]) => {
+    if (
+      options.salespersonIds != null
+      && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+    ) {
+      return 0;
+    }
+    const countQuery = query(collectionGroup(db, listCollection), ...queryConstraints);
+    try {
+      const snap = await getCountFromServer(countQuery);
+      return snap.data().count;
+    } catch (err) {
+      if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
+        const fallback = query(collectionGroup(db, 'invoices'), ...queryConstraints);
+        const snap = await getCountFromServer(fallback);
+        return snap.data().count;
+      }
+      throw err;
+    }
+  };
+
   try {
-    const snap = await getCountFromServer(countQuery);
-    return snap.data().count;
+    const primaryFilter = category !== 'all'
+      ? where('categories', 'array-contains', category)
+      : null;
+    const primary = await countForConstraints(buildConstraints(primaryFilter));
+    if (category === 'all' || primary > 0) return primary;
+    // Legacy invoices may only have invoiceCategory (no categories array).
+    return countForConstraints(buildConstraints(where('invoiceCategory', '==', category)));
   } catch (err) {
     if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
-      const fallback = query(collectionGroup(db, 'invoices'), ...constraints);
-      const snap = await getCountFromServer(fallback);
+      const fallbackFilter = category !== 'all'
+        ? where('categories', 'array-contains', category)
+        : null;
+      const snap = await getCountFromServer(
+        query(collectionGroup(db, 'invoices'), ...buildConstraints(fallbackFilter)),
+      );
       return snap.data().count;
     }
     throw err;
@@ -709,6 +739,38 @@ function emptyCategoryCounts(): AdminInvoiceCategoryCounts {
   };
 }
 
+/** Rollup docs sometimes have total count but missing/zero byCategory — repair via live counts. */
+function rollupCategoryCountsNeedRepair(counts: AdminInvoiceCategoryCounts): boolean {
+  if (counts.all <= 0) return false;
+  const segmented = counts.product + counts.spare + counts.software_key + counts.service + counts.gatc;
+  return segmented === 0;
+}
+
+async function repairRollupCategoryCounts(
+  rollup: AdminInvoiceStatsKpi,
+  options: {
+    dateStart?: string | null;
+    dateEnd?: string | null;
+    salespersonIds?: string[] | null;
+    category: InvoiceCategory | 'all';
+  },
+): Promise<AdminInvoiceStatsKpi> {
+  if (!rollupCategoryCountsNeedRepair(rollup.categoryCounts)) return rollup;
+  const categoryCounts = await countAdminInvoicesByCategory({
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+    salespersonIds: options.salespersonIds,
+  });
+  return {
+    ...rollup,
+    categoryCounts,
+    invoiceCount: options.category === 'all'
+      ? categoryCounts.all
+      : categoryCounts[options.category],
+    source: 'query',
+  };
+}
+
 function monthKeysForRange(dateStart: string | null, dateEnd: string | null): string[] | null {
   if (!dateStart || !dateEnd) return null;
   const start = dateStart.slice(0, 7);
@@ -772,14 +834,19 @@ export async function loadAdminInvoiceKpis(options: {
           const invoiceCount = category === 'all'
             ? categoryCounts.all
             : categoryCounts[category];
-          return {
+          return repairRollupCategoryCounts({
             invoiceCount,
             categoryAmount,
             documentAmount,
             totalAmount: documentAmount,
             categoryCounts,
             source: 'rollup',
-          };
+          }, {
+            dateStart,
+            dateEnd,
+            salespersonIds: options.salespersonIds,
+            category,
+          });
         }
       } else {
         const keys = monthKeysForRange(dateStart, dateEnd);
@@ -816,14 +883,19 @@ export async function loadAdminInvoiceKpis(options: {
             const documentAmount = category === 'all'
               ? totalAmountAll
               : documentAmountByCategory[category];
-            return {
+            return repairRollupCategoryCounts({
               invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
               categoryAmount,
               documentAmount,
               totalAmount: documentAmount,
               categoryCounts,
               source: 'rollup',
-            };
+            }, {
+              dateStart,
+              dateEnd,
+              salespersonIds: options.salespersonIds,
+              category,
+            });
           }
         }
       }
