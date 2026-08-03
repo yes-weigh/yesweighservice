@@ -53,13 +53,21 @@ function settleFrames(): Promise<void> {
 const IMAGE_PLACEHOLDER =
   'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
+export type PreparedScreenshot = {
+  blob: Blob;
+  fileName: string;
+  mimeType: string;
+  /** Pre-encoded for native share so the tap path skips FileReader. */
+  dataBase64?: string;
+};
+
 /**
  * Rasterize a full element (including overflow / scrolled content) to a PNG blob.
  */
 export async function captureElementScreenshot(
   el: HTMLElement,
   options?: { backgroundColor?: string; fileName?: string },
-): Promise<{ blob: Blob; fileName: string; mimeType: string }> {
+): Promise<PreparedScreenshot> {
   const backgroundColor = options?.backgroundColor ?? '#13151b';
   const fileName = options?.fileName ?? `screenshot-${Date.now()}.png`;
 
@@ -71,7 +79,8 @@ export async function captureElementScreenshot(
     const rect = el.getBoundingClientRect();
     const width = Math.ceil(Math.max(el.scrollWidth, rect.width, 1));
     const height = Math.ceil(Math.max(el.scrollHeight, rect.height, 1));
-    const tryRatios = [3, 2, 1.5];
+    // Start at 2× — sharper than 1×, much faster / safer than 3× on long SOs.
+    const tryRatios = [2, 1.5];
     let dataUrl = '';
     let lastError: unknown;
 
@@ -124,10 +133,28 @@ export async function captureElementScreenshot(
   }
 }
 
+/** Capture + optionally pre-encode base64 for native share (background warm path). */
+export async function prepareElementScreenshot(
+  el: HTMLElement,
+  options?: { backgroundColor?: string; fileName?: string },
+): Promise<PreparedScreenshot> {
+  const shot = await captureElementScreenshot(el, options);
+  if (!Capacitor.isNativePlatform()) return shot;
+  return {
+    ...shot,
+    dataBase64: await blobToBase64(shot.blob),
+  };
+}
+
 /** Share a PNG screenshot via native share sheet / Web Share / WhatsApp fallback. */
 export async function shareScreenshotBlob(
   blob: Blob,
-  options: { fileName: string; title: string; text?: string },
+  options: {
+    fileName: string;
+    title: string;
+    text?: string;
+    dataBase64?: string;
+  },
 ): Promise<void> {
   const fileName = options.fileName;
   const title = options.title;
@@ -135,7 +162,7 @@ export async function shareScreenshotBlob(
   const mimeType = blob.type || 'image/png';
 
   if (Capacitor.isNativePlatform()) {
-    const dataBase64 = await blobToBase64(blob);
+    const dataBase64 = options.dataBase64 || await blobToBase64(blob);
     await WhatsAppShare.shareImage({
       dataBase64,
       fileName,
@@ -180,7 +207,7 @@ export async function captureAndShareElement(
     backgroundColor?: string;
   },
 ): Promise<void> {
-  const shot = await captureElementScreenshot(el, {
+  const shot = await prepareElementScreenshot(el, {
     backgroundColor: options.backgroundColor,
     fileName: options.fileName,
   });
@@ -188,5 +215,6 @@ export async function captureAndShareElement(
     fileName: shot.fileName,
     title: options.title,
     text: options.text,
+    dataBase64: shot.dataBase64,
   });
 }

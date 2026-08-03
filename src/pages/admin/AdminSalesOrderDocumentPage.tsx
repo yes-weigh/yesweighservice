@@ -39,7 +39,11 @@ import {
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
 import { formatInvoiceDate } from '../../lib/invoices';
-import { captureAndShareElement } from '../../lib/shareElementScreenshot';
+import {
+  prepareElementScreenshot,
+  shareScreenshotBlob,
+  type PreparedScreenshot,
+} from '../../lib/shareElementScreenshot';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
 
@@ -83,6 +87,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [sharing, setSharing] = useState(false);
   const shareCaptureRef = useRef<HTMLDivElement>(null);
   const soDetailRef = useRef<HTMLDivElement>(null);
+  const warmShotRef = useRef<{ key: string; shot: PreparedScreenshot } | null>(null);
+  const warmPromiseRef = useRef<Promise<PreparedScreenshot | null> | null>(null);
 
   const stage = String(salesOrder?.yesOneStage || '');
   const canEditDraft = isOps
@@ -275,21 +281,99 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     setSalespersonStaffUid(workflowActions.assignableStaff[0]?.uid ?? '');
   }, [workflowActions?.assignableStaff, salespersonStaffUid]);
 
+  const shareWarmKey = useMemo(() => {
+    if (!salesOrder) return '';
+    const lines = Array.isArray(salesOrder.lineItems) ? salesOrder.lineItems.length : 0;
+    return [
+      salesOrderId,
+      salesOrder.salesOrderNumber || '',
+      salesOrder.date || '',
+      salesOrder.total ?? '',
+      salesOrder.subtotal ?? '',
+      lines,
+      salesOrder.yesOneStage || '',
+      salesOrder.shippingAddress || '',
+      salesOrder.customerName || '',
+      salesOrder.paymentScreenshotUrl || '',
+      editing ? 'editing' : 'view',
+    ].join('|');
+  }, [salesOrder, salesOrderId, editing]);
+
+  // Pre-capture in the background so WhatsApp can open immediately on tap.
+  useEffect(() => {
+    if (!salesOrder || !shareWarmKey) return;
+    let cancelled = false;
+    const soNumber = salesOrder.salesOrderNumber || salesOrderId || 'sales-order';
+    const safeName = soNumber.replace(/[^\w\-]+/g, '-').slice(0, 48);
+    const fileName = `${safeName}.png`;
+
+    const warm = async (): Promise<PreparedScreenshot | null> => {
+      // Let the document paint (and images settle) before rasterizing.
+      await new Promise<void>(resolve => {
+        window.setTimeout(resolve, 350);
+      });
+      if (cancelled) return null;
+      const el = shareCaptureRef.current;
+      if (!el) return null;
+      try {
+        const shot = await prepareElementScreenshot(el, {
+          fileName,
+          backgroundColor: '#13151b',
+        });
+        if (cancelled) return null;
+        warmShotRef.current = { key: shareWarmKey, shot };
+        return shot;
+      } catch {
+        return null;
+      }
+    };
+
+    warmShotRef.current = null;
+    const promise = warm();
+    warmPromiseRef.current = promise;
+    return () => {
+      cancelled = true;
+    };
+  }, [salesOrder, salesOrderId, shareWarmKey]);
+
   const handleShareScreenshot = useCallback(async () => {
     const el = shareCaptureRef.current;
     if (!el || !salesOrder || sharing) return;
     setSharing(true);
-    // Hide sticky Share / Delete / other action UI so it cannot appear in the shot.
-    soDetailRef.current?.classList.add('is-sharing');
     try {
       const soNumber = salesOrder.salesOrderNumber || salesOrderId || 'sales-order';
       const safeName = soNumber.replace(/[^\w\-]+/g, '-').slice(0, 48);
       const dateLabel = salesOrder.date ? formatInvoiceDate(salesOrder.date) : '';
-      await captureAndShareElement(el, {
-        fileName: `${safeName}.png`,
-        title: soNumber,
-        text: [soNumber, dateLabel].filter(Boolean).join(' · '),
-        backgroundColor: '#13151b',
+      const title = soNumber;
+      const text = [soNumber, dateLabel].filter(Boolean).join(' · ');
+
+      let shot: PreparedScreenshot | null =
+        warmShotRef.current?.key === shareWarmKey ? warmShotRef.current.shot : null;
+
+      if (!shot && warmPromiseRef.current) {
+        shot = await warmPromiseRef.current;
+        if (warmShotRef.current?.key !== shareWarmKey) shot = null;
+      }
+
+      if (!shot) {
+        // Hide sticky action UI only when we must capture on demand.
+        soDetailRef.current?.classList.add('is-sharing');
+        try {
+          shot = await prepareElementScreenshot(el, {
+            fileName: `${safeName}.png`,
+            backgroundColor: '#13151b',
+          });
+          warmShotRef.current = { key: shareWarmKey, shot };
+        } finally {
+          soDetailRef.current?.classList.remove('is-sharing');
+        }
+      }
+
+      await shareScreenshotBlob(shot.blob, {
+        fileName: shot.fileName,
+        title,
+        text,
+        dataBase64: shot.dataBase64,
       });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -298,7 +382,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       soDetailRef.current?.classList.remove('is-sharing');
       setSharing(false);
     }
-  }, [salesOrder, salesOrderId, sharing]);
+  }, [salesOrder, salesOrderId, sharing, shareWarmKey]);
 
   if (!salesOrder) return null;
 
