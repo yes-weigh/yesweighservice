@@ -1,48 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  AlertCircle,
-  Inbox,
-  MessageSquare,
-  Package,
-  RotateCcw,
-  UserRound,
-} from 'lucide-react';
+import { AlertCircle, Inbox } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { SupportLifecycleFilterBlocks } from './SupportLifecycleFilterBlocks';
+import { SupportRequestCard } from './SupportRequestCard';
 import { useAuth } from '../../context/AuthContext';
+import { fetchAdminInvoiceDatesForPairs } from '../../lib/admin-invoices';
 import {
   subscribeOpsSupportRequests,
   supportDetailPath,
 } from '../../lib/dealerSupport';
+import { fetchCatalogImagesForItemIds } from '../../lib/invoiceLineItemImages';
 import { filterSupportRequestsForUser } from '../../lib/staffAccess';
 import {
   SUPPORT_STAGE_FILTERS,
   combineStatusFilter,
   countSupportRequestsByFilter,
   filterSupportRequests,
-  formatSupportSubmittedDate,
-  formatSupportSubmittedTime,
   sortSupportRequests,
-  supportRequestIssueSummary,
   type SupportLifecycleFilter,
 } from '../../lib/supportRequestDisplay';
-import { supportDisplayLabel, supportStatusClass } from '../../lib/supportStatus';
-import type {
-  DealerSupportRequest,
-  SupportOpenStage,
-  SupportRequestType,
-} from '../../types/dealer-support';
-import { SUPPORT_TYPE_LABELS } from '../../types/dealer-support';
+import type { DealerSupportRequest, SupportOpenStage } from '../../types/dealer-support';
 
 const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'all';
-
-function typeIcon(type: SupportRequestType) {
-  if (type === 'return') return <RotateCcw size={16} strokeWidth={2.2} />;
-  if (type === 'complaint') return <AlertCircle size={16} strokeWidth={2.2} />;
-  if (type === 'chat') return <MessageSquare size={16} strokeWidth={2.2} />;
-  return <Package size={16} strokeWidth={2.2} />;
-}
 
 export const StaffSupportQueue: React.FC = () => {
   const { user } = useAuth();
@@ -54,6 +34,8 @@ export const StaffSupportQueue: React.FC = () => {
     DEFAULT_LIFECYCLE_FILTER,
   );
   const [openStageFilter, setOpenStageFilter] = useState<SupportOpenStage | null>(null);
+  const [images, setImages] = useState<Map<string, string>>(new Map());
+  const [invoiceDates, setInvoiceDates] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (!user) return undefined;
@@ -78,6 +60,51 @@ export const StaffSupportQueue: React.FC = () => {
     () => filterSupportRequestsForUser(user, requests),
     [user, requests],
   );
+
+  useEffect(() => {
+    const itemIds = scopedRequests
+      .map(request => request.product?.itemId)
+      .filter((id): id is string => Boolean(id));
+    if (!itemIds.length) {
+      setImages(new Map());
+      return;
+    }
+    let cancelled = false;
+    void fetchCatalogImagesForItemIds(itemIds).then(map => {
+      if (!cancelled) setImages(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [scopedRequests]);
+
+  useEffect(() => {
+    const pairs = scopedRequests
+      .filter(request => request.invoiceId)
+      .map(request => {
+        const zohoCustomerId = request.zohoCustomerId?.trim() || '';
+        const dealerId = request.dealerId?.trim() || '';
+        return {
+          customerId: zohoCustomerId || dealerId,
+          fallbackCustomerId: zohoCustomerId && dealerId && zohoCustomerId !== dealerId
+            ? dealerId
+            : undefined,
+          invoiceId: request.invoiceId as string,
+        };
+      })
+      .filter(pair => pair.customerId);
+    if (!pairs.length) {
+      setInvoiceDates(new Map());
+      return;
+    }
+    let cancelled = false;
+    void fetchAdminInvoiceDatesForPairs(pairs).then(map => {
+      if (!cancelled) setInvoiceDates(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [scopedRequests]);
 
   const counts = useMemo(() => countSupportRequestsByFilter(scopedRequests), [scopedRequests]);
 
@@ -181,60 +208,20 @@ export const StaffSupportQueue: React.FC = () => {
           </p>
         </div>
       ) : (
-        <ul className="staff-support-queue__list">
-          {filteredRequests.map(request => {
-            const when = request.lastMessageAt ?? request.updatedAt ?? request.createdAt;
-            const productLabel = request.product?.name || request.subject || request.category || 'Support request';
-            return (
-              <li key={request.id}>
-                <button
-                  type="button"
-                  className={`staff-support-queue__ticket staff-support-queue__ticket--${request.type}`}
-                  onClick={() => navigate(supportDetailPath(user.role, request.id))}
-                >
-                  <span className="staff-support-queue__ticket-icon" aria-hidden>
-                    {typeIcon(request.type)}
-                  </span>
-
-                  <div className="staff-support-queue__ticket-main">
-                    <div className="staff-support-queue__ticket-top">
-                      <div className="staff-support-queue__ticket-titles">
-                        <strong className="staff-support-queue__dealer">
-                          {request.dealerName || 'Dealer'}
-                        </strong>
-                        <span className="staff-support-queue__product">{productLabel}</span>
-                      </div>
-                      <span className={`service-request-status ${supportStatusClass(request)}`}>
-                        {supportDisplayLabel(request, 'staff')}
-                      </span>
-                    </div>
-
-                    <p className="staff-support-queue__preview">
-                      {request.lastMessagePreview || supportRequestIssueSummary(request)}
-                    </p>
-
-                    <div className="staff-support-queue__ticket-meta">
-                      <span className="staff-support-queue__ref">{request.requestNumber}</span>
-                      <span className="staff-support-queue__type-label">
-                        {SUPPORT_TYPE_LABELS[request.type]}
-                      </span>
-                      {request.assignedToName && (
-                        <span className="staff-support-queue__assignee">
-                          <UserRound size={12} aria-hidden />
-                          {request.assignedToName}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="staff-support-queue__ticket-when">
-                    <strong>{formatSupportSubmittedDate(when)}</strong>
-                    <span>{formatSupportSubmittedTime(when)}</span>
-                  </div>
-                </button>
-              </li>
-            );
-          })}
+        <ul className="support-request-list__cards">
+          {filteredRequests.map(request => (
+            <li key={request.id}>
+              <SupportRequestCard
+                request={request}
+                imageUrl={request.product?.itemId ? images.get(request.product.itemId) : null}
+                invoiceDate={request.invoiceId ? invoiceDates.get(request.invoiceId) ?? null : null}
+                statusAudience="staff"
+                dealerName={request.dealerName || 'Dealer'}
+                showOpsMeta
+                onClick={() => navigate(supportDetailPath(user.role, request.id))}
+              />
+            </li>
+          ))}
         </ul>
       )}
     </div>

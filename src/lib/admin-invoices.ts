@@ -1081,6 +1081,47 @@ export function mapAdminInvoiceDetail(
   };
 }
 
+/** Lightweight invoice date lookup for support cards / ticket info (ops). */
+export async function fetchAdminInvoiceDate(
+  customerId: string,
+  invoiceId: string,
+): Promise<string | null> {
+  const snap = await getDoc(doc(db, 'zohoCustomers', customerId, 'invoices', invoiceId));
+  if (!snap.exists()) return null;
+  const date = snap.data()?.date;
+  return date ? String(date) : null;
+}
+
+/** Batch-fetch invoice dates keyed by invoiceId for ops support queues. */
+export async function fetchAdminInvoiceDatesForPairs(
+  pairs: Array<{ customerId: string; invoiceId: string; fallbackCustomerId?: string }>,
+): Promise<Map<string, string>> {
+  const unique = new Map<string, { customerId: string; invoiceId: string; fallbackCustomerId?: string }>();
+  for (const pair of pairs) {
+    const customerId = pair.customerId?.trim();
+    const invoiceId = pair.invoiceId?.trim();
+    const fallbackCustomerId = pair.fallbackCustomerId?.trim();
+    if (!customerId || !invoiceId || unique.has(invoiceId)) continue;
+    unique.set(invoiceId, { customerId, invoiceId, fallbackCustomerId });
+  }
+
+  const map = new Map<string, string>();
+  await Promise.all(
+    [...unique.values()].map(async ({ customerId, invoiceId, fallbackCustomerId }) => {
+      try {
+        let date = await fetchAdminInvoiceDate(customerId, invoiceId);
+        if (!date && fallbackCustomerId && fallbackCustomerId !== customerId) {
+          date = await fetchAdminInvoiceDate(fallbackCustomerId, invoiceId);
+        }
+        if (date) map.set(invoiceId, date);
+      } catch {
+        // Skip unreadable invoices; card still shows number without date.
+      }
+    }),
+  );
+  return map;
+}
+
 export async function fetchAdminInvoiceDetail(
   customerId: string,
   invoiceId: string,

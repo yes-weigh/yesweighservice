@@ -1,11 +1,16 @@
 import React from 'react';
-import { Package } from 'lucide-react';
+import { Package, UserRound } from 'lucide-react';
 import { SupportChatLogo } from './SupportChatLogo';
-import { complaintCategoryEmoji, type DealerSupportRequest } from '../../types/dealer-support';
+import {
+  complaintCategoryEmoji,
+  SUPPORT_TYPE_LABELS,
+  type DealerSupportRequest,
+} from '../../types/dealer-support';
 import {
   formatSupportInvoiceListDate,
   formatSupportSubmittedDate,
   formatSupportSubmittedTime,
+  formatSupportBookedToClosedDaysLabel,
   supportRequestCardAsideBottom,
   supportRequestCardTitle,
   supportRequestIssueSummary,
@@ -13,12 +18,19 @@ import {
   supportRequestStatusLabel,
   supportRequestStatusTone,
 } from '../../lib/supportRequestDisplay';
+import { supportDisplayLabel } from '../../lib/supportStatus';
 
 interface SupportRequestCardProps {
   request: DealerSupportRequest;
   imageUrl?: string | null;
   invoiceDate?: string | null;
   onClick: () => void;
+  /** Ops queue: staff-facing status labels (default dealer). */
+  statusAudience?: 'dealer' | 'staff';
+  /** Ops queue: dealer name shown above the product title. */
+  dealerName?: string | null;
+  /** Ops queue: type label + assignee under the ref line. */
+  showOpsMeta?: boolean;
 }
 
 export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
@@ -26,11 +38,24 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
   imageUrl,
   invoiceDate,
   onClick,
+  statusAudience = 'dealer',
+  dealerName,
+  showOpsMeta = false,
 }) => {
   const statusTone = supportRequestStatusTone(request);
   const stageSubtitle = supportRequestStageSubtitle(request);
   const title = supportRequestCardTitle(request);
   const asideBottom = supportRequestCardAsideBottom(request);
+  const statusLabel = statusAudience === 'staff'
+    ? supportDisplayLabel(request, 'staff')
+    : supportRequestStatusLabel(request);
+  const issueSummary = supportRequestIssueSummary(request);
+  const closedAt = request.lifecycle === 'resolved' || request.lifecycle === 'cancelled'
+    ? (request.resolvedAt || request.updatedAt)
+    : null;
+  const bookedToClosedDays = closedAt
+    ? formatSupportBookedToClosedDaysLabel(request.createdAt, closedAt)
+    : null;
   const categoryEmoji = request.type === 'complaint'
     ? complaintCategoryEmoji(request.category) ?? complaintCategoryEmoji(request.subject)
     : null;
@@ -43,6 +68,7 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
             'support-ticket-card__thumb',
             request.type === 'chat' ? 'support-ticket-card__thumb--chat' : '',
             categoryEmoji ? 'support-ticket-card__thumb--complaint' : '',
+            imageUrl ? 'support-ticket-card__thumb--photo' : '',
           ].filter(Boolean).join(' ')}
         >
           {request.type === 'chat' ? (
@@ -62,28 +88,62 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
       </div>
 
       <div className="support-ticket-card__content">
-        <div className="support-ticket-card__headline">
-          <p className="support-ticket-card__title">{title}</p>
-          <div className="support-ticket-card__status-stack">
-            <span className={`support-ticket-card__status support-ticket-card__status--${statusTone}`}>
-              {supportRequestStatusLabel(request)}
-            </span>
-            {stageSubtitle && (
-              <span className="support-ticket-card__stage">{stageSubtitle}</span>
-            )}
-          </div>
-        </div>
-
-        {request.invoiceNumber && (
-          <p className="support-ticket-card__invoice text-sm">
-            Inv {request.invoiceNumber}
-            {invoiceDate && <> · {formatSupportInvoiceListDate(invoiceDate)}</>}
-          </p>
+        {dealerName && (
+          <p className="support-ticket-card__dealer">{dealerName}</p>
         )}
 
-        <p className="support-ticket-card__issue text-sm">{supportRequestIssueSummary(request)}</p>
+        <div className="support-ticket-card__headline">
+          <div className="support-ticket-card__headline-main">
+            <p className="support-ticket-card__title">{title}</p>
+            {stageSubtitle && (
+              <p className="support-ticket-card__stage">{stageSubtitle}</p>
+            )}
+          </div>
+          <span className={`support-ticket-card__status support-ticket-card__status--${statusTone}`}>
+            {statusLabel}
+          </span>
+        </div>
 
-        <span className="support-ticket-card__ref">Ref {request.requestNumber}</span>
+        {(request.invoiceNumber || issueSummary) && (
+          <div className="support-ticket-card__details">
+            {request.invoiceNumber && (
+              <p className="support-ticket-card__invoice">
+                <span className="support-ticket-card__invoice-number">
+                  Inv {request.invoiceNumber}
+                </span>
+                {invoiceDate && (
+                  <span className="support-ticket-card__invoice-date">
+                    {formatSupportInvoiceListDate(invoiceDate)}
+                  </span>
+                )}
+              </p>
+            )}
+            {issueSummary && issueSummary !== title && (
+              <p className="support-ticket-card__issue">{issueSummary}</p>
+            )}
+          </div>
+        )}
+
+        <div className="support-ticket-card__footer">
+          <span className="support-ticket-card__ref">Ref {request.requestNumber}</span>
+          {showOpsMeta && (
+            <>
+              <span className="support-ticket-card__footer-dot" aria-hidden>·</span>
+              <span className="support-ticket-card__type-label">
+                {SUPPORT_TYPE_LABELS[request.type]}
+              </span>
+              {request.assignedToName && (
+                <>
+                  <span className="support-ticket-card__footer-dot" aria-hidden>·</span>
+                  <span className="support-ticket-card__assignee">
+                    <UserRound size={11} aria-hidden />
+                    {request.assignedToName}
+                  </span>
+                </>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       <div className="support-ticket-card__aside">
@@ -96,6 +156,10 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
             {formatSupportSubmittedTime(request.createdAt)}
           </span>
         </div>
+
+        {bookedToClosedDays && (
+          <span className="support-ticket-card__duration">{bookedToClosedDays}</span>
+        )}
 
         {asideBottom && (
           <div

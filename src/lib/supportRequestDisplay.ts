@@ -261,6 +261,37 @@ export function formatSupportDaysSinceSubmission(createdAt: string | null | unde
   return `${days} days`;
 }
 
+function startOfCalendarDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Calendar days from booked date to resolved/cancelled date. */
+export function supportBookedToClosedDayCount(
+  bookedAt: string | null | undefined,
+  closedAt: string | null | undefined,
+): number | null {
+  if (!bookedAt || !closedAt) return null;
+  const booked = Date.parse(bookedAt);
+  const closed = Date.parse(closedAt);
+  if (Number.isNaN(booked) || Number.isNaN(closed)) return null;
+  return Math.max(
+    0,
+    Math.floor((startOfCalendarDay(closed) - startOfCalendarDay(booked)) / 86_400_000),
+  );
+}
+
+/** Card aside label between Booked and Resolved — e.g. "days 5". */
+export function formatSupportBookedToClosedDaysLabel(
+  bookedAt: string | null | undefined,
+  closedAt: string | null | undefined,
+): string | null {
+  const days = supportBookedToClosedDayCount(bookedAt, closedAt);
+  if (days === null) return null;
+  return `days ${days}`;
+}
+
 /** Dealer-friendly relative age label for list cards. */
 export function formatSupportDaysAgo(createdAt: string | null | undefined): string {
   const days = formatSupportDaysSinceSubmission(createdAt);
@@ -461,17 +492,17 @@ export function formatSupportDateTimeCompact(value: string | null | undefined): 
   return `${date} · ${time}`;
 }
 
+/** Short label for list cards — category/subject only, no description or message body. */
 export function supportRequestIssueSummary(request: DealerSupportRequest): string {
   if (isSupportDraft(request)) {
-    return request.description || 'Draft — tap to continue and submit';
+    return 'Draft — tap to continue and submit';
   }
   if (request.type === 'chat') {
     return request.lastMessagePreview?.trim() || 'Tap to start chatting';
   }
-  const category = request.category?.trim();
-  const preview = request.lastMessagePreview?.trim() || request.description?.trim();
-  if (category && preview) return `${category} — ${preview}`;
-  return preview || category || 'No description yet';
+  return request.category?.trim()
+    || request.subject?.trim()
+    || '';
 }
 
 export function countOpenSupportRequests(requests: DealerSupportRequest[]): number {

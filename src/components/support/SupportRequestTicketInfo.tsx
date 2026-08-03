@@ -9,6 +9,7 @@ import {
   Truck,
   Wrench,
 } from 'lucide-react';
+import { fetchAdminInvoiceDate } from '../../lib/admin-invoices';
 import { readCachedAllDealerInvoices, fetchAllDealerInvoices, formatInvoiceDate } from '../../lib/invoices';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { canDealerCancelSupportRequest } from '../../lib/supportStatus';
@@ -70,6 +71,21 @@ export const SupportRequestTicketInfo: React.FC<SupportRequestTicketInfoProps> =
 
     let cancelled = false;
     const invoiceId = request.invoiceId;
+    const customerId = request.zohoCustomerId?.trim() || request.dealerId?.trim() || '';
+
+    // Ops users are not the dealer — resolve date from the customer invoice doc.
+    if (isInternalOpsUser(user)) {
+      if (!customerId) {
+        setInvoiceDate(null);
+        return undefined;
+      }
+      void fetchAdminInvoiceDate(customerId, invoiceId).then(date => {
+        if (!cancelled) setInvoiceDate(date);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const fromList = readCachedAllDealerInvoices(user.uid)?.find(inv => inv.id === invoiceId)?.date ?? null;
     if (fromList) setInvoiceDate(fromList);
@@ -83,7 +99,7 @@ export const SupportRequestTicketInfo: React.FC<SupportRequestTicketInfoProps> =
     return () => {
       cancelled = true;
     };
-  }, [request.invoiceId, user.uid]);
+  }, [request.invoiceId, request.zohoCustomerId, request.dealerId, user]);
 
   const statusBadge = supportDetailStatusBadge(request, audience);
 
