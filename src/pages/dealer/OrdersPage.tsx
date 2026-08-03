@@ -398,8 +398,10 @@ const DealerCartPage: React.FC = () => {
           </div>
           <p className="orders-page__summary-note text-muted text-sm">
             {segmentPreview.length > 1
-              ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(segmentLabel).join(', ')}. Each order type uses its own Zoho salesperson.`
-              : 'Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.'}
+              ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Each order type and branch uses its own Zoho salesperson.`
+              : segmentPreview[0]
+                ? `Your order is created in Zoho Inventory as Draft (${segmentPreview[0].label}). After submit, only staff can change items or address.`
+                : 'Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.'}
           </p>
           <label className="orders-page__remarks">
             <span className="orders-page__remarks-label">Remarks</span>
