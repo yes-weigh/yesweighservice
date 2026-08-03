@@ -28,7 +28,10 @@ import {
   segmentToInvoiceCategory,
   staffCanAddOrderSegment,
 } from './sales-order-segments.js';
-import { resolveZohoLocationIdForSite } from './zoho-locations.js';
+import {
+  resolveZohoLocationIdForSite,
+  warehouseIdFromLineWarehouses,
+} from './zoho-locations.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
@@ -417,14 +420,21 @@ async function createSegmentSalesOrders({
       ? orderNumberBase
       : `${orderNumberBase}-${segmentSiteOrderSuffix(segment, site)}`;
 
-    let locationId;
-    try {
-      locationId = await resolveZohoLocationIdForSite(site, secrets, orgId);
-    } catch (err) {
-      throw new HttpsError(
-        'failed-precondition',
-        err?.message || `Could not resolve Zoho branch for ${inventorySiteLabel(site)}.`,
-      );
+    // Resolve from pre-mapper lines — pricedLineMapper strips warehouses[] for Zoho.
+    let locationId = null;
+    for (const line of bucket.lines) {
+      locationId = warehouseIdFromLineWarehouses(site, line.warehouses);
+      if (locationId) break;
+    }
+    if (!locationId) {
+      try {
+        locationId = await resolveZohoLocationIdForSite(site, secrets, orgId);
+      } catch (err) {
+        throw new HttpsError(
+          'failed-precondition',
+          err?.message || `Could not resolve Zoho warehouse for ${inventorySiteLabel(site)}.`,
+        );
+      }
     }
 
     const bucketLabel = segmentSiteLabel(segment, site);

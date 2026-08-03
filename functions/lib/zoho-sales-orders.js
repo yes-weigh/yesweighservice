@@ -45,10 +45,11 @@ async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {})
   return payload;
 }
 
-function lineItemsFromOrder(order, locationId = null) {
+function lineItemsFromOrder(order, warehouseId = null) {
   const lines = Array.isArray(order.lines) ? order.lines : [];
-  const loc = locationId != null && String(locationId).trim()
-    ? String(locationId).trim()
+  // Multi-warehouse orgs accept warehouse_id; location_id is rejected when Locations is off.
+  const warehouse = warehouseId != null && String(warehouseId).trim()
+    ? String(warehouseId).trim()
     : null;
   return lines.map(line => ({
     item_id: String(line.itemId || line.productId),
@@ -58,7 +59,7 @@ function lineItemsFromOrder(order, locationId = null) {
     unit: String(line.unit || 'pcs'),
     ...(line.description ? { description: String(line.description) } : {}),
     ...(line.hsn ? { hsn_or_sac: String(line.hsn) } : {}),
-    ...(loc ? { location_id: loc } : {}),
+    ...(warehouse ? { warehouse_id: warehouse } : {}),
   })).filter(line => line.quantity > 0 && line.item_id);
 }
 
@@ -84,10 +85,13 @@ function lineItemsForSalesOrderPut(so) {
 export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, order) {
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
-  const locationId = order.locationId != null && String(order.locationId).trim()
+  // order.locationId holds the Zoho warehouse_id for Cochin / Head Office.
+  const warehouseId = order.locationId != null && String(order.locationId).trim()
     ? String(order.locationId).trim()
-    : null;
-  const lineItems = lineItemsFromOrder(order, locationId);
+    : (order.warehouseId != null && String(order.warehouseId).trim()
+      ? String(order.warehouseId).trim()
+      : null);
+  const lineItems = lineItemsFromOrder(order, warehouseId);
   if (!lineItems.length) {
     throw new Error('Order has no valid Zoho line items.');
   }
@@ -101,6 +105,7 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     || `YesOne cart ${order.orderNumber || order.id}`;
 
   // Zoho Inventory creates SOs as Draft by default (Save as Draft).
+  // Do not send location_id — multi-warehouse orgs reject it as an invalid element.
   const body = {
     customer_id: customerId,
     reference_number: String(order.orderNumber || order.id || ''),
@@ -108,9 +113,6 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     line_items: lineItems,
     notes,
   };
-  if (locationId) {
-    body.location_id = locationId;
-  }
   const salespersonId = String(order.salespersonId || '').trim();
   if (salespersonId) {
     body.salesperson_id = salespersonId;
@@ -146,7 +148,14 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     status: so.status ? String(so.status) : 'draft',
     locationId: so.location_id != null && String(so.location_id).trim()
       ? String(so.location_id).trim()
-      : locationId,
+      : warehouseId,
+    warehouseId: (() => {
+      const lineWh = Array.isArray(so.line_items)
+        ? so.line_items.find(li => li?.warehouse_id != null && String(li.warehouse_id).trim())
+          ?.warehouse_id
+        : null;
+      return lineWh != null && String(lineWh).trim() ? String(lineWh).trim() : warehouseId;
+    })(),
     salespersonId: so.salesperson_id != null && String(so.salesperson_id).trim()
       ? String(so.salesperson_id).trim()
       : (salespersonId || null),

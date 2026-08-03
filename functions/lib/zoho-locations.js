@@ -1,5 +1,8 @@
 /**
- * Resolve Zoho Inventory location_id for Cochin / Head Office (SO Branch).
+ * Resolve Zoho warehouse_id for Cochin / Head Office (SO stock site / Branch).
+ *
+ * This org uses multi-warehouse. Sending `location_id` on sales orders is rejected
+ * with "Invalid Element location_id" when Locations is not enabled — use warehouse_id.
  */
 import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
 import {
@@ -8,10 +11,10 @@ import {
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
 
-const LOCATION_CACHE_TTL_MS = 10 * 60 * 1000;
+const WAREHOUSE_CACHE_TTL_MS = 10 * 60 * 1000;
 
 /** @type {{ at: number, bySite: Record<string, string> } | null} */
-let locationCache = null;
+let warehouseCache = null;
 
 const SITE_NAME_MATCHERS = {
   cochin: name => {
@@ -52,11 +55,11 @@ async function zohoGetJson(accessToken, orgId, path) {
   return payload;
 }
 
-function pickLocationId(locations, site) {
+function pickWarehouseId(warehouses, site) {
   const matcher = SITE_NAME_MATCHERS[site];
-  if (!matcher || !Array.isArray(locations)) return null;
-  const match = locations.find(row => matcher(row?.location_name ?? row?.name));
-  const id = match?.location_id ?? match?.locationId ?? null;
+  if (!matcher || !Array.isArray(warehouses)) return null;
+  const match = warehouses.find(row => matcher(row?.warehouse_name ?? row?.name ?? row?.location_name));
+  const id = match?.warehouse_id ?? match?.warehouseId ?? match?.location_id ?? match?.locationId ?? null;
   return id != null && String(id).trim() ? String(id).trim() : null;
 }
 
@@ -67,23 +70,23 @@ function pickLocationId(locations, site) {
  */
 export async function loadZohoLocationIdsBySite(secrets, configuredOrgId) {
   const now = Date.now();
-  if (locationCache && now - locationCache.at < LOCATION_CACHE_TTL_MS) {
+  if (warehouseCache && now - warehouseCache.at < WAREHOUSE_CACHE_TTL_MS) {
     return {
-      cochin: locationCache.bySite.cochin || null,
-      head_office: locationCache.bySite.head_office || null,
+      cochin: warehouseCache.bySite.cochin || null,
+      head_office: warehouseCache.bySite.head_office || null,
     };
   }
 
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
-  const payload = await zohoGetJson(accessToken, orgId, '/locations');
-  const locations = Array.isArray(payload?.locations) ? payload.locations : [];
+  const payload = await zohoGetJson(accessToken, orgId, '/settings/warehouses');
+  const warehouses = Array.isArray(payload?.warehouses) ? payload.warehouses : [];
 
   const bySite = {
-    cochin: pickLocationId(locations, 'cochin'),
-    head_office: pickLocationId(locations, 'head_office'),
+    cochin: pickWarehouseId(warehouses, 'cochin'),
+    head_office: pickWarehouseId(warehouses, 'head_office'),
   };
-  locationCache = { at: now, bySite };
+  warehouseCache = { at: now, bySite };
   return bySite;
 }
 
@@ -91,18 +94,32 @@ export async function loadZohoLocationIdsBySite(secrets, configuredOrgId) {
  * @param {'cochin'|'head_office'} site
  * @param {{ clientId: string, clientSecret: string, refreshToken: string }} secrets
  * @param {string} configuredOrgId
+ * @returns {Promise<string>} Zoho warehouse_id for the site
  */
 export async function resolveZohoLocationIdForSite(site, secrets, configuredOrgId) {
   const key = site === 'head_office' ? 'head_office' : 'cochin';
   const ids = await loadZohoLocationIdsBySite(secrets, configuredOrgId);
-  const locationId = ids[key];
-  if (!locationId) {
+  const warehouseId = ids[key];
+  if (!warehouseId) {
     const label = key === 'head_office' ? 'Head Office' : 'Cochin';
     throw new Error(
-      `Zoho location “${label}” was not found. Check Locations in Zoho Inventory.`,
+      `Zoho warehouse “${label}” was not found. Check Warehouses in Zoho Inventory.`,
     );
   }
-  return locationId;
+  return warehouseId;
+}
+
+/**
+ * Prefer warehouseId from cart line warehouses[] for the chosen site; else null.
+ * @param {'cochin'|'head_office'} site
+ * @param {Array<{ warehouseId?: string, warehouseName?: string }>|null|undefined} warehouses
+ */
+export function warehouseIdFromLineWarehouses(site, warehouses) {
+  const matcher = SITE_NAME_MATCHERS[site === 'head_office' ? 'head_office' : 'cochin'];
+  if (!matcher || !Array.isArray(warehouses)) return null;
+  const match = warehouses.find(row => matcher(row?.warehouseName ?? row?.warehouse_name));
+  const id = match?.warehouseId ?? match?.warehouse_id ?? null;
+  return id != null && String(id).trim() ? String(id).trim() : null;
 }
 
 export function inventorySiteBranchLabel(site) {
