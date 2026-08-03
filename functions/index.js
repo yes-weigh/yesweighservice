@@ -152,6 +152,7 @@ import {
   updateDraftSalesOrderLines as updateDraftSalesOrderLinesRecord,
   updateDraftSalesOrderShipping as updateDraftSalesOrderShippingRecord,
   markSalesOrderReadyForPayment as markSalesOrderReadyForPaymentRecord,
+  markSalesOrderInvoicedManually as markSalesOrderInvoicedManuallyRecord,
   uploadSalesOrderPaymentScreenshot as uploadSalesOrderPaymentScreenshotRecord,
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
@@ -3613,6 +3614,32 @@ export const verifySalesOrderPayment = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not verify payment.');
+    }
+  },
+);
+
+/** Manually mark SO invoiced after it was processed in Zoho outside YesOne. */
+export const markSalesOrderInvoicedManually = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SYNC_ROLES);
+    try {
+      return await markSalesOrderInvoicedManuallyRecord(
+        uid,
+        role,
+        request.data?.salesOrderId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not mark sales order as invoiced.');
     }
   },
 );

@@ -4,6 +4,7 @@ import type { AdminSalesOrderDetail } from '../../lib/admin-sales-orders';
 export type SalesOrderActionBusy =
   | 'ready'
   | 'verify'
+  | 'markInvoiced'
   | 'void'
   | 'delete'
   | 'applySalesperson'
@@ -19,11 +20,14 @@ export interface SalesOrderWorkflowActions {
   canApplySalesperson: boolean;
   canAssignSalespersonStaff: boolean;
   assignableStaff: Array<{ uid: string; displayName: string }>;
+  /** Manual mark completed after Zoho already invoiced outside YesOne. */
+  canMarkInvoiced: boolean;
   canVoid: boolean;
   canDelete: boolean;
   dealerPath: string | null;
   onReady: () => void;
   onVerify: () => void;
+  onMarkInvoiced: () => void;
   onApplySalesperson: () => void;
   onApplySalespersonFromStaff: (staffUid: string) => void;
   onVoid: () => void;

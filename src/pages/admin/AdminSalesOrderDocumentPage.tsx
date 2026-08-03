@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import {
+  BadgeCheck,
   Ban,
   Check,
   FileText,
@@ -20,6 +21,7 @@ import {
   draftLinesFromSalesOrderItems,
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
+import { ZoomableImageDialog } from '../../components/ZoomableImageDialog';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCatalog, formatCurrency } from '../../lib/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
@@ -67,6 +69,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [savingShip, setSavingShip] = useState(false);
   const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
   const [salespersonStaffUid, setSalespersonStaffUid] = useState('');
+  const [showPaymentProof, setShowPaymentProof] = useState(false);
 
   const stage = String(salesOrder?.yesOneStage || '');
   const canEditDraft = isOps
@@ -269,6 +272,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       || workflowActions.needsSalesperson
       || workflowActions.canApplySalesperson
       || workflowActions.canAssignSalespersonStaff
+      || workflowActions.canMarkInvoiced
       || workflowActions.canVoid
       || workflowActions.canDelete
     ),
@@ -299,17 +303,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               <span className="invoice-detail-top__card-label">Sales order</span>
             </Link>
             {paymentScreenshotUrl ? (
-              <a
-                href={paymentScreenshotUrl}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
                 className="invoice-detail-top__card invoice-detail-top__card--purple"
+                onClick={() => setShowPaymentProof(true)}
               >
                 <span className="invoice-detail-top__card-icon">
                   <ImageIcon size={28} strokeWidth={1.75} aria-hidden />
                 </span>
                 <span className="invoice-detail-top__card-label">Payment</span>
-              </a>
+              </button>
             ) : null}
           </div>
         </div>
@@ -653,6 +656,18 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               {workflowActions.actionBusy === 'verify' ? 'Verifying…' : 'Verify & invoice'}
             </button>
           )}
+          {workflowActions.canMarkInvoiced && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={Boolean(workflowActions.actionBusy)}
+              onClick={workflowActions.onMarkInvoiced}
+              title="Use when this order was already invoiced in Zoho"
+            >
+              <BadgeCheck size={16} aria-hidden />
+              {workflowActions.actionBusy === 'markInvoiced' ? 'Marking…' : 'Mark as invoiced'}
+            </button>
+          )}
           {workflowActions.canVoid && (
             <button
               type="button"
@@ -677,6 +692,15 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           )}
         </footer>
       )}
+
+      {showPaymentProof && paymentScreenshotUrl ? (
+        <ZoomableImageDialog
+          src={paymentScreenshotUrl}
+          title="Payment proof"
+          alt="Payment screenshot"
+          onClose={() => setShowPaymentProof(false)}
+        />
+      ) : null}
     </div>
   );
 };

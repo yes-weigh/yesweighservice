@@ -25,6 +25,7 @@ import {
   applySalesOrderSalespersonFromDealer,
   applySalesOrderSalespersonFromStaff,
   deleteDraftSalesOrder,
+  markSalesOrderInvoicedManually,
   markSalesOrderReadyForPayment,
   verifySalesOrderPayment,
   yesOneStageLabelForAudience,
@@ -167,6 +168,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && (stage === 'review' || !salesOrder?.yesOneStage);
   const needsSalesperson = canVerifyPayment && stage === 'payment_submitted' && !hasSalesperson;
   const canVerify = canVerifyPayment && stage === 'payment_submitted' && hasSalesperson;
+  const canMarkInvoiced = Boolean(
+    canManageZoho
+    && stage !== 'completed'
+    && stage !== 'void'
+    && statusKey !== 'void'
+    && statusKey !== 'cancelled'
+    && statusKey !== 'canceled',
+  );
   const canApplySalesperson = Boolean(
     canManageZoho
     && !hasSalesperson
@@ -220,6 +229,22 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     setActionBusy('verify');
     try {
       const next = await verifySalesOrderPayment(salesOrderId);
+      setSalesOrder(next);
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setActionBusy(null);
+    }
+  }, [salesOrderId, actionBusy]);
+
+  const handleMarkInvoiced = useCallback(async () => {
+    if (!salesOrderId || actionBusy) return;
+    if (!window.confirm(
+      'Mark this sales order as invoiced here? Use this when the order was already invoiced in Zoho. YesOne will refresh from Zoho and will not create a new invoice.',
+    )) return;
+    setActionBusy('markInvoiced');
+    try {
+      const next = await markSalesOrderInvoicedManually(salesOrderId);
       setSalesOrder(next);
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
@@ -298,11 +323,13 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
         canApplySalesperson: false,
         canAssignSalespersonStaff: false,
         assignableStaff: [],
+        canMarkInvoiced: false,
         canVoid: false,
         canDelete,
         dealerPath: null,
         onReady: () => {},
         onVerify: () => {},
+        onMarkInvoiced: () => {},
         onApplySalesperson: () => {},
         onApplySalespersonFromStaff: () => {},
         onVoid: () => {},
@@ -317,11 +344,13 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       canApplySalesperson,
       canAssignSalespersonStaff,
       assignableStaff,
+      canMarkInvoiced,
       canVoid,
       canDelete,
       dealerPath,
       onReady: () => { void handleReady(); },
       onVerify: () => { void handleVerify(); },
+      onMarkInvoiced: () => { void handleMarkInvoiced(); },
       onApplySalesperson: () => { void handleApplySalesperson(); },
       onApplySalespersonFromStaff: (staffUid: string) => {
         void handleApplySalespersonFromStaff(staffUid);
@@ -339,11 +368,13 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     canApplySalesperson,
     canAssignSalespersonStaff,
     assignableStaff,
+    canMarkInvoiced,
     canVoid,
     canDelete,
     dealerPath,
     handleReady,
     handleVerify,
+    handleMarkInvoiced,
     handleApplySalesperson,
     handleApplySalespersonFromStaff,
     handleVoid,

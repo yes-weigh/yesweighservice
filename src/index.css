@@ -20774,14 +20774,16 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.85rem;
 }
 
-.courier-slip-view-dialog__backdrop {
+.courier-slip-view-dialog__backdrop,
+.zoomable-image-dialog__backdrop {
   z-index: 5000;
   align-items: stretch;
   justify-content: stretch;
   padding: 0;
 }
 
-.courier-slip-view-dialog {
+.courier-slip-view-dialog,
+.zoomable-image-dialog {
   display: flex;
   flex-direction: column;
   width: min(100%, 52rem);
@@ -20793,7 +20795,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   overflow: hidden;
 }
 
-.courier-slip-view-dialog__header {
+.courier-slip-view-dialog__header,
+.zoomable-image-dialog__header {
   flex-shrink: 0;
   align-items: flex-start;
   gap: 0.75rem;
@@ -20804,7 +20807,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex: 1;
 }
 
-.courier-slip-view-dialog__body {
+.courier-slip-view-dialog__body,
+.zoomable-image-dialog__body {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -20814,7 +20818,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   overflow: hidden;
 }
 
-.courier-slip-view-dialog__actions {
+.courier-slip-view-dialog__actions,
+.zoomable-image-dialog__actions {
   flex-shrink: 0;
   margin-top: 0.85rem;
 }
@@ -20936,13 +20941,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 @media (min-width: 768px) {
-  .courier-slip-view-dialog__backdrop {
+  .courier-slip-view-dialog__backdrop,
+  .zoomable-image-dialog__backdrop {
     align-items: center;
     justify-content: center;
     padding: 1.25rem;
   }
 
-  .courier-slip-view-dialog {
+  .courier-slip-view-dialog,
+  .zoomable-image-dialog {
     height: min(92dvh, 56rem);
     max-height: 92dvh;
     border-radius: 16px;
@@ -26092,7 +26099,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: rgba(255, 255, 255, 0.03);
   color: #fff;
   cursor: pointer;
+  font: inherit;
+  text-decoration: none;
   transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+button.invoice-detail-top__card {
+  appearance: none;
+  width: 100%;
 }
 
 .invoice-detail-top__card:hover {

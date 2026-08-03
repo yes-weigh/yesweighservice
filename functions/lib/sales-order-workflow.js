@@ -13,6 +13,7 @@ import {
   confirmSalesOrder,
   createInvoiceFromSalesOrder,
   deleteSalesOrder,
+  getSalesOrderLinkedInvoice,
   pushInvoiceEinvoiceToIrp,
   setSalesOrderSalesperson,
   updateSalesOrderLines,
@@ -949,6 +950,81 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       yesOneUpdatedAt: nowIso(),
     }, { merge: true });
     throw new HttpsError('internal', message);
+  }
+
+  const snap = await ref.get();
+  return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
+}
+
+/**
+ * Manually mark a YesOne SO as invoiced after it was processed in Zoho outside the portal.
+ * Does not create a Zoho invoice — refreshes the SO mirror and sets stage to completed.
+ */
+export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, secrets, orgId) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+
+  const { ref, id, data } = await loadSoOrThrow(salesOrderId);
+  const stage = yesOneStageOf(data);
+  if (stage === 'completed') {
+    throw new HttpsError('failed-precondition', 'This sales order is already marked invoiced.');
+  }
+  if (stage === 'void') {
+    throw new HttpsError('failed-precondition', 'Cannot mark a voided sales order as invoiced.');
+  }
+
+  const zohoStatus = normalizeZohoStatus(data.status);
+  if (zohoStatus === 'void' || zohoStatus === 'cancelled' || zohoStatus === 'canceled') {
+    throw new HttpsError('failed-precondition', 'Cannot mark a voided Zoho sales order as invoiced.');
+  }
+
+  let invoiceId = data.zohoInvoiceId ? String(data.zohoInvoiceId).trim() : null;
+  let invoiceNumber = data.zohoInvoiceNumber ? String(data.zohoInvoiceNumber).trim() : null;
+
+  try {
+    await mirrorSalesOrderFromZoho(secrets, orgId, id);
+  } catch (err) {
+    console.warn(`Mirror before manual invoice mark failed for SO ${id}:`, err?.message || err);
+  }
+
+  try {
+    const linked = await getSalesOrderLinkedInvoice(secrets, orgId, id);
+    if (linked.invoiceId) {
+      invoiceId = linked.invoiceId;
+      invoiceNumber = linked.invoiceNumber || invoiceNumber;
+    }
+  } catch (err) {
+    console.warn(`Could not load linked Zoho invoices for SO ${id}:`, err?.message || err);
+  }
+
+  const at = nowIso();
+  await ref.set({
+    yesOneStage: 'completed',
+    zohoInvoiceId: invoiceId || null,
+    zohoInvoiceNumber: invoiceNumber || null,
+    manuallyMarkedInvoicedAt: at,
+    manuallyMarkedInvoicedByUid: uid,
+    manuallyMarkedInvoicedByName: displayName(user),
+    yesOneUpdatedAt: at,
+    yesOneSyncError: null,
+  }, { merge: true });
+
+  if (invoiceId) {
+    const soSnap = await ref.get();
+    const soData = soSnap.data() || data;
+    try {
+      await writeGatcReportFromSalesOrder({
+        soId: id,
+        soData,
+        invoiceId,
+        invoiceNumber,
+      });
+    } catch (gatcErr) {
+      console.warn(
+        `GATC report write failed for manual invoice mark ${invoiceId} (SO ${id}):`,
+        gatcErr?.message ?? gatcErr,
+      );
+    }
   }
 
   const snap = await ref.get();

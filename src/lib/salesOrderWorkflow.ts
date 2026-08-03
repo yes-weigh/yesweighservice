@@ -294,6 +294,17 @@ export async function verifySalesOrderPayment(
   }
 }
 
+/** Mark SO completed/invoiced here after it was already processed in Zoho. */
+export async function markSalesOrderInvoicedManually(
+  salesOrderId: string,
+): Promise<SalesOrderWorkflowDetail> {
+  try {
+    return await call('markSalesOrderInvoicedManually', { salesOrderId }, 120_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
 /** Copy dealer assigned staff → Zoho salesperson onto this SO (Zoho + Firestore). */
 export async function applySalesOrderSalespersonFromDealer(
   salesOrderId: string,

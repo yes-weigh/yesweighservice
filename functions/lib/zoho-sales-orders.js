@@ -410,6 +410,35 @@ export async function downloadSalesOrderPdf(secrets, configuredOrgId, {
 }
 
 /**
+ * Read the first invoice already linked to a Zoho sales order (if any).
+ */
+export async function getSalesOrderLinkedInvoice(secrets, configuredOrgId, salesOrderId) {
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+
+  const soPayload = await zohoJson(accessToken, orgId, `/salesorders/${encodeURIComponent(soId)}`);
+  const so = soPayload?.salesorder;
+  if (!so) throw new Error('Could not load sales order from Zoho.');
+
+  const invoices = Array.isArray(so.invoices) ? so.invoices : [];
+  const first = invoices.find(row => row?.invoice_id) || null;
+  if (!first) {
+    return {
+      status: so.order_status ? String(so.order_status) : (so.status ? String(so.status) : null),
+      invoiceId: null,
+      invoiceNumber: null,
+    };
+  }
+  return {
+    status: so.order_status ? String(so.order_status) : (so.status ? String(so.status) : null),
+    invoiceId: String(first.invoice_id),
+    invoiceNumber: first.invoice_number ? String(first.invoice_number) : null,
+  };
+}
+
+/**
  * Create an invoice linked to an existing sales order.
  * Tries convert-from-SO first, then falls back to invoice with salesorder_id.
  */
