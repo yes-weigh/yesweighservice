@@ -49,6 +49,10 @@ function settleFrames(): Promise<void> {
   });
 }
 
+/** 1×1 transparent GIF — used when a remote image cannot be inlined. */
+const IMAGE_PLACEHOLDER =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
 /**
  * Rasterize a full element (including overflow / scrolled content) to a PNG blob.
  */
@@ -74,7 +78,14 @@ export async function captureElementScreenshot(
     for (const pixelRatio of tryRatios) {
       try {
         dataUrl = await toPng(el, {
-          cacheBust: true,
+          // Signed GCS URLs break if we append a cache-bust query param.
+          cacheBust: false,
+          // Keep signature query params on Firebase Storage URLs.
+          includeQueryParams: true,
+          // Cross-origin Google Fonts stylesheets throw SecurityError on cssRules.
+          skipFonts: true,
+          imagePlaceholder: IMAGE_PLACEHOLDER,
+          onImageErrorHandler: () => undefined,
           pixelRatio,
           width,
           height,
