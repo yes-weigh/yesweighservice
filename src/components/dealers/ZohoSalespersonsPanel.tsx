@@ -10,7 +10,6 @@ import {
   EyeOff,
   RefreshCw,
   Search,
-  X,
 } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { db } from '../../firebase';
