@@ -40,8 +40,8 @@ import {
 } from '../../lib/salesOrderWorkflow';
 import { formatInvoiceDate } from '../../lib/invoices';
 import { Capacitor } from '@capacitor/core';
-import { captureElementScreenshot } from '../../lib/shareElementScreenshot';
 import {
+  buildSoShareDocument,
   buildSpareInchargeSoShareMessage,
   createSoShareLink,
 } from '../../lib/soShareLinks';
@@ -287,16 +287,32 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   }, [workflowActions?.assignableStaff, salespersonStaffUid]);
 
   const handleShareScreenshot = useCallback(async () => {
-    const el = shareCaptureRef.current;
-    if (!el || !salesOrder || sharing) return;
-    // Web: pre-open tab so WhatsApp is not popup-blocked after async work.
-    // Native APK loads live hosting — open via deep link (no image share sheet).
+    if (!salesOrder || sharing) return;
+    // Web: pre-open so WhatsApp is not popup-blocked after the quick Firestore write.
     const isNative = Capacitor.isNativePlatform();
     const whatsappWindow = isNative ? null : prepareWhatsAppWindow();
     setSharing(true);
-    soDetailRef.current?.classList.add('is-sharing');
     try {
-      const settings = await loadSpareInchargeSettings();
+      const soNumber = salesOrder.salesOrderNumber || salesOrderId || 'sales-order';
+      const dateLabel = salesOrder.date ? formatInvoiceDate(salesOrder.date) : '';
+      const document = buildSoShareDocument({
+        salesOrderId,
+        salesOrderNumber: soNumber,
+        dateLabel,
+        customerName: salesOrder.customerName,
+        shippingAddress: salesOrder.shippingAddress,
+        currencyCode: salesOrder.currencyCode,
+        subtotal: salesOrder.subtotal,
+        taxTotal: salesOrder.taxTotal,
+        total: salesOrder.total,
+        notes: portalSalesOrderRemarks(salesOrder),
+        lineItems: salesOrder.lineItems,
+      });
+
+      const [settings, link] = await Promise.all([
+        loadSpareInchargeSettings(),
+        createSoShareLink(document),
+      ]);
       const sparePhone = whatsappPhoneDigits(settings.whatsappNumber);
       if (!sparePhone) {
         whatsappWindow?.close();
@@ -306,32 +322,20 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         return;
       }
 
-      const soNumber = salesOrder.salesOrderNumber || salesOrderId || 'sales-order';
-      const safeName = soNumber.replace(/[^\w\-]+/g, '-').slice(0, 48);
-      const dateLabel = salesOrder.date ? formatInvoiceDate(salesOrder.date) : '';
-      const shot = await captureElementScreenshot(el, {
-        fileName: `${safeName}.png`,
-        backgroundColor: '#13151b',
-      });
-      const link = await createSoShareLink({
-        imageBlob: shot.blob,
-        fileName: shot.fileName,
-        salesOrderId,
-        salesOrderNumber: soNumber,
-        dateLabel,
-      });
-      const message = buildSpareInchargeSoShareMessage({
-        salesOrderNumber: soNumber,
-        dateLabel,
-        shareUrl: link.url,
-      });
-      openWhatsAppWithText(message, sparePhone, whatsappWindow);
+      openWhatsAppWithText(
+        buildSpareInchargeSoShareMessage({
+          salesOrderNumber: soNumber,
+          dateLabel,
+          shareUrl: link.url,
+        }),
+        sparePhone,
+        whatsappWindow,
+      );
     } catch (err) {
       whatsappWindow?.close();
       if (err instanceof Error && err.name === 'AbortError') return;
       window.alert(err instanceof Error ? err.message : 'Could not share sales order.');
     } finally {
-      soDetailRef.current?.classList.remove('is-sharing');
       setSharing(false);
     }
   }, [salesOrder, salesOrderId, sharing]);

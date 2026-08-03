@@ -38284,6 +38284,35 @@ button.invoice-detail-top__card {
   justify-content: center;
 }
 
+.so-public-share__main--html {
+  display: block;
+  width: min(100%, 720px);
+  margin: 0 auto;
+}
+
+.so-public-share__doc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.so-public-share__notes {
+  padding: 0.85rem 1rem;
+}
+
+.so-public-share__notes h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.so-public-share__notes p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: rgba(226, 232, 240, 0.88);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .so-public-share__figure {
   margin: 0;
   width: min(100%, 720px);
