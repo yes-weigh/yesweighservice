@@ -20,11 +20,15 @@ import {
 import {
   classifyOrderLineSegment,
   groupLinesBySegment,
+  groupLinesBySegmentAndSite,
+  inventorySiteLabel,
   segmentLabel,
+  segmentSiteLabel,
+  segmentSiteOrderSuffix,
   segmentToInvoiceCategory,
   staffCanAddOrderSegment,
-  ORDER_SEGMENTS,
 } from './sales-order-segments.js';
+import { resolveZohoLocationIdForSite } from './zoho-locations.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
@@ -163,6 +167,19 @@ async function nextOrderNumber() {
   return `YES-ORD-${day}-${String(seq).padStart(4, '0')}`;
 }
 
+function mapProductWarehouses(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(row => {
+    const warehouseName = String(row?.warehouseName ?? '').trim();
+    if (!warehouseName) return null;
+    return {
+      warehouseId: row?.warehouseId != null ? String(row.warehouseId) : '',
+      warehouseName,
+      stock: Number(row?.stock ?? 0) || 0,
+    };
+  }).filter(Boolean);
+}
+
 async function loadCatalogProduct(productId) {
   const snap = await getFirestore().doc(`${PRODUCTS}/${productId}`).get();
   if (!snap.exists) return null;
@@ -186,6 +203,7 @@ async function loadCatalogProduct(productId) {
     hsn: data.hsn != null ? String(data.hsn) : null,
     status: String(data.status ?? 'active'),
     hiddenFromCatalog: Boolean(data.hiddenFromCatalog),
+    warehouses: mapProductWarehouses(data.warehouses),
     gatcStampingPriceIds: Array.isArray(data.gatcStampingPriceIds)
       ? data.gatcStampingPriceIds.map(id => String(id ?? '').trim()).filter(Boolean)
       : [],
@@ -213,6 +231,7 @@ function toOrderLine(product, quantity, finalRate, catalogBaseRate) {
     categoryId: product.categoryId,
     taxPercentage: product.taxPercentage,
     hsn: product.hsn,
+    warehouses: Array.isArray(product.warehouses) ? product.warehouses : [],
   };
 }
 
@@ -339,25 +358,26 @@ function isSpareSegmentLine(line) {
 }
 
 /**
- * Resolve salespersons required by non-empty segment groups.
+ * Resolve salespersons required by non-empty segment buckets.
  * Product may be null for dealer path (KAM optional).
  * Spare / software throw if missing.
  */
-async function resolveSegmentSalespersons(groups, {
+async function resolveSegmentSalespersons(segments, {
   productResolver,
 }) {
+  const needed = new Set(segments);
   const bySegment = {};
-  if (groups.product.length > 0) {
+  if (needed.has('product')) {
     bySegment.product = await productResolver();
   }
-  if (groups.spare.length > 0) {
+  if (needed.has('spare')) {
     try {
       bySegment.spare = await resolveSpareInchargeSalesperson();
     } catch (err) {
       throw new HttpsError('failed-precondition', err?.message || 'Spare Incharge salesperson missing.');
     }
   }
-  if (groups.software.length > 0) {
+  if (needed.has('software')) {
     try {
       bySegment.software = await resolveCloudChargesSalesperson();
     } catch (err) {
@@ -373,35 +393,53 @@ async function createSegmentSalesOrders({
   zohoCustomerId,
   shippingResolved,
   remarks,
-  groups,
+  lines,
   salespersonsBySegment,
   orderNumberBase,
   workflowBase,
   pricedLineMapper = line => line,
 }) {
-  const created = [];
-  const segmentOrder = ORDER_SEGMENTS.filter(segment => groups[segment].length > 0);
+  const buckets = groupLinesBySegmentAndSite(lines);
+  if (!buckets.length) {
+    throw new HttpsError('failed-precondition', 'No orderable lines after segment/location split.');
+  }
 
-  for (let i = 0; i < segmentOrder.length; i += 1) {
-    const segment = segmentOrder[i];
-    const segmentLines = groups[segment].map(pricedLineMapper);
+  const created = [];
+
+  for (let i = 0; i < buckets.length; i += 1) {
+    const bucket = buckets[i];
+    const segment = bucket.segment;
+    const site = bucket.site;
+    const segmentLines = bucket.lines.map(pricedLineMapper);
     const subtotal = sumSubtotal(segmentLines);
     const salesperson = salespersonsBySegment[segment] || null;
-    const orderNumber = segmentOrder.length === 1
+    const orderNumber = buckets.length === 1
       ? orderNumberBase
-      : `${orderNumberBase}-${segment === 'spare' ? 'SP' : segment === 'software' ? 'SW' : 'P'}`;
+      : `${orderNumberBase}-${segmentSiteOrderSuffix(segment, site)}`;
 
+    let locationId;
+    try {
+      locationId = await resolveZohoLocationIdForSite(site, secrets, orgId);
+    } catch (err) {
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message || `Could not resolve Zoho branch for ${inventorySiteLabel(site)}.`,
+      );
+    }
+
+    const bucketLabel = segmentSiteLabel(segment, site);
     const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
       id: orderNumber,
       orderNumber,
       zohoCustomerId,
       lines: segmentLines,
       subtotal,
-      remarks: segmentOrder.length === 1
+      locationId,
+      remarks: buckets.length === 1
         ? remarks
         : (remarks
-          ? `${remarks}\n[${segmentLabel(segment)} order type]`
-          : `[${segmentLabel(segment)} order type]`),
+          ? `${remarks}\n[${bucketLabel}]`
+          : `[${bucketLabel}]`),
       shippingAddressId: shippingResolved.shippingAddressId,
       shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
       salespersonId: salesperson?.id || null,
@@ -415,6 +453,9 @@ async function createSegmentSalesOrders({
       ...workflowBase,
       yesOneCartReference: orderNumber,
       yesOneOrderSegment: segment,
+      yesOneInventorySite: site,
+      yesOneBranchLabel: inventorySiteLabel(site),
+      zohoLocationId: locationId,
       salesOrderCategory: segmentToInvoiceCategory(segment),
       categories: [segmentToInvoiceCategory(segment)],
       categoryAmounts: { [segmentToInvoiceCategory(segment)]: subtotal },
@@ -448,6 +489,9 @@ async function createSegmentSalesOrders({
     created.push({
       segment,
       segmentLabel: segmentLabel(segment),
+      inventorySite: site,
+      branchLabel: inventorySiteLabel(site),
+      bucketLabel,
       orderNumber,
       zohoSalesOrderId: salesOrderId,
       zohoSalesOrderNumber: salesOrderNumber,
@@ -525,14 +569,17 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   }
 
   const remarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
-  const groups = groupLinesBySegment(lines);
+  const buckets = groupLinesBySegmentAndSite(lines);
   const orderNumber = await nextOrderNumber();
 
   let salesOrders;
   try {
-    const salespersonsBySegment = await resolveSegmentSalespersons(groups, {
-      productResolver: async () => resolveSalespersonForCustomer(zohoCustomerId),
-    });
+    const salespersonsBySegment = await resolveSegmentSalespersons(
+      buckets.map(bucket => bucket.segment),
+      {
+        productResolver: async () => resolveSalespersonForCustomer(zohoCustomerId),
+      },
+    );
 
     salesOrders = await createSegmentSalesOrders({
       secrets,
@@ -540,7 +587,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       zohoCustomerId,
       shippingResolved,
       remarks,
-      groups,
+      lines,
       salespersonsBySegment,
       orderNumberBase: orderNumber,
       workflowBase: {
@@ -632,6 +679,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
   }
 
   const groups = groupLinesBySegment(lines);
+  const buckets = groupLinesBySegmentAndSite(lines);
   const freightLinesOnly = lines.filter(isFreightOrderLine);
   if (freightLinesOnly.length > 0) {
     const host = groups.product.length > 0 ? 'product' : (groups.spare.length > 0 ? 'spare' : null);
@@ -670,32 +718,35 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
 
   let salesOrders;
   try {
-    const salespersonsBySegment = await resolveSegmentSalespersons(groups, {
-      productResolver: async () => {
-        if (fullSA) {
-          // Prefer explicit pick (defaults to creator’s Zoho SP in UI; may be changed).
-          const picked = await resolveSalespersonById(payload.salespersonId, {
-            staffUid: uid,
-            staffName: actorName,
-          });
-          if (picked) return picked;
-          const own = await resolveSalespersonForStaff(uid);
-          if (own) return own;
-          const kam = await resolveSalespersonForCustomer(zohoCustomerId);
-          if (kam) return kam;
+    const salespersonsBySegment = await resolveSegmentSalespersons(
+      buckets.map(bucket => bucket.segment),
+      {
+        productResolver: async () => {
+          if (fullSA) {
+            // Prefer explicit pick (defaults to creator’s Zoho SP in UI; may be changed).
+            const picked = await resolveSalespersonById(payload.salespersonId, {
+              staffUid: uid,
+              staffName: actorName,
+            });
+            if (picked) return picked;
+            const own = await resolveSalespersonForStaff(uid);
+            if (own) return own;
+            const kam = await resolveSalespersonForCustomer(zohoCustomerId);
+            if (kam) return kam;
+            throw new HttpsError(
+              'failed-precondition',
+              'Select a Zoho salesperson for the product sales order.',
+            );
+          }
+          const linked = await resolveSalespersonForStaff(uid);
+          if (linked) return linked;
           throw new HttpsError(
             'failed-precondition',
-            'Select a Zoho salesperson for the product sales order.',
+            'Link at least one Zoho salesperson to your staff account before creating product orders.',
           );
-        }
-        const linked = await resolveSalespersonForStaff(uid);
-        if (linked) return linked;
-        throw new HttpsError(
-          'failed-precondition',
-          'Link at least one Zoho salesperson to your staff account before creating product orders.',
-        );
+        },
       },
-    });
+    );
 
     const priceAudit = priceChanges.map(change => ({
       ...change,
@@ -710,10 +761,10 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
       zohoCustomerId,
       shippingResolved,
       remarks,
-      groups,
+      lines,
       salespersonsBySegment,
       orderNumberBase: orderNumber,
-      pricedLineMapper: ({ catalogRate: _c, ...line }) => line,
+      pricedLineMapper: ({ catalogRate: _c, warehouses: _w, ...line }) => line,
       workflowBase: {
         yesOneCreatedByStaff: true,
         yesOneCreatedFromCart: false,

@@ -21,8 +21,7 @@ import {
   type SegmentSalesOrderResult,
 } from '../../lib/dealerOrders';
 import {
-  segmentLabel,
-  summarizeSegments,
+  summarizeSegmentSiteBuckets,
 } from '../../lib/salesOrderSegments';
 import {
   listDealerShippingAddresses,
@@ -127,9 +126,12 @@ const DealerCartPage: React.FC = () => {
       return {
         categoryId: item.categoryId ?? catalog?.categoryId ?? null,
         categoryName: item.categoryName ?? catalog?.categoryName ?? null,
+        productId: item.productId,
+        sku: item.sku ?? catalog?.sku ?? null,
+        warehouses: catalog?.warehouses ?? null,
       };
     });
-    return summarizeSegments(lines);
+    return summarizeSegmentSiteBuckets(lines);
   }, [items, catalogById]);
 
   const handlePlaceOrder = async () => {
@@ -241,8 +243,10 @@ const DealerCartPage: React.FC = () => {
           <p className="text-muted text-sm">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
             {segmentPreview.length > 1
-              ? ` · creates ${segmentPreview.length} Zoho Draft sales orders (${segmentPreview.map(segmentLabel).join(', ')})`
-              : ' · creates a Zoho Draft sales order'}
+              ? ` · creates ${segmentPreview.length} Zoho Draft sales orders (${segmentPreview.map(b => b.label).join(', ')})`
+              : segmentPreview[0]
+                ? ` · creates a Zoho Draft sales order (${segmentPreview[0].label})`
+                : ' · creates a Zoho Draft sales order'}
           </p>
         </div>
         <div className="orders-page__header-actions">

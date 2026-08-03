@@ -27,7 +27,7 @@ export const MultiSalesOrderSuccess: React.FC<Props> = ({
             {count === 1 ? 'Sales order created' : `${count} sales orders created`}
           </h2>
           <p className="text-muted text-sm">
-            Items were split by Product, Spare, and Software order types where needed.
+            Items were split by order type and branch (Cochin / Head Office) where needed.
           </p>
         </div>
       </div>
@@ -35,9 +35,10 @@ export const MultiSalesOrderSuccess: React.FC<Props> = ({
         {salesOrders.map(so => (
           <li key={so.zohoSalesOrderId} className="multi-so-success__item">
             <div>
-              <strong>{so.segmentLabel}</strong>
+              <strong>{so.bucketLabel || so.segmentLabel}</strong>
               <p className="text-muted text-sm">
                 {so.zohoSalesOrderNumber || so.orderNumber}
+                {so.branchLabel ? ` · ${so.branchLabel}` : ''}
                 {so.salespersonName ? ` · ${so.salespersonName}` : ''}
                 {' · '}
                 {formatCurrency(so.subtotal)}

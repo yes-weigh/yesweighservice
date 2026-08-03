@@ -68,7 +68,7 @@ import {
   segmentAllowsFreight,
   segmentLabel,
   staffAllowedOrderSegments,
-  summarizeSegments,
+  summarizeSegmentSiteBuckets,
   type OrderSegment,
 } from '../../lib/salesOrderSegments';
 import { freightOptionBySku } from '../../constants/freightLines';
@@ -533,16 +533,20 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   }, [cartItems]);
 
   const submitLines = useMemo(() => ([
-    ...lines.map(line => ({
-      productId: line.productId,
-      quantity: line.quantity,
-      rate: line.catalogRate,
-      gatcStampingPriceId: line.gatcStampingPriceId ?? null,
-      name: line.name,
-      sku: line.sku,
-      categoryId: line.categoryId,
-      categoryName: line.categoryName,
-    })),
+    ...lines.map(line => {
+      const catalog = catalogById[line.productId];
+      return {
+        productId: line.productId,
+        quantity: line.quantity,
+        rate: line.catalogRate,
+        gatcStampingPriceId: line.gatcStampingPriceId ?? null,
+        name: line.name,
+        sku: line.sku,
+        categoryId: line.categoryId,
+        categoryName: line.categoryName,
+        warehouses: catalog?.warehouses ?? null,
+      };
+    }),
     ...(freightAllowed
       ? freightLines.map(line => ({
           productId: line.productId,
@@ -553,11 +557,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           sku: line.sku,
           categoryId: null as string | null,
           categoryName: null as string | null,
+          warehouses: null as CatalogProduct['warehouses'] | null,
         }))
       : []),
-  ]), [lines, freightLines, freightAllowed]);
+  ]), [lines, freightLines, freightAllowed, catalogById]);
 
-  const segmentPreview = useMemo(() => summarizeSegments(submitLines), [submitLines]);
+  const segmentPreview = useMemo(() => summarizeSegmentSiteBuckets(submitLines), [submitLines]);
 
   const freightSubtotal = useMemo(
     () => (freightAllowed ? freightLines.reduce((sum, line) => sum + line.rate, 0) : 0),
@@ -1675,7 +1680,11 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               <p className="text-muted text-sm staff-create-so-page__order-type-hint">
                 This will create {segmentPreview.length} draft sales orders:
                 {' '}
-                {segmentPreview.map(segmentLabel).join(', ')}.
+                {segmentPreview.map(bucket => bucket.label).join(', ')}.
+              </p>
+            ) : segmentPreview[0] ? (
+              <p className="text-muted text-sm staff-create-so-page__order-type-hint">
+                Branch: {segmentPreview[0].label}.
               </p>
             ) : null}
           </section>

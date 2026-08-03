@@ -45,8 +45,11 @@ async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {})
   return payload;
 }
 
-function lineItemsFromOrder(order) {
+function lineItemsFromOrder(order, locationId = null) {
   const lines = Array.isArray(order.lines) ? order.lines : [];
+  const loc = locationId != null && String(locationId).trim()
+    ? String(locationId).trim()
+    : null;
   return lines.map(line => ({
     item_id: String(line.itemId || line.productId),
     name: String(line.name || 'Item'),
@@ -55,6 +58,7 @@ function lineItemsFromOrder(order) {
     unit: String(line.unit || 'pcs'),
     ...(line.description ? { description: String(line.description) } : {}),
     ...(line.hsn ? { hsn_or_sac: String(line.hsn) } : {}),
+    ...(loc ? { location_id: loc } : {}),
   })).filter(line => line.quantity > 0 && line.item_id);
 }
 
@@ -80,7 +84,10 @@ function lineItemsForSalesOrderPut(so) {
 export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, order) {
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
-  const lineItems = lineItemsFromOrder(order);
+  const locationId = order.locationId != null && String(order.locationId).trim()
+    ? String(order.locationId).trim()
+    : null;
+  const lineItems = lineItemsFromOrder(order, locationId);
   if (!lineItems.length) {
     throw new Error('Order has no valid Zoho line items.');
   }
@@ -101,6 +108,9 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     line_items: lineItems,
     notes,
   };
+  if (locationId) {
+    body.location_id = locationId;
+  }
   const salespersonId = String(order.salespersonId || '').trim();
   if (salespersonId) {
     body.salesperson_id = salespersonId;
@@ -134,6 +144,9 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     salesOrderId: String(so.salesorder_id),
     salesOrderNumber: so.salesorder_number ? String(so.salesorder_number) : null,
     status: so.status ? String(so.status) : 'draft',
+    locationId: so.location_id != null && String(so.location_id).trim()
+      ? String(so.location_id).trim()
+      : locationId,
     salespersonId: so.salesperson_id != null && String(so.salesperson_id).trim()
       ? String(so.salesperson_id).trim()
       : (salespersonId || null),

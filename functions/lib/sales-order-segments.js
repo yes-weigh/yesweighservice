@@ -11,6 +11,12 @@ import {
 
 export const ORDER_SEGMENTS = ['product', 'spare', 'software'];
 
+/** Inventory / Zoho Branch sites used when splitting cart → SO. */
+export const INVENTORY_SITES = ['cochin', 'head_office'];
+
+export const WAREHOUSE_NAME_COCHIN = 'Cochin';
+export const WAREHOUSE_NAME_HEAD_OFFICE = 'Head Office';
+
 export function isGenericSparePartsCategoryName(name) {
   const normalized = String(name ?? '').trim().toLowerCase();
   return (
@@ -85,6 +91,121 @@ export function groupLinesBySegment(lines) {
   return groups;
 }
 
+function warehouseStock(warehouses, warehouseName) {
+  const target = String(warehouseName ?? '').trim().toLowerCase();
+  if (!target || !Array.isArray(warehouses)) return 0;
+  const match = warehouses.find(
+    row => String(row?.warehouseName ?? '').trim().toLowerCase() === target,
+  );
+  const stock = Number(match?.stock ?? 0);
+  return Number.isFinite(stock) ? stock : 0;
+}
+
+/**
+ * Pick Cochin vs Head Office for a cart line from Zoho warehouse stock.
+ * Software always Head Office. Prefer higher positive stock; empty → segment default.
+ *
+ * @param {'product'|'spare'|'software'|null} segment
+ * @param {Array<{ warehouseName?: string, stock?: number }>|null|undefined} warehouses
+ * @returns {'cochin'|'head_office'}
+ */
+export function resolveLineInventorySite(segment, warehouses) {
+  if (segment === 'software') return 'head_office';
+
+  const cochinStock = warehouseStock(warehouses, WAREHOUSE_NAME_COCHIN);
+  const headOfficeStock = warehouseStock(warehouses, WAREHOUSE_NAME_HEAD_OFFICE);
+
+  if (cochinStock > 0 || headOfficeStock > 0) {
+    if (cochinStock === headOfficeStock) {
+      return segment === 'spare' ? 'head_office' : 'cochin';
+    }
+    return cochinStock > headOfficeStock ? 'cochin' : 'head_office';
+  }
+
+  // No positive stock at either primary warehouse.
+  return segment === 'spare' ? 'head_office' : 'cochin';
+}
+
+export function inventorySiteLabel(site) {
+  return site === 'head_office' ? 'Head Office' : 'Cochin';
+}
+
+export function segmentSiteBucketKey(segment, site) {
+  return `${segment}:${site === 'head_office' ? 'head_office' : 'cochin'}`;
+}
+
+export function parseSegmentSiteBucketKey(key) {
+  const raw = String(key ?? '');
+  const [segment, site] = raw.split(':');
+  if (segment !== 'product' && segment !== 'spare' && segment !== 'software') return null;
+  if (site !== 'cochin' && site !== 'head_office') return null;
+  return { segment, site };
+}
+
+/**
+ * Split cart into segment × inventory-site buckets for multi-SO create.
+ * Freight attaches to first product bucket (prefer Cochin), else first spare bucket.
+ *
+ * @param {object[]} lines lines should include warehouses[] when available
+ * @returns {Array<{ key: string, segment: 'product'|'spare'|'software', site: 'cochin'|'head_office', lines: object[] }>}
+ */
+export function groupLinesBySegmentAndSite(lines) {
+  /** @type {Map<string, { key: string, segment: string, site: string, lines: object[] }>} */
+  const buckets = new Map();
+  const freight = [];
+
+  const ensureBucket = (segment, site) => {
+    const key = segmentSiteBucketKey(segment, site);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { key, segment, site, lines: [] };
+      buckets.set(key, bucket);
+    }
+    return bucket;
+  };
+
+  for (const line of lines || []) {
+    const segment = classifyOrderLineSegment(line);
+    if (!segment) {
+      freight.push(line);
+      continue;
+    }
+    const site = resolveLineInventorySite(segment, line.warehouses);
+    ensureBucket(segment, site).lines.push(line);
+  }
+
+  if (freight.length) {
+    const hostOrder = [
+      'product:cochin',
+      'product:head_office',
+      'spare:cochin',
+      'spare:head_office',
+    ];
+    const hostKey = hostOrder.find(key => (buckets.get(key)?.lines.length ?? 0) > 0) || null;
+    if (hostKey) {
+      buckets.get(hostKey).lines.push(...freight);
+    }
+  }
+
+  const order = [
+    'product:cochin',
+    'product:head_office',
+    'spare:cochin',
+    'spare:head_office',
+    'software:head_office',
+    'software:cochin',
+  ];
+  const ordered = [];
+  for (const key of order) {
+    const bucket = buckets.get(key);
+    if (bucket?.lines.length) ordered.push(bucket);
+  }
+  for (const [key, bucket] of buckets) {
+    if (!order.includes(key) && bucket.lines.length) ordered.push(bucket);
+  }
+  return ordered;
+}
+
 /** Host segment for freight lines: product, else spare; never software. */
 export function freightHostSegment(groups) {
   if (groups?.product?.length) return 'product';
@@ -96,6 +217,19 @@ export function segmentLabel(segment) {
   if (segment === 'spare') return 'Spare';
   if (segment === 'software') return 'Software';
   return 'Product';
+}
+
+/** Order-number suffix for a segment×site bucket (multi-SO carts). */
+export function segmentSiteOrderSuffix(segment, site) {
+  if (segment === 'software') return 'SW';
+  const siteTag = site === 'head_office' ? 'HO' : 'C';
+  if (segment === 'spare') return `SP-${siteTag}`;
+  return `P-${siteTag}`;
+}
+
+export function segmentSiteLabel(segment, site) {
+  if (segment === 'software') return 'Software · Head Office';
+  return `${segmentLabel(segment)} · ${inventorySiteLabel(site)}`;
 }
 
 export function segmentToInvoiceCategory(segment) {

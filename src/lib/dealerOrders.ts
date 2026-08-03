@@ -25,6 +25,9 @@ async function call<TReq, TRes>(name: string, data?: TReq, timeout = 60_000): Pr
 export interface SegmentSalesOrderResult {
   segment: 'product' | 'spare' | 'software';
   segmentLabel: string;
+  inventorySite?: 'cochin' | 'head_office' | null;
+  branchLabel?: string | null;
+  bucketLabel?: string | null;
   orderNumber: string;
   zohoSalesOrderId: string;
   zohoSalesOrderNumber: string | null;

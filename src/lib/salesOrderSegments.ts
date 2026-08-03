@@ -8,8 +8,20 @@ import { isFullSuperAdmin } from './staffAccess';
 import { canUseCart, type Role, type User } from '../types';
 
 export type OrderSegment = 'product' | 'spare' | 'software';
+export type InventorySite = 'cochin' | 'head_office';
 
 export const ORDER_SEGMENTS: OrderSegment[] = ['product', 'spare', 'software'];
+export const INVENTORY_SITES: InventorySite[] = ['cochin', 'head_office'];
+
+export const WAREHOUSE_NAME_COCHIN = 'Cochin';
+export const WAREHOUSE_NAME_HEAD_OFFICE = 'Head Office';
+
+export type SegmentSiteBucket<T> = {
+  key: string;
+  segment: OrderSegment;
+  site: InventorySite;
+  lines: T[];
+};
 
 export function isSoftwareSegmentCategoryName(name: string | null | undefined): boolean {
   const normalized = String(name ?? '').trim().toLowerCase();
@@ -58,6 +70,55 @@ export function segmentLabel(segment: OrderSegment): string {
   return 'Product';
 }
 
+export function inventorySiteLabel(site: InventorySite): string {
+  return site === 'head_office' ? 'Head Office' : 'Cochin';
+}
+
+function warehouseStock(
+  warehouses: Array<{ warehouseName?: string; stock?: number }> | null | undefined,
+  warehouseName: string,
+): number {
+  const target = warehouseName.trim().toLowerCase();
+  if (!target || !warehouses?.length) return 0;
+  const match = warehouses.find(
+    row => String(row.warehouseName ?? '').trim().toLowerCase() === target,
+  );
+  const stock = Number(match?.stock ?? 0);
+  return Number.isFinite(stock) ? stock : 0;
+}
+
+/**
+ * Pick Cochin vs Head Office from Zoho warehouse stock.
+ * Software always Head Office. Prefer higher positive stock; empty → segment default.
+ */
+export function resolveLineInventorySite(
+  segment: OrderSegment | null,
+  warehouses?: Array<{ warehouseName?: string; stock?: number }> | null,
+): InventorySite {
+  if (segment === 'software') return 'head_office';
+
+  const cochinStock = warehouseStock(warehouses, WAREHOUSE_NAME_COCHIN);
+  const headOfficeStock = warehouseStock(warehouses, WAREHOUSE_NAME_HEAD_OFFICE);
+
+  if (cochinStock > 0 || headOfficeStock > 0) {
+    if (cochinStock === headOfficeStock) {
+      return segment === 'spare' ? 'head_office' : 'cochin';
+    }
+    return cochinStock > headOfficeStock ? 'cochin' : 'head_office';
+  }
+
+  return segment === 'spare' ? 'head_office' : 'cochin';
+}
+
+export function segmentSiteBucketKey(segment: OrderSegment, site: InventorySite): string {
+  return `${segment}:${site}`;
+}
+
+export function segmentSiteLabel(segment: OrderSegment, site: InventorySite): string {
+  if (segment === 'software') return 'Software · Head Office';
+  return `${segmentLabel(segment)} · ${inventorySiteLabel(site)}`;
+}
+
 export function groupLinesBySegment<T extends {
   categoryId?: string | null;
   categoryName?: string | null;
@@ -85,6 +146,68 @@ export function groupLinesBySegment<T extends {
   return groups;
 }
 
+export function groupLinesBySegmentAndSite<T extends {
+  categoryId?: string | null;
+  categoryName?: string | null;
+  productId?: string | null;
+  sku?: string | null;
+  warehouses?: Array<{ warehouseName?: string; stock?: number }> | null;
+}>(lines: T[]): SegmentSiteBucket<T>[] {
+  const buckets = new Map<string, SegmentSiteBucket<T>>();
+  const freight: T[] = [];
+
+  const ensureBucket = (segment: OrderSegment, site: InventorySite) => {
+    const key = segmentSiteBucketKey(segment, site);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { key, segment, site, lines: [] };
+      buckets.set(key, bucket);
+    }
+    return bucket;
+  };
+
+  for (const line of lines) {
+    const segment = classifyOrderLineSegment(line);
+    if (!segment) {
+      freight.push(line);
+      continue;
+    }
+    const site = resolveLineInventorySite(segment, line.warehouses);
+    ensureBucket(segment, site).lines.push(line);
+  }
+
+  if (freight.length) {
+    const hostOrder = [
+      'product:cochin',
+      'product:head_office',
+      'spare:cochin',
+      'spare:head_office',
+    ] as const;
+    const hostKey = hostOrder.find(key => (buckets.get(key)?.lines.length ?? 0) > 0);
+    if (hostKey) buckets.get(hostKey)!.lines.push(...freight);
+  }
+
+  const order = [
+    'product:cochin',
+    'product:head_office',
+    'spare:cochin',
+    'spare:head_office',
+    'software:head_office',
+    'software:cochin',
+  ] as const;
+  const ordered: SegmentSiteBucket<T>[] = [];
+  for (const key of order) {
+    const bucket = buckets.get(key);
+    if (bucket?.lines.length) ordered.push(bucket);
+  }
+  for (const [key, bucket] of buckets) {
+    if (!(order as readonly string[]).includes(key) && bucket.lines.length) {
+      ordered.push(bucket);
+    }
+  }
+  return ordered;
+}
+
 /** Freight attaches to product or spare only — never software. */
 export function segmentAllowsFreight(segment: OrderSegment | null | undefined): boolean {
   return segment === 'product' || segment === 'spare';
@@ -101,6 +224,23 @@ export function summarizeSegments(lines: Array<{
     // Count only non-freight for preview messaging — freight is attached to host.
     return groups[segment].some(line => !isFreightOrderLine(line));
   });
+}
+
+/** Preview buckets for multi-SO checkout (type × location). */
+export function summarizeSegmentSiteBuckets(lines: Array<{
+  categoryId?: string | null;
+  categoryName?: string | null;
+  productId?: string | null;
+  sku?: string | null;
+  warehouses?: Array<{ warehouseName?: string; stock?: number }> | null;
+}>): Array<{ segment: OrderSegment; site: InventorySite; label: string }> {
+  return groupLinesBySegmentAndSite(lines)
+    .filter(bucket => bucket.lines.some(line => !isFreightOrderLine(line)))
+    .map(bucket => ({
+      segment: bucket.segment,
+      site: bucket.site,
+      label: segmentSiteLabel(bucket.segment, bucket.site),
+    }));
 }
 
 /** Dealer / dealer_staff can add any segment (canBuySpares enforced on submit). */
