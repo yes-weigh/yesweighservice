@@ -30,27 +30,62 @@ export async function uploadWhatsAppShareCard(
   }
 }
 
-/** Open WhatsApp app/web directly (no system share sheet). */
-export function openWhatsAppWithText(text: string): void {
+/**
+ * Normalize a phone or wa.me URL to international digits for WhatsApp deep links.
+ * Indian 10-digit numbers become `91…`.
+ */
+export function whatsappPhoneDigits(
+  phoneOrHref: string | null | undefined,
+): string | null {
+  const raw = String(phoneOrHref || '').trim();
+  if (!raw) return null;
+
+  const fromHref = /wa\.me\/(\d+)/i.exec(raw)?.[1]
+    || /[?&]phone=(\d+)/i.exec(raw)?.[1];
+  if (fromHref && fromHref.length >= 10) return fromHref;
+
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length >= 11) return digits;
+  return null;
+}
+
+/** Open WhatsApp app/web directly (no system share sheet). Optional phone opens that chat. */
+export function openWhatsAppWithText(
+  text: string,
+  phoneOrHref?: string | null,
+): void {
   const encoded = encodeURIComponent(text);
+  const phone = whatsappPhoneDigits(phoneOrHref);
   const ua = navigator.userAgent || '';
   const isAndroid = /Android/i.test(ua);
   const isIos = /iPhone|iPad|iPod/i.test(ua);
+  const waMe = phone
+    ? `https://wa.me/${phone}?text=${encoded}`
+    : `https://wa.me/?text=${encoded}`;
 
   if (isAndroid) {
-    // Opens WhatsApp (or Business) directly; falls back to wa.me in the browser
-    const fallback = encodeURIComponent(`https://wa.me/?text=${encoded}`);
+    const fallback = encodeURIComponent(waMe);
+    const phonePart = phone ? `phone=${phone}&` : '';
     window.location.href =
-      `intent://send?text=${encoded}`
+      `intent://send?${phonePart}text=${encoded}`
       + '#Intent;scheme=whatsapp;package=com.whatsapp;'
       + `S.browser_fallback_url=${fallback};end`;
     return;
   }
 
   if (isIos) {
-    window.location.href = `whatsapp://send?text=${encoded}`;
+    window.location.href = phone
+      ? `whatsapp://send?phone=${phone}&text=${encoded}`
+      : `whatsapp://send?text=${encoded}`;
     return;
   }
 
-  window.open(`https://web.whatsapp.com/send?text=${encoded}`, '_blank', 'noopener,noreferrer');
+  window.open(
+    phone
+      ? `https://web.whatsapp.com/send?phone=${phone}&text=${encoded}`
+      : `https://web.whatsapp.com/send?text=${encoded}`,
+    '_blank',
+    'noopener,noreferrer',
+  );
 }

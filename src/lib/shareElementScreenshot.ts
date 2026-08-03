@@ -124,15 +124,33 @@ export async function captureElementScreenshot(
   }
 }
 
-/** Share a PNG screenshot via native share sheet / Web Share / WhatsApp fallback. */
+/**
+ * Share a PNG screenshot.
+ * When `whatsappPhone` is set, opens that chat with an uploaded image link
+ * (WhatsApp cannot attach a file to a specific number via deep link).
+ * Otherwise uses the system / general WhatsApp share sheet.
+ */
 export async function shareScreenshotBlob(
   blob: Blob,
-  options: { fileName: string; title: string; text?: string },
+  options: {
+    fileName: string;
+    title: string;
+    text?: string;
+    /** Phone digits or wa.me URL — opens that chat instead of the share sheet. */
+    whatsappPhone?: string | null;
+  },
 ): Promise<void> {
   const fileName = options.fileName;
   const title = options.title;
   const text = String(options.text ?? title).trim() || title;
   const mimeType = blob.type || 'image/png';
+  const whatsappPhone = options.whatsappPhone;
+
+  if (whatsappPhone) {
+    const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
+    openWhatsAppWithText([text, imageUrl].filter(Boolean).join('\n'), whatsappPhone);
+    return;
+  }
 
   if (Capacitor.isNativePlatform()) {
     const dataBase64 = await blobToBase64(blob);
@@ -178,6 +196,7 @@ export async function captureAndShareElement(
     title: string;
     text?: string;
     backgroundColor?: string;
+    whatsappPhone?: string | null;
   },
 ): Promise<void> {
   const shot = await captureElementScreenshot(el, {
@@ -188,5 +207,6 @@ export async function captureAndShareElement(
     fileName: shot.fileName,
     title: options.title,
     text: options.text,
+    whatsappPhone: options.whatsappPhone,
   });
 }

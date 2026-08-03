@@ -43,6 +43,9 @@ import { captureAndShareElement } from '../../lib/shareElementScreenshot';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
 
+/** Spare incharge WhatsApp for SO screenshot share. */
+const SPARE_INCHARGE_WHATSAPP = '919567933252';
+
 function WhatsAppIcon({ size = 16 }: { size?: number }) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden>
@@ -290,6 +293,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         title: soNumber,
         text: [soNumber, dateLabel].filter(Boolean).join(' · '),
         backgroundColor: '#13151b',
+        whatsappPhone: SPARE_INCHARGE_WHATSAPP,
       });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -636,10 +640,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           className="btn btn-primary so-detail__share-btn so-detail__share-btn--whatsapp"
           disabled={sharing || Boolean(workflowActions?.actionBusy)}
           onClick={() => { void handleShareScreenshot(); }}
-          aria-label="Share on WhatsApp"
+          aria-label="Share to spare incharge"
         >
           <WhatsAppIcon size={16} />
-          {sharing ? 'Sharing…' : 'WhatsApp'}
+          {sharing ? 'Sharing…' : 'Share to spare incharge'}
         </button>
         {showWorkflowActions && workflowActions && (
           <>
