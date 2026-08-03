@@ -315,9 +315,12 @@ function buildFlowWithReopenHistory(
     });
   });
 
-  const stages = applicableStages(request.type).filter(stage => stage !== 'submitted');
-  const progressIndex = request.lifecycle === 'open' && request.openStage
-    ? stages.indexOf(request.openStage)
+  const stages = applicableStages(request.type).filter(
+    (stage): stage is Exclude<SupportOpenStage, 'submitted'> => stage !== 'submitted',
+  );
+  const openStage = request.openStage;
+  const progressIndex = request.lifecycle === 'open' && openStage && openStage !== 'submitted'
+    ? stages.indexOf(openStage)
     : request.lifecycle === 'open'
       ? 0
       : -1;
