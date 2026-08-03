@@ -3,7 +3,6 @@ import { RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { SupportLifecycleFilterBlocks } from './SupportLifecycleFilterBlocks';
 import { SupportRequestCard } from './SupportRequestCard';
-import { useAuth } from '../../context/AuthContext';
 import { fetchCatalogImagesForItemIds } from '../../lib/invoiceLineItemImages';
 import { fetchSupportInvoiceDatesForTickets } from '../../lib/supportInvoiceDates';
 import type { DealerSupportRequest } from '../../types/dealer-support';
@@ -34,7 +33,6 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   onOpenRequest,
   onRefresh,
 }) => {
-  const { user } = useAuth();
   const [lifecycleFilter, setLifecycleFilter] = useState<SupportLifecycleFilter>(DEFAULT_LIFECYCLE_FILTER);
   const [sort, setSort] = useState<SupportSortOption>('newest');
   const [typeFilter, setTypeFilter] = useState<SupportTypeFilter>('all');
