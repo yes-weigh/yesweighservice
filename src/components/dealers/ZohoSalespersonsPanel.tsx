@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { collection, getDocs } from 'firebase/firestore';
 import {
   Eye,
   EyeOff,
-  Link2,
   RefreshCw,
   Search,
-  Unlink,
-  UserPlus,
+  X,
 } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { db } from '../../firebase';
@@ -41,6 +47,212 @@ type HideDialogState = {
   reassignToStaffUid: string;
 };
 
+type OwnerOption = {
+  uid: string;
+  displayName: string;
+  hint?: string;
+};
+
+function PortalOwnerAutocomplete({
+  valueUid,
+  valueLabel,
+  options,
+  disabled,
+  busy,
+  ariaLabel,
+  onSelect,
+  onClear,
+}: {
+  valueUid: string;
+  valueLabel: string;
+  options: OwnerOption[];
+  disabled?: boolean;
+  busy?: boolean;
+  ariaLabel: string;
+  onSelect: (uid: string) => void;
+  onClear: () => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = !q
+      ? options
+      : options.filter(opt =>
+        opt.displayName.toLowerCase().includes(q)
+        || (opt.hint?.toLowerCase().includes(q) ?? false)
+        || opt.uid.toLowerCase().includes(q),
+      );
+    return list.slice(0, 40);
+  }, [options, query]);
+
+  const updateMenuPosition = () => {
+    const el = rootRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const width = Math.max(rect.width, 220);
+    const maxH = Math.min(260, window.innerHeight - 24);
+    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    const openUp = spaceBelow < Math.min(maxH, 160) && spaceAbove > spaceBelow;
+    const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8);
+    setMenuStyle({
+      position: 'fixed',
+      top: openUp ? undefined : rect.bottom + 4,
+      bottom: openUp ? window.innerHeight - rect.top + 4 : undefined,
+      left,
+      width,
+      maxHeight: openUp ? Math.min(maxH, spaceAbove) : Math.min(maxH, Math.max(spaceBelow, 120)),
+      zIndex: 720,
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    updateMenuPosition();
+    const onDoc = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if ((target as Element).closest?.('.zoho-sp-owner-ac__menu')) return;
+      setOpen(false);
+      setQuery('');
+    };
+    const onReposition = () => updateMenuPosition();
+    document.addEventListener('mousedown', onDoc);
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, open]);
+
+  const pick = (uid: string) => {
+    onSelect(uid);
+    setOpen(false);
+    setQuery('');
+  };
+
+  const showLabel = !open && !query;
+  const displayValue = showLabel ? (valueLabel || '') : query;
+
+  const menu = open ? (
+    <ul
+      className="zoho-sp-owner-ac__menu panel glass"
+      style={menuStyle}
+      role="listbox"
+      aria-label={ariaLabel}
+    >
+      {matches.length === 0 ? (
+        <li className="zoho-sp-owner-ac__empty text-muted text-sm">No matching staff</li>
+      ) : (
+        matches.map((opt, index) => (
+          <li key={opt.uid} role="presentation">
+            <button
+              type="button"
+              role="option"
+              aria-selected={opt.uid === valueUid || index === activeIndex}
+              className={[
+                'zoho-sp-owner-ac__option',
+                opt.uid === valueUid ? 'is-selected' : '',
+                index === activeIndex ? 'is-active' : '',
+              ].filter(Boolean).join(' ')}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => pick(opt.uid)}
+            >
+              <span className="zoho-sp-owner-ac__option-name">{opt.displayName}</span>
+              {opt.hint ? (
+                <span className="zoho-sp-owner-ac__option-hint">{opt.hint}</span>
+              ) : null}
+            </button>
+          </li>
+        ))
+      )}
+    </ul>
+  ) : null;
+
+  return (
+    <div
+      ref={rootRef}
+      className={`zoho-sp-owner-ac${open ? ' is-open' : ''}${disabled || busy ? ' is-disabled' : ''}`}
+    >
+      <Search size={14} className="zoho-sp-owner-ac__icon" aria-hidden />
+      <input
+        ref={inputRef}
+        type="search"
+        className="zoho-sp-owner-ac__input"
+        value={displayValue}
+        disabled={disabled || busy}
+        placeholder={valueUid ? valueLabel || 'Linked owner' : 'Link owner…'}
+        aria-label={ariaLabel}
+        aria-autocomplete="list"
+        aria-expanded={open}
+        autoComplete="off"
+        onFocus={() => {
+          if (!disabled && !busy) {
+            setOpen(true);
+            setQuery('');
+            updateMenuPosition();
+          }
+        }}
+        onChange={e => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onKeyDown={e => {
+          if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+            setOpen(true);
+            return;
+          }
+          if (!open) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActiveIndex(i => Math.min(i + 1, Math.max(matches.length - 1, 0)));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActiveIndex(i => Math.max(i - 1, 0));
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const row = matches[activeIndex];
+            if (row) pick(row.uid);
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+            setQuery('');
+            inputRef.current?.blur();
+          }
+        }}
+      />
+      {busy ? (
+        <RefreshCw size={14} className="spin-icon zoho-sp-owner-ac__busy" aria-hidden />
+      ) : valueUid && !disabled ? (
+        <button
+          type="button"
+          className="zoho-sp-owner-ac__clear"
+          title="Unlink owner"
+          aria-label="Unlink owner"
+          onClick={e => {
+            e.stopPropagation();
+            onClear();
+          }}
+        >
+          <X size={14} />
+        </button>
+      ) : null}
+      {menu ? createPortal(menu, document.body) : null}
+    </div>
+  );
+}
+
 export function ZohoSalespersonsPanel() {
   const { user } = useAuth();
   const confirm = useConfirm();
@@ -57,8 +269,6 @@ export function ZohoSalespersonsPanel() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [pickUid, setPickUid] = useState('');
   const [hideDialog, setHideDialog] = useState<HideDialogState | null>(null);
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -107,6 +317,15 @@ export function ZohoSalespersonsPanel() {
     return () => window.clearTimeout(timer);
   }, [highlightedId, rows]);
 
+  const ownerOptions = useMemo<OwnerOption[]>(
+    () => portalUsers.map(u => ({
+      uid: u.uid,
+      displayName: u.displayName,
+      hint: u.role === 'super_admin' ? 'Super Admin' : undefined,
+    })),
+    [portalUsers],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter(row => {
@@ -139,29 +358,6 @@ export function ZohoSalespersonsPanel() {
     return { total: rows.length, unlinked, linked, hidden, inactive };
   }, [rows, claimed]);
 
-  const editingRow = editingId ? rows.find(r => r.id === editingId) ?? null : null;
-  const editingOwner = editingId ? claimed.get(editingId) : undefined;
-
-  const openEdit = (row: ZohoSalespersonOption) => {
-    if (!canEdit) return;
-    setEditingId(row.id);
-    setPickUid(claimed.get(row.id)?.uid ?? '');
-    setError('');
-    setSuccess('');
-  };
-
-  const closeEdit = () => {
-    setEditingId(null);
-    setPickUid('');
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setSuccess('');
-    await load(true);
-    setSuccess('Synced salespersons from Zoho.');
-  };
-
   const reassignTargets = useMemo(() => {
     const ownerUid = hideDialog?.impact?.linkedStaff?.uid;
     return portalUsers.filter(
@@ -169,10 +365,44 @@ export function ZohoSalespersonsPanel() {
     );
   }, [portalUsers, hideDialog?.impact?.linkedStaff?.uid]);
 
+  const applyHide = async (
+    row: ZohoSalespersonOption,
+    reassignToStaffUid: string | null = null,
+  ) => {
+    setBusyId(row.id);
+    setError('');
+    setSuccess('');
+    try {
+      const next = await setZohoSalespersonPortalHidden(row.id, true, {
+        reassignToStaffUid,
+      });
+      setRows(prev => prev.map(r => (r.id === row.id ? { ...r, ...next } : r)));
+      setHighlightedId(row.id);
+      const moved = next.reassigned?.moved ?? 0;
+      setSuccess(
+        moved > 0
+          ? `Hidden ${row.name}. Reassigned ${moved} dealer${moved === 1 ? '' : 's'} to ${next.reassigned?.targetName}.`
+          : `Hidden ${row.name} from portal.`,
+      );
+      setHideDialog(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not hide salesperson.');
+    } finally {
+      setBusyId('');
+    }
+  };
+
   const openHideDialog = async (row: ZohoSalespersonOption) => {
     if (!canEdit) return;
     setError('');
     setSuccess('');
+
+    // No linked portal owner — hide immediately (nothing to reassign).
+    if (!claimed.get(row.id)) {
+      await applyHide(row, null);
+      return;
+    }
+
     setHideDialog({
       row,
       impact: null,
@@ -181,6 +411,12 @@ export function ZohoSalespersonsPanel() {
     });
     try {
       const impact = await fetchZohoSalespersonHideImpact(row.id);
+      if (!impact.requiresReassign) {
+        // Owner exists but zero dealers — no popup needed.
+        setHideDialog(null);
+        await applyHide(row, null);
+        return;
+      }
       setHideDialog(prev => (prev && prev.row.id === row.id
         ? { ...prev, impact, loadingImpact: false }
         : prev));
@@ -202,28 +438,10 @@ export function ZohoSalespersonsPanel() {
       setError('Choose another portal owner (salesperson) to receive these dealers before hiding.');
       return;
     }
-    setBusyId(row.id);
-    setError('');
-    setSuccess('');
-    try {
-      const next = await setZohoSalespersonPortalHidden(row.id, true, {
-        reassignToStaffUid: impact?.requiresReassign ? reassignToStaffUid.trim() : null,
-      });
-      setRows(prev => prev.map(r => (r.id === row.id ? { ...r, ...next } : r)));
-      setHighlightedId(row.id);
-      const moved = next.reassigned?.moved ?? 0;
-      setSuccess(
-        moved > 0
-          ? `Hidden ${row.name}. Reassigned ${moved} dealer${moved === 1 ? '' : 's'} to ${next.reassigned?.targetName}.`
-          : `Hidden ${row.name} from portal.`,
-      );
-      setHideDialog(null);
-      closeEdit();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not hide salesperson.');
-    } finally {
-      setBusyId('');
-    }
+    await applyHide(
+      row,
+      impact?.requiresReassign ? reassignToStaffUid.trim() : null,
+    );
   };
 
   const handleHide = async (row: ZohoSalespersonOption, hidden: boolean) => {
@@ -246,7 +464,6 @@ export function ZohoSalespersonsPanel() {
       setRows(prev => prev.map(r => (r.id === row.id ? { ...r, ...next } : r)));
       setHighlightedId(row.id);
       setSuccess(`Unhid ${row.name}.`);
-      closeEdit();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update visibility.');
     } finally {
@@ -284,73 +501,62 @@ export function ZohoSalespersonsPanel() {
     }
   };
 
-  const handleSaveLink = async () => {
-    if (!canEdit || !editingRow) return;
-    const uid = pickUid.trim();
-    if (!uid) {
-      setError('Choose a portal owner.');
-      return;
-    }
-    setBusyId(editingRow.id);
+  const handleInlineOwnerChange = async (row: ZohoSalespersonOption, nextUid: string) => {
+    if (!canEdit) return;
+    const uid = nextUid.trim();
+    const current = claimed.get(row.id);
+    if (current?.uid === uid) return;
+
+    setBusyId(row.id);
     setError('');
     setSuccess('');
     try {
-      if (editingOwner && editingOwner.uid !== uid) {
+      if (!uid) {
+        if (!current) return;
         await unlinkZohoSalespersonFromPortalUser({
-          zohoSalespersonId: editingRow.id,
-          staffUid: editingOwner.uid,
+          zohoSalespersonId: row.id,
+          staffUid: current.uid,
+        });
+        setClaimed(prev => {
+          const next = new Map(prev);
+          next.delete(row.id);
+          return next;
+        });
+        setHighlightedId(row.id);
+        setSuccess(`Unlinked ${row.name}`);
+        return;
+      }
+
+      if (current && current.uid !== uid) {
+        await unlinkZohoSalespersonFromPortalUser({
+          zohoSalespersonId: row.id,
+          staffUid: current.uid,
         });
       }
       const result = await linkZohoSalespersonToPortalUser({
-        zohoSalespersonId: editingRow.id,
-        zohoSalespersonName: editingRow.name,
+        zohoSalespersonId: row.id,
+        zohoSalespersonName: row.name,
         staffUid: uid,
       });
       setClaimed(prev => {
         const next = new Map(prev);
-        next.set(editingRow.id, { uid: result.staffUid, displayName: result.staffName });
+        next.set(row.id, { uid: result.staffUid, displayName: result.staffName });
         return next;
       });
-      setHighlightedId(editingRow.id);
-      setSuccess(`Linked ${editingRow.name} → ${result.staffName}`);
-      closeEdit();
+      setHighlightedId(row.id);
+      setSuccess(`Linked ${row.name} → ${result.staffName}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not link salesperson.');
+      setError(err instanceof Error ? err.message : 'Could not update linked owner.');
     } finally {
       setBusyId('');
     }
   };
 
-  const handleUnlink = async () => {
-    if (!canEdit || !editingRow || !editingOwner) return;
-    const ok = await confirm({
-      title: 'Unlink portal owner?',
-      message: `Remove ${editingRow.name} from ${editingOwner.displayName}? Dealer assignments are not changed.`,
-      confirmLabel: 'Unlink',
-      destructive: true,
-    });
-    if (!ok) return;
-    setBusyId(editingRow.id);
-    setError('');
+  const handleSync = async () => {
+    setSyncing(true);
     setSuccess('');
-    try {
-      await unlinkZohoSalespersonFromPortalUser({
-        zohoSalespersonId: editingRow.id,
-        staffUid: editingOwner.uid,
-      });
-      setClaimed(prev => {
-        const next = new Map(prev);
-        next.delete(editingRow.id);
-        return next;
-      });
-      setHighlightedId(editingRow.id);
-      setSuccess(`Unlinked ${editingRow.name}`);
-      closeEdit();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not unlink.');
-    } finally {
-      setBusyId('');
-    }
+    await load(true);
+    setSuccess('Synced salespersons from Zoho.');
   };
 
   const hideDialogUi = hideDialog ? (
@@ -441,93 +647,6 @@ export function ZohoSalespersonsPanel() {
     </div>
   ) : null;
 
-  if (editingRow) {
-    const busy = busyId === editingRow.id;
-    return (
-      <div className="panel glass zoho-sp-panel zoho-sp-panel--editor fade-in">
-        {hideDialogUi}
-        <div className="form-panel-topbar">
-          <h2>Edit Zoho salesperson</h2>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={closeEdit} disabled={busy}>
-            Cancel
-          </button>
-        </div>
-        <div className="form-panel-body">
-          {error && !hideDialog ? <div className="login-error mb-3">{error}</div> : null}
-          <div className="zoho-sp-panel__editor-head">
-            <div>
-              <div className="zoho-sp-panel__name">{editingRow.name}</div>
-              <div className="text-muted text-sm">{editingRow.id}</div>
-              {editingRow.email ? <div className="text-muted text-sm">{editingRow.email}</div> : null}
-            </div>
-            <div className="zoho-sp-panel__badges">
-              <span className={`status-badge ${editingRow.active ? 'active' : 'inactive'}`}>
-                {editingRow.active ? 'Zoho active' : 'Zoho inactive'}
-              </span>
-              <span className={`status-badge ${editingRow.hiddenFromPortal ? 'inactive' : 'active'}`}>
-                {editingRow.hiddenFromPortal ? 'Hidden in portal' : 'Visible in portal'}
-              </span>
-            </div>
-          </div>
-
-          <div className="form-group mt-4">
-            <label htmlFor="zoho-sp-portal-owner">Portal owner</label>
-            <select
-              id="zoho-sp-portal-owner"
-              className="input-field catalog-select"
-              value={pickUid}
-              disabled={busy || !canEdit}
-              onChange={e => setPickUid(e.target.value)}
-            >
-              <option value="">Choose staff or super admin…</option>
-              {portalUsers.map(u => (
-                <option key={u.uid} value={u.uid}>
-                  {u.displayName}
-                  {u.role === 'super_admin' ? ' (Super Admin)' : ''}
-                </option>
-              ))}
-            </select>
-            <p className="text-muted text-sm">
-              One Zoho salesperson → one portal owner. A person may own multiple Zoho salespersons.
-            </p>
-          </div>
-
-          <div className="zoho-sp-panel__editor-actions">
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={busy}
-              onClick={() => void handleHide(editingRow, !editingRow.hiddenFromPortal)}
-            >
-              {editingRow.hiddenFromPortal ? <Eye size={16} /> : <EyeOff size={16} />}
-              {editingRow.hiddenFromPortal ? 'Unhide in portal' : 'Hide from portal'}
-            </button>
-            {editingOwner ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm text-red"
-                disabled={busy}
-                onClick={() => void handleUnlink()}
-              >
-                <Unlink size={16} />
-                Unlink
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="btn btn-success btn-sm"
-              disabled={busy || !pickUid}
-              onClick={() => void handleSaveLink()}
-            >
-              {busy ? <RefreshCw size={16} className="spin-icon" /> : <Link2 size={16} />}
-              {editingOwner ? 'Save owner' : 'Link owner'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="zoho-sp-panel fade-in">
       {hideDialogUi}
@@ -566,7 +685,7 @@ export function ZohoSalespersonsPanel() {
       {success ? (
         <div className="user-management__save-notice" role="status">{success}</div>
       ) : null}
-      {error ? (
+      {error && !hideDialog ? (
         <div className="products-inline-error panel glass">
           <span>{error}</span>
         </div>
@@ -630,11 +749,7 @@ export function ZohoSalespersonsPanel() {
                     <tr
                       key={row.id}
                       id={`zoho-sp-row-${row.id}`}
-                      className={[
-                        canEdit ? 'user-management__row--clickable' : '',
-                        highlighted ? 'user-management__row--highlighted' : '',
-                      ].filter(Boolean).join(' ') || undefined}
-                      onClick={canEdit ? () => openEdit(row) : undefined}
+                      className={highlighted ? 'user-management__row--highlighted' : undefined}
                     >
                       <td>{index + 1}</td>
                       <td>
@@ -651,35 +766,35 @@ export function ZohoSalespersonsPanel() {
                           {row.hiddenFromPortal ? 'Hidden' : 'Visible'}
                         </span>
                       </td>
-                      <td>
-                        {owner ? (
+                      <td className="zoho-sp-panel__owner-cell" onClick={e => e.stopPropagation()}>
+                        {canEdit ? (
+                          <PortalOwnerAutocomplete
+                            valueUid={owner?.uid ?? ''}
+                            valueLabel={owner?.displayName ?? ''}
+                            options={ownerOptions}
+                            disabled={!canEdit}
+                            busy={busy}
+                            ariaLabel={`Portal owner for ${row.name}`}
+                            onSelect={uid => void handleInlineOwnerChange(row, uid)}
+                            onClear={() => void handleInlineOwnerChange(row, '')}
+                          />
+                        ) : owner ? (
                           <span>{owner.displayName}</span>
                         ) : (
                           <span className="text-muted">Unlinked</span>
                         )}
                       </td>
-                      <td className="text-right user-management__actions" onClick={e => e.stopPropagation()}>
+                      <td className="text-right user-management__actions">
                         {canEdit ? (
-                          <>
-                            <button
-                              type="button"
-                              className="btn-icon"
-                              title="Link / edit"
-                              disabled={busy}
-                              onClick={() => openEdit(row)}
-                            >
-                              <UserPlus size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-icon"
-                              title={row.hiddenFromPortal ? 'Unhide' : 'Hide'}
-                              disabled={busy}
-                              onClick={() => void handleHide(row, !row.hiddenFromPortal)}
-                            >
-                              {row.hiddenFromPortal ? <Eye size={16} /> : <EyeOff size={16} />}
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            title={row.hiddenFromPortal ? 'Unhide' : 'Hide'}
+                            disabled={busy}
+                            onClick={() => void handleHide(row, !row.hiddenFromPortal)}
+                          >
+                            {row.hiddenFromPortal ? <Eye size={16} /> : <EyeOff size={16} />}
+                          </button>
                         ) : (
                           <span className="text-muted text-sm">View only</span>
                         )}

@@ -22544,6 +22544,122 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.35rem;
 }
 
+.zoho-sp-panel__owner-cell {
+  min-width: 14rem;
+  max-width: 18rem;
+}
+
+.zoho-sp-owner-ac {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.1rem;
+  padding: 0.15rem 0.4rem 0.15rem 0.5rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.zoho-sp-owner-ac.is-open,
+.zoho-sp-owner-ac:focus-within {
+  border-color: rgba(245, 130, 32, 0.45);
+}
+
+.zoho-sp-owner-ac.is-disabled {
+  opacity: 0.65;
+}
+
+.zoho-sp-owner-ac__icon {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.zoho-sp-owner-ac__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.zoho-sp-owner-ac__input::placeholder {
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.zoho-sp-owner-ac__clear,
+.zoho-sp-owner-ac__busy {
+  flex-shrink: 0;
+}
+
+.zoho-sp-owner-ac__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  cursor: pointer;
+}
+
+.zoho-sp-owner-ac__clear:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.zoho-sp-owner-ac__menu {
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  overflow: auto;
+  border-radius: 0.55rem;
+}
+
+.zoho-sp-owner-ac__empty {
+  padding: 0.55rem 0.65rem;
+}
+
+.zoho-sp-owner-ac__option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.zoho-sp-owner-ac__option:hover,
+.zoho-sp-owner-ac__option.is-active {
+  background: rgba(245, 130, 32, 0.14);
+}
+
+.zoho-sp-owner-ac__option.is-selected {
+  background: rgba(245, 130, 32, 0.2);
+}
+
+.zoho-sp-owner-ac__option-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.zoho-sp-owner-ac__option-hint {
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
 .staff-role-editor__zoho-readonly {
   gap: 0.35rem;
 }
