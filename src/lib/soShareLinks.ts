@@ -181,6 +181,21 @@ export function buildSpareInchargeSoShareMessage(options: {
   return lines.join('\n');
 }
 
+/** Firestore rejects `undefined` — convert to null / omit recursively. */
+function forFirestore(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map(item => forFirestore(item));
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (entry === undefined) continue;
+    out[key] = forFirestore(entry);
+  }
+  return out;
+}
+
 export function buildSoShareDocument(input: {
   salesOrderId: string;
   salesOrderNumber: string;
@@ -206,17 +221,17 @@ export function buildSoShareDocument(input: {
     total: Number(input.total) || 0,
     notes: String(input.notes ?? '').trim(),
     lineItems: input.lineItems.map(item => ({
-      id: item.id,
-      itemId: item.itemId,
-      name: item.name,
-      description: item.description,
-      sku: item.sku,
-      quantity: item.quantity,
-      rate: item.rate,
-      total: item.total,
-      imageUrl: item.imageUrl,
+      id: String(item.id ?? ''),
+      itemId: item.itemId ?? null,
+      name: String(item.name ?? 'Item'),
+      description: item.description ?? null,
+      sku: item.sku ?? null,
+      quantity: Number(item.quantity) || 0,
+      rate: Number(item.rate) || 0,
+      total: Number(item.total) || 0,
+      imageUrl: item.imageUrl ?? null,
       hsn: item.hsn ?? null,
-      serialNumbers: item.serialNumbers,
+      ...(Array.isArray(item.serialNumbers) ? { serialNumbers: item.serialNumbers } : {}),
     })),
   };
 }
@@ -232,12 +247,12 @@ export async function createSoShareLink(document: SoShareDocument): Promise<{
   const code = await allocateShareCode();
   const createdAt = new Date().toISOString();
 
-  await setDoc(doc(db, COLLECTION, code), {
+  await setDoc(doc(db, COLLECTION, code), forFirestore({
     document,
     status: 'ready',
     createdAt,
     createdByUid: uid,
-  });
+  }) as Record<string, unknown>);
 
   return {
     code,
