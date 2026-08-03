@@ -39,9 +39,18 @@ import {
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
 import { formatInvoiceDate } from '../../lib/invoices';
-import { captureAndShareElement } from '../../lib/shareElementScreenshot';
+import { Capacitor } from '@capacitor/core';
+import { captureElementScreenshot } from '../../lib/shareElementScreenshot';
+import {
+  buildSpareInchargeSoShareMessage,
+  createSoShareLink,
+} from '../../lib/soShareLinks';
 import { loadSpareInchargeSettings } from '../../lib/spareIncharge';
-import { prepareWhatsAppWindow, whatsappPhoneDigits } from '../../lib/whatsappShareCard';
+import {
+  openWhatsAppWithText,
+  prepareWhatsAppWindow,
+  whatsappPhoneDigits,
+} from '../../lib/whatsappShareCard';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
 
@@ -280,10 +289,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const handleShareScreenshot = useCallback(async () => {
     const el = shareCaptureRef.current;
     if (!el || !salesOrder || sharing) return;
-    // Open the tab during the click — required so WhatsApp is not blocked after capture/upload.
-    const whatsappWindow = prepareWhatsAppWindow();
+    // Web: pre-open tab so WhatsApp is not popup-blocked after async work.
+    // Native APK loads live hosting — open via deep link (no image share sheet).
+    const isNative = Capacitor.isNativePlatform();
+    const whatsappWindow = isNative ? null : prepareWhatsAppWindow();
     setSharing(true);
-    // Hide sticky Share / Delete / other action UI so it cannot appear in the shot.
     soDetailRef.current?.classList.add('is-sharing');
     try {
       const settings = await loadSpareInchargeSettings();
@@ -295,21 +305,31 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         );
         return;
       }
+
       const soNumber = salesOrder.salesOrderNumber || salesOrderId || 'sales-order';
       const safeName = soNumber.replace(/[^\w\-]+/g, '-').slice(0, 48);
       const dateLabel = salesOrder.date ? formatInvoiceDate(salesOrder.date) : '';
-      await captureAndShareElement(el, {
+      const shot = await captureElementScreenshot(el, {
         fileName: `${safeName}.png`,
-        title: soNumber,
-        text: [soNumber, dateLabel].filter(Boolean).join(' · '),
         backgroundColor: '#13151b',
-        whatsappPhone: sparePhone,
-        whatsappWindow,
       });
+      const link = await createSoShareLink({
+        imageBlob: shot.blob,
+        fileName: shot.fileName,
+        salesOrderId,
+        salesOrderNumber: soNumber,
+        dateLabel,
+      });
+      const message = buildSpareInchargeSoShareMessage({
+        salesOrderNumber: soNumber,
+        dateLabel,
+        shareUrl: link.url,
+      });
+      openWhatsAppWithText(message, sparePhone, whatsappWindow);
     } catch (err) {
       whatsappWindow?.close();
       if (err instanceof Error && err.name === 'AbortError') return;
-      window.alert(err instanceof Error ? err.message : 'Could not share screenshot.');
+      window.alert(err instanceof Error ? err.message : 'Could not share sales order.');
     } finally {
       soDetailRef.current?.classList.remove('is-sharing');
       setSharing(false);

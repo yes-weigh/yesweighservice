@@ -389,6 +389,18 @@ service cloud.firestore {
       allow delete: if isFullSuperAdmin();
     }
 
+    // Public SO screenshot short links (6-letter case-sensitive codes).
+    match /soShareLinks/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isActiveUser()
+        && code.matches('^[a-zA-Z]{6}$')
+        && request.resource.data.imageUrl is string
+        && request.resource.data.imageUrl.size() > 0
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow update, delete: if isFullSuperAdmin();
+    }
+
     match /dealerSettings/{docId} {
       allow read: if isOpsUser();
       allow write: if false;

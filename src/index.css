@@ -38231,3 +38231,87 @@ button.invoice-detail-top__card {
   .so-draft-editor__line-total { grid-area: total; }
   .so-draft-editor__remove { grid-area: remove; justify-self: end; }
 }
+
+/* Public SO short-link page (service.yesweigh.in/AbCdEf) */
+.so-public-share {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #0f141b;
+  color: #e8eef7;
+}
+
+.so-public-share__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem 0.85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.so-public-share__brand {
+  margin: 0 0 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f58220;
+}
+
+.so-public-share__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.so-public-share__meta,
+.so-public-share__firm {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.so-public-share__firm {
+  text-align: right;
+  max-width: 11rem;
+}
+
+.so-public-share__main {
+  flex: 1;
+  padding: 0.85rem 0.75rem 1.5rem;
+  display: flex;
+  justify-content: center;
+}
+
+.so-public-share__figure {
+  margin: 0;
+  width: min(100%, 720px);
+}
+
+.so-public-share__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  background: #13151b;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.so-public-share__status {
+  margin: 2.5rem auto;
+  text-align: center;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.so-public-share__status--error {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.so-public-share__login {
+  color: #f58220;
+  font-weight: 600;
+}

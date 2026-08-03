@@ -155,14 +155,18 @@ export async function shareScreenshotBlob(
   const whatsappWindow = options.whatsappWindow ?? null;
 
   if (phoneDigits && Capacitor.isNativePlatform()) {
+    whatsappWindow?.close();
     const dataBase64 = await blobToBase64(blob);
+    if (!dataBase64 || dataBase64.length < 64) {
+      throw new Error('Screenshot was empty — try again.');
+    }
     await WhatsAppShare.shareImage({
       dataBase64,
       fileName,
-      mimeType,
+      mimeType: 'image/png',
       phone: phoneDigits,
+      text,
     });
-    whatsappWindow?.close();
     return;
   }
 

@@ -10,6 +10,8 @@ export interface WhatsAppShareImageOptions {
    * When set on Android, opens WhatsApp directly to that chat with the image.
    */
   phone?: string;
+  /** Optional caption shown with the shared image. */
+  text?: string;
 }
 
 export interface WhatsAppShareImageResult {
