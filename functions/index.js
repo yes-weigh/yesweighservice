@@ -93,8 +93,10 @@ import {
 import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
 import {
   analyzeDealerStaffLinking,
+  assignNoUsableInvoiceDealers,
   backfillDealerAssignedStaff,
   claimUnassignedDealersForSalesperson,
+  undoNoUsableInvoiceAssign,
   wipeLegacyKamData,
 } from './lib/dealer-staff-assignment.js';
 import {
@@ -2234,6 +2236,52 @@ export const claimDealersBySalespersonFn = onCall(
     } catch (err) {
       console.error('claimDealersBySalesperson failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not claim dealers for salesperson.');
+    }
+  },
+);
+
+/**
+ * Assign selected "no usable invoice" dealers to a portal user (linking check tab).
+ */
+export const assignNoUsableInvoiceDealersFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await assignNoUsableInvoiceDealers({
+        dealerIds: request.data?.dealerIds,
+        staffUid: request.data?.staffUid,
+      });
+    } catch (err) {
+      console.error('assignNoUsableInvoiceDealers failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not assign dealers.');
+    }
+  },
+);
+
+/**
+ * Undo last no-usable-invoice assign batch from the linking check tab.
+ */
+export const undoNoUsableInvoiceAssignFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await undoNoUsableInvoiceAssign({
+        dealers: request.data?.dealers,
+        staffUid: request.data?.staffUid,
+      });
+    } catch (err) {
+      console.error('undoNoUsableInvoiceAssign failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not undo dealer assignment.');
     }
   },
 );

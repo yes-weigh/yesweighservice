@@ -423,4 +423,48 @@ export async function claimDealersBySalesperson(input: {
   };
 }
 
+export async function assignNoUsableInvoiceDealers(input: {
+  dealerIds: string[];
+  staffUid: string;
+}): Promise<{
+  staffUid: string;
+  staffName: string;
+  requested: number;
+  assigned: number;
+  dealers: DealerStaffLinkingNoInvoice[];
+}> {
+  const fn = httpsCallable(functions, 'assignNoUsableInvoiceDealersFn', { timeout: 300_000 });
+  const result = await fn({
+    dealerIds: input.dealerIds,
+    staffUid: input.staffUid,
+  });
+  return result.data as {
+    staffUid: string;
+    staffName: string;
+    requested: number;
+    assigned: number;
+    dealers: DealerStaffLinkingNoInvoice[];
+  };
+}
+
+export async function undoNoUsableInvoiceAssign(input: {
+  dealers: DealerStaffLinkingNoInvoice[];
+  staffUid: string;
+}): Promise<{
+  staffUid: string;
+  restored: number;
+  dealers: DealerStaffLinkingNoInvoice[];
+}> {
+  const fn = httpsCallable(functions, 'undoNoUsableInvoiceAssignFn', { timeout: 300_000 });
+  const result = await fn({
+    dealers: input.dealers,
+    staffUid: input.staffUid,
+  });
+  return result.data as {
+    staffUid: string;
+    restored: number;
+    dealers: DealerStaffLinkingNoInvoice[];
+  };
+}
+
 export { dealerErrorMessage };

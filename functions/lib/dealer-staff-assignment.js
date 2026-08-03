@@ -739,6 +739,270 @@ export async function claimUnassignedDealersForSalesperson({
   };
 }
 
+function sortNoUsableInvoiceDealers(a, b) {
+  return String(a.companyName || a.contactName || a.id || '')
+    .localeCompare(String(b.companyName || b.contactName || b.id || ''));
+}
+
+function normalizeNoInvoiceRow(row = {}) {
+  const id = String(row.id ?? '').trim();
+  if (!id) return null;
+  return {
+    id,
+    companyName: row.companyName ? String(row.companyName) : null,
+    contactName: row.contactName ? String(row.contactName) : null,
+    dealerCode: row.dealerCode ? String(row.dealerCode) : null,
+    billingState: row.billingState ? String(row.billingState) : null,
+    billingCity: row.billingCity ? String(row.billingCity) : null,
+  };
+}
+
+async function patchCacheAfterNoInvoiceAssign({ dealers, staffUid, staffName }) {
+  const cache = await readLinkingCheckCache();
+  if (!cache?.summary) return null;
+
+  const removeIds = new Set(
+    (dealers || []).map(row => String(row?.id ?? '').trim()).filter(Boolean),
+  );
+  if (!removeIds.size) return cache;
+
+  const remaining = (Array.isArray(cache.noUsableInvoiceDealers)
+    ? cache.noUsableInvoiceDealers
+    : []
+  ).filter(row => !removeIds.has(String(row?.id ?? '').trim()));
+
+  const claimed = Math.max(0, (Array.isArray(cache.noUsableInvoiceDealers)
+    ? cache.noUsableInvoiceDealers.length
+    : 0) - remaining.length);
+
+  const next = {
+    ...cache,
+    status: 'ready',
+    ignoredSalespersons: cache.ignoredSalespersons || IGNORED_INVOICE_SALESPERSON_LABELS,
+    summary: {
+      ...cache.summary,
+      unassignedDealers: Math.max(0, (Number(cache.summary.unassignedDealers) || 0) - claimed),
+      noUsableInvoice: remaining.length,
+    },
+    unlocks: Array.isArray(cache.unlocks) ? cache.unlocks : [],
+    alreadyAssignableBySalesperson: Array.isArray(cache.alreadyAssignableBySalesperson)
+      ? cache.alreadyAssignableBySalesperson
+      : [],
+    noUsableInvoiceDealers: remaining,
+    lastMutation: {
+      type: 'noInvoiceAssign',
+      assigned: claimed,
+      staffUid: staffUid || null,
+      staffName: staffName || null,
+      at: new Date().toISOString(),
+    },
+  };
+  delete next.id;
+  await writeLinkingCheckCache(next);
+  return next;
+}
+
+async function patchCacheAfterNoInvoiceUndo({ dealers }) {
+  const cache = await readLinkingCheckCache();
+  if (!cache?.summary) return null;
+
+  const existing = Array.isArray(cache.noUsableInvoiceDealers)
+    ? [...cache.noUsableInvoiceDealers]
+    : [];
+  const existingIds = new Set(existing.map(row => String(row?.id ?? '').trim()).filter(Boolean));
+  const restored = [];
+  for (const raw of dealers || []) {
+    const row = normalizeNoInvoiceRow(raw);
+    if (!row || existingIds.has(row.id)) continue;
+    existing.push(row);
+    existingIds.add(row.id);
+    restored.push(row);
+  }
+  if (!restored.length) return cache;
+
+  existing.sort(sortNoUsableInvoiceDealers);
+
+  const next = {
+    ...cache,
+    status: 'ready',
+    ignoredSalespersons: cache.ignoredSalespersons || IGNORED_INVOICE_SALESPERSON_LABELS,
+    summary: {
+      ...cache.summary,
+      unassignedDealers: (Number(cache.summary.unassignedDealers) || 0) + restored.length,
+      noUsableInvoice: existing.length,
+    },
+    unlocks: Array.isArray(cache.unlocks) ? cache.unlocks : [],
+    alreadyAssignableBySalesperson: Array.isArray(cache.alreadyAssignableBySalesperson)
+      ? cache.alreadyAssignableBySalesperson
+      : [],
+    noUsableInvoiceDealers: existing,
+    lastMutation: {
+      type: 'noInvoiceUndo',
+      assigned: restored.length,
+      at: new Date().toISOString(),
+    },
+  };
+  delete next.id;
+  await writeLinkingCheckCache(next);
+  return next;
+}
+
+/**
+ * Manually assign unassigned "no usable invoice" dealers to a portal user,
+ * then remove them from the linking-check cache list.
+ */
+export async function assignNoUsableInvoiceDealers({
+  dealerIds,
+  staffUid,
+  onProgress,
+} = {}) {
+  const uid = String(staffUid ?? '').trim();
+  const ids = [...new Set(
+    (Array.isArray(dealerIds) ? dealerIds : [])
+      .map(id => String(id ?? '').trim())
+      .filter(Boolean),
+  )];
+  if (!uid) throw new Error('staffUid is required.');
+  if (!ids.length) throw new Error('Select at least one dealer.');
+  if (ids.length > 200) throw new Error('Assign at most 200 dealers at a time.');
+
+  const db = getFirestore();
+  const userSnap = await db.doc(`users/${uid}`).get();
+  if (!userSnap.exists) throw new Error('Portal user not found.');
+  const userData = userSnap.data() || {};
+  const role = String(userData.role ?? '');
+  if (role !== 'staff' && role !== 'super_admin') {
+    throw new Error('Assigned user must be staff or super admin.');
+  }
+  if (userData.active === false) throw new Error('Assigned staff is inactive.');
+  const zohoIds = normalizeZohoLinks(userData);
+  if (!zohoIds.length) {
+    throw new Error('Portal user must have at least one Zoho salesperson linked.');
+  }
+  const displayName = String(userData.displayName ?? 'Staff').trim() || 'Staff';
+
+  const assignedDealers = [];
+  let batch = db.batch();
+  let ops = 0;
+  const flush = async () => {
+    if (!ops) return;
+    await batch.commit();
+    batch = db.batch();
+    ops = 0;
+  };
+
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const refs = chunk.map(id => db.collection('zohoCustomers').doc(id));
+    const snaps = await db.getAll(...refs);
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      const data = snap.data() || {};
+      const prevUid = data.assignedStaffUid ? String(data.assignedStaffUid).trim() : '';
+      if (prevUid) continue;
+      batch.set(snap.ref, {
+        assignedStaffUid: uid,
+        assignedStaffName: displayName,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      ops += 1;
+      assignedDealers.push({
+        id: snap.id,
+        companyName: data.companyName ? String(data.companyName) : null,
+        contactName: data.contactName ? String(data.contactName) : null,
+        dealerCode: data.dealerCode ? String(data.dealerCode) : null,
+        billingState: data.billingState ? String(data.billingState) : null,
+        billingCity: data.billingCity ? String(data.billingCity) : null,
+      });
+      if (ops >= 400) await flush();
+      onProgress?.({ assigned: assignedDealers.length, total: ids.length });
+    }
+  }
+  await flush();
+
+  if (assignedDealers.length) {
+    await patchCacheAfterNoInvoiceAssign({
+      dealers: assignedDealers,
+      staffUid: uid,
+      staffName: displayName,
+    });
+  }
+
+  return {
+    staffUid: uid,
+    staffName: displayName,
+    requested: ids.length,
+    assigned: assignedDealers.length,
+    dealers: assignedDealers,
+  };
+}
+
+/**
+ * Undo a prior no-usable-invoice assign batch: clear staff if still that user,
+ * and put dealers back on the linking-check list.
+ */
+export async function undoNoUsableInvoiceAssign({
+  dealers,
+  staffUid,
+} = {}) {
+  const uid = String(staffUid ?? '').trim();
+  const rows = (Array.isArray(dealers) ? dealers : [])
+    .map(normalizeNoInvoiceRow)
+    .filter(Boolean);
+  if (!uid) throw new Error('staffUid is required.');
+  if (!rows.length) throw new Error('Nothing to undo.');
+
+  const db = getFirestore();
+  const restored = [];
+  let batch = db.batch();
+  let ops = 0;
+  const flush = async () => {
+    if (!ops) return;
+    await batch.commit();
+    batch = db.batch();
+    ops = 0;
+  };
+
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100);
+    const refs = chunk.map(row => db.collection('zohoCustomers').doc(row.id));
+    const snaps = await db.getAll(...refs);
+    const byId = new Map(chunk.map(row => [row.id, row]));
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      const data = snap.data() || {};
+      const prevUid = data.assignedStaffUid ? String(data.assignedStaffUid).trim() : '';
+      if (prevUid !== uid) continue;
+      batch.set(snap.ref, {
+        assignedStaffUid: null,
+        assignedStaffName: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      ops += 1;
+      restored.push(byId.get(snap.id) || {
+        id: snap.id,
+        companyName: data.companyName ? String(data.companyName) : null,
+        contactName: data.contactName ? String(data.contactName) : null,
+        dealerCode: data.dealerCode ? String(data.dealerCode) : null,
+        billingState: data.billingState ? String(data.billingState) : null,
+        billingCity: data.billingCity ? String(data.billingCity) : null,
+      });
+      if (ops >= 400) await flush();
+    }
+  }
+  await flush();
+
+  if (restored.length) {
+    await patchCacheAfterNoInvoiceUndo({ dealers: restored });
+  }
+
+  return {
+    staffUid: uid,
+    restored: restored.length,
+    dealers: restored,
+  };
+}
+
 /**
  * Delete legacy kams collection and strip kamId / staffKamId fields.
  */
