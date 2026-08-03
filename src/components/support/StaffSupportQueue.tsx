@@ -5,7 +5,7 @@ import { FetchingLoader } from '../FetchingLoader';
 import { SupportLifecycleFilterBlocks } from './SupportLifecycleFilterBlocks';
 import { SupportRequestCard } from './SupportRequestCard';
 import { useAuth } from '../../context/AuthContext';
-import { fetchAdminInvoiceDatesForPairs } from '../../lib/admin-invoices';
+import { fetchSupportInvoiceDatesForTickets } from '../../lib/supportInvoiceDates';
 import {
   subscribeOpsSupportRequests,
   supportDetailPath,
@@ -79,26 +79,20 @@ export const StaffSupportQueue: React.FC = () => {
   }, [scopedRequests]);
 
   useEffect(() => {
-    const pairs = scopedRequests
+    const tickets = scopedRequests
       .filter(request => request.invoiceId)
-      .map(request => {
-        const zohoCustomerId = request.zohoCustomerId?.trim() || '';
-        const dealerId = request.dealerId?.trim() || '';
-        return {
-          customerId: zohoCustomerId || dealerId,
-          fallbackCustomerId: zohoCustomerId && dealerId && zohoCustomerId !== dealerId
-            ? dealerId
-            : undefined,
-          invoiceId: request.invoiceId as string,
-        };
-      })
-      .filter(pair => pair.customerId);
-    if (!pairs.length) {
+      .map(request => ({
+        invoiceId: request.invoiceId as string,
+        invoiceNumber: request.invoiceNumber,
+        zohoCustomerId: request.zohoCustomerId,
+        dealerId: request.dealerId,
+      }));
+    if (!tickets.length) {
       setInvoiceDates(new Map());
       return;
     }
     let cancelled = false;
-    void fetchAdminInvoiceDatesForPairs(pairs).then(map => {
+    void fetchSupportInvoiceDatesForTickets(tickets).then(map => {
       if (!cancelled) setInvoiceDates(map);
     });
     return () => {

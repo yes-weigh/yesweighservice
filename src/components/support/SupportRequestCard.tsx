@@ -85,6 +85,9 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
             </span>
           )}
         </div>
+        <span className={`support-ticket-card__status support-ticket-card__status--${statusTone}`}>
+          {statusLabel}
+        </span>
       </div>
 
       <div className="support-ticket-card__content">
@@ -99,9 +102,6 @@ export const SupportRequestCard: React.FC<SupportRequestCardProps> = ({
               <p className="support-ticket-card__stage">{stageSubtitle}</p>
             )}
           </div>
-          <span className={`support-ticket-card__status support-ticket-card__status--${statusTone}`}>
-            {statusLabel}
-          </span>
         </div>
 
         {(request.invoiceNumber || issueSummary) && (

@@ -9,8 +9,8 @@ import {
   Truck,
   Wrench,
 } from 'lucide-react';
-import { fetchAdminInvoiceDate } from '../../lib/admin-invoices';
-import { readCachedAllDealerInvoices, fetchAllDealerInvoices, formatInvoiceDate } from '../../lib/invoices';
+import { fetchSupportInvoiceDate } from '../../lib/supportInvoiceDates';
+import { formatInvoiceDate } from '../../lib/invoices';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { canDealerCancelSupportRequest } from '../../lib/supportStatus';
 import { formatSupportDetailOpenedOn, supportDetailStatusBadge } from '../../lib/supportRequestDisplay';
@@ -70,36 +70,19 @@ export const SupportRequestTicketInfo: React.FC<SupportRequestTicketInfoProps> =
     }
 
     let cancelled = false;
-    const invoiceId = request.invoiceId;
-    const customerId = request.zohoCustomerId?.trim() || request.dealerId?.trim() || '';
-
-    // Ops users are not the dealer — resolve date from the customer invoice doc.
-    if (isInternalOpsUser(user)) {
-      if (!customerId) {
-        setInvoiceDate(null);
-        return undefined;
-      }
-      void fetchAdminInvoiceDate(customerId, invoiceId).then(date => {
-        if (!cancelled) setInvoiceDate(date);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const fromList = readCachedAllDealerInvoices(user.uid)?.find(inv => inv.id === invoiceId)?.date ?? null;
-    if (fromList) setInvoiceDate(fromList);
-
-    void fetchAllDealerInvoices(user.uid).then(invoices => {
-      if (cancelled) return;
-      const match = invoices.find(inv => inv.id === invoiceId);
-      setInvoiceDate(match?.date ?? fromList);
+    void fetchSupportInvoiceDate({
+      invoiceId: request.invoiceId,
+      invoiceNumber: request.invoiceNumber,
+      zohoCustomerId: request.zohoCustomerId,
+      dealerId: request.dealerId,
+    }).then(date => {
+      if (!cancelled) setInvoiceDate(date);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [request.invoiceId, request.zohoCustomerId, request.dealerId, user]);
+  }, [request.invoiceId, request.invoiceNumber, request.zohoCustomerId, request.dealerId]);
 
   const statusBadge = supportDetailStatusBadge(request, audience);
 

@@ -5,7 +5,7 @@ import { SupportLifecycleFilterBlocks } from './SupportLifecycleFilterBlocks';
 import { SupportRequestCard } from './SupportRequestCard';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCatalogImagesForItemIds } from '../../lib/invoiceLineItemImages';
-import { fetchAllDealerInvoices, readCachedAllDealerInvoices } from '../../lib/invoices';
+import { fetchSupportInvoiceDatesForTickets } from '../../lib/supportInvoiceDates';
 import type { DealerSupportRequest } from '../../types/dealer-support';
 import { SUPPORT_TYPE_LABELS } from '../../types/dealer-support';
 import {
@@ -96,38 +96,28 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
   }, [requests]);
 
   useEffect(() => {
-    const invoiceIds = new Set(
-      requests.map(request => request.invoiceId).filter((id): id is string => Boolean(id)),
-    );
-    if (!invoiceIds.size) {
+    const tickets = requests
+      .filter(request => request.invoiceId)
+      .map(request => ({
+        invoiceId: request.invoiceId as string,
+        invoiceNumber: request.invoiceNumber,
+        zohoCustomerId: request.zohoCustomerId,
+        dealerId: request.dealerId,
+      }));
+    if (!tickets.length) {
       setInvoiceDates(new Map());
       return;
     }
 
-    const buildMap = (invoices: Array<{ id: string; date: string | null }>) => {
-      const map = new Map<string, string>();
-      for (const invoice of invoices) {
-        if (invoiceIds.has(invoice.id) && invoice.date) {
-          map.set(invoice.id, invoice.date);
-        }
-      }
-      return map;
-    };
-
     let cancelled = false;
-    const cached = readCachedAllDealerInvoices(user?.uid);
-    if (cached) {
-      setInvoiceDates(buildMap(cached));
-    }
-
-    void fetchAllDealerInvoices(user?.uid).then(invoices => {
-      if (!cancelled) setInvoiceDates(buildMap(invoices));
+    void fetchSupportInvoiceDatesForTickets(tickets).then(map => {
+      if (!cancelled) setInvoiceDates(map);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [requests, user?.uid]);
+  }, [requests]);
 
   useEffect(() => {
     if (!showTypeFilter) return;
