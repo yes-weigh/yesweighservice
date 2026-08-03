@@ -73,7 +73,7 @@ function SpareInchargeZohoCell({
     try {
       if (forceRefresh) clearZohoSalespersonsCache();
       const [rows, claimed] = await Promise.all([
-        listZohoSalespersons({ forceRefresh }),
+        listZohoSalespersons({ forceRefresh, includeHidden: false }),
         listClaimedZohoSalespersonIds(user.uid),
       ]);
       setOptions(rows);

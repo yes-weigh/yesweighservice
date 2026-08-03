@@ -22426,6 +22426,102 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.5rem;
 }
 
+.zoho-sp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.zoho-sp-panel__hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.zoho-sp-panel__hero h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.zoho-sp-panel__hero p {
+  margin: 0;
+  max-width: 42rem;
+}
+
+.zoho-sp-panel__hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.zoho-sp-panel__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem 0;
+}
+
+.zoho-sp-panel__search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 28rem;
+}
+
+.zoho-sp-panel__search .input-field {
+  flex: 1;
+}
+
+.zoho-sp-panel__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.zoho-sp-panel__editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.zoho-sp-panel__name {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.zoho-sp-panel__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.zoho-sp-panel__editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.zoho-sp-panel--editor .inline-form-panel,
+.zoho-sp-panel--editor .form-panel-topbar {
+  margin-bottom: 0;
+}
+
+.staff-role-editor__zoho-readonly {
+  gap: 0.35rem;
+}
+
+.staff-role-editor__label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+}
+
 .dealer-linking-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -33334,6 +33430,46 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .user-management__tier--director {
   background: rgba(167, 139, 250, 0.15);
   color: #c4b5fd;
+}
+
+.user-management__editor .inline-form-panel {
+  margin-bottom: 0;
+}
+
+.user-management__save-notice {
+  padding: 0.65rem 0.9rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+  font-size: 0.875rem;
+}
+
+.user-management__row--clickable {
+  cursor: pointer;
+}
+
+.user-management__row--clickable:hover td {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.user-management__row--highlighted td {
+  animation: user-management-row-highlight 4.5s ease-out forwards;
+}
+
+@keyframes user-management-row-highlight {
+  0% {
+    background: rgba(16, 185, 129, 0.28);
+    box-shadow: inset 3px 0 0 #10b981;
+  }
+  70% {
+    background: rgba(16, 185, 129, 0.12);
+    box-shadow: inset 3px 0 0 #10b981;
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
 }
 
 .dealer-role-editor__section {

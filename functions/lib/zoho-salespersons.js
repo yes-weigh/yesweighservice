@@ -84,18 +84,70 @@ export async function fetchZohoSalespersonsFromApi(secrets, configuredOrgId) {
 /**
  * Read cached salespersons from Firestore (fast path for UI).
  */
+function mapCachedSalespersonDoc(doc) {
+  const data = doc.data() || {};
+  return {
+    id: String(data.id ?? doc.id),
+    name: String(data.name ?? doc.id),
+    email: data.email != null && String(data.email).trim() ? String(data.email).trim() : null,
+    active: data.active !== false,
+    hiddenFromPortal: data.hiddenFromPortal === true,
+  };
+}
+
+/** Zoho salesperson ids marked hidden in the portal (picker + dealer linking). */
+export async function loadHiddenZohoSalespersonIds() {
+  const ids = new Set();
+  try {
+    const snap = await getFirestore()
+      .collection(SALESPERSONS_COLLECTION)
+      .where('hiddenFromPortal', '==', true)
+      .select('id')
+      .get();
+    for (const doc of snap.docs) {
+      const id = String(doc.data()?.id ?? doc.id).trim();
+      if (id) ids.add(id);
+    }
+  } catch {
+    const snap = await getFirestore().collection(SALESPERSONS_COLLECTION).select('id', 'hiddenFromPortal').get();
+    for (const doc of snap.docs) {
+      if (doc.data()?.hiddenFromPortal !== true) continue;
+      const id = String(doc.data()?.id ?? doc.id).trim();
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Toggle portal visibility for a Zoho salesperson. Does not unlink portal owners
+ * or change Zoho; only affects pickers and dealer linking.
+ */
+export async function setZohoSalespersonHiddenFromPortal(salespersonId, hidden) {
+  const id = String(salespersonId ?? '').trim();
+  if (!id) throw new Error('salespersonId is required.');
+  const ref = getFirestore().collection(SALESPERSONS_COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Zoho salesperson not found. Sync salespersons first.');
+  const nextHidden = Boolean(hidden);
+  await ref.set({
+    hiddenFromPortal: nextHidden,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  const data = snap.data() || {};
+  return {
+    id,
+    name: String(data.name ?? id),
+    email: data.email != null && String(data.email).trim() ? String(data.email).trim() : null,
+    active: data.active !== false,
+    hiddenFromPortal: nextHidden,
+  };
+}
+
 export async function listCachedZohoSalespersons() {
   const snap = await getFirestore().collection(SALESPERSONS_COLLECTION).get();
   const salespersons = sortSalespersons(
-    snap.docs.map(doc => {
-      const data = doc.data() || {};
-      return {
-        id: String(data.id ?? doc.id),
-        name: String(data.name ?? doc.id),
-        email: data.email != null && String(data.email).trim() ? String(data.email).trim() : null,
-        active: data.active !== false,
-      };
-    }).filter(row => row.id),
+    snap.docs.map(doc => mapCachedSalespersonDoc(doc)).filter(row => row.id),
   );
 
   const metaSnap = await getFirestore()
@@ -170,9 +222,12 @@ export async function syncZohoSalespersonsToFirestore(secrets, configuredOrgId) 
   ops += 1;
   await commit();
 
+  // Re-read so portal flags (hiddenFromPortal) preserved by merge are returned.
+  const cached = await listCachedZohoSalespersons();
+
   return {
-    salespersons,
-    count: salespersons.length,
+    salespersons: cached.salespersons,
+    count: cached.salespersons.length,
     removed: [...existingIds].filter(id => !nextIds.has(id)).length,
     organizationId,
   };

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ChevronDown, Loader2, Search, Sparkles, X } from 'lucide-react';
 import {
   ALL_STAFF_PERMISSIONS,
@@ -201,7 +202,7 @@ export function ZohoSalespersonPicker({
     try {
       if (forceRefresh) clearZohoSalespersonsCache();
       const [rows, claimed] = await Promise.all([
-        listZohoSalespersons({ forceRefresh }),
+        listZohoSalespersons({ forceRefresh, includeHidden: false }),
         listClaimedZohoSalespersonIds(excludeUid),
       ]);
       setOptions(rows);
@@ -442,6 +443,8 @@ interface StaffRoleEditorProps {
   roles: StaffRoleTemplate[];
   /** Staff uid being edited (keeps their Zoho links selectable). */
   excludeUid?: string | null;
+  /** Deep link to Dealers → Salespersons (Zoho link/unlink hub). */
+  zohoManageHref?: string | null;
   disabled?: boolean;
 }
 
@@ -449,11 +452,11 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
   value,
   onChange,
   roles,
-  excludeUid,
+  excludeUid: _excludeUid,
+  zohoManageHref,
   disabled,
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(value.accessMode === 'custom');
-  const [zohoDetailsOpen, setZohoDetailsOpen] = useState(value.zohoSalespersonLinks.length > 0);
   const selectedRole = findStaffRole(roles, value.roleId);
 
   const effectivePermissions = useMemo(
@@ -520,25 +523,29 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
         <p className="staff-role-editor__hint text-muted text-sm">{selectedRole.description}</p>
       )}
 
-      <details
-        className="staff-role-editor__optional"
-        open={zohoDetailsOpen}
-        onToggle={event => {
-          setZohoDetailsOpen(event.currentTarget.open);
-        }}
-      >
-        <summary>Zoho salesperson (dealer assignment + SO / invoice)</summary>
-        <ZohoSalespersonPicker
-          links={value.zohoSalespersonLinks}
-          disabled={disabled}
-          loadEnabled={zohoDetailsOpen}
-          excludeUid={excludeUid}
-          onChange={zohoSalespersonLinks => onChange({ ...value, zohoSalespersonLinks })}
-        />
+      <div className="staff-role-editor__section staff-role-editor__zoho-readonly">
+        <span className="staff-role-editor__label">Zoho salesperson</span>
+        {value.zohoSalespersonLinks.length > 0 ? (
+          <ul className="staff-role-editor__zoho-chips" aria-label="Linked Zoho salespersons">
+            {value.zohoSalespersonLinks.map(link => (
+              <li key={link.id} className="staff-role-editor__zoho-chip">
+                {link.name || link.id}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="staff-role-editor__hint text-muted text-sm">Not linked</p>
+        )}
         <p className="staff-role-editor__hint text-muted text-sm">
-          Unlinked Zoho salespersons appear first. Link enough staff before running dealer assignment backfill.
+          Link or unlink Zoho salespersons in{' '}
+          {zohoManageHref ? (
+            <Link to={zohoManageHref}>Dealers → Salespersons</Link>
+          ) : (
+            'Dealers → Salespersons'
+          )}
+          .
         </p>
-      </details>
+      </div>
 
       <details className="staff-role-editor__optional">
         <summary>Optional fields</summary>

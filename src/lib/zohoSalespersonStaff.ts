@@ -1,5 +1,7 @@
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   limit,
   query,
@@ -7,7 +9,10 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { normalizePhone, isValidPhone } from './loginAuth';
+import { updateUserProfile } from './userAdmin';
 import { listZohoSalespersonsFromFirestore } from './zohoSalespersons';
+import type { FirestoreUserDoc } from '../types';
+import { normalizeRole } from '../types';
 
 export type ZohoSalespersonLink = {
   id: string;
@@ -179,6 +184,68 @@ export async function assertZohoSalespersonIdsAvailable(
  * Map of Zoho salesperson id → staff already claiming it (for HR picker ordering).
  * Excludes `excludeUid` so the staff being edited can keep their own links.
  */
+/**
+ * Link a Zoho salesperson to a staff / super_admin portal user.
+ * Enforces one portal owner per Zoho salesperson id.
+ */
+export async function linkZohoSalespersonToPortalUser(input: {
+  zohoSalespersonId: string;
+  zohoSalespersonName?: string | null;
+  staffUid: string;
+}): Promise<{ staffUid: string; staffName: string; links: ZohoSalespersonLink[] }> {
+  const spId = String(input.zohoSalespersonId ?? '').trim();
+  const uid = String(input.staffUid ?? '').trim();
+  if (!spId) throw new Error('Zoho salesperson is required.');
+  if (!uid) throw new Error('Portal user is required.');
+
+  await assertZohoSalespersonIdAvailable(spId, uid);
+
+  const snap = await getDoc(doc(db, 'users', uid));
+  if (!snap.exists()) throw new Error('Portal user not found.');
+  const data = snap.data() as FirestoreUserDoc;
+  const role = normalizeRole(String(data.role ?? ''));
+  if (!role || !roleSupportsZohoSalespersonLinks(role)) {
+    throw new Error('Only staff or super admins can be linked to Zoho salespersons.');
+  }
+  if (data.active === false) throw new Error('Portal user is inactive.');
+
+  const links = normalizeZohoSalespersonLinks(data);
+  if (!links.some(link => link.id === spId)) {
+    links.push({
+      id: spId,
+      name: input.zohoSalespersonName != null && String(input.zohoSalespersonName).trim()
+        ? String(input.zohoSalespersonName).trim()
+        : null,
+    });
+  }
+  const fields = zohoLinksToFirestoreFields(links);
+  await updateUserProfile(db, uid, fields);
+  return {
+    staffUid: uid,
+    staffName: String(data.displayName ?? 'Staff').trim() || 'Staff',
+    links: fields.zohoSalespersonLinks,
+  };
+}
+
+/** Remove a Zoho salesperson link from a portal user. */
+export async function unlinkZohoSalespersonFromPortalUser(input: {
+  zohoSalespersonId: string;
+  staffUid: string;
+}): Promise<{ staffUid: string; links: ZohoSalespersonLink[] }> {
+  const spId = String(input.zohoSalespersonId ?? '').trim();
+  const uid = String(input.staffUid ?? '').trim();
+  if (!spId) throw new Error('Zoho salesperson is required.');
+  if (!uid) throw new Error('Portal user is required.');
+
+  const snap = await getDoc(doc(db, 'users', uid));
+  if (!snap.exists()) throw new Error('Portal user not found.');
+  const data = snap.data() as FirestoreUserDoc;
+  const next = normalizeZohoSalespersonLinks(data).filter(link => link.id !== spId);
+  const fields = zohoLinksToFirestoreFields(next);
+  await updateUserProfile(db, uid, fields);
+  return { staffUid: uid, links: fields.zohoSalespersonLinks };
+}
+
 export async function listClaimedZohoSalespersonIds(
   excludeUid?: string | null,
 ): Promise<Map<string, { uid: string; displayName: string }>> {

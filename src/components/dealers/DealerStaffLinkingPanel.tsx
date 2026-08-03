@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Link2, Play, RefreshCw, UserPlus } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -12,6 +13,8 @@ import {
   type DealerStaffLinkingAnalysis,
 } from '../../lib/dealers';
 import type { AssignableStaffOption } from '../../types/dealers';
+import { dealersSalespersonsPath } from '../../lib/zohoSalespersons';
+import { homePathForRole } from '../../types';
 
 function formatUpdatedAt(value: unknown): string | null {
   if (!value) return null;
@@ -172,7 +175,12 @@ export function DealerStaffLinkingPanel() {
           <h2>Dealer linking check</h2>
           <p className="text-muted text-sm">
             Resolve each unassigned dealer from their latest invoice salesperson
-            (skipping {result?.ignoredSalespersons?.join(', ') || 'yescloud server, Cloud Charges, GATC SELF'}).
+            (skipping {result?.ignoredSalespersons?.join(', ') || 'yescloud server, Cloud Charges, GATC SELF'}
+            and salespersons hidden in{' '}
+            <Link to={dealersSalespersonsPath(homePathForRole('super_admin'))}>
+              Dealers → Salespersons
+            </Link>
+            ).
             Results are saved and update live when you claim or assign — re-run only when you need a fresh scan.
           </p>
           {updatedLabel ? (

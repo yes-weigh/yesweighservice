@@ -472,6 +472,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
               onChange={setRoleDraft}
               roles={staffRoles}
               excludeUid={uid ?? null}
+              zohoManageHref={`${basePath}/dealers?tab=salespersons`}
               disabled={submitting}
             />
           </section>

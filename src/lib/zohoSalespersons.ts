@@ -7,6 +7,8 @@ export type ZohoSalespersonOption = {
   name: string;
   email: string | null;
   active: boolean;
+  /** Portal-only: excluded from pickers and dealer linking when true. */
+  hiddenFromPortal?: boolean;
 };
 
 const functions = getFunctions(app, 'asia-south1');
@@ -17,6 +19,9 @@ const MEMORY_TTL_MS = 60 * 1000;
 
 function sortRows(rows: ZohoSalespersonOption[]): ZohoSalespersonOption[] {
   return [...rows].sort((a, b) => {
+    if (Boolean(a.hiddenFromPortal) !== Boolean(b.hiddenFromPortal)) {
+      return a.hiddenFromPortal ? 1 : -1;
+    }
     if (a.active !== b.active) return a.active ? -1 : 1;
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
   });
@@ -30,6 +35,7 @@ function mapDoc(id: string, data: Record<string, unknown>): ZohoSalespersonOptio
     name: String(data.name ?? docId).trim() || docId,
     email: data.email != null && String(data.email).trim() ? String(data.email).trim() : null,
     active: data.active !== false,
+    hiddenFromPortal: data.hiddenFromPortal === true,
   };
 }
 
@@ -62,6 +68,7 @@ export async function syncZohoSalespersonsFromZoho(): Promise<ZohoSalespersonOpt
         name: String(row.name ?? '').trim() || String(row.id ?? '').trim(),
         email: row.email != null && String(row.email).trim() ? String(row.email).trim() : null,
         active: row.active !== false,
+        hiddenFromPortal: row.hiddenFromPortal === true,
       }))
       .filter(row => row.id),
   );
@@ -70,20 +77,55 @@ export async function syncZohoSalespersonsFromZoho(): Promise<ZohoSalespersonOpt
 }
 
 /**
- * Load salespersons for the HR dropdown.
+ * Load salespersons for pickers / management UI.
  * Reads Firestore first; if empty, syncs from Zoho once.
  */
 export async function listZohoSalespersons(options?: {
   forceRefresh?: boolean;
+  /** When true, include portal-hidden rows (management UI). Pickers leave this off. */
+  includeHidden?: boolean;
 }): Promise<ZohoSalespersonOption[]> {
+  const includeHidden = options?.includeHidden === true;
+  let rows: ZohoSalespersonOption[];
   if (options?.forceRefresh) {
-    return syncZohoSalespersonsFromZoho();
+    rows = await syncZohoSalespersonsFromZoho();
+  } else {
+    rows = await listZohoSalespersonsFromFirestore();
+    if (!rows.length) {
+      rows = await syncZohoSalespersonsFromZoho();
+    }
   }
-  const cached = await listZohoSalespersonsFromFirestore();
-  if (cached.length) return cached;
-  return syncZohoSalespersonsFromZoho();
+  if (includeHidden) return rows;
+  return rows.filter(row => !row.hiddenFromPortal);
 }
 
-export function clearZohoSalespersonsCache() {
+export function clearZohoSalespersonsCache(): void {
   memoryCache = null;
+}
+
+/** Hide or unhide a Zoho salesperson from portal pickers + dealer linking. */
+export async function setZohoSalespersonPortalHidden(
+  salespersonId: string,
+  hidden: boolean,
+): Promise<ZohoSalespersonOption> {
+  const callable = httpsCallable<
+    { salespersonId: string; hidden: boolean },
+    ZohoSalespersonOption
+  >(functions, 'setZohoSalespersonPortalHidden');
+  const result = await callable({ salespersonId, hidden });
+  clearZohoSalespersonsCache();
+  return {
+    id: String(result.data?.id ?? salespersonId).trim(),
+    name: String(result.data?.name ?? salespersonId).trim(),
+    email: result.data?.email != null && String(result.data.email).trim()
+      ? String(result.data.email).trim()
+      : null,
+    active: result.data?.active !== false,
+    hiddenFromPortal: result.data?.hiddenFromPortal === true,
+  };
+}
+
+export function dealersSalespersonsPath(basePath: string): string {
+  const base = basePath.replace(/\/$/, '');
+  return `${base}/dealers?tab=salespersons`;
 }

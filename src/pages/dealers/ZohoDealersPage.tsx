@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Ban,
   Download,
@@ -14,6 +14,7 @@ import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
 import { DealerStaffLinkingPanel } from '../../components/dealers/DealerStaffLinkingPanel';
+import { ZohoSalespersonsPanel } from '../../components/dealers/ZohoSalespersonsPanel';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { DEALER_STATUS_LEGEND } from '../../lib/dealerStatus';
@@ -33,7 +34,12 @@ import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } fr
 import { homePathForRole, type Role } from '../../types';
 import { hasStaffPermission } from '../../lib/staffAccess';
 
-type DealersMainTab = 'roster' | 'linking';
+type DealersMainTab = 'roster' | 'linking' | 'salespersons';
+
+function parseDealersTab(value: string | null): DealersMainTab {
+  if (value === 'linking' || value === 'salespersons') return value;
+  return 'roster';
+}
 
 function dealersListBase(role: Role): string {
   return `${homePathForRole(role)}/dealers`;
@@ -51,12 +57,20 @@ function useDebounce<T>(value: T, delay: number): T {
 export function ZohoDealersPage() {
   const confirm = useConfirm();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
   const isSuperAdmin = user?.role === 'super_admin';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
-  const [mainTab, setMainTab] = useState<DealersMainTab>('roster');
+  const mainTab = isSuperAdmin ? parseDealersTab(searchParams.get('tab')) : 'roster';
+  const setMainTab = (tab: DealersMainTab) => {
+    if (tab === 'roster') {
+      setSearchParams({}, { replace: true });
+      return;
+    }
+    setSearchParams({ tab }, { replace: true });
+  };
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
@@ -351,11 +365,22 @@ export function ZohoDealersPage() {
           >
             Dealer linking check
           </button>
+          <button
+            type="button"
+            role="tab"
+            className={`dealers-page-tabs__tab${mainTab === 'salespersons' ? ' dealers-page-tabs__tab--active' : ''}`}
+            aria-selected={mainTab === 'salespersons'}
+            onClick={() => setMainTab('salespersons')}
+          >
+            Salespersons
+          </button>
         </div>
       ) : null}
 
       {isSuperAdmin && mainTab === 'linking' ? (
         <DealerStaffLinkingPanel />
+      ) : isSuperAdmin && mainTab === 'salespersons' ? (
+        <ZohoSalespersonsPanel />
       ) : (
       <>
       {success && (

@@ -12,11 +12,14 @@ import {
   setManagedUserPassword,
   updateUserProfile,
 } from '../../lib/userAdmin';
+import { Link } from 'react-router-dom';
 import type { FirestoreUserDoc, Role, SuperAdminAccess, UserRecord } from '../../types';
 import {
+  DEALER_TIER_LABELS,
   ROLE_LABELS,
   SUPER_ADMIN_ACCESS_LABELS,
   canManageRole,
+  homePathForRole,
   normalizeRole,
   normalizeSuperAdminAccess,
   readDealerId,
@@ -36,15 +39,11 @@ import {
   dealerRoleDraftToPayload,
   type DealerRoleDraft,
 } from '../../components/admin/DealerRoleEditor';
-import { ZohoSalespersonPicker } from '../../components/admin/StaffRoleEditor';
 import {
-  assertZohoSalespersonIdsAvailable,
   normalizeZohoSalespersonLinks,
   staffHasZohoSalespersonLink,
-  zohoLinksToFirestoreFields,
-  type ZohoSalespersonLink,
 } from '../../lib/zohoSalespersonStaff';
-import { DEALER_TIER_LABELS } from '../../types';
+import { dealersSalespersonsPath } from '../../lib/zohoSalespersons';
 
 const EMPTY_FORM = {
   loginId: '',
@@ -96,8 +95,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [roleDraft, setRoleDraft] = useState<DealerRoleDraft>(EMPTY_DEALER_ROLE_DRAFT);
-  const [zohoSalespersonLinks, setZohoSalespersonLinks] = useState<ZohoSalespersonLink[]>([]);
-  const [zohoDetailsOpen, setZohoDetailsOpen] = useState(false);
+  const [highlightedUid, setHighlightedUid] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState('');
+  const useFullScreenForm = role === 'super_admin';
   const showDealerAccess = role === 'dealer' || role === 'dealer_staff';
   const showSuperAdminZohoLinks = role === 'super_admin';
   /** Access column / toggle / form — localhost only so production super admins don't see tiers. */
@@ -105,6 +105,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const canWriteUsers = canSuperAdminWrite(user) || (
     user?.role !== 'super_admin' && Boolean(user)
   );
+  const zohoManageHref = dealersSalespersonsPath(homePathForRole('super_admin'));
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -135,6 +136,17 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     void fetchUsers();
   }, [fetchUsers]);
 
+  useEffect(() => {
+    if (!highlightedUid || showForm) return;
+    const row = document.getElementById(`user-mgmt-row-${highlightedUid}`);
+    row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const timer = window.setTimeout(() => {
+      setHighlightedUid(null);
+      setSaveNotice('');
+    }, 4500);
+    return () => window.clearTimeout(timer);
+  }, [highlightedUid, showForm, records]);
+
   const parentDealerRecord = useCallback((dealerId?: string) => {
     const id = dealerId || scopedDealerId;
     if (!id) return null;
@@ -156,12 +168,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const resetForm = () => {
     setForm({ ...EMPTY_FORM, dealerId: scopedDealerId ?? '' });
     setRoleDraft(EMPTY_DEALER_ROLE_DRAFT);
-    setZohoSalespersonLinks([]);
-    setZohoDetailsOpen(false);
     setEditingUid(null);
     setShowForm(false);
     setError('');
     setShowPw(false);
+  };
+
+  const finishEdit = (uid: string | null, displayName: string) => {
+    resetForm();
+    if (uid) {
+      setHighlightedUid(uid);
+      setSaveNotice(`Saved changes for ${displayName}`);
+    }
   };
 
   const openCreate = () => {
@@ -169,8 +187,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     setForm({ ...EMPTY_FORM, dealerId: scopedDealerId ?? '', superAdminAccess: 'full' });
     const parent = role === 'dealer_staff' ? parentDealerRecord(scopedDealerId) : null;
     setRoleDraft(parent ? dealerRoleDraftFromRecord(parent) : EMPTY_DEALER_ROLE_DRAFT);
-    setZohoSalespersonLinks([]);
-    setZohoDetailsOpen(false);
     setEditingUid(null);
     setShowForm(true);
     setError('');
@@ -179,7 +195,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const openEdit = (record: UserRecord) => {
     if (!canWriteUsers) return;
     const login = resolveProfileLogin(record);
-    const links = normalizeZohoSalespersonLinks(record);
     setForm({
       loginId: login?.value ?? '',
       password: '',
@@ -190,8 +205,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       superAdminAccess: normalizeSuperAdminAccess(record.superAdminAccess),
     });
     setRoleDraft(dealerRoleDraftFromRecord(record));
-    setZohoSalespersonLinks(links);
-    setZohoDetailsOpen(links.length > 0);
     setEditingUid(record.uid);
     setShowForm(true);
     setError('');
@@ -212,12 +225,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       const superAccessPayload = showSuperAdminAccess
         ? { superAdminAccess: normalizeSuperAdminAccess(form.superAdminAccess) }
         : {};
-      const zohoPayload = showSuperAdminZohoLinks
-        ? zohoLinksToFirestoreFields(zohoSalespersonLinks)
-        : null;
-      if (zohoPayload?.zohoSalespersonIds.length) {
-        await assertZohoSalespersonIdsAvailable(zohoPayload.zohoSalespersonIds, editingUid);
-      }
+      const savedName = form.displayName.trim() || ROLE_LABELS[role];
+      let savedUid: string | null = editingUid;
       if (editingUid) {
         await updateUserProfile(db, editingUid, {
           displayName: form.displayName,
@@ -227,7 +236,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           ...accessPayload,
           ...superAccessPayload,
-          ...(zohoPayload ?? {}),
         });
         const nextPassword = form.password.trim();
         if (nextPassword) {
@@ -250,7 +258,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               : 'Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.',
           );
         }
-        await registerUser(db, {
+        savedUid = await registerUser(db, {
           loginId: form.loginId,
           password: form.password,
           displayName: form.displayName,
@@ -261,11 +269,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             role === 'dealer_staff' ? form.dealerId || scopedDealerId : undefined,
           ...accessPayload,
           ...superAccessPayload,
-          ...(zohoPayload ?? {}),
           createdByUid: user.uid,
         });
       }
-      resetForm();
+      if (useFullScreenForm) {
+        finishEdit(savedUid, savedName);
+      } else {
+        resetForm();
+      }
       await fetchUsers();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -358,8 +369,233 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     );
   }
 
+  const showInlineForm = showForm && !useFullScreenForm;
+  const showEditorOnly = showForm && useFullScreenForm;
+  const showList = !showEditorOnly;
+
+  const userForm = (
+    <InlineFormPanel
+      title={editingUid ? `Edit ${ROLE_LABELS[role]}` : `New ${ROLE_LABELS[role]}`}
+      onClose={resetForm}
+    >
+      <form onSubmit={handleSubmit} className="form-grid-2">
+        {error && <div className="login-error col-span-all">{error}</div>}
+
+        {!editingUid && (
+          <div className="form-group">
+            <label htmlFor="user-login-id">Login ID</label>
+            <input
+              id="user-login-id"
+              type="text"
+              className="input-field"
+              placeholder={
+                preferUsernameLogin
+                  ? (role === 'media' ? 'User ID (e.g. media1)' : 'User ID (e.g. warehouse1)')
+                  : 'Email, phone, or Aadhaar'
+              }
+              value={form.loginId}
+              onChange={e => setForm(f => ({ ...f, loginId: e.target.value }))}
+              required
+            />
+            <p className="text-muted text-sm">
+              {preferUsernameLogin
+                ? 'Short User ID — letters, numbers, dots, dashes — used to sign in'
+                : 'Email, 10-digit mobile, or 12-digit Aadhaar — used to sign in'}
+            </p>
+          </div>
+        )}
+
+        <div className="form-group">
+          <label htmlFor="user-name">Full name</label>
+          <input
+            id="user-name"
+            type="text"
+            className="input-field"
+            value={form.displayName}
+            onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="user-phone">Phone</label>
+          <input
+            id="user-phone"
+            type="tel"
+            className="input-field"
+            value={form.phone}
+            onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="user-email">Contact email (optional)</label>
+          <input
+            id="user-email"
+            type="email"
+            className="input-field"
+            value={form.email}
+            onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+          />
+        </div>
+
+        {showDealerPicker && role === 'dealer_staff' && !scopedDealerId && (
+          <div className="form-group">
+            <label htmlFor="user-dealer">Dealer</label>
+            <select
+              id="user-dealer"
+              className="input-field"
+              value={form.dealerId}
+              onChange={e => {
+                const dealerId = e.target.value;
+                setForm(f => ({ ...f, dealerId }));
+                const parent = parentDealerRecord(dealerId);
+                if (parent) setRoleDraft(dealerRoleDraftFromRecord(parent));
+              }}
+              required
+            >
+              <option value="">Select dealer</option>
+              {dealers.map(d => (
+                <option key={d.uid} value={d.uid}>
+                  {d.displayName}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {showDealerAccess && (
+          <div className="col-span-all user-management__access panel glass">
+            <h3 className="user-management__access-title">Portal access</h3>
+            <DealerRoleEditor
+              value={roleDraft}
+              onChange={setRoleDraft}
+              disabled={submitting}
+            />
+          </div>
+        )}
+
+        {showSuperAdminAccess && (
+          <div className="form-group col-span-all">
+            <label htmlFor="super-admin-access">Access</label>
+            <select
+              id="super-admin-access"
+              className="input-field"
+              value={form.superAdminAccess}
+              onChange={e => setForm(f => ({
+                ...f,
+                superAdminAccess: normalizeSuperAdminAccess(e.target.value),
+              }))}
+              disabled={submitting || !canSuperAdminWrite(user)}
+            >
+              <option value="full">Full — can edit stock, products, locations, HR, etc.</option>
+              <option value="view_only">View only — browse everything, no edits</option>
+            </select>
+          </div>
+        )}
+
+        {showSuperAdminZohoLinks && (
+          <div className="col-span-all user-management__access panel glass">
+            <h3 className="user-management__access-title">Zoho salesperson</h3>
+            {(() => {
+              const editingRecord = editingUid
+                ? records.find(r => r.uid === editingUid) ?? null
+                : null;
+              const links = editingRecord
+                ? normalizeZohoSalespersonLinks(editingRecord)
+                : [];
+              return links.length > 0 ? (
+                <p className="text-sm">
+                  {links.map(link => link.name || link.id).join(', ')}
+                </p>
+              ) : (
+                <p className="text-muted text-sm">Not linked</p>
+              );
+            })()}
+            <p className="staff-role-editor__hint text-muted text-sm">
+              Link or unlink in{' '}
+              <Link to={zohoManageHref}>Dealers → Salespersons</Link>
+              . Super admins keep Zoho links after promotion from staff.
+            </p>
+          </div>
+        )}
+
+        <div className="form-group">
+          <label htmlFor="user-password">
+            {editingUid ? 'Reset password' : 'Password'}
+          </label>
+          {!editingUid ? (
+            <div className="input-icon-wrap">
+              <input
+                id="user-password"
+                type={showPw ? 'text' : 'password'}
+                className="input-field"
+                value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                required
+                minLength={6}
+              />
+              <button
+                type="button"
+                className="input-icon-right"
+                onClick={() => setShowPw(p => !p)}
+              >
+                {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          ) : canSuperAdminWrite(user) && editingUid !== user?.uid ? (
+            <>
+              <div className="input-icon-wrap">
+                <input
+                  id="user-password"
+                  type={showPw ? 'text' : 'password'}
+                  className="input-field"
+                  placeholder="Leave blank to keep current password"
+                  value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  className="input-icon-right"
+                  onClick={() => setShowPw(p => !p)}
+                >
+                  {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <p className="text-muted text-sm">
+                Enter a new password (min 6 characters) and save to reset their login.
+              </p>
+            </>
+          ) : (
+            <p className="text-muted text-sm">
+              Dealers can reset via WhatsApp on the dealer login page.
+            </p>
+          )}
+        </div>
+
+        <div className="col-span-all flex gap-2 justify-end">
+          <button type="button" className="btn btn-secondary btn-sm" disabled={submitting} onClick={resetForm}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-success btn-sm" disabled={submitting}>
+            {submitting ? <span className="spinner-inline" /> : <><Save size={16} /> Save</>}
+          </button>
+        </div>
+      </form>
+    </InlineFormPanel>
+  );
+
   return (
     <div className="page-content fade-in">
+      {showEditorOnly ? (
+        <div className="panel glass user-management__editor">
+          {userForm}
+        </div>
+      ) : null}
+
+      {showList ? (
       <div className="panel glass panel--table">
         <div className="panel-header flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -389,216 +625,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           <div className="login-error mx-4 mb-3">{error}</div>
         )}
 
-        {showForm && (
-          <InlineFormPanel
-            title={editingUid ? `Edit ${ROLE_LABELS[role]}` : `New ${ROLE_LABELS[role]}`}
-            onClose={resetForm}
-          >
-            <form onSubmit={handleSubmit} className="form-grid-2">
-              {error && <div className="login-error col-span-all">{error}</div>}
+        {saveNotice ? (
+          <div className="user-management__save-notice mx-4 mb-3" role="status">
+            {saveNotice}
+          </div>
+        ) : null}
 
-              {!editingUid && (
-                <div className="form-group">
-                  <label htmlFor="user-login-id">Login ID</label>
-                  <input
-                    id="user-login-id"
-                    type="text"
-                    className="input-field"
-                    placeholder={
-                      preferUsernameLogin
-                        // role id remains `warehouse`; login ids often still use warehouse1, …
-                        ? (role === 'media' ? 'User ID (e.g. media1)' : 'User ID (e.g. warehouse1)')
-                        : 'Email, phone, or Aadhaar'
-                    }
-                    value={form.loginId}
-                    onChange={e => setForm(f => ({ ...f, loginId: e.target.value }))}
-                    required
-                  />
-                  <p className="text-muted text-sm">
-                    {preferUsernameLogin
-                      ? 'Short User ID — letters, numbers, dots, dashes — used to sign in'
-                      : 'Email, 10-digit mobile, or 12-digit Aadhaar — used to sign in'}
-                  </p>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label htmlFor="user-name">Full name</label>
-                <input
-                  id="user-name"
-                  type="text"
-                  className="input-field"
-                  value={form.displayName}
-                  onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="user-phone">Phone</label>
-                <input
-                  id="user-phone"
-                  type="tel"
-                  className="input-field"
-                  value={form.phone}
-                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="user-email">Contact email (optional)</label>
-                <input
-                  id="user-email"
-                  type="email"
-                  className="input-field"
-                  value={form.email}
-                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                />
-              </div>
-
-              {showDealerPicker && role === 'dealer_staff' && !scopedDealerId && (
-                <div className="form-group">
-                  <label htmlFor="user-dealer">Dealer</label>
-                  <select
-                    id="user-dealer"
-                    className="input-field"
-                    value={form.dealerId}
-                    onChange={e => {
-                      const dealerId = e.target.value;
-                      setForm(f => ({ ...f, dealerId }));
-                      const parent = parentDealerRecord(dealerId);
-                      if (parent) setRoleDraft(dealerRoleDraftFromRecord(parent));
-                    }}
-                    required
-                  >
-                    <option value="">Select dealer</option>
-                    {dealers.map(d => (
-                      <option key={d.uid} value={d.uid}>
-                        {d.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {showDealerAccess && (
-                <div className="col-span-all user-management__access panel glass">
-                  <h3 className="user-management__access-title">Portal access</h3>
-                  <DealerRoleEditor
-                    value={roleDraft}
-                    onChange={setRoleDraft}
-                    disabled={submitting}
-                  />
-                </div>
-              )}
-
-              {showSuperAdminAccess && (
-                <div className="form-group col-span-all">
-                  <label htmlFor="super-admin-access">Access</label>
-                  <select
-                    id="super-admin-access"
-                    className="input-field"
-                    value={form.superAdminAccess}
-                    onChange={e => setForm(f => ({
-                      ...f,
-                      superAdminAccess: normalizeSuperAdminAccess(e.target.value),
-                    }))}
-                    disabled={submitting || !canSuperAdminWrite(user)}
-                  >
-                    <option value="full">Full — can edit stock, products, locations, HR, etc.</option>
-                    <option value="view_only">View only — browse everything, no edits</option>
-                  </select>
-                </div>
-              )}
-
-              {showSuperAdminZohoLinks && (
-                <div className="col-span-all user-management__access panel glass">
-                  <details
-                    className="staff-role-editor__optional"
-                    open={zohoDetailsOpen}
-                    onToggle={event => {
-                      setZohoDetailsOpen(event.currentTarget.open);
-                    }}
-                  >
-                    <summary>Zoho salesperson (dealer assignment + SO / invoice)</summary>
-                    <ZohoSalespersonPicker
-                      links={zohoSalespersonLinks}
-                      disabled={submitting}
-                      loadEnabled={zohoDetailsOpen}
-                      excludeUid={editingUid}
-                      onChange={setZohoSalespersonLinks}
-                    />
-                    <p className="staff-role-editor__hint text-muted text-sm">
-                      Link Zoho salespersons so this admin can be assigned as a dealer&apos;s portal owner
-                      and appear on sales orders. Super admins keep these links after promotion from staff.
-                    </p>
-                  </details>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label htmlFor="user-password">
-                  {editingUid ? 'Reset password' : 'Password'}
-                </label>
-                {!editingUid ? (
-                  <div className="input-icon-wrap">
-                    <input
-                      id="user-password"
-                      type={showPw ? 'text' : 'password'}
-                      className="input-field"
-                      value={form.password}
-                      onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                      required
-                      minLength={6}
-                    />
-                    <button
-                      type="button"
-                      className="input-icon-right"
-                      onClick={() => setShowPw(p => !p)}
-                    >
-                      {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                ) : canSuperAdminWrite(user) && editingUid !== user?.uid ? (
-                  <>
-                    <div className="input-icon-wrap">
-                      <input
-                        id="user-password"
-                        type={showPw ? 'text' : 'password'}
-                        className="input-field"
-                        placeholder="Leave blank to keep current password"
-                        value={form.password}
-                        onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                        minLength={6}
-                        autoComplete="new-password"
-                      />
-                      <button
-                        type="button"
-                        className="input-icon-right"
-                        onClick={() => setShowPw(p => !p)}
-                      >
-                        {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-                    <p className="text-muted text-sm">
-                      Enter a new password (min 6 characters) and save to reset their login.
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-muted text-sm">
-                    Dealers can reset via WhatsApp on the dealer login page.
-                  </p>
-                )}
-              </div>
-
-              <div className="col-span-all flex gap-2 justify-end">
-                <button type="submit" className="btn btn-success btn-sm" disabled={submitting}>
-                  {submitting ? <span className="spinner-inline" /> : <><Save size={16} /> Save</>}
-                </button>
-              </div>
-            </form>
-          </InlineFormPanel>
-        )}
+        {showInlineForm && userForm}
 
         <div className="table-scroll-wrap">
           {loading ? (
@@ -624,8 +657,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 {records.map(record => {
                   const loginDisplay = displayLoginForRecord(record);
                   const access = normalizeSuperAdminAccess(record.superAdminAccess);
+                  const isHighlighted = highlightedUid === record.uid;
+                  const rowClickable = useFullScreenForm && canWriteUsers;
                   return (
-                    <tr key={record.uid}>
+                    <tr
+                      key={record.uid}
+                      id={`user-mgmt-row-${record.uid}`}
+                      className={[
+                        rowClickable ? 'user-management__row--clickable' : '',
+                        isHighlighted ? 'user-management__row--highlighted' : '',
+                      ].filter(Boolean).join(' ') || undefined}
+                      onClick={rowClickable ? () => openEdit(record) : undefined}
+                    >
                       <td>{record.displayName}</td>
                       <td>
                         <span className="text-muted text-sm">{loginDisplay.label}</span>
@@ -664,7 +707,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                                 .join(', ')}
                             </span>
                           ) : (
-                            <span className="text-muted text-sm">Not linked</span>
+                            <Link to={zohoManageHref} className="text-muted text-sm">
+                              Manage in Salespersons
+                            </Link>
                           )}
                         </td>
                       )}
@@ -676,7 +721,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                           {record.active === false ? 'Inactive' : 'Active'}
                         </span>
                       </td>
-                      <td className="text-right">
+                      <td className="text-right user-management__actions" onClick={e => e.stopPropagation()}>
                         {canWriteUsers ? (
                           <button
                             type="button"
@@ -733,6 +778,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           )}
         </div>
       </div>
+      ) : null}
     </div>
   );
 };

@@ -99,6 +99,7 @@ import {
 } from './lib/dealer-staff-assignment.js';
 import {
   listCachedZohoSalespersons,
+  setZohoSalespersonHiddenFromPortal,
   syncZohoSalespersonsToFirestore,
 } from './lib/zoho-salespersons.js';
 import {
@@ -2333,6 +2334,31 @@ export const syncZohoSalespersons = onCall(
     } catch (err) {
       console.error('syncZohoSalespersons failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not sync Zoho salespersons.');
+    }
+  },
+);
+
+/** Hide / unhide a Zoho salesperson from portal pickers and dealer linking. */
+export const setZohoSalespersonPortalHidden = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const salespersonId = String(request.data?.salespersonId ?? '').trim();
+    if (!salespersonId) {
+      throw new HttpsError('invalid-argument', 'salespersonId is required.');
+    }
+    if (typeof request.data?.hidden !== 'boolean') {
+      throw new HttpsError('invalid-argument', 'hidden must be a boolean.');
+    }
+    try {
+      return await setZohoSalespersonHiddenFromPortal(salespersonId, request.data.hidden);
+    } catch (err) {
+      console.error('setZohoSalespersonPortalHidden failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not update salesperson visibility.');
     }
   },
 );

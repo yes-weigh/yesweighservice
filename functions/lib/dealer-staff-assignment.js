@@ -4,6 +4,7 @@
  */
 
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { loadHiddenZohoSalespersonIds } from './zoho-salespersons.js';
 
 /** Non-person Zoho salespersons — skip when resolving last-invoice ownership. */
 export const IGNORED_INVOICE_SALESPERSON_IDS = new Set([
@@ -17,6 +18,24 @@ export const IGNORED_INVOICE_SALESPERSON_LABELS = [
   'Cloud Charges',
   'GATC SELF',
 ];
+
+let hiddenPortalIdsCache = { at: 0, ids: new Set() };
+const HIDDEN_PORTAL_IDS_TTL_MS = 30_000;
+
+async function ignoredInvoiceSalespersonIds() {
+  const now = Date.now();
+  if (now - hiddenPortalIdsCache.at > HIDDEN_PORTAL_IDS_TTL_MS) {
+    hiddenPortalIdsCache = {
+      at: now,
+      ids: await loadHiddenZohoSalespersonIds(),
+    };
+  }
+  const combined = new Set(IGNORED_INVOICE_SALESPERSON_IDS);
+  for (const id of hiddenPortalIdsCache.ids) {
+    if (id) combined.add(id);
+  }
+  return combined;
+}
 
 /** Persisted snapshot for Dealers → Dealer linking check (super-admin). */
 export const DEALER_STAFF_LINKING_CHECK_DOC = 'appSettings/dealerStaffLinkingCheck';
@@ -217,7 +236,7 @@ export async function latestUsableInvoiceSalesperson(customerId, { lookback = 40
       const data = doc.data() || {};
       const id = data.salespersonId != null ? String(data.salespersonId).trim() : '';
       if (!id) continue;
-      if (IGNORED_INVOICE_SALESPERSON_IDS.has(id)) continue;
+      if (ignoredIds.has(id)) continue;
       return {
         foundSubcollection: true,
         match: {
@@ -228,6 +247,8 @@ export async function latestUsableInvoiceSalesperson(customerId, { lookback = 40
     }
     return { foundSubcollection: true, match: null };
   };
+
+  const ignoredIds = await ignoredInvoiceSalespersonIds();
 
   try {
     const fromSummary = await tryQuery('invoiceSummaries');
@@ -458,9 +479,15 @@ export async function backfillDealerAssignedStaff({
  */
 export async function analyzeDealerStaffLinking({ onProgress, runByUid = null } = {}) {
   const db = getFirestore();
+  const hiddenIds = await loadHiddenZohoSalespersonIds();
+  const ignoredLabels = [
+    ...IGNORED_INVOICE_SALESPERSON_LABELS,
+    ...(hiddenIds.size ? [`${hiddenIds.size} portal-hidden`] : []),
+  ];
+
   await linkingCheckRef().set({
     status: 'running',
-    ignoredSalespersons: IGNORED_INVOICE_SALESPERSON_LABELS,
+    ignoredSalespersons: ignoredLabels,
     runStartedAt: FieldValue.serverTimestamp(),
     runByUid: runByUid || null,
     updatedAt: FieldValue.serverTimestamp(),
@@ -556,7 +583,7 @@ export async function analyzeDealerStaffLinking({ onProgress, runByUid = null } 
 
   const payload = {
     status: 'ready',
-    ignoredSalespersons: IGNORED_INVOICE_SALESPERSON_LABELS,
+    ignoredSalespersons: ignoredLabels,
     summary: {
       totalDealers: docs.length,
       unassignedDealers: unassignedTotal,
