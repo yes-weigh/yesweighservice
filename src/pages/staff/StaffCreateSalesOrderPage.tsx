@@ -381,9 +381,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const dealerReady = Boolean(selectedDealer && shipping);
 
   const fullSA = isFullSuperAdmin(user);
-  const needsSalespersonPicker = selectedSegment === 'product'
-    && fullSA
-    && spPreview.source === 'pick';
+  /** Super admins always pick salesperson for product SOs — defaulted to theirs, changeable. */
+  const needsSalespersonPicker = selectedSegment === 'product' && fullSA;
 
   const salespersonReady = !spPreview.loading
     && !spPreview.error
@@ -755,42 +754,72 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           return;
         }
 
-        // product
+        // product — super admin: default to their Zoho salesperson, allow change
         if (fullSA) {
-          const kamUid = selectedDealer?.assignedStaffUid?.trim() || '';
-          if (kamUid) {
-            const kam = await loadStaffSalesperson(kamUid);
+          if (!selectedDealer) {
             if (cancelled) return;
-            if (kam) {
-              setSpPreview({
-                source: 'kam',
-                title: 'Dealer KAM',
-                salespersonId: kam.salespersonId,
-                salespersonName: kam.salespersonName,
-                staffName: kam.staffName || selectedDealer?.assignedStaffName || null,
-                hint: 'Product sales order will use this dealer’s assigned KAM.',
-                error: null,
-                loading: false,
-              });
-              setSalespersonId('');
-              return;
+            setSpPreview({
+              source: 'pick',
+              title: 'Select salesperson',
+              salespersonId: null,
+              salespersonName: null,
+              staffName: user?.displayName ?? null,
+              hint: 'Select a dealer first.',
+              error: 'Select a dealer first.',
+              loading: false,
+            });
+            setSalespersonId('');
+            return;
+          }
+
+          // Prefer creator’s linked Zoho SP that is still visible in portal (not hidden).
+          let visibleRows: ZohoSalespersonOption[] = [];
+          try {
+            visibleRows = await listZohoSalespersons({ includeHidden: false });
+          } catch {
+            visibleRows = [];
+          }
+          const visibleIds = new Set(visibleRows.map(row => row.id));
+          const ownLinks = normalizeZohoSalespersonLinks({
+            zohoSalespersonLinks: user?.zohoSalespersonLinks,
+            zohoSalespersonIds: user?.zohoSalespersonIds,
+            zohoSalespersonId: user?.zohoSalespersonId,
+            zohoSalespersonName: user?.zohoSalespersonName,
+          }).filter(link => visibleIds.has(link.id) || visibleIds.size === 0);
+          const own = ownLinks[0]
+            ? { salespersonId: ownLinks[0].id, salespersonName: ownLinks[0].name }
+            : null;
+
+          let defaultId = own?.salespersonId ?? '';
+          let defaultName = own?.salespersonName ?? null;
+          let hint = own
+            ? 'Defaults to your linked Zoho salesperson — change below if needed.'
+            : 'No Zoho salesperson on your account — pick one below (or link one in Dealers → Salespersons).';
+
+          if (!defaultId) {
+            const kamUid = selectedDealer.assignedStaffUid?.trim() || '';
+            if (kamUid) {
+              const kam = await loadStaffSalesperson(kamUid);
+              if (kam && (visibleIds.size === 0 || visibleIds.has(kam.salespersonId))) {
+                defaultId = kam.salespersonId;
+                defaultName = kam.salespersonName;
+                hint = `Defaults to dealer KAM (${kam.staffName || selectedDealer.assignedStaffName || 'staff'}) — change below if needed.`;
+              }
             }
           }
+
           if (cancelled) return;
           setSpPreview({
             source: 'pick',
             title: 'Select salesperson',
-            salespersonId: null,
-            salespersonName: null,
-            staffName: selectedDealer?.assignedStaffName || null,
-            hint: !selectedDealer
-              ? 'Select a dealer first.'
-              : (selectedDealer.assignedStaffUid
-                ? 'Assigned KAM has no Zoho salesperson — pick one below.'
-                : 'No KAM linked on this dealer — pick a salesperson.'),
-            error: selectedDealer ? null : 'Select a dealer first.',
+            salespersonId: defaultId || null,
+            salespersonName: defaultName,
+            staffName: user?.displayName ?? null,
+            hint,
+            error: null,
             loading: false,
           });
+          setSalespersonId(defaultId);
           return;
         }
 

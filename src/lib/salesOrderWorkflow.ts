@@ -184,7 +184,7 @@ export async function createStaffSalesOrder(input: {
   shipping: ShippingSelection;
   stage: 'review' | 'ready_for_payment';
   remarks?: string;
-  /** Full super admin without a linked Zoho salesperson: required override for product segment. */
+  /** Full super admin product SO: preferred Zoho salesperson (defaults to theirs in UI; changeable). */
   salespersonId?: string | null;
 }): Promise<{
   zohoSalesOrderId: string | null;

@@ -3,6 +3,7 @@
  * or from the creating staff member for staff-placed orders.
  */
 import { getFirestore } from 'firebase-admin/firestore';
+import { loadHiddenZohoSalespersonIds } from './zoho-salespersons.js';
 
 /** Known Zoho id for Cloud Charges (fallback if name lookup fails). */
 export const CLOUD_CHARGES_SALESPERSON_ID = '99381000004019936';
@@ -29,6 +30,18 @@ export function normalizeStaffZohoSalespersonIds(data = {}) {
     }
   }
   return [...ids];
+}
+
+/** Prefer primary, else first linked — skipping portal-hidden Zoho salespersons. */
+async function pickUsableSalespersonId(user) {
+  const linkedIds = normalizeStaffZohoSalespersonIds(user);
+  if (!linkedIds.length) return null;
+  const hidden = await loadHiddenZohoSalespersonIds();
+  const usable = linkedIds.filter(id => !hidden.has(id));
+  if (!usable.length) return null;
+  const primary = String(user.zohoSalespersonId ?? '').trim();
+  if (primary && usable.includes(primary)) return primary;
+  return usable[0];
 }
 
 async function resolveSalespersonName(user, salespersonId) {
@@ -64,11 +77,8 @@ export async function resolveSalespersonForStaff(staffUid) {
   const user = userSnap.data() || {};
   if (user.active === false) return null;
 
-  const linkedIds = normalizeStaffZohoSalespersonIds(user);
-  if (!linkedIds.length) return null;
-
-  const primary = String(user.zohoSalespersonId ?? '').trim();
-  const salespersonId = primary && linkedIds.includes(primary) ? primary : linkedIds[0];
+  const salespersonId = await pickUsableSalespersonId(user);
+  if (!salespersonId) return null;
   const salespersonName = await resolveSalespersonName(user, salespersonId);
 
   return {
@@ -116,11 +126,8 @@ export async function resolveSalespersonForCustomer(customerId) {
   const user = userSnap.data() || {};
   if (user.active === false) return null;
 
-  const linkedIds = normalizeStaffZohoSalespersonIds(user);
-  if (!linkedIds.length) return null;
-
-  const primary = String(user.zohoSalespersonId ?? '').trim();
-  const salespersonId = primary && linkedIds.includes(primary) ? primary : linkedIds[0];
+  const salespersonId = await pickUsableSalespersonId(user);
+  if (!salespersonId) return null;
   const salespersonName = await resolveSalespersonName(user, salespersonId);
 
   return {

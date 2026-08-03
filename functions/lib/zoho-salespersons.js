@@ -278,8 +278,9 @@ export async function setZohoSalespersonHiddenFromPortal(
   const nextHidden = Boolean(hidden);
 
   let reassigned = null;
+  let impact = null;
   if (nextHidden) {
-    const impact = await getZohoSalespersonHideImpact(id);
+    impact = await getZohoSalespersonHideImpact(id);
     if (impact.requiresReassign) {
       const toUid = String(reassignToStaffUid ?? '').trim();
       if (!toUid) {
@@ -296,6 +297,33 @@ export async function setZohoSalespersonHiddenFromPortal(
     hiddenFromPortal: nextHidden,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
+
+  // If this was the portal owner's primary Zoho SP, point primary at next usable link.
+  if (nextHidden && impact?.linkedStaff?.uid) {
+    const userRef = getFirestore().collection('users').doc(impact.linkedStaff.uid);
+    const userSnap = await userRef.get();
+    if (userSnap.exists) {
+      const userData = userSnap.data() || {};
+      const primary = String(userData.zohoSalespersonId ?? '').trim();
+      if (primary === id) {
+        const remaining = normalizeUserZohoIds(userData).filter(spId => spId !== id);
+        const nextPrimary = remaining[0] || null;
+        let nextName = null;
+        if (nextPrimary && Array.isArray(userData.zohoSalespersonLinks)) {
+          const match = userData.zohoSalespersonLinks.find(
+            link => String(link?.id ?? '').trim() === nextPrimary,
+          );
+          nextName = match?.name != null ? String(match.name) : null;
+        }
+        await userRef.set({
+          zohoSalespersonId: nextPrimary,
+          zohoSalespersonName: nextName,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+    }
+  }
+
   const data = snap.data() || {};
   return {
     id,
