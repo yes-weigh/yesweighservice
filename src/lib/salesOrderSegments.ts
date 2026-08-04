@@ -152,6 +152,10 @@ export function groupLinesBySegmentAndSite<T extends {
   productId?: string | null;
   sku?: string | null;
   warehouses?: Array<{ warehouseName?: string; stock?: number }> | null;
+  /** When set on a freight line, attach to this inventory site. */
+  freightInventorySite?: InventorySite | null;
+  /** When set on a freight line, attach to this host segment. */
+  freightHostSegment?: OrderSegment | null;
 }>(lines: T[]): SegmentSiteBucket<T>[] {
   const buckets = new Map<string, SegmentSiteBucket<T>>();
   const freight: T[] = [];
@@ -169,7 +173,16 @@ export function groupLinesBySegmentAndSite<T extends {
   for (const line of lines) {
     const segment = classifyOrderLineSegment(line);
     if (!segment) {
-      freight.push(line);
+      const hostSegment = line.freightHostSegment;
+      const hostSite = line.freightInventorySite;
+      if (
+        (hostSegment === 'product' || hostSegment === 'spare')
+        && (hostSite === 'cochin' || hostSite === 'head_office')
+      ) {
+        ensureBucket(hostSegment, hostSite).lines.push(line);
+      } else {
+        freight.push(line);
+      }
       continue;
     }
     const site = resolveLineInventorySite(segment, line.warehouses);

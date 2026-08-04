@@ -33,6 +33,7 @@ import {
   warehouseIdFromLineWarehouses,
 } from './zoho-locations.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
+import { buildDealerAutoFreightLines, mapPackageInfo } from './st-courier-cart-freight.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
@@ -207,6 +208,7 @@ async function loadCatalogProduct(productId) {
     status: String(data.status ?? 'active'),
     hiddenFromCatalog: Boolean(data.hiddenFromCatalog),
     warehouses: mapProductWarehouses(data.warehouses),
+    packageInfo: mapPackageInfo(data.packageInfo),
     gatcStampingPriceIds: Array.isArray(data.gatcStampingPriceIds)
       ? data.gatcStampingPriceIds.map(id => String(id ?? '').trim()).filter(Boolean)
       : [],
@@ -235,7 +237,36 @@ function toOrderLine(product, quantity, finalRate, catalogBaseRate) {
     taxPercentage: product.taxPercentage,
     hsn: product.hsn,
     warehouses: Array.isArray(product.warehouses) ? product.warehouses : [],
+    packageInfo: product.packageInfo || null,
   };
+}
+
+async function loadDealerFreightConfig() {
+  const db = getFirestore();
+  const [settingsSnap, ratesSnap] = await Promise.all([
+    db.doc('appSettings/logisticsSettings').get(),
+    db.doc('appSettings/logisticsCourierRates').get(),
+  ]);
+  const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+  const spareRaw = Number(settings.spareFreightMinimumInr);
+  return {
+    spareFreightMinimumInr: Number.isFinite(spareRaw) && spareRaw > 0
+      ? Math.round(spareRaw * 100) / 100
+      : 0,
+    courierRates: ratesSnap.exists ? ratesSnap.data() || {} : {},
+  };
+}
+
+function stripInternalLineFields(line) {
+  const {
+    catalogRate: _catalogRate,
+    warehouses: _warehouses,
+    packageInfo: _packageInfo,
+    freightInventorySite: _freightInventorySite,
+    freightHostSegment: _freightHostSegment,
+    ...rest
+  } = line;
+  return rest;
 }
 
 /**
@@ -538,17 +569,13 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     );
   }
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
-  const { lines } = await buildLinesFromInput(payload.lines);
+  const { lines: builtLines } = await buildLinesFromInput(payload.lines);
 
-  if (lines.some(isFreightOrderLine)) {
-    throw new HttpsError(
-      'permission-denied',
-      'Freight charges can only be added by staff. Place the order without freight.',
-    );
-  }
+  // Dealers cannot choose freight amounts — strip any client freight and auto-add below.
+  const goodsLines = builtLines.filter(line => !isFreightOrderLine(line));
 
   if (profile.canBuySpares === false) {
-    const spare = lines.find(isSpareSegmentLine);
+    const spare = goodsLines.find(isSpareSegmentLine);
     if (spare) {
       throw new HttpsError(
         'failed-precondition',
@@ -557,8 +584,8 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     }
   }
 
-  const subtotal = sumSubtotal(lines);
-  if (profile.maxOrderLimit != null && profile.maxOrderLimit > 0 && subtotal > profile.maxOrderLimit) {
+  const goodsSubtotal = sumSubtotal(goodsLines);
+  if (profile.maxOrderLimit != null && profile.maxOrderLimit > 0 && goodsSubtotal > profile.maxOrderLimit) {
     throw new HttpsError(
       'failed-precondition',
       `Order total exceeds your limit of ₹${profile.maxOrderLimit.toLocaleString('en-IN')}.`,
@@ -577,6 +604,19 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     if (err instanceof HttpsError) throw err;
     throw new HttpsError('invalid-argument', err?.message || 'Invalid shipping address.');
   }
+
+  const freightConfig = await loadDealerFreightConfig();
+  const freightLines = buildDealerAutoFreightLines({
+    lines: goodsLines,
+    destination: {
+      state: shippingResolved.address?.state || null,
+      city: shippingResolved.address?.city || null,
+      zip: shippingResolved.address?.zip || null,
+    },
+    courierRates: freightConfig.courierRates,
+    spareFreightMinimumInr: freightConfig.spareFreightMinimumInr,
+  });
+  const lines = [...goodsLines, ...freightLines];
 
   const remarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
   const buckets = groupLinesBySegmentAndSite(lines);
@@ -603,6 +643,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       workflowBase: {
         yesOneCreatedFromCart: true,
       },
+      pricedLineMapper: stripInternalLineFields,
     });
   } catch (err) {
     if (err instanceof HttpsError) throw err;
@@ -611,6 +652,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   }
 
   const primary = salesOrders[0] || null;
+  const subtotal = sumSubtotal(lines);
   return {
     zohoSalesOrderId: primary?.zohoSalesOrderId || null,
     zohoSalesOrderNumber: primary?.zohoSalesOrderNumber || null,
@@ -774,7 +816,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
       lines,
       salespersonsBySegment,
       orderNumberBase: orderNumber,
-      pricedLineMapper: ({ catalogRate: _c, warehouses: _w, ...line }) => line,
+      pricedLineMapper: stripInternalLineFields,
       workflowBase: {
         yesOneCreatedByStaff: true,
         yesOneCreatedFromCart: false,

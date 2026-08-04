@@ -4,10 +4,13 @@ import { PUBLIC_APP_ORIGIN } from '../constants/brand';
 import { app, db } from '../firebase';
 import type { HrSalaryShareInput, HrSalaryShareRecord } from '../types/hr-salary-share';
 import type {
+  HrDayJoinEntry,
+  HrExpenseEntry,
   HrLeaveEntry,
   HrOvertimeEntry,
   HrSalaryPeriod,
   HrSalaryProject,
+  HrSalaryReceiptEntry,
   HrWorkDayEntry,
   HrWorkShiftEntry,
 } from '../types/hr-salary';
@@ -85,6 +88,42 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
         };
       }).filter(e => e.id && e.date)
     : [];
+  const dayJoinEntries = Array.isArray(data.dayJoinEntries)
+    ? data.dayJoinEntries.map(raw => {
+        const row = raw as Record<string, unknown>;
+        const joinedAt = String(row.joinedAt ?? '').trim();
+        const clockedOutAtRaw = row.clockedOutAt != null ? String(row.clockedOutAt).trim() : '';
+        const clockedOutAt = /^\d{2}:\d{2}$/.test(clockedOutAtRaw) ? clockedOutAtRaw : null;
+        return {
+          date: String(row.date ?? ''),
+          joinedAt,
+          ...(clockedOutAt ? { clockedOutAt } : {}),
+        };
+      }).filter(e => e.date && e.joinedAt)
+    : [];
+  const expenseEntries = Array.isArray(data.expenseEntries)
+    ? data.expenseEntries.map(raw => {
+        const row = raw as Record<string, unknown>;
+        return {
+          id: String(row.id ?? ''),
+          date: String(row.date ?? ''),
+          amount: Math.max(0, Number(row.amount) || 0),
+          note: String(row.note ?? '').trim().slice(0, 120),
+        };
+      }).filter(e => e.id && e.date && e.amount > 0)
+    : [];
+  const receiptEntries = Array.isArray(data.receiptEntries)
+    ? data.receiptEntries.map(raw => {
+        const row = raw as Record<string, unknown>;
+        return {
+          id: String(row.id ?? ''),
+          date: String(row.date ?? ''),
+          kind: row.kind === 'salary_advance' ? 'salary_advance' as const : 'reimbursement' as const,
+          amount: Math.max(0, Number(row.amount) || 0),
+          note: String(row.note ?? '').trim().slice(0, 120),
+        };
+      }).filter(e => e.id && e.date && e.amount > 0)
+    : [];
   const overtimeEntries = Array.isArray(data.overtimeEntries)
     ? data.overtimeEntries.map(raw => {
         const row = raw as Record<string, unknown>;
@@ -124,6 +163,9 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
     projects,
     workDayEntries,
     workShiftEntries,
+    dayJoinEntries,
+    expenseEntries,
+    receiptEntries,
     overtimeEntries,
     holidays,
     createdAt: String(data.createdAt ?? ''),
@@ -174,6 +216,9 @@ export type PublicSalaryShareUpdateInput = {
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries: HrWorkShiftEntry[];
+  dayJoinEntries: HrDayJoinEntry[];
+  expenseEntries: HrExpenseEntry[];
+  receiptEntries: HrSalaryReceiptEntry[];
   overtimeEntries: HrOvertimeEntry[];
 };
 
@@ -188,6 +233,32 @@ export async function updatePublicSalaryShareViaCallable(
   );
   const result = await fn(input);
   return { updatedAt: String(result.data?.updatedAt ?? '') };
+}
+
+export type PublicSalaryShareSwitchPeriodInput = {
+  token: string;
+  year: number;
+  month: number;
+};
+
+/** Token-gated month switch — loads month data into the same share link. */
+export async function switchPublicSalarySharePeriodViaCallable(
+  input: PublicSalaryShareSwitchPeriodInput,
+): Promise<{ updatedAt: string; year: number; month: number }> {
+  const fn = httpsCallable<
+    PublicSalaryShareSwitchPeriodInput,
+    { updatedAt?: string; year?: number; month?: number }
+  >(
+    functions,
+    'switchPublicSalarySharePeriod',
+    { timeout: 60_000 },
+  );
+  const result = await fn(input);
+  return {
+    updatedAt: String(result.data?.updatedAt ?? ''),
+    year: Number(result.data?.year) || input.year,
+    month: Number(result.data?.month) || input.month,
+  };
 }
 
 /** Create or refresh a public share snapshot; returns the token. */
@@ -228,6 +299,9 @@ export async function upsertSalaryShare(
       projects: input.projects,
       workDayEntries: input.workDayEntries,
       workShiftEntries: input.workShiftEntries ?? [],
+      dayJoinEntries: input.dayJoinEntries ?? [],
+      expenseEntries: input.expenseEntries ?? [],
+      receiptEntries: input.receiptEntries ?? [],
       overtimeEntries: input.overtimeEntries,
       holidays: input.holidays,
       updatedAt: now,

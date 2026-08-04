@@ -3,9 +3,24 @@ import type { StaffLogisticsSite } from './staff-logistics';
 /** Origin site for courier rate cards (same ids as ship-from). */
 export type LogisticsOrigin = StaffLogisticsSite;
 
+/** Partners that have editable rate cards (others stay booking-only). */
+export const COURIER_RATE_PARTNER_IDS = [
+  'st_courier',
+  'trackon',
+  'delhivery',
+] as const;
+
+export type CourierRatePartnerId = (typeof COURIER_RATE_PARTNER_IDS)[number];
+
+export function isCourierRatePartnerId(value: unknown): value is CourierRatePartnerId {
+  return typeof value === 'string'
+    && (COURIER_RATE_PARTNER_IDS as readonly string[]).includes(value);
+}
+
 /**
  * ST Courier destination zones (rate-table keys).
  * Labels may combine regions (e.g. Tamil Nadu / Pondy).
+ * Shared by Trackon / Delhivery placeholders until partner-specific zones exist.
  */
 export type StCourierZone =
   | 'kerala'
@@ -46,7 +61,7 @@ export interface StCourierZoneRates {
   boxPerKgInr: number;
 }
 
-/** Per-origin ST Courier rate card. */
+/** Per-origin courier rate card (ST / Trackon / Delhivery share this shape). */
 export interface StCourierOriginRates {
   /** Volumetric: chargeable = max(actualKg, L*W*H / divisor). */
   volumetricDivisor: number;
@@ -69,10 +84,12 @@ export interface StCourierRatesByOrigin {
 
 /**
  * Courier rate cards under appSettings/logisticsCourierRates.
- * Partners beyond ST Courier get slots later with the same origin shape.
+ * Trackon / Delhivery start as ₹0 placeholders until rates are entered.
  */
 export interface LogisticsCourierRates {
   st_courier: StCourierRatesByOrigin;
+  trackon: StCourierRatesByOrigin;
+  delhivery: StCourierRatesByOrigin;
   updatedAt: string;
   updatedBy?: string | null;
 }

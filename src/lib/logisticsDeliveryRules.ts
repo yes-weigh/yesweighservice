@@ -68,6 +68,67 @@ export function resolveDeliveryPartnersForRoute(
   return [...(rules[region]?.[site] ?? [])];
 }
 
+/** Unique partners that appear anywhere in the delivery-rules matrix (preference order preserved). */
+export function partnersUsedInDeliveryRules(
+  rules: LogisticsDeliveryRulesMatrix,
+): LogisticsPartnerId[] {
+  const seen = new Set<LogisticsPartnerId>();
+  const ordered: LogisticsPartnerId[] = [];
+  for (const region of LOGISTICS_DESTINATION_REGIONS) {
+    for (const site of STAFF_LOGISTICS_SITES) {
+      for (const partner of rules[region]?.[site] ?? []) {
+        if (seen.has(partner)) continue;
+        seen.add(partner);
+        ordered.push(partner);
+      }
+    }
+  }
+  return ordered;
+}
+
+/** Ship-from sites where this partner is assigned in at least one destination region. */
+export function originsUsingPartnerInDeliveryRules(
+  rules: LogisticsDeliveryRulesMatrix,
+  partnerId: LogisticsPartnerId,
+): StaffLogisticsSite[] {
+  const sites: StaffLogisticsSite[] = [];
+  for (const site of STAFF_LOGISTICS_SITES) {
+    const used = LOGISTICS_DESTINATION_REGIONS.some(region => (
+      (rules[region]?.[site] ?? []).includes(partnerId)
+    ));
+    if (used) sites.push(site);
+  }
+  return sites;
+}
+
+/** Partners assigned to a ship-from site across any destination (preference order preserved). */
+export function partnersForOriginInDeliveryRules(
+  rules: LogisticsDeliveryRulesMatrix,
+  site: StaffLogisticsSite,
+): LogisticsPartnerId[] {
+  const seen = new Set<LogisticsPartnerId>();
+  const ordered: LogisticsPartnerId[] = [];
+  for (const region of LOGISTICS_DESTINATION_REGIONS) {
+    for (const partner of rules[region]?.[site] ?? []) {
+      if (seen.has(partner)) continue;
+      seen.add(partner);
+      ordered.push(partner);
+    }
+  }
+  return ordered;
+}
+
+/** Sites that have at least one of the given partners in delivery rules. */
+export function originsUsingAnyPartnerInDeliveryRules(
+  rules: LogisticsDeliveryRulesMatrix,
+  partnerIds: readonly LogisticsPartnerId[],
+): StaffLogisticsSite[] {
+  const allow = new Set(partnerIds);
+  return STAFF_LOGISTICS_SITES.filter(site => (
+    partnersForOriginInDeliveryRules(rules, site).some(id => allow.has(id))
+  ));
+}
+
 /** Map dealer / address state text to a routing region bucket. */
 export function inferLogisticsDestinationRegion(
   stateOrAddress: string | null | undefined,

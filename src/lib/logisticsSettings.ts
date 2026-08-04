@@ -37,8 +37,19 @@ export interface LogisticsSettings {
   fromAddresses: Record<StaffLogisticsSite, string>;
   /** Destination region × ship-from site → ordered delivery partners. */
   deliveryRules: LogisticsDeliveryRulesMatrix;
+  /**
+   * Flat spare-parts freight (₹) added to each spare draft SO on dealer checkout.
+   * Staff/admin can edit the line when reviewing. 0 = placeholder line at ₹0.
+   */
+  spareFreightMinimumInr: number;
   updatedAt: string;
   updatedBy?: string | null;
+}
+
+function parseSpareFreightMinimumInr(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
 }
 
 export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
@@ -49,6 +60,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
         fromAddresses: EMPTY_FROM_ADDRESSES(),
         deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
+        spareFreightMinimumInr: 0,
         updatedAt: '',
       };
     }
@@ -60,6 +72,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         : DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: parseFromAddresses(data as Record<string, unknown>),
       deliveryRules: normalizeLogisticsDeliveryRules(data.deliveryRules),
+      spareFreightMinimumInr: parseSpareFreightMinimumInr(data.spareFreightMinimumInr),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
     };
@@ -68,6 +81,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: EMPTY_FROM_ADDRESSES(),
       deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
+      spareFreightMinimumInr: 0,
       updatedAt: '',
     };
   }
@@ -133,6 +147,24 @@ export async function saveLogisticsDeliveryRules(
     { merge: true },
   );
   return normalized;
+}
+
+export async function saveSpareFreightMinimumInr(
+  amount: number,
+  updatedBy?: string | null,
+): Promise<number> {
+  const spareFreightMinimumInr = parseSpareFreightMinimumInr(amount);
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
+    {
+      spareFreightMinimumInr,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+  return spareFreightMinimumInr;
 }
 
 export async function listHrStaffUsers(): Promise<UserRecord[]> {

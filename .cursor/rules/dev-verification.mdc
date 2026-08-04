@@ -1,0 +1,17 @@
+---
+description: Use fast checks during dev; reserve full build for release/CI
+alwaysApply: true
+---
+
+# Dev verification (not production build)
+
+During normal development iterations, **do not** run `npm run build` to verify changes unless the user explicitly asks for a production build or you are preparing deploy/CI.
+
+Prefer, in order:
+
+1. **Nothing** — for small, localized edits when lints or types are obvious
+2. **`npm run typecheck`** — TypeScript project references only (~seconds)
+3. **`read_lints`** on edited files — IDE diagnostics
+4. **`npm run build`** — only when bundling/Vite output matters, or user/CI/deploy requires it
+
+Full build pulls tcp-print, runs Vite, and PWA — too slow for every iteration.

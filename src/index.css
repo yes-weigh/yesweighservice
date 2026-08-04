@@ -13337,6 +13337,37 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 1.125rem;
 }
 
+.orders-page__freight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.15rem;
+}
+
+.orders-page__freight-meta {
+  font-weight: 400;
+  font-size: 0.8125rem;
+}
+
+.orders-page__freight-origins {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.orders-page__freight-detail,
+.orders-page__freight-warn,
+.orders-page__freight-note {
+  margin: 0;
+}
+
+.orders-page__freight-warn {
+  color: #b45309;
+}
+
 .multi-so-success {
   display: flex;
   flex-direction: column;

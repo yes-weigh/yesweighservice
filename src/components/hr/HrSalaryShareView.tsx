@@ -4,6 +4,8 @@ import { DecimalTextInput } from '../DecimalAmountInput';
 import { DayAttendanceSheet } from './DayAttendanceSheet';
 import {
   buildMonthDayCells,
+  computeExpenseSettlement,
+  computeOvertimePayWithMakeup,
   computeSalaryCalc,
   formatInr,
   formatLeaveDays,
@@ -23,9 +25,13 @@ import {
   salaryPeriodLabel,
   type HrLeaveEntry,
   type HrLeaveKind,
+  type HrDayJoinEntry,
+  type HrExpenseEntry,
   type HrOvertimeEntry,
   type HrSalaryPeriod,
   type HrSalaryProject,
+  type HrSalaryReceiptEntry,
+  type HrSalaryReceiptKind,
   type HrWorkDayEntry,
   type HrWorkShiftEntry,
 } from '../../types/hr-salary';
@@ -43,6 +49,7 @@ export type HrSalaryShareEditHandlers = {
   onSelectDate: (date: string | null) => void;
   onSetLeave: (date: string, kind: HrLeaveKind | null) => void;
   onSetDayProject: (date: string, projectId: string | null) => void;
+  onSetDayClock: (date: string, patch: { joinedAt?: string | null; clockedOutAt?: string | null }) => void;
   onAddWorkShift: (date: string) => void;
   onPatchWorkShift: (
     entryId: string,
@@ -55,6 +62,18 @@ export type HrSalaryShareEditHandlers = {
     patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
   ) => void;
   onRemoveOt: (entryId: string) => void;
+  onAddExpense: (date: string) => void;
+  onPatchExpense: (
+    entryId: string,
+    patch: Partial<Pick<HrExpenseEntry, 'amount' | 'note'>>,
+  ) => void;
+  onRemoveExpense: (entryId: string) => void;
+  onAddReceipt: (date: string, kind: HrSalaryReceiptKind) => void;
+  onPatchReceipt: (
+    entryId: string,
+    patch: Partial<Pick<HrSalaryReceiptEntry, 'amount' | 'note' | 'kind'>>,
+  ) => void;
+  onRemoveReceipt: (entryId: string) => void;
 };
 
 export type HrSalaryShareViewProps = {
@@ -68,6 +87,9 @@ export type HrSalaryShareViewProps = {
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries?: HrWorkShiftEntry[];
+  dayJoinEntries?: HrDayJoinEntry[];
+  expenseEntries?: HrExpenseEntry[];
+  receiptEntries?: HrSalaryReceiptEntry[];
   overtimeEntries: HrOvertimeEntry[];
   holidays: HrHoliday[] | HrSalaryShareHoliday[];
   /** When set, rates / projects / calendar are editable. */
@@ -114,6 +136,9 @@ export function HrSalaryShareView({
   projects,
   workDayEntries,
   workShiftEntries = [],
+  dayJoinEntries = [],
+  expenseEntries = [],
+  receiptEntries = [],
   overtimeEntries,
   holidays: holidaysInput,
   edit = null,
@@ -146,8 +171,32 @@ export function HrSalaryShareView({
       holidays,
       leaveEntries,
       overtimeEntries,
+      workShiftEntries,
+      workDayEntries,
+      dayJoinEntries,
+      projects,
     ),
-    [period, holidays, leaveEntries, overtimeEntries, resolvedMonthly, otPerDaySalary],
+    [
+      period,
+      holidays,
+      leaveEntries,
+      overtimeEntries,
+      workShiftEntries,
+      workDayEntries,
+      dayJoinEntries,
+      projects,
+      resolvedMonthly,
+      otPerDaySalary,
+    ],
+  );
+  const settlement = useMemo(
+    () => computeExpenseSettlement(
+      expenseEntries,
+      receiptEntries,
+      calc.earnedSalary,
+      period,
+    ),
+    [expenseEntries, receiptEntries, calc.earnedSalary, period],
   );
   const cells = useMemo(
     () => buildMonthDayCells(
@@ -173,6 +222,8 @@ export function HrSalaryShareView({
       calc.perDaySalary,
       calc.otHourlyRate,
       workShiftEntries,
+      dayJoinEntries,
+      calc.hourlyRate,
     ),
     [
       projects,
@@ -183,8 +234,21 @@ export function HrSalaryShareView({
       holidays,
       calc.perDaySalary,
       calc.otHourlyRate,
+      calc.hourlyRate,
       workShiftEntries,
+      dayJoinEntries,
     ],
+  );
+  const otPaySplit = useMemo(
+    () => computeOvertimePayWithMakeup(
+      overtimeEntries,
+      workShiftEntries,
+      dayJoinEntries,
+      period,
+      calc.hourlyRate,
+      calc.otHourlyRate,
+    ),
+    [overtimeEntries, workShiftEntries, dayJoinEntries, period, calc.hourlyRate, calc.otHourlyRate],
   );
   const projectSharePercents = useMemo(
     () => projectWorkSharePercents(projectTotals),
@@ -194,11 +258,14 @@ export function HrSalaryShareView({
     () => overtimeEntries
       .map(entry => {
         const hours = overtimeEntryHours(entry.startTime, entry.endTime);
+        const split = otPaySplit.entryPay.get(entry.id);
         const project = projects.find(p => p.id === entry.projectId) ?? null;
         return {
           ...entry,
           hours,
-          pay: hours * calc.otHourlyRate,
+          makeupHours: split?.makeupHours ?? 0,
+          billableOtHours: split?.billableOtHours ?? hours,
+          pay: split?.pay ?? hours * calc.otHourlyRate,
           project,
         };
       })
@@ -207,7 +274,7 @@ export function HrSalaryShareView({
         a.date.localeCompare(b.date)
         || a.startTime.localeCompare(b.startTime)
       )),
-    [overtimeEntries, projects, calc.otHourlyRate],
+    [overtimeEntries, projects, calc.otHourlyRate, otPaySplit.entryPay],
   );
 
   const selectedDate = edit?.selectedDate ?? null;
@@ -221,8 +288,17 @@ export function HrSalaryShareView({
         </div>
         <div className="hr-salary__dash-header-right">
           <div className="hr-salary__dash-header-totals">
-            <h4>{formatInr(calc.earnedSalary)}</h4>
+            <h4>{formatInr(settlement.netPayable)}</h4>
             <p>
+              {formatInr(calc.earnedSalary)} earned
+              {settlement.unreimbursedExpenses > 0
+                ? ` + ${formatInr(settlement.unreimbursedExpenses)} expenses`
+                : ''}
+              {settlement.totalSalaryAdvances > 0
+                ? ` − ${formatInr(settlement.totalSalaryAdvances)} advance`
+                : ''}
+            </p>
+            <p className="text-sm text-muted">
               {formatOtHours(calc.overtimeHours)} OT
               {' · '}
               {calc.payableDays} days worked
@@ -477,18 +553,101 @@ export function HrSalaryShareView({
               workShifts={workShiftEntries
                 .filter(e => e.date === selectedDate)
                 .sort((a, b) => a.startTime.localeCompare(b.startTime))}
+              joinedAt={
+                dayJoinEntries.find(e => e.date === selectedDate)?.joinedAt ?? null
+              }
+              clockedOutAt={
+                dayJoinEntries.find(e => e.date === selectedDate)?.clockedOutAt ?? null
+              }
               entries={overtimeEntries.filter(e => e.date === selectedDate)}
               onClose={() => edit.onSelectDate(null)}
               onSetLeave={kind => edit.onSetLeave(selectedDate, kind)}
               onSetDayProject={projectId => edit.onSetDayProject(selectedDate, projectId)}
+              onSetDayClock={patch => edit.onSetDayClock(selectedDate, patch)}
               onAddWorkShift={() => edit.onAddWorkShift(selectedDate)}
               onPatchWorkShift={edit.onPatchWorkShift}
               onRemoveWorkShift={edit.onRemoveWorkShift}
               onAddOt={() => edit.onAddOt(selectedDate)}
               onPatchOt={edit.onPatchOt}
               onRemoveOt={edit.onRemoveOt}
+              expenses={expenseEntries.filter(e => e.date === selectedDate)}
+              receipts={receiptEntries.filter(e => e.date === selectedDate)}
+              onAddExpense={() => edit.onAddExpense(selectedDate)}
+              onPatchExpense={edit.onPatchExpense}
+              onRemoveExpense={edit.onRemoveExpense}
+              onAddReceipt={kind => edit.onAddReceipt(selectedDate, kind)}
+              onPatchReceipt={edit.onPatchReceipt}
+              onRemoveReceipt={edit.onRemoveReceipt}
             />
           ) : null}
+        </div>
+
+        <div className="hr-salary__card hr-salary__expense-detail">
+          <div className="hr-salary__ot-detail-head">
+            <h5>Expenses &amp; payments</h5>
+            <span>{formatInr(settlement.netPayable)} net</span>
+          </div>
+          <ul className="hr-salary__settlement-lines">
+            <li>
+              <span>Earned salary</span>
+              <span>{formatInr(calc.earnedSalary)}</span>
+            </li>
+            {settlement.totalExpenses > 0 ? (
+              <li>
+                <span>Expenses</span>
+                <span>{formatInr(settlement.totalExpenses)}</span>
+              </li>
+            ) : null}
+            {settlement.totalReimbursements > 0 ? (
+              <li>
+                <span>Reimbursements received</span>
+                <span>− {formatInr(settlement.totalReimbursements)}</span>
+              </li>
+            ) : null}
+            {settlement.unreimbursedExpenses > 0 ? (
+              <li className="is-highlight">
+                <span>Pending reimbursement</span>
+                <span>+ {formatInr(settlement.unreimbursedExpenses)}</span>
+              </li>
+            ) : null}
+            {settlement.totalSalaryAdvances > 0 ? (
+              <li>
+                <span>Salary advances received</span>
+                <span>− {formatInr(settlement.totalSalaryAdvances)}</span>
+              </li>
+            ) : null}
+          </ul>
+          {expenseEntries.length === 0 && receiptEntries.length === 0 ? (
+            <p className="hr-salary__project-empty">No expenses or payments yet</p>
+          ) : (
+            <ul className="hr-salary__ot-detail-list">
+              {[...expenseEntries.map(entry => ({
+                id: entry.id,
+                date: entry.date,
+                label: entry.note || 'Expense',
+                amount: entry.amount,
+                sign: '+' as const,
+              })), ...receiptEntries.map(entry => ({
+                id: entry.id,
+                date: entry.date,
+                label: entry.kind === 'salary_advance'
+                  ? (entry.note || 'Salary advance')
+                  : (entry.note || 'Reimbursement'),
+                amount: entry.amount,
+                sign: '−' as const,
+              }))].sort((a, b) => a.date.localeCompare(b.date)).map(line => (
+                <li key={line.id}>
+                  <div className="hr-salary__ot-detail-line is-readonly">
+                    <span className="hr-salary__ot-detail-date">{formatDayLabel(line.date)}</span>
+                    <span className="hr-salary__ot-detail-time">{line.label}</span>
+                    <span className="hr-salary__ot-detail-pay">
+                      {line.sign} {formatInr(line.amount)}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="hr-salary__card hr-salary__ot-detail">
@@ -541,7 +700,15 @@ export function HrSalaryShareView({
                       {formatTimeAmPm(line.startTime)} – {formatTimeAmPm(line.endTime)}
                     </span>
                     <span className="hr-salary__ot-detail-hrs">
-                      {formatOtHours(line.hours)}
+                      {line.makeupHours > 0 ? (
+                        <>
+                          {formatOtHours(line.billableOtHours)} OT
+                          {' + '}
+                          {formatOtHours(line.makeupHours)} reg
+                        </>
+                      ) : (
+                        formatOtHours(line.hours)
+                      )}
                     </span>
                     <span className="hr-salary__ot-detail-pay">
                       {formatInr(line.pay)}

@@ -182,6 +182,7 @@ import {
   uploadCatalogMediaFile as storeCatalogMediaFile,
 } from './lib/catalog-media-upload.js';
 import { updatePublicSalaryShare as updatePublicSalaryShareRecord } from './lib/hr-salary-share-update.js';
+import { switchPublicSalarySharePeriod as switchPublicSalarySharePeriodRecord } from './lib/hr-salary-share-switch-period.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -4031,6 +4032,26 @@ export const updatePublicSalaryShare = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not update salary share.');
+    }
+  },
+);
+
+/**
+ * Public salary share — switch visible month for the same staff (token is credential).
+ */
+export const switchPublicSalarySharePeriod = onCall(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    try {
+      return await switchPublicSalarySharePeriodRecord(request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not switch salary month.');
     }
   },
 );

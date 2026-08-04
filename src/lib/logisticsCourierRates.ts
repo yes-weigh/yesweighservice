@@ -13,6 +13,7 @@ import {
   type StaffLogisticsSite,
 } from '../types/staff-logistics';
 import type {
+  CourierRatePartnerId,
   LogisticsCourierRates,
   StCourierOriginRates,
   StCourierRatesByOrigin,
@@ -20,8 +21,10 @@ import type {
   StCourierZoneRates,
 } from '../types/logistics-courier-rates';
 import {
+  COURIER_RATE_PARTNER_IDS,
   ST_COURIER_ZONE_LABELS,
   ST_COURIER_ZONES,
+  isCourierRatePartnerId,
   isStCourierZone,
 } from '../types/logistics-courier-rates';
 
@@ -124,6 +127,8 @@ export function parseLogisticsCourierRates(data: Record<string, unknown> | undef
   if (!data) return defaults;
   return {
     st_courier: parseStCourierRates(data.st_courier),
+    trackon: parseStCourierRates(data.trackon),
+    delhivery: parseStCourierRates(data.delhivery),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
   };
@@ -139,11 +144,15 @@ export async function loadLogisticsCourierRates(): Promise<LogisticsCourierRates
   }
 }
 
-export async function saveStCourierOriginRates(
+export async function saveCourierOriginRates(
+  partner: CourierRatePartnerId,
   origin: StaffLogisticsSite,
   rates: StCourierOriginRates,
   updatedBy?: string | null,
 ): Promise<StCourierOriginRates> {
+  if (!isCourierRatePartnerId(partner)) {
+    throw new Error('Select a valid courier partner.');
+  }
   if (!isStaffLogisticsSite(origin)) {
     throw new Error('Select a valid logistics origin.');
   }
@@ -157,7 +166,7 @@ export async function saveStCourierOriginRates(
   await setDoc(
     doc(db, 'appSettings', LOGISTICS_COURIER_RATES_DOC_ID),
     {
-      st_courier: {
+      [partner]: {
         [origin]: normalized,
       },
       updatedAt,
@@ -168,6 +177,17 @@ export async function saveStCourierOriginRates(
 
   return normalized;
 }
+
+/** @deprecated Use saveCourierOriginRates('st_courier', …) */
+export async function saveStCourierOriginRates(
+  origin: StaffLogisticsSite,
+  rates: StCourierOriginRates,
+  updatedBy?: string | null,
+): Promise<StCourierOriginRates> {
+  return saveCourierOriginRates('st_courier', origin, rates, updatedBy);
+}
+
+export { COURIER_RATE_PARTNER_IDS, isCourierRatePartnerId };
 
 export async function saveStCourierRatesByOrigin(
   byOrigin: StCourierRatesByOrigin,

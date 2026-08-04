@@ -25,12 +25,21 @@ import {
 } from '../../lib/salesOrderSegments';
 import {
   listDealerShippingAddresses,
+  resolveShippingDestination,
   type ShippingAddress,
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
+import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
+import { loadLogisticsSettings } from '../../lib/logisticsSettings';
+import {
+  cartLinesForFreightEstimate,
+  estimateStCourierCartFreight,
+  type StCourierCartFreightEstimate,
+} from '../../lib/stCourierCartFreight';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
 import type { CatalogProduct } from '../../types/catalog';
+import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
@@ -67,17 +76,31 @@ const DealerCartPage: React.FC = () => {
   const [shipping, setShipping] = useState<ShippingSelection | null>(null);
   const [descByProductId, setDescByProductId] = useState<Record<string, string>>({});
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
+  const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
+  const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/catalog`;
 
   useEffect(() => {
-    const missing = items.filter(item => !item.description?.trim()).map(item => item.productId);
-    if (missing.length === 0 && items.length === 0) return;
+    let cancelled = false;
+    void Promise.all([loadLogisticsCourierRates(), loadLogisticsSettings()])
+      .then(([rates, settings]) => {
+        if (cancelled) return;
+        setCourierRates(rates);
+        setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
+      })
+      .catch(() => { /* freight preview optional */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (items.length === 0) return;
     let cancelled = false;
     void fetchCatalog()
       .then(res => {
         if (cancelled) return;
+        const missing = items.filter(item => !item.description?.trim()).map(item => item.productId);
         const nextDesc: Record<string, string> = {};
         const nextCatalog: Record<string, CatalogProduct> = {};
         for (const product of res.items) {
@@ -91,6 +114,18 @@ const DealerCartPage: React.FC = () => {
       .catch(() => { /* keep cart usable without specs */ });
     return () => { cancelled = true; };
   }, [items]);
+
+  const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
+    if (!courierRates || items.length === 0) return null;
+    const destination = resolveShippingDestination(shipping, addresses);
+    if (!destination) return null;
+    return estimateStCourierCartFreight({
+      lines: cartLinesForFreightEstimate(items, catalogById),
+      destination,
+      rates: courierRates,
+      spareFreightMinimumInr,
+    });
+  }, [courierRates, spareFreightMinimumInr, items, shipping, addresses, catalogById]);
 
   const loadAddresses = useCallback(() => {
     setAddressesLoading(true);
@@ -396,6 +431,47 @@ const DealerCartPage: React.FC = () => {
             <span>Subtotal ({itemCount} items)</span>
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
+          {freightEstimate?.usable ? (
+            <div className="orders-page__freight">
+              <div className="orders-page__summary-row">
+                <span>
+                  Freight
+                  <span className="orders-page__freight-meta text-muted">
+                    {' '}({freightEstimate.partnerLabel} · {freightEstimate.zoneLabel})
+                  </span>
+                </span>
+                <strong>{formatCurrency(freightEstimate.totalInr)}</strong>
+              </div>
+              <ul className="orders-page__freight-origins text-muted text-sm">
+                {freightEstimate.origins.map(origin => (
+                  <li key={`${origin.kind}:${origin.site}`}>
+                    {origin.label}
+                    {' · '}
+                    {formatCurrency(origin.quote.totalInr)}
+                    {origin.kind === 'product' && origin.chargeableKg > 0
+                      ? ` (${origin.chargeableKg.toFixed(1)} kg)`
+                      : origin.kind === 'spare'
+                        ? ' (spare minimum)'
+                        : origin.rateMissing
+                          ? ' (rate placeholder)'
+                          : ''}
+                  </li>
+                ))}
+              </ul>
+              {freightEstimate.warnings.map(warning => (
+                <p key={warning} className="orders-page__freight-warn text-muted text-sm">
+                  {warning}
+                </p>
+              ))}
+              <p className="orders-page__freight-note text-muted text-sm">
+                Added to each draft sales order by ship-from. Staff can edit when reviewing.
+              </p>
+            </div>
+          ) : !shipping && !addressesLoading ? (
+            <p className="orders-page__freight-note text-muted text-sm">
+              Select a shipping address to see freight for each ship-from location.
+            </p>
+          ) : null}
           <p className="orders-page__summary-note text-muted text-sm">
             {segmentPreview.length > 1
               ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Each order type and branch uses its own Zoho salesperson.`

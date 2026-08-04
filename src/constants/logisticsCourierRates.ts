@@ -5,7 +5,7 @@ import type {
   StCourierZone,
   StCourierZoneRates,
 } from '../types/logistics-courier-rates';
-import { ST_COURIER_ZONES } from '../types/logistics-courier-rates';
+import { COURIER_RATE_PARTNER_IDS, ST_COURIER_ZONES } from '../types/logistics-courier-rates';
 
 export const LOGISTICS_COURIER_RATES_DOC_ID = 'logisticsCourierRates';
 
@@ -44,9 +44,14 @@ export function defaultStCourierRatesByOrigin(): StCourierRatesByOrigin {
 }
 
 export function defaultLogisticsCourierRates(): LogisticsCourierRates {
+  const byOrigin = defaultStCourierRatesByOrigin();
   return {
-    st_courier: defaultStCourierRatesByOrigin(),
+    st_courier: byOrigin,
+    trackon: defaultStCourierRatesByOrigin(),
+    delhivery: defaultStCourierRatesByOrigin(),
     updatedAt: '',
     updatedBy: null,
   };
 }
+
+export { COURIER_RATE_PARTNER_IDS };

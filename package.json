@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "typecheck": "tsc -b",
     "build": "npm run build:tcp-print && tsc -b && vite build",
     "build:tcp-print": "npm install --prefix plugins/tcp-print --no-fund --no-audit && npm run build --prefix plugins/tcp-print",
     "build:whatsapp-share": "npm install --prefix plugins/whatsapp-share --no-fund --no-audit && npm run build --prefix plugins/whatsapp-share",

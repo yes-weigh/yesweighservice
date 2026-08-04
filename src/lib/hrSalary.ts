@@ -11,6 +11,9 @@ import { holidaysInMonth } from './hrHolidays';
 import { fetchPayrollEmployees, payrollEmployeeSalaryKey } from './hrPayrollEmployees';
 import type { HrHoliday } from '../types/hr-holiday';
 import type {
+  HrDayJoinEntry,
+  HrExpenseEntry,
+  HrExpenseSettlement,
   HrLeaveEntry,
   HrLeaveKind,
   HrOvertimeEntry,
@@ -20,11 +23,14 @@ import type {
   HrSalaryMonthRecord,
   HrSalaryPeriod,
   HrSalaryProject,
+  HrSalaryReceiptEntry,
   HrWorkDayEntry,
   HrWorkShiftEntry,
 } from '../types/hr-salary';
 import {
   HR_SALARY_HOURS_PER_DAY,
+  HR_SALARY_STANDARD_END_TIME,
+  HR_SALARY_STANDARD_START_TIME,
   salaryPeriodKey,
 } from '../types/hr-salary';
 import type { StaffDepartment } from '../types/staff-access';
@@ -48,7 +54,10 @@ export type HrSalaryStaffRow = {
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries: HrWorkShiftEntry[];
+  dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  expenseEntries: HrExpenseEntry[];
+  receiptEntries: HrSalaryReceiptEntry[];
   /** Reused when copying a public share link for this staff+period. */
   publicShareToken: string | null;
   calc: HrSalaryCalc;
@@ -197,8 +206,8 @@ export function createOvertimeEntry(
 
 export function createWorkShiftEntry(
   date: string,
-  startTime = '09:00',
-  endTime = '13:00',
+  startTime = HR_SALARY_STANDARD_START_TIME,
+  endTime = '17:30',
   projectId: string | null = null,
 ): HrWorkShiftEntry {
   return {
@@ -207,6 +216,115 @@ export function createWorkShiftEntry(
     startTime,
     endTime,
     projectId,
+  };
+}
+
+export function createExpenseEntry(
+  date: string,
+  amount = 0,
+  note = '',
+): HrExpenseEntry {
+  return {
+    id: newOvertimeEntryId(),
+    date,
+    amount: Math.max(0, Number(amount) || 0),
+    note: note.trim().slice(0, 120),
+  };
+}
+
+export function createSalaryReceiptEntry(
+  date: string,
+  kind: HrSalaryReceiptEntry['kind'] = 'reimbursement',
+  amount = 0,
+  note = '',
+): HrSalaryReceiptEntry {
+  return {
+    id: newOvertimeEntryId(),
+    date,
+    kind,
+    amount: Math.max(0, Number(amount) || 0),
+    note: note.trim().slice(0, 120),
+  };
+}
+
+export function normalizeExpenseEntries(
+  entries: HrExpenseEntry[],
+  period: HrSalaryPeriod,
+): HrExpenseEntry[] {
+  const key = salaryPeriodKey(period);
+  return entries
+    .map(entry => ({
+      id: String(entry.id || newOvertimeEntryId()),
+      date: String(entry.date || '').trim(),
+      amount: Math.max(0, Number(entry.amount) || 0),
+      note: String(entry.note ?? '').trim().slice(0, 120),
+    }))
+    .filter(entry => entry.date.startsWith(key) && entry.amount > 0)
+    .sort((a, b) => {
+      const byDate = a.date.localeCompare(b.date);
+      if (byDate !== 0) return byDate;
+      return a.id.localeCompare(b.id);
+    });
+}
+
+export function normalizeSalaryReceiptEntries(
+  entries: HrSalaryReceiptEntry[],
+  period: HrSalaryPeriod,
+): HrSalaryReceiptEntry[] {
+  const key = salaryPeriodKey(period);
+  return entries
+    .map(entry => ({
+      id: String(entry.id || newOvertimeEntryId()),
+      date: String(entry.date || '').trim(),
+      kind: entry.kind === 'salary_advance' ? 'salary_advance' as const : 'reimbursement' as const,
+      amount: Math.max(0, Number(entry.amount) || 0),
+      note: String(entry.note ?? '').trim().slice(0, 120),
+    }))
+    .filter(entry => entry.date.startsWith(key) && entry.amount > 0)
+    .sort((a, b) => {
+      const byDate = a.date.localeCompare(b.date);
+      if (byDate !== 0) return byDate;
+      return a.id.localeCompare(b.id);
+    });
+}
+
+export function computeExpenseSettlement(
+  expenseEntries: HrExpenseEntry[],
+  receiptEntries: HrSalaryReceiptEntry[],
+  earnedSalary: number,
+  period?: HrSalaryPeriod,
+): HrExpenseSettlement {
+  const expenses = period
+    ? normalizeExpenseEntries(expenseEntries, period)
+    : expenseEntries;
+  const receipts = period
+    ? normalizeSalaryReceiptEntries(receiptEntries, period)
+    : receiptEntries;
+  const totalExpenses = Math.round(
+    expenses.reduce((sum, entry) => sum + entry.amount, 0) * 100,
+  ) / 100;
+  const totalReimbursements = Math.round(
+    receipts
+      .filter(entry => entry.kind === 'reimbursement')
+      .reduce((sum, entry) => sum + entry.amount, 0) * 100,
+  ) / 100;
+  const totalSalaryAdvances = Math.round(
+    receipts
+      .filter(entry => entry.kind === 'salary_advance')
+      .reduce((sum, entry) => sum + entry.amount, 0) * 100,
+  ) / 100;
+  const unreimbursedExpenses = Math.round(
+    Math.max(0, totalExpenses - totalReimbursements) * 100,
+  ) / 100;
+  const netPayable = Math.round(
+    (Math.max(0, Number(earnedSalary) || 0) + unreimbursedExpenses - totalSalaryAdvances) * 100,
+  ) / 100;
+  return {
+    totalExpenses,
+    totalReimbursements,
+    totalSalaryAdvances,
+    unreimbursedExpenses,
+    netPayable,
   };
 }
 
@@ -287,6 +405,299 @@ export function normalizeWorkShiftEntries(
   return normalizeOvertimeEntries(entries, period);
 }
 
+export function normalizeDayJoinEntries(
+  entries: HrDayJoinEntry[],
+  period: HrSalaryPeriod,
+): HrDayJoinEntry[] {
+  const key = salaryPeriodKey(period);
+  const byDate = new Map<string, HrDayJoinEntry>();
+  for (const entry of entries) {
+    const date = String(entry.date || '').trim();
+    const joinedAt = String(entry.joinedAt || '').trim();
+    if (!date.startsWith(key) || !TIME_RE.test(joinedAt)) continue;
+    const clockedOutAtRaw = entry.clockedOutAt != null ? String(entry.clockedOutAt).trim() : '';
+    const clockedOutAt = TIME_RE.test(clockedOutAtRaw) ? clockedOutAtRaw : null;
+    byDate.set(date, {
+      date,
+      joinedAt,
+      ...(clockedOutAt ? { clockedOutAt } : {}),
+    });
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Regular hours from explicit clock-in / clock-out (defaults to standard day window). */
+export function dayJoinRegularHours(
+  joinEntry: HrDayJoinEntry | null | undefined,
+  standardStart = HR_SALARY_STANDARD_START_TIME,
+  standardEnd = HR_SALARY_STANDARD_END_TIME,
+): number {
+  if (!joinEntry) return 0;
+  const start = joinEntry.joinedAt || standardStart;
+  const end = joinEntry.clockedOutAt || standardEnd;
+  return overtimeEntryHours(start, end);
+}
+
+/** True when clock times differ from the standard 9:30–17:30 window. */
+export function dayJoinHasCustomClock(
+  joinEntry: HrDayJoinEntry | null | undefined,
+  standardStart = HR_SALARY_STANDARD_START_TIME,
+  standardEnd = HR_SALARY_STANDARD_END_TIME,
+): boolean {
+  if (!joinEntry) return false;
+  if (joinEntry.joinedAt !== standardStart) return true;
+  if (joinEntry.clockedOutAt && joinEntry.clockedOutAt !== standardEnd) return true;
+  return false;
+}
+
+/** Merge clock patch into day join list; drops row when times match standard day. */
+export function applyDayClockPatch(
+  date: string,
+  entries: HrDayJoinEntry[],
+  patch: { joinedAt?: string | null; clockedOutAt?: string | null },
+): HrDayJoinEntry[] {
+  const existing = entries.find(entry => entry.date === date);
+  const joinedAt = patch.joinedAt !== undefined
+    ? (patch.joinedAt || HR_SALARY_STANDARD_START_TIME)
+    : (existing?.joinedAt ?? HR_SALARY_STANDARD_START_TIME);
+  const clockedOutAt = patch.clockedOutAt !== undefined
+    ? patch.clockedOutAt
+    : (existing?.clockedOutAt ?? null);
+  const candidate: HrDayJoinEntry = {
+    date,
+    joinedAt,
+    ...(clockedOutAt ? { clockedOutAt } : {}),
+  };
+  const next = entries.filter(entry => entry.date !== date);
+  if (dayJoinHasCustomClock(candidate)) next.push(candidate);
+  return next.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Hours between standard start and actual join (from shift start or explicit join time). */
+export function morningDeficitHoursForDate(
+  date: string,
+  workShiftEntries: HrWorkShiftEntry[],
+  dayJoinEntries: HrDayJoinEntry[],
+  standardStart = HR_SALARY_STANDARD_START_TIME,
+): number {
+  const shifts = workShiftEntries.filter(entry => entry.date === date);
+  const joinEntry = dayJoinEntries.find(entry => entry.date === date);
+  let actualStart: string | null = joinEntry?.joinedAt ?? null;
+  if (shifts.length > 0) {
+    const earliestShift = shifts.reduce(
+      (earliest, entry) => (entry.startTime < earliest ? entry.startTime : earliest),
+      shifts[0].startTime,
+    );
+    actualStart = !actualStart || earliestShift < actualStart ? earliestShift : actualStart;
+  }
+  if (!actualStart) return 0;
+  const stdMins = parseTimeToMinutes(standardStart);
+  const actualMins = parseTimeToMinutes(actualStart);
+  if (stdMins == null || actualMins == null || actualMins <= stdMins) return 0;
+  return Math.round(((actualMins - stdMins) / 60) * 100) / 100;
+}
+
+export function splitOtHoursWithMorningMakeup(
+  otHours: number,
+  deficitHours: number,
+): { makeupHours: number; billableOtHours: number } {
+  const ot = Math.max(0, Number(otHours) || 0);
+  const deficit = Math.max(0, Number(deficitHours) || 0);
+  const makeupHours = Math.round(Math.min(ot, deficit) * 100) / 100;
+  return {
+    makeupHours,
+    billableOtHours: Math.round((ot - makeupHours) * 100) / 100,
+  };
+}
+
+export type HrOvertimePaySplit = {
+  overtimePay: number;
+  overtimeHours: number;
+  weekdayOvertimeHours: number;
+  sundayHours: number;
+  makeupRegularHours: number;
+  makeupRegularPay: number;
+  /** Per OT entry: hours paid at OT rate vs regular makeup rate. */
+  entryPay: Map<string, { makeupHours: number; billableOtHours: number; pay: number }>;
+};
+
+export function computeOvertimePayWithMakeup(
+  overtimeEntries: HrOvertimeEntry[],
+  workShiftEntries: HrWorkShiftEntry[],
+  dayJoinEntries: HrDayJoinEntry[],
+  period: HrSalaryPeriod,
+  hourlyRate: number,
+  otHourlyRate: number,
+): HrOvertimePaySplit {
+  const normalizedOt = normalizeOvertimeEntries(overtimeEntries, period);
+  const normalizedShifts = normalizeWorkShiftEntries(workShiftEntries, period);
+  const normalizedJoins = normalizeDayJoinEntries(dayJoinEntries, period);
+  const otByDate = new Map<string, HrOvertimeEntry[]>();
+  for (const entry of normalizedOt) {
+    const list = otByDate.get(entry.date) ?? [];
+    list.push(entry);
+    otByDate.set(entry.date, list);
+  }
+
+  let sundayHours = 0;
+  let weekdayBillableOtHours = 0;
+  let makeupRegularHours = 0;
+  let overtimePay = 0;
+  let makeupRegularPay = 0;
+  const entryPay = new Map<string, { makeupHours: number; billableOtHours: number; pay: number }>();
+
+  for (const [date, entries] of otByDate.entries()) {
+    const rawHours = entries.reduce(
+      (sum, entry) => sum + overtimeEntryHours(entry.startTime, entry.endTime),
+      0,
+    );
+    if (rawHours <= 0) continue;
+
+    const isSunday = isSundayIsoDate(date);
+    if (isSunday) {
+      sundayHours = Math.round((sundayHours + rawHours) * 100) / 100;
+      for (const entry of entries) {
+        const hours = overtimeEntryHours(entry.startTime, entry.endTime);
+        if (hours <= 0) continue;
+        const pay = Math.round(hours * otHourlyRate * 100) / 100;
+        overtimePay += pay;
+        entryPay.set(entry.id, { makeupHours: 0, billableOtHours: hours, pay });
+      }
+      continue;
+    }
+
+    const deficit = morningDeficitHoursForDate(date, normalizedShifts, normalizedJoins);
+    const { makeupHours, billableOtHours } = splitOtHoursWithMorningMakeup(rawHours, deficit);
+    weekdayBillableOtHours = Math.round((weekdayBillableOtHours + billableOtHours) * 100) / 100;
+    makeupRegularHours = Math.round((makeupRegularHours + makeupHours) * 100) / 100;
+    makeupRegularPay = Math.round((makeupRegularPay + makeupHours * hourlyRate) * 100) / 100;
+    overtimePay = Math.round((overtimePay + billableOtHours * otHourlyRate) * 100) / 100;
+
+    let makeupLeft = makeupHours;
+    let billableLeft = billableOtHours;
+    for (const entry of entries) {
+      const hours = overtimeEntryHours(entry.startTime, entry.endTime);
+      if (hours <= 0) continue;
+      const entryMakeup = Math.min(hours, makeupLeft);
+      makeupLeft = Math.round((makeupLeft - entryMakeup) * 100) / 100;
+      const entryBillable = Math.round((hours - entryMakeup) * 100) / 100;
+      billableLeft = Math.round((billableLeft - entryBillable) * 100) / 100;
+      const pay = Math.round((entryMakeup * hourlyRate + entryBillable * otHourlyRate) * 100) / 100;
+      entryPay.set(entry.id, {
+        makeupHours: entryMakeup,
+        billableOtHours: entryBillable,
+        pay,
+      });
+    }
+  }
+
+  const overtimeHours = Math.round((sundayHours + weekdayBillableOtHours + makeupRegularHours) * 100) / 100;
+  return {
+    overtimePay: Math.round(overtimePay * 100) / 100,
+    overtimeHours,
+    weekdayOvertimeHours: weekdayBillableOtHours,
+    sundayHours: Math.round(sundayHours * 100) / 100,
+    makeupRegularHours,
+    makeupRegularPay: Math.round(makeupRegularPay * 100) / 100,
+    entryPay,
+  };
+}
+
+function computeRegularPayFromAttendance(
+  period: HrSalaryPeriod,
+  holidays: HrHoliday[],
+  leaveEntries: HrLeaveEntry[],
+  workDayEntries: HrWorkDayEntry[],
+  workShiftEntries: HrWorkShiftEntry[],
+  dayJoinEntries: HrDayJoinEntry[],
+  overtimeEntries: HrOvertimeEntry[],
+  projects: HrSalaryProject[],
+  perDaySalary: number,
+): { regularPay: number; payableDays: number; regularHours: number } {
+  const monthHolidays = holidaysInMonth(holidays, period.year, period.month);
+  const weekdayHolidayDates = new Set(
+    monthHolidays
+      .filter(h => {
+        const [y, m, d] = h.date.split('-').map(Number);
+        if (!y || !m || !d) return false;
+        return new Date(y, m - 1, d).getDay() !== 0;
+      })
+      .map(h => h.date),
+  );
+  const leaveMap = new Map(
+    normalizeLeaveEntries(leaveEntries, period).map(e => [e.date, e.kind]),
+  );
+  const projectIds = new Set(projects.map(p => p.id));
+  const workMap = new Map(
+    normalizeWorkDayEntries(workDayEntries, period, projectIds).map(e => [e.date, e.projectId]),
+  );
+  const shiftsByDate = new Map<string, HrWorkShiftEntry[]>();
+  for (const entry of normalizeWorkShiftEntries(workShiftEntries, period)) {
+    const list = shiftsByDate.get(entry.date) ?? [];
+    list.push(entry);
+    shiftsByDate.set(entry.date, list);
+  }
+  const normalizedJoins = normalizeDayJoinEntries(dayJoinEntries, period);
+  const otHoursByDate = new Map<string, number>();
+  for (const entry of normalizeOvertimeEntries(overtimeEntries, period)) {
+    const hours = overtimeEntryHours(entry.startTime, entry.endTime);
+    if (hours <= 0) continue;
+    otHoursByDate.set(
+      entry.date,
+      Math.round(((otHoursByDate.get(entry.date) ?? 0) + hours) * 100) / 100,
+    );
+  }
+
+  let regularPay = 0;
+  let payableDays = 0;
+  let regularHours = 0;
+  const total = daysInMonth(period.year, period.month);
+  for (let day = 1; day <= total; day += 1) {
+    const date = isoDate(period.year, period.month, day);
+    const dow = new Date(period.year, period.month - 1, day).getDay();
+    if (dow === 0 || weekdayHolidayDates.has(date)) continue;
+    const leaveKind = leaveMap.get(date);
+    if (leaveKind === 'full') continue;
+    const basePayable = leaveKind === 'half' ? 0.5 : 1;
+    const shifts = shiftsByDate.get(date) ?? [];
+    const joinEntry = normalizedJoins.find(entry => entry.date === date) ?? null;
+    const usesTimedRegular = shifts.length > 0 || dayJoinHasCustomClock(joinEntry);
+
+    if (usesTimedRegular) {
+      const shiftHours = shifts.reduce(
+        (sum, entry) => sum + overtimeEntryHours(entry.startTime, entry.endTime),
+        0,
+      );
+      const clockHours = shifts.length > 0 ? 0 : dayJoinRegularHours(joinEntry);
+      const workedHours = shifts.length > 0 ? shiftHours : clockHours;
+      const deficit = morningDeficitHoursForDate(date, shifts, normalizedJoins);
+      const { makeupHours } = splitOtHoursWithMorningMakeup(otHoursByDate.get(date) ?? 0, deficit);
+      const effectiveRegularHours = Math.min(
+        basePayable * HR_SALARY_HOURS_PER_DAY,
+        Math.round((workedHours + makeupHours) * 100) / 100,
+      );
+      const dayDays = Math.round((effectiveRegularHours / HR_SALARY_HOURS_PER_DAY) * 100) / 100;
+      payableDays = Math.round((payableDays + dayDays) * 100) / 100;
+      regularHours = Math.round((regularHours + effectiveRegularHours) * 100) / 100;
+      regularPay = Math.round((regularPay + dayDays * perDaySalary) * 100) / 100;
+      continue;
+    }
+
+    if (workMap.has(date)) {
+      payableDays = Math.round((payableDays + basePayable) * 100) / 100;
+      regularHours = Math.round((regularHours + basePayable * HR_SALARY_HOURS_PER_DAY) * 100) / 100;
+      regularPay = Math.round((regularPay + basePayable * perDaySalary) * 100) / 100;
+      continue;
+    }
+
+    payableDays = Math.round((payableDays + basePayable) * 100) / 100;
+    regularHours = Math.round((regularHours + basePayable * HR_SALARY_HOURS_PER_DAY) * 100) / 100;
+    regularPay = Math.round((regularPay + basePayable * perDaySalary) * 100) / 100;
+  }
+
+  return { regularPay, payableDays, regularHours };
+}
+
 export type HrProjectWorkTotal = {
   projectId: string | null;
   name: string;
@@ -327,6 +738,8 @@ export function projectWorkTotals(
   perDaySalary: number,
   otHourlyRate: number,
   workShiftEntries: HrWorkShiftEntry[] = [],
+  dayJoinEntries: HrDayJoinEntry[] = [],
+  hourlyRate = perDaySalary / HR_SALARY_HOURS_PER_DAY,
 ): HrProjectWorkTotal[] {
   const byId = new Map<string, HrProjectWorkTotal>();
   for (const project of projects) {
@@ -383,36 +796,49 @@ export function projectWorkTotals(
     const payable = leaveKind === 'half' ? 0.5 : 1;
     const shifts = shiftsByDate.get(date) ?? [];
     if (shifts.length > 0) {
+      const shiftHours = shifts.reduce(
+        (sum, entry) => sum + overtimeEntryHours(entry.startTime, entry.endTime),
+        0,
+      );
+      const shiftOnlyDays = Math.round((Math.min(shiftHours, payable * HR_SALARY_HOURS_PER_DAY) / HR_SALARY_HOURS_PER_DAY) * 100) / 100;
       const portions = shifts.map(entry => {
         const hours = overtimeEntryHours(entry.startTime, entry.endTime);
         return {
           projectId: entry.projectId && byId.has(entry.projectId) ? entry.projectId : null,
-          days: hours / HR_SALARY_HOURS_PER_DAY,
+          days: shiftHours > 0 ? (hours / shiftHours) * shiftOnlyDays : 0,
         };
       }).filter(p => p.days > 0);
-      const sumDays = portions.reduce((s, p) => s + p.days, 0);
-      const scale = sumDays > payable && sumDays > 0 ? payable / sumDays : 1;
       let attributed = 0;
       for (const portion of portions) {
-        const days = Math.round(portion.days * scale * 100) / 100;
+        const days = Math.round(portion.days * 100) / 100;
         attributed += days;
         addRegular(portion.projectId, days);
       }
-      const remainder = Math.round((payable - attributed) * 100) / 100;
-      if (remainder > 0.001) addRegular(null, remainder);
+      const shiftRemainder = Math.round((shiftOnlyDays - attributed) * 100) / 100;
+      if (shiftRemainder > 0.001) addRegular(null, shiftRemainder);
     } else {
       addRegular(workMap.get(date) ?? null, payable);
     }
   }
 
-  for (const entry of overtimeEntries) {
-    const hours = overtimeEntryHours(entry.startTime, entry.endTime);
-    if (hours <= 0) continue;
-    const otPay = hours * otHourlyRate;
+  const otPaySplit = computeOvertimePayWithMakeup(
+    overtimeEntries,
+    workShiftEntries,
+    dayJoinEntries,
+    period,
+    hourlyRate,
+    otHourlyRate,
+  );
+
+  for (const entry of normalizeOvertimeEntries(overtimeEntries, period)) {
+    const split = otPaySplit.entryPay.get(entry.id);
+    if (!split || split.makeupHours + split.billableOtHours <= 0) continue;
     const projectId = entry.projectId && byId.has(entry.projectId) ? entry.projectId : null;
     const row = projectId ? byId.get(projectId)! : ensureUnassigned();
-    row.otHours = Math.round((row.otHours + hours) * 100) / 100;
-    row.otPay = Math.round((row.otPay + otPay) * 100) / 100;
+    row.otHours = Math.round((row.otHours + split.billableOtHours) * 100) / 100;
+    row.regularDays = Math.round((row.regularDays + split.makeupHours / HR_SALARY_HOURS_PER_DAY) * 100) / 100;
+    row.regularPay = Math.round((row.regularPay + split.makeupHours * hourlyRate) * 100) / 100;
+    row.otPay = Math.round((row.otPay + split.billableOtHours * otHourlyRate) * 100) / 100;
   }
 
   const rows = [...byId.values(), ...(unassigned ? [unassigned] : [])];
@@ -702,6 +1128,10 @@ export function computeSalaryCalc(
   holidays: HrHoliday[],
   leaveEntries: HrLeaveEntry[],
   overtimeEntries: HrOvertimeEntry[] = [],
+  workShiftEntries: HrWorkShiftEntry[] = [],
+  workDayEntries: HrWorkDayEntry[] = [],
+  dayJoinEntries: HrDayJoinEntry[] = [],
+  projects: HrSalaryProject[] = [],
 ): HrSalaryCalc {
   const days = daysInMonth(period.year, period.month);
   const sundays = countSundaysInMonth(period.year, period.month);
@@ -732,26 +1162,12 @@ export function computeSalaryCalc(
 
   const normalizedOt = normalizeOvertimeEntries(overtimeEntries, period);
   const hoursByDate = overtimeHoursByDate(normalizedOt);
-  let sundayHours = 0;
-  let weekdayOvertimeHours = 0;
   let sundayWorkDays = 0;
   for (const [date, hrs] of hoursByDate.entries()) {
     if (hrs <= 0) continue;
-    if (isSundayIsoDate(date)) {
-      sundayHours += hrs;
-      sundayWorkDays += 1;
-    } else {
-      weekdayOvertimeHours += hrs;
-    }
+    if (isSundayIsoDate(date)) sundayWorkDays += 1;
   }
-  sundayHours = Math.round(sundayHours * 100) / 100;
-  weekdayOvertimeHours = Math.round(weekdayOvertimeHours * 100) / 100;
-  const overtimeHours = Math.round((sundayHours + weekdayOvertimeHours) * 100) / 100;
-  const overtimeDays = hoursByDate.size;
 
-  const payableDays = Math.max(0, rateDays - leaveDays);
-  const regularHours = Math.round(payableDays * HR_SALARY_HOURS_PER_DAY * 100) / 100;
-  const totalWorkHours = Math.round((regularHours + overtimeHours) * 100) / 100;
   const monthlySalary = Number.isFinite(monthlySalaryInput) && monthlySalaryInput > 0
     ? monthlySalaryInput
     : 0;
@@ -761,9 +1177,34 @@ export function computeSalaryCalc(
     : 0;
   const hourlyRate = perDaySalary / HR_SALARY_HOURS_PER_DAY;
   const otHourlyRate = otPerDaySalary / HR_SALARY_HOURS_PER_DAY;
-  const regularPay = perDaySalary * payableDays;
-  const overtimePay = otHourlyRate * overtimeHours;
-  const earnedSalary = regularPay + overtimePay;
+
+  const attendanceRegular = computeRegularPayFromAttendance(
+    period,
+    holidays,
+    leaveEntries,
+    workDayEntries,
+    workShiftEntries,
+    dayJoinEntries,
+    overtimeEntries,
+    projects,
+    perDaySalary,
+  );
+  const otSplit = computeOvertimePayWithMakeup(
+    overtimeEntries,
+    workShiftEntries,
+    dayJoinEntries,
+    period,
+    hourlyRate,
+    otHourlyRate,
+  );
+
+  const payableDays = attendanceRegular.payableDays;
+  const regularHours = attendanceRegular.regularHours;
+  const regularPay = attendanceRegular.regularPay;
+  const overtimeHours = otSplit.overtimeHours;
+  const overtimePay = otSplit.overtimePay;
+  const earnedSalary = Math.round((regularPay + overtimePay) * 100) / 100;
+  const totalWorkHours = Math.round((regularHours + otSplit.weekdayOvertimeHours + otSplit.sundayHours) * 100) / 100;
 
   return {
     daysInMonth: days,
@@ -773,7 +1214,7 @@ export function computeSalaryCalc(
     leaveDays,
     fullLeaveDays,
     halfLeaveDays,
-    overtimeDays,
+    overtimeDays: hoursByDate.size,
     overtimeHours,
     payableDays,
     regularHours,
@@ -781,8 +1222,10 @@ export function computeSalaryCalc(
     monthlySalary,
     perDaySalary,
     sundayWorkDays,
-    sundayHours,
-    weekdayOvertimeHours,
+    sundayHours: otSplit.sundayHours,
+    weekdayOvertimeHours: otSplit.weekdayOvertimeHours,
+    makeupRegularHours: otSplit.makeupRegularHours,
+    makeupRegularPay: otSplit.makeupRegularPay,
     regularPay,
     otPerDaySalary,
     hourlyRate,
@@ -930,6 +1373,47 @@ function mapWorkShiftEntries(data: Record<string, unknown>): HrWorkShiftEntry[] 
   }).filter(e => e.date);
 }
 
+function mapDayJoinEntries(data: Record<string, unknown>): HrDayJoinEntry[] {
+  if (!Array.isArray(data.dayJoinEntries)) return [];
+  return data.dayJoinEntries.map(raw => {
+    const row = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+    const joinedAt = String(row.joinedAt ?? '');
+    const clockedOutAtRaw = row.clockedOutAt != null ? String(row.clockedOutAt).trim() : '';
+    return {
+      date: String(row.date ?? ''),
+      joinedAt,
+      clockedOutAt: TIME_RE.test(clockedOutAtRaw) ? clockedOutAtRaw : null,
+    };
+  }).filter(e => e.date && TIME_RE.test(e.joinedAt));
+}
+
+function mapExpenseEntries(data: Record<string, unknown>): HrExpenseEntry[] {
+  if (!Array.isArray(data.expenseEntries)) return [];
+  return data.expenseEntries.map((raw, index) => {
+    const row = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+    return {
+      id: String(row.id ?? `expense_${index}`),
+      date: String(row.date ?? ''),
+      amount: Math.max(0, Number(row.amount) || 0),
+      note: String(row.note ?? '').trim().slice(0, 120),
+    };
+  }).filter(e => e.date && e.amount > 0);
+}
+
+function mapSalaryReceiptEntries(data: Record<string, unknown>): HrSalaryReceiptEntry[] {
+  if (!Array.isArray(data.receiptEntries)) return [];
+  return data.receiptEntries.map((raw, index) => {
+    const row = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+    return {
+      id: String(row.id ?? `receipt_${index}`),
+      date: String(row.date ?? ''),
+      kind: row.kind === 'salary_advance' ? 'salary_advance' as const : 'reimbursement' as const,
+      amount: Math.max(0, Number(row.amount) || 0),
+      note: String(row.note ?? '').trim().slice(0, 120),
+    };
+  }).filter(e => e.date && e.amount > 0);
+}
+
 function mapSalaryDoc(id: string, data: Record<string, unknown>): HrSalaryMonthRecord {
   return {
     id,
@@ -944,7 +1428,10 @@ function mapSalaryDoc(id: string, data: Record<string, unknown>): HrSalaryMonthR
     projects: mapProjects(data),
     workDayEntries: mapWorkDayEntries(data),
     workShiftEntries: mapWorkShiftEntries(data),
+    dayJoinEntries: mapDayJoinEntries(data),
     overtimeEntries: mapOvertimeEntries(data),
+    expenseEntries: mapExpenseEntries(data),
+    receiptEntries: mapSalaryReceiptEntries(data),
     publicShareToken: data.publicShareToken != null && String(data.publicShareToken).trim()
       ? String(data.publicShareToken).trim()
       : null,
@@ -993,6 +1480,9 @@ export async function saveSalaryMonth(
     ...entry,
     projectId: entry.projectId && projectIds.has(entry.projectId) ? entry.projectId : null,
   }));
+  const dayJoinEntries = normalizeDayJoinEntries(input.dayJoinEntries ?? [], period);
+  const expenseEntries = normalizeExpenseEntries(input.expenseEntries ?? [], period);
+  const receiptEntries = normalizeSalaryReceiptEntries(input.receiptEntries ?? [], period);
   const monthlySalary = Math.max(0, Number(input.monthlySalary) || 0);
   const rateDays = salaryRateDays(period.year, period.month, holidays);
   const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
@@ -1013,7 +1503,10 @@ export async function saveSalaryMonth(
       projects,
       workDayEntries,
       workShiftEntries,
+      dayJoinEntries,
       overtimeEntries,
+      expenseEntries,
+      receiptEntries,
       overtimeDates: [],
       updatedAt: new Date().toISOString(),
       updatedByUid,
@@ -1050,7 +1543,10 @@ export async function buildSalaryCalculationRows(
       const projects = saved?.projects ?? [];
       const workDayEntries = saved?.workDayEntries ?? [];
       const workShiftEntries = saved?.workShiftEntries ?? [];
+      const dayJoinEntries = saved?.dayJoinEntries ?? [];
       const overtimeEntries = saved?.overtimeEntries ?? [];
+      const expenseEntries = saved?.expenseEntries ?? [];
+      const receiptEntries = saved?.receiptEntries ?? [];
       return {
         staffUid: key,
         displayName: emp.displayName,
@@ -1066,7 +1562,10 @@ export async function buildSalaryCalculationRows(
         projects,
         workDayEntries,
         workShiftEntries,
+        dayJoinEntries,
         overtimeEntries,
+        expenseEntries,
+        receiptEntries,
         publicShareToken: saved?.publicShareToken ?? null,
         calc: computeSalaryCalc(
           monthlySalary,
@@ -1075,6 +1574,10 @@ export async function buildSalaryCalculationRows(
           holidays,
           leaveEntries,
           overtimeEntries,
+          workShiftEntries,
+          workDayEntries,
+          dayJoinEntries,
+          projects,
         ),
       };
     })

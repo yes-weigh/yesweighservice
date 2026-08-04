@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Save, Truck } from 'lucide-react';
+import { IndianRupee, MapPin, Save, Truck, Users } from 'lucide-react';
+import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import { useAuth } from '../../../context/AuthContext';
 import {
   listHrStaffUsers,
   loadLogisticsSettings,
   saveDefaultStaffLogisticsSite,
   saveLogisticsFromAddresses,
+  saveSpareFreightMinimumInr,
 } from '../../../lib/logisticsSettings';
 import { updateUserProfile } from '../../../lib/userAdmin';
 import { db } from '../../../firebase';
@@ -21,6 +23,12 @@ import {
 import { StCourierRatesSettings } from './StCourierRatesSettings';
 import { DeliveryPartnerRulesSettings } from './DeliveryPartnerRulesSettings';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
+
+function autosizeTextarea(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.max(el.scrollHeight, 1)}px`;
+}
 
 type LogisticsSettingsSubTab = 'sites' | 'delivery-rules' | 'courier-rates' | 'staff';
 
@@ -45,10 +53,13 @@ export const LogisticsSettingsTab: React.FC = () => {
     head_office: '',
   });
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
+  const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
+  const [draftSpareFreightMinimumInr, setDraftSpareFreightMinimumInr] = useState(0);
   const [staff, setStaff] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const addressRefs = useRef<Partial<Record<StaffLogisticsSite, HTMLTextAreaElement | null>>>({});
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -63,6 +74,8 @@ export const LogisticsSettingsTab: React.FC = () => {
       setFromAddresses(settings.fromAddresses);
       setDraftFromAddresses(settings.fromAddresses);
       setDeliveryRules(settings.deliveryRules);
+      setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
+      setDraftSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       setStaff(staffUsers);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load logistics settings.');
@@ -75,11 +88,19 @@ export const LogisticsSettingsTab: React.FC = () => {
     void loadAll();
   }, [loadAll]);
 
+  useLayoutEffect(() => {
+    if (subTab !== 'sites') return;
+    for (const site of STAFF_LOGISTICS_SITES) {
+      autosizeTextarea(addressRefs.current[site] ?? null);
+    }
+  }, [subTab, draftFromAddresses, loading]);
+
   const defaultDirty = draftDefaultSite !== defaultSite;
   const fromAddressesDirty = STAFF_LOGISTICS_SITES.some(
     site => draftFromAddresses[site] !== fromAddresses[site],
   );
-  const sitesDirty = defaultDirty || fromAddressesDirty;
+  const spareFreightDirty = draftSpareFreightMinimumInr !== spareFreightMinimumInr;
+  const sitesDirty = defaultDirty || fromAddressesDirty || spareFreightDirty;
 
   const staffBySite = useMemo(() => {
     const counts: Record<StaffLogisticsSite, number> = {
@@ -110,6 +131,14 @@ export const LogisticsSettingsTab: React.FC = () => {
           saveLogisticsFromAddresses(draftFromAddresses, user?.uid ?? null).then(saved => {
             setFromAddresses(saved);
             setDraftFromAddresses(saved);
+          }),
+        );
+      }
+      if (spareFreightDirty) {
+        tasks.push(
+          saveSpareFreightMinimumInr(draftSpareFreightMinimumInr, user?.uid ?? null).then(saved => {
+            setSpareFreightMinimumInr(saved);
+            setDraftSpareFreightMinimumInr(saved);
           }),
         );
       }
@@ -178,7 +207,7 @@ export const LogisticsSettingsTab: React.FC = () => {
             <div>
               <h4 className="settings-logistics__title">Logistics sites</h4>
               <p className="text-muted text-sm">
-                Origin address on courier labels. One site is the default for new staff.
+                Ship-from address on courier labels. Mark one site as default for new staff.
               </p>
             </div>
             <button
@@ -188,63 +217,95 @@ export const LogisticsSettingsTab: React.FC = () => {
               onClick={() => void handleSaveSites()}
             >
               <Save size={15} aria-hidden />
-              Save sites
+              Save
             </button>
           </div>
 
-          <div className="settings-logistics__table-wrap">
-            <table className="settings-logistics__table settings-logistics__table--sites">
-              <thead>
-                <tr>
-                  <th scope="col">Site</th>
-                  <th scope="col">Ship-from address</th>
-                  <th scope="col">Default</th>
-                  <th scope="col">Staff</th>
-                </tr>
-              </thead>
-              <tbody>
-                {STAFF_LOGISTICS_SITES.map(site => (
-                  <tr key={site}>
-                    <td className="settings-logistics__site-name">
-                      <MapPin size={15} aria-hidden />
+          <div className="settings-logistics__from-grid">
+            {STAFF_LOGISTICS_SITES.map(site => {
+              const isDefault = draftDefaultSite === site;
+              return (
+                <div
+                  key={site}
+                  className={`settings-logistics__site-card${isDefault ? ' is-default' : ''}`}
+                >
+                  <div className="settings-logistics__site-card-head">
+                    <div className="settings-logistics__site-card-title">
+                      <MapPin size={16} aria-hidden />
                       <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
-                    </td>
-                    <td>
-                      <label className="settings-logistics__address-field">
-                        <span className="sr-only">
-                          {STAFF_LOGISTICS_SITE_LABELS[site]} ship-from address
-                        </span>
-                        <textarea
-                          rows={3}
-                          value={draftFromAddresses[site]}
-                          disabled={busyKey === 'sites'}
-                          onChange={event => setDraftFromAddresses(prev => ({
-                            ...prev,
-                            [site]: event.target.value,
-                          }))}
-                          placeholder="Company name, address, city, state, pincode, phone"
-                        />
-                      </label>
-                    </td>
-                    <td className="settings-logistics__default-cell">
-                      <label className="settings-logistics__default-radio">
+                    </div>
+                    <div className="settings-logistics__site-card-meta">
+                      <span className="settings-logistics__site-staff-chip" title="Assigned staff">
+                        <Users size={13} aria-hidden />
+                        {staffBySite[site]}
+                      </span>
+                      <label className={`settings-logistics__default-pill${isDefault ? ' is-on' : ''}`}>
                         <input
                           type="radio"
                           name="default-logistics-site"
-                          checked={draftDefaultSite === site}
+                          checked={isDefault}
                           disabled={busyKey === 'sites'}
                           onChange={() => setDraftDefaultSite(site)}
                         />
-                        <span>{draftDefaultSite === site ? 'Default' : '—'}</span>
+                        <span>{isDefault ? 'Default' : 'Set default'}</span>
                       </label>
-                    </td>
-                    <td className="settings-logistics__staff-count">
-                      {staffBySite[site]}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                  </div>
+                  <label className="settings-logistics__site-card-address">
+                    <span className="settings-logistics__site-card-address-label">Ship-from address</span>
+                    <textarea
+                      rows={1}
+                      className="settings-logistics__site-card-textarea"
+                      value={draftFromAddresses[site]}
+                      disabled={busyKey === 'sites'}
+                      ref={el => {
+                        addressRefs.current[site] = el;
+                        autosizeTextarea(el);
+                      }}
+                      onChange={event => {
+                        const el = event.currentTarget;
+                        setDraftFromAddresses(prev => ({
+                          ...prev,
+                          [site]: el.value,
+                        }));
+                        autosizeTextarea(el);
+                      }}
+                      onInput={event => autosizeTextarea(event.currentTarget)}
+                      placeholder="Company name, address, city, state, pincode, phone"
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="settings-logistics__spare-card">
+            <div className="settings-logistics__spare-card-copy">
+              <div className="settings-logistics__spare-card-icon" aria-hidden>
+                <IndianRupee size={18} />
+              </div>
+              <div>
+                <h5 className="settings-logistics__title">Spare freight minimum</h5>
+                <p className="text-muted text-sm">
+                  Added to each spare draft order at checkout. Staff can change it when reviewing.
+                </p>
+              </div>
+            </div>
+            <label className="settings-logistics__spare-amount">
+              <span className="sr-only">Minimum spare freight in rupees</span>
+              <span className="settings-logistics__spare-amount-prefix" aria-hidden>₹</span>
+              <DecimalAmountInput
+                min={0}
+                decimals={2}
+                value={draftSpareFreightMinimumInr}
+                disabled={busyKey === 'sites'}
+                aria-label="Minimum spare freight in rupees"
+                onChange={next => {
+                  if (next == null) return;
+                  setDraftSpareFreightMinimumInr(next);
+                }}
+              />
+            </label>
           </div>
         </div>
         )}
@@ -258,8 +319,8 @@ export const LogisticsSettingsTab: React.FC = () => {
           />
         )}
 
-        {subTab === 'courier-rates' && (
-          <StCourierRatesSettings onError={setError} />
+        {subTab === 'courier-rates' && deliveryRules && (
+          <StCourierRatesSettings deliveryRules={deliveryRules} onError={setError} />
         )}
 
         {subTab === 'staff' && (

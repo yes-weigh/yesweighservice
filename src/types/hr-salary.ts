@@ -33,6 +33,16 @@ export type HrWorkShiftEntry = {
   projectId: string | null;
 };
 
+/** Clock-in / clock-out for a calendar day when not using timed daytime shifts. */
+export type HrDayJoinEntry = {
+  /** `yyyy-MM-dd` */
+  date: string;
+  /** `HH:mm` 24h — actual clock-in. */
+  joinedAt: string;
+  /** `HH:mm` 24h — actual clock-out (defaults to {@link HR_SALARY_STANDARD_END_TIME} in calc). */
+  clockedOutAt?: string | null;
+};
+
 /** One overtime shift on a calendar day (morning / night / etc.). */
 export type HrOvertimeEntry = {
   id: string;
@@ -52,6 +62,27 @@ export type HrLeaveEntry = {
   /** `yyyy-MM-dd` */
   date: string;
   kind: HrLeaveKind;
+};
+
+/** Out-of-pocket expense on a calendar day (reimbursable). */
+export type HrExpenseEntry = {
+  id: string;
+  /** `yyyy-MM-dd` */
+  date: string;
+  amount: number;
+  note: string;
+};
+
+/** Cash received — reimbursement (offsets expenses) or salary advance (offsets salary). */
+export type HrSalaryReceiptKind = 'reimbursement' | 'salary_advance';
+
+export type HrSalaryReceiptEntry = {
+  id: string;
+  /** `yyyy-MM-dd` */
+  date: string;
+  kind: HrSalaryReceiptKind;
+  amount: number;
+  note: string;
 };
 
 export type HrSalaryMonthRecord = {
@@ -78,8 +109,12 @@ export type HrSalaryMonthRecord = {
   workDayEntries: HrWorkDayEntry[];
   /** Timed daytime shifts (optional split across projects). */
   workShiftEntries: HrWorkShiftEntry[];
+  /** Late join times for whole-day rows (daytime shifts override). */
+  dayJoinEntries: HrDayJoinEntry[];
   /** Timed OT shifts (one or more per day). */
   overtimeEntries: HrOvertimeEntry[];
+  expenseEntries: HrExpenseEntry[];
+  receiptEntries: HrSalaryReceiptEntry[];
   /** Unguessable token for `/s/salary/:token` public share page. */
   publicShareToken: string | null;
   updatedAt: string;
@@ -96,7 +131,10 @@ export type HrSalaryMonthInput = {
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries: HrWorkShiftEntry[];
+  dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  expenseEntries: HrExpenseEntry[];
+  receiptEntries: HrSalaryReceiptEntry[];
 };
 
 export type HrSalaryDayKind =
@@ -158,8 +196,12 @@ export type HrSalaryCalc = {
   sundayWorkDays: number;
   /** Hours worked on Sundays (OT marks on Sunday = total Sunday work). */
   sundayHours: number;
-  /** Weekday OT hours only (excludes Sunday). */
+  /** Weekday OT hours only (excludes Sunday) — after morning makeup at regular rate. */
   weekdayOvertimeHours: number;
+  /** Weekday OT hours reclassified to regular rate (late-join makeup). */
+  makeupRegularHours: number;
+  /** makeupRegularHours × hourlyRate */
+  makeupRegularPay: number;
   /** payableDays × perDaySalary */
   regularPay: number;
   /** Pay for one full OT day (8 hrs); applies to weekday OT and Sunday hours. */
@@ -174,8 +216,24 @@ export type HrSalaryCalc = {
   earnedSalary: number;
 };
 
+export type HrExpenseSettlement = {
+  totalExpenses: number;
+  totalReimbursements: number;
+  totalSalaryAdvances: number;
+  /** max(0, expenses − reimbursements) */
+  unreimbursedExpenses: number;
+  /** earnedSalary + unreimbursedExpenses − salaryAdvances */
+  netPayable: number;
+};
+
 /** Assumed working hours in a payable day (for hourly OT rate). */
 export const HR_SALARY_HOURS_PER_DAY = 8;
+
+/** Standard weekday clock-in; morning gap before this is filled by OT at regular rate first. */
+export const HR_SALARY_STANDARD_START_TIME = '09:30';
+
+/** Standard weekday clock-out (8 hrs after {@link HR_SALARY_STANDARD_START_TIME}). */
+export const HR_SALARY_STANDARD_END_TIME = '17:30';
 
 export function salaryPeriodKey(period: HrSalaryPeriod): string {
   return `${period.year}-${String(period.month).padStart(2, '0')}`;

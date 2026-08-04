@@ -3,21 +3,30 @@ import { useParams } from 'react-router-dom';
 import { HrSalaryShareView } from '../../components/hr/HrSalaryShareView';
 import { APP_NAME } from '../../constants/brand';
 import {
+  applyDayClockPatch,
+  createExpenseEntry,
   createOvertimeEntry,
   createSalaryProject,
+  createSalaryReceiptEntry,
   createWorkShiftEntry,
   workProjectIdForDate,
 } from '../../lib/hrSalary';
 import {
   subscribeSalaryShare,
+  switchPublicSalarySharePeriodViaCallable,
   updatePublicSalaryShareViaCallable,
 } from '../../lib/hrSalaryShares';
+import { salaryPeriodKey } from '../../types/hr-salary';
 import type { HrSalaryShareRecord } from '../../types/hr-salary-share';
 import type {
+  HrDayJoinEntry,
+  HrExpenseEntry,
   HrLeaveEntry,
   HrLeaveKind,
   HrOvertimeEntry,
   HrSalaryProject,
+  HrSalaryReceiptEntry,
+  HrSalaryReceiptKind,
   HrWorkDayEntry,
   HrWorkShiftEntry,
 } from '../../types/hr-salary';
@@ -31,7 +40,10 @@ type DraftState = {
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries: HrWorkShiftEntry[];
+  dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  expenseEntries: HrExpenseEntry[];
+  receiptEntries: HrSalaryReceiptEntry[];
 };
 
 function rateInputValue(n: number): string {
@@ -47,7 +59,10 @@ function draftFromShare(share: HrSalaryShareRecord): DraftState {
     projects: share.projects.map(p => ({ ...p })),
     workDayEntries: share.workDayEntries.map(e => ({ ...e })),
     workShiftEntries: (share.workShiftEntries ?? []).map(e => ({ ...e })),
+    dayJoinEntries: (share.dayJoinEntries ?? []).map(e => ({ ...e })),
     overtimeEntries: share.overtimeEntries.map(e => ({ ...e })),
+    expenseEntries: (share.expenseEntries ?? []).map(e => ({ ...e })),
+    receiptEntries: (share.receiptEntries ?? []).map(e => ({ ...e })),
   };
 }
 
@@ -71,6 +86,8 @@ export const HrSalaryPublicSharePage: React.FC = () => {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState('');
+  const [switchingPeriod, setSwitchingPeriod] = useState(false);
+  const [periodError, setPeriodError] = useState('');
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
   const draftRef = useRef<DraftState | null>(null);
@@ -137,6 +154,9 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         projects: current.projects,
         workDayEntries: current.workDayEntries,
         workShiftEntries: current.workShiftEntries,
+        dayJoinEntries: current.dayJoinEntries,
+        expenseEntries: current.expenseEntries,
+        receiptEntries: current.receiptEntries,
         overtimeEntries: current.overtimeEntries,
       });
       dirtyRef.current = false;
@@ -189,6 +209,40 @@ export const HrSalaryPublicSharePage: React.FC = () => {
     setSelectedDate(null);
   };
 
+  const handleMonthChange = async (value: string) => {
+    if (!share || switchingPeriod) return;
+    const [year, month] = value.split('-').map(Number);
+    if (!year || !month) return;
+    if (year === share.year && month === share.month) return;
+
+    setPeriodError('');
+    setSwitchingPeriod(true);
+    try {
+      if (dirtyRef.current && editMode) {
+        if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+        await persistDraft();
+        if (dirtyRef.current) {
+          setPeriodError('Could not save changes before switching month.');
+          return;
+        }
+      }
+      await switchPublicSalarySharePeriodViaCallable({
+        token: token.trim(),
+        year,
+        month,
+      });
+      dirtyRef.current = false;
+      setEditMode(false);
+      setSelectedDate(null);
+      setSaveStatus('idle');
+      setSaveError('');
+    } catch (err) {
+      setPeriodError(callableErrorMessage(err));
+    } finally {
+      setSwitchingPeriod(false);
+    }
+  };
+
   const display = useMemo(() => {
     if (editMode && draft && share) {
       return {
@@ -199,6 +253,9 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         projects: draft.projects,
         workDayEntries: draft.workDayEntries,
         workShiftEntries: draft.workShiftEntries,
+        dayJoinEntries: draft.dayJoinEntries,
+        expenseEntries: draft.expenseEntries,
+        receiptEntries: draft.receiptEntries,
         overtimeEntries: draft.overtimeEntries,
       };
     }
@@ -271,6 +328,12 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         patchDraft({
           workDayEntries: next.sort((a, b) => a.date.localeCompare(b.date)),
           workShiftEntries: draft.workShiftEntries.filter(e => e.date !== date),
+          dayJoinEntries: draft.dayJoinEntries.filter(e => e.date !== date),
+        });
+      },
+      onSetDayClock: (date: string, patch: { joinedAt?: string | null; clockedOutAt?: string | null }) => {
+        patchDraft({
+          dayJoinEntries: applyDayClockPatch(date, draft.dayJoinEntries, patch),
         });
       },
       onAddWorkShift: (date: string) => {
@@ -291,15 +354,14 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         }
         if (activeProjectId !== projectId) setActiveProjectId(projectId);
         const existing = draft.workShiftEntries.filter(e => e.date === date);
-        const startTime = existing.length === 0 ? '09:00' : '14:00';
-        const endTime = existing.length === 0 ? '13:00' : '18:00';
+        const entry = existing.length === 0
+          ? createWorkShiftEntry(date, '09:30', '17:30', projectId)
+          : createWorkShiftEntry(date, '14:00', '18:00', projectId);
         patchDraft({
           projects,
           workDayEntries: draft.workDayEntries.filter(e => e.date !== date),
-          workShiftEntries: [
-            ...draft.workShiftEntries,
-            createWorkShiftEntry(date, startTime, endTime, projectId),
-          ],
+          dayJoinEntries: draft.dayJoinEntries.filter(e => e.date !== date),
+          workShiftEntries: [...draft.workShiftEntries, entry],
         });
       },
       onPatchWorkShift: (
@@ -360,6 +422,46 @@ export const HrSalaryPublicSharePage: React.FC = () => {
           overtimeEntries: draft.overtimeEntries.filter(e => e.id !== entryId),
         });
       },
+      onAddExpense: (date: string) => {
+        patchDraft({
+          expenseEntries: [...draft.expenseEntries, createExpenseEntry(date)],
+        });
+      },
+      onPatchExpense: (
+        entryId: string,
+        patch: Partial<Pick<HrExpenseEntry, 'amount' | 'note'>>,
+      ) => {
+        patchDraft({
+          expenseEntries: draft.expenseEntries.map(entry => (
+            entry.id === entryId ? { ...entry, ...patch } : entry
+          )),
+        });
+      },
+      onRemoveExpense: (entryId: string) => {
+        patchDraft({
+          expenseEntries: draft.expenseEntries.filter(e => e.id !== entryId),
+        });
+      },
+      onAddReceipt: (date: string, kind: HrSalaryReceiptKind) => {
+        patchDraft({
+          receiptEntries: [...draft.receiptEntries, createSalaryReceiptEntry(date, kind)],
+        });
+      },
+      onPatchReceipt: (
+        entryId: string,
+        patch: Partial<Pick<HrSalaryReceiptEntry, 'amount' | 'note' | 'kind'>>,
+      ) => {
+        patchDraft({
+          receiptEntries: draft.receiptEntries.map(entry => (
+            entry.id === entryId ? { ...entry, ...patch } : entry
+          )),
+        });
+      },
+      onRemoveReceipt: (entryId: string) => {
+        patchDraft({
+          receiptEntries: draft.receiptEntries.filter(e => e.id !== entryId),
+        });
+      },
     };
   }, [editMode, draft, selectedDate, activeProjectId, patchDraft]);
 
@@ -388,7 +490,19 @@ export const HrSalaryPublicSharePage: React.FC = () => {
   return (
     <div className="hr-salary-public">
       <div className="hr-salary-public__shell">
-        <div className="hr-salary-public__toolbar" role="group" aria-label="Page mode">
+        <div className="hr-salary-public__toolbar" role="group" aria-label="Page controls">
+          <label className="hr-salary-public__month">
+            <span className="text-sm text-muted">Month</span>
+            <input
+              type="month"
+              className="input-field"
+              value={salaryPeriodKey({ year: display.year, month: display.month })}
+              disabled={switchingPeriod}
+              onChange={e => {
+                void handleMonthChange(e.target.value);
+              }}
+            />
+          </label>
           <div className="hr-salary-public__mode-toggle">
             <button
               type="button"
@@ -405,6 +519,16 @@ export const HrSalaryPublicSharePage: React.FC = () => {
               Edit
             </button>
           </div>
+          {switchingPeriod ? (
+            <span className="hr-salary-public__toolbar-hint text-muted text-sm">
+              Loading month…
+            </span>
+          ) : null}
+          {periodError ? (
+            <span className="hr-salary-public__toolbar-hint text-sm" role="alert">
+              {periodError}
+            </span>
+          ) : null}
           {editMode ? (
             <span className="hr-salary-public__toolbar-hint text-muted text-sm">
               Changes save automatically to Firebase
@@ -421,6 +545,9 @@ export const HrSalaryPublicSharePage: React.FC = () => {
           projects={display.projects}
           workDayEntries={display.workDayEntries}
           workShiftEntries={display.workShiftEntries}
+          dayJoinEntries={display.dayJoinEntries ?? []}
+          expenseEntries={display.expenseEntries ?? []}
+          receiptEntries={display.receiptEntries ?? []}
           overtimeEntries={display.overtimeEntries}
           holidays={display.holidays}
           edit={editHandlers}

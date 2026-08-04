@@ -167,7 +167,16 @@ export function groupLinesBySegmentAndSite(lines) {
   for (const line of lines || []) {
     const segment = classifyOrderLineSegment(line);
     if (!segment) {
-      freight.push(line);
+      const hostSegment = line.freightHostSegment;
+      const hostSite = line.freightInventorySite;
+      if (
+        (hostSegment === 'product' || hostSegment === 'spare')
+        && (hostSite === 'cochin' || hostSite === 'head_office')
+      ) {
+        ensureBucket(hostSegment, hostSite).lines.push(line);
+      } else {
+        freight.push(line);
+      }
       continue;
     }
     const site = resolveLineInventorySite(segment, line.warehouses);
@@ -211,6 +220,11 @@ export function freightHostSegment(groups) {
   if (groups?.product?.length) return 'product';
   if (groups?.spare?.length) return 'spare';
   return null;
+}
+
+/** Freight attaches to product or spare only — never software. */
+export function segmentAllowsFreight(segment) {
+  return segment === 'product' || segment === 'spare';
 }
 
 export function segmentLabel(segment) {

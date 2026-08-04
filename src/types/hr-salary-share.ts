@@ -1,8 +1,11 @@
 import type {
+  HrDayJoinEntry,
+  HrExpenseEntry,
   HrLeaveEntry,
   HrOvertimeEntry,
   HrSalaryPeriod,
   HrSalaryProject,
+  HrSalaryReceiptEntry,
   HrWorkDayEntry,
   HrWorkShiftEntry,
 } from './hr-salary';
@@ -31,7 +34,10 @@ export type HrSalaryShareRecord = {
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries: HrWorkShiftEntry[];
+  dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  expenseEntries: HrExpenseEntry[];
+  receiptEntries: HrSalaryReceiptEntry[];
   holidays: HrSalaryShareHoliday[];
   createdAt: string;
   updatedAt: string;
@@ -49,6 +55,9 @@ export type HrSalaryShareInput = {
   projects: HrSalaryProject[];
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries: HrWorkShiftEntry[];
+  dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  expenseEntries: HrExpenseEntry[];
+  receiptEntries: HrSalaryReceiptEntry[];
   holidays: HrSalaryShareHoliday[];
 };

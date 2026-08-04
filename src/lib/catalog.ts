@@ -200,6 +200,7 @@ export function expectsCatalogPackageInfo(
   categories: CatalogCategory[] = [],
 ): boolean {
   if (!hasCatalogCategory(product)) return false;
+  if (isHiddenCatalogProduct(product, categories)) return false;
   if (isCatalogSparePartProduct(product, categories)) return false;
   if (product.categoryName && isSoftwareKeysCategory({ name: product.categoryName })) {
     return false;

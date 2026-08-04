@@ -1,10 +1,24 @@
 import { Plus, Trash2, X } from 'lucide-react';
-import { formatOtHours, overtimeEntryHours } from '../../lib/hrSalary';
-import type {
-  HrLeaveKind,
-  HrOvertimeEntry,
-  HrSalaryProject,
-  HrWorkShiftEntry,
+import { DecimalTextInput } from '../DecimalAmountInput';
+import {
+  formatInr,
+  formatOtHours,
+  formatTimeAmPm,
+  dayJoinRegularHours,
+  morningDeficitHoursForDate,
+  overtimeEntryHours,
+} from '../../lib/hrSalary';
+import {
+  HR_SALARY_STANDARD_END_TIME,
+  HR_SALARY_STANDARD_START_TIME,
+  type HrDayJoinEntry,
+  type HrExpenseEntry,
+  type HrLeaveKind,
+  type HrOvertimeEntry,
+  type HrSalaryProject,
+  type HrSalaryReceiptEntry,
+  type HrSalaryReceiptKind,
+  type HrWorkShiftEntry,
 } from '../../types/hr-salary';
 
 function formatDayLabel(date: string): string {
@@ -32,10 +46,13 @@ export type DayAttendanceSheetProps = {
   projects: HrSalaryProject[];
   dayProjectId: string | null;
   workShifts: HrWorkShiftEntry[];
+  joinedAt: string | null;
+  clockedOutAt: string | null;
   entries: HrOvertimeEntry[];
   onClose: () => void;
   onSetLeave: (kind: HrLeaveKind | null) => void;
   onSetDayProject: (projectId: string | null) => void;
+  onSetDayClock: (patch: { joinedAt?: string | null; clockedOutAt?: string | null }) => void;
   onAddWorkShift: () => void;
   onPatchWorkShift: (
     entryId: string,
@@ -48,6 +65,20 @@ export type DayAttendanceSheetProps = {
     patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
   ) => void;
   onRemoveOt: (entryId: string) => void;
+  expenses: HrExpenseEntry[];
+  receipts: HrSalaryReceiptEntry[];
+  onAddExpense: () => void;
+  onPatchExpense: (
+    entryId: string,
+    patch: Partial<Pick<HrExpenseEntry, 'amount' | 'note'>>,
+  ) => void;
+  onRemoveExpense: (entryId: string) => void;
+  onAddReceipt: (kind: HrSalaryReceiptKind) => void;
+  onPatchReceipt: (
+    entryId: string,
+    patch: Partial<Pick<HrSalaryReceiptEntry, 'amount' | 'note' | 'kind'>>,
+  ) => void;
+  onRemoveReceipt: (entryId: string) => void;
 };
 
 function ShiftRows({
@@ -166,6 +197,115 @@ function ShiftRows({
   );
 }
 
+function MoneyEntryRows({
+  label,
+  totalLabel,
+  canEdit,
+  rows,
+  onAdd,
+  onPatch,
+  onRemove,
+  addLabel,
+  removeLabel,
+  showKind,
+}: {
+  label: string;
+  totalLabel: string;
+  canEdit: boolean;
+  rows: Array<{
+    id: string;
+    amount: number;
+    note: string;
+    kind?: HrSalaryReceiptKind;
+  }>;
+  onAdd?: () => void;
+  onPatch: (
+    entryId: string,
+    patch: Partial<{ amount: number; note: string; kind: HrSalaryReceiptKind }>,
+  ) => void;
+  onRemove: (entryId: string) => void;
+  addLabel: string;
+  removeLabel: string;
+  showKind?: boolean;
+}) {
+  return (
+    <section className="hr-salary__day-sheet-section">
+      <div className="hr-salary__day-sheet-section-head">
+        <span>{label}</span>
+        <span className="text-muted">{totalLabel}</span>
+      </div>
+      {rows.length === 0 ? null : (
+        <ul className="hr-salary__money-list">
+          {rows.map(entry => (
+            <li key={entry.id} className="hr-salary__money-row">
+              {showKind ? (
+                <label>
+                  <span>Type</span>
+                  <select
+                    className="input-field"
+                    value={entry.kind ?? 'reimbursement'}
+                    disabled={!canEdit}
+                    onChange={e => onPatch(entry.id, {
+                      kind: e.target.value === 'salary_advance' ? 'salary_advance' : 'reimbursement',
+                    })}
+                  >
+                    <option value="reimbursement">Reimbursement</option>
+                    <option value="salary_advance">Salary advance</option>
+                  </select>
+                </label>
+              ) : null}
+              <label>
+                <span>Amount</span>
+                <DecimalTextInput
+                  className="input-field"
+                  value={entry.amount > 0 ? String(entry.amount) : ''}
+                  disabled={!canEdit}
+                  aria-label={`${label} amount`}
+                  onChange={value => onPatch(entry.id, {
+                    amount: Math.max(0, Number.parseFloat(value) || 0),
+                  })}
+                />
+              </label>
+              <label className="hr-salary__money-note">
+                <span>Note</span>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={entry.note}
+                  disabled={!canEdit}
+                  placeholder="Optional"
+                  onChange={e => onPatch(entry.id, { note: e.target.value })}
+                />
+              </label>
+              <span className="hr-salary__money-amount">{formatInr(entry.amount)}</span>
+              {canEdit ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm hr-salary__ot-remove"
+                  aria-label={removeLabel}
+                  onClick={() => onRemove(entry.id)}
+                >
+                  <Trash2 size={14} aria-hidden />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canEdit && onAdd ? (
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm hr-salary__ot-add"
+          onClick={onAdd}
+        >
+          <Plus size={14} aria-hidden />
+          {addLabel}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 export function DayAttendanceSheet({
   date,
   canEdit,
@@ -175,16 +315,27 @@ export function DayAttendanceSheet({
   projects,
   dayProjectId,
   workShifts,
+  joinedAt,
+  clockedOutAt,
   entries,
   onClose,
   onSetLeave,
   onSetDayProject,
+  onSetDayClock,
   onAddWorkShift,
   onPatchWorkShift,
   onRemoveWorkShift,
   onAddOt,
   onPatchOt,
   onRemoveOt,
+  expenses,
+  receipts,
+  onAddExpense,
+  onPatchExpense,
+  onRemoveExpense,
+  onAddReceipt,
+  onPatchReceipt,
+  onRemoveReceipt,
 }: DayAttendanceSheetProps) {
   const dayWorkHours = workShifts.reduce(
     (sum, e) => sum + overtimeEntryHours(e.startTime, e.endTime),
@@ -194,7 +345,38 @@ export function DayAttendanceSheet({
     (sum, e) => sum + overtimeEntryHours(e.startTime, e.endTime),
     0,
   );
+  const dayExpenseTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const dayReceiptTotal = receipts.reduce((sum, e) => sum + e.amount, 0);
   const hasWorkShifts = workShifts.length > 0;
+  const shiftClockIn = hasWorkShifts
+    ? workShifts.reduce(
+      (earliest, entry) => (entry.startTime < earliest ? entry.startTime : earliest),
+      workShifts[0].startTime,
+    )
+    : null;
+  const shiftClockOut = hasWorkShifts
+    ? workShifts.reduce(
+      (latest, entry) => (entry.endTime > latest ? entry.endTime : latest),
+      workShifts[0].endTime,
+    )
+    : null;
+  const displayClockIn = shiftClockIn ?? joinedAt ?? HR_SALARY_STANDARD_START_TIME;
+  const displayClockOut = shiftClockOut ?? clockedOutAt ?? HR_SALARY_STANDARD_END_TIME;
+  const dayJoinForCalc: HrDayJoinEntry = {
+    date,
+    joinedAt: displayClockIn,
+    clockedOutAt: displayClockOut,
+  };
+  const clockRegularHours = hasWorkShifts
+    ? dayWorkHours
+    : dayJoinRegularHours(dayJoinForCalc);
+  const morningDeficit = morningDeficitHoursForDate(
+    date,
+    workShifts,
+    joinedAt || clockedOutAt
+      ? [{ date, joinedAt: displayClockIn, clockedOutAt: displayClockOut }]
+      : [],
+  );
   const dayKindLabel = isSundayDate(date)
     ? 'Sunday'
     : holidayName
@@ -273,6 +455,54 @@ export function DayAttendanceSheet({
           ) : null}
         </section>
 
+        <section className="hr-salary__day-sheet-section">
+          <div className="hr-salary__day-sheet-section-head">
+            <span>Clock in / out</span>
+            <span className="text-muted">
+              {formatOtHours(clockRegularHours)} regular
+            </span>
+          </div>
+          {hasWorkShifts ? (
+            <p className="text-sm text-muted">
+              From daytime shifts: {formatTimeAmPm(displayClockIn)} – {formatTimeAmPm(displayClockOut)}
+            </p>
+          ) : (
+            <div className="hr-salary__clock-row">
+              <label className="hr-salary__join-field">
+                <span className="text-sm text-muted">Clock-in</span>
+                <input
+                  type="time"
+                  className="input-field"
+                  value={displayClockIn}
+                  disabled={!canEdit}
+                  onChange={e => onSetDayClock({ joinedAt: e.target.value || null })}
+                />
+              </label>
+              <label className="hr-salary__join-field">
+                <span className="text-sm text-muted">Clock-out</span>
+                <input
+                  type="time"
+                  className="input-field"
+                  value={displayClockOut}
+                  disabled={!canEdit}
+                  onChange={e => onSetDayClock({ clockedOutAt: e.target.value || null })}
+                />
+              </label>
+            </div>
+          )}
+          <p className="text-sm text-muted">
+            Standard day {formatTimeAmPm(HR_SALARY_STANDARD_START_TIME)}
+            {' – '}
+            {formatTimeAmPm(HR_SALARY_STANDARD_END_TIME)}
+          </p>
+          {morningDeficit > 0 ? (
+            <p className="hr-salary__join-hint" role="status">
+              {formatOtHours(morningDeficit)} morning gap — overtime on this day fills that at
+              regular pay first.
+            </p>
+          ) : null}
+        </section>
+
         <ShiftRows
           label="Daytime shifts"
           hoursLabel={formatOtHours(dayWorkHours)}
@@ -335,6 +565,43 @@ export function DayAttendanceSheet({
           addLabel="Add OT shift"
           removeLabel="Remove overtime shift"
         />
+
+        <MoneyEntryRows
+          label="Expenses"
+          totalLabel={formatInr(dayExpenseTotal)}
+          canEdit={canEdit}
+          rows={expenses}
+          onAdd={onAddExpense}
+          onPatch={onPatchExpense}
+          onRemove={onRemoveExpense}
+          addLabel="Add expense"
+          removeLabel="Remove expense"
+        />
+
+        <MoneyEntryRows
+          label="Received"
+          totalLabel={formatInr(dayReceiptTotal)}
+          canEdit={canEdit}
+          rows={receipts}
+          onAdd={() => onAddReceipt('reimbursement')}
+          onPatch={onPatchReceipt}
+          onRemove={onRemoveReceipt}
+          addLabel="Add reimbursement or advance"
+          removeLabel="Remove receipt"
+          showKind
+        />
+        {canEdit ? (
+          <div className="hr-salary__receipt-quick-add">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onAddReceipt('salary_advance')}
+            >
+              <Plus size={14} aria-hidden />
+              Add salary advance
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -38,6 +38,34 @@ export type ShippingSelection =
   | { mode: 'kind'; kind: 'billing' | 'shipping' }
   | { mode: 'new'; newAddress: NewShippingAddressInput };
 
+/** Resolve state/city/zip from the dealer's current shipping selection. */
+export function resolveShippingDestination(
+  selection: ShippingSelection | null | undefined,
+  addresses: ShippingAddress[],
+): { state: string | null; city: string | null; zip: string | null } | null {
+  if (!selection) return null;
+
+  if (selection.mode === 'new') {
+    const a = selection.newAddress;
+    const state = a.state?.trim() || null;
+    const city = a.city?.trim() || null;
+    const zip = a.zip?.trim() || null;
+    if (!state && !city && !zip) return null;
+    return { state, city, zip };
+  }
+
+  const match = selection.mode === 'saved'
+    ? addresses.find(a => a.addressId && a.addressId === selection.addressId)
+    : addresses.find(a => a.kind === selection.kind);
+
+  if (!match) return null;
+  const state = match.state?.trim() || null;
+  const city = match.city?.trim() || null;
+  const zip = match.zip?.trim() || null;
+  if (!state && !city && !zip) return null;
+  return { state, city, zip };
+}
+
 async function call<TReq, TRes>(name: string, data?: TReq, timeout = 60_000): Promise<TRes> {
   const callable = httpsCallable<TReq | undefined, TRes>(functions, name, { timeout });
   const result = await callable(data);

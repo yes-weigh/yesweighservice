@@ -160,6 +160,24 @@ function normalizeWorkShifts(raw, key, projectIds) {
   return normalizeTimedShiftEntries(raw, key, projectIds, MAX_WORK_SHIFTS, 'work-shift');
 }
 
+function normalizeDayJoinEntries(raw, key) {
+  if (!Array.isArray(raw)) return [];
+  const byDate = new Map();
+  for (const row of raw) {
+    const date = String(row?.date ?? '').trim();
+    const joinedAt = String(row?.joinedAt ?? '').trim();
+    if (!date.startsWith(key) || !TIME_RE.test(joinedAt)) continue;
+    const clockedOutAtRaw = row?.clockedOutAt != null ? String(row.clockedOutAt).trim() : '';
+    const clockedOutAt = TIME_RE.test(clockedOutAtRaw) ? clockedOutAtRaw : null;
+    byDate.set(date, {
+      date,
+      joinedAt,
+      ...(clockedOutAt ? { clockedOutAt } : {}),
+    });
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function normalizeHolidays(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -168,6 +186,33 @@ function normalizeHolidays(raw) {
       name: String(h?.name ?? '').trim().slice(0, 120) || 'Holiday',
     }))
     .filter(h => h.date);
+}
+
+function normalizeExpenseEntries(raw, key) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(row => ({
+      id: String(row?.id ?? '').trim() || randomUUID(),
+      date: String(row?.date ?? '').trim(),
+      amount: Math.max(0, Number(row?.amount) || 0),
+      note: String(row?.note ?? '').trim().slice(0, 120),
+    }))
+    .filter(e => e.date.startsWith(key) && e.amount > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function normalizeSalaryReceiptEntries(raw, key) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(row => ({
+      id: String(row?.id ?? '').trim() || randomUUID(),
+      date: String(row?.date ?? '').trim(),
+      kind: row?.kind === 'salary_advance' ? 'salary_advance' : 'reimbursement',
+      amount: Math.max(0, Number(row?.amount) || 0),
+      note: String(row?.note ?? '').trim().slice(0, 120),
+    }))
+    .filter(e => e.date.startsWith(key) && e.amount > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**
@@ -201,6 +246,9 @@ export async function updatePublicSalaryShare(payload = {}) {
   const projects = normalizeProjects(payload.projects);
   const projectIds = new Set(projects.map(p => p.id));
   const leaveEntries = normalizeLeave(payload.leaveEntries, key);
+  const dayJoinEntries = normalizeDayJoinEntries(payload.dayJoinEntries, key);
+  const expenseEntries = normalizeExpenseEntries(payload.expenseEntries, key);
+  const receiptEntries = normalizeSalaryReceiptEntries(payload.receiptEntries, key);
   const workShiftEntries = normalizeWorkShifts(payload.workShiftEntries, key, projectIds);
   const shiftDates = new Set(workShiftEntries.map(e => e.date));
   // Whole-day XOR daytime shifts: drop whole-day rows for dates that have shifts.
@@ -233,6 +281,9 @@ export async function updatePublicSalaryShare(payload = {}) {
     projects,
     workDayEntries,
     workShiftEntries,
+    dayJoinEntries,
+    expenseEntries,
+    receiptEntries,
     overtimeEntries,
     overtimeDates: [],
     publicShareToken: prevToken || token,
@@ -254,6 +305,9 @@ export async function updatePublicSalaryShare(payload = {}) {
     projects,
     workDayEntries,
     workShiftEntries,
+    dayJoinEntries,
+    expenseEntries,
+    receiptEntries,
     overtimeEntries,
     holidays,
     updatedAt: now,
@@ -271,6 +325,9 @@ export async function updatePublicSalaryShare(payload = {}) {
     projects,
     workDayEntries,
     workShiftEntries,
+    dayJoinEntries,
+    expenseEntries,
+    receiptEntries,
     overtimeEntries,
     holidays,
   };
