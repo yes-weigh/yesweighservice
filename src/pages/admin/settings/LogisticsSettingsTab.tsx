@@ -19,11 +19,14 @@ import {
   type StaffLogisticsSite,
 } from '../../../types/staff-logistics';
 import { StCourierRatesSettings } from './StCourierRatesSettings';
+import { DeliveryPartnerRulesSettings } from './DeliveryPartnerRulesSettings';
+import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
 
-type LogisticsSettingsSubTab = 'sites' | 'courier-rates' | 'staff';
+type LogisticsSettingsSubTab = 'sites' | 'delivery-rules' | 'courier-rates' | 'staff';
 
 const LOGISTICS_SETTINGS_SUBTABS: { id: LogisticsSettingsSubTab; label: string }[] = [
   { id: 'sites', label: 'Sites' },
+  { id: 'delivery-rules', label: 'Delivery rules' },
   { id: 'courier-rates', label: 'Courier rates' },
   { id: 'staff', label: 'Staff' },
 ];
@@ -41,6 +44,7 @@ export const LogisticsSettingsTab: React.FC = () => {
     cochin: '',
     head_office: '',
   });
+  const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [staff, setStaff] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -58,6 +62,7 @@ export const LogisticsSettingsTab: React.FC = () => {
       setDraftDefaultSite(settings.defaultStaffLogisticsSite);
       setFromAddresses(settings.fromAddresses);
       setDraftFromAddresses(settings.fromAddresses);
+      setDeliveryRules(settings.deliveryRules);
       setStaff(staffUsers);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load logistics settings.');
@@ -137,7 +142,7 @@ export const LogisticsSettingsTab: React.FC = () => {
         <div>
           <h3>Logistics</h3>
           <p className="text-muted text-sm">
-            Configure ship-from sites, courier rates, and staff warehouse assignments.
+            Configure ship-from sites, delivery partner rules, courier rates, and staff warehouse assignments.
           </p>
         </div>
       </header>
@@ -242,6 +247,15 @@ export const LogisticsSettingsTab: React.FC = () => {
             </table>
           </div>
         </div>
+        )}
+
+        {subTab === 'delivery-rules' && deliveryRules && (
+          <DeliveryPartnerRulesSettings
+            rules={deliveryRules}
+            updatedBy={user?.uid ?? null}
+            onSaved={setDeliveryRules}
+            onError={setError}
+          />
         )}
 
         {subTab === 'courier-rates' && (

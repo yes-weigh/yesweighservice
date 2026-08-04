@@ -4,6 +4,9 @@ import {
   DEFAULT_STAFF_LOGISTICS_SITE,
   LOGISTICS_SETTINGS_DOC_ID,
 } from '../constants/logisticsSettings';
+import { DEFAULT_LOGISTICS_DELIVERY_RULES } from '../constants/logisticsDeliveryRules';
+import { normalizeLogisticsDeliveryRules } from './logisticsDeliveryRules';
+import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
 import type { FirestoreUserDoc, UserRecord } from '../types';
 import { normalizeRole } from '../types';
 import {
@@ -32,6 +35,8 @@ export interface LogisticsSettings {
   defaultStaffLogisticsSite: StaffLogisticsSite;
   /** Free-text ship-from address per logistics site. */
   fromAddresses: Record<StaffLogisticsSite, string>;
+  /** Destination region × ship-from site → ordered delivery partners. */
+  deliveryRules: LogisticsDeliveryRulesMatrix;
   updatedAt: string;
   updatedBy?: string | null;
 }
@@ -43,6 +48,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       return {
         defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
         fromAddresses: EMPTY_FROM_ADDRESSES(),
+        deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
         updatedAt: '',
       };
     }
@@ -53,6 +59,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         ? site
         : DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: parseFromAddresses(data as Record<string, unknown>),
+      deliveryRules: normalizeLogisticsDeliveryRules(data.deliveryRules),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
     };
@@ -60,6 +67,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
     return {
       defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: EMPTY_FROM_ADDRESSES(),
+      deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
       updatedAt: '',
     };
   }
@@ -107,6 +115,24 @@ export async function saveLogisticsFromAddresses(
     { merge: true },
   );
   return fromAddresses;
+}
+
+export async function saveLogisticsDeliveryRules(
+  deliveryRules: LogisticsDeliveryRulesMatrix,
+  updatedBy?: string | null,
+): Promise<LogisticsDeliveryRulesMatrix> {
+  const normalized = normalizeLogisticsDeliveryRules(deliveryRules);
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
+    {
+      deliveryRules: normalized,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+  return normalized;
 }
 
 export async function listHrStaffUsers(): Promise<UserRecord[]> {
