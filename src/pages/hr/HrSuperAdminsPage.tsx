@@ -22,9 +22,10 @@ export const HrSuperAdminsPage: React.FC<HrSuperAdminsPageProps> = ({ basePath }
       title="Super Admins"
       description={
         isLocalhostDev()
-          ? 'Manage super admin accounts and access (Full vs View only). Access controls are only shown on localhost.'
-          : 'Manage super admin accounts. Only visible to super admins within HR.'
+          ? 'Manage super admin accounts and access (Full vs View only). Use Add staff (person+) to create staff under a Super Admin. Access controls are only shown on localhost.'
+          : 'Manage super admin accounts. Use Add staff to create reporting staff under a Super Admin. Promoted Super Admins also appear in Staff for HR profile / Zoho edits.'
       }
+      hrStaffBasePath={basePath}
     />
   );
 };

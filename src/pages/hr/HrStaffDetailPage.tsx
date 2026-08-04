@@ -56,14 +56,18 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
       }
       const data = snap.data() as FirestoreUserDoc;
       const role = normalizeRole(String(data.role ?? ''));
-      if (role !== 'staff') {
+      if (role !== 'staff' && role !== 'super_admin') {
         setRecord(null);
         return;
       }
       const full: UserRecord = { uid: snap.id, ...data, role };
       setRecord(full);
-      const roles = await fetchStaffRoles();
-      setRoleName(findStaffRole(roles, full.staffRoleId)?.name ?? null);
+      if (role === 'super_admin') {
+        setRoleName('Super Admin');
+      } else {
+        const roles = await fetchStaffRoles();
+        setRoleName(findStaffRole(roles, full.staffRoleId)?.name ?? null);
+      }
 
       const urls: Partial<Record<HrDocumentType, string>> = {};
       await Promise.all(
@@ -169,7 +173,7 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
     ) return;
     const ok = await confirm({
       title: 'Promote to Super Admin',
-      message: `Promote ${record.displayName} to Super Admin? They will leave the staff directory and gain full super admin access. Zoho salesperson links and dealer assignments are kept. Login and HR profile stay the same.`,
+      message: `Promote ${record.displayName} to Super Admin? They gain full super admin access and stay editable in the Staff directory (photo, HR details, Zoho links). Login stays the same.`,
       confirmLabel: 'Promote',
     });
     if (!ok) return;
@@ -177,7 +181,7 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
     setError('');
     try {
       await promoteStaffToSuperAdmin(db, record.uid);
-      navigate(`${basePath}/hr/super-admins`);
+      await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not promote to Super Admin.');
     } finally {
@@ -229,7 +233,8 @@ export const HrStaffDetailPage: React.FC<HrStaffDetailPageProps> = ({ basePath }
               Reset password
             </button>
           )}
-          {canManageSuperAdminsInHr(user)
+          {record.role === 'staff'
+            && canManageSuperAdminsInHr(user)
             && canSuperAdminWrite(user)
             && record.uid !== user?.uid
             && record.active !== false && (

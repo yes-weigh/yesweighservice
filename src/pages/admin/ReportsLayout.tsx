@@ -19,7 +19,7 @@ export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
     },
     {
       id: 'gatc-report',
-      label: 'GATC report',
+      label: 'GATC Billwise',
       path: `${basePath}/reports/gatc-report`,
       icon: <BadgeCheck size={16} />,
     },

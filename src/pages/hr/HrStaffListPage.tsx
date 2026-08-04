@@ -21,7 +21,7 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
   const [roleNames, setRoleNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [deptFilter, setDeptFilter] = useState<StaffDepartment | 'all'>('all');
+  const [deptFilter, setDeptFilter] = useState<StaffDepartment | 'all' | 'super_admin'>('all');
 
   const fetchStaff = useCallback(async () => {
     setLoading(true);
@@ -31,11 +31,15 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
         .map(d => {
           const data = d.data() as FirestoreUserDoc;
           const role = normalizeRole(String(data.role ?? ''));
-          if (role !== 'staff') return null;
+          // Include promoted super admins so HR can still edit profile / photo / Zoho links.
+          if (role !== 'staff' && role !== 'super_admin') return null;
           return { uid: d.id, ...data, role } as UserRecord;
         })
         .filter((u): u is UserRecord => u !== null)
-        .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        .sort((a, b) => {
+          // Super admins after staff within the same name sort — still alphabetical overall.
+          return a.displayName.localeCompare(b.displayName);
+        });
       setRecords(staff);
     } finally {
       setLoading(false);
@@ -52,7 +56,13 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return records.filter(record => {
-      if (deptFilter !== 'all' && (record.staffDepartment ?? 'admin') !== deptFilter) return false;
+      if (deptFilter === 'super_admin') {
+        if (record.role !== 'super_admin') return false;
+      } else if (deptFilter !== 'all') {
+        // Department chips are staff-only.
+        if (record.role !== 'staff') return false;
+        if ((record.staffDepartment ?? 'admin') !== deptFilter) return false;
+      }
       if (!q) return true;
       const hr = readHrProfileFromDoc(record);
       const login = resolveProfileLogin(record);
@@ -61,6 +71,7 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
         || (login?.value ?? '').includes(q)
         || (hr.hrEmployeeId ?? '').toLowerCase().includes(q)
         || (record.phone ?? '').includes(q)
+        || (record.role === 'super_admin' && 'super admin'.includes(q))
       );
     });
   }, [deptFilter, records, search]);
@@ -83,16 +94,30 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
       </div>
 
       <div className="hr-staff-list__filters">
+        <button
+          type="button"
+          className={`hr-staff-list__filter ${deptFilter === 'all' ? 'is-active' : ''}`}
+          onClick={() => setDeptFilter('all')}
+        >
+          All
+        </button>
         {STAFF_DEPARTMENTS.map(dept => (
           <button
             key={dept}
             type="button"
             className={`hr-staff-list__filter ${deptFilter === dept ? 'is-active' : ''}`}
-            onClick={() => setDeptFilter(prev => (prev === dept ? 'all' : dept))}
+            onClick={() => setDeptFilter(dept)}
           >
             {STAFF_DEPARTMENT_LABELS[dept]}
           </button>
         ))}
+        <button
+          type="button"
+          className={`hr-staff-list__filter ${deptFilter === 'super_admin' ? 'is-active' : ''}`}
+          onClick={() => setDeptFilter('super_admin')}
+        >
+          Super Admin
+        </button>
       </div>
 
       {loading && records.length === 0 ? (
@@ -131,6 +156,7 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
                     <strong>{record.displayName}</strong>
                     <span className="text-muted text-sm">
                       {hr.hrDesignation
+                        || (record.role === 'super_admin' ? 'Super Admin' : null)
                         || (record.staffRoleId && roleNames[record.staffRoleId])
                         || 'Staff'}
                     </span>
@@ -145,6 +171,9 @@ export const HrStaffListPage: React.FC<HrStaffListPageProps> = ({ basePath }) =>
                   <span className={`hr-staff-list__status ${record.active === false ? 'is-inactive' : ''}`}>
                     {record.active === false ? 'Inactive' : 'Active'}
                   </span>
+                  {record.role === 'super_admin' ? (
+                    <span className="hr-staff-list__sa-badge">Super Admin</span>
+                  ) : null}
                   {(record.zohoSalespersonIds?.length || record.zohoSalespersonId) ? (
                     <span
                       className="hr-staff-list__zoho-badge"

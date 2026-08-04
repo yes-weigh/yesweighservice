@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
-import { Eye, EyeOff, Pencil, Plus, RefreshCw, Shield, Trash2, Save, UserX } from 'lucide-react';
+import { Eye, EyeOff, IdCard, Pencil, Plus, RefreshCw, Shield, Trash2, Save, UserPlus, UserX } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -64,6 +64,11 @@ type UserManagementProps = {
   showDealerPicker?: boolean;
   /** Prefer short User IDs for warehouse/media roles (UI: Stock auditor / Media). */
   preferUsernameLogin?: boolean;
+  /**
+   * HR Super Admins: base path for staff create/edit routes
+   * (e.g. `/super-admin` → `/super-admin/hr/staff/new?managerUid=`).
+   */
+  hrStaffBasePath?: string;
 };
 
 function displayLoginForRecord(record: UserRecord): { label: string; value: string } {
@@ -82,6 +87,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   scopedDealerId,
   showDealerPicker = false,
   preferUsernameLogin = false,
+  hrStaffBasePath,
 }) => {
   const { user } = useAuth();
   const confirm = useConfirm();
@@ -722,6 +728,24 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         </span>
                       </td>
                       <td className="text-right user-management__actions" onClick={e => e.stopPropagation()}>
+                        {role === 'super_admin' && hrStaffBasePath && canWriteUsers ? (
+                          <>
+                            <Link
+                              to={`${hrStaffBasePath}/hr/staff/${record.uid}/edit`}
+                              className="btn-icon"
+                              title="Edit HR profile / Zoho"
+                            >
+                              <IdCard size={16} />
+                            </Link>
+                            <Link
+                              to={`${hrStaffBasePath}/hr/staff/new?managerUid=${encodeURIComponent(record.uid)}`}
+                              className="btn-icon"
+                              title="Add staff under this Super Admin"
+                            >
+                              <UserPlus size={16} />
+                            </Link>
+                          </>
+                        ) : null}
                         {canWriteUsers ? (
                           <button
                             type="button"

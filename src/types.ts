@@ -155,6 +155,8 @@ export interface FirestoreUserDoc {
   hrEmployeeId?: string | null;
   hrDesignation?: string | null;
   hrDocuments?: import('./types/staff-hr').HrDocuments;
+  /** Staff reporting manager — typically a super_admin uid when created from HR Super Admins. */
+  managerUid?: string | null;
   createdAt: string;
   createdByUid?: string;
   updatedAt?: string;

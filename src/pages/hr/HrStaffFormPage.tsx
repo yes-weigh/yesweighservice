@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { Eye, EyeOff, Save, Upload, User } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import {
   StaffRoleEditor,
+  ZohoSalespersonPicker,
   EMPTY_STAFF_ROLE_DRAFT,
   staffRoleDraftFromRecord,
   staffRoleDraftToPayload,
@@ -25,7 +26,12 @@ import { registerUser, updateUserProfile } from '../../lib/userAdmin';
 import { loadDefaultStaffLogisticsSite } from '../../lib/logisticsSettings';
 import { parseLoginId } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
-import { assertZohoSalespersonIdsAvailable } from '../../lib/zohoSalespersonStaff';
+import {
+  assertZohoSalespersonIdsAvailable,
+  normalizeZohoSalespersonLinks,
+  zohoLinksToFirestoreFields,
+  type ZohoSalespersonLink,
+} from '../../lib/zohoSalespersonStaff';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { normalizeRole } from '../../types';
 import { HrDocumentUpload } from '../../components/hr/HrDocumentUpload';
@@ -58,13 +64,19 @@ const EMPTY_ACCOUNT = {
 export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) => {
   const { uid } = useParams<{ uid: string }>();
   const isEdit = Boolean(uid);
+  const [searchParams] = useSearchParams();
+  const managerUidParam = searchParams.get('managerUid')?.trim() || '';
   const { user } = useAuth();
   const navigate = useNavigate();
   const [staffRoles, setStaffRoles] = useState<StaffRoleTemplate[]>([]);
   const [account, setAccount] = useState(EMPTY_ACCOUNT);
   const [hr, setHr] = useState<StaffHrProfile>(emptyHrProfile());
   const [roleDraft, setRoleDraft] = useState<StaffRoleDraft>(EMPTY_STAFF_ROLE_DRAFT);
+  const [zohoLinks, setZohoLinks] = useState<ZohoSalespersonLink[]>([]);
   const [logisticsSite, setLogisticsSite] = useState<StaffLogisticsSite>('head_office');
+  const [editingRole, setEditingRole] = useState<'staff' | 'super_admin'>('staff');
+  const [managerUid, setManagerUid] = useState<string | null>(null);
+  const [managerName, setManagerName] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [docFiles, setDocFiles] = useState<Partial<Record<HrDocumentType, File>>>({});
@@ -72,6 +84,8 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const isSuperAdminRecord = editingRole === 'super_admin';
 
   const loadRecord = useCallback(async (roles: StaffRoleTemplate[]) => {
     if (!uid) return;
@@ -81,9 +95,12 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
       if (!snap.exists()) throw new Error('Staff not found');
       const data = snap.data() as FirestoreUserDoc;
       const role = normalizeRole(String(data.role ?? ''));
-      if (role !== 'staff') throw new Error('Not a staff account');
+      if (role !== 'staff' && role !== 'super_admin') {
+        throw new Error('Not a staff or super admin HR profile');
+      }
       const record = { uid: snap.id, ...data, role } as UserRecord;
       const login = resolveProfileLogin(record);
+      setEditingRole(role);
       setAccount({
         loginId: login?.value ?? '',
         password: '',
@@ -93,7 +110,9 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
       });
       setHr(readHrProfileFromDoc(record));
       setRoleDraft(staffRoleDraftFromRecord(record, roles));
+      setZohoLinks(normalizeZohoSalespersonLinks(record));
       setLogisticsSite(record.staffLogisticsSite ?? 'head_office');
+      setManagerUid(record.managerUid?.trim() || null);
       void resolveHrPhotoUrl(record.uid, record).then(url => {
         if (url) setPhotoPreview(url);
       });
@@ -109,6 +128,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
       setStaffRoles(roles);
       if (isEdit) void loadRecord(roles);
       else {
+        setEditingRole('staff');
         const defaultRole =
           roles.find(r => r.id === SYSTEM_STAFF_ROLE_IDS.sales) ?? roles[0];
         if (defaultRole) {
@@ -117,12 +137,37 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
             staffAccessMode: 'role',
           }, roles));
         }
+        if (managerUidParam) setManagerUid(managerUidParam);
         void loadDefaultStaffLogisticsSite()
           .then(site => setLogisticsSite(site))
           .catch(() => undefined);
       }
     });
-  }, [isEdit, loadRecord, user?.role]);
+  }, [isEdit, loadRecord, managerUidParam, user?.role]);
+
+  useEffect(() => {
+    const id = managerUid?.trim();
+    if (!id) {
+      setManagerName(null);
+      return;
+    }
+    let cancelled = false;
+    void getDoc(doc(db, 'users', id)).then(snap => {
+      if (cancelled) return;
+      if (!snap.exists()) {
+        setManagerName(null);
+        return;
+      }
+      const data = snap.data() as FirestoreUserDoc;
+      setManagerName(data.displayName?.trim() || id);
+    });
+    return () => { cancelled = true; };
+  }, [managerUid]);
+
+  const managerBanner = useMemo(() => {
+    if (!managerUid) return null;
+    return managerName || managerUid;
+  }, [managerName, managerUid]);
 
   const onPhotoPick = (file: File | null) => {
     setPhotoFile(file);
@@ -152,21 +197,36 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
     setError('');
 
     try {
-      if (!roleDraft.roleId) throw new Error('Select a staff role.');
-      const accessPayload = staffRoleDraftToPayload(roleDraft);
-      await assertZohoSalespersonIdsAvailable(accessPayload.zohoSalespersonIds, uid);
       let targetUid = uid;
+      const hrPatch = hrProfileToFirestorePatch(hr);
 
-      if (isEdit && targetUid) {
+      if (isEdit && targetUid && isSuperAdminRecord) {
+        const zohoFields = zohoLinksToFirestoreFields(zohoLinks);
+        await assertZohoSalespersonIdsAvailable(zohoFields.zohoSalespersonIds, targetUid);
+        await updateUserProfile(db, targetUid, {
+          displayName: account.displayName,
+          phone: account.phone || undefined,
+          email: account.email || undefined,
+          ...zohoFields,
+          ...hrPatch,
+        });
+      } else if (isEdit && targetUid) {
+        if (!roleDraft.roleId) throw new Error('Select a staff role.');
+        const accessPayload = staffRoleDraftToPayload(roleDraft);
+        await assertZohoSalespersonIdsAvailable(accessPayload.zohoSalespersonIds, targetUid);
         await updateUserProfile(db, targetUid, {
           displayName: account.displayName,
           phone: account.phone || undefined,
           email: account.email || undefined,
           ...accessPayload,
           staffLogisticsSite: logisticsSite,
-          ...hrProfileToFirestorePatch(hr),
+          managerUid: managerUid || null,
+          ...hrPatch,
         });
       } else {
+        if (!roleDraft.roleId) throw new Error('Select a staff role.');
+        const accessPayload = staffRoleDraftToPayload(roleDraft);
+        await assertZohoSalespersonIdsAvailable(accessPayload.zohoSalespersonIds, undefined);
         if (account.password.length < 6) throw new Error('Password must be at least 6 characters.');
         if (!parseLoginId(account.loginId)) {
           throw new Error('Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.');
@@ -180,8 +240,9 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
           email: account.email || undefined,
           ...accessPayload,
           staffLogisticsSite: logisticsSite,
+          managerUid: managerUid || null,
           createdByUid: user.uid,
-          hr: hrProfileToFirestorePatch(hr) as Parameters<typeof registerUser>[1]['hr'],
+          hr: hrPatch as Parameters<typeof registerUser>[1]['hr'],
         });
       }
 
@@ -234,6 +295,16 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
     <div className="hr-staff-form">
       <form onSubmit={handleSubmit} className="hr-staff-form__body">
         {error && <div className="login-error panel glass">{error}</div>}
+        {isSuperAdminRecord ? (
+          <p className="hr-staff-form__banner panel glass text-sm">
+            Editing a Super Admin HR profile. Portal access stays Super Admin; update photo, details, and Zoho salesperson links here.
+          </p>
+        ) : null}
+        {!isEdit && managerBanner ? (
+          <p className="hr-staff-form__banner panel glass text-sm">
+            Creating staff under Super Admin <strong>{managerBanner}</strong>.
+          </p>
+        ) : null}
 
         <div className="hr-staff-form__grid">
           <section className="panel glass hr-staff-form__section">
@@ -351,21 +422,23 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
                   onChange={e => setHrField('hrJoinDate', e.target.value || null)}
                 />
               </label>
-              <label className="hr-staff-form__field">
-                <span>Logistics location</span>
-                <select
-                  className="input-field"
-                  value={logisticsSite}
-                  onChange={e => setLogisticsSite(e.target.value as StaffLogisticsSite)}
-                  required
-                >
-                  {STAFF_LOGISTICS_SITES.map(site => (
-                    <option key={site} value={site}>
-                      {STAFF_LOGISTICS_SITE_LABELS[site]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {!isSuperAdminRecord ? (
+                <label className="hr-staff-form__field">
+                  <span>Logistics location</span>
+                  <select
+                    className="input-field"
+                    value={logisticsSite}
+                    onChange={e => setLogisticsSite(e.target.value as StaffLogisticsSite)}
+                    required
+                  >
+                    {STAFF_LOGISTICS_SITES.map(site => (
+                      <option key={site} value={site}>
+                        {STAFF_LOGISTICS_SITE_LABELS[site]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           </section>
 
@@ -465,17 +538,33 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
             </div>
           </section>
 
-          <section className="panel glass hr-staff-form__section hr-staff-form__section--wide">
-            <h3>Access</h3>
-            <StaffRoleEditor
-              value={roleDraft}
-              onChange={setRoleDraft}
-              roles={staffRoles}
-              excludeUid={uid ?? null}
-              zohoManageHref={`${basePath}/dealers?tab=salespersons`}
-              disabled={submitting}
-            />
-          </section>
+          {isSuperAdminRecord ? (
+            <section className="panel glass hr-staff-form__section hr-staff-form__section--wide">
+              <h3>Zoho salesperson</h3>
+              <p className="hr-staff-form__section-hint text-muted text-sm">
+                Link Zoho salespersons to this Super Admin for dealer / order assignment.
+              </p>
+              <ZohoSalespersonPicker
+                links={zohoLinks}
+                onChange={setZohoLinks}
+                excludeUid={uid ?? null}
+                loadEnabled
+                disabled={submitting}
+              />
+            </section>
+          ) : (
+            <section className="panel glass hr-staff-form__section hr-staff-form__section--wide">
+              <h3>Access</h3>
+              <StaffRoleEditor
+                value={roleDraft}
+                onChange={setRoleDraft}
+                roles={staffRoles}
+                excludeUid={uid ?? null}
+                zohoManageHref={`${basePath}/dealers?tab=salespersons`}
+                disabled={submitting}
+              />
+            </section>
+          )}
         </div>
 
         <div className="hr-staff-form__actions">

@@ -78,6 +78,7 @@ export type UpdateUserProfilePatch = Partial<
     | 'hrEmployeeId'
     | 'hrDesignation'
     | 'hrDocuments'
+    | 'managerUid'
   >
 >;
 
@@ -118,6 +119,8 @@ export type CreateUserInput = {
   zohoSalespersonId?: string | null;
   zohoSalespersonName?: string | null;
   staffLogisticsSite?: import('../types/staff-logistics').StaffLogisticsSite | null;
+  /** Optional reporting manager (usually a super_admin). */
+  managerUid?: string | null;
   dealerTier?: DealerTier;
   dealerAccessMode?: DealerAccessMode;
   dealerPermissions?: DealerPermission[];
@@ -171,6 +174,9 @@ export async function createUserProfile(
       ? input.zohoSalespersonName ?? null
       : undefined,
     staffLogisticsSite: input.role === 'staff' ? input.staffLogisticsSite ?? null : undefined,
+    managerUid: input.role === 'staff' && input.managerUid?.trim()
+      ? input.managerUid.trim()
+      : undefined,
     dealerTier: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerTier ?? 'standard' : undefined,
     dealerAccessMode: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerAccessMode ?? 'tier' : undefined,
     dealerPermissions: input.role === 'dealer' || input.role === 'dealer_staff' ? input.dealerPermissions ?? [] : undefined,
@@ -178,7 +184,7 @@ export async function createUserProfile(
     createdAt: new Date().toISOString(),
     createdByUid: input.createdByUid,
     clearTextPassword: input.password,
-    ...(input.role === 'staff' && input.hr ? {
+    ...((input.role === 'staff' || input.role === 'super_admin') && input.hr ? {
       hrPhotoUrl: input.hr.hrPhotoUrl ?? null,
       hrPhotoStoragePath: input.hr.hrPhotoStoragePath ?? null,
       hrResidentialAddress: input.hr.hrResidentialAddress ?? null,
