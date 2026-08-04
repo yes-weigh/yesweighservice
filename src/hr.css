@@ -1227,7 +1227,134 @@
 }
 
 .hr-salary__expense-detail {
-  margin-top: 0.75rem;
+  min-width: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 36rem;
+  overflow: auto;
+}
+
+.hr-salary__expense-detail .hr-salary__settlement-lines {
+  margin: 0;
+  padding: 0 1.5rem 0.75rem;
+}
+
+.hr-salary__expense-detail-divider {
+  display: flex;
+  align-items: center;
+  margin: 0 1.5rem 0.5rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--sal-border, #2a2f3f);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sal-text-2, #8b92a5);
+}
+
+.hr-salary__expense-detail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 1.5rem 1.5rem;
+}
+
+.hr-salary__expense-detail-line {
+  display: grid;
+  grid-template-columns: 1.15fr 1.85fr 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.75rem 0;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hr-salary__expense-detail-line.is-readonly {
+  cursor: default;
+}
+
+.hr-salary__expense-detail-line:hover:not(.is-readonly) {
+  background: var(--sal-card-hover);
+  margin: 0 -1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border-bottom-color: transparent;
+}
+
+.hr-salary__expense-detail-date {
+  color: var(--sal-text-2);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.hr-salary__expense-detail-desc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.hr-salary__expense-kind {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.hr-salary__expense-kind.is-expense {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+}
+
+.hr-salary__expense-kind.is-reimbursement {
+  background: rgba(45, 212, 191, 0.16);
+  color: #5eead4;
+}
+
+.hr-salary__expense-kind.is-salary_advance {
+  background: rgba(96, 165, 250, 0.16);
+  color: #93c5fd;
+}
+
+.hr-salary__expense-note {
+  color: var(--sal-text-2);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hr-salary__expense-detail-amount {
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hr-salary__expense-detail-amount.is-credit {
+  color: #fcd34d;
+}
+
+.hr-salary__expense-detail-amount.is-debit {
+  color: var(--sal-green, #34d399);
+}
+
+.hr-salary__expense-detail .hr-salary__project-empty {
+  padding: 0 1.5rem 1.5rem;
 }
 
 .hr-salary__settlement-lines {
@@ -1708,6 +1835,19 @@
 }
 
 @media (max-width: 640px) {
+  .hr-salary__expense-detail-line {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem;
+  }
+
+  .hr-salary__expense-detail-desc {
+    grid-column: 1 / -1;
+  }
+
+  .hr-salary__expense-detail-amount {
+    text-align: left;
+  }
+
   .hr-salary__ot-detail-line {
     grid-template-columns: 1fr 1fr;
     gap: 0.35rem;

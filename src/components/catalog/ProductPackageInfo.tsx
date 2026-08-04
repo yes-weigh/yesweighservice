@@ -109,6 +109,22 @@ function parseEditableSingleBoxes(rows: EditableCarton[]): CatalogPackageCarton[
   return boxes.length ? boxes : null;
 }
 
+/** Complete single-box row: weight + L/B/H all > 0. */
+function singleBoxRowComplete(row: EditableCarton): boolean {
+  const parseNum = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const num = Number(trimmed);
+    return Number.isFinite(num) && num > 0 ? num : null;
+  };
+  return [row.weightKg, row.lengthCm, row.breadthCm, row.heightCm]
+    .every(value => parseNum(value) != null);
+}
+
+function hasCompleteSingleBox(rows: EditableCarton[]): boolean {
+  return rows.some(singleBoxRowComplete);
+}
+
 function formatWeight(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
   return value.toFixed(2);
@@ -380,7 +396,7 @@ export const ProductPackageInfo: React.FC<{
   packageInfo?: CatalogPackageInfo | null;
   canEdit?: boolean;
   embedded?: boolean;
-  /** Open in edit mode (e.g. fill missing dims on order create). */
+  /** Open in edit mode (e.g. fill missing dims on order create). Ignored when embedded — always editable. */
   defaultEditing?: boolean;
   onPackageInfoChange?: (info: CatalogPackageInfo) => void;
 }> = ({
@@ -392,11 +408,19 @@ export const ProductPackageInfo: React.FC<{
   onPackageInfoChange,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const [editing, setEditing] = useState(Boolean(canEdit && defaultEditing));
+  /** Freight / SO embed: always edit in place — no pen toggle. */
+  const alwaysEditing = Boolean(canEdit && embedded);
+  const [editing, setEditing] = useState(Boolean(canEdit && (embedded || defaultEditing)));
   const [form, setForm] = useState<PackageForm>(() => packageInfoToForm(packageInfo));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [masterCartonQuantities, setMasterCartonQuantities] = useState<number[]>([]);
+
+  const isEditing = alwaysEditing || editing;
+  const canSaveToProduct = useMemo(
+    () => hasCompleteSingleBox(form.singleBox),
+    [form.singleBox],
+  );
 
   useEffect(() => {
     let active = true;
@@ -413,19 +437,29 @@ export const ProductPackageInfo: React.FC<{
   }, []);
 
   useEffect(() => {
-    if (!editing) {
+    if (alwaysEditing) {
       setForm(packageInfoToForm(packageInfo));
     }
-  }, [packageInfo, editing]);
+  }, [packageInfo, alwaysEditing]);
+
+  useEffect(() => {
+    if (alwaysEditing || editing) return;
+    setForm(packageInfoToForm(packageInfo));
+  }, [packageInfo, editing, alwaysEditing]);
+
+  useEffect(() => {
+    if (alwaysEditing) setEditing(true);
+  }, [alwaysEditing]);
 
   const handleCancel = useCallback(() => {
     setForm(packageInfoToForm(packageInfo));
     setError(null);
-    setEditing(false);
-  }, [packageInfo]);
+    if (!alwaysEditing) setEditing(false);
+  }, [packageInfo, alwaysEditing]);
 
   useEffect(() => {
-    if (!editing || saving) return;
+    // Embedded freight fill stays open — no click-outside dismiss / pen cycle.
+    if (alwaysEditing || !isEditing || saving) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -435,9 +469,13 @@ export const ProductPackageInfo: React.FC<{
 
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [editing, saving, handleCancel]);
+  }, [alwaysEditing, isEditing, saving, handleCancel]);
 
   const handleSave = async () => {
+    if (alwaysEditing && !canSaveToProduct) {
+      setError('Fill at least one complete single box (weight + L × B × H) before saving.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -446,7 +484,7 @@ export const ProductPackageInfo: React.FC<{
         singleBox: parseEditableSingleBoxes(form.singleBox),
       });
       onPackageInfoChange?.(saved);
-      setEditing(false);
+      if (!alwaysEditing) setEditing(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save package information.');
     } finally {
@@ -461,8 +499,8 @@ export const ProductPackageInfo: React.FC<{
           <h2 className="product-detail-page__stock-locations-title">Package information</h2>
         )}
         <div className={`product-package__head-actions ${embedded ? 'product-package__head-actions--embedded' : ''}`}>
-          {!editing && <span className="product-package__badge">Package</span>}
-          {canEdit && !editing && (
+          {!alwaysEditing && !isEditing && <span className="product-package__badge">Package</span>}
+          {canEdit && !alwaysEditing && !isEditing && (
             <button
               type="button"
               className="product-package__edit-btn"
@@ -472,24 +510,35 @@ export const ProductPackageInfo: React.FC<{
               <Pencil size={13} />
             </button>
           )}
-          {canEdit && editing && (
+          {canEdit && isEditing && (
             <div className="product-package__row-actions">
-              <button
-                type="button"
-                className="product-package__cancel-btn"
-                onClick={handleCancel}
-                disabled={saving}
-              >
-                Cancel
-              </button>
+              {!alwaysEditing ? (
+                <button
+                  type="button"
+                  className="product-package__cancel-btn"
+                  onClick={handleCancel}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="product-package__save-btn"
                 onClick={() => void handleSave()}
-                disabled={saving}
+                disabled={saving || (alwaysEditing && !canSaveToProduct)}
+                title={
+                  alwaysEditing && !canSaveToProduct
+                    ? 'Enter at least one complete single box (weight + L × B × H)'
+                    : undefined
+                }
               >
                 <Save size={15} aria-hidden />
-                {saving ? 'Saving…' : 'Save'}
+                {saving
+                  ? 'Saving…'
+                  : alwaysEditing
+                    ? 'Save and push to product data'
+                    : 'Save'}
               </button>
             </div>
           )}
@@ -498,11 +547,11 @@ export const ProductPackageInfo: React.FC<{
 
       {error && <p className="product-package__row-error">{error}</p>}
 
-      <div className={`product-package__card ${editing ? 'product-package__card--editing' : ''}`}>
+      <div className={`product-package__card ${isEditing ? 'product-package__card--editing' : ''}`}>
         <MasterCartonSection
           product={product}
           carton={packageInfo?.masterCarton ?? null}
-          editing={editing}
+          editing={isEditing}
           form={form.masterCarton}
           onFormChange={next => setForm(prev => ({ ...prev, masterCarton: next }))}
           quantityOptions={masterCartonQuantities.length > 0 ? masterCartonQuantities : null}
@@ -511,7 +560,7 @@ export const ProductPackageInfo: React.FC<{
         <SingleBoxSection
           product={product}
           cartons={packageInfo?.singleBox ?? null}
-          editing={editing}
+          editing={isEditing}
           formRows={form.singleBox}
           onFormChange={(index, next) => {
             setForm(prev => ({

@@ -856,6 +856,8 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
 /** Hydrate draft lines from an existing SO when opening the editor. */
 export async function draftLinesFromSalesOrderItems(
   items: Array<{
+    /** Prefer SO line item id so inline expand can match rows. */
+    id?: string | null;
     itemId?: string | null;
     productId?: string | null;
     name?: string | null;
@@ -907,8 +909,9 @@ export async function draftLinesFromSalesOrderItems(
       }
     }
 
+    const stableId = String(item.id || '').trim();
     return {
-      lineId: newCartLineId(),
+      lineId: stableId || newCartLineId(),
       productId,
       name: String(item.name || product?.name || 'Item'),
       sku: item.sku ?? product?.sku ?? null,
@@ -922,6 +925,26 @@ export async function draftLinesFromSalesOrderItems(
       unit: item.unit || product?.unit || 'pcs',
       quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
       stockStatus: item.stockStatus ?? product?.stockStatus ?? null,
+      categoryName: product?.categoryName ?? null,
+      categoryId: product?.categoryId ?? null,
     };
   });
+}
+
+export function isFreightDraftEditLine(line: Pick<DraftEditLine, 'productId' | 'sku'>): boolean {
+  return isFreightProductId(line.productId) || isFreightSku(line.sku);
+}
+
+export function draftLinesFingerprint(lines: DraftEditLine[]): string {
+  return lines
+    .map(line => [
+      line.lineId,
+      line.productId,
+      line.quantity,
+      Math.round(line.catalogRate * 100),
+      Math.round(line.rate * 100),
+      line.gatcStampingPriceId ?? '',
+      line.sku ?? '',
+    ].join(':'))
+    .join('|');
 }

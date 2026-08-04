@@ -58,6 +58,21 @@ export type StCourierCartFreightSkip = {
   reason: 'no_package' | 'incomplete_package' | 'software' | 'zero_qty';
 };
 
+/** Grouped identical parcels for staff/admin freight line detail. */
+export type FreightParcelGroup = {
+  kind: 'master_carton' | 'single_box';
+  count: number;
+  lengthCm: number;
+  breadthCm: number;
+  heightCm: number;
+  actualKgEach: number;
+  volumetricKgEach: number;
+  chargeableKgEach: number;
+  actualKgTotal: number;
+  volumetricKgTotal: number;
+  chargeableKgTotal: number;
+};
+
 /** Per-product packing + ₹ contribution inside a ship-from bucket. */
 export type FreightLineBreakdown = {
   productId: string;
@@ -73,6 +88,13 @@ export type FreightLineBreakdown = {
   chargeableKg: number;
   amountInr: number;
   indication: 'ok' | 'missing_package' | 'incomplete_package' | 'spare_default';
+  /** Staff/admin detail: LBH + weight maths. */
+  actualKg?: number;
+  volumetricKg?: number;
+  boxPerKgInr?: number;
+  fuelSurchargePercent?: number;
+  volumetricDivisor?: number;
+  parcelGroups?: FreightParcelGroup[];
 };
 
 export type SiteFreightBucket = {
@@ -454,11 +476,59 @@ export function estimateStCourierCartFreight(input: {
     // Allocate freight to lines by share of chargeable kg
     let parcelOffset = 0;
     const lineBreakdowns: FreightLineBreakdown[] = [];
+    const volumetricDivisor = originRates && originRates.volumetricDivisor > 0
+      ? originRates.volumetricDivisor
+      : 5000;
+    const fuelSurchargePercent = originRates
+      ? (Number(originRates.fuelSurchargePercent) || 0)
+      : 0;
 
     for (const row of acc.productLines) {
       let lineKg = 0;
+      let lineActualKg = 0;
+      let lineVolumetricKg = 0;
+      const groupMap = new Map<string, FreightParcelGroup>();
+
       for (let i = 0; i < row.parcels.length; i += 1) {
-        lineKg += quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0;
+        const parcel = row.parcels[i];
+        const chg = quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0;
+        lineKg += chg;
+        lineActualKg += parcel.actualKg;
+        const vol = stCourierVolumetricKg(parcel.dims, volumetricDivisor);
+        lineVolumetricKg += vol;
+        const lengthCm = Number(parcel.dims.lengthCm) || 0;
+        const breadthCm = Number(parcel.dims.widthCm) || 0;
+        const heightCm = Number(parcel.dims.heightCm) || 0;
+        const key = [
+          parcel.kind,
+          lengthCm,
+          breadthCm,
+          heightCm,
+          Math.round(parcel.actualKg * 1000),
+          Math.round(vol * 1000),
+          Math.round(chg * 1000),
+        ].join(':');
+        const existing = groupMap.get(key);
+        if (existing) {
+          existing.count += 1;
+          existing.actualKgTotal = Math.round((existing.actualKgTotal + parcel.actualKg) * 1000) / 1000;
+          existing.volumetricKgTotal = Math.round((existing.volumetricKgTotal + vol) * 1000) / 1000;
+          existing.chargeableKgTotal = Math.round((existing.chargeableKgTotal + chg) * 1000) / 1000;
+        } else {
+          groupMap.set(key, {
+            kind: parcel.kind,
+            count: 1,
+            lengthCm,
+            breadthCm,
+            heightCm,
+            actualKgEach: Math.round(parcel.actualKg * 1000) / 1000,
+            volumetricKgEach: Math.round(vol * 1000) / 1000,
+            chargeableKgEach: Math.round(chg * 1000) / 1000,
+            actualKgTotal: Math.round(parcel.actualKg * 1000) / 1000,
+            volumetricKgTotal: Math.round(vol * 1000) / 1000,
+            chargeableKgTotal: Math.round(chg * 1000) / 1000,
+          });
+        }
       }
       parcelOffset += row.parcels.length;
 
@@ -479,6 +549,12 @@ export function estimateStCourierCartFreight(input: {
         chargeableKg: Math.round(lineKg * 1000) / 1000,
         amountInr,
         indication,
+        actualKg: Math.round(lineActualKg * 1000) / 1000,
+        volumetricKg: Math.round(lineVolumetricKg * 1000) / 1000,
+        boxPerKgInr: boxPerKg,
+        fuelSurchargePercent,
+        volumetricDivisor,
+        parcelGroups: [...groupMap.values()],
       });
     }
 

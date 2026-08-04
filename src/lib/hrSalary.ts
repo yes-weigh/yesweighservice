@@ -14,6 +14,7 @@ import type {
   HrDayJoinEntry,
   HrExpenseEntry,
   HrExpenseSettlement,
+  HrExpenseSettlementLine,
   HrLeaveEntry,
   HrLeaveKind,
   HrOvertimeEntry,
@@ -326,6 +327,34 @@ export function computeExpenseSettlement(
     unreimbursedExpenses,
     netPayable,
   };
+}
+
+/** Flat, date-sorted lines for expense / payment detail lists. */
+export function buildExpenseSettlementLines(
+  expenseEntries: HrExpenseEntry[],
+  receiptEntries: HrSalaryReceiptEntry[],
+): HrExpenseSettlementLine[] {
+  const lines: HrExpenseSettlementLine[] = [
+    ...expenseEntries.map(entry => ({
+      id: entry.id,
+      date: entry.date,
+      kind: 'expense' as const,
+      note: entry.note?.trim() || null,
+      amount: entry.amount,
+      sign: '+' as const,
+    })),
+    ...receiptEntries.map(entry => ({
+      id: entry.id,
+      date: entry.date,
+      kind: entry.kind,
+      note: entry.note?.trim() || null,
+      amount: entry.amount,
+      sign: '−' as const,
+    })),
+  ];
+  return lines
+    .filter(line => line.amount > 0)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
 }
 
 export function normalizeProjects(projects: HrSalaryProject[]): HrSalaryProject[] {

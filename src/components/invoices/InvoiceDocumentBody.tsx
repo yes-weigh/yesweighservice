@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ArrowRight, ChevronRight, Package } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, Package } from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
 import { isFreightInvoiceLineItem } from '../../lib/invoices';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
@@ -20,6 +20,10 @@ interface InvoiceDocumentBodyProps {
   currencyCode?: string;
   /** Shown on freight lines when product package dims are missing. */
   freightAlert?: string | null;
+  /** Allow selecting freight lines (SO inline freight expand). */
+  selectFreight?: boolean;
+  /** Content rendered under the selected / expanded line. */
+  renderExpanded?: (item: DealerInvoiceLineItem) => React.ReactNode;
 }
 
 export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
@@ -33,6 +37,8 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   totalsAfterItems = false,
   currencyCode = 'INR',
   freightAlert = null,
+  selectFreight = false,
+  renderExpanded,
 }) => {
   const selectable = Boolean(onSelectLineItem);
   const visibleItems = hideLineItem
@@ -67,9 +73,9 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
           {visibleItems.map(item => {
             const isFreight = isFreightInvoiceLineItem(item);
             const isSelected = selectedLineItemId === item.id;
-            const canSelect = selectable && (hideLineItem ? true : !isFreight);
-
+            const canSelect = selectable && (selectFreight || !isFreight || Boolean(hideLineItem));
             const showFreightAlert = Boolean(isFreight && freightAlert);
+            const expanded = isSelected ? renderExpanded?.(item) : null;
 
             return (
               <li
@@ -80,6 +86,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                   isSelected ? 'is-selected' : '',
                   canSelect ? 'is-selectable' : '',
                   showFreightAlert ? 'has-freight-alert' : '',
+                  expanded ? 'is-expanded' : '',
                 ].filter(Boolean).join(' ')}
               >
                 {canSelect ? (
@@ -95,15 +102,18 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                       }
                     }}
                     aria-pressed={isSelected}
+                    aria-expanded={Boolean(expanded)}
                   >
                     <ItemContent
                       item={item}
                       currencyCode={currencyCode}
-                      showNext={isSelected && Boolean(onConfirmLineItem)}
+                      showNext={isSelected && Boolean(onConfirmLineItem) && !renderExpanded}
                       onNext={onConfirmLineItem}
                       alert={showFreightAlert ? freightAlert : null}
                     />
-                    {!isSelected && (
+                    {isSelected ? (
+                      <ChevronDown size={20} className="invoice-detail-item__chevron" aria-hidden />
+                    ) : (
                       <ChevronRight size={20} className="invoice-detail-item__chevron" aria-hidden />
                     )}
                   </div>
@@ -114,6 +124,11 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                     alert={showFreightAlert ? freightAlert : null}
                   />
                 )}
+                {expanded ? (
+                  <div className="invoice-detail-item__expanded" data-capture-ignore="1">
+                    {expanded}
+                  </div>
+                ) : null}
               </li>
             );
           })}

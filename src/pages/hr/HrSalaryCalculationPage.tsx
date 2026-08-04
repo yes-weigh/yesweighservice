@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, Link2, RefreshCw, Search, Trash2, UserPlus } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { DayAttendanceSheet } from '../../components/hr/DayAttendanceSheet';
+import { ExpenseSettlementCard } from '../../components/hr/ExpenseSettlementCard';
 import { DecimalTextInput } from '../../components/DecimalAmountInput';
 import { useAuth } from '../../context/AuthContext';
 import { fetchHrHolidays, holidaysInMonth } from '../../lib/hrHolidays';
@@ -1546,42 +1547,13 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                               ) : null}
                             </div>
 
-                            <div className="hr-salary__card hr-salary__expense-detail">
-                              <div className="hr-salary__ot-detail-head">
-                                <h5>Expenses &amp; payments</h5>
-                                <span>{formatInr(settlement.netPayable)} net</span>
-                              </div>
-                              <ul className="hr-salary__settlement-lines">
-                                <li>
-                                  <span>Earned salary</span>
-                                  <span>{formatInr(calc.earnedSalary)}</span>
-                                </li>
-                                {settlement.totalExpenses > 0 ? (
-                                  <li>
-                                    <span>Expenses</span>
-                                    <span>{formatInr(settlement.totalExpenses)}</span>
-                                  </li>
-                                ) : null}
-                                {settlement.totalReimbursements > 0 ? (
-                                  <li>
-                                    <span>Reimbursements received</span>
-                                    <span>− {formatInr(settlement.totalReimbursements)}</span>
-                                  </li>
-                                ) : null}
-                                {settlement.unreimbursedExpenses > 0 ? (
-                                  <li className="is-highlight">
-                                    <span>Pending reimbursement</span>
-                                    <span>+ {formatInr(settlement.unreimbursedExpenses)}</span>
-                                  </li>
-                                ) : null}
-                                {settlement.totalSalaryAdvances > 0 ? (
-                                  <li>
-                                    <span>Salary advances received</span>
-                                    <span>− {formatInr(settlement.totalSalaryAdvances)}</span>
-                                  </li>
-                                ) : null}
-                              </ul>
-                            </div>
+                            <ExpenseSettlementCard
+                              settlement={settlement}
+                              earnedSalary={calc.earnedSalary}
+                              expenseEntries={draft.expenseEntries}
+                              receiptEntries={draft.receiptEntries}
+                              onLineClick={date => selectDay(row.staffUid, date)}
+                            />
 
                             <div className="hr-salary__card hr-salary__ot-detail">
                               <div className="hr-salary__ot-detail-head">

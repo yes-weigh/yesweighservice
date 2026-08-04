@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { DecimalTextInput } from '../DecimalAmountInput';
 import { DayAttendanceSheet } from './DayAttendanceSheet';
+import { ExpenseSettlementCard } from './ExpenseSettlementCard';
 import {
   buildMonthDayCells,
   computeExpenseSettlement,
@@ -582,73 +583,12 @@ export function HrSalaryShareView({
           ) : null}
         </div>
 
-        <div className="hr-salary__card hr-salary__expense-detail">
-          <div className="hr-salary__ot-detail-head">
-            <h5>Expenses &amp; payments</h5>
-            <span>{formatInr(settlement.netPayable)} net</span>
-          </div>
-          <ul className="hr-salary__settlement-lines">
-            <li>
-              <span>Earned salary</span>
-              <span>{formatInr(calc.earnedSalary)}</span>
-            </li>
-            {settlement.totalExpenses > 0 ? (
-              <li>
-                <span>Expenses</span>
-                <span>{formatInr(settlement.totalExpenses)}</span>
-              </li>
-            ) : null}
-            {settlement.totalReimbursements > 0 ? (
-              <li>
-                <span>Reimbursements received</span>
-                <span>− {formatInr(settlement.totalReimbursements)}</span>
-              </li>
-            ) : null}
-            {settlement.unreimbursedExpenses > 0 ? (
-              <li className="is-highlight">
-                <span>Pending reimbursement</span>
-                <span>+ {formatInr(settlement.unreimbursedExpenses)}</span>
-              </li>
-            ) : null}
-            {settlement.totalSalaryAdvances > 0 ? (
-              <li>
-                <span>Salary advances received</span>
-                <span>− {formatInr(settlement.totalSalaryAdvances)}</span>
-              </li>
-            ) : null}
-          </ul>
-          {expenseEntries.length === 0 && receiptEntries.length === 0 ? (
-            <p className="hr-salary__project-empty">No expenses or payments yet</p>
-          ) : (
-            <ul className="hr-salary__ot-detail-list">
-              {[...expenseEntries.map(entry => ({
-                id: entry.id,
-                date: entry.date,
-                label: entry.note || 'Expense',
-                amount: entry.amount,
-                sign: '+' as const,
-              })), ...receiptEntries.map(entry => ({
-                id: entry.id,
-                date: entry.date,
-                label: entry.kind === 'salary_advance'
-                  ? (entry.note || 'Salary advance')
-                  : (entry.note || 'Reimbursement'),
-                amount: entry.amount,
-                sign: '−' as const,
-              }))].sort((a, b) => a.date.localeCompare(b.date)).map(line => (
-                <li key={line.id}>
-                  <div className="hr-salary__ot-detail-line is-readonly">
-                    <span className="hr-salary__ot-detail-date">{formatDayLabel(line.date)}</span>
-                    <span className="hr-salary__ot-detail-time">{line.label}</span>
-                    <span className="hr-salary__ot-detail-pay">
-                      {line.sign} {formatInr(line.amount)}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <ExpenseSettlementCard
+          settlement={settlement}
+          earnedSalary={calc.earnedSalary}
+          expenseEntries={expenseEntries}
+          receiptEntries={receiptEntries}
+        />
 
         <div className="hr-salary__card hr-salary__ot-detail">
           <div className="hr-salary__ot-detail-head">

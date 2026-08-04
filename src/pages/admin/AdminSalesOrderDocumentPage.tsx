@@ -14,16 +14,21 @@ import {
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
 import { ThemeSelect } from '../../components/ThemeSelect';
+import type { GatcStampingChoice } from '../../components/catalog/GatcStampingChoiceDialog';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
-  SalesOrderDraftLineEditor,
+  draftLinesFingerprint,
   draftLinesFromSalesOrderItems,
+  isFreightDraftEditLine,
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
+import { SoFreightExpandPanel } from '../../components/salesOrders/SoFreightExpandPanel';
+import { SoLineInlineEditor } from '../../components/salesOrders/SoLineInlineEditor';
 import { ZoomableImageDialog } from '../../components/ZoomableImageDialog';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCatalog, formatCurrency } from '../../lib/catalog';
+import { combinedCartRate, newCartLineId } from '../../lib/gatcCart';
 import type { CatalogProduct } from '../../types/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
 import {
@@ -45,6 +50,7 @@ import {
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
 import { formatInvoiceDate, isFreightInvoiceLineItem } from '../../lib/invoices';
+import type { DealerInvoiceLineItem } from '../../types/invoices';
 import {
   prepareElementScreenshot,
   shareScreenshotBlob,
@@ -77,7 +83,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   } = useOutletContext<AdminSalesOrderDetailOutletContext>();
 
   const [editLines, setEditLines] = useState<DraftEditLine[]>([]);
-  const [editing, setEditing] = useState(false);
+  const [baselineFingerprint, setBaselineFingerprint] = useState('');
+  const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
+  const [linesHydrating, setLinesHydrating] = useState(false);
   const [savingLines, setSavingLines] = useState(false);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [submittingPayment, setSubmittingPayment] = useState(false);
@@ -142,10 +150,20 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   );
 
   const missingFreightPackageLines = useMemo(() => {
-    if (!salesOrder?.lineItems?.length || !hasFreightLine) return [];
+    const hasFreight = hasFreightLine
+      || editLines.some(isFreightDraftEditLine);
+    if (!hasFreight) return [];
     if (Object.keys(catalogById).length === 0) return [];
-    const cartLines = cartLinesForFreightEstimate(
-      salesOrder.lineItems
+    const sourceLines = editLines.length > 0
+      ? editLines.filter(line => !isFreightDraftEditLine(line)).map(line => ({
+        productId: line.productId,
+        name: line.name,
+        sku: line.sku,
+        quantity: line.quantity,
+        categoryId: line.categoryId ?? catalogById[line.productId]?.categoryId ?? null,
+        categoryName: line.categoryName ?? catalogById[line.productId]?.categoryName ?? null,
+      }))
+      : (salesOrder?.lineItems ?? [])
         .filter(line => !isFreightInvoiceLineItem(line))
         .map(line => ({
           productId: line.itemId || line.id,
@@ -154,11 +172,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           quantity: line.quantity,
           categoryId: catalogById[line.itemId || line.id]?.categoryId ?? null,
           categoryName: catalogById[line.itemId || line.id]?.categoryName ?? null,
-        })),
-      catalogById,
+        }));
+    if (!sourceLines.length) return [];
+    return listProductsMissingFreightPackageInfo(
+      cartLinesForFreightEstimate(sourceLines, catalogById),
     );
-    return listProductsMissingFreightPackageInfo(cartLines);
-  }, [salesOrder?.lineItems, catalogById, hasFreightLine]);
+  }, [salesOrder?.lineItems, catalogById, hasFreightLine, editLines]);
 
   const freightPackageAlert = useMemo(() => {
     if (!missingFreightPackageLines.length) return null;
@@ -168,25 +187,81 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     const more = missingFreightPackageLines.length > names.length
       ? ` +${missingFreightPackageLines.length - names.length} more`
       : '';
-    return `Missing package info (LBH/weight): ${names.join(', ')}${more}. Edit items to fill before continuing.`;
+    return `Missing package info (LBH/weight): ${names.join(', ')}${more}. Tap the freight line to fill packaging.`;
   }, [missingFreightPackageLines]);
 
   const packageBlocksActions = isOps && Boolean(freightPackageAlert);
 
   const documentInvoice = useMemo(() => {
     if (!salesOrder) return null;
-    return {
-      ...salesOrder,
-      lineItems: salesOrder.lineItems.map(line => {
-        if (line.description?.trim()) return line;
-        const fromCatalog = catalogDescByItemId[line.itemId || '']
-          || catalogDescByItemId[line.id]
-          || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
-          || null;
-        return fromCatalog ? { ...line, description: fromCatalog } : line;
-      }),
-    };
-  }, [salesOrder, catalogDescByItemId]);
+    const withDesc = salesOrder.lineItems.map(line => {
+      if (line.description?.trim()) return line;
+      const fromCatalog = catalogDescByItemId[line.itemId || '']
+        || catalogDescByItemId[line.id]
+        || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
+        || null;
+      return fromCatalog ? { ...line, description: fromCatalog } : line;
+    });
+
+    if (!editLines.length) {
+      return { ...salesOrder, lineItems: withDesc };
+    }
+
+    const dirty = Boolean(
+      baselineFingerprint
+      && draftLinesFingerprint(editLines) !== baselineFingerprint,
+    );
+    const draftById = new Map(editLines.map(line => [line.lineId, line]));
+    const freightDraft = editLines.find(isFreightDraftEditLine) ?? null;
+    const usedDraftIds = new Set<string>();
+
+    const mapped: DealerInvoiceLineItem[] = [];
+    for (const line of withDesc) {
+      const draft = draftById.get(line.id)
+        || (
+          isFreightInvoiceLineItem(line) && freightDraft
+            ? freightDraft
+            : null
+        );
+      if (!draft) {
+        if (dirty && !isFreightInvoiceLineItem(line)) continue;
+        if (dirty && isFreightInvoiceLineItem(line) && !freightDraft) continue;
+        mapped.push(line);
+        continue;
+      }
+      usedDraftIds.add(draft.lineId);
+      mapped.push({
+        ...line,
+        id: draft.lineId === 'freight-line' ? line.id : draft.lineId,
+        itemId: draft.productId,
+        name: draft.name,
+        sku: draft.sku,
+        description: draft.description ?? line.description,
+        imageUrl: draft.imageUrl ?? line.imageUrl,
+        rate: draft.rate,
+        quantity: draft.quantity,
+        total: Math.round(draft.rate * draft.quantity * 100) / 100,
+      });
+    }
+
+    for (const draft of editLines) {
+      if (usedDraftIds.has(draft.lineId)) continue;
+      if (isFreightDraftEditLine(draft)) continue;
+      mapped.push({
+        id: draft.lineId,
+        itemId: draft.productId,
+        name: draft.name,
+        sku: draft.sku,
+        description: draft.description,
+        imageUrl: draft.imageUrl,
+        rate: draft.rate,
+        quantity: draft.quantity,
+        total: Math.round(draft.rate * draft.quantity * 100) / 100,
+      });
+    }
+
+    return { ...salesOrder, lineItems: mapped };
+  }, [salesOrder, catalogDescByItemId, editLines, baselineFingerprint]);
 
   const portalRemarks = useMemo(
     () => (salesOrder ? portalSalesOrderRemarks(salesOrder) : null),
@@ -236,38 +311,92 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     return { state, city, zip };
   }, [salesOrder, shipAddresses]);
 
-  const startEdit = () => {
-    if (!salesOrder) return;
+  const hydrateEditLines = useCallback(async (): Promise<DraftEditLine[] | null> => {
+    if (!salesOrder) return null;
     if (salesOrder.customerId && shipAddresses.length === 0 && !shipLoading) {
       loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
     }
-    void draftLinesFromSalesOrderItems(
-      salesOrder.lineItems.map(line => {
-        const productId = line.itemId || line.id;
-        const description = line.description?.trim()
-          || catalogDescByItemId[productId]
-          || catalogDescByItemId[line.id]
-          || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
-          || null;
-        return {
-          productId,
-          itemId: line.itemId,
-          name: line.name,
-          sku: line.sku ?? null,
-          description,
-          imageUrl: line.imageUrl ?? null,
-          rate: Number(line.rate) || 0,
-          quantity: Math.max(1, Math.floor(line.quantity || 1)),
-          unit: 'pcs',
-          stockStatus: null,
-        };
-      }),
-    ).then(next => {
+    setLinesHydrating(true);
+    try {
+      const next = await draftLinesFromSalesOrderItems(
+        salesOrder.lineItems.map(line => {
+          const productId = line.itemId || line.id;
+          const description = line.description?.trim()
+            || catalogDescByItemId[productId]
+            || catalogDescByItemId[line.id]
+            || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
+            || null;
+          return {
+            id: line.id,
+            productId,
+            itemId: line.itemId,
+            name: line.name,
+            sku: line.sku ?? null,
+            description,
+            imageUrl: line.imageUrl ?? null,
+            rate: Number(line.rate) || 0,
+            quantity: Math.max(1, Math.floor(line.quantity || 1)),
+            unit: 'pcs',
+            stockStatus: null,
+          };
+        }),
+      );
       setEditLines(next);
-      setEditing(true);
-    }).catch(err => {
-      window.alert(err instanceof Error ? err.message : 'Could not open line editor.');
-    });
+      setBaselineFingerprint(draftLinesFingerprint(next));
+      return next;
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not load line items for editing.');
+      return null;
+    } finally {
+      setLinesHydrating(false);
+    }
+  }, [
+    salesOrder,
+    shipAddresses.length,
+    shipLoading,
+    loadShipAddresses,
+    catalogDescByItemId,
+  ]);
+
+  useEffect(() => {
+    if (!canEditLines || !salesOrder?.lineItems?.length) {
+      setEditLines([]);
+      setBaselineFingerprint('');
+      setExpandedLineId(null);
+      return;
+    }
+    void hydrateEditLines();
+    // Re-hydrate when SO identity / lines change from server.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    canEditLines,
+    salesOrder?.id,
+    salesOrder?.total,
+    salesOrder?.subtotal,
+    salesOrder?.lineItems?.length,
+  ]);
+
+  useEffect(() => {
+    if (!canEditLines || !salesOrder?.customerId) return;
+    if (shipAddresses.length > 0 || shipLoading) return;
+    loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
+  }, [
+    canEditLines,
+    salesOrder?.customerId,
+    salesOrder?.shippingAddressId,
+    shipAddresses.length,
+    shipLoading,
+    loadShipAddresses,
+  ]);
+
+  const linesDirty = Boolean(
+    baselineFingerprint
+    && editLines.length > 0
+    && draftLinesFingerprint(editLines) !== baselineFingerprint,
+  );
+
+  const cancelLineEdits = () => {
+    void hydrateEditLines().then(() => setExpandedLineId(null));
   };
 
   const saveLines = async () => {
@@ -288,12 +417,69 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     try {
       const next = await updateDraftSalesOrderLines(salesOrderId, lines);
       setSalesOrder(next);
-      setEditing(false);
+      setExpandedLineId(null);
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
     } finally {
       setSavingLines(false);
     }
+  };
+
+  const handleSelectLineItem = (item: DealerInvoiceLineItem) => {
+    if (!canEditLines) return;
+    if (expandedLineId === item.id) {
+      setExpandedLineId(null);
+      return;
+    }
+    const ensure = editLines.length > 0 ? Promise.resolve(editLines) : hydrateEditLines();
+    void ensure.then(rows => {
+      if (!rows) return;
+      setExpandedLineId(item.id);
+      if (isFreightInvoiceLineItem(item)) {
+        window.setTimeout(() => {
+          document.getElementById('so-draft-freight')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          });
+        }, 50);
+      }
+    });
+  };
+
+  const updateDraftLine = (next: DraftEditLine) => {
+    setEditLines(prev => prev.map(line => (line.lineId === next.lineId ? next : line)));
+  };
+
+  const removeDraftLine = (lineId: string) => {
+    setEditLines(prev => prev.filter(line => line.lineId !== lineId));
+    setExpandedLineId(null);
+  };
+
+  const addStampingSibling = (source: DraftEditLine, choice: GatcStampingChoice) => {
+    const gatcStampingPriceId = choice.withStamping
+      ? (choice.gatcStampingPriceId?.trim() || null)
+      : null;
+    const gatcFeePerUnit = gatcStampingPriceId
+      ? Math.round(Number(choice.gatcFeePerUnit ?? 0) * 100) / 100
+      : 0;
+    const sibling: DraftEditLine = {
+      ...source,
+      lineId: newCartLineId(),
+      gatcStampingPriceId,
+      gatcFeePerUnit,
+      gatcStampingRange: gatcStampingPriceId
+        ? (choice.gatcStampingRange?.trim() || null)
+        : null,
+      rate: combinedCartRate(source.catalogRate, gatcFeePerUnit),
+      quantity: 1,
+    };
+    setEditLines(prev => {
+      const idx = prev.findIndex(line => line.lineId === source.lineId);
+      if (idx < 0) return [...prev, sibling];
+      const copy = [...prev];
+      copy.splice(idx + 1, 0, sibling);
+      return copy;
+    });
   };
 
   const saveShipping = async () => {
@@ -361,9 +547,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       salesOrder.shippingAddress || '',
       salesOrder.customerName || '',
       salesOrder.paymentScreenshotUrl || '',
-      editing ? 'editing' : 'view',
+      expandedLineId ? 'expanded' : 'view',
+      linesDirty ? 'dirty' : 'clean',
     ].join('|');
-  }, [salesOrder, salesOrderId, editing]);
+  }, [salesOrder, salesOrderId, expandedLineId, linesDirty]);
 
   // Pre-capture in the background so WhatsApp can open immediately on tap.
   useEffect(() => {
@@ -641,69 +828,68 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         </section>
       ) : null}
 
-      {/* Products + totals as one surface */}
+      {/* Products + totals — tap a line to edit; tap freight for splitup */}
       <section className="so-detail__doc">
-        {canEditLines && editing ? (
-          <>
-            <SalesOrderDraftLineEditor
-              lines={editLines}
-              onChange={setEditLines}
-              saving={savingLines}
-              onSave={() => { void saveLines(); }}
-              onCancel={() => setEditing(false)}
-              embedded
-              allowRateEdit
-              canEditPackage
-              shippingDestination={freightDestination}
-              allowFreight={
-                salesOrder.salesOrderCategory === 'product'
+        {canEditLines ? (
+          <p className="so-detail__doc-hint text-muted text-sm" data-capture-ignore="1">
+            {linesHydrating
+              ? 'Loading items…'
+              : 'Tap a product to edit it. Tap freight to see the full splitup and fix packaging.'}
+          </p>
+        ) : null}
+        <InvoiceDocumentBody
+          invoice={documentInvoice ?? salesOrder}
+          itemClassName="admin-invoice-detail-item"
+          totalsAfterItems
+          freightAlert={freightPackageAlert}
+          selectFreight={canEditLines}
+          selectedLineItemId={canEditLines ? expandedLineId : null}
+          onSelectLineItem={canEditLines ? handleSelectLineItem : undefined}
+          renderExpanded={canEditLines ? (item) => {
+            if (isFreightInvoiceLineItem(item)) {
+              const allowFreight = salesOrder.salesOrderCategory === 'product'
                 || salesOrder.salesOrderCategory === 'spare'
                 || (
                   !salesOrder.salesOrderCategory
                   && !(salesOrder.categories ?? []).includes('software_key')
-                )
+                );
+              if (!allowFreight) {
+                return <p className="text-muted text-sm">Freight is not used on this order type.</p>;
               }
-              onPackageInfoSaved={(productId, info) => {
-                setCatalogById(prev => {
-                  const existing = prev[productId];
-                  if (!existing) return prev;
-                  return { ...prev, [productId]: { ...existing, packageInfo: info } };
-                });
-              }}
-            />
-            <div className="so-detail__totals">
-              <div className="so-detail__totals-row">
-                <span>Sub Total</span>
-                <span>{formatCurrency(salesOrder.subtotal, salesOrder.currencyCode)}</span>
-              </div>
-              <div className="so-detail__totals-row">
-                <span>GST</span>
-                <span>{formatCurrency(salesOrder.taxTotal, salesOrder.currencyCode)}</span>
-              </div>
-              <div className="so-detail__totals-row so-detail__totals-row--grand">
-                <span>Grand Total</span>
-                <strong>{formatCurrency(salesOrder.total, salesOrder.currencyCode)}</strong>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            {canEditLines && (
-              <div className="so-detail__doc-toolbar" data-capture-ignore="1">
-                <button type="button" className="so-detail__edit-btn" onClick={startEdit}>
-                  <Pencil size={14} aria-hidden />
-                  Edit items
-                </button>
-              </div>
-            )}
-            <InvoiceDocumentBody
-              invoice={documentInvoice ?? salesOrder}
-              itemClassName="admin-invoice-detail-item"
-              totalsAfterItems
-              freightAlert={freightPackageAlert}
-            />
-          </>
-        )}
+              return (
+                <SoFreightExpandPanel
+                  lines={editLines}
+                  onChangeLines={setEditLines}
+                  catalogById={catalogById}
+                  shippingDestination={freightDestination}
+                  canEditPackage
+                  disabled={savingLines}
+                  onPackageInfoSaved={(productId, info) => {
+                    setCatalogById(prev => {
+                      const existing = prev[productId];
+                      if (!existing) return prev;
+                      return { ...prev, [productId]: { ...existing, packageInfo: info } };
+                    });
+                  }}
+                />
+              );
+            }
+            const draft = editLines.find(line => line.lineId === item.id);
+            if (!draft || isFreightDraftEditLine(draft)) return null;
+            return (
+              <SoLineInlineEditor
+                line={draft}
+                catalogProduct={catalogById[draft.productId]}
+                siblingLines={editLines.filter(line => !isFreightDraftEditLine(line))}
+                allowRateEdit
+                disabled={savingLines}
+                onChange={updateDraftLine}
+                onRemove={() => removeDraftLine(draft.lineId)}
+                onAddSibling={choice => addStampingSibling(draft, choice)}
+              />
+            );
+          } : undefined}
+        />
       </section>
 
       {showPriceChanges ? (
@@ -790,7 +976,37 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
       </div>
 
-      <footer className="so-detail__actions" data-capture-ignore="1">
+      <footer className={`so-detail__actions${linesDirty ? ' so-detail__actions--edit-dock' : ''}`} data-capture-ignore="1">
+        {linesDirty ? (
+          <>
+            <div className="so-detail__edit-dock-meta">
+              <strong>Unsaved line changes</strong>
+              <span className="text-muted text-sm">
+                Est. {formatCurrency(
+                  editLines.reduce((sum, line) => sum + line.rate * line.quantity, 0),
+                  salesOrder.currencyCode,
+                )} before tax
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={savingLines}
+              onClick={cancelLineEdits}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={savingLines || editLines.filter(l => !isFreightDraftEditLine(l)).length === 0}
+              onClick={() => { void saveLines(); }}
+            >
+              {savingLines ? 'Saving…' : 'Save to Zoho'}
+            </button>
+          </>
+        ) : (
+          <>
         {packageBlocksActions ? (
           <p className="so-detail__actions-block-note" role="status">
             Fill missing package information before using action buttons.
@@ -955,6 +1171,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               {workflowActions.actionBusy === 'delete' ? 'Deleting…' : 'Delete draft'}
             </button>
           )}
+          </>
+        )}
           </>
         )}
       </footer>

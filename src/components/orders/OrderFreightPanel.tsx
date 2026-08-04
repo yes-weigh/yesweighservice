@@ -7,6 +7,7 @@ import {
 } from '../../constants/logisticsPartners';
 import type {
   FreightLineBreakdown,
+  FreightParcelGroup,
   OrderCourierOption,
   StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
@@ -23,6 +24,8 @@ type Props = {
   showFreightChargePlan?: boolean;
   /** Dealer: hide Cochin/Head Office split; one clubbed estimate. */
   clubSites?: boolean;
+  /** Staff/admin: LBH + kg + ₹/kg maths under each freight line. */
+  showLineDetails?: boolean;
   catalogById?: Record<string, CatalogProduct | undefined>;
   onCourierChange: (site: InventorySite, partnerId: LogisticsPartnerId) => void;
   onPackageInfoChange?: (productId: string, info: NonNullable<CatalogProduct['packageInfo']>) => void;
@@ -45,6 +48,56 @@ function packingSummary(b: FreightLineBreakdown): string {
     parts.push('spare minimum');
   }
   return parts.join(' · ') || '—';
+}
+
+function formatKg(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/\.?0+$/, '');
+}
+
+function parcelKindLabel(kind: FreightParcelGroup['kind'], count: number): string {
+  if (kind === 'master_carton') {
+    return count === 1 ? '1 master carton' : `${count} master cartons`;
+  }
+  return count === 1 ? '1 single box' : `${count} single boxes`;
+}
+
+function parcelGroupDetail(group: FreightParcelGroup): string {
+  const lbh = `${group.lengthCm}×${group.breadthCm}×${group.heightCm} cm`;
+  const each = group.count > 1
+    ? ` · each ${formatKg(group.actualKgEach)} kg act / ${formatKg(group.volumetricKgEach)} kg vol → ${formatKg(group.chargeableKgEach)} kg chg`
+    : '';
+  const totals = group.count > 1
+    ? ` · total chg ${formatKg(group.chargeableKgTotal)} kg`
+    : ` · ${formatKg(group.actualKgEach)} kg act / ${formatKg(group.volumetricKgEach)} kg vol → ${formatKg(group.chargeableKgEach)} kg chg`;
+  return `${parcelKindLabel(group.kind, group.count)} · ${lbh}${each}${totals}`;
+}
+
+function lineCalcSummary(line: FreightLineBreakdown): string | null {
+  if (line.indication === 'spare_default') {
+    return line.amountInr > 0
+      ? `Spare minimum charge ${formatCurrency(line.amountInr)}`
+      : null;
+  }
+  if (!(line.chargeableKg > 0) || !(line.boxPerKgInr != null && line.boxPerKgInr > 0)) {
+    return null;
+  }
+  const base = line.boxPerKgInr * line.chargeableKg;
+  const fuelPct = line.fuelSurchargePercent ?? 0;
+  const fuel = base * (fuelPct / 100);
+  const parts = [
+    `₹${formatKg(line.boxPerKgInr)}/kg × ${formatKg(line.chargeableKg)} kg = ${formatCurrency(Math.round(base * 100) / 100)}`,
+  ];
+  if (fuelPct > 0) {
+    parts.push(`fuel ${fuelPct}% = ${formatCurrency(Math.round(fuel * 100) / 100)}`);
+  }
+  if (line.actualKg != null && line.volumetricKg != null) {
+    parts.unshift(
+      `act ${formatKg(line.actualKg)} kg · vol ${formatKg(line.volumetricKg)} kg`
+      + (line.volumetricDivisor ? ` (÷${line.volumetricDivisor})` : ''),
+    );
+  }
+  return parts.join(' · ');
 }
 
 function CourierOptionCard({
@@ -99,19 +152,23 @@ function CourierOptionCard({
 function FreightLineRow({
   line,
   canEditPackage,
+  showLineDetails,
   catalog,
   onPackageInfoChange,
 }: {
   line: FreightLineBreakdown;
   canEditPackage: boolean;
+  showLineDetails: boolean;
   catalog?: CatalogProduct;
   onPackageInfoChange?: (productId: string, info: NonNullable<CatalogProduct['packageInfo']>) => void;
 }) {
   const needsPackage = line.indication === 'missing_package'
     || line.indication === 'incomplete_package';
+  const calc = showLineDetails ? lineCalcSummary(line) : null;
+  const parcelGroups = showLineDetails ? (line.parcelGroups ?? []) : [];
   return (
     <li
-      className={`order-freight-panel__line${needsPackage ? ' is-warn' : ''}${line.indication === 'spare_default' ? ' is-spare' : ''}`}
+      className={`order-freight-panel__line${needsPackage ? ' is-warn' : ''}${line.indication === 'spare_default' ? ' is-spare' : ''}${showLineDetails ? ' has-details' : ''}`}
     >
       <div className="order-freight-panel__line-main">
         <Package size={14} aria-hidden />
@@ -129,13 +186,25 @@ function FreightLineRow({
             <strong>{line.name || line.sku || 'Item'}</strong>
           )}
           <p className="text-muted text-sm">{packingSummary(line)}</p>
+          {parcelGroups.length > 0 ? (
+            <ul className="order-freight-panel__parcel-details">
+              {parcelGroups.map((group, index) => (
+                <li key={`${group.kind}:${index}:${group.lengthCm}x${group.breadthCm}x${group.heightCm}`}>
+                  {parcelGroupDetail(group)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {calc ? (
+            <p className="order-freight-panel__calc text-muted text-sm">{calc}</p>
+          ) : null}
           {needsPackage && (
             <p className="order-freight-panel__hint">
               <AlertTriangle size={12} aria-hidden />
               No LBH/weight — freight ₹0 for these units
             </p>
           )}
-          {line.indication === 'spare_default' && line.amountInr > 0 && (
+          {line.indication === 'spare_default' && line.amountInr > 0 && !showLineDetails && (
             <p className="order-freight-panel__hint">
               Spare default freight applied
             </p>
@@ -166,6 +235,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
   canEditPackage = false,
   showFreightChargePlan = true,
   clubSites = false,
+  showLineDetails,
   catalogById = {},
   onCourierChange,
   onPackageInfoChange,
@@ -173,6 +243,8 @@ export const OrderFreightPanel: React.FC<Props> = ({
   if (!estimate.usable) return null;
 
   const planLabel = ST_COURIER_ZONE_LABELS[estimate.zone] || estimate.inferredZoneLabel;
+  /** Staff/admin default: detailed LBH maths. Dealers (clubbed) stay compact. */
+  const lineDetails = showLineDetails ?? !clubSites;
 
   const clubbedLines = useMemo((): ClubbedLine[] => {
     if (!clubSites) return [];
@@ -270,6 +342,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
                 }
                 line={line}
                 canEditPackage={canEditPackage}
+                showLineDetails={lineDetails}
                 catalog={catalogById[line.productId]}
                 onPackageInfoChange={onPackageInfoChange}
               />
@@ -311,6 +384,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
                   key={`${site.site}:${line.productId}:${line.indication}`}
                   line={line}
                   canEditPackage={canEditPackage}
+                  showLineDetails={lineDetails}
                   catalog={catalogById[line.productId]}
                   onPackageInfoChange={onPackageInfoChange}
                 />

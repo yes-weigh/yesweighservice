@@ -226,6 +226,18 @@ export type HrExpenseSettlement = {
   netPayable: number;
 };
 
+export type HrExpenseSettlementLineKind = 'expense' | 'reimbursement' | 'salary_advance';
+
+export type HrExpenseSettlementLine = {
+  id: string;
+  date: string;
+  kind: HrExpenseSettlementLineKind;
+  note: string | null;
+  amount: number;
+  /** + adds to net payable; − reduces net payable */
+  sign: '+' | '−';
+};
+
 /** Assumed working hours in a payable day (for hourly OT rate). */
 export const HR_SALARY_HOURS_PER_DAY = 8;
 
