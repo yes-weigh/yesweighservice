@@ -438,6 +438,12 @@ export const InvoicesPage: React.FC = () => {
   const [allInvoices, setAllInvoices] = useState<DealerInvoice[]>([]);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
+  const [portalStampingInvoiceIds, setPortalStampingInvoiceIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [portalStampingFeeById, setPortalStampingFeeById] = useState<Map<string, number>>(
+    () => new Map(),
+  );
 
   const openInvoice = (id: string) => navigate(`${basePath}/invoices/${id}/invoice`);
 
@@ -477,6 +483,21 @@ export const InvoicesPage: React.FC = () => {
       if (res.categoryCounts) {
         setCategoryCounts(prev => ({ ...prev, ...res.categoryCounts }));
       }
+      if (Array.isArray(res.portalStampingInvoiceIds)) {
+        setPortalStampingInvoiceIds(new Set(res.portalStampingInvoiceIds.map(String)));
+      }
+      if (category === 'gatc') {
+        const feeMap = new Map<string, number>();
+        for (const inv of res.data) {
+          const fee = Number(inv.categoryAmounts?.gatc);
+          if (Number.isFinite(fee)) feeMap.set(String(inv.id), fee);
+        }
+        setPortalStampingFeeById(prev => {
+          const next = new Map(prev);
+          for (const [id, fee] of feeMap) next.set(id, fee);
+          return next;
+        });
+      }
       setError('');
     } catch (err) {
       if (!usedCache) {
@@ -489,7 +510,7 @@ export const InvoicesPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [queryParams, user?.uid]);
+  }, [queryParams, user?.uid, category]);
 
   useEffect(() => {
     void loadInvoices();
@@ -582,14 +603,24 @@ export const InvoicesPage: React.FC = () => {
     if (scopedInvoices.length) {
       const matchingInvoices = category === 'all'
         ? scopedInvoices
-        : scopedInvoices.filter(invoice =>
-          (invoice.categories ?? []).includes(category) || invoice.invoiceCategory === category,
-        );
+        : category === 'gatc'
+          ? scopedInvoices.filter(invoice => portalStampingInvoiceIds.has(String(invoice.id)))
+          : scopedInvoices.filter(invoice =>
+            (invoice.categories ?? []).includes(category) || invoice.invoiceCategory === category,
+          );
       return {
         totalSales: matchingInvoices.reduce((sum, invoice) => sum + invoiceAmountExclGst(invoice), 0),
         categorySales: category === 'all'
           ? matchingInvoices.reduce((sum, invoice) => sum + invoiceAmountExclGst(invoice), 0)
-          : matchingInvoices.reduce((sum, invoice) => sum + invoiceCategoryAmount(invoice, category), 0),
+          : category === 'gatc'
+            ? matchingInvoices.reduce(
+              (sum, invoice) => sum + (
+                portalStampingFeeById.get(String(invoice.id))
+                ?? invoiceCategoryAmount(invoice, 'gatc')
+              ),
+              0,
+            )
+            : matchingInvoices.reduce((sum, invoice) => sum + invoiceCategoryAmount(invoice, category), 0),
         periodStart: bounds?.start.toISOString() ?? null,
         periodEnd: bounds?.end.toISOString() ?? new Date().toISOString(),
         invoiceCount: matchingInvoices.length,
@@ -624,7 +655,14 @@ export const InvoicesPage: React.FC = () => {
       periodEnd: dashboard.periodEnd,
       invoiceCount: dashboard.totalInvoiceCount,
     };
-  }, [allInvoices, dashboard, rangePreset, category]);
+  }, [
+    allInvoices,
+    dashboard,
+    rangePreset,
+    category,
+    portalStampingInvoiceIds,
+    portalStampingFeeById,
+  ]);
 
   const kpiDateRange = formatKpiPeriodRange(kpiSummary.periodStart, kpiSummary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE

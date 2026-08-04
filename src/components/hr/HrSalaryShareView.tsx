@@ -412,7 +412,8 @@ export function HrSalaryShareView({
       </div>
 
       <div className="hr-salary__main-grid">
-        <div className="hr-salary__card hr-salary__expand-cal">
+        <div className={`hr-salary__cal-row${editable ? '' : ' is-calendar-only'}`}>
+          <div className="hr-salary__card hr-salary__expand-cal">
           <div className="hr-salary__cal-head">
             <h4>{salaryPeriodLabel(period)}</h4>
           </div>
@@ -537,49 +538,61 @@ export function HrSalaryShareView({
               Unassigned day
             </span>
           </div>
+          </div>
 
-          {editable && edit && selectedDate ? (
-            <DayAttendanceSheet
-              date={selectedDate}
-              canEdit
-              canSetLeave={
-                !isSundayDate(selectedDate) && !holidayDateSet.has(selectedDate)
-              }
-              leaveKind={leaveKindForDate(leaveEntries, selectedDate)}
-              holidayName={
-                holidays.find(h => h.date === selectedDate)?.name ?? null
-              }
-              projects={projects}
-              dayProjectId={workProjectIdForDate(workDayEntries, selectedDate)}
-              workShifts={workShiftEntries
-                .filter(e => e.date === selectedDate)
-                .sort((a, b) => a.startTime.localeCompare(b.startTime))}
-              joinedAt={
-                dayJoinEntries.find(e => e.date === selectedDate)?.joinedAt ?? null
-              }
-              clockedOutAt={
-                dayJoinEntries.find(e => e.date === selectedDate)?.clockedOutAt ?? null
-              }
-              entries={overtimeEntries.filter(e => e.date === selectedDate)}
-              onClose={() => edit.onSelectDate(null)}
-              onSetLeave={kind => edit.onSetLeave(selectedDate, kind)}
-              onSetDayProject={projectId => edit.onSetDayProject(selectedDate, projectId)}
-              onSetDayClock={patch => edit.onSetDayClock(selectedDate, patch)}
-              onAddWorkShift={() => edit.onAddWorkShift(selectedDate)}
-              onPatchWorkShift={edit.onPatchWorkShift}
-              onRemoveWorkShift={edit.onRemoveWorkShift}
-              onAddOt={() => edit.onAddOt(selectedDate)}
-              onPatchOt={edit.onPatchOt}
-              onRemoveOt={edit.onRemoveOt}
-              expenses={expenseEntries.filter(e => e.date === selectedDate)}
-              receipts={receiptEntries.filter(e => e.date === selectedDate)}
-              onAddExpense={() => edit.onAddExpense(selectedDate)}
-              onPatchExpense={edit.onPatchExpense}
-              onRemoveExpense={edit.onRemoveExpense}
-              onAddReceipt={kind => edit.onAddReceipt(selectedDate, kind)}
-              onPatchReceipt={edit.onPatchReceipt}
-              onRemoveReceipt={edit.onRemoveReceipt}
-            />
+          {editable ? (
+            <div className="hr-salary__day-panel">
+              {edit && selectedDate ? (
+                <DayAttendanceSheet
+                  date={selectedDate}
+                  canEdit
+                  canSetLeave={
+                    !isSundayDate(selectedDate) && !holidayDateSet.has(selectedDate)
+                  }
+                  leaveKind={leaveKindForDate(leaveEntries, selectedDate)}
+                  holidayName={
+                    holidays.find(h => h.date === selectedDate)?.name ?? null
+                  }
+                  projects={projects}
+                  dayProjectId={workProjectIdForDate(workDayEntries, selectedDate)}
+                  workShifts={workShiftEntries
+                    .filter(e => e.date === selectedDate)
+                    .sort((a, b) => a.startTime.localeCompare(b.startTime))}
+                  joinedAt={
+                    dayJoinEntries.find(e => e.date === selectedDate)?.joinedAt ?? null
+                  }
+                  clockedOutAt={
+                    dayJoinEntries.find(e => e.date === selectedDate)?.clockedOutAt ?? null
+                  }
+                  entries={overtimeEntries.filter(e => e.date === selectedDate)}
+                  onClose={() => edit.onSelectDate(null)}
+                  onSetLeave={kind => edit.onSetLeave(selectedDate, kind)}
+                  onSetDayProject={projectId => edit.onSetDayProject(selectedDate, projectId)}
+                  onSetDayClock={patch => edit.onSetDayClock(selectedDate, patch)}
+                  onAddWorkShift={() => edit.onAddWorkShift(selectedDate)}
+                  onPatchWorkShift={edit.onPatchWorkShift}
+                  onRemoveWorkShift={edit.onRemoveWorkShift}
+                  onAddOt={() => edit.onAddOt(selectedDate)}
+                  onPatchOt={edit.onPatchOt}
+                  onRemoveOt={edit.onRemoveOt}
+                  expenses={expenseEntries.filter(e => e.date === selectedDate)}
+                  receipts={receiptEntries.filter(e => e.date === selectedDate)}
+                  onAddExpense={() => edit.onAddExpense(selectedDate)}
+                  onPatchExpense={edit.onPatchExpense}
+                  onRemoveExpense={edit.onRemoveExpense}
+                  onAddReceipt={kind => edit.onAddReceipt(selectedDate, kind)}
+                  onPatchReceipt={edit.onPatchReceipt}
+                  onRemoveReceipt={edit.onRemoveReceipt}
+                />
+              ) : (
+                <div className="hr-salary__day-panel-empty">
+                  <p>Select a day on the calendar</p>
+                  <p className="text-sm text-muted">
+                    Edit project, clock times, shifts, leave, expenses, and OT.
+                  </p>
+                </div>
+              )}
+            </div>
           ) : null}
         </div>
 

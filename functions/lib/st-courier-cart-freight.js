@@ -36,6 +36,13 @@ function nonNeg(value) {
   return value;
 }
 
+/** Round courier ₹ up to the next whole rupee (59.2 → 60). */
+function ceilCourierChargeInr(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.ceil(n);
+}
+
 function normalizePlace(value) {
   return String(value ?? '')
     .trim()
@@ -221,7 +228,7 @@ function quoteParcels(zone, rates, parcels) {
   const fuelSurchargeInr = freightInr * (nonNeg(rates.fuelSurchargePercent) / 100);
   return {
     chargeableKg,
-    totalInr: Math.round((freightInr + fuelSurchargeInr) * 100) / 100,
+    totalInr: ceilCourierChargeInr(freightInr + fuelSurchargeInr),
   };
 }
 
@@ -232,7 +239,7 @@ function freightOption(sku) {
 
 function makeFreightLine({ sku, rate, site, hostSegment }) {
   const opt = freightOption(sku);
-  const amount = Math.round(nonNeg(rate) * 100) / 100;
+  const amount = ceilCourierChargeInr(rate);
   return {
     productId: opt.productId,
     itemId: opt.productId,
@@ -377,7 +384,7 @@ export function buildDealerAutoFreightLines({
     if (spareSites.has(site)) {
       freightLines.push(makeFreightLine({
         sku,
-        rate: spareMin,
+        rate: ceilCourierChargeInr(spareMin),
         site,
         hostSegment: 'spare',
       }));

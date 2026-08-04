@@ -174,7 +174,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
 
     const sku = freightSkuForPartner(site.partnerId);
     if (!sku) return;
-    const rate = Math.round(freightEstimate.totalInr * 100) / 100;
+    const rate = Math.ceil(Number(freightEstimate.totalInr) || 0) || 0;
     const key = `all:${site.partnerId}:${rate}`;
     if (lastAutoKeyRef.current === key) return;
     lastAutoKeyRef.current = key;

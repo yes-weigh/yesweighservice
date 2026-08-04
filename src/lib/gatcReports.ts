@@ -4,6 +4,8 @@ import {
   limit,
   orderBy,
   query,
+  where,
+  type QueryConstraint,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
@@ -152,6 +154,85 @@ export async function listGatcReports(pageSize = 100): Promise<GatcReportDoc[]> 
     );
     return snap.docs.map(docSnap => mapReport(docSnap.id, docSnap.data() as Record<string, unknown>));
   }
+}
+
+/**
+ * Portal-stamped invoices in a date window (same membership as GATC Billwise).
+ * Only reports with hasStamping are returned.
+ */
+export async function listGatcReportsInDateRange(options?: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  /** Soft cap — month windows are small; keep bounded for safety. */
+  maxRows?: number;
+}): Promise<GatcReportDoc[]> {
+  const dateStart = options?.dateStart?.trim() || null;
+  const dateEnd = options?.dateEnd?.trim() || null;
+  const maxRows = Math.max(1, Math.min(2000, options?.maxRows ?? 1000));
+
+  const mapSnap = (snap: Awaited<ReturnType<typeof getDocs>>) => (
+    snap.docs
+      .map(docSnap => mapReport(docSnap.id, docSnap.data() as Record<string, unknown>))
+      .filter(report => report.hasStamping)
+  );
+
+  const runQuery = async (dateField: 'invoiceDate' | 'createdAt') => {
+    const constraints: QueryConstraint[] = [];
+    if (dateStart) constraints.push(where(dateField, '>=', dateStart));
+    if (dateEnd) {
+      // invoiceDate is YYYY-MM-DD; createdAt is ISO — end-of-day bound for ISO.
+      const endBound = dateField === 'createdAt' && /^\d{4}-\d{2}-\d{2}$/.test(dateEnd)
+        ? `${dateEnd}T23:59:59.999Z`
+        : dateEnd;
+      constraints.push(where(dateField, '<=', endBound));
+    }
+    constraints.push(orderBy(dateField, 'desc'));
+    constraints.push(limit(maxRows));
+    return getDocs(query(collection(db, GATC_REPORTS_COLLECTION), ...constraints));
+  };
+
+  try {
+    return mapSnap(await runQuery('invoiceDate'));
+  } catch {
+    try {
+      return mapSnap(await runQuery('createdAt'));
+    } catch {
+      // Last resort: scan newest reports and filter client-side.
+      const fallback = (await listGatcReports(Math.min(500, maxRows)))
+        .filter(report => report.hasStamping);
+      return fallback.filter(report => {
+        const day = String(report.invoiceDate || '').slice(0, 10);
+        if (dateStart && day && day < dateStart) return false;
+        if (dateEnd && day && day > dateEnd) return false;
+        if ((dateStart || dateEnd) && !day) return false;
+        return true;
+      });
+    }
+  }
+}
+
+export function summarizeGatcReports(reports: readonly GatcReportDoc[]): {
+  invoiceCount: number;
+  gatcFeeTotal: number;
+  stampedQty: number;
+  invoiceIds: Set<string>;
+} {
+  const invoiceIds = new Set<string>();
+  let gatcFeeTotal = 0;
+  let stampedQty = 0;
+  for (const report of reports) {
+    const id = report.invoiceId || report.id;
+    if (!id || invoiceIds.has(id)) continue;
+    invoiceIds.add(id);
+    gatcFeeTotal += report.totals.gatcFeeTotal;
+    stampedQty += report.totals.stampedQty;
+  }
+  return {
+    invoiceCount: invoiceIds.size,
+    gatcFeeTotal,
+    stampedQty,
+    invoiceIds,
+  };
 }
 
 export async function backfillGatcReportsFromInvoices(options?: {

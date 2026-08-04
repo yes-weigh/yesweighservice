@@ -24,6 +24,7 @@ import {
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
 import { SoFreightExpandPanel } from '../../components/salesOrders/SoFreightExpandPanel';
+import { SoLineEditSheet } from '../../components/salesOrders/SoLineEditSheet';
 import { SoLineInlineEditor } from '../../components/salesOrders/SoLineInlineEditor';
 import { ZoomableImageDialog } from '../../components/ZoomableImageDialog';
 import { useAuth } from '../../context/AuthContext';
@@ -67,8 +68,23 @@ function WhatsAppIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() => (
+    typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false
+  ));
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 export const AdminSalesOrderDocumentPage: React.FC = () => {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const isDealer = user?.role === 'dealer' || user?.role === 'dealer_staff';
   const isOps = user?.role === 'staff' || user?.role === 'super_admin';
   const canManageOrders = isOps && (
@@ -426,6 +442,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     }
   };
 
+  const closeExpandedLine = useCallback(() => {
+    setExpandedLineId(null);
+  }, []);
+
+  const expandedLineItem = useMemo(() => {
+    if (!expandedLineId || !salesOrder) return null;
+    const items = (documentInvoice ?? salesOrder).lineItems ?? [];
+    return items.find(item => item.id === expandedLineId) ?? null;
+  }, [expandedLineId, salesOrder, documentInvoice]);
+
   const handleSelectLineItem = (item: DealerInvoiceLineItem) => {
     if (!canEditLines) return;
     if (expandedLineId === item.id) {
@@ -436,7 +462,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     void ensure.then(rows => {
       if (!rows) return;
       setExpandedLineId(item.id);
-      if (isFreightInvoiceLineItem(item)) {
+      if (!isMobile && isFreightInvoiceLineItem(item)) {
         window.setTimeout(() => {
           document.getElementById('so-draft-freight')?.scrollIntoView({
             behavior: 'smooth',
@@ -481,6 +507,52 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       copy.splice(idx + 1, 0, sibling);
       return copy;
     });
+  };
+
+  const renderLineEditor = (item: DealerInvoiceLineItem): React.ReactNode => {
+    if (!salesOrder) return null;
+    if (isFreightInvoiceLineItem(item)) {
+      const allowFreight = salesOrder.salesOrderCategory === 'product'
+        || salesOrder.salesOrderCategory === 'spare'
+        || (
+          !salesOrder.salesOrderCategory
+          && !(salesOrder.categories ?? []).includes('software_key')
+        );
+      if (!allowFreight) {
+        return <p className="text-muted text-sm">Freight is not used on this order type.</p>;
+      }
+      return (
+        <SoFreightExpandPanel
+          lines={editLines}
+          onChangeLines={setEditLines}
+          catalogById={catalogById}
+          shippingDestination={freightDestination}
+          canEditPackage
+          disabled={savingLines}
+          onPackageInfoSaved={(productId, info) => {
+            setCatalogById(prev => {
+              const existing = prev[productId];
+              if (!existing) return prev;
+              return { ...prev, [productId]: { ...existing, packageInfo: info } };
+            });
+          }}
+        />
+      );
+    }
+    const draft = editLines.find(line => line.lineId === item.id);
+    if (!draft || isFreightDraftEditLine(draft)) return null;
+    return (
+      <SoLineInlineEditor
+        line={draft}
+        catalogProduct={catalogById[draft.productId]}
+        siblingLines={editLines.filter(line => !isFreightDraftEditLine(line))}
+        allowRateEdit
+        disabled={savingLines}
+        onChange={updateDraftLine}
+        onRemove={() => removeDraftLine(draft.lineId)}
+        onAddSibling={choice => addStampingSibling(draft, choice)}
+      />
+    );
   };
 
   const saveShipping = async () => {
@@ -848,7 +920,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           <p className="so-detail__doc-hint text-muted text-sm" data-capture-ignore="1">
             {linesHydrating
               ? 'Loading items…'
-              : 'Tap a product to edit it. Tap freight to see the full splitup and fix packaging.'}
+              : isMobile
+                ? 'Tap a product or freight to edit in a popup.'
+                : 'Tap a product to edit it. Tap freight to see the full splitup and fix packaging.'}
           </p>
         ) : null}
         <InvoiceDocumentBody
@@ -859,50 +933,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           selectFreight={canEditLines}
           selectedLineItemId={canEditLines ? expandedLineId : null}
           onSelectLineItem={canEditLines ? handleSelectLineItem : undefined}
-          renderExpanded={canEditLines ? (item) => {
-            if (isFreightInvoiceLineItem(item)) {
-              const allowFreight = salesOrder.salesOrderCategory === 'product'
-                || salesOrder.salesOrderCategory === 'spare'
-                || (
-                  !salesOrder.salesOrderCategory
-                  && !(salesOrder.categories ?? []).includes('software_key')
-                );
-              if (!allowFreight) {
-                return <p className="text-muted text-sm">Freight is not used on this order type.</p>;
-              }
-              return (
-                <SoFreightExpandPanel
-                  lines={editLines}
-                  onChangeLines={setEditLines}
-                  catalogById={catalogById}
-                  shippingDestination={freightDestination}
-                  canEditPackage
-                  disabled={savingLines}
-                  onPackageInfoSaved={(productId, info) => {
-                    setCatalogById(prev => {
-                      const existing = prev[productId];
-                      if (!existing) return prev;
-                      return { ...prev, [productId]: { ...existing, packageInfo: info } };
-                    });
-                  }}
-                />
-              );
-            }
-            const draft = editLines.find(line => line.lineId === item.id);
-            if (!draft || isFreightDraftEditLine(draft)) return null;
-            return (
-              <SoLineInlineEditor
-                line={draft}
-                catalogProduct={catalogById[draft.productId]}
-                siblingLines={editLines.filter(line => !isFreightDraftEditLine(line))}
-                allowRateEdit
-                disabled={savingLines}
-                onChange={updateDraftLine}
-                onRemove={() => removeDraftLine(draft.lineId)}
-                onAddSibling={choice => addStampingSibling(draft, choice)}
-              />
-            );
-          } : undefined}
+          renderExpanded={canEditLines && !isMobile ? renderLineEditor : undefined}
         />
       </section>
 
@@ -1222,6 +1253,20 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           alt="Payment screenshot"
           onClose={() => setShowPaymentProof(false)}
         />
+      ) : null}
+
+      {canEditLines && isMobile && expandedLineItem ? (
+        <SoLineEditSheet
+          eyebrow={isFreightInvoiceLineItem(expandedLineItem) ? 'Freight' : 'Line item'}
+          title={
+            isFreightInvoiceLineItem(expandedLineItem)
+              ? (expandedLineItem.name?.trim() || 'Freight')
+              : (expandedLineItem.name?.trim() || 'Edit item')
+          }
+          onClose={closeExpandedLine}
+        >
+          {renderLineEditor(expandedLineItem)}
+        </SoLineEditSheet>
       ) : null}
     </div>
   );

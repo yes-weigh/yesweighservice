@@ -30,6 +30,7 @@ import {
   fetchAdminDealerLifetimeAggregates,
   fetchAdminInvoicesForCustomers,
   fetchAdminInvoicesPageResult,
+  fetchAdminPortalStampingInvoices,
   fetchAllAdminInvoicesInRange,
   filterAdminInvoices,
   formatAdminCustomerLocation,
@@ -445,19 +446,54 @@ export const AdminInvoicesPage: React.FC = () => {
     if (useAggregate) {
       const load = useLifetimeDealerRollups
         ? fetchAdminDealerLifetimeAggregates().then(next => ({ rows: next, truncated: false }))
-        : fetchAllAdminInvoicesInRange({
-          sort,
-          category: 'all',
-          dateStart,
-          dateEnd,
-          salespersonIds,
-        });
+        : category === 'gatc'
+          ? fetchAdminPortalStampingInvoices({
+            sort,
+            dateStart,
+            dateEnd,
+            salespersonIds,
+          }).then(next => ({ rows: next.rows, truncated: false }))
+          : fetchAllAdminInvoicesInRange({
+            sort,
+            category: 'all',
+            dateStart,
+            dateEnd,
+            salespersonIds,
+          });
 
       void load
         .then(({ rows: next, truncated: wasTruncated }) => {
           if (cancelled) return;
           setRows(next);
           setTruncated(wasTruncated);
+          setHasMore(false);
+          setPageCursors([null]);
+        })
+        .catch(err => {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Could not load invoices.');
+            setRows([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Stamping = portal GATC Billwise set; load full window and page client-side.
+    if (category === 'gatc') {
+      void fetchAdminPortalStampingInvoices({
+        sort,
+        dateStart,
+        dateEnd,
+        salespersonIds,
+      })
+        .then(({ rows: next }) => {
+          if (cancelled) return;
+          setRows(next);
           setHasMore(false);
           setPageCursors([null]);
         })
@@ -538,22 +574,42 @@ export const AdminInvoicesPage: React.FC = () => {
     setLoading(true);
     setError('');
     setTruncated(false);
-    void fetchAdminInvoicesForCustomers({
-      customerIds: selectedCustomerIds,
-      dateStart,
-      dateEnd,
-      category: 'all',
-      sort,
-      // Dealer drill-down: any ops staff may see that dealer's full invoice history.
-      salespersonIds: null,
-    })
-      .then(next => {
+    void Promise.all([
+      fetchAdminInvoicesForCustomers({
+        customerIds: selectedCustomerIds,
+        dateStart,
+        dateEnd,
+        category: 'all',
+        sort,
+        // Dealer drill-down: any ops staff may see that dealer's full invoice history.
+        salespersonIds: null,
+      }),
+      fetchAdminPortalStampingInvoices({
+        customerIds: selectedCustomerIds,
+        dateStart,
+        dateEnd,
+        sort,
+        salespersonIds: null,
+      }),
+    ])
+      .then(([allRows, portal]) => {
         if (cancelled) return;
-        setRows(next);
-        setCategoryCounts(countInvoiceRowsByCategory(next));
-        setKpiCount(next.length);
-        setKpiCategoryAmount(next.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
-        setKpiDocumentAmount(next.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
+        const counts = countInvoiceRowsByCategory(allRows);
+        counts.gatc = portal.rows.length;
+        setCategoryCounts(counts);
+        setKpiCount(allRows.length);
+        setKpiDocumentAmount(allRows.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
+        if (category === 'gatc') {
+          setRows(portal.rows);
+          setKpiCategoryAmount(portal.gatcFeeTotal);
+        } else {
+          setRows(allRows);
+          setKpiCategoryAmount(
+            category === 'all'
+              ? allRows.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
+              : allRows.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0),
+          );
+        }
         setHasMore(false);
         setPageCursors([null]);
       })
@@ -576,10 +632,18 @@ export const AdminInvoicesPage: React.FC = () => {
     dateEnd,
     sort,
     selectedCustomerIds,
+    category,
   ]);
 
   const filtered = useMemo(
-    () => filterAdminInvoices(rows, search, useAggregate || dealerScoped ? category : 'all'),
+    () => filterAdminInvoices(
+      rows,
+      search,
+      // Portal stamping rows are pre-filtered; avoid HSN re-filter dropping them.
+      category === 'gatc'
+        ? 'all'
+        : (useAggregate || dealerScoped ? category : 'all'),
+    ),
     [rows, search, category, useAggregate, dealerScoped],
   );
 
@@ -592,8 +656,8 @@ export const AdminInvoicesPage: React.FC = () => {
     [useAggregate, useLifetimeDealerRollups, filtered, sort],
   );
 
-  // Client-side pagination only for aggregate / dealer-scoped dumps.
-  const clientPaged = useAggregate || dealerScoped;
+  // Client-side pagination for aggregate / dealer-scoped / portal stamping dumps.
+  const clientPaged = useAggregate || dealerScoped || category === 'gatc';
   const totalCount = clientPaged
     ? displayRows.length
     : (search.trim()

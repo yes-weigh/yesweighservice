@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react';
-import { AlertTriangle, Package } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, Eye, Package, X } from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
 import {
   logisticsPartnerImage,
@@ -240,30 +241,30 @@ export const OrderFreightPanel: React.FC<Props> = ({
   onCourierChange,
   onPackageInfoChange,
 }) => {
-  if (!estimate.usable) return null;
+  const [splitupOpen, setSplitupOpen] = useState(false);
 
   const planLabel = ST_COURIER_ZONE_LABELS[estimate.zone] || estimate.inferredZoneLabel;
   /** Staff/admin default: detailed LBH maths. Dealers (clubbed) stay compact. */
   const lineDetails = showLineDetails ?? !clubSites;
 
   const clubbedLines = useMemo((): ClubbedLine[] => {
-    if (!clubSites) return [];
+    if (!clubSites || !estimate.usable) return [];
     return estimate.sites.flatMap(site =>
       site.lineBreakdowns.map(line => ({ ...line, site: site.site })),
     );
-  }, [clubSites, estimate.sites]);
+  }, [clubSites, estimate]);
 
   const clubbedNotes = useMemo(() => {
-    if (!clubSites) return [] as string[];
+    if (!clubSites || !estimate.usable) return [] as string[];
     const notes = new Set<string>();
     for (const site of estimate.sites) {
       for (const note of site.indications) notes.add(note);
     }
     return [...notes];
-  }, [clubSites, estimate.sites]);
+  }, [clubSites, estimate]);
 
   const clubCourierOptions = useMemo(() => {
-    if (!clubSites || estimate.sites.length === 0) return [];
+    if (!clubSites || !estimate.usable || estimate.sites.length === 0) return [];
     // Prefer options from the first site; mark disabled if not enabled on every site.
     const primary = estimate.sites[0].courierOptions;
     return primary.map(opt => {
@@ -283,11 +284,82 @@ export const OrderFreightPanel: React.FC<Props> = ({
         estimatedTotalInr,
       };
     });
-  }, [clubSites, estimate.sites]);
+  }, [clubSites, estimate]);
 
-  const clubSelectedPartner = estimate.sites.length > 0
+  const clubSelectedPartner = estimate.usable
+    && estimate.sites.length > 0
     && estimate.sites.every(site => site.partnerId === estimate.sites[0].partnerId)
     ? estimate.sites[0].partnerId
+    : null;
+
+  useEffect(() => {
+    if (!splitupOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSplitupOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [splitupOpen]);
+
+  if (!estimate.usable) return null;
+
+  const splitupPopup = clubSites && splitupOpen
+    ? createPortal(
+      <>
+        <button
+          type="button"
+          className="order-freight-panel__splitup-backdrop"
+          aria-label="Close freight splitup"
+          onClick={() => setSplitupOpen(false)}
+        />
+        <div
+          className="order-freight-panel__splitup-dialog panel glass"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Freight splitup"
+        >
+          <header className="order-freight-panel__splitup-head">
+            <div>
+              <h4 className="order-freight-panel__splitup-title">Freight splitup</h4>
+              <p className="order-freight-panel__splitup-total text-muted text-sm">
+                Total {formatCurrency(estimate.totalInr)}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="order-freight-panel__splitup-close"
+              onClick={() => setSplitupOpen(false)}
+              aria-label="Close"
+            >
+              <X size={18} aria-hidden />
+            </button>
+          </header>
+          <ul className="order-freight-panel__lines">
+            {clubbedLines.map(line => (
+              <FreightLineRow
+                key={
+                  line.indication === 'spare_default'
+                    ? `${line.site}:spare_default`
+                    : `${line.site}:${line.productId}:${line.indication}`
+                }
+                line={line}
+                canEditPackage={false}
+                showLineDetails
+                catalog={catalogById[line.productId]}
+              />
+            ))}
+          </ul>
+          {clubbedNotes.length > 0 && (
+            <ul className="order-freight-panel__notes text-muted text-sm">
+              {clubbedNotes.map(note => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </>,
+      document.body,
+    )
     : null;
 
   return (
@@ -300,12 +372,23 @@ export const OrderFreightPanel: React.FC<Props> = ({
       ) : null}
 
       <div className="orders-page__summary-row">
-        <span>
+        <span className="order-freight-panel__title-row">
           Freight
           {showFreightChargePlan ? (
             <span className="orders-page__freight-meta text-muted">
               {' '}· {planLabel}
             </span>
+          ) : null}
+          {clubSites && clubbedLines.length > 0 ? (
+            <button
+              type="button"
+              className="order-freight-panel__splitup-btn"
+              onClick={() => setSplitupOpen(true)}
+              aria-label="View freight splitup"
+              title="View freight splitup"
+            >
+              <Eye size={15} aria-hidden />
+            </button>
           ) : null}
         </span>
         <strong>{formatCurrency(estimate.totalInr)}</strong>
@@ -331,31 +414,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
               ))}
             </div>
           ) : null}
-
-          <ul className="order-freight-panel__lines">
-            {clubbedLines.map(line => (
-              <FreightLineRow
-                key={
-                  line.indication === 'spare_default'
-                    ? `${line.site}:spare_default`
-                    : `${line.site}:${line.productId}:${line.indication}`
-                }
-                line={line}
-                canEditPackage={canEditPackage}
-                showLineDetails={lineDetails}
-                catalog={catalogById[line.productId]}
-                onPackageInfoChange={onPackageInfoChange}
-              />
-            ))}
-          </ul>
-
-          {clubbedNotes.length > 0 && (
-            <ul className="order-freight-panel__notes text-muted text-sm">
-              {clubbedNotes.map(note => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          )}
+          {splitupPopup}
         </section>
       ) : (
         estimate.sites.map(site => (

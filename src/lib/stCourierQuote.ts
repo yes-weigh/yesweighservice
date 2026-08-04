@@ -36,6 +36,13 @@ function nonNeg(value: number | null | undefined): number {
   return value;
 }
 
+/** Round courier ₹ up to the next whole rupee (59.2 → 60). */
+export function ceilCourierChargeInr(value: number | null | undefined): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.ceil(n);
+}
+
 /**
  * Volumetric weight for the given dims and divisor.
  * Returns 0 when any dimension is missing/zero.
@@ -99,7 +106,7 @@ export function computeStCourierQuote(input: StCourierQuoteInput): StCourierQuot
 
   const fuelPct = nonNeg(input.rates.fuelSurchargePercent);
   const fuelSurchargeInr = freightInr * (fuelPct / 100);
-  const totalInr = freightInr + fuelSurchargeInr;
+  const totalInr = ceilCourierChargeInr(freightInr + fuelSurchargeInr);
 
   return {
     volumetricKg,

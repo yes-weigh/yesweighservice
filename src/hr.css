@@ -880,9 +880,13 @@
   box-sizing: border-box;
 }
 
-.hr-salary__expand.is-capturing .hr-salary__main-grid {
+.hr-salary__expand.is-capturing .hr-salary__cal-row {
   grid-template-columns: 330px minmax(0, 1fr);
   align-items: stretch;
+  overflow: visible;
+}
+
+.hr-salary__expand.is-capturing .hr-salary__main-grid {
   overflow: visible;
 }
 
@@ -892,6 +896,11 @@
 }
 
 .hr-salary__expand.is-capturing .hr-salary__ot-detail {
+  max-height: none;
+  overflow: visible;
+}
+
+.hr-salary__expand.is-capturing .hr-salary__expense-detail {
   max-height: none;
   overflow: visible;
 }
@@ -1430,12 +1439,58 @@
 }
 
 .hr-salary__main-grid {
-  display: grid;
-  grid-template-columns: 330px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
-  align-items: start;
   width: 100%;
   box-sizing: border-box;
+}
+
+.hr-salary__cal-row {
+  display: grid;
+  grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: stretch;
+  width: 100%;
+}
+
+.hr-salary__cal-row.is-calendar-only {
+  grid-template-columns: minmax(280px, 380px);
+}
+
+.hr-salary__day-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.hr-salary__day-panel .hr-salary__day-sheet {
+  margin-top: 0;
+  flex: 1;
+  min-height: 0;
+  max-height: 42rem;
+  overflow: auto;
+}
+
+.hr-salary__day-panel-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 14rem;
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px dashed var(--sal-border, #2a2f3f);
+  background: var(--sal-card, #1a1f2e);
+  color: var(--sal-text-2, #8b92a5);
+  text-align: center;
+}
+
+.hr-salary__day-panel-empty p {
+  margin: 0;
 }
 
 .hr-salary__card {
@@ -1831,8 +1886,17 @@
 }
 
 @media (max-width: 900px) {
-  .hr-salary__main-grid {
+  .hr-salary__cal-row {
     grid-template-columns: 1fr;
+  }
+
+  .hr-salary__cal-row.is-calendar-only {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+
+  .hr-salary__day-panel .hr-salary__day-sheet {
+    max-height: none;
   }
 
   .hr-salary__rate-group {

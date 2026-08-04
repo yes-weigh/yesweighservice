@@ -304,7 +304,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
 
     const sku = freightSkuForPartner(site.partnerId);
     if (!sku) return;
-    const rate = Math.round(site.totalInr * 100) / 100;
+    const rate = Math.ceil(Number(site.totalInr) || 0) || 0;
     const key = `${site.site}:${site.partnerId}:${rate}`;
     if (lastAutoFreightKeyRef.current === key) return;
     lastAutoFreightKeyRef.current = key;

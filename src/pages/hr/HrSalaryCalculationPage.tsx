@@ -1338,7 +1338,8 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                           </div>
 
                           <div className="hr-salary__main-grid">
-                            <div className="hr-salary__card hr-salary__expand-cal">
+                            <div className="hr-salary__cal-row">
+                              <div className="hr-salary__card hr-salary__expand-cal">
                               <div className="hr-salary__cal-head">
                                 <h4>{salaryPeriodLabel(period)}</h4>
                               </div>
@@ -1471,80 +1472,90 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                   Unassigned day
                                 </span>
                               </div>
+                              </div>
 
-                              {selectedDate ? (
-                                <DayAttendanceSheet
-                                  date={selectedDate}
-                                  canEdit={canEdit}
-                                  canSetLeave={
-                                    !isSundayDate(selectedDate) && !holidayDateSet.has(selectedDate)
-                                  }
-                                  leaveKind={leaveKindForDate(draft.leaveEntries, selectedDate)}
-                                  holidayName={
-                                    monthHolidays.find(h => h.date === selectedDate)?.name ?? null
-                                  }
-                                  projects={draft.projects}
-                                  dayProjectId={workProjectIdForDate(
-                                    draft.workDayEntries,
-                                    selectedDate,
-                                  )}
-                                  workShifts={draft.workShiftEntries
-                                    .filter(e => e.date === selectedDate)
-                                    .sort((a, b) => a.startTime.localeCompare(b.startTime))}
-                                  joinedAt={
-                                    draft.dayJoinEntries.find(e => e.date === selectedDate)?.joinedAt
-                                    ?? null
-                                  }
-                                  clockedOutAt={
-                                    draft.dayJoinEntries.find(e => e.date === selectedDate)?.clockedOutAt
-                                    ?? null
-                                  }
-                                  entries={draft.overtimeEntries
-                                    .filter(e => e.date === selectedDate)
-                                    .sort((a, b) => a.startTime.localeCompare(b.startTime))}
-                                  onClose={() => setSelectedDate(null)}
-                                  onSetLeave={kind => setLeaveForDay(row.staffUid, selectedDate, kind)}
-                                  onSetDayProject={projectId => setDayProject(
-                                    row.staffUid,
-                                    selectedDate,
-                                    projectId,
-                                  )}
-                                  onSetDayClock={patch => setDayClockForDay(
-                                    row.staffUid,
-                                    selectedDate,
-                                    patch,
-                                  )}
-                                  onAddWorkShift={() => addWorkShiftEntry(row.staffUid, selectedDate)}
-                                  onPatchWorkShift={(entryId, patch) => patchWorkShiftEntry(
-                                    row.staffUid,
-                                    entryId,
-                                    patch,
-                                  )}
-                                  onRemoveWorkShift={entryId => removeWorkShiftEntry(
-                                    row.staffUid,
-                                    entryId,
-                                  )}
-                                  onAddOt={() => addOtEntry(row.staffUid, selectedDate)}
-                                  onPatchOt={(entryId, patch) => patchOtEntry(row.staffUid, entryId, patch)}
-                                  onRemoveOt={entryId => removeOtEntry(row.staffUid, entryId)}
-                                  expenses={draft.expenseEntries.filter(e => e.date === selectedDate)}
-                                  receipts={draft.receiptEntries.filter(e => e.date === selectedDate)}
-                                  onAddExpense={() => addExpenseEntry(row.staffUid, selectedDate)}
-                                  onPatchExpense={(entryId, patch) => patchExpenseEntry(
-                                    row.staffUid,
-                                    entryId,
-                                    patch,
-                                  )}
-                                  onRemoveExpense={entryId => removeExpenseEntry(row.staffUid, entryId)}
-                                  onAddReceipt={kind => addReceiptEntry(row.staffUid, selectedDate, kind)}
-                                  onPatchReceipt={(entryId, patch) => patchReceiptEntry(
-                                    row.staffUid,
-                                    entryId,
-                                    patch,
-                                  )}
-                                  onRemoveReceipt={entryId => removeReceiptEntry(row.staffUid, entryId)}
-                                />
-                              ) : null}
+                              <div className="hr-salary__day-panel">
+                                {selectedDate ? (
+                                  <DayAttendanceSheet
+                                    date={selectedDate}
+                                    canEdit={canEdit}
+                                    canSetLeave={
+                                      !isSundayDate(selectedDate) && !holidayDateSet.has(selectedDate)
+                                    }
+                                    leaveKind={leaveKindForDate(draft.leaveEntries, selectedDate)}
+                                    holidayName={
+                                      monthHolidays.find(h => h.date === selectedDate)?.name ?? null
+                                    }
+                                    projects={draft.projects}
+                                    dayProjectId={workProjectIdForDate(
+                                      draft.workDayEntries,
+                                      selectedDate,
+                                    )}
+                                    workShifts={draft.workShiftEntries
+                                      .filter(e => e.date === selectedDate)
+                                      .sort((a, b) => a.startTime.localeCompare(b.startTime))}
+                                    joinedAt={
+                                      draft.dayJoinEntries.find(e => e.date === selectedDate)?.joinedAt
+                                      ?? null
+                                    }
+                                    clockedOutAt={
+                                      draft.dayJoinEntries.find(e => e.date === selectedDate)?.clockedOutAt
+                                      ?? null
+                                    }
+                                    entries={draft.overtimeEntries
+                                      .filter(e => e.date === selectedDate)
+                                      .sort((a, b) => a.startTime.localeCompare(b.startTime))}
+                                    onClose={() => setSelectedDate(null)}
+                                    onSetLeave={kind => setLeaveForDay(row.staffUid, selectedDate, kind)}
+                                    onSetDayProject={projectId => setDayProject(
+                                      row.staffUid,
+                                      selectedDate,
+                                      projectId,
+                                    )}
+                                    onSetDayClock={patch => setDayClockForDay(
+                                      row.staffUid,
+                                      selectedDate,
+                                      patch,
+                                    )}
+                                    onAddWorkShift={() => addWorkShiftEntry(row.staffUid, selectedDate)}
+                                    onPatchWorkShift={(entryId, patch) => patchWorkShiftEntry(
+                                      row.staffUid,
+                                      entryId,
+                                      patch,
+                                    )}
+                                    onRemoveWorkShift={entryId => removeWorkShiftEntry(
+                                      row.staffUid,
+                                      entryId,
+                                    )}
+                                    onAddOt={() => addOtEntry(row.staffUid, selectedDate)}
+                                    onPatchOt={(entryId, patch) => patchOtEntry(row.staffUid, entryId, patch)}
+                                    onRemoveOt={entryId => removeOtEntry(row.staffUid, entryId)}
+                                    expenses={draft.expenseEntries.filter(e => e.date === selectedDate)}
+                                    receipts={draft.receiptEntries.filter(e => e.date === selectedDate)}
+                                    onAddExpense={() => addExpenseEntry(row.staffUid, selectedDate)}
+                                    onPatchExpense={(entryId, patch) => patchExpenseEntry(
+                                      row.staffUid,
+                                      entryId,
+                                      patch,
+                                    )}
+                                    onRemoveExpense={entryId => removeExpenseEntry(row.staffUid, entryId)}
+                                    onAddReceipt={kind => addReceiptEntry(row.staffUid, selectedDate, kind)}
+                                    onPatchReceipt={(entryId, patch) => patchReceiptEntry(
+                                      row.staffUid,
+                                      entryId,
+                                      patch,
+                                    )}
+                                    onRemoveReceipt={entryId => removeReceiptEntry(row.staffUid, entryId)}
+                                  />
+                                ) : (
+                                  <div className="hr-salary__day-panel-empty">
+                                    <p>Select a day on the calendar</p>
+                                    <p className="text-sm text-muted">
+                                      Edit project, clock times, shifts, leave, expenses, and OT.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
                             </div>
 
                             <ExpenseSettlementCard

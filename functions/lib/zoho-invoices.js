@@ -103,6 +103,45 @@ export async function downloadAdminInvoiceDocument(secrets, orgId, customerId, i
   return ensureInvoiceDocumentPdf(secrets, orgId, safeCustomerId, safeInvoiceId, documentType);
 }
 
+/**
+ * Portal-stamped invoice ids + fee totals for a Zoho customer (GATC Billwise membership).
+ */
+async function loadPortalStampingForCustomer(customerId) {
+  const db = getFirestore();
+  const cid = String(customerId ?? '').trim();
+  if (!cid) {
+    return { invoiceIds: new Set(), feeByInvoiceId: new Map(), feeTotal: 0 };
+  }
+
+  let snap;
+  try {
+    snap = await db.collection('gatcReports')
+      .where('customerId', '==', cid)
+      .where('hasStamping', '==', true)
+      .get();
+  } catch {
+    // Composite index may be missing — fall back to customer-only query.
+    snap = await db.collection('gatcReports')
+      .where('customerId', '==', cid)
+      .get();
+  }
+
+  const invoiceIds = new Set();
+  const feeByInvoiceId = new Map();
+  let feeTotal = 0;
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() ?? {};
+    if (data.hasStamping === false) continue;
+    const invoiceId = String(data.invoiceId ?? docSnap.id).trim();
+    if (!invoiceId || invoiceIds.has(invoiceId)) continue;
+    invoiceIds.add(invoiceId);
+    const fee = Number(data.totals?.gatcFeeTotal) || 0;
+    feeByInvoiceId.set(invoiceId, fee);
+    feeTotal += fee;
+  }
+  return { invoiceIds, feeByInvoiceId, feeTotal };
+}
+
 export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}) {
   const requestedCustomerId = String(query.customerId ?? '').trim();
   let customerId;
@@ -125,6 +164,8 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
     { includeSearchBlob: Boolean(searchText) },
   );
 
+  const portalStamping = await loadPortalStampingForCustomer(customerId);
+
   let filtered = filterInvoices(invoices, { status, category: 'all' });
 
   if (searchText) {
@@ -132,7 +173,32 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
   }
 
   const categoryCounts = countInvoicesByCategory(filtered);
-  const categorized = filterInvoices(filtered, { category });
+  // Stamping tab count = portal gatcReports membership (not Zoho GATC-HSN).
+  categoryCounts.gatc = portalStamping.invoiceIds.size;
+
+  let categorized;
+  if (category === 'gatc') {
+    categorized = filtered
+      .filter(inv => portalStamping.invoiceIds.has(String(inv.id)))
+      .map(inv => {
+        const fee = portalStamping.feeByInvoiceId.get(String(inv.id)) ?? 0;
+        const categories = Array.isArray(inv.categories) ? [...inv.categories] : [];
+        if (!categories.includes('gatc')) categories.push('gatc');
+        return {
+          ...inv,
+          categories,
+          categoryAmounts: {
+            ...(inv.categoryAmounts && typeof inv.categoryAmounts === 'object'
+              ? inv.categoryAmounts
+              : {}),
+            gatc: fee,
+          },
+        };
+      });
+  } else {
+    categorized = filterInvoices(filtered, { category });
+  }
+
   const sorted = sortInvoices(categorized, sortField, sortDir);
   const paged = paginateInvoices(sorted, page, limit);
 
@@ -141,5 +207,7 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
     categoryCounts,
     customerId,
     lastSyncedAt,
+    portalStampingFeeTotal: portalStamping.feeTotal,
+    portalStampingInvoiceIds: [...portalStamping.invoiceIds],
   };
 }

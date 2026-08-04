@@ -24,6 +24,7 @@ import {
   type OrderSegment,
 } from './salesOrderSegments';
 import {
+  ceilCourierChargeInr,
   stCourierVolumetricKg,
   type StCourierQuoteDims,
   type StCourierQuoteResult,
@@ -323,7 +324,7 @@ export function quoteStCourierParcels(input: {
       boxPerKgInr,
       freightInr,
       fuelSurchargeInr,
-      totalInr: freightInr + fuelSurchargeInr,
+      totalInr: ceilCourierChargeInr(freightInr + fuelSurchargeInr),
     },
     rateMissing: !(boxPerKgInr > 0),
     perParcelChargeableKg,
@@ -447,8 +448,8 @@ export function estimateStCourierCartFreight(input: {
         ? quoteStCourierParcels({ zone, rates: originRatesForPartner, parcels: allParcels })
         : null;
       const productFreight = quotedForPartner?.quote.totalInr ?? 0;
-      const spareFreight = hasSpare ? Math.round(spareMin * 100) / 100 : 0;
-      return Math.round((productFreight + spareFreight) * 100) / 100;
+      const spareFreight = hasSpare ? ceilCourierChargeInr(spareMin) : 0;
+      return ceilCourierChargeInr(productFreight + spareFreight);
     };
 
     const optionsWithTotals: OrderCourierOption[] = options.map(opt => ({
@@ -533,7 +534,7 @@ export function estimateStCourierCartFreight(input: {
       parcelOffset += row.parcels.length;
 
       const share = totalProductChargeable > 0 ? lineKg / totalProductChargeable : 0;
-      const amountInr = Math.round(totalProductFreight * share * 100) / 100;
+      const amountInr = ceilCourierChargeInr(totalProductFreight * share);
       const indication = row.missingUnits > 0 || row.skip
         ? (row.skip?.reason === 'no_package' ? 'missing_package' : 'incomplete_package')
         : 'ok';
@@ -559,7 +560,7 @@ export function estimateStCourierCartFreight(input: {
     }
 
     const spareFreightInr = !isPickup && hasSpare
-      ? Math.round(spareMin * 100) / 100
+      ? ceilCourierChargeInr(spareMin)
       : 0;
 
     // One row per site: all spare names against the single spare-minimum charge.
@@ -615,7 +616,7 @@ export function estimateStCourierCartFreight(input: {
       lineBreakdowns,
       productFreightInr: totalProductFreight,
       spareFreightInr,
-      totalInr: Math.round((totalProductFreight + spareFreightInr) * 100) / 100,
+      totalInr: ceilCourierChargeInr(totalProductFreight + spareFreightInr),
       chargeableKg: totalProductChargeable,
       parcelCount: allParcels.length,
       rateMissing,

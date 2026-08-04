@@ -128,6 +128,10 @@ export interface InvoiceListResponse {
   };
   customerId?: string;
   lastSyncedAt?: string | null;
+  /** Portal GATC Billwise fee total for this dealer (all dates). */
+  portalStampingFeeTotal?: number;
+  /** Invoice ids present in gatcReports with hasStamping. */
+  portalStampingInvoiceIds?: string[];
 }
 
 export const INVOICE_STATUS_OPTIONS: Array<{ value: InvoiceStatus | 'all'; label: string }> = [

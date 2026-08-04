@@ -19,6 +19,11 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
 import { toSalesOrderDateKey } from './admin-sales-orders';
+import {
+  listGatcReportsInDateRange,
+  summarizeGatcReports,
+  type GatcReportDoc,
+} from './gatcReports';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
@@ -32,6 +37,7 @@ import {
 import {
   appendSalespersonIdConstraint,
   filterRowsBySalespersonScope,
+  normalizeSalespersonIdFilter,
 } from './salespersonScope';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
 import type {
@@ -272,6 +278,130 @@ export async function fetchAdminInvoicesPage(
   return snap.docs.map(mapAdminInvoiceDoc);
 }
 
+/**
+ * Hydrate invoice list rows for portal-stamped invoices (GATC Billwise membership).
+ * Marks rows with `categories` including `gatc` and `categoryAmounts.gatc` = fee total
+ * so existing Stamping tab amount helpers keep working.
+ */
+export async function fetchAdminPortalStampingInvoices(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+  customerIds?: string[] | null;
+  sort?: AdminInvoiceSort;
+}): Promise<{
+  rows: AdminFirestoreInvoice[];
+  reports: GatcReportDoc[];
+  gatcFeeTotal: number;
+}> {
+  if (
+    options.salespersonIds != null
+    && appendSalespersonIdConstraint([], options.salespersonIds) === 'empty'
+  ) {
+    return { rows: [], reports: [], gatcFeeTotal: 0 };
+  }
+
+  const sort = options.sort ?? 'date';
+  const customerFilter = options.customerIds?.length
+    ? new Set(options.customerIds.map(id => String(id ?? '').trim()).filter(Boolean))
+    : null;
+
+  let reports = await listGatcReportsInDateRange({
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+  });
+
+  if (customerFilter) {
+    reports = reports.filter(report => {
+      const customerId = String(report.customerId ?? '').trim();
+      return Boolean(customerId && customerFilter.has(customerId));
+    });
+  }
+
+  const scopedIds = normalizeSalespersonIdFilter(options.salespersonIds);
+  if (scopedIds) {
+    const allowed = new Set(scopedIds);
+    reports = reports.filter(report => {
+      const id = String(report.salespersonId ?? '').trim();
+      return Boolean(id && allowed.has(id));
+    });
+  }
+
+  const summary = summarizeGatcReports(reports);
+  const reportByInvoiceId = new Map<string, GatcReportDoc>();
+  for (const report of reports) {
+    const invoiceId = report.invoiceId || report.id;
+    if (invoiceId && !reportByInvoiceId.has(invoiceId)) {
+      reportByInvoiceId.set(invoiceId, report);
+    }
+  }
+
+  const hydrated = await Promise.all(
+    [...reportByInvoiceId.entries()].map(async ([invoiceId, report]): Promise<AdminFirestoreInvoice | null> => {
+      const customerId = String(report.customerId ?? '').trim();
+      if (!customerId) return null;
+      try {
+        const snap = await getDoc(doc(db, 'zohoCustomers', customerId, 'invoices', invoiceId));
+        if (!snap.exists()) {
+          // Fallback slim shape from the report when the invoice doc is missing.
+          return {
+            id: invoiceId,
+            customerId,
+            invoiceNumber: report.invoiceNumber || invoiceId,
+            customerName: report.customerName,
+            salespersonId: report.salespersonId,
+            salespersonName: report.salespersonName,
+            date: report.invoiceDate,
+            status: 'paid',
+            total: report.totals.gatcFeeTotal,
+            subtotal: report.totals.gatcFeeTotal,
+            taxTotal: 0,
+            balance: 0,
+            referenceNumber: report.referenceNumber,
+            syncedAt: report.createdAt || null,
+            itemQuantity: report.totals.stampedQty,
+            invoiceCategory: 'gatc',
+            categories: ['gatc'],
+            categoryAmounts: { gatc: report.totals.gatcFeeTotal },
+          };
+        }
+        const row = mapAdminInvoiceDoc(snap as QueryDocumentSnapshot<DocumentData>);
+        const categories = row.categories.includes('gatc')
+          ? row.categories
+          : ([...row.categories, 'gatc'] as InvoiceCategory[]);
+        return {
+          ...row,
+          invoiceCategory: row.invoiceCategory ?? 'gatc',
+          categories,
+          categoryAmounts: {
+            ...row.categoryAmounts,
+            gatc: report.totals.gatcFeeTotal,
+          },
+          itemQuantity: row.itemQuantity ?? report.totals.stampedQty,
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const rows = hydrated.flatMap(row => (row ? [row] : []));
+  rows.sort((a, b) => {
+    if (sort === 'syncedAt') {
+      return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+    }
+    const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
+    if (byDate) return byDate;
+    return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
+  });
+
+  return {
+    rows,
+    reports: [...reportByInvoiceId.values()],
+    gatcFeeTotal: summary.gatcFeeTotal,
+  };
+}
+
 export async function fetchAdminInvoicesPageResult(options: {
   sort?: AdminInvoiceSort;
   pageSize?: number;
@@ -291,6 +421,25 @@ export async function fetchAdminInvoicesPageResult(options: {
   ) {
     return { rows: [], lastDoc: null, hasMore: false };
   }
+
+  // Stamping tab = portal GATC Billwise membership (not Zoho GATC-HSN category).
+  if (options.category === 'gatc') {
+    const { rows: allRows } = await fetchAdminPortalStampingInvoices({
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
+      sort: options.sort,
+    });
+    const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
+    // Offset paging via synthetic cursor index encoded in page flows that pass null cursor
+    // for page 1; AdminInvoicesPage uses client paging for gatc (loads full set).
+    return {
+      rows: allRows.slice(0, pageSize),
+      lastDoc: null,
+      hasMore: allRows.length > pageSize,
+    };
+  }
+
   const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
   const listCollection = await resolveAdminInvoiceListCollection();
   const snap = await getAdminInvoicesQuerySnap({
@@ -330,6 +479,16 @@ export async function fetchAllAdminInvoicesInRange(options: {
 
   const sort = options.sort ?? 'date';
   const category = options.category ?? 'all';
+  if (category === 'gatc') {
+    const { rows } = await fetchAdminPortalStampingInvoices({
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
+      sort,
+    });
+    return { rows, truncated: false };
+  }
+
   const maxRows = options.maxRows ?? ADMIN_AGGREGATE_MAX_ROWS;
   const listCollection = await resolveAdminInvoiceListCollection();
   const rows: AdminFirestoreInvoice[] = [];
@@ -579,6 +738,15 @@ export async function countAdminInvoices(options: {
   }
 
   const category = options.category ?? 'all';
+  if (category === 'gatc') {
+    const { rows } = await fetchAdminPortalStampingInvoices({
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
+    });
+    return rows.length;
+  }
+
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const listCollection = await resolveAdminInvoiceListCollection();
@@ -797,6 +965,19 @@ function monthKeysForRange(dateStart: string | null, dateEnd: string | null): st
  * Prefer precomputed invoiceStats / invoiceMonthStats when salesperson is org-wide.
  * Falls back to count + sum queries.
  */
+async function loadPortalStampingKpiOverride(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+}): Promise<{ count: number; feeTotal: number }> {
+  const { rows, gatcFeeTotal } = await fetchAdminPortalStampingInvoices({
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+    salespersonIds: options.salespersonIds,
+  });
+  return { count: rows.length, feeTotal: gatcFeeTotal };
+}
+
 export async function loadAdminInvoiceKpis(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
@@ -807,6 +988,28 @@ export async function loadAdminInvoiceKpis(options: {
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const scoped = options.salespersonIds != null;
+
+  // Stamping KPIs always come from portal gatcReports (Billwise), not HSN rollups.
+  const portalStamping = await loadPortalStampingKpiOverride({
+    dateStart,
+    dateEnd,
+    salespersonIds: options.salespersonIds,
+  });
+
+  if (category === 'gatc') {
+    return {
+      invoiceCount: portalStamping.count,
+      categoryAmount: portalStamping.feeTotal,
+      documentAmount: portalStamping.feeTotal,
+      totalAmount: portalStamping.feeTotal,
+      categoryCounts: {
+        ...emptyCategoryCounts(),
+        gatc: portalStamping.count,
+        all: portalStamping.count,
+      },
+      source: 'query',
+    };
+  }
 
   if (!scoped) {
     try {
@@ -823,7 +1026,7 @@ export async function loadAdminInvoiceKpis(options: {
             spare: Number(byCategory.spare ?? 0),
             software_key: Number(byCategory.software_key ?? 0),
             service: Number(byCategory.service ?? 0),
-            gatc: Number(byCategory.gatc ?? 0),
+            gatc: portalStamping.count,
           };
           const categoryAmount = category === 'all'
             ? Number(data.amount ?? 0)
@@ -879,6 +1082,9 @@ export async function loadAdminInvoiceKpis(options: {
             }
           }
           if (any) {
+            categoryCounts.gatc = portalStamping.count;
+            amountByCategory.gatc = portalStamping.feeTotal;
+            documentAmountByCategory.gatc = portalStamping.feeTotal;
             const categoryAmount = category === 'all' ? totalAmountAll : amountByCategory[category];
             const documentAmount = category === 'all'
               ? totalAmountAll
@@ -910,6 +1116,7 @@ export async function loadAdminInvoiceKpis(options: {
     dateEnd,
     salespersonIds: options.salespersonIds,
   });
+  categoryCounts.gatc = portalStamping.count;
 
   return {
     invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
@@ -1057,7 +1264,16 @@ export async function fetchAdminInvoicesForCustomers(options: {
   const selectedCategory = options.category && options.category !== 'all'
     ? options.category
     : null;
-  if (selectedCategory) {
+  if (selectedCategory === 'gatc') {
+    const { rows: portalRows } = await fetchAdminPortalStampingInvoices({
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
+      customerIds: ids,
+      sort: options.sort,
+    });
+    merged = portalRows;
+  } else if (selectedCategory) {
     merged = merged.filter(row => invoiceHasCategory(row, selectedCategory));
   }
 
