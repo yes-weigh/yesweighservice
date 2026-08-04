@@ -1147,6 +1147,7 @@ export function mapAdminInvoiceDetail(
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ? String(data.notes) : null,
+    shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
       : [],
@@ -1207,9 +1208,30 @@ export async function fetchAdminInvoiceDetail(
   const preferredAddress = String(
     data.shippingAddress || data.billingAddress || '',
   ).trim() || null;
+  const preferredAddressId = data.shippingAddressId
+    ? String(data.shippingAddressId).trim()
+    : null;
+  // If invoice mirror lacks ship-to, prefer the linked SO address over customer default.
+  let soAddress: string | null = null;
+  let soAddressId: string | null = null;
+  if (!preferredAddress && data.salesOrderId) {
+    try {
+      const soSnap = await getDoc(doc(db, 'salesOrders', String(data.salesOrderId)));
+      if (soSnap.exists()) {
+        const so = soSnap.data();
+        soAddress = so?.shippingAddress ? String(so.shippingAddress).trim() || null : null;
+        soAddressId = so?.shippingAddressId ? String(so.shippingAddressId).trim() || null : null;
+      }
+    } catch {
+      // ignore — fall back to customer contact
+    }
+  }
   const [withImages, contact] = await Promise.all([
     enrichInvoiceDetailImages(detail),
-    resolveZohoCustomerDisplayContact(customerId, preferredAddress),
+    resolveZohoCustomerDisplayContact(customerId, {
+      preferredAddress: preferredAddress || soAddress,
+      preferredAddressId: preferredAddressId || soAddressId,
+    }),
   ]);
   return {
     ...withImages,

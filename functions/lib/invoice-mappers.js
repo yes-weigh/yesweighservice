@@ -1,4 +1,35 @@
+function formatAddressObject(addr) {
+  if (!addr || typeof addr !== 'object') return null;
+  const parts = [
+    addr.attention,
+    addr.address,
+    addr.street2,
+    addr.city,
+    addr.state,
+    addr.zip,
+    addr.country,
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return parts.join(', ').replace(/\n/g, ', ');
+}
+
+function mapInvoiceShippingFields(raw) {
+  const shippingAddress = formatAddressObject(raw?.shipping_address)
+    ?? (raw?.shippingAddress ? String(raw.shippingAddress).trim() || null : null);
+  const billingAddress = formatAddressObject(raw?.billing_address)
+    ?? (raw?.billingAddress ? String(raw.billingAddress).trim() || null : null);
+  const shippingAddressId = raw?.shipping_address_id != null
+    ? String(raw.shipping_address_id).trim() || null
+    : (raw?.shipping_address?.address_id != null
+      ? String(raw.shipping_address.address_id).trim() || null
+      : (raw?.shippingAddressId != null
+        ? String(raw.shippingAddressId).trim() || null
+        : null));
+  return { shippingAddress, shippingAddressId, billingAddress };
+}
+
 export function mapInvoice(raw) {
+  const shipping = mapInvoiceShippingFields(raw);
   return {
     id: String(raw.invoice_id ?? raw.id ?? ''),
     invoiceNumber: String(raw.invoice_number ?? raw.invoiceNumber ?? ''),
@@ -28,6 +59,9 @@ export function mapInvoice(raw) {
     invoiceUrl: raw.invoice_url ?? raw.invoiceUrl
       ? String(raw.invoice_url ?? raw.invoiceUrl)
       : null,
+    shippingAddress: shipping.shippingAddress,
+    shippingAddressId: shipping.shippingAddressId,
+    billingAddress: shipping.billingAddress,
   };
 }
 
@@ -444,6 +478,9 @@ export function firestoreDocToDetail(data) {
     subtotal: Number(data.subtotal ?? list.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? list.taxTotal ?? 0),
     notes: data.notes ?? null,
+    shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
+    shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
+    billingAddress: data.billingAddress ? String(data.billingAddress) : null,
     lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
   };
 }

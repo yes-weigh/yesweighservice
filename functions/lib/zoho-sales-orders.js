@@ -460,9 +460,40 @@ export async function getSalesOrderLinkedInvoice(secrets, configuredOrgId, sales
   };
 }
 
+/** Zoho invoice/SO shipping payload from a salesorder object. */
+function shippingFieldsFromSalesOrder(so) {
+  if (!so || typeof so !== 'object') return {};
+  const addressId = so.shipping_address_id != null
+    ? String(so.shipping_address_id).trim()
+    : (so.shipping_address?.address_id != null
+      ? String(so.shipping_address.address_id).trim()
+      : '');
+  if (addressId) return { shipping_address_id: addressId };
+
+  const addr = so.shipping_address;
+  if (!addr || typeof addr !== 'object') return {};
+  const hasBody = Boolean(
+    addr.address || addr.city || addr.state || addr.zip || addr.attention,
+  );
+  if (!hasBody) return {};
+  return {
+    shipping_address: {
+      attention: addr.attention || '',
+      address: addr.address || '',
+      street2: addr.street2 || '',
+      city: addr.city || '',
+      state: addr.state || '',
+      zip: addr.zip || '',
+      country: addr.country || 'India',
+      phone: addr.phone || '',
+    },
+  };
+}
+
 /**
  * Create an invoice linked to an existing sales order.
  * Tries convert-from-SO first, then falls back to invoice with salesorder_id.
+ * Always copies SO shipping onto the invoice (convert does not reliably inherit it).
  */
 export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   salesOrderId,
@@ -476,6 +507,11 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   if (!soId) throw new Error('Sales order id is required.');
   const spId = String(salespersonId || '').trim();
 
+  const soPayload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+  const so = soPayload?.salesorder;
+  if (!so) throw new Error('Could not load sales order from Zoho.');
+  const shippingFields = shippingFieldsFromSalesOrder(so);
+
   // Prefer convert endpoint when available (inherits SO salesperson when set on SO).
   try {
     const converted = await zohoJson(
@@ -487,20 +523,26 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     const inv = converted?.invoice;
     if (inv?.invoice_id) {
       const invoiceId = String(inv.invoice_id);
-      // Ensure salesperson on invoice when convert did not copy it.
-      if (spId && String(inv.salesperson_id || '').trim() !== spId) {
+      const needsSalesperson = Boolean(spId && String(inv.salesperson_id || '').trim() !== spId);
+      // Always push SO shipping when present — convert may omit it or use contact default.
+      const needsShipping = Object.keys(shippingFields).length > 0;
+      if (needsSalesperson || needsShipping) {
         try {
           await zohoJson(accessToken, orgId, `/invoices/${encodeURIComponent(invoiceId)}`, {
             method: 'PUT',
             body: {
-              customer_id: inv.customer_id,
-              date: inv.date,
+              customer_id: inv.customer_id || so.customer_id,
+              date: inv.date || so.date || new Date().toISOString().slice(0, 10),
               line_items: Array.isArray(inv.line_items) ? inv.line_items : [],
-              salesperson_id: spId,
+              ...(needsSalesperson ? { salesperson_id: spId } : {}),
+              ...(needsShipping ? shippingFields : {}),
             },
           });
         } catch (err) {
-          console.warn('Could not set salesperson on converted invoice:', err?.message || err);
+          console.warn(
+            'Could not set salesperson/shipping on converted invoice:',
+            err?.message || err,
+          );
         }
       }
       return {
@@ -511,10 +553,6 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   } catch {
     // Fall through to create-from-SO details.
   }
-
-  const soPayload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
-  const so = soPayload?.salesorder;
-  if (!so) throw new Error('Could not load sales order from Zoho.');
 
   const lineItems = (Array.isArray(so.line_items) ? so.line_items : []).map(item => ({
     item_id: item.item_id,
@@ -535,6 +573,7 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     date: new Date().toISOString().slice(0, 10),
     line_items: lineItems,
     salesorder_id: soId,
+    ...shippingFields,
   };
   const effectiveSp = spId || (so.salesperson_id != null ? String(so.salesperson_id).trim() : '');
   if (effectiveSp) body.salesperson_id = effectiveSp;

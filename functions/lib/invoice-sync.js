@@ -15,6 +15,7 @@ import {
   firestoreDocToListInvoice,
   firestoreDocToDetail,
 } from './invoice-mappers.js';
+import { formatZohoAddress } from './zoho-contact-fields.js';
 import {
   classifyInvoiceCategoryBreakdown,
   classifyInvoiceFromLineItems,
@@ -222,6 +223,39 @@ async function fetchAllInvoiceSummaries(accessToken, orgId, options = {}) {
   return invoices;
 }
 
+function shippingFromSalesOrderRaw(so) {
+  if (!so || typeof so !== 'object') {
+    return { shippingAddress: null, shippingAddressId: null };
+  }
+  return {
+    shippingAddress: formatZohoAddress(so.shipping_address) ?? null,
+    shippingAddressId: so.shipping_address_id != null
+      ? String(so.shipping_address_id).trim() || null
+      : (so.shipping_address?.address_id != null
+        ? String(so.shipping_address.address_id).trim() || null
+        : null),
+  };
+}
+
+/** Prefer mirrored Firestore SO shipping when Zoho invoice omitted ship-to. */
+async function shippingFromMirroredSalesOrder(salesOrderId) {
+  const id = String(salesOrderId || '').trim();
+  if (!id) return { shippingAddress: null, shippingAddressId: null };
+  try {
+    const snap = await getFirestore().collection('salesOrders').doc(id).get();
+    if (!snap.exists) return { shippingAddress: null, shippingAddressId: null };
+    const data = snap.data() || {};
+    return {
+      shippingAddress: data.shippingAddress ? String(data.shippingAddress).trim() || null : null,
+      shippingAddressId: data.shippingAddressId
+        ? String(data.shippingAddressId).trim() || null
+        : null,
+    };
+  } catch {
+    return { shippingAddress: null, shippingAddressId: null };
+  }
+}
+
 async function resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw) {
   const salesOrderId = invoiceRaw.salesorder_id ? String(invoiceRaw.salesorder_id) : null;
   const referenceNumber = invoiceRaw.reference_number ? String(invoiceRaw.reference_number) : null;
@@ -231,9 +265,11 @@ async function resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw) {
       const payload = await zohoJsonRequest(accessToken, orgId, `/salesorders/${salesOrderId}`);
       const so = payload?.salesorder;
       if (so && String(so.customer_id) === customerId) {
+        const shipping = shippingFromSalesOrderRaw(so);
         return {
           id: String(so.salesorder_id),
           number: so.salesorder_number ? String(so.salesorder_number) : referenceNumber,
+          ...shipping,
         };
       }
     } catch {
@@ -322,6 +358,9 @@ function zohoContentFingerprint(invoiceRaw) {
     invoiceRaw.balance,
     invoiceRaw.invoice_number,
     (invoiceRaw.line_items ?? []).length,
+    invoiceRaw.shipping_address_id,
+    invoiceRaw.shipping_address?.address,
+    invoiceRaw.shipping_address?.zip,
   ].join('|');
 }
 
@@ -361,11 +400,29 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
   const searchBlob = buildInvoiceSearchBlob(invoiceRaw);
   const fingerprint = zohoContentFingerprint(invoiceRaw);
 
+  const salesOrderId = options.skipSalesOrder
+    ? (invoiceRaw.salesorder_id ? String(invoiceRaw.salesorder_id) : null)
+    : (salesOrder?.id ?? (invoiceRaw.salesorder_id ? String(invoiceRaw.salesorder_id) : null));
+
+  let shippingAddress = summary.shippingAddress || null;
+  let shippingAddressId = summary.shippingAddressId || null;
+  if (!shippingAddress && salesOrder?.shippingAddress) {
+    shippingAddress = salesOrder.shippingAddress;
+    shippingAddressId = salesOrder.shippingAddressId || shippingAddressId;
+  }
+  if (!shippingAddress && salesOrderId) {
+    const mirrored = await shippingFromMirroredSalesOrder(salesOrderId);
+    if (mirrored.shippingAddress) {
+      shippingAddress = mirrored.shippingAddress;
+      shippingAddressId = mirrored.shippingAddressId || shippingAddressId;
+    }
+  }
+
   return {
     ...summary,
     customerId,
     searchBlob,
-    salesOrderId: options.skipSalesOrder ? null : (salesOrder?.id ?? null),
+    salesOrderId: options.skipSalesOrder ? (salesOrderId || null) : (salesOrder?.id ?? salesOrderId),
     salesOrderNumber: options.skipSalesOrder
       ? (invoiceRaw.reference_number ? String(invoiceRaw.reference_number) : null)
       : (salesOrder?.number
@@ -373,6 +430,9 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
     subtotal: Number(invoiceRaw.sub_total ?? 0),
     taxTotal: Number(invoiceRaw.tax_total ?? 0),
     notes: invoiceRaw.notes ? String(invoiceRaw.notes) : null,
+    shippingAddress,
+    shippingAddressId,
+    billingAddress: summary.billingAddress || null,
     lineItems,
     itemQuantity: sumInvoiceItemQuantity(lineItems),
     amountExclGst: amountExclGst({
@@ -465,9 +525,25 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     if (!existing) {
       return { skipped: true, reason: 'no cached detail' };
     }
+    const mapped = mapInvoice(invoiceRaw);
+    let shippingAddress = mapped.shippingAddress || existing.shippingAddress || null;
+    let shippingAddressId = mapped.shippingAddressId || existing.shippingAddressId || null;
+    if (!shippingAddress) {
+      const mirrored = await shippingFromMirroredSalesOrder(
+        existing.salesOrderId || invoiceRaw.salesorder_id || null,
+      );
+      if (mirrored.shippingAddress) {
+        shippingAddress = mirrored.shippingAddress;
+        shippingAddressId = mirrored.shippingAddressId || shippingAddressId;
+      }
+    }
     doc = {
       ...firestoreDocToDetail(existing),
-      ...mapInvoice(invoiceRaw),
+      ...mapped,
+      // List payloads often omit addresses — keep cached / SO ship-to.
+      shippingAddress,
+      shippingAddressId,
+      billingAddress: mapped.billingAddress || existing.billingAddress || null,
       customerId,
       invoiceCategory: parseInvoiceCategory(existing.invoiceCategory) || 'product',
       categories: Array.isArray(existing.categories) ? existing.categories : [],
@@ -482,13 +558,31 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       return { skipped: true, reason: 'not found in zoho' };
     }
     doc = await buildFirestoreInvoiceDoc(accessToken, orgId, fullRaw, options);
+    if (!doc.shippingAddress && existing?.shippingAddress) {
+      doc.shippingAddress = existing.shippingAddress;
+      doc.shippingAddressId = doc.shippingAddressId || existing.shippingAddressId || null;
+    }
     if (!options.skipSalesOrder && doc.salesOrderId) {
       salesOrder = { id: doc.salesOrderId, number: doc.salesOrderNumber };
     }
   } else {
+    const mapped = mapInvoice(invoiceRaw);
+    let shippingAddress = mapped.shippingAddress || existing.shippingAddress || null;
+    let shippingAddressId = mapped.shippingAddressId || existing.shippingAddressId || null;
+    if (!shippingAddress) {
+      const soId = existing.salesOrderId || invoiceRaw.salesorder_id || null;
+      const mirrored = await shippingFromMirroredSalesOrder(soId);
+      if (mirrored.shippingAddress) {
+        shippingAddress = mirrored.shippingAddress;
+        shippingAddressId = mirrored.shippingAddressId || shippingAddressId;
+      }
+    }
     doc = {
       ...firestoreDocToDetail(existing),
-      ...mapInvoice(invoiceRaw),
+      ...mapped,
+      shippingAddress,
+      shippingAddressId,
+      billingAddress: mapped.billingAddress || existing.billingAddress || null,
       customerId,
       searchBlob: buildInvoiceSearchBlob(invoiceRaw),
       contentFingerprint: fingerprint,
@@ -837,19 +931,58 @@ export async function readCustomerInvoicesFromFirestore(
   return { invoices, searchBlobById, lastSyncedAt };
 }
 
+async function resolveInvoiceDisplayAddress(customerId, data) {
+  const preferred = String(data.shippingAddress || data.billingAddress || '').trim() || null;
+  const preferredId = String(data.shippingAddressId || '').trim() || null;
+  if (preferred) return preferred;
+
+  try {
+    const snap = await getFirestore().collection(CUSTOMERS_COLLECTION).doc(String(customerId)).get();
+    if (!snap.exists) return null;
+    const customer = snap.data() || {};
+    if (preferredId && Array.isArray(customer.zohoAddresses)) {
+      const match = customer.zohoAddresses.find(
+        row => String(row?.addressId || '').trim() === preferredId && row?.formatted,
+      );
+      if (match?.formatted) return String(match.formatted).trim() || null;
+    }
+    return (
+      (customer.zohoShippingAddress && String(customer.zohoShippingAddress).trim())
+      || (customer.shippingAddress && String(customer.shippingAddress).trim())
+      || formatZohoAddress(customer.zohoShippingAddressRaw)
+      || (customer.zohoBillingAddress && String(customer.zohoBillingAddress).trim())
+      || (customer.billingAddress && String(customer.billingAddress).trim())
+      || formatZohoAddress(customer.zohoBillingAddressRaw)
+      || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function readInvoiceDetailFromFirestore(customerId, invoiceId) {
   const snap = await invoicesCollection(String(customerId)).doc(String(invoiceId)).get();
   if (!snap.exists) return null;
   const data = snap.data() ?? {};
   if (String(data.customerId ?? customerId) !== String(customerId)) return null;
   const detail = firestoreDocToDetail({ ...data, id: snap.id });
+  let shippingAddress = detail.shippingAddress;
+  if (!shippingAddress && detail.salesOrderId) {
+    const mirrored = await shippingFromMirroredSalesOrder(detail.salesOrderId);
+    shippingAddress = mirrored.shippingAddress;
+  }
+  if (!shippingAddress) {
+    shippingAddress = await resolveInvoiceDisplayAddress(customerId, data);
+  }
+
   const needsImages = detail.lineItems.some(item => !item.imageUrl && item.itemId);
-  if (!needsImages) return detail;
+  const withAddress = { ...detail, shippingAddress: shippingAddress || null };
+  if (!needsImages) return withAddress;
 
   const itemIds = detail.lineItems.map(item => item.itemId).filter(Boolean);
   const catalogMap = await getCatalogMetaForItems(itemIds);
   return {
-    ...detail,
+    ...withAddress,
     lineItems: detail.lineItems.map(item => ({
       ...item,
       imageUrl: item.imageUrl
