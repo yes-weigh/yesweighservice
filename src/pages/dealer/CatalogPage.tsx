@@ -35,6 +35,8 @@ import {
   matchesSpareAuditStatusFilters,
   matchesSpareStockStatusFilters,
   matchesNcStatusFilters,
+  matchesPackageInfoFilters,
+  catalogProductHasSingleBoxPackageInfo,
   buildCochinAuditedCatalogProductIds,
   buildHeadOfficeAuditedCatalogProductIds,
   catalogProductIsAudited,
@@ -55,6 +57,7 @@ import {
   type SpareStockStatusFilter,
   type SpareWarehouseLocationFilter,
   type NcStatusFilter,
+  type PackageInfoFilter,
   saveCatalogCategoryOrder,
   saveCatalogCategoryProductOrder,
   applyCategoryProductDisplayOrder,
@@ -226,6 +229,7 @@ export const CatalogPage: React.FC = () => {
   const [productStockStatusFilters, setProductStockStatusFilters] = useState<Set<SpareStockStatusFilter>>(() => new Set());
   const [productAuditStatusFilters, setProductAuditStatusFilters] = useState<Set<SpareAuditStatusFilter>>(() => new Set());
   const [productNcStatusFilters, setProductNcStatusFilters] = useState<Set<NcStatusFilter>>(() => new Set());
+  const [productPackageInfoFilters, setProductPackageInfoFilters] = useState<Set<PackageInfoFilter>>(() => new Set());
   const [productsFiltersOpen, setProductsFiltersOpen] = useState(false);
   const [openNcQtyByProductId, setOpenNcQtyByProductId] = useState<Map<string, number>>(new Map());
   const [mediaProductFilters, setMediaProductFilters] = useState<Set<MediaProductFilter>>(() => new Set());
@@ -241,6 +245,7 @@ export const CatalogPage: React.FC = () => {
       locationFilters: Set<SpareWarehouseLocationFilter>,
       auditStatusFilters: Set<SpareAuditStatusFilter>,
       _ncStatusFilters: Set<NcStatusFilter>,
+      _packageInfoFilters: Set<PackageInfoFilter>,
     ) => {
       setSpareCatalogFilters(new Set([...catalogFilters] as SpareCatalogFilter[]));
       setSpareStockStatusFilters(new Set(stockStatusFilters));
@@ -270,11 +275,13 @@ export const CatalogPage: React.FC = () => {
       _locationFilters: Set<SpareWarehouseLocationFilter>,
       auditStatusFilters: Set<SpareAuditStatusFilter>,
       ncStatusFilters: Set<NcStatusFilter>,
+      packageInfoFilters: Set<PackageInfoFilter>,
     ) => {
       setProductCatalogFilters(new Set([...catalogFilters] as CategorizedProductFilter[]));
       setProductStockStatusFilters(new Set(stockStatusFilters));
       setProductAuditStatusFilters(new Set(auditStatusFilters));
       setProductNcStatusFilters(new Set(ncStatusFilters));
+      setProductPackageInfoFilters(new Set(packageInfoFilters));
     },
     [],
   );
@@ -559,7 +566,8 @@ export const CatalogPage: React.FC = () => {
     productCatalogFilters.size > 0
     || productStockStatusFilters.size > 0
     || productAuditStatusFilters.size > 0
-    || productNcStatusFilters.size > 0;
+    || productNcStatusFilters.size > 0
+    || productPackageInfoFilters.size > 0;
 
   const applyProductBrowseFilters = useCallback((items: typeof shopProducts) => {
     if (!canUseCatalogFilters || !hasActiveProductFilters) return items;
@@ -586,6 +594,10 @@ export const CatalogPage: React.FC = () => {
       productNcStatusFilters,
       openNcQtyByProductId,
     ));
+    next = next.filter(product => matchesPackageInfoFilters(
+      product,
+      productPackageInfoFilters,
+    ));
     return next;
   }, [
     canUseCatalogFilters,
@@ -595,6 +607,7 @@ export const CatalogPage: React.FC = () => {
     productStockStatusFilters,
     productAuditStatusFilters,
     productNcStatusFilters,
+    productPackageInfoFilters,
     catalogCategories,
     headOfficeAuditedCatalogProductIds,
     cochinAuditedCatalogProductIds,
@@ -793,6 +806,16 @@ export const CatalogPage: React.FC = () => {
       noNc: productFilterCountBase.length - hasNc,
     };
   }, [productFilterCountBase, openNcQtyByProductId]);
+
+  const productPackageInfoFilterCounts = useMemo(() => {
+    const hasPackaging = productFilterCountBase.filter(
+      product => catalogProductHasSingleBoxPackageInfo(product),
+    ).length;
+    return {
+      hasPackaging,
+      missingPackaging: productFilterCountBase.length - hasPackaging,
+    };
+  }, [productFilterCountBase]);
 
   const mediaFilterCountBase = useMemo(
     () => excludeHiddenCatalogProducts(
@@ -1877,12 +1900,14 @@ export const CatalogPage: React.FC = () => {
           spareStockStatusFilters={productStockStatusFilters}
           spareAuditStatusFilters={productAuditStatusFilters}
           ncStatusFilters={productNcStatusFilters}
+          packageInfoFilters={productPackageInfoFilters}
           onApplyFilters={applyProductFilters}
           spareCatalogFilterCounts={productCatalogFilterCounts}
           spareStockStatusFilterCounts={productStockStatusFilterCounts}
           spareLocationFilterCounts={spareLocationFilterCounts}
           spareAuditStatusFilterCounts={productAuditStatusFilterCounts}
           ncStatusFilterCounts={productNcStatusFilterCounts}
+          packageInfoFilterCounts={productPackageInfoFilterCounts}
         />
       )}
 

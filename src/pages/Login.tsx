@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
+import { DevQuickLogin } from '../components/auth/DevQuickLogin';
 import { Logo } from '../components/Logo';
 import { BRAND_TITLE, FIRM_NAME } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
@@ -69,22 +70,34 @@ export const Login: React.FC = () => {
     }
   }, [user, loading, navigate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const signInWithCredentials = useCallback(async (nextLoginId: string, nextPassword: string) => {
     setError('');
-    if (!parseLoginId(loginId)) {
+    if (!parseLoginId(nextLoginId)) {
       setError('Enter a valid email, phone, Aadhaar, or User ID.');
       return;
     }
     setSubmitting(true);
     try {
-      await login(loginId, password);
+      await login(nextLoginId, nextPassword);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setSubmitting(false);
     }
+  }, [login]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await signInWithCredentials(loginId, password);
   };
+
+  const handleDevQuickPick = useCallback((nextLoginId: string, nextPassword: string) => {
+    setLoginId(nextLoginId);
+    setPassword(nextPassword);
+    setLoginIdEditable(true);
+    setPasswordEditable(true);
+    void signInWithCredentials(nextLoginId, nextPassword);
+  }, [signInWithCredentials]);
 
   if (loading) {
     return (
@@ -121,6 +134,13 @@ export const Login: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="login-hero__form" {...NO_AUTOFILL_FORM_PROPS}>
             {error && <div className="login-error">{error}</div>}
+
+            {import.meta.env.DEV ? (
+              <DevQuickLogin
+                disabled={submitting}
+                onPick={handleDevQuickPick}
+              />
+            ) : null}
 
             <div className="form-group">
               <label htmlFor="login-id">Login ID</label>

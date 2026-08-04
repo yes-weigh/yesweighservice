@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import { DecimalTextInput } from '../DecimalAmountInput';
 import { formatStockQuantity, updateCatalogProductPackageInfo } from '../../lib/catalog';
 import { loadMasterCartonQuantities } from '../../lib/catalogProductSettings';
@@ -461,7 +461,7 @@ export const ProductPackageInfo: React.FC<{
           <h2 className="product-detail-page__stock-locations-title">Package information</h2>
         )}
         <div className={`product-package__head-actions ${embedded ? 'product-package__head-actions--embedded' : ''}`}>
-          <span className="product-package__badge">Package</span>
+          {!editing && <span className="product-package__badge">Package</span>}
           {canEdit && !editing && (
             <button
               type="button"
@@ -476,21 +476,20 @@ export const ProductPackageInfo: React.FC<{
             <div className="product-package__row-actions">
               <button
                 type="button"
-                className="product-package__icon-btn product-package__icon-btn--save"
-                onClick={() => void handleSave()}
+                className="product-package__cancel-btn"
+                onClick={handleCancel}
                 disabled={saving}
-                aria-label="Save package information"
               >
-                <Save size={13} />
+                Cancel
               </button>
               <button
                 type="button"
-                className="product-package__icon-btn product-package__icon-btn--cancel"
-                onClick={handleCancel}
+                className="product-package__save-btn"
+                onClick={() => void handleSave()}
                 disabled={saving}
-                aria-label="Cancel editing package information"
               >
-                <X size={13} />
+                <Save size={15} aria-hidden />
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
           )}

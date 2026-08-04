@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
-import { expectsCatalogPackageInfo, catalogProductIgnoresStockForCart } from '../../lib/catalog';
+import {
+  catalogProductHasSingleBoxPackageInfo,
+  catalogProductIgnoresStockForCart,
+  expectsCatalogPackageInfo,
+} from '../../lib/catalog';
 import {
   catalogGridStockQty,
   resolveAdjustedAuditDisplay,
@@ -110,7 +114,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const showCartButton = enableCart && (!isCartable || isCartable(product));
   const hasStamping = productHasLinkedGatc(product);
   // Grid badge: only single-box counts — master carton alone is not enough.
-  const hasSingleBoxPackageInfo = (product.packageInfo?.singleBox?.length ?? 0) > 0;
+  const hasSingleBoxPackageInfo = catalogProductHasSingleBoxPackageInfo(product);
   const showPackageMissingIcon = !dealerView
     && !hasSingleBoxPackageInfo
     && expectsCatalogPackageInfo(product);

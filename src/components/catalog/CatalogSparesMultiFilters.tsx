@@ -3,11 +3,13 @@ import { ChevronDown, X } from 'lucide-react';
 import {
   CATEGORIZED_PRODUCT_FILTERS,
   NC_STATUS_FILTERS,
+  PACKAGE_INFO_FILTERS,
   SPARE_AUDIT_STATUS_FILTERS,
   SPARE_CATALOG_FILTERS,
   SPARE_STOCK_STATUS_FILTERS,
   SPARE_WAREHOUSE_LOCATION_FILTERS,
   type NcStatusFilter,
+  type PackageInfoFilter,
   type SpareAuditStatusFilter,
   type SpareStockStatusFilter,
   type SpareWarehouseLocationFilter,
@@ -34,6 +36,9 @@ export interface CatalogSparesMultiFiltersProps {
   ncStatusFilters?: ReadonlySet<NcStatusFilter>;
   onToggleNcStatusFilter?: (key: NcStatusFilter) => void;
   ncStatusFilterCounts?: Record<NcStatusFilter, number>;
+  packageInfoFilters?: ReadonlySet<PackageInfoFilter>;
+  onTogglePackageInfoFilter?: (key: PackageInfoFilter) => void;
+  packageInfoFilterCounts?: Record<PackageInfoFilter, number>;
   /** Hide Cochin / Head Office when rack label-update filters are active. */
   hideLocationFilters?: boolean;
   onClearAll: () => void;
@@ -120,6 +125,9 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
   ncStatusFilters,
   onToggleNcStatusFilter,
   ncStatusFilterCounts,
+  packageInfoFilters,
+  onTogglePackageInfoFilter,
+  packageInfoFilterCounts,
   hideLocationFilters = false,
   onClearAll,
   onClose,
@@ -138,12 +146,17 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
     && ncStatusFilters != null
     && onToggleNcStatusFilter != null
     && ncStatusFilterCounts != null;
+  const showPackageInfoFilters = variant === 'products'
+    && packageInfoFilters != null
+    && onTogglePackageInfoFilter != null
+    && packageInfoFilterCounts != null;
   const activeFilterCount =
     spareCatalogFilters.size
     + spareStockStatusFilters.size
     + (showLocationFilters ? spareLocationFilters.size : 0)
     + spareAuditStatusFilters.size
-    + (showNcFilters ? ncStatusFilters.size : 0);
+    + (showNcFilters ? ncStatusFilters.size : 0)
+    + (showPackageInfoFilters ? packageInfoFilters.size : 0);
   const hasActiveFilters = activeFilterCount > 0;
   const isCompact = layout === 'compact';
   const isExpanded = !collapsible || expanded;
@@ -305,6 +318,20 @@ export const CatalogSparesMultiFilters: React.FC<CatalogSparesMultiFiltersProps>
               key => onToggleNcStatusFilter(key as NcStatusFilter),
               'product-nc',
               'Non-Conformance filters',
+            )}
+          </div>
+        )}
+
+        {showPackageInfoFilters && (
+          <div className="catalog-spares-multi-filters__group">
+            <span className="catalog-spares-multi-filters__label">Packaging</span>
+            {renderOptions(
+              PACKAGE_INFO_FILTERS,
+              packageInfoFilterCounts,
+              packageInfoFilters,
+              key => onTogglePackageInfoFilter(key as PackageInfoFilter),
+              'product-package',
+              'Packaging filters',
             )}
           </div>
         )}

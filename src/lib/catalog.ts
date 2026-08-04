@@ -323,6 +323,35 @@ export function matchesNcStatusFilters(
   );
 }
 
+/**
+ * Same rule as the browse-grid package icon: only single-box data counts.
+ * Master carton alone is not enough.
+ */
+export function catalogProductHasSingleBoxPackageInfo(
+  product: Pick<CatalogProduct, 'packageInfo'>,
+): boolean {
+  return (product.packageInfo?.singleBox?.length ?? 0) > 0;
+}
+
+export const PACKAGE_INFO_FILTERS = [
+  { key: 'hasPackaging', label: 'Has packaging' },
+  { key: 'missingPackaging', label: 'Missing packaging' },
+] as const;
+
+export type PackageInfoFilter = typeof PACKAGE_INFO_FILTERS[number]['key'];
+
+export function matchesPackageInfoFilters(
+  product: Pick<CatalogProduct, 'packageInfo'>,
+  filters: ReadonlySet<PackageInfoFilter>,
+): boolean {
+  if (filters.size === 0) return true;
+  const hasPackaging = catalogProductHasSingleBoxPackageInfo(product);
+  return (
+    (filters.has('hasPackaging') && hasPackaging)
+    || (filters.has('missingPackaging') && !hasPackaging)
+  );
+}
+
 export function matchesSpareCatalogFilters(
   product: CatalogProduct,
   filters: ReadonlySet<SpareCatalogFilter>,
