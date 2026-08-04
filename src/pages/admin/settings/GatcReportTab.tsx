@@ -1,27 +1,60 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, RefreshCw, Search } from 'lucide-react';
-import { useAuth } from '../../../context/AuthContext';
 import { formatCurrency } from '../../../lib/catalog';
 import {
-  backfillGatcReportsFromInvoices,
   gatcReportMatchesQuery,
   listGatcReports,
   type GatcReportDoc,
 } from '../../../lib/gatcReports';
 
 const PAGE_SIZE = 25;
+/** First month available in the GATC month filter. */
+const GATC_MONTH_START = '2026-04';
+
+function currentYearMonth(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+function buildMonthOptions(fromYm: string, toYm: string): Array<{ value: string; label: string }> {
+  const [fromY, fromM] = fromYm.split('-').map(Number);
+  const [toY, toM] = toYm.split('-').map(Number);
+  if (!fromY || !fromM || !toY || !toM) return [];
+
+  const options: Array<{ value: string; label: string }> = [];
+  let y = fromY;
+  let m = fromM;
+  while (y < toY || (y === toY && m <= toM)) {
+    const value = `${y}-${String(m).padStart(2, '0')}`;
+    const label = new Date(y, m - 1, 1).toLocaleString('en-IN', {
+      month: 'long',
+      year: 'numeric',
+    });
+    options.push({ value, label });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  // Newest month first in the dropdown.
+  return options.reverse();
+}
 
 export const GatcReportTab: React.FC = () => {
-  const { user } = useAuth();
-  const canBackfill = user?.role === 'super_admin';
+  const monthOptions = useMemo(
+    () => buildMonthOptions(GATC_MONTH_START, currentYearMonth()),
+    [],
+  );
+  const defaultMonth = monthOptions[0]?.value || GATC_MONTH_START;
+
   const [rows, setRows] = useState<GatcReportDoc[]>([]);
   const [loading, setLoading] = useState(true);
-  const [backfilling, setBackfilling] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [month, setMonth] = useState(defaultMonth);
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -45,15 +78,15 @@ export const GatcReportTab: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [search, dateFrom, dateTo]);
+  }, [search, month]);
 
   const filtered = useMemo(() => {
     return rows.filter(report => {
-      if (dateFrom && (report.invoiceDate || '') < dateFrom) return false;
-      if (dateTo && (report.invoiceDate || '') > dateTo) return false;
+      const invoiceMonth = String(report.invoiceDate || '').slice(0, 7);
+      if (month && invoiceMonth !== month) return false;
       return gatcReportMatchesQuery(report, search);
     });
-  }, [rows, search, dateFrom, dateTo]);
+  }, [rows, search, month]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -75,42 +108,6 @@ export const GatcReportTab: React.FC = () => {
     };
   }, [filtered]);
 
-  const runBackfill = async () => {
-    if (!canBackfill || backfilling) return;
-    setBackfilling(true);
-    setError('');
-    setNotice('');
-    try {
-      const result = await backfillGatcReportsFromInvoices();
-      const soScan = Number(result.scannedSalesOrders) || 0;
-      const soIndexed = Number(result.soIndexed) || 0;
-      const soByNumber = Number(result.soNumberIndexed) || 0;
-      setNotice(
-        `Indexed ${result.wrote.toLocaleString('en-IN')} stamped invoice`
-        + `${result.wrote === 1 ? '' : 's'}`
-        + ` (${soIndexed.toLocaleString('en-IN')} linked`
-        + (soByNumber
-          ? `, ${soByNumber.toLocaleString('en-IN')} matched by SO number`
-          : '')
-        + (result.invoiceJoinIndexed
-          ? `, ${result.invoiceJoinIndexed.toLocaleString('en-IN')} from invoice join`
-          : '')
-        + `)`
-        + ` · scanned ${soScan.toLocaleString('en-IN')} SOs`
-        + ` / ${result.scannedInvoices.toLocaleString('en-IN')} invoices`
-        + (result.deletedZero
-          ? ` · removed ${result.deletedZero.toLocaleString('en-IN')} zero-fee rows`
-          : '')
-        + (result.errors ? ` · ${result.errors} errors` : ''),
-      );
-      await loadAll();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'GATC invoice backfill failed.');
-    } finally {
-      setBackfilling(false);
-    }
-  };
-
   return (
     <section className="gatc-report">
       <header className="gatc-report__masthead">
@@ -121,31 +118,20 @@ export const GatcReportTab: React.FC = () => {
           </p>
         </div>
         <div className="gatc-report__masthead-actions">
-          {canBackfill ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={loading || backfilling}
-              onClick={() => void runBackfill()}
-            >
-              {backfilling ? 'Indexing…' : 'Index from invoices'}
-            </button>
-          ) : null}
           <button
             type="button"
             className="gatc-report__icon-btn"
-            disabled={loading || backfilling}
+            disabled={loading}
             onClick={() => void loadAll()}
             aria-label="Refresh"
             title="Refresh"
           >
-            <RefreshCw size={16} className={loading || backfilling ? 'spin-icon' : undefined} aria-hidden />
+            <RefreshCw size={16} className={loading ? 'spin-icon' : undefined} aria-hidden />
           </button>
         </div>
       </header>
 
       {error ? <p className="gatc-report__error text-sm">{error}</p> : null}
-      {notice ? <p className="gatc-report__notice text-sm">{notice}</p> : null}
 
       {loading ? (
         <div className="gatc-report__loading">
@@ -178,21 +164,17 @@ export const GatcReportTab: React.FC = () => {
                 onChange={e => setSearch(e.target.value)}
               />
             </label>
-            <label className="gatc-report__date">
-              <span>From</span>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={e => setDateFrom(e.target.value)}
-              />
-            </label>
-            <label className="gatc-report__date">
-              <span>To</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={e => setDateTo(e.target.value)}
-              />
+            <label className="gatc-report__month">
+              <span>Month</span>
+              <select
+                value={month}
+                onChange={e => setMonth(e.target.value)}
+                aria-label="Report month"
+              >
+                {monthOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </label>
           </div>
 
@@ -202,10 +184,8 @@ export const GatcReportTab: React.FC = () => {
               <strong>{rows.length === 0 ? 'No stamped invoices yet' : 'No matching invoices'}</strong>
               <p className="text-muted text-sm">
                 {rows.length === 0
-                  ? (canBackfill
-                    ? 'Run “Index from invoices” after deploy, or wait for payment-verified stamped invoices.'
-                    : 'Entries appear when a stamped portal invoice is created or synced.')
-                  : 'Try clearing search or date filters.'}
+                  ? 'Entries appear when a stamped portal invoice is created or synced.'
+                  : 'Try clearing search or choosing another month.'}
               </p>
             </div>
           ) : (
