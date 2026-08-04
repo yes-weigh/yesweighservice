@@ -557,6 +557,18 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     console.warn(`Invoice stats/summary update failed for ${invoiceId}:`, err?.message ?? err);
   }
 
+  // Index stamped GATC fees against this invoice (joins linked SO portal meta).
+  try {
+    const { maybeWriteGatcReportAfterInvoiceUpsert } = await import('./gatc-report.js');
+    await maybeWriteGatcReportAfterInvoiceUpsert({
+      ...doc,
+      id: invoiceId,
+      customerId,
+    });
+  } catch (err) {
+    console.warn(`GATC report index failed for invoice ${invoiceId}:`, err?.message ?? err);
+  }
+
   return { customerId, invoiceId, updated: true };
 }
 

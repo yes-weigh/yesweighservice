@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, RefreshCw, Search } from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
 import { formatCurrency } from '../../../lib/catalog';
 import {
+  backfillGatcReportsFromInvoices,
   gatcReportMatchesQuery,
   listGatcReports,
   type GatcReportDoc,
@@ -10,11 +12,14 @@ import {
 const PAGE_SIZE = 25;
 
 export const GatcReportTab: React.FC = () => {
+  const { user } = useAuth();
+  const canBackfill = user?.role === 'super_admin';
   const [rows, setRows] = useState<GatcReportDoc[]>([]);
   const [loading, setLoading] = useState(true);
+  const [backfilling, setBackfilling] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
-  const [stampedOnly, setStampedOnly] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
@@ -24,7 +29,8 @@ export const GatcReportTab: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      setRows(await listGatcReports(500));
+      // Stamping-only ledger (also filters legacy zero-fee docs).
+      setRows((await listGatcReports(500)).filter(report => report.hasStamping));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load GATC report.');
       setRows([]);
@@ -39,16 +45,15 @@ export const GatcReportTab: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [search, stampedOnly, dateFrom, dateTo]);
+  }, [search, dateFrom, dateTo]);
 
   const filtered = useMemo(() => {
     return rows.filter(report => {
-      if (stampedOnly && !report.hasStamping) return false;
       if (dateFrom && (report.invoiceDate || '') < dateFrom) return false;
       if (dateTo && (report.invoiceDate || '') > dateTo) return false;
       return gatcReportMatchesQuery(report, search);
     });
-  }, [rows, search, stampedOnly, dateFrom, dateTo]);
+  }, [rows, search, dateFrom, dateTo]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -61,16 +66,38 @@ export const GatcReportTab: React.FC = () => {
   }, [page, totalPages]);
 
   const kpis = useMemo(() => {
-    const stampedInvoices = filtered.filter(row => row.hasStamping).length;
     const gatcFeeTotal = filtered.reduce((sum, row) => sum + row.totals.gatcFeeTotal, 0);
     const stampedQty = filtered.reduce((sum, row) => sum + row.totals.stampedQty, 0);
     return {
       invoiceCount: filtered.length,
-      stampedInvoices,
       gatcFeeTotal,
       stampedQty,
     };
   }, [filtered]);
+
+  const runBackfill = async () => {
+    if (!canBackfill || backfilling) return;
+    setBackfilling(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await backfillGatcReportsFromInvoices();
+      setNotice(
+        `Indexed ${result.wrote.toLocaleString('en-IN')} stamped invoice`
+        + `${result.wrote === 1 ? '' : 's'}`
+        + ` from ${result.scannedInvoices.toLocaleString('en-IN')} scanned`
+        + (result.deletedZero
+          ? ` · removed ${result.deletedZero.toLocaleString('en-IN')} zero-fee rows`
+          : '')
+        + (result.errors ? ` · ${result.errors} errors` : ''),
+      );
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'GATC invoice backfill failed.');
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   return (
     <section className="gatc-report">
@@ -78,22 +105,35 @@ export const GatcReportTab: React.FC = () => {
         <div>
           <h3 className="gatc-report__title">GATC report</h3>
           <p className="gatc-report__lede text-muted text-sm">
-            Stamping charges from portal sales orders after invoice creation (payment verify).
+            Stamping charges on portal invoices (payment verify / invoice sync).
           </p>
         </div>
-        <button
-          type="button"
-          className="gatc-report__icon-btn"
-          disabled={loading}
-          onClick={() => void loadAll()}
-          aria-label="Refresh"
-          title="Refresh"
-        >
-          <RefreshCw size={16} className={loading ? 'spin-icon' : undefined} aria-hidden />
-        </button>
+        <div className="gatc-report__masthead-actions">
+          {canBackfill ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={loading || backfilling}
+              onClick={() => void runBackfill()}
+            >
+              {backfilling ? 'Indexing…' : 'Index from invoices'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="gatc-report__icon-btn"
+            disabled={loading || backfilling}
+            onClick={() => void loadAll()}
+            aria-label="Refresh"
+            title="Refresh"
+          >
+            <RefreshCw size={16} className={loading || backfilling ? 'spin-icon' : undefined} aria-hidden />
+          </button>
+        </div>
       </header>
 
       {error ? <p className="gatc-report__error text-sm">{error}</p> : null}
+      {notice ? <p className="gatc-report__notice text-sm">{notice}</p> : null}
 
       {loading ? (
         <div className="gatc-report__loading">
@@ -105,10 +145,6 @@ export const GatcReportTab: React.FC = () => {
             <div className="gatc-report__metric">
               <span>Invoices</span>
               <strong>{kpis.invoiceCount.toLocaleString('en-IN')}</strong>
-            </div>
-            <div className="gatc-report__metric">
-              <span>With stamping</span>
-              <strong>{kpis.stampedInvoices.toLocaleString('en-IN')}</strong>
             </div>
             <div className="gatc-report__metric">
               <span>Stamped qty</span>
@@ -125,18 +161,10 @@ export const GatcReportTab: React.FC = () => {
               <Search size={15} aria-hidden />
               <input
                 type="search"
-                placeholder="Search invoice, SO, customer, SKU, range…"
+                placeholder="Search invoice, customer, SKU, range…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
-            </label>
-            <label className="gatc-report__check">
-              <input
-                type="checkbox"
-                checked={stampedOnly}
-                onChange={e => setStampedOnly(e.target.checked)}
-              />
-              Stamped only
             </label>
             <label className="gatc-report__date">
               <span>From</span>
@@ -159,10 +187,12 @@ export const GatcReportTab: React.FC = () => {
           {filtered.length === 0 ? (
             <div className="gatc-report__empty">
               <FileText size={28} aria-hidden />
-              <strong>{rows.length === 0 ? 'No GATC invoice entries yet' : 'No matching invoices'}</strong>
+              <strong>{rows.length === 0 ? 'No stamped invoices yet' : 'No matching invoices'}</strong>
               <p className="text-muted text-sm">
                 {rows.length === 0
-                  ? 'Entries appear when a portal SO is payment-verified and invoiced (after Cloud Functions deploy).'
+                  ? (canBackfill
+                    ? 'Run “Index from invoices” after deploy, or wait for payment-verified stamped invoices.'
+                    : 'Entries appear when a stamped portal invoice is created or synced.')
                   : 'Try clearing search or date filters.'}
               </p>
             </div>
@@ -182,16 +212,14 @@ export const GatcReportTab: React.FC = () => {
                         <span className="gatc-report__row-main">
                           <strong>
                             {report.invoiceNumber || report.invoiceId}
-                            {report.hasStamping ? (
-                              <em className="gatc-report__badge">Stamped</em>
-                            ) : null}
+                            <em className="gatc-report__badge">Stamped</em>
                           </strong>
                           <em>
                             {[
                               report.customerName,
-                              report.salesOrderNumber ? `SO ${report.salesOrderNumber}` : null,
                               report.invoiceDate,
                               report.salespersonName,
+                              report.salesOrderNumber ? `SO ${report.salesOrderNumber}` : null,
                             ].filter(Boolean).join(' · ')}
                           </em>
                         </span>

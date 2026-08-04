@@ -5,9 +5,12 @@ import {
   orderBy,
   query,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db } from '../firebase';
 
 export const GATC_REPORTS_COLLECTION = 'gatcReports';
+
+const functions = getFunctions(app, 'asia-south1');
 
 export type GatcReportLineItem = {
   productId: string | null;
@@ -121,14 +124,58 @@ function mapReport(id: string, data: Record<string, unknown>): GatcReportDoc {
 }
 
 export async function listGatcReports(pageSize = 100): Promise<GatcReportDoc[]> {
-  const snap = await getDocs(
-    query(
-      collection(db, GATC_REPORTS_COLLECTION),
-      orderBy('createdAt', 'desc'),
-      limit(Math.max(1, Math.min(500, pageSize))),
-    ),
-  );
-  return snap.docs.map(docSnap => mapReport(docSnap.id, docSnap.data() as Record<string, unknown>));
+  const cap = Math.max(1, Math.min(500, pageSize));
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, GATC_REPORTS_COLLECTION),
+        orderBy('invoiceDate', 'desc'),
+        limit(cap),
+      ),
+    );
+    return snap.docs.map(docSnap => mapReport(docSnap.id, docSnap.data() as Record<string, unknown>));
+  } catch {
+    // Fallback if invoiceDate index is not ready yet.
+    const snap = await getDocs(
+      query(
+        collection(db, GATC_REPORTS_COLLECTION),
+        orderBy('createdAt', 'desc'),
+        limit(cap),
+      ),
+    );
+    return snap.docs.map(docSnap => mapReport(docSnap.id, docSnap.data() as Record<string, unknown>));
+  }
+}
+
+export async function backfillGatcReportsFromInvoices(options?: {
+  dryRun?: boolean;
+}): Promise<{
+  dryRun: boolean;
+  scannedInvoices: number;
+  wrote: number;
+  soFallbackWrote: number;
+  skippedNoSo: number;
+  skippedNoStamping: number;
+  skippedMissingSo: number;
+  deletedZero: number;
+  errors: number;
+}> {
+  const callable = httpsCallable<
+    { dryRun?: boolean },
+    {
+      dryRun: boolean;
+      scannedInvoices: number;
+      wrote: number;
+      soFallbackWrote: number;
+      skippedNoSo: number;
+      skippedNoStamping: number;
+      skippedMissingSo: number;
+      deletedZero: number;
+      errors: number;
+    }
+  >(functions, 'backfillGatcReportsFromInvoicesFn', { timeout: 540_000 });
+  const res = await callable({ dryRun: Boolean(options?.dryRun) });
+  return res.data;
 }
 
 export function gatcReportMatchesQuery(report: GatcReportDoc, rawQuery: string): boolean {

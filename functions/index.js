@@ -85,6 +85,7 @@ import {
   backfillInvoiceCategoriesToProduct,
   reclassifyInvoiceCategoriesFromCatalog,
 } from './lib/invoice-category.js';
+import { backfillGatcReportsFromInvoices } from './lib/gatc-report.js';
 import { upsertInvoicesFromCsv } from './lib/invoice-csv-upsert.js';
 import {
   archiveOldInvoices,
@@ -2206,6 +2207,29 @@ export const backfillInvoiceStatsAndSummariesFn = onCall(
     } catch (err) {
       console.error('backfillInvoiceStatsAndSummaries failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice stats backfill failed.');
+    }
+  },
+);
+
+/**
+ * Rebuild gatcReports from mirrored invoices (join SO yesOneGatcLines for fee splits).
+ * Super admin only. Removes legacy non-stamping report docs.
+ */
+export const backfillGatcReportsFromInvoicesFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillGatcReportsFromInvoices({
+        dryRun: Boolean(request.data?.dryRun),
+      });
+    } catch (err) {
+      console.error('backfillGatcReportsFromInvoices failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'GATC report backfill failed.');
     }
   },
 );

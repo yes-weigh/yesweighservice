@@ -36,7 +36,12 @@ import {
   mergeKeyForLine,
   resolveGatcFeeForProduct,
 } from './gatc-stamping.js';
-import { writeGatcReportFromSalesOrder, yesOneGatcPersistFields } from './gatc-report.js';
+import {
+  loadInvoiceDocById,
+  writeGatcReportFromSalesOrder,
+  yesOneGatcPersistFields,
+} from './gatc-report.js';
+import { syncSingleInvoiceFromZoho } from './invoice-sync.js';
 import { getAccessToken, resolveOrganizationId } from './zoho.js';
 import { fetchRawCustomerDetail } from './zoho-customers.js';
 import { extractZohoListFields } from './zoho-contact-fields.js';
@@ -931,11 +936,26 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
     const soSnap = await ref.get();
     const soData = soSnap.data() || data;
     try {
+      try {
+        await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
+          skipPdfs: true,
+          skipImages: true,
+          source: 'payment_verify',
+        });
+      } catch (syncErr) {
+        console.warn(
+          `Invoice mirror after verify failed for ${invoiceId} (SO ${id}):`,
+          syncErr?.message ?? syncErr,
+        );
+      }
+      const invoice = await loadInvoiceDocById(invoiceId);
       await writeGatcReportFromSalesOrder({
         soId: id,
         soData,
         invoiceId,
         invoiceNumber,
+        invoice,
+        source: 'portal_verify',
       });
     } catch (gatcErr) {
       console.warn(
@@ -1013,11 +1033,26 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
     const soSnap = await ref.get();
     const soData = soSnap.data() || data;
     try {
+      try {
+        await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
+          skipPdfs: true,
+          skipImages: true,
+          source: 'manual_invoice_mark',
+        });
+      } catch (syncErr) {
+        console.warn(
+          `Invoice mirror after manual mark failed for ${invoiceId} (SO ${id}):`,
+          syncErr?.message ?? syncErr,
+        );
+      }
+      const invoice = await loadInvoiceDocById(invoiceId);
       await writeGatcReportFromSalesOrder({
         soId: id,
         soData,
         invoiceId,
         invoiceNumber,
+        invoice,
+        source: 'manual_invoice_mark',
       });
     } catch (gatcErr) {
       console.warn(
