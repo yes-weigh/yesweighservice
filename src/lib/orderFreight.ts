@@ -66,6 +66,8 @@ export type OrderCourierOption = {
   /** Selectable (rates filled, or pickup). */
   enabled: boolean;
   disabledReason: string | null;
+  /** Quoted freight ₹ for this partner at this ship-from (set by cart estimate). */
+  estimatedTotalInr?: number;
 };
 
 /**

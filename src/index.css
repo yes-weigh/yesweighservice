@@ -13565,74 +13565,25 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: rgba(2, 6, 23, 0.28);
 }
 
-.order-freight-panel__zone-head {
-  display: flex;
+.order-freight-panel__zone--info {
+  flex-direction: row;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: 0.35rem 0.75rem;
 }
 
-.order-freight-panel__zone-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.order-freight-panel__zone-option {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 0.35rem;
-  margin: 0;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.45);
-  cursor: pointer;
-}
-
-.order-freight-panel__zone-option input {
-  margin-top: 0.15rem;
-  accent-color: #ff7a00;
-}
-
-.order-freight-panel__zone-option span {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.order-freight-panel__zone-option em {
-  font-style: normal;
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: #94a3b8;
-}
-
-.order-freight-panel__zone-option.is-selected {
-  border-color: rgba(255, 122, 0, 0.7);
-  background: rgba(255, 122, 0, 0.12);
-}
-
-.order-freight-panel__zone-reason {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+.order-freight-panel__zone--info strong {
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.02em;
 }
 
-.order-freight-panel__zone-reason textarea {
-  resize: vertical;
-  min-height: 3.25rem;
-  font-weight: 400;
-}
-
-.order-freight-panel__zone-reason-error {
-  color: #fbbf24;
-  font-weight: 500;
+.order-freight-panel__zone--info span {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e2e8f0;
 }
 
 .order-freight-panel__site {
@@ -13654,33 +13605,61 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .order-freight-panel__couriers {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .order-freight-panel__courier {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   margin: 0;
-  padding: 0.35rem 0.55rem;
+  padding: 0.55rem 0.7rem;
   border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(15, 23, 42, 0.35);
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
 }
 
 .order-freight-panel__courier input {
-  margin-top: 0.15rem;
+  flex-shrink: 0;
+  margin: 0;
   accent-color: #ff7a00;
 }
 
-.order-freight-panel__courier span {
+.order-freight-panel__courier-logo-wrap {
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.order-freight-panel__courier-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.order-freight-panel__courier-copy {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.order-freight-panel__courier-copy strong {
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
 .order-freight-panel__courier em {
@@ -13688,6 +13667,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.65rem;
   font-weight: 600;
   color: #94a3b8;
+}
+
+.order-freight-panel__courier-amt {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .order-freight-panel__courier.is-selected {
@@ -13733,6 +13719,19 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .order-freight-panel__line-main p {
   margin: 0.15rem 0 0;
+}
+
+.order-freight-panel__spare-names {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.order-freight-panel__spare-names li {
+  line-height: 1.3;
 }
 
 .order-freight-panel__line-amt {

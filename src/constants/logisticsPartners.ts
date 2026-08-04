@@ -35,6 +35,11 @@ export function logisticsPartnerLabel(id: LogisticsPartnerId | string): string {
   return LOGISTICS_PARTNERS.find(partner => partner.id === id)?.label ?? String(id);
 }
 
+export function logisticsPartnerImage(id: LogisticsPartnerId | string): string | null {
+  if (!isLogisticsPartnerId(id)) return null;
+  return LOGISTICS_PARTNERS.find(partner => partner.id === id)?.image ?? null;
+}
+
 export function isLogisticsPartnerId(id: string): id is LogisticsPartnerId {
   return LOGISTICS_PARTNER_IDS.includes(id as LogisticsPartnerId);
 }

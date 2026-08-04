@@ -7,10 +7,7 @@ import {
   type GatcStampingChoice,
 } from '../catalog/GatcStampingChoiceDialog';
 import { GatcStampingInlineControl } from '../catalog/GatcStampingInlineControl';
-import {
-  freightZoneOverrideReasonRequired,
-  OrderFreightPanel,
-} from '../orders/OrderFreightPanel';
+import { OrderFreightPanel } from '../orders/OrderFreightPanel';
 import { DocumentLineItemSpec } from '../invoices/DocumentLineItemSpec';
 import {
   FREIGHT_LINE_OPTIONS,
@@ -40,7 +37,6 @@ import {
 import { inferStCourierZone, type StCourierDestination } from '../../lib/stCourierZone';
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
-import type { StCourierZone } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 
 export interface DraftEditLine {
@@ -192,8 +188,6 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
-  const [freightZoneOverride, setFreightZoneOverride] = useState<StCourierZone | null>(null);
-  const [freightZoneOverrideReason, setFreightZoneOverrideReason] = useState('');
   const freightHydratedRef = useRef(false);
   const lastAutoFreightKeyRef = useRef('');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -253,16 +247,10 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     () => inferStCourierZone(shippingDestination),
     [shippingDestination],
   );
-  const selectedFreightZone = freightZoneOverride ?? inferredFreightZone;
-
-  useEffect(() => {
-    setFreightZoneOverride(null);
-    setFreightZoneOverrideReason('');
-  }, [inferredFreightZone]);
 
   const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
     if (!allowFreight || !courierRates || !deliveryRules || productLines.length === 0) return null;
-    if (!shippingDestination || !selectedFreightZone) return null;
+    if (!shippingDestination || !inferredFreightZone) return null;
     return estimateStCourierCartFreight({
       lines: cartLinesForFreightEstimate(productLines, catalogById),
       destination: shippingDestination,
@@ -270,7 +258,6 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       deliveryRules,
       spareFreightMinimumInr,
       courierBySite,
-      zoneOverride: selectedFreightZone,
     });
   }, [
     allowFreight,
@@ -281,7 +268,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     catalogById,
     shippingDestination,
     courierBySite,
-    selectedFreightZone,
+    inferredFreightZone,
   ]);
 
   const applyFreight = (sku: string | null, amountRaw: string) => {
@@ -545,15 +532,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={
-                saving
-                || productLines.length === 0
-                || freightZoneOverrideReasonRequired(
-                  freightEstimate,
-                  selectedFreightZone,
-                  freightZoneOverrideReason,
-                )
-              }
+              disabled={saving || productLines.length === 0}
               onClick={onSave}
             >
               {saving ? 'Saving…' : saveLabel}
@@ -804,24 +783,11 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       {allowFreight ? (
         <div className="so-draft-editor__freight">
           <h4 className="so-draft-editor__freight-title">Freight</h4>
-          {freightEstimate?.usable && selectedFreightZone ? (
+          {freightEstimate?.usable ? (
             <OrderFreightPanel
               estimate={freightEstimate}
               canEditPackage={canEditPackage}
               catalogById={catalogById}
-              selectedZone={selectedFreightZone}
-              zoneOverrideReason={freightZoneOverrideReason}
-              onZoneChange={zone => {
-                setFreightAmountManual(false);
-                lastAutoFreightKeyRef.current = '';
-                setFreightZoneOverride(
-                  zone === freightEstimate.inferredZone ? null : zone,
-                );
-                if (zone === freightEstimate.inferredZone) {
-                  setFreightZoneOverrideReason('');
-                }
-              }}
-              onZoneOverrideReasonChange={setFreightZoneOverrideReason}
               onCourierChange={(site, partnerId) => {
                 setFreightAmountManual(false);
                 lastAutoFreightKeyRef.current = '';

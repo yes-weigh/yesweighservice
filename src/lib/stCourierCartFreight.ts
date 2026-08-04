@@ -63,6 +63,8 @@ export type FreightLineBreakdown = {
   productId: string;
   sku: string | null;
   name: string | null;
+  /** Spare-minimum row: all spare product names covered by this charge. */
+  itemNames?: string[];
   quantity: number;
   masterCartonCount: number;
   singleBoxCount: number;
@@ -414,16 +416,33 @@ export function estimateStCourierCartFreight(input: {
       spareOnly: hasSpare && !hasProduct,
     });
 
+    const allParcels = acc.productLines.flatMap(row => row.parcels);
+
+    const quotePartnerTotal = (partnerId: LogisticsPartnerId): number => {
+      if (isPickupPartner(partnerId)) return 0;
+      const originRatesForPartner = partnerRates(input.rates, partnerId, site);
+      const quotedForPartner = originRatesForPartner && allParcels.length
+        ? quoteStCourierParcels({ zone, rates: originRatesForPartner, parcels: allParcels })
+        : null;
+      const productFreight = quotedForPartner?.quote.totalInr ?? 0;
+      const spareFreight = hasSpare ? Math.round(spareMin * 100) / 100 : 0;
+      return Math.round((productFreight + spareFreight) * 100) / 100;
+    };
+
+    const optionsWithTotals: OrderCourierOption[] = options.map(opt => ({
+      ...opt,
+      estimatedTotalInr: quotePartnerTotal(opt.partnerId),
+    }));
+
     const requested = input.courierBySite?.[site];
-    const selectedOpt = options.find(o => o.partnerId === requested && o.enabled)
-      ?? options.find(o => o.partnerId === defaultPartnerId && o.enabled)
-      ?? options.find(o => o.enabled)
-      ?? options[0];
+    const selectedOpt = optionsWithTotals.find(o => o.partnerId === requested && o.enabled)
+      ?? optionsWithTotals.find(o => o.partnerId === defaultPartnerId && o.enabled)
+      ?? optionsWithTotals.find(o => o.enabled)
+      ?? optionsWithTotals[0];
     const partnerId = selectedOpt?.partnerId ?? defaultPartnerId;
     const isPickup = isPickupPartner(partnerId);
     const originRates = partnerRates(input.rates, partnerId, site);
 
-    const allParcels = acc.productLines.flatMap(row => row.parcels);
     const quoted = !isPickup && originRates && allParcels.length
       ? quoteStCourierParcels({ zone, rates: originRates, parcels: allParcels })
       : null;
@@ -463,29 +482,30 @@ export function estimateStCourierCartFreight(input: {
       });
     }
 
-    for (const spare of acc.spareLines) {
-      lineBreakdowns.push({
-        productId: spare.productId,
-        sku: spare.sku?.trim() || null,
-        name: spare.name?.trim() || null,
-        quantity: spare.quantity,
-        masterCartonCount: 0,
-        singleBoxCount: 0,
-        missingUnits: 0,
-        chargeableKg: 0,
-        amountInr: 0,
-        indication: 'spare_default',
-      });
-    }
-
     const spareFreightInr = !isPickup && hasSpare
       ? Math.round(spareMin * 100) / 100
       : 0;
 
-    // Attach spare default amount to first spare breakdown row for display
-    if (spareFreightInr > 0) {
-      const firstSpare = lineBreakdowns.find(b => b.indication === 'spare_default');
-      if (firstSpare) firstSpare.amountInr = spareFreightInr;
+    // One row per site: all spare names against the single spare-minimum charge.
+    if (acc.spareLines.length > 0) {
+      const itemNames = acc.spareLines.map(spare => {
+        const label = spare.name?.trim() || spare.sku?.trim();
+        return label || 'Spare';
+      });
+      const quantity = acc.spareLines.reduce((sum, spare) => sum + Math.max(0, Number(spare.quantity) || 0), 0);
+      lineBreakdowns.push({
+        productId: acc.spareLines[0].productId,
+        sku: null,
+        name: itemNames.join(', '),
+        itemNames,
+        quantity,
+        masterCartonCount: 0,
+        singleBoxCount: 0,
+        missingUnits: 0,
+        chargeableKg: 0,
+        amountInr: spareFreightInr,
+        indication: 'spare_default',
+      });
     }
 
     const indications: string[] = [];
@@ -512,7 +532,7 @@ export function estimateStCourierCartFreight(input: {
       hasSpare,
       partnerId,
       partnerLabel: logisticsPartnerLabel(partnerId),
-      courierOptions: options,
+      courierOptions: optionsWithTotals,
       isPickup,
       zone,
       zoneLabel: ST_COURIER_ZONE_LABELS[zone],

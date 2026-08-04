@@ -242,8 +242,8 @@ const LayoutShell: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
+  // Keep cart fly target even when pages inject topBarAction (e.g. spare filters/sync).
   const showCartFlyTarget = canUseOrderCart(user)
-    && !topBarAction
     && !/\/warranty-support(\/|$)/.test(location.pathname);
 
   useEffect(() => {
@@ -605,7 +605,8 @@ const LayoutShell: React.FC = () => {
                 {getAppVersionLabel()}
               </span>
             ) : null}
-            {topBarAction ?? (showCartFlyTarget && (
+            {topBarAction}
+            {showCartFlyTarget ? (
               <button
                 ref={cartBtnRef}
                 id="cart-fly-target"
@@ -620,7 +621,7 @@ const LayoutShell: React.FC = () => {
                   <span className="cart-header-btn__badge">{itemCount > 99 ? '99+' : itemCount}</span>
                 )}
               </button>
-            ))}
+            ) : null}
           </div>
           )}
           </div>

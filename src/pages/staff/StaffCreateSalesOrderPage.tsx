@@ -27,10 +27,7 @@ import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesO
 import { ThemeSelect } from '../../components/ThemeSelect';
 import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
-import {
-  freightZoneOverrideReasonRequired,
-  OrderFreightPanel,
-} from '../../components/orders/OrderFreightPanel';
+import { OrderFreightPanel } from '../../components/orders/OrderFreightPanel';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
@@ -40,11 +37,8 @@ import {
   estimateStCourierCartFreight,
   type StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
-import { appendFreightZoneOverrideRemark, inferStCourierZone } from '../../lib/stCourierZone';
-import type {
-  LogisticsCourierRates,
-  StCourierZone,
-} from '../../types/logistics-courier-rates';
+import { inferStCourierZone } from '../../lib/stCourierZone';
+import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useAuth } from '../../context/AuthContext';
@@ -291,8 +285,6 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
-  const [freightZoneOverride, setFreightZoneOverride] = useState<StCourierZone | null>(null);
-  const [freightZoneOverrideReason, setFreightZoneOverrideReason] = useState('');
 
   const activeSegments = allowedSegments;
 
@@ -465,16 +457,10 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     () => inferStCourierZone(shippingDestination),
     [shippingDestination],
   );
-  const selectedFreightZone = freightZoneOverride ?? inferredFreightZone;
-
-  useEffect(() => {
-    setFreightZoneOverride(null);
-    setFreightZoneOverrideReason('');
-  }, [inferredFreightZone]);
 
   const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
     if (!freightAllowed || !courierRates || !deliveryRules || lines.length === 0) return null;
-    if (!shippingDestination || !selectedFreightZone) return null;
+    if (!shippingDestination || !inferredFreightZone) return null;
     return estimateStCourierCartFreight({
       lines: cartLinesForFreightEstimate(lines, catalogById),
       destination: shippingDestination,
@@ -482,7 +468,6 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       deliveryRules,
       spareFreightMinimumInr,
       courierBySite,
-      zoneOverride: selectedFreightZone,
     });
   }, [
     freightAllowed,
@@ -493,7 +478,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     shippingDestination,
     catalogById,
     courierBySite,
-    selectedFreightZone,
+    inferredFreightZone,
   ]);
 
   const segmentPreview = useMemo(() => summarizeSegmentSiteBuckets(submitLines), [submitLines]);
@@ -988,25 +973,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         return;
       }
     }
-    if (freightAllowed && freightZoneOverrideReasonRequired(
-      freightEstimate,
-      selectedFreightZone,
-      freightZoneOverrideReason,
-    )) {
-      setError('Enter a reason for changing the freight charge plan.');
-      return;
-    }
     setSaving(true);
     setError('');
     try {
-      const remarksWithZone = freightAllowed && freightEstimate && selectedFreightZone
-        ? appendFreightZoneOverrideRemark(
-          cartRemarks,
-          freightEstimate.inferredZone,
-          selectedFreightZone,
-          freightZoneOverrideReason,
-        )
-        : cartRemarks.trim();
       const result = await createStaffSalesOrder({
         zohoCustomerId: selectedDealer.id,
         lines: submitLines.map(line => ({
@@ -1017,14 +986,11 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         })),
         shipping,
         stage,
-        remarks: remarksWithZone,
+        remarks: cartRemarks.trim(),
         courierBySite: Object.fromEntries(
           (freightEstimate?.sites ?? []).map(site => [site.site, site.partnerId]),
         ),
-        ...(selectedFreightZone ? { freightZone: selectedFreightZone } : {}),
-        ...(freightEstimate?.zoneOverridden
-          ? { freightZoneOverrideReason: freightZoneOverrideReason.trim() }
-          : {}),
+        ...(inferredFreightZone ? { freightZone: inferredFreightZone } : {}),
         ...(needsSalespersonPicker
           ? { salespersonId: salespersonId.trim() }
           : {}),
@@ -1032,8 +998,6 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       clearCart();
       setRateOverrides({});
       setCourierBySite({});
-      setFreightZoneOverride(null);
-      setFreightZoneOverrideReason('');
       const salesOrders = Array.isArray(result.salesOrders) && result.salesOrders.length > 0
         ? result.salesOrders
         : (result.zohoSalesOrderId
@@ -1607,23 +1571,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           {freightAllowed ? (
             <section className="panel glass staff-create-so-page__section">
               <h2>Freight</h2>
-              {freightEstimate?.usable && selectedFreightZone ? (
+              {freightEstimate?.usable ? (
                 <>
                   <OrderFreightPanel
                     estimate={freightEstimate}
                     canEditPackage
                     catalogById={catalogById}
-                    selectedZone={selectedFreightZone}
-                    zoneOverrideReason={freightZoneOverrideReason}
-                    onZoneChange={zone => {
-                      setFreightZoneOverride(
-                        zone === freightEstimate.inferredZone ? null : zone,
-                      );
-                      if (zone === freightEstimate.inferredZone) {
-                        setFreightZoneOverrideReason('');
-                      }
-                    }}
-                    onZoneOverrideReasonChange={setFreightZoneOverrideReason}
                     onCourierChange={(site, partnerId) => {
                       setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
                     }}
@@ -1643,7 +1596,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 <p className="text-muted text-sm">
                   {shipping
                     ? 'Freight will calculate once items and destination rates are available.'
-                    : 'Select a shipping address to see freight charge plan and courier options.'}
+                    : 'Select a shipping address to see freight and courier options.'}
                 </p>
               )}
             </section>
@@ -1671,15 +1624,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-secondary"
-                disabled={
-                  saving
-                  || !canSubmit
-                  || freightZoneOverrideReasonRequired(
-                    freightEstimate,
-                    selectedFreightZone,
-                    freightZoneOverrideReason,
-                  )
-                }
+                disabled={saving || !canSubmit}
                 onClick={() => void save('review')}
               >
                 {saving ? 'Saving…' : 'Save as draft'}
@@ -1687,15 +1632,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={
-                  saving
-                  || !canSubmit
-                  || freightZoneOverrideReasonRequired(
-                    freightEstimate,
-                    selectedFreightZone,
-                    freightZoneOverrideReason,
-                  )
-                }
+                disabled={saving || !canSubmit}
                 onClick={() => void save('ready_for_payment')}
               >
                 {saving ? 'Saving…' : 'Ready for payment'}
