@@ -82,10 +82,18 @@ export const GatcReportTab: React.FC = () => {
     setNotice('');
     try {
       const result = await backfillGatcReportsFromInvoices();
+      const soScan = Number(result.scannedSalesOrders) || 0;
+      const soIndexed = Number(result.soIndexed ?? result.soFallbackWrote) || 0;
       setNotice(
         `Indexed ${result.wrote.toLocaleString('en-IN')} stamped invoice`
         + `${result.wrote === 1 ? '' : 's'}`
-        + ` from ${result.scannedInvoices.toLocaleString('en-IN')} scanned`
+        + ` (${soIndexed.toLocaleString('en-IN')} from portal SOs`
+        + (result.invoiceJoinIndexed
+          ? `, ${result.invoiceJoinIndexed.toLocaleString('en-IN')} from invoice join`
+          : '')
+        + `)`
+        + ` · scanned ${soScan.toLocaleString('en-IN')} SOs`
+        + ` / ${result.scannedInvoices.toLocaleString('en-IN')} invoices`
         + (result.deletedZero
           ? ` · removed ${result.deletedZero.toLocaleString('en-IN')} zero-fee rows`
           : '')

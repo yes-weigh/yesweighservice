@@ -2212,8 +2212,8 @@ export const backfillInvoiceStatsAndSummariesFn = onCall(
 );
 
 /**
- * Rebuild gatcReports from mirrored invoices (join SO yesOneGatcLines for fee splits).
- * Super admin only. Removes legacy non-stamping report docs.
+ * Rebuild gatcReports from portal SOs with zohoInvoiceId + stamping,
+ * then invoices that still carry salesOrderId. Super admin only.
  */
 export const backfillGatcReportsFromInvoicesFn = onCall(
   {

@@ -257,16 +257,31 @@ export async function writeGatcReportFromSalesOrder({
 
 /**
  * After an invoice mirror upsert: join linked SO and index stamped GATC fees.
+ * When salesOrderId is missing (org sync), resolve portal SO by zohoInvoiceId.
  */
 export async function maybeWriteGatcReportAfterInvoiceUpsert(invoice) {
   const invId = String(invoice?.id || invoice?.invoiceId || '').trim();
   if (!invId) return null;
-  const soId = String(invoice?.salesOrderId || '').trim();
-  if (!soId) return null;
 
-  const soSnap = await getFirestore().doc(`${SALES_ORDERS}/${soId}`).get();
-  if (!soSnap.exists) return null;
-  const soData = soSnap.data() || {};
+  const db = getFirestore();
+  let soId = String(invoice?.salesOrderId || '').trim();
+  let soData = null;
+
+  if (soId) {
+    const soSnap = await db.doc(`${SALES_ORDERS}/${soId}`).get();
+    if (soSnap.exists) soData = soSnap.data() || {};
+  }
+
+  if (!soData) {
+    const byInv = await db.collection(SALES_ORDERS)
+      .where('zohoInvoiceId', '==', invId)
+      .limit(1)
+      .get();
+    if (byInv.empty) return null;
+    soId = byInv.docs[0].id;
+    soData = byInv.docs[0].data() || {};
+  }
+
   return writeGatcReportForInvoice({
     invoice: { id: invId, ...invoice },
     invoiceId: invId,
@@ -277,8 +292,11 @@ export async function maybeWriteGatcReportAfterInvoiceUpsert(invoice) {
 }
 
 /**
- * Rebuild gatcReports from mirrored invoices (+ SO yesOneGatcLines).
- * Also removes legacy non-stamping report docs.
+ * Rebuild gatcReports from portal SOs that already have a Zoho invoice id
+ * (+ refresh header from mirrored invoice when present).
+ *
+ * Note: most org-synced invoices have salesOrderId=null, so scanning invoices
+ * alone rarely finds stamping. Portal SOs with zohoInvoiceId are the source of truth.
  */
 export async function backfillGatcReportsFromInvoices({
   dryRun = false,
@@ -287,10 +305,14 @@ export async function backfillGatcReportsFromInvoices({
   const db = getFirestore();
   const size = Math.max(50, Math.min(500, Number(pageSize) || 200));
 
+  let scannedSalesOrders = 0;
   let scannedInvoices = 0;
   let wrote = 0;
-  let skippedNoSo = 0;
+  let soIndexed = 0;
+  let invoiceJoinIndexed = 0;
+  let skippedNoInvoice = 0;
   let skippedNoStamping = 0;
+  let skippedNoSo = 0;
   let skippedMissingSo = 0;
   let deletedZero = 0;
   let errors = 0;
@@ -312,6 +334,61 @@ export async function backfillGatcReportsFromInvoices({
     if (snap.size < size) break;
   }
 
+  /** @type {Map<string, { soId: string, soData: object }>} */
+  const stampedByInvoiceId = new Map();
+
+  // Primary: portal sales orders that were invoiced with stamping meta.
+  let lastSoDoc = null;
+  for (;;) {
+    let q = db.collection(SALES_ORDERS).limit(size);
+    if (lastSoDoc) q = q.startAfter(lastSoDoc);
+    const snap = await q.get();
+    if (snap.empty) break;
+    lastSoDoc = snap.docs[snap.docs.length - 1];
+
+    for (const doc of snap.docs) {
+      scannedSalesOrders += 1;
+      const soData = doc.data() || {};
+      const invId = String(soData.zohoInvoiceId || '').trim();
+      if (!invId) {
+        skippedNoInvoice += 1;
+        continue;
+      }
+      const lines = mapGatcReportLineItems(soData.yesOneGatcLines);
+      if (!lines.some(line => line.hasStamping)) {
+        skippedNoStamping += 1;
+        continue;
+      }
+      stampedByInvoiceId.set(invId, { soId: doc.id, soData });
+    }
+    if (snap.size < size) break;
+  }
+
+  for (const [invId, { soId, soData }] of stampedByInvoiceId) {
+    try {
+      const invoice = await loadInvoiceDocById(invId);
+      if (!dryRun) {
+        await writeGatcReportForInvoice({
+          invoice,
+          invoiceId: invId,
+          invoiceNumber: soData.zohoInvoiceNumber || invoice?.invoiceNumber || null,
+          soId,
+          soData,
+          source: invoice ? 'backfill_invoice' : 'backfill_so',
+        });
+      }
+      soIndexed += 1;
+      wrote += 1;
+    } catch (err) {
+      errors += 1;
+      console.warn(
+        `backfillGatcReportsFromInvoices: SO ${soId} → invoice ${invId}:`,
+        err?.message || err,
+      );
+    }
+  }
+
+  // Secondary: invoices that still carry salesOrderId (webhook / non-skip sync).
   let lastInvoiceDoc = null;
   for (;;) {
     let q = db.collectionGroup('invoices').limit(size);
@@ -322,6 +399,7 @@ export async function backfillGatcReportsFromInvoices({
 
     for (const doc of snap.docs) {
       scannedInvoices += 1;
+      if (stampedByInvoiceId.has(doc.id)) continue;
       const invoice = { id: doc.id, ...(doc.data() || {}) };
       const soId = String(invoice.salesOrderId || '').trim();
       if (!soId) {
@@ -349,6 +427,7 @@ export async function backfillGatcReportsFromInvoices({
             source: 'backfill_invoice',
           });
         }
+        invoiceJoinIndexed += 1;
         wrote += 1;
       } catch (err) {
         errors += 1;
@@ -362,48 +441,15 @@ export async function backfillGatcReportsFromInvoices({
     if (snap.size < size) break;
   }
 
-  // Fallback: completed portal SOs with invoice id when invoice mirror lacks salesOrderId.
-  const soSnap = await db.collection(SALES_ORDERS)
-    .where('yesOneStage', '==', 'completed')
-    .get();
-
-  let soFallbackWrote = 0;
-  for (const doc of soSnap.docs) {
-    const soData = doc.data() || {};
-    const invId = String(soData.zohoInvoiceId || '').trim();
-    if (!invId) continue;
-    const lines = mapGatcReportLineItems(soData.yesOneGatcLines);
-    if (!lines.some(line => line.hasStamping)) continue;
-    const existing = await db.doc(`${GATC_REPORTS}/${invId}`).get();
-    if (existing.exists && existing.data()?.hasStamping) continue;
-    try {
-      const invoice = await loadInvoiceDocById(invId);
-      if (!dryRun) {
-        await writeGatcReportForInvoice({
-          invoice,
-          invoiceId: invId,
-          invoiceNumber: soData.zohoInvoiceNumber || null,
-          soId: doc.id,
-          soData,
-          source: invoice ? 'backfill_invoice' : 'backfill_so',
-        });
-      }
-      soFallbackWrote += 1;
-      wrote += 1;
-    } catch (err) {
-      errors += 1;
-      console.warn(
-        `backfillGatcReportsFromInvoices: SO fallback ${doc.id}:`,
-        err?.message || err,
-      );
-    }
-  }
-
   return {
     dryRun: Boolean(dryRun),
+    scannedSalesOrders,
     scannedInvoices,
     wrote,
-    soFallbackWrote,
+    soIndexed,
+    invoiceJoinIndexed,
+    soFallbackWrote: soIndexed,
+    skippedNoInvoice,
     skippedNoSo,
     skippedNoStamping,
     skippedMissingSo,

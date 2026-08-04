@@ -151,9 +151,13 @@ export async function backfillGatcReportsFromInvoices(options?: {
   dryRun?: boolean;
 }): Promise<{
   dryRun: boolean;
+  scannedSalesOrders: number;
   scannedInvoices: number;
   wrote: number;
+  soIndexed: number;
+  invoiceJoinIndexed: number;
   soFallbackWrote: number;
+  skippedNoInvoice: number;
   skippedNoSo: number;
   skippedNoStamping: number;
   skippedMissingSo: number;
@@ -164,9 +168,13 @@ export async function backfillGatcReportsFromInvoices(options?: {
     { dryRun?: boolean },
     {
       dryRun: boolean;
+      scannedSalesOrders: number;
       scannedInvoices: number;
       wrote: number;
+      soIndexed: number;
+      invoiceJoinIndexed: number;
       soFallbackWrote: number;
+      skippedNoInvoice: number;
       skippedNoSo: number;
       skippedNoStamping: number;
       skippedMissingSo: number;
