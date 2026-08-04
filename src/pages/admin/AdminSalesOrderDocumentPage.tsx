@@ -723,6 +723,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                     loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
                   }
                 }}
+                allowManage
+                customerId={salesOrder.customerId || undefined}
               />
               <div className="so-detail__ship-edit-actions">
                 <button

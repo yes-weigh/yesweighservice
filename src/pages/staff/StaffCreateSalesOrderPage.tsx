@@ -1229,6 +1229,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 value={shipping}
                 onChange={setShipping}
                 onRefresh={() => void loadAddresses(selectedDealer.id)}
+                allowManage
+                customerId={selectedDealer.id}
               />
             </div>
           ) : null}

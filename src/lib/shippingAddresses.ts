@@ -126,6 +126,90 @@ export async function addCustomerShippingAddress(
   }
 }
 
+export async function updateDealerShippingAddress(input: {
+  addressId?: string | null;
+  kind?: string | null;
+  address: NewShippingAddressInput;
+}): Promise<ShippingAddress> {
+  try {
+    const res = await call<typeof input, { address: ShippingAddress }>(
+      'updateDealerShippingAddress',
+      input,
+    );
+    return res.address;
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function deleteDealerShippingAddress(addressId: string): Promise<void> {
+  try {
+    await call<{ addressId: string }, { deleted?: boolean }>(
+      'deleteDealerShippingAddress',
+      { addressId },
+    );
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function updateCustomerShippingAddress(
+  customerId: string,
+  input: {
+    addressId?: string | null;
+    kind?: string | null;
+    address: NewShippingAddressInput;
+  },
+): Promise<ShippingAddress> {
+  try {
+    const res = await call<
+      { customerId: string } & typeof input,
+      { address: ShippingAddress }
+    >('updateCustomerShippingAddress', { customerId, ...input });
+    return res.address;
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function deleteCustomerShippingAddress(
+  customerId: string,
+  addressId: string,
+): Promise<void> {
+  try {
+    await call<{ customerId: string; addressId: string }, { deleted?: boolean }>(
+      'deleteCustomerShippingAddress',
+      { customerId, addressId },
+    );
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export function shippingAddressToForm(addr: ShippingAddress): NewShippingAddressInput {
+  return {
+    attention: addr.attention?.trim() || '',
+    address: addr.address?.trim() || '',
+    street2: addr.street2?.trim() || '',
+    city: addr.city?.trim() || '',
+    state: addr.state?.trim() || '',
+    zip: addr.zip?.trim() || '',
+    country: addr.country?.trim() || 'India',
+    phone: addr.phone?.trim() || '',
+  };
+}
+
+/** Saved Zoho additional addresses can be deleted; billing/default shipping cannot. */
+export function canDeleteShippingAddress(addr: ShippingAddress): boolean {
+  return Boolean(addr.addressId?.trim());
+}
+
+export function canEditShippingAddress(addr: ShippingAddress): boolean {
+  return Boolean(addr.addressId?.trim())
+    || addr.kind === 'billing'
+    || addr.kind === 'shipping';
+}
+
 export function shippingSelectionPayload(selection: ShippingSelection): {
   addressId?: string;
   kind?: string;

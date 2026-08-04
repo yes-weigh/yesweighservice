@@ -496,6 +496,7 @@ const DealerCartPage: React.FC = () => {
             value={shipping}
             onChange={setShipping}
             onRefresh={loadAddresses}
+            allowManage
           />
           {freightEstimate?.usable ? (
             <>

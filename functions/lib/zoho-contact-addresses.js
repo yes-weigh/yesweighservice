@@ -353,6 +353,137 @@ export async function addAddressForUser(uid, role, secrets, orgId, rawAddress) {
   return addContactAddress(secrets, orgId, customerId, rawAddress);
 }
 
+async function clearCachedAddresses(contactId) {
+  try {
+    await getFirestore().collection('zohoCustomers').doc(contactId).set({
+      zohoAddresses: [],
+      zohoAddressesSyncedAt: new Date().toISOString(),
+    }, { merge: true });
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Update an additional contact address (has address_id) via Zoho Address API.
+ * Billing / default shipping (no id) update the contact's billing_address / shipping_address.
+ */
+export async function updateContactAddress(
+  secrets,
+  configuredOrgId,
+  customerId,
+  {
+    addressId = null,
+    kind = null,
+    address = {},
+  } = {},
+) {
+  const contactId = String(customerId || '').trim();
+  if (!contactId) throw new HttpsError('invalid-argument', 'customerId is required.');
+  const addr = normalizeAddressInput(address);
+  assertCompleteAddress(addr);
+
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const id = String(addressId || '').trim();
+  const kindKey = String(kind || '').trim();
+
+  if (id) {
+    await zohoJson(accessToken, orgId, `/contacts/${contactId}/address/${id}`, {
+      method: 'PUT',
+      body: {
+        attention: addr.attention,
+        address: addr.address,
+        street2: addr.street2 || '',
+        city: addr.city,
+        state: addr.state,
+        zip: addr.zip,
+        country: addr.country,
+        phone: addr.phone,
+      },
+    });
+    await clearCachedAddresses(contactId);
+    const listed = await listContactAddressesForCustomer(secrets, configuredOrgId, contactId);
+    const found = listed.addresses.find(a => a.addressId === id);
+    if (found) return found;
+    return mapAddressRow({ ...addr, address_id: id }, { kind: 'additional', label: 'Saved address' });
+  }
+
+  if (kindKey !== 'billing' && kindKey !== 'shipping') {
+    throw new HttpsError(
+      'invalid-argument',
+      'addressId is required to update a saved address (or pass kind billing/shipping).',
+    );
+  }
+
+  const contactField = kindKey === 'billing' ? 'billing_address' : 'shipping_address';
+  await zohoJson(accessToken, orgId, `/contacts/${contactId}`, {
+    method: 'PUT',
+    body: {
+      [contactField]: {
+        attention: addr.attention,
+        address: addr.address,
+        street2: addr.street2 || '',
+        city: addr.city,
+        state: addr.state,
+        zip: addr.zip,
+        country: addr.country,
+        phone: addr.phone,
+      },
+    },
+  });
+  await clearCachedAddresses(contactId);
+  const listed = await listContactAddressesForCustomer(secrets, configuredOrgId, contactId);
+  const found = listed.addresses.find(a => a.kind === kindKey);
+  if (found) return found;
+  return mapAddressRow(addr, {
+    kind: kindKey,
+    label: kindKey === 'billing' ? 'Billing address' : 'Default shipping',
+  });
+}
+
+/** Delete an additional contact address. Billing / default shipping cannot be deleted. */
+export async function deleteContactAddress(
+  secrets,
+  configuredOrgId,
+  customerId,
+  addressId,
+) {
+  const contactId = String(customerId || '').trim();
+  const id = String(addressId || '').trim();
+  if (!contactId) throw new HttpsError('invalid-argument', 'customerId is required.');
+  if (!id) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Only saved (additional) addresses can be deleted. Billing and default shipping cannot be removed here.',
+    );
+  }
+
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  await zohoJson(accessToken, orgId, `/contacts/${contactId}/address/${id}`, {
+    method: 'DELETE',
+  });
+  await clearCachedAddresses(contactId);
+  return { deleted: true, addressId: id };
+}
+
+export async function updateAddressForUser(uid, role, secrets, orgId, payload) {
+  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+  if (!customerId) {
+    throw new HttpsError('failed-precondition', 'No Zoho customer is linked to this account.');
+  }
+  return updateContactAddress(secrets, orgId, customerId, payload);
+}
+
+export async function deleteAddressForUser(uid, role, secrets, orgId, addressId) {
+  const customerId = await resolveZohoCustomerIdForUser(uid, role);
+  if (!customerId) {
+    throw new HttpsError('failed-precondition', 'No Zoho customer is linked to this account.');
+  }
+  return deleteContactAddress(secrets, orgId, customerId, addressId);
+}
+
 /**
  * Resolve a selectable address into a Zoho shipping_address_id.
  * For billing/shipping defaults without id, returns null and caller may pass inline shipping_address.

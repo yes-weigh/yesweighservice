@@ -1,8 +1,15 @@
 import React, { useEffect, useId, useMemo, useState } from 'react';
-import { ChevronDown, Loader2, MapPin, Plus } from 'lucide-react';
+import { ChevronDown, Loader2, MapPin, Pencil, Plus, Trash2 } from 'lucide-react';
 import { lookupDealerPincode } from '../../lib/dealers';
 import {
   EMPTY_NEW_ADDRESS,
+  canDeleteShippingAddress,
+  canEditShippingAddress,
+  deleteCustomerShippingAddress,
+  deleteDealerShippingAddress,
+  shippingAddressToForm,
+  updateCustomerShippingAddress,
+  updateDealerShippingAddress,
   type NewShippingAddressInput,
   type ShippingAddress,
   type ShippingSelection,
@@ -17,6 +24,16 @@ type ShippingAddressPickerProps = {
   value: ShippingSelection | null;
   onChange: (next: ShippingSelection | null) => void;
   onRefresh?: () => void;
+  /** Show edit / delete on address cards (dealer cart + staff when managing a customer). */
+  allowManage?: boolean;
+  /** When set with allowManage, use staff customer address APIs. */
+  customerId?: string;
+};
+
+type EditTarget = {
+  addressId: string | null;
+  kind: string;
+  label: string;
 };
 
 function selectionKey(sel: ShippingSelection | null): string {
@@ -41,6 +58,19 @@ function formatNewAddressPreview(draft: NewShippingAddressInput): string {
   ].filter(Boolean).join('\n') || 'Fill in the new address below';
 }
 
+function trimAddressInput(next: NewShippingAddressInput): NewShippingAddressInput {
+  return {
+    attention: next.attention.trim(),
+    address: next.address.trim(),
+    street2: next.street2?.trim() || '',
+    city: next.city.trim(),
+    state: next.state.trim(),
+    zip: next.zip.trim(),
+    country: next.country.trim() || 'India',
+    phone: next.phone.trim(),
+  };
+}
+
 export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
   addresses,
   loading = false,
@@ -49,27 +79,36 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
   value,
   onChange,
   onRefresh,
+  allowManage = false,
+  customerId,
 }) => {
   const radioName = useId();
   const [expanded, setExpanded] = useState(false);
   const [showNew, setShowNew] = useState(value?.mode === 'new');
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [draft, setDraft] = useState<NewShippingAddressInput>(
     value?.mode === 'new' ? value.newAddress : EMPTY_NEW_ADDRESS,
   );
   const [formError, setFormError] = useState('');
   const [lookingUpPin, setLookingUpPin] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+
+  const editing = Boolean(editTarget);
+  const formOpen = showNew || editing;
 
   useEffect(() => {
-    if (value?.mode === 'new') {
+    if (value?.mode === 'new' && !editTarget) {
       setShowNew(true);
       setDraft(value.newAddress);
       setExpanded(true);
     }
-  }, [value]);
+  }, [value, editTarget]);
 
   // Default to first shipping, else first address, once loaded.
   useEffect(() => {
-    if (value || loading || !addresses.length || showNew) return;
+    if (value || loading || !addresses.length || formOpen) return;
     const preferred = addresses.find(a => a.kind === 'shipping')
       || addresses.find(a => a.addressId)
       || addresses[0];
@@ -79,47 +118,54 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
     } else if (preferred.kind === 'billing' || preferred.kind === 'shipping') {
       onChange({ mode: 'kind', kind: preferred.kind });
     }
-  }, [addresses, loading, value, showNew, onChange]);
+  }, [addresses, loading, value, formOpen, onChange]);
 
   const selectedKey = selectionKey(value);
 
-  const options = useMemo(() => addresses.filter(a => a.formatted || a.address), [addresses]);
+  const options = useMemo(
+    () => addresses.filter(a => (a.formatted || a.address) && Boolean(a.zip?.trim())),
+    [addresses],
+  );
 
   const selectedAddress = useMemo(() => {
-    if (showNew || value?.mode === 'new') return null;
+    if (formOpen) return null;
     return options.find(addr => addressOptionKey(addr) === selectedKey) ?? null;
-  }, [options, selectedKey, showNew, value?.mode]);
+  }, [options, selectedKey, formOpen]);
 
-  const summaryLabel = showNew || value?.mode === 'new'
+  const summaryLabel = showNew && !editing
     ? 'New shipping address'
-    : selectedAddress?.label || (loading ? 'Loading…' : 'No address selected');
+    : editing
+      ? `Edit ${editTarget?.label || 'address'}`
+      : selectedAddress?.label || (loading ? 'Loading…' : 'No address selected');
 
-  const summaryText = showNew || value?.mode === 'new'
+  const summaryText = showNew && !editing
     ? formatNewAddressPreview(draft)
-    : selectedAddress?.formatted || selectedAddress?.address || (
-      loading ? 'Loading addresses…' : 'Choose a shipping address'
-    );
+    : editing
+      ? formatNewAddressPreview(draft)
+      : selectedAddress?.formatted || selectedAddress?.address || (
+        loading ? 'Loading addresses…' : 'Choose a shipping address'
+      );
 
-  const updateDraft = (patch: Partial<NewShippingAddressInput>) => {
-    const next = { ...draft, ...patch };
-    setDraft(next);
+  const bumpNewSelection = (next: NewShippingAddressInput) => {
     setFormError('');
     const err = validateNewShippingAddress(next);
     if (!err) {
-      onChange({ mode: 'new', newAddress: {
-        attention: next.attention.trim(),
-        address: next.address.trim(),
-        street2: next.street2?.trim() || '',
-        city: next.city.trim(),
-        state: next.state.trim(),
-        zip: next.zip.trim(),
-        country: next.country.trim() || 'India',
-        phone: next.phone.trim(),
-      } });
+      onChange({ mode: 'new', newAddress: trimAddressInput(next) });
     } else {
       onChange(null);
       setFormError(err);
     }
+  };
+
+  const updateDraft = (patch: Partial<NewShippingAddressInput>) => {
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    setActionError('');
+    if (editing) {
+      setFormError(validateNewShippingAddress(next) || '');
+      return;
+    }
+    bumpNewSelection(next);
   };
 
   const handlePinBlur = async () => {
@@ -138,7 +184,9 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
 
   const selectSaved = (addr: ShippingAddress) => {
     setShowNew(false);
+    setEditTarget(null);
     setFormError('');
+    setActionError('');
     if (addr.addressId) {
       onChange({ mode: 'saved', addressId: addr.addressId });
     } else if (addr.kind === 'billing' || addr.kind === 'shipping') {
@@ -146,6 +194,99 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
     }
     setExpanded(false);
   };
+
+  const startEdit = (addr: ShippingAddress) => {
+    if (!canEditShippingAddress(addr)) return;
+    setShowNew(false);
+    setEditTarget({
+      addressId: addr.addressId,
+      kind: addr.kind,
+      label: addr.label,
+    });
+    setDraft(shippingAddressToForm(addr));
+    setFormError('');
+    setActionError('');
+    setExpanded(true);
+  };
+
+  const cancelForm = () => {
+    setShowNew(false);
+    setEditTarget(null);
+    setDraft(EMPTY_NEW_ADDRESS);
+    setFormError('');
+    setActionError('');
+    if (value?.mode === 'new') onChange(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editTarget) return;
+    const err = validateNewShippingAddress(draft);
+    if (err) {
+      setFormError(err);
+      return;
+    }
+    const address = trimAddressInput(draft);
+    setSaving(true);
+    setActionError('');
+    try {
+      const payload = {
+        addressId: editTarget.addressId,
+        kind: editTarget.addressId ? null : editTarget.kind,
+        address,
+      };
+      const updated = customerId
+        ? await updateCustomerShippingAddress(customerId, payload)
+        : await updateDealerShippingAddress(payload);
+
+      setEditTarget(null);
+      setDraft(EMPTY_NEW_ADDRESS);
+      setFormError('');
+      if (updated.addressId) {
+        onChange({ mode: 'saved', addressId: updated.addressId });
+      } else if (updated.kind === 'billing' || updated.kind === 'shipping') {
+        onChange({ mode: 'kind', kind: updated.kind });
+      }
+      onRefresh?.();
+      setExpanded(false);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Could not update address.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeAddress = async (addr: ShippingAddress) => {
+    const id = addr.addressId?.trim();
+    if (!id || !canDeleteShippingAddress(addr)) return;
+    const ok = window.confirm(
+      `Delete this saved address?\n\n${addr.formatted || addr.address || 'Address'}`,
+    );
+    if (!ok) return;
+
+    setDeletingId(id);
+    setActionError('');
+    try {
+      if (customerId) {
+        await deleteCustomerShippingAddress(customerId, id);
+      } else {
+        await deleteDealerShippingAddress(id);
+      }
+      if (value?.mode === 'saved' && value.addressId === id) {
+        onChange(null);
+      }
+      if (editTarget?.addressId === id) {
+        setEditTarget(null);
+        setDraft(EMPTY_NEW_ADDRESS);
+      }
+      onRefresh?.();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Could not delete address.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const formBusy = disabled || saving || Boolean(deletingId);
 
   return (
     <div className={`ship-addr-picker${disabled ? ' is-disabled' : ''}${expanded ? ' is-expanded' : ''}`}>
@@ -158,7 +299,7 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            disabled={disabled || loading}
+            disabled={formBusy || loading}
             onClick={onRefresh}
           >
             Refresh
@@ -166,13 +307,14 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
         ) : null}
       </div>
 
-      {loading && !selectedAddress && !showNew ? (
+      {loading && !selectedAddress && !formOpen ? (
         <p className="ship-addr-picker__status text-muted text-sm">
           <Loader2 size={14} className="spin-icon" aria-hidden />
           Loading addresses…
         </p>
       ) : null}
       {error ? <p className="ship-addr-picker__error text-sm">{error}</p> : null}
+      {actionError ? <p className="ship-addr-picker__error text-sm">{actionError}</p> : null}
 
       {!expanded ? (
         <button
@@ -194,75 +336,126 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
       ) : (
         <>
           <div className="ship-addr-picker__expanded-bar">
-            <span className="text-muted text-sm">Select a shipping address</span>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={disabled || !value}
-              onClick={() => setExpanded(false)}
-            >
-              Done
-            </button>
+            <span className="text-muted text-sm">
+              {editing ? 'Edit shipping address' : 'Select a shipping address'}
+            </span>
+            {!editing ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={disabled || !value}
+                onClick={() => setExpanded(false)}
+              >
+                Done
+              </button>
+            ) : null}
           </div>
 
-          <div className="ship-addr-picker__list" role="radiogroup" aria-label="Saved shipping addresses">
-            {options.map(addr => {
-              const key = addressOptionKey(addr);
-              const checked = !showNew && selectedKey === key;
-              return (
-                <label
-                  key={key}
-                  className={`ship-addr-picker__option${checked ? ' is-selected' : ''}`}
-                >
-                  <input
-                    type="radio"
-                    name={radioName}
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={() => selectSaved(addr)}
-                  />
-                  <span className="ship-addr-picker__option-body">
-                    <span className="ship-addr-picker__option-label">{addr.label}</span>
-                    <span className="ship-addr-picker__option-text">
-                      {addr.formatted || '—'}
-                    </span>
+          {!editing ? (
+            <div className="ship-addr-picker__list" role="radiogroup" aria-label="Saved shipping addresses">
+              {options.map(addr => {
+                const key = addressOptionKey(addr);
+                const checked = !showNew && selectedKey === key;
+                const canEdit = allowManage && canEditShippingAddress(addr);
+                const canDelete = allowManage && canDeleteShippingAddress(addr);
+                const isDeleting = Boolean(addr.addressId && deletingId === addr.addressId);
+                return (
+                  <div
+                    key={key}
+                    className={`ship-addr-picker__option${checked ? ' is-selected' : ''}`}
+                  >
+                    <label className="ship-addr-picker__option-select">
+                      <input
+                        type="radio"
+                        name={radioName}
+                        checked={checked}
+                        disabled={formBusy}
+                        onChange={() => selectSaved(addr)}
+                      />
+                      <span className="ship-addr-picker__option-body">
+                        <span className="ship-addr-picker__option-label">{addr.label}</span>
+                        <span className="ship-addr-picker__option-text">
+                          {addr.formatted || '—'}
+                        </span>
+                      </span>
+                    </label>
+                    {canEdit || canDelete ? (
+                      <span className="ship-addr-picker__option-actions">
+                        {canEdit ? (
+                          <button
+                            type="button"
+                            className="ship-addr-picker__icon-btn"
+                            title="Edit address"
+                            aria-label={`Edit ${addr.label}`}
+                            disabled={formBusy}
+                            onClick={() => startEdit(addr)}
+                          >
+                            <Pencil size={14} aria-hidden />
+                          </button>
+                        ) : null}
+                        {canDelete ? (
+                          <button
+                            type="button"
+                            className="ship-addr-picker__icon-btn is-danger"
+                            title="Delete address"
+                            aria-label={`Delete ${addr.label}`}
+                            disabled={formBusy}
+                            onClick={() => { void removeAddress(addr); }}
+                          >
+                            {isDeleting
+                              ? <Loader2 size={14} className="spin-icon" aria-hidden />
+                              : <Trash2 size={14} aria-hidden />}
+                          </button>
+                        ) : null}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+
+              <label className={`ship-addr-picker__option${showNew ? ' is-selected' : ''}`}>
+                <input
+                  type="radio"
+                  name={radioName}
+                  checked={showNew}
+                  disabled={formBusy}
+                  onChange={() => {
+                    setShowNew(true);
+                    setEditTarget(null);
+                    setExpanded(true);
+                    onChange(null);
+                    setFormError(validateNewShippingAddress(draft) || '');
+                    setActionError('');
+                  }}
+                />
+                <span className="ship-addr-picker__option-body">
+                  <span className="ship-addr-picker__option-label">
+                    <Plus size={14} aria-hidden />
+                    New shipping address
                   </span>
-                </label>
-              );
-            })}
-
-            <label className={`ship-addr-picker__option${showNew ? ' is-selected' : ''}`}>
-              <input
-                type="radio"
-                name={radioName}
-                checked={showNew}
-                disabled={disabled}
-                onChange={() => {
-                  setShowNew(true);
-                  setExpanded(true);
-                  onChange(null);
-                  setFormError(validateNewShippingAddress(draft) || '');
-                }}
-              />
-              <span className="ship-addr-picker__option-body">
-                <span className="ship-addr-picker__option-label">
-                  <Plus size={14} aria-hidden />
-                  New shipping address
+                  <span className="ship-addr-picker__option-text text-muted">
+                    Saved to Zoho on this customer
+                  </span>
                 </span>
-                <span className="ship-addr-picker__option-text text-muted">
-                  Saved to Zoho on this customer
-                </span>
-              </span>
-            </label>
-          </div>
+              </label>
+            </div>
+          ) : null}
 
-          {showNew ? (
+          {formOpen ? (
             <div className="ship-addr-picker__form">
+              {editing ? (
+                <p className="ship-addr-picker__form-hint text-muted text-sm">
+                  Updating {editTarget?.label || 'address'} in Zoho.
+                  {!editTarget?.addressId
+                    ? ' Billing and default shipping are updated on the contact.'
+                    : null}
+                </p>
+              ) : null}
               <label>
                 Attention / contact name *
                 <input
                   value={draft.attention}
-                  disabled={disabled}
+                  disabled={formBusy}
                   onChange={e => updateDraft({ attention: e.target.value })}
                   autoComplete="name"
                 />
@@ -271,7 +464,7 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                 Address line 1 *
                 <input
                   value={draft.address}
-                  disabled={disabled}
+                  disabled={formBusy}
                   onChange={e => updateDraft({ address: e.target.value })}
                   autoComplete="address-line1"
                 />
@@ -280,7 +473,7 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                 Address line 2
                 <input
                   value={draft.street2 || ''}
-                  disabled={disabled}
+                  disabled={formBusy}
                   onChange={e => updateDraft({ street2: e.target.value })}
                   autoComplete="address-line2"
                 />
@@ -290,7 +483,7 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                   PIN code *
                   <input
                     value={draft.zip}
-                    disabled={disabled || lookingUpPin}
+                    disabled={formBusy || lookingUpPin}
                     inputMode="numeric"
                     pattern="[0-9]*"
                     maxLength={6}
@@ -303,7 +496,7 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                   City *
                   <input
                     value={draft.city}
-                    disabled={disabled}
+                    disabled={formBusy}
                     onChange={e => updateDraft({ city: e.target.value })}
                     autoComplete="address-level2"
                   />
@@ -314,7 +507,7 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                   State *
                   <input
                     value={draft.state}
-                    disabled={disabled}
+                    disabled={formBusy}
                     onChange={e => updateDraft({ state: e.target.value })}
                     autoComplete="address-level1"
                   />
@@ -323,7 +516,7 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                   Country *
                   <input
                     value={draft.country}
-                    disabled={disabled}
+                    disabled={formBusy}
                     onChange={e => updateDraft({ country: e.target.value })}
                     autoComplete="country-name"
                   />
@@ -333,13 +526,51 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
                 Phone *
                 <input
                   value={draft.phone}
-                  disabled={disabled}
+                  disabled={formBusy}
                   inputMode="tel"
                   onChange={e => updateDraft({ phone: e.target.value })}
                   autoComplete="tel"
                 />
               </label>
               {formError ? <p className="ship-addr-picker__error text-sm">{formError}</p> : null}
+              {editing ? (
+                <div className="ship-addr-picker__form-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={formBusy}
+                    onClick={cancelForm}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={formBusy || Boolean(formError)}
+                    onClick={() => { void saveEdit(); }}
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 size={14} className="spin-icon" aria-hidden />
+                        Saving…
+                      </>
+                    ) : (
+                      'Save address'
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="ship-addr-picker__form-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={formBusy}
+                    onClick={cancelForm}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
           ) : null}
         </>

@@ -14262,18 +14262,27 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .ship-addr-picker__option {
   display: flex;
   align-items: flex-start;
-  gap: 0.55rem;
+  gap: 0.45rem;
   margin: 0;
   padding: 0.65rem 0.75rem;
   border-radius: 10px;
   border: 1px solid var(--border-glass, rgba(148, 163, 184, 0.25));
   background: rgba(15, 23, 42, 0.28);
-  cursor: pointer;
 }
 
 .ship-addr-picker__option.is-selected {
   border-color: rgba(245, 130, 32, 0.55);
   background: rgba(245, 130, 32, 0.12);
+}
+
+.ship-addr-picker__option-select {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  cursor: pointer;
 }
 
 .ship-addr-picker__option input {
@@ -14304,10 +14313,64 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   white-space: pre-line;
 }
 
+.ship-addr-picker__option-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  margin-top: -0.1rem;
+}
+
+.ship-addr-picker__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.72);
+  cursor: pointer;
+}
+
+.ship-addr-picker__icon-btn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.16);
+  color: #f8fafc;
+}
+
+.ship-addr-picker__icon-btn.is-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
+
+.ship-addr-picker__icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .ship-addr-picker__form {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+}
+
+.ship-addr-picker__form-hint {
+  margin: 0;
+}
+
+.ship-addr-picker__form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  margin-top: 0.15rem;
+}
+
+.ship-addr-picker__form-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .ship-addr-picker__form label {

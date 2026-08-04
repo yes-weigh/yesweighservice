@@ -168,8 +168,12 @@ import {
 import {
   listAddressesForUser as listAddressesForUserRecord,
   addAddressForUser as addAddressForUserRecord,
+  updateAddressForUser as updateAddressForUserRecord,
+  deleteAddressForUser as deleteAddressForUserRecord,
   listContactAddressesForCustomer as listContactAddressesForCustomerRecord,
   addContactAddress as addContactAddressRecord,
+  updateContactAddress as updateContactAddressRecord,
+  deleteContactAddress as deleteContactAddressRecord,
 } from './lib/zoho-contact-addresses.js';
 import {
   uploadApprovalNumberPdf as storeApprovalNumberPdf,
@@ -3513,6 +3517,61 @@ export const addDealerShippingAddress = onCall(
   },
 );
 
+export const updateDealerShippingAddress = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      const address = await updateAddressForUserRecord(
+        uid,
+        role,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          addressId: request.data?.addressId ?? null,
+          kind: request.data?.kind ?? null,
+          address: request.data?.address ?? {},
+        },
+      );
+      return { address };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update shipping address.');
+    }
+  },
+);
+
+export const deleteDealerShippingAddress = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      return await deleteAddressForUserRecord(
+        uid,
+        role,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        request.data?.addressId,
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not delete shipping address.');
+    }
+  },
+);
+
 export const listCustomerShippingAddresses = onCall(
   {
     region: 'asia-south1',
@@ -3561,6 +3620,63 @@ export const addCustomerShippingAddress = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not add shipping address.');
+    }
+  },
+);
+
+export const updateCustomerShippingAddress = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      if (!customerId) throw new HttpsError('invalid-argument', 'customerId is required.');
+      const address = await updateContactAddressRecord(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        customerId,
+        {
+          addressId: request.data?.addressId ?? null,
+          kind: request.data?.kind ?? null,
+          address: request.data?.address ?? {},
+        },
+      );
+      return { address };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update shipping address.');
+    }
+  },
+);
+
+export const deleteCustomerShippingAddress = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      if (!customerId) throw new HttpsError('invalid-argument', 'customerId is required.');
+      return await deleteContactAddressRecord(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        customerId,
+        request.data?.addressId,
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not delete shipping address.');
     }
   },
 );
