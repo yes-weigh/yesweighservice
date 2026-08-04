@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, ChevronRight, Package } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ChevronRight, Package } from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
 import { isFreightInvoiceLineItem } from '../../lib/invoices';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
@@ -18,6 +18,8 @@ interface InvoiceDocumentBodyProps {
   totalsAfterItems?: boolean;
   /** ISO currency (e.g. USD) — defaults to INR. */
   currencyCode?: string;
+  /** Shown on freight lines when product package dims are missing. */
+  freightAlert?: string | null;
 }
 
 export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
@@ -30,6 +32,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   hideTotals = false,
   totalsAfterItems = false,
   currencyCode = 'INR',
+  freightAlert = null,
 }) => {
   const selectable = Boolean(onSelectLineItem);
   const visibleItems = hideLineItem
@@ -66,6 +69,8 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
             const isSelected = selectedLineItemId === item.id;
             const canSelect = selectable && (hideLineItem ? true : !isFreight);
 
+            const showFreightAlert = Boolean(isFreight && freightAlert);
+
             return (
               <li
                 key={item.id}
@@ -74,6 +79,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                   itemClassName,
                   isSelected ? 'is-selected' : '',
                   canSelect ? 'is-selectable' : '',
+                  showFreightAlert ? 'has-freight-alert' : '',
                 ].filter(Boolean).join(' ')}
               >
                 {canSelect ? (
@@ -95,13 +101,18 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                       currencyCode={currencyCode}
                       showNext={isSelected && Boolean(onConfirmLineItem)}
                       onNext={onConfirmLineItem}
+                      alert={showFreightAlert ? freightAlert : null}
                     />
                     {!isSelected && (
                       <ChevronRight size={20} className="invoice-detail-item__chevron" aria-hidden />
                     )}
                   </div>
                 ) : (
-                  <ItemContent item={item} currencyCode={currencyCode} />
+                  <ItemContent
+                    item={item}
+                    currencyCode={currencyCode}
+                    alert={showFreightAlert ? freightAlert : null}
+                  />
                 )}
               </li>
             );
@@ -135,11 +146,13 @@ function ItemContent({
   currencyCode = 'INR',
   showNext = false,
   onNext,
+  alert = null,
 }: {
   item: DealerInvoiceLineItem;
   currencyCode?: string;
   showNext?: boolean;
   onNext?: () => void;
+  alert?: string | null;
 }) {
   return (
     <>
@@ -161,6 +174,12 @@ function ItemContent({
           <span>{formatCurrency(item.rate, currencyCode)} × {item.quantity}</span>
           <strong>{formatCurrency(item.total, currencyCode)}</strong>
         </div>
+        {alert ? (
+          <p className="invoice-detail-item__freight-alert" role="alert">
+            <AlertTriangle size={14} aria-hidden />
+            <span>{alert}</span>
+          </p>
+        ) : null}
         {showNext && onNext && (
           <button
             type="button"

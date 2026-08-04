@@ -83,6 +83,8 @@ interface SalesOrderDraftLineEditorProps {
   shippingDestination?: StCourierDestination | null;
   /** Staff/admin can fill missing package dims into the catalog. */
   canEditPackage?: boolean;
+  /** Fired after package dims are saved to the catalog (parent can refresh gates). */
+  onPackageInfoSaved?: (productId: string, info: NonNullable<CatalogProduct['packageInfo']>) => void;
 }
 
 function isFreightDraftLine(line: Pick<DraftEditLine, 'productId' | 'sku'>): boolean {
@@ -174,6 +176,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   allowFreight = false,
   shippingDestination = null,
   canEditPackage = false,
+  onPackageInfoSaved,
 }) => {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -801,6 +804,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                     ? { ...product, packageInfo: info }
                     : product
                 )));
+                onPackageInfoSaved?.(productId, info);
               }}
             />
           ) : (

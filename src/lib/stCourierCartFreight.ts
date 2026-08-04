@@ -604,4 +604,35 @@ export function cartLinesForFreightEstimate(
   });
 }
 
+export type MissingFreightPackageLine = {
+  productId: string;
+  name: string | null;
+  sku: string | null;
+  reason: 'no_package' | 'incomplete_package';
+};
+
+/**
+ * Product lines that cannot be freight-quoted (missing or incomplete LBH/weight).
+ * Spares and software are ignored — they do not require package dims.
+ */
+export function listProductsMissingFreightPackageInfo(
+  lines: StCourierCartLine[],
+): MissingFreightPackageLine[] {
+  const out: MissingFreightPackageLine[] = [];
+  for (const line of lines) {
+    const segment = classifyOrderLineSegment(line) as OrderSegment | null;
+    if (segment !== 'product') continue;
+    if (!(Number(line.quantity) > 0)) continue;
+    const packed = cartonizeCartLine(line);
+    if (!packed.skip && packed.missingUnits <= 0) continue;
+    out.push({
+      productId: line.productId,
+      name: line.name?.trim() || null,
+      sku: line.sku?.trim() || null,
+      reason: packed.skip?.reason === 'no_package' ? 'no_package' : 'incomplete_package',
+    });
+  }
+  return out;
+}
+
 export type { OrderCourierOption };

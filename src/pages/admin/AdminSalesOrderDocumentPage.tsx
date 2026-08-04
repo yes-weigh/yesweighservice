@@ -24,6 +24,7 @@ import {
 import { ZoomableImageDialog } from '../../components/ZoomableImageDialog';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCatalog, formatCurrency } from '../../lib/catalog';
+import type { CatalogProduct } from '../../types/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
 import {
   listCustomerShippingAddresses,
@@ -31,6 +32,10 @@ import {
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
 import type { StCourierDestination } from '../../lib/stCourierZone';
+import {
+  cartLinesForFreightEstimate,
+  listProductsMissingFreightPackageInfo,
+} from '../../lib/stCourierCartFreight';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   submitSalesOrderPayment,
@@ -39,7 +44,7 @@ import {
   updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
-import { formatInvoiceDate } from '../../lib/invoices';
+import { formatInvoiceDate, isFreightInvoiceLineItem } from '../../lib/invoices';
 import {
   prepareElementScreenshot,
   shareScreenshotBlob,
@@ -83,6 +88,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [shipSelection, setShipSelection] = useState<ShippingSelection | null>(null);
   const [savingShip, setSavingShip] = useState(false);
   const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
+  const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
   const [salespersonStaffUid, setSalespersonStaffUid] = useState('');
   const [showPaymentProof, setShowPaymentProof] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -110,24 +116,62 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   useEffect(() => {
     if (!salesOrder?.lineItems?.length) return;
-    const missing = salesOrder.lineItems.filter(line => !line.description?.trim());
-    if (missing.length === 0) return;
     let cancelled = false;
     void fetchCatalog()
       .then(res => {
         if (cancelled) return;
-        const next: Record<string, string> = {};
+        const nextDesc: Record<string, string> = {};
+        const nextById: Record<string, CatalogProduct> = {};
         for (const product of res.items) {
+          nextById[product.id] = product;
           const desc = product.description?.trim();
           if (!desc) continue;
-          next[product.id] = desc;
-          if (product.sku) next[`sku:${product.sku}`] = desc;
+          nextDesc[product.id] = desc;
+          if (product.sku) nextDesc[`sku:${product.sku}`] = desc;
         }
-        setCatalogDescByItemId(next);
+        setCatalogById(nextById);
+        setCatalogDescByItemId(nextDesc);
       })
       .catch(() => { /* keep SO usable without catalog specs */ });
     return () => { cancelled = true; };
   }, [salesOrder?.lineItems]);
+
+  const hasFreightLine = useMemo(
+    () => Boolean(salesOrder?.lineItems?.some(line => isFreightInvoiceLineItem(line))),
+    [salesOrder?.lineItems],
+  );
+
+  const missingFreightPackageLines = useMemo(() => {
+    if (!salesOrder?.lineItems?.length || !hasFreightLine) return [];
+    if (Object.keys(catalogById).length === 0) return [];
+    const cartLines = cartLinesForFreightEstimate(
+      salesOrder.lineItems
+        .filter(line => !isFreightInvoiceLineItem(line))
+        .map(line => ({
+          productId: line.itemId || line.id,
+          name: line.name,
+          sku: line.sku,
+          quantity: line.quantity,
+          categoryId: catalogById[line.itemId || line.id]?.categoryId ?? null,
+          categoryName: catalogById[line.itemId || line.id]?.categoryName ?? null,
+        })),
+      catalogById,
+    );
+    return listProductsMissingFreightPackageInfo(cartLines);
+  }, [salesOrder?.lineItems, catalogById, hasFreightLine]);
+
+  const freightPackageAlert = useMemo(() => {
+    if (!missingFreightPackageLines.length) return null;
+    const names = missingFreightPackageLines
+      .map(line => line.name || line.sku || 'Item')
+      .slice(0, 4);
+    const more = missingFreightPackageLines.length > names.length
+      ? ` +${missingFreightPackageLines.length - names.length} more`
+      : '';
+    return `Missing package info (LBH/weight): ${names.join(', ')}${more}. Edit items to fill before continuing.`;
+  }, [missingFreightPackageLines]);
+
+  const packageBlocksActions = isOps && Boolean(freightPackageAlert);
 
   const documentInvoice = useMemo(() => {
     if (!salesOrder) return null;
@@ -619,6 +663,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                   && !(salesOrder.categories ?? []).includes('software_key')
                 )
               }
+              onPackageInfoSaved={(productId, info) => {
+                setCatalogById(prev => {
+                  const existing = prev[productId];
+                  if (!existing) return prev;
+                  return { ...prev, [productId]: { ...existing, packageInfo: info } };
+                });
+              }}
             />
             <div className="so-detail__totals">
               <div className="so-detail__totals-row">
@@ -649,6 +700,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               invoice={documentInvoice ?? salesOrder}
               itemClassName="admin-invoice-detail-item"
               totalsAfterItems
+              freightAlert={freightPackageAlert}
             />
           </>
         )}
@@ -739,10 +791,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       </div>
 
       <footer className="so-detail__actions" data-capture-ignore="1">
+        {packageBlocksActions ? (
+          <p className="so-detail__actions-block-note" role="status">
+            Fill missing package information before using action buttons.
+          </p>
+        ) : null}
         <button
           type="button"
           className="btn btn-primary so-detail__share-btn so-detail__share-btn--whatsapp"
-          disabled={sharing || Boolean(workflowActions?.actionBusy)}
+          disabled={sharing || Boolean(workflowActions?.actionBusy) || packageBlocksActions}
+          title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
           onClick={() => { void handleShareScreenshot(); }}
           aria-label="Share on WhatsApp"
         >
@@ -755,8 +813,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={Boolean(workflowActions.actionBusy)}
-              onClick={workflowActions.onReady}
+              disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
+              title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
+              onClick={() => {
+                if (packageBlocksActions) return;
+                workflowActions.onReady();
+              }}
             >
               <IndianRupee size={16} aria-hidden />
               {workflowActions.actionBusy === 'ready' ? 'Updating…' : 'Ready for payment'}
@@ -766,8 +828,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary"
-              disabled={Boolean(workflowActions.actionBusy)}
-              onClick={workflowActions.onApplySalesperson}
+              disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
+              title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
+              onClick={() => {
+                if (packageBlocksActions) return;
+                workflowActions.onApplySalesperson();
+              }}
             >
               <UserRound size={16} aria-hidden />
               {workflowActions.actionBusy === 'applySalesperson'
@@ -787,6 +853,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                 }))}
                 onChange={setSalespersonStaffUid}
                 aria-label="Sales staff"
+                disabled={packageBlocksActions}
               />
               <button
                 type="button"
@@ -794,8 +861,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                 disabled={
                   !salespersonStaffUid.trim()
                   || Boolean(workflowActions.actionBusy)
+                  || packageBlocksActions
                 }
-                onClick={() => workflowActions.onApplySalespersonFromStaff(salespersonStaffUid)}
+                title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
+                onClick={() => {
+                  if (packageBlocksActions) return;
+                  workflowActions.onApplySalespersonFromStaff(salespersonStaffUid);
+                }}
               >
                 <UserRound size={16} aria-hidden />
                 {workflowActions.actionBusy === 'applySalespersonStaff'
@@ -809,7 +881,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               type="button"
               className="btn btn-primary"
               disabled
-              title="Assign sales staff on the dealer, then apply salesperson here"
+              title={
+                packageBlocksActions
+                  ? freightPackageAlert ?? undefined
+                  : 'Assign sales staff on the dealer, then apply salesperson here'
+              }
             >
               <Check size={16} aria-hidden />
               Verify & invoice
@@ -819,8 +895,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={Boolean(workflowActions.actionBusy)}
-              onClick={workflowActions.onVerify}
+              disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
+              title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
+              onClick={() => {
+                if (packageBlocksActions) return;
+                workflowActions.onVerify();
+              }}
             >
               <Check size={16} aria-hidden />
               {workflowActions.actionBusy === 'verify' ? 'Verifying…' : 'Verify & invoice'}
@@ -830,9 +910,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary"
-              disabled={Boolean(workflowActions.actionBusy)}
-              onClick={workflowActions.onMarkInvoiced}
-              title="Use when this order was already invoiced in Zoho"
+              disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
+              title={
+                packageBlocksActions
+                  ? freightPackageAlert ?? undefined
+                  : 'Use when this order was already invoiced in Zoho'
+              }
+              onClick={() => {
+                if (packageBlocksActions) return;
+                workflowActions.onMarkInvoiced();
+              }}
             >
               <BadgeCheck size={16} aria-hidden />
               {workflowActions.actionBusy === 'markInvoiced' ? 'Marking…' : 'Mark as invoiced'}
@@ -842,8 +929,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary"
-              disabled={Boolean(workflowActions.actionBusy)}
-              onClick={workflowActions.onVoid}
+              disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
+              title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
+              onClick={() => {
+                if (packageBlocksActions) return;
+                workflowActions.onVoid();
+              }}
             >
               <Ban size={16} aria-hidden />
               {workflowActions.actionBusy === 'void' ? 'Voiding…' : 'Void'}
@@ -853,8 +944,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary so-detail__delete-btn"
-              disabled={Boolean(workflowActions.actionBusy)}
-              onClick={workflowActions.onDelete}
+              disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
+              title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
+              onClick={() => {
+                if (packageBlocksActions) return;
+                workflowActions.onDelete();
+              }}
             >
               <Trash2 size={16} aria-hidden />
               {workflowActions.actionBusy === 'delete' ? 'Deleting…' : 'Delete draft'}

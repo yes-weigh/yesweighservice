@@ -13749,7 +13749,156 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .order-freight-panel__package {
-  margin-top: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+/* Dark theme for package editor inside freight (staff/admin SO forms). */
+.order-freight-panel__package .product-detail-page__package-info {
+  gap: 0.4rem;
+}
+
+.order-freight-panel__package .product-package__card,
+.order-freight-panel__package .product-package__card--editing {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.45);
+  color-scheme: dark;
+  box-shadow: none;
+  color: #e2e8f0;
+}
+
+.order-freight-panel__package .product-package__card--editing {
+  border-color: rgba(255, 122, 0, 0.55);
+  box-shadow: 0 0 0 2px rgba(255, 122, 0, 0.12);
+}
+
+.order-freight-panel__package .product-package__divider {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.28) 12%,
+    rgba(148, 163, 184, 0.28) 88%,
+    transparent
+  );
+}
+
+.order-freight-panel__package .product-package__section-title {
+  color: #cbd5e1;
+}
+
+.order-freight-panel__package .product-package__table-wrap,
+.order-freight-panel__package .product-package__card--editing .product-package__table-wrap {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.order-freight-panel__package .product-package__table thead th {
+  color: #94a3b8;
+  border-bottom-color: rgba(148, 163, 184, 0.22);
+}
+
+.order-freight-panel__package .product-package__value-cell {
+  color: #f1f5f9;
+}
+
+.order-freight-panel__package .product-package__value-cell--qty {
+  color: #fdba74;
+}
+
+.order-freight-panel__package .product-package__value-cell--weight {
+  color: #86efac;
+}
+
+.order-freight-panel__package .product-package__table--multi tbody tr:not(:last-child) .product-package__value-cell {
+  border-bottom-color: rgba(148, 163, 184, 0.16);
+}
+
+.order-freight-panel__package .product-package__input {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: rgba(0, 0, 0, 0.28);
+  color: #f8fafc;
+  color-scheme: dark;
+  caret-color: #f8fafc;
+}
+
+.order-freight-panel__package .product-package__input::placeholder {
+  color: #64748b;
+}
+
+.order-freight-panel__package .product-package__input:focus {
+  border-color: rgba(255, 122, 0, 0.85);
+  box-shadow: 0 0 0 3px rgba(255, 122, 0, 0.18);
+}
+
+.order-freight-panel__package .product-package__input:-webkit-autofill,
+.order-freight-panel__package .product-package__input:-webkit-autofill:hover,
+.order-freight-panel__package .product-package__input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f8fafc;
+  box-shadow: 0 0 0 1000px rgba(15, 23, 42, 0.95) inset;
+}
+
+.order-freight-panel__package .product-package__select {
+  background-image: linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+}
+
+.order-freight-panel__package .product-package__add-row-btn {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.5);
+  color: #cbd5e1;
+}
+
+.order-freight-panel__package .product-package__add-row-btn:hover {
+  background: rgba(255, 122, 0, 0.12);
+  border-color: rgba(255, 122, 0, 0.45);
+  color: #fdba74;
+}
+
+.order-freight-panel__package .product-package__edit-btn,
+.order-freight-panel__package .product-package__icon-btn {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.55);
+  color: #94a3b8;
+}
+
+.order-freight-panel__package .product-package__edit-btn:hover:not(:disabled),
+.order-freight-panel__package .product-package__icon-btn:hover:not(:disabled) {
+  background: rgba(255, 122, 0, 0.12);
+  border-color: rgba(255, 122, 0, 0.45);
+  color: #fdba74;
+}
+
+.order-freight-panel__package .product-package__cancel-btn {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.55);
+  color: #cbd5e1;
+}
+
+.order-freight-panel__package .product-package__cancel-btn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #f1f5f9;
+}
+
+.order-freight-panel__package .product-package__save-btn {
+  background: #ff7a00;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(255, 122, 0, 0.25), 0 4px 12px rgba(255, 122, 0, 0.2);
+}
+
+.order-freight-panel__package .product-package__save-btn:hover:not(:disabled) {
+  background: #ff8d26;
+  box-shadow: 0 2px 4px rgba(255, 122, 0, 0.3), 0 6px 16px rgba(255, 122, 0, 0.28);
+}
+
+.order-freight-panel__package .product-package__badge {
+  color: #fdba74;
+  background: rgba(255, 122, 0, 0.12);
+  border-color: rgba(255, 122, 0, 0.35);
+}
+
+.order-freight-panel__package .product-package__row-error {
+  color: #fca5a5;
 }
 
 .order-freight-panel__notes {
@@ -26931,6 +27080,31 @@ button.invoice-detail-top__card {
   color: var(--text-muted);
 }
 
+.invoice-detail-item.has-freight-alert {
+  border-color: rgba(251, 191, 36, 0.45);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.12);
+}
+
+.invoice-detail-item__freight-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0.45rem 0 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(120, 53, 15, 0.35);
+  color: #fde68a;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.invoice-detail-item__freight-alert svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
 .invoice-detail-item__pricing strong {
   font-size: 0.9375rem;
   color: var(--accent-primary-light);
@@ -38181,6 +38355,19 @@ button.invoice-detail-top__card {
   background: rgba(12, 14, 18, 0.92);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(12px);
+}
+
+.so-detail__actions-block-note {
+  width: 100%;
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(120, 53, 15, 0.35);
+  color: #fde68a;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .so-detail__actions .btn {
