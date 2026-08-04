@@ -44,8 +44,7 @@ function parseZoneRates(raw: unknown): StCourierZoneRates {
 }
 
 /**
- * Build zone table from new `zones` shape, or migrate legacy
- * `modeBaseInr` + `perKgInr.kerala` / `tamil_nadu` if present.
+ * Build the 3-zone table from `zones`, migrating legacy multi-zone / flat shapes.
  */
 function parseZoneTable(data: Record<string, unknown>): Record<StCourierZone, StCourierZoneRates> {
   const zones = {} as Record<StCourierZone, StCourierZoneRates>;
@@ -56,18 +55,19 @@ function parseZoneTable(data: Record<string, unknown>): Record<StCourierZone, St
   const zonesRaw = data.zones;
   if (zonesRaw && typeof zonesRaw === 'object') {
     const map = zonesRaw as Record<string, unknown>;
-    for (const zone of ST_COURIER_ZONES) {
-      zones[zone] = parseZoneRates(map[zone]);
-    }
-    // Legacy key aliases
-    if (!map.tamil_nadu_pondy && map.tamil_nadu) {
-      zones.tamil_nadu_pondy = parseZoneRates(map.tamil_nadu);
-    }
-    if (map.karnataka_andhra) {
-      const combined = parseZoneRates(map.karnataka_andhra);
-      if (!map.karnataka) zones.karnataka = combined;
-      if (!map.andhra_pradesh) zones.andhra_pradesh = combined;
-    }
+    zones.kerala = parseZoneRates(map.kerala);
+    zones.tamil_nadu_pondy = parseZoneRates(
+      map.tamil_nadu_pondy ?? map.tamil_nadu,
+    );
+    // Prefer explicit other_states; else legacy rest_of_india / metro leftovers.
+    zones.other_states = parseZoneRates(
+      map.other_states
+      ?? map.rest_of_india
+      ?? map.mumbai
+      ?? map.delhi
+      ?? map.karnataka
+      ?? map.andhra_pradesh,
+    );
     return zones;
   }
 
@@ -82,16 +82,9 @@ function parseZoneTable(data: Record<string, unknown>): Record<StCourierZone, St
   const keralaPerKg = finiteNonNeg(perKgRaw.kerala, 0);
   const tnPerKg = finiteNonNeg(perKgRaw.tamil_nadu ?? perKgRaw.tamil_nadu_pondy, 0);
 
-  for (const zone of ST_COURIER_ZONES) {
-    zones[zone] = {
-      envelopeFixedInr: envelopeFixed,
-      boxPerKgInr: zone === 'kerala'
-        ? keralaPerKg
-        : zone === 'tamil_nadu_pondy'
-          ? tnPerKg
-          : 0,
-    };
-  }
+  zones.kerala = { envelopeFixedInr: envelopeFixed, boxPerKgInr: keralaPerKg };
+  zones.tamil_nadu_pondy = { envelopeFixedInr: envelopeFixed, boxPerKgInr: tnPerKg };
+  zones.other_states = { envelopeFixedInr: envelopeFixed, boxPerKgInr: 0 };
   return zones;
 }
 

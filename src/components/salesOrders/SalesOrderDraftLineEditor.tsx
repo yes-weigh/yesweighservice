@@ -7,7 +7,10 @@ import {
   type GatcStampingChoice,
 } from '../catalog/GatcStampingChoiceDialog';
 import { GatcStampingInlineControl } from '../catalog/GatcStampingInlineControl';
-import { FreightPartnerPicker } from '../orders/FreightPartnerPicker';
+import {
+  freightZoneOverrideReasonRequired,
+  OrderFreightPanel,
+} from '../orders/OrderFreightPanel';
 import { DocumentLineItemSpec } from '../invoices/DocumentLineItemSpec';
 import {
   FREIGHT_LINE_OPTIONS,
@@ -17,10 +20,28 @@ import {
   isFreightSku,
   type FreightLineSku,
 } from '../../constants/freightLines';
+import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import { combinedCartRate, newCartLineId, productHasLinkedGatc } from '../../lib/gatcCart';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
+import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
+import { loadLogisticsSettings } from '../../lib/logisticsSettings';
+import {
+  freightSkuForPartner,
+  isPickupPartner,
+  partnerIdForFreightSku,
+} from '../../lib/orderFreight';
+import type { InventorySite } from '../../lib/salesOrderSegments';
+import {
+  cartLinesForFreightEstimate,
+  estimateStCourierCartFreight,
+  type StCourierCartFreightEstimate,
+} from '../../lib/stCourierCartFreight';
+import { inferStCourierZone, type StCourierDestination } from '../../lib/stCourierZone';
 import type { CatalogProduct } from '../../types/catalog';
+import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
+import type { StCourierZone } from '../../types/logistics-courier-rates';
+import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 
 export interface DraftEditLine {
   /** Stable row id — same product can appear with/without stamping. */
@@ -62,6 +83,10 @@ interface SalesOrderDraftLineEditorProps {
   productFilter?: (product: CatalogProduct) => boolean;
   /** Product/spare SOs — show courier freight radio + amount (staff/admin). */
   allowFreight?: boolean;
+  /** Destination for rate-card freight estimate (state/city/zip). */
+  shippingDestination?: StCourierDestination | null;
+  /** Staff/admin can fill missing package dims into the catalog. */
+  canEditPackage?: boolean;
 }
 
 function isFreightDraftLine(line: Pick<DraftEditLine, 'productId' | 'sku'>): boolean {
@@ -151,6 +176,8 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   hideActions = false,
   productFilter,
   allowFreight = false,
+  shippingDestination = null,
+  canEditPackage = false,
 }) => {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -160,7 +187,15 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   const [activeIndex, setActiveIndex] = useState(0);
   const [freightSku, setFreightSku] = useState<string | null>(null);
   const [freightAmount, setFreightAmount] = useState('');
+  const [freightAmountManual, setFreightAmountManual] = useState(false);
+  const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
+  const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
+  const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
+  const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
+  const [freightZoneOverride, setFreightZoneOverride] = useState<StCourierZone | null>(null);
+  const [freightZoneOverrideReason, setFreightZoneOverrideReason] = useState('');
   const freightHydratedRef = useRef(false);
+  const lastAutoFreightKeyRef = useRef('');
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debouncedQuery = useDebounce(query, 180);
@@ -170,11 +205,19 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     [lines],
   );
 
+  const catalogById = useMemo(() => {
+    const map: Record<string, CatalogProduct> = {};
+    for (const product of products) map[product.id] = product;
+    return map;
+  }, [products]);
+
   useEffect(() => {
     if (!allowFreight) {
       freightHydratedRef.current = false;
       setFreightSku(null);
       setFreightAmount('');
+      setFreightAmountManual(false);
+      setCourierBySite({});
       return;
     }
     if (freightHydratedRef.current) return;
@@ -185,7 +228,61 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       || freightOptionBySku(freight.sku);
     setFreightSku(option?.sku ?? null);
     setFreightAmount(String(freight.catalogRate ?? freight.rate ?? ''));
+    const partner = partnerIdForFreightSku(option?.sku);
+    if (partner) {
+      // Site refined once estimate loads.
+      setCourierBySite({ cochin: partner, head_office: partner });
+    }
   }, [allowFreight, lines]);
+
+  useEffect(() => {
+    if (!allowFreight) return;
+    let cancelled = false;
+    void Promise.all([loadLogisticsCourierRates(), loadLogisticsSettings()])
+      .then(([rates, settings]) => {
+        if (cancelled) return;
+        setCourierRates(rates);
+        setDeliveryRules(settings.deliveryRules);
+        setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
+      })
+      .catch(() => { /* estimate optional */ });
+    return () => { cancelled = true; };
+  }, [allowFreight]);
+
+  const inferredFreightZone = useMemo(
+    () => inferStCourierZone(shippingDestination),
+    [shippingDestination],
+  );
+  const selectedFreightZone = freightZoneOverride ?? inferredFreightZone;
+
+  useEffect(() => {
+    setFreightZoneOverride(null);
+    setFreightZoneOverrideReason('');
+  }, [inferredFreightZone]);
+
+  const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
+    if (!allowFreight || !courierRates || !deliveryRules || productLines.length === 0) return null;
+    if (!shippingDestination || !selectedFreightZone) return null;
+    return estimateStCourierCartFreight({
+      lines: cartLinesForFreightEstimate(productLines, catalogById),
+      destination: shippingDestination,
+      rates: courierRates,
+      deliveryRules,
+      spareFreightMinimumInr,
+      courierBySite,
+      zoneOverride: selectedFreightZone,
+    });
+  }, [
+    allowFreight,
+    courierRates,
+    deliveryRules,
+    spareFreightMinimumInr,
+    productLines,
+    catalogById,
+    shippingDestination,
+    courierBySite,
+    selectedFreightZone,
+  ]);
 
   const applyFreight = (sku: string | null, amountRaw: string) => {
     const withoutFreight = lines.filter(line => !isFreightDraftLine(line));
@@ -198,6 +295,44 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     }
     onChange([...withoutFreight, freightDraftLine(option.sku, rate)]);
   };
+
+  useEffect(() => {
+    if (!allowFreight || !freightEstimate?.usable || freightAmountManual) return;
+    const site = freightEstimate.sites[0];
+    if (!site) return;
+
+    const withoutFreight = lines.filter(line => !isFreightDraftLine(line));
+    if (isPickupPartner(site.partnerId) || site.isPickup) {
+      const key = `${site.site}:pickup`;
+      if (lastAutoFreightKeyRef.current === key) return;
+      lastAutoFreightKeyRef.current = key;
+      setFreightSku(null);
+      setFreightAmount('');
+      if (lines.some(isFreightDraftLine)) onChange(withoutFreight);
+      return;
+    }
+
+    const sku = freightSkuForPartner(site.partnerId);
+    if (!sku) return;
+    const rate = Math.round(site.totalInr * 100) / 100;
+    const key = `${site.site}:${site.partnerId}:${rate}`;
+    if (lastAutoFreightKeyRef.current === key) return;
+    lastAutoFreightKeyRef.current = key;
+
+    setFreightSku(sku);
+    setFreightAmount(String(rate));
+    const current = lines.find(isFreightDraftLine);
+    if (
+      current
+      && String(current.sku || '').toUpperCase() === sku
+      && Math.round((current.catalogRate ?? current.rate) * 100) / 100 === rate
+    ) {
+      return;
+    }
+    onChange([...withoutFreight, freightDraftLine(sku, rate)]);
+    // Sync freight line from estimate when courier/items/package change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowFreight, freightEstimate, freightAmountManual]);
 
   useEffect(() => {
     let cancelled = false;
@@ -410,7 +545,15 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={saving || productLines.length === 0}
+              disabled={
+                saving
+                || productLines.length === 0
+                || freightZoneOverrideReasonRequired(
+                  freightEstimate,
+                  selectedFreightZone,
+                  freightZoneOverrideReason,
+                )
+              }
               onClick={onSave}
             >
               {saving ? 'Saving…' : saveLabel}
@@ -661,24 +804,72 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       {allowFreight ? (
         <div className="so-draft-editor__freight">
           <h4 className="so-draft-editor__freight-title">Freight</h4>
-          <FreightPartnerPicker
-            selectedSku={freightSku}
-            amount={freightAmount}
-            disabled={saving}
-            onSelect={sku => {
-              setFreightSku(sku);
-              applyFreight(sku, freightAmount);
-            }}
-            onAmountChange={value => {
-              setFreightAmount(value);
-              applyFreight(freightSku, value);
-            }}
-            onClear={() => {
-              setFreightSku(null);
-              setFreightAmount('');
-              applyFreight(null, '');
-            }}
-          />
+          {freightEstimate?.usable && selectedFreightZone ? (
+            <OrderFreightPanel
+              estimate={freightEstimate}
+              canEditPackage={canEditPackage}
+              catalogById={catalogById}
+              selectedZone={selectedFreightZone}
+              zoneOverrideReason={freightZoneOverrideReason}
+              onZoneChange={zone => {
+                setFreightAmountManual(false);
+                lastAutoFreightKeyRef.current = '';
+                setFreightZoneOverride(
+                  zone === freightEstimate.inferredZone ? null : zone,
+                );
+                if (zone === freightEstimate.inferredZone) {
+                  setFreightZoneOverrideReason('');
+                }
+              }}
+              onZoneOverrideReasonChange={setFreightZoneOverrideReason}
+              onCourierChange={(site, partnerId) => {
+                setFreightAmountManual(false);
+                lastAutoFreightKeyRef.current = '';
+                setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+              }}
+              onPackageInfoChange={(productId, info) => {
+                setFreightAmountManual(false);
+                lastAutoFreightKeyRef.current = '';
+                setProducts(prev => prev.map(product => (
+                  product.id === productId
+                    ? { ...product, packageInfo: info }
+                    : product
+                )));
+              }}
+            />
+          ) : (
+            <p className="text-muted text-sm">
+              {shippingDestination
+                ? 'Freight estimate unavailable for this destination yet.'
+                : 'Shipping address needed to calculate courier freight.'}
+            </p>
+          )}
+          {freightSku ? (
+            <label className="so-draft-editor__freight-amount">
+              <span className="text-muted text-sm">Freight amount (editable)</span>
+              <DecimalAmountInput
+                className="input-field"
+                min={0}
+                decimals={2}
+                allowEmpty
+                placeholder="0.00"
+                value={(() => {
+                  const trimmed = freightAmount.trim();
+                  if (!trimmed) return null;
+                  const n = Number(trimmed);
+                  return Number.isFinite(n) ? n : null;
+                })()}
+                disabled={saving}
+                aria-label="Freight amount"
+                onChange={next => {
+                  setFreightAmountManual(true);
+                  const value = next == null ? '' : String(next);
+                  setFreightAmount(value);
+                  applyFreight(freightSku, value);
+                }}
+              />
+            </label>
+          ) : null}
         </div>
       ) : null}
 

@@ -2,7 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { IndianRupee, Package, ShoppingCart, Trash2 } from 'lucide-react';
 import { QuantityStepper } from '../../components/QuantityStepper';
+import {
+  freightZoneOverrideReasonRequired,
+  OrderFreightPanel,
+} from '../../components/orders/OrderFreightPanel';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
+import { appendFreightZoneOverrideRemark, inferStCourierZone } from '../../lib/stCourierZone';
+import type { StCourierZone } from '../../types/logistics-courier-rates';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import {
   type GatcStampingChoice,
@@ -29,8 +35,10 @@ import {
   type ShippingAddress,
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
+import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
+import type { InventorySite } from '../../lib/salesOrderSegments';
 import {
   cartLinesForFreightEstimate,
   estimateStCourierCartFreight,
@@ -40,6 +48,7 @@ import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
+import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
@@ -77,10 +86,29 @@ const DealerCartPage: React.FC = () => {
   const [descByProductId, setDescByProductId] = useState<Record<string, string>>({});
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
+  const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
+  const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
+  const [freightZoneOverride, setFreightZoneOverride] = useState<StCourierZone | null>(null);
+  const [freightZoneOverrideReason, setFreightZoneOverrideReason] = useState('');
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/catalog`;
+
+  const shippingDestination = useMemo(
+    () => resolveShippingDestination(shipping, addresses),
+    [shipping, addresses],
+  );
+  const inferredFreightZone = useMemo(
+    () => inferStCourierZone(shippingDestination),
+    [shippingDestination],
+  );
+
+  useEffect(() => {
+    // Reset plan override when shipping address (and its inferred zone) changes.
+    setFreightZoneOverride(null);
+    setFreightZoneOverrideReason('');
+  }, [inferredFreightZone]);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +116,7 @@ const DealerCartPage: React.FC = () => {
       .then(([rates, settings]) => {
         if (cancelled) return;
         setCourierRates(rates);
+        setDeliveryRules(settings.deliveryRules);
         setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       })
       .catch(() => { /* freight preview optional */ });
@@ -115,17 +144,30 @@ const DealerCartPage: React.FC = () => {
     return () => { cancelled = true; };
   }, [items]);
 
+  const selectedFreightZone = freightZoneOverride ?? inferredFreightZone;
+
   const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
-    if (!courierRates || items.length === 0) return null;
-    const destination = resolveShippingDestination(shipping, addresses);
-    if (!destination) return null;
+    if (!courierRates || !deliveryRules || items.length === 0) return null;
+    if (!shippingDestination || !selectedFreightZone) return null;
     return estimateStCourierCartFreight({
       lines: cartLinesForFreightEstimate(items, catalogById),
-      destination,
+      destination: shippingDestination,
       rates: courierRates,
+      deliveryRules,
       spareFreightMinimumInr,
+      courierBySite,
+      zoneOverride: selectedFreightZone,
     });
-  }, [courierRates, spareFreightMinimumInr, items, shipping, addresses, catalogById]);
+  }, [
+    courierRates,
+    deliveryRules,
+    spareFreightMinimumInr,
+    items,
+    shippingDestination,
+    catalogById,
+    courierBySite,
+    selectedFreightZone,
+  ]);
 
   const loadAddresses = useCallback(() => {
     setAddressesLoading(true);
@@ -175,8 +217,28 @@ const DealerCartPage: React.FC = () => {
       window.alert('Select or enter a complete shipping address before placing the order.');
       return;
     }
+    if (freightZoneOverrideReasonRequired(
+      freightEstimate,
+      selectedFreightZone,
+      freightZoneOverrideReason,
+    )) {
+      window.alert('Enter a reason for changing the freight charge plan.');
+      return;
+    }
     setSubmitting(true);
     try {
+      const courierSelection = freightEstimate?.sites.reduce((acc, site) => {
+        acc[site.site] = site.partnerId;
+        return acc;
+      }, {} as Partial<Record<InventorySite, LogisticsPartnerId>>);
+      const remarksWithZone = freightEstimate && selectedFreightZone
+        ? appendFreightZoneOverrideRemark(
+          remarks,
+          freightEstimate.inferredZone,
+          selectedFreightZone,
+          freightZoneOverrideReason,
+        )
+        : remarks;
       const order = await submitDealerOrder(
         items.map(item => ({
           productId: item.productId,
@@ -184,7 +246,12 @@ const DealerCartPage: React.FC = () => {
           gatcStampingPriceId: item.gatcStampingPriceId ?? null,
         })),
         shipping,
-        remarks,
+        remarksWithZone,
+        courierSelection,
+        selectedFreightZone ?? undefined,
+        freightEstimate?.zoneOverridden
+          ? freightZoneOverrideReason.trim()
+          : undefined,
       );
       clearCart();
       const salesOrders = Array.isArray(order.salesOrders) && order.salesOrders.length > 0
@@ -431,47 +498,6 @@ const DealerCartPage: React.FC = () => {
             <span>Subtotal ({itemCount} items)</span>
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
-          {freightEstimate?.usable ? (
-            <div className="orders-page__freight">
-              <div className="orders-page__summary-row">
-                <span>
-                  Freight
-                  <span className="orders-page__freight-meta text-muted">
-                    {' '}({freightEstimate.partnerLabel} · {freightEstimate.zoneLabel})
-                  </span>
-                </span>
-                <strong>{formatCurrency(freightEstimate.totalInr)}</strong>
-              </div>
-              <ul className="orders-page__freight-origins text-muted text-sm">
-                {freightEstimate.origins.map(origin => (
-                  <li key={`${origin.kind}:${origin.site}`}>
-                    {origin.label}
-                    {' · '}
-                    {formatCurrency(origin.quote.totalInr)}
-                    {origin.kind === 'product' && origin.chargeableKg > 0
-                      ? ` (${origin.chargeableKg.toFixed(1)} kg)`
-                      : origin.kind === 'spare'
-                        ? ' (spare minimum)'
-                        : origin.rateMissing
-                          ? ' (rate placeholder)'
-                          : ''}
-                  </li>
-                ))}
-              </ul>
-              {freightEstimate.warnings.map(warning => (
-                <p key={warning} className="orders-page__freight-warn text-muted text-sm">
-                  {warning}
-                </p>
-              ))}
-              <p className="orders-page__freight-note text-muted text-sm">
-                Added to each draft sales order by ship-from. Staff can edit when reviewing.
-              </p>
-            </div>
-          ) : !shipping && !addressesLoading ? (
-            <p className="orders-page__freight-note text-muted text-sm">
-              Select a shipping address to see freight for each ship-from location.
-            </p>
-          ) : null}
           <p className="orders-page__summary-note text-muted text-sm">
             {segmentPreview.length > 1
               ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Each order type and branch uses its own Zoho salesperson.`
@@ -505,6 +531,36 @@ const DealerCartPage: React.FC = () => {
             onChange={setShipping}
             onRefresh={loadAddresses}
           />
+          {freightEstimate?.usable && selectedFreightZone ? (
+            <>
+              <OrderFreightPanel
+                estimate={freightEstimate}
+                canEditPackage={false}
+                catalogById={catalogById}
+                selectedZone={selectedFreightZone}
+                zoneOverrideReason={freightZoneOverrideReason}
+                onZoneChange={zone => {
+                  setFreightZoneOverride(
+                    zone === freightEstimate.inferredZone ? null : zone,
+                  );
+                  if (zone === freightEstimate.inferredZone) {
+                    setFreightZoneOverrideReason('');
+                  }
+                }}
+                onZoneOverrideReasonChange={setFreightZoneOverrideReason}
+                onCourierChange={(site, partnerId) => {
+                  setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+                }}
+              />
+              <p className="orders-page__freight-note text-muted text-sm">
+                One freight line per draft SO. Staff can edit courier and package data when reviewing.
+              </p>
+            </>
+          ) : !shipping && !addressesLoading ? (
+            <p className="orders-page__freight-note text-muted text-sm">
+              Select a shipping address to see freight charge plan and courier options.
+            </p>
+          ) : null}
           <button
             type="button"
             className="btn btn-primary orders-page__submit"
@@ -513,6 +569,11 @@ const DealerCartPage: React.FC = () => {
               || !shipping
               || addressesLoading
               || items.some(cartLineBlockedByStock)
+              || freightZoneOverrideReasonRequired(
+                freightEstimate,
+                selectedFreightZone,
+                freightZoneOverrideReason,
+              )
             }
             onClick={() => void handlePlaceOrder()}
           >

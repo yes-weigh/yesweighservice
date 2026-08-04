@@ -380,16 +380,19 @@ export const ProductPackageInfo: React.FC<{
   packageInfo?: CatalogPackageInfo | null;
   canEdit?: boolean;
   embedded?: boolean;
+  /** Open in edit mode (e.g. fill missing dims on order create). */
+  defaultEditing?: boolean;
   onPackageInfoChange?: (info: CatalogPackageInfo) => void;
 }> = ({
   product,
   packageInfo = null,
   canEdit = false,
   embedded = false,
+  defaultEditing = false,
   onPackageInfoChange,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(Boolean(canEdit && defaultEditing));
   const [form, setForm] = useState<PackageForm>(() => packageInfoToForm(packageInfo));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

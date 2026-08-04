@@ -186,6 +186,11 @@ export async function createStaffSalesOrder(input: {
   remarks?: string;
   /** Full super admin product SO: preferred Zoho salesperson (defaults to theirs in UI; changeable). */
   salespersonId?: string | null;
+  /** Courier choice per ship-from site (server builds freight lines). */
+  courierBySite?: Partial<Record<'cochin' | 'head_office', string>>;
+  /** Freight charge plan zone (kerala / tamil_nadu_pondy / other_states). */
+  freightZone?: string;
+  freightZoneOverrideReason?: string;
 }): Promise<{
   zohoSalesOrderId: string | null;
   zohoSalesOrderNumber: string | null;
@@ -220,6 +225,11 @@ export async function createStaffSalesOrder(input: {
         remarks: input.remarks ?? '',
         ...(input.salespersonId?.trim()
           ? { salespersonId: input.salespersonId.trim() }
+          : {}),
+        ...(input.courierBySite ? { courierBySite: input.courierBySite } : {}),
+        ...(input.freightZone ? { freightZone: input.freightZone } : {}),
+        ...(input.freightZoneOverrideReason?.trim()
+          ? { freightZoneOverrideReason: input.freightZoneOverrideReason.trim() }
           : {}),
       },
       180_000,

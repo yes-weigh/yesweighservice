@@ -4,13 +4,13 @@ import { STAFF_LOGISTICS_SITES } from '../types/staff-logistics';
 
 export const LOGISTICS_DESTINATION_REGIONS = [
   'kerala',
-  'tamil_nadu',
+  'tamil_nadu_pondy',
   'other_states',
 ] as const satisfies readonly LogisticsDestinationRegion[];
 
 export const LOGISTICS_DESTINATION_REGION_LABELS: Record<LogisticsDestinationRegion, string> = {
   kerala: 'Kerala',
-  tamil_nadu: 'Tamil Nadu',
+  tamil_nadu_pondy: 'Tamil Nadu, Pondy',
   other_states: 'Other states',
 };
 
@@ -23,7 +23,7 @@ export const DEFAULT_LOGISTICS_DELIVERY_RULES: LogisticsDeliveryRulesMatrix = {
     cochin: ['st_courier', 'personal_collection'],
     head_office: ['st_courier', 'personal_collection'],
   },
-  tamil_nadu: {
+  tamil_nadu_pondy: {
     cochin: ['delhivery', 'st_courier'],
     head_office: ['st_courier', 'trackon'],
   },
@@ -57,7 +57,7 @@ export function emptyLogisticsDeliveryRules(): LogisticsDeliveryRulesMatrix {
   });
   return {
     kerala: emptySite(),
-    tamil_nadu: emptySite(),
+    tamil_nadu_pondy: emptySite(),
     other_states: emptySite(),
   };
 }

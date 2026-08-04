@@ -1,10 +1,26 @@
-import type { StCourierZone } from '../types/logistics-courier-rates';
+import {
+  ST_COURIER_ZONE_LABELS,
+  type StCourierZone,
+} from '../types/logistics-courier-rates';
 
 export type StCourierDestination = {
   state?: string | null;
   city?: string | null;
   zip?: string | null;
 };
+
+/** Append freight-plan override note to order remarks when zone differs from address. */
+export function appendFreightZoneOverrideRemark(
+  remarks: string,
+  inferredZone: StCourierZone,
+  selectedZone: StCourierZone,
+  reason: string,
+): string {
+  if (inferredZone === selectedZone) return remarks.trim();
+  const note = `Freight plan override: ${ST_COURIER_ZONE_LABELS[inferredZone]} → ${ST_COURIER_ZONE_LABELS[selectedZone]}. Reason: ${reason.trim()}`;
+  const base = remarks.trim();
+  return base ? `${base}\n${note}` : note;
+}
 
 function normalizePlace(value: string | null | undefined): string {
   return String(value ?? '')
@@ -15,24 +31,16 @@ function normalizePlace(value: string | null | undefined): string {
     .trim();
 }
 
-const DELHI_CITY_RE = /\b(new delhi|delhi|noida|gurgaon|gurugram|ghaziabad|faridabad|ncr)\b/;
-const MUMBAI_CITY_RE = /\b(mumbai|bombay|navi mumbai|thane|kalyan|panvel|vasai|virar)\b/;
-
 /**
- * Map shipping address fields to an ST Courier rate-card zone.
- * City wins for Mumbai / Delhi; Pondy/Puducherry folds into tamil_nadu_pondy.
+ * Map shipping address fields to one of the 3 rate / delivery buckets.
  */
 export function inferStCourierZone(
   destination: StCourierDestination | null | undefined,
 ): StCourierZone | null {
   const state = normalizePlace(destination?.state);
   const city = normalizePlace(destination?.city);
-  const combined = `${city} ${state}`.trim();
 
   if (!state && !city) return null;
-
-  if (DELHI_CITY_RE.test(city) || DELHI_CITY_RE.test(combined)) return 'delhi';
-  if (MUMBAI_CITY_RE.test(city) || MUMBAI_CITY_RE.test(combined)) return 'mumbai';
 
   if (
     state === 'kerala'
@@ -53,12 +61,7 @@ export function inferStCourierZone(
     || city === 'pondicherry'
     || city.includes('pondicherry')
     || city.includes('puducherry')
-  ) {
-    return 'tamil_nadu_pondy';
-  }
-
-  if (
-    state === 'tamil nadu'
+    || state === 'tamil nadu'
     || state === 'tamilnadu'
     || state === 'tn'
     || state.includes('tamil nadu')
@@ -67,45 +70,5 @@ export function inferStCourierZone(
     return 'tamil_nadu_pondy';
   }
 
-  if (
-    state === 'karnataka'
-    || state === 'ka'
-    || state.includes('karnataka')
-  ) {
-    return 'karnataka';
-  }
-
-  if (
-    state === 'andhra pradesh'
-    || state === 'andhrapradesh'
-    || state === 'ap'
-    || state.includes('andhra')
-    || state === 'telangana'
-    || state === 'ts'
-    || state.includes('telangana')
-  ) {
-    // Rate card has Andhra only; Telangana uses the same lane until a separate zone exists.
-    return 'andhra_pradesh';
-  }
-
-  if (
-    state === 'delhi'
-    || state === 'dl'
-    || state === 'nct of delhi'
-    || state.includes('delhi')
-  ) {
-    return 'delhi';
-  }
-
-  if (
-    state === 'maharashtra'
-    || state === 'mh'
-    || state.includes('maharashtra')
-  ) {
-    // Non-Mumbai Maharashtra → rest of India (Mumbai city already handled above).
-    return 'rest_of_india';
-  }
-
-  if (!state && !city) return null;
-  return 'rest_of_india';
+  return 'other_states';
 }

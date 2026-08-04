@@ -13368,6 +13368,219 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #b45309;
 }
 
+.order-freight-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.order-freight-panel__zone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.28);
+}
+
+.order-freight-panel__zone-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+
+.order-freight-panel__zone-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.order-freight-panel__zone-option {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.45);
+  cursor: pointer;
+}
+
+.order-freight-panel__zone-option input {
+  margin-top: 0.15rem;
+  accent-color: #ff7a00;
+}
+
+.order-freight-panel__zone-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.order-freight-panel__zone-option em {
+  font-style: normal;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.order-freight-panel__zone-option.is-selected {
+  border-color: rgba(255, 122, 0, 0.7);
+  background: rgba(255, 122, 0, 0.12);
+}
+
+.order-freight-panel__zone-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.order-freight-panel__zone-reason textarea {
+  resize: vertical;
+  min-height: 3.25rem;
+  font-weight: 400;
+}
+
+.order-freight-panel__zone-reason-error {
+  color: #fbbf24;
+  font-weight: 500;
+}
+
+.order-freight-panel__site {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.order-freight-panel__site-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.order-freight-panel__couriers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.order-freight-panel__courier {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.35);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.order-freight-panel__courier input {
+  margin-top: 0.15rem;
+  accent-color: #ff7a00;
+}
+
+.order-freight-panel__courier span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.order-freight-panel__courier em {
+  font-style: normal;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.order-freight-panel__courier.is-selected {
+  border-color: rgba(255, 122, 0, 0.7);
+  background: rgba(255, 122, 0, 0.12);
+}
+
+.order-freight-panel__courier.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.order-freight-panel__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.order-freight-panel__line {
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.order-freight-panel__line.is-warn {
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.order-freight-panel__line.is-spare {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.order-freight-panel__line-main {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.45rem;
+  align-items: start;
+}
+
+.order-freight-panel__line-main p {
+  margin: 0.15rem 0 0;
+}
+
+.order-freight-panel__line-amt {
+  font-size: 0.875rem;
+}
+
+.order-freight-panel__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0 !important;
+  color: #fbbf24;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.order-freight-panel__package {
+  margin-top: 0.5rem;
+}
+
+.order-freight-panel__notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
 .multi-so-success {
   display: flex;
   flex-direction: column;
@@ -14785,6 +14998,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.85rem;
   padding-top: 0.75rem;
   border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.staff-create-so-page__sp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.staff-create-so-page__sp-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 .staff-create-so-page__stepper {
@@ -38152,6 +38377,14 @@ button.invoice-detail-top__card {
   margin: 0 0 0.5rem;
   font-size: 0.95rem;
   font-weight: 700;
+}
+
+.so-draft-editor__freight-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  max-width: 14rem;
 }
 
 .so-draft-editor__footer {

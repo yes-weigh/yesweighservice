@@ -12,12 +12,22 @@ import {
 const ST_ZONES = [
   'kerala',
   'tamil_nadu_pondy',
-  'karnataka',
-  'andhra_pradesh',
-  'mumbai',
-  'delhi',
-  'rest_of_india',
+  'other_states',
 ];
+
+function isStCourierZone(value) {
+  return typeof value === 'string' && ST_ZONES.includes(value);
+}
+
+export function resolveFreightZone(destination, freightZone) {
+  const inferred = inferStCourierZone(destination) || 'other_states';
+  const selected = isStCourierZone(freightZone) ? freightZone : inferred;
+  return {
+    inferredZone: inferred,
+    zone: selected,
+    zoneOverridden: selected !== inferred,
+  };
+}
 
 const DEFAULT_DIVISOR = 5000;
 
@@ -35,17 +45,10 @@ function normalizePlace(value) {
     .trim();
 }
 
-const DELHI_CITY_RE = /\b(new delhi|delhi|noida|gurgaon|gurugram|ghaziabad|faridabad|ncr)\b/;
-const MUMBAI_CITY_RE = /\b(mumbai|bombay|navi mumbai|thane|kalyan|panvel|vasai|virar)\b/;
-
 export function inferStCourierZone(destination) {
   const state = normalizePlace(destination?.state);
   const city = normalizePlace(destination?.city);
-  const combined = `${city} ${state}`.trim();
   if (!state && !city) return null;
-
-  if (DELHI_CITY_RE.test(city) || DELHI_CITY_RE.test(combined)) return 'delhi';
-  if (MUMBAI_CITY_RE.test(city) || MUMBAI_CITY_RE.test(combined)) return 'mumbai';
 
   if (state === 'kerala' || state === 'kl' || state.includes('kerala')) return 'kerala';
 
@@ -54,38 +57,13 @@ export function inferStCourierZone(destination) {
     || state.includes('puducherry') || state.includes('pondicherry')
     || city === 'puducherry' || city === 'pondicherry'
     || city.includes('pondicherry') || city.includes('puducherry')
-  ) {
-    return 'tamil_nadu_pondy';
-  }
-
-  if (
-    state === 'tamil nadu' || state === 'tamilnadu' || state === 'tn'
+    || state === 'tamil nadu' || state === 'tamilnadu' || state === 'tn'
     || state.includes('tamil nadu') || state.includes('tamilnadu')
   ) {
     return 'tamil_nadu_pondy';
   }
 
-  if (state === 'karnataka' || state === 'ka' || state.includes('karnataka')) {
-    return 'karnataka';
-  }
-
-  if (
-    state === 'andhra pradesh' || state === 'andhrapradesh' || state === 'ap'
-    || state.includes('andhra')
-    || state === 'telangana' || state === 'ts' || state.includes('telangana')
-  ) {
-    return 'andhra_pradesh';
-  }
-
-  if (state === 'delhi' || state === 'dl' || state === 'nct of delhi' || state.includes('delhi')) {
-    return 'delhi';
-  }
-
-  if (state === 'maharashtra' || state === 'mh' || state.includes('maharashtra')) {
-    return 'rest_of_india';
-  }
-
-  return 'rest_of_india';
+  return 'other_states';
 }
 
 function cartonOk(carton) {
@@ -123,13 +101,28 @@ function parseOriginRates(raw) {
     };
   }
   const zonesRaw = raw.zones && typeof raw.zones === 'object' ? raw.zones : {};
-  for (const zone of ST_ZONES) {
-    const z = zonesRaw[zone] && typeof zonesRaw[zone] === 'object' ? zonesRaw[zone] : {};
+  const pickZone = (...keys) => {
+    for (const key of keys) {
+      if (zonesRaw[key] && typeof zonesRaw[key] === 'object') return zonesRaw[key];
+    }
+    return {};
+  };
+  const assign = (zone, z) => {
     zones[zone] = {
       envelopeFixedInr: nonNeg(Number(z.envelopeFixedInr)),
       boxPerKgInr: nonNeg(Number(z.boxPerKgInr)),
     };
-  }
+  };
+  assign('kerala', pickZone('kerala'));
+  assign('tamil_nadu_pondy', pickZone('tamil_nadu_pondy', 'tamil_nadu'));
+  assign('other_states', pickZone(
+    'other_states',
+    'rest_of_india',
+    'mumbai',
+    'delhi',
+    'karnataka',
+    'andhra_pradesh',
+  ));
   return {
     volumetricDivisor: nonNeg(Number(raw.volumetricDivisor)) || DEFAULT_DIVISOR,
     useChargeableWeight: raw.useChargeableWeight !== false,
@@ -293,19 +286,45 @@ export function mapPackageInfo(raw) {
   return { masterCarton, singleBox };
 }
 
+const PARTNER_FREIGHT_SKU = {
+  st_courier: 'STFRC',
+  trackon: 'TRFRC',
+  delhivery: 'DELFRC',
+};
+
+function normalizeCourierBySite(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const site of ['cochin', 'head_office']) {
+    const id = String(raw[site] ?? '').trim();
+    if (id) out[site] = id;
+  }
+  return out;
+}
+
+function partnerOriginRates(rates, partnerId, site) {
+  if (partnerId === 'st_courier' || partnerId === 'trackon' || partnerId === 'delhivery') {
+    return rates[partnerId]?.[site] || null;
+  }
+  return null;
+}
+
 /**
- * Build auto freight lines for dealer checkout (product ST quote + spare minimum).
- * Always emits a line per product/spare site bucket (amount may be ₹0).
+ * Build auto freight lines for dealer checkout.
+ * Pickup → no freight lines. Otherwise one freight SKU line per product/spare site bucket.
  */
 export function buildDealerAutoFreightLines({
   lines,
   destination,
   courierRates,
   spareFreightMinimumInr = 0,
+  courierBySite = {},
+  freightZone = null,
 }) {
   const rates = parseLogisticsCourierRates(courierRates);
-  const zone = inferStCourierZone(destination) || 'rest_of_india';
+  const { zone } = resolveFreightZone(destination, freightZone);
   const spareMin = nonNeg(Number(spareFreightMinimumInr));
+  const selected = normalizeCourierBySite(courierBySite);
 
   /** @type {Map<string, object[]>} */
   const productParcelsBySite = new Map();
@@ -326,36 +345,43 @@ export function buildDealerAutoFreightLines({
     productSites.add(site);
     const parcels = cartonizeLine(line);
     if (!parcels.length) continue;
-    const key = site;
-    const list = productParcelsBySite.get(key) || [];
+    const list = productParcelsBySite.get(site) || [];
     list.push(...parcels);
-    productParcelsBySite.set(key, list);
+    productParcelsBySite.set(site, list);
   }
 
   const freightLines = [];
+  const sites = new Set([...productSites, ...spareSites]);
 
   for (const site of ['cochin', 'head_office']) {
-    if (!productSites.has(site)) continue;
-    const parcels = productParcelsBySite.get(site) || [];
-    const quoted = parcels.length
-      ? quoteParcels(zone, rates.st_courier[site], parcels)
-      : { totalInr: 0 };
-    freightLines.push(makeFreightLine({
-      sku: 'STFRC',
-      rate: quoted.totalInr,
-      site,
-      hostSegment: 'product',
-    }));
-  }
+    if (!sites.has(site)) continue;
+    const partnerId = selected[site] || 'st_courier';
+    if (partnerId === 'personal_collection') continue;
 
-  for (const site of ['cochin', 'head_office']) {
-    if (!spareSites.has(site)) continue;
-    freightLines.push(makeFreightLine({
-      sku: 'STFRC',
-      rate: spareMin,
-      site,
-      hostSegment: 'spare',
-    }));
+    const sku = PARTNER_FREIGHT_SKU[partnerId] || 'STFRC';
+    const originRates = partnerOriginRates(rates, partnerId, site) || rates.st_courier[site];
+
+    if (productSites.has(site)) {
+      const parcels = productParcelsBySite.get(site) || [];
+      const quoted = parcels.length
+        ? quoteParcels(zone, originRates, parcels)
+        : { totalInr: 0 };
+      freightLines.push(makeFreightLine({
+        sku,
+        rate: quoted.totalInr,
+        site,
+        hostSegment: 'product',
+      }));
+    }
+
+    if (spareSites.has(site)) {
+      freightLines.push(makeFreightLine({
+        sku,
+        rate: spareMin,
+        site,
+        hostSegment: 'spare',
+      }));
+    }
   }
 
   return freightLines;

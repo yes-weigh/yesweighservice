@@ -30,6 +30,7 @@ import {
   type ShippingAddress,
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
+import type { StCourierDestination } from '../../lib/stCourierZone';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   submitSalesOrderPayment,
@@ -173,8 +174,29 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
   };
 
+  const freightDestination = useMemo((): StCourierDestination | null => {
+    if (!salesOrder) return null;
+    const id = salesOrder.shippingAddressId?.trim();
+    const match = id
+      ? shipAddresses.find(addr => addr.addressId === id)
+      : null;
+    const addr = match
+      || shipAddresses.find(a => a.kind === 'shipping')
+      || shipAddresses[0]
+      || null;
+    if (!addr) return null;
+    const state = addr.state?.trim() || null;
+    const city = addr.city?.trim() || null;
+    const zip = addr.zip?.trim() || null;
+    if (!state && !city && !zip) return null;
+    return { state, city, zip };
+  }, [salesOrder, shipAddresses]);
+
   const startEdit = () => {
     if (!salesOrder) return;
+    if (salesOrder.customerId && shipAddresses.length === 0 && !shipLoading) {
+      loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
+    }
     void draftLinesFromSalesOrderItems(
       salesOrder.lineItems.map(line => {
         const productId = line.itemId || line.id;
@@ -587,6 +609,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               onCancel={() => setEditing(false)}
               embedded
               allowRateEdit
+              canEditPackage
+              shippingDestination={freightDestination}
               allowFreight={
                 salesOrder.salesOrderCategory === 'product'
                 || salesOrder.salesOrderCategory === 'spare'

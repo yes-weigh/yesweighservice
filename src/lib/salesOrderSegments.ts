@@ -263,7 +263,8 @@ export function isDealerCartRole(role: Role | undefined | null): boolean {
 
 /**
  * Staff/super-admin create path: which segments may be added.
- * Full SA: all. Spare Incharge (non-SA): spare only. Other staff: product + software.
+ * Full SA: all. Spare Incharge (non-SA): spare only.
+ * Other sales staff: product + spare + software (submit splits; spare → Spare Incharge SP).
  */
 export function staffCanAddOrderSegment(
   user: User | null | undefined,
@@ -273,7 +274,7 @@ export function staffCanAddOrderSegment(
   if (isDealerCartRole(user.role)) return true;
   if (isFullSuperAdmin(user)) return true;
   if (user.spareIncharge === true) return segment === 'spare';
-  return segment === 'product' || segment === 'software';
+  return segment === 'product' || segment === 'spare' || segment === 'software';
 }
 
 export function catalogProductAllowedForUser(

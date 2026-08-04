@@ -33,7 +33,11 @@ import {
   warehouseIdFromLineWarehouses,
 } from './zoho-locations.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
-import { buildDealerAutoFreightLines, mapPackageInfo } from './st-courier-cart-freight.js';
+import {
+  buildDealerAutoFreightLines,
+  mapPackageInfo,
+  resolveFreightZone,
+} from './st-courier-cart-freight.js';
 import { mirrorSalesOrderFromZoho } from './sales-order-sync.js';
 import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
@@ -490,12 +494,23 @@ async function createSegmentSalesOrders({
     const salesOrderNumber = so.salesOrderNumber;
     const status = so.status || 'draft';
 
+    const freightOnBucket = segmentLines.find(isFreightOrderLine);
+    const freightSku = String(freightOnBucket?.sku ?? '').trim().toUpperCase();
+    const courierPartner = freightSku === 'TRFRC'
+      ? 'trackon'
+      : freightSku === 'DELFRC'
+        ? 'delhivery'
+        : freightSku === 'STFRC'
+          ? 'st_courier'
+          : (segmentLines.some(isFreightOrderLine) ? 'st_courier' : 'personal_collection');
+
     const workflowExtras = {
       ...workflowBase,
       yesOneCartReference: orderNumber,
       yesOneOrderSegment: segment,
       yesOneInventorySite: site,
       yesOneBranchLabel: inventorySiteLabel(site),
+      yesOneCourierPartner: courierPartner,
       zohoLocationId: locationId,
       salesOrderCategory: segmentToInvoiceCategory(segment),
       categories: [segmentToInvoiceCategory(segment)],
@@ -605,16 +620,28 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     throw new HttpsError('invalid-argument', err?.message || 'Invalid shipping address.');
   }
 
+  const freightDestination = {
+    state: shippingResolved.address?.state || null,
+    city: shippingResolved.address?.city || null,
+    zip: shippingResolved.address?.zip || null,
+  };
+  const freightZoneMeta = resolveFreightZone(freightDestination, payload.freightZone);
+  const freightZoneOverrideReason = String(payload.freightZoneOverrideReason ?? '').trim().slice(0, 500);
+  if (freightZoneMeta.zoneOverridden && !freightZoneOverrideReason) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Enter a reason for changing the freight charge plan.',
+    );
+  }
+
   const freightConfig = await loadDealerFreightConfig();
   const freightLines = buildDealerAutoFreightLines({
     lines: goodsLines,
-    destination: {
-      state: shippingResolved.address?.state || null,
-      city: shippingResolved.address?.city || null,
-      zip: shippingResolved.address?.zip || null,
-    },
+    destination: freightDestination,
     courierRates: freightConfig.courierRates,
     spareFreightMinimumInr: freightConfig.spareFreightMinimumInr,
+    courierBySite: payload.courierBySite || {},
+    freightZone: freightZoneMeta.zone,
   });
   const lines = [...goodsLines, ...freightLines];
 
@@ -642,6 +669,11 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       orderNumberBase: orderNumber,
       workflowBase: {
         yesOneCreatedFromCart: true,
+        yesOneFreightZone: freightZoneMeta.zone,
+        yesOneFreightZoneInferred: freightZoneMeta.inferredZone,
+        ...(freightZoneMeta.zoneOverridden
+          ? { yesOneFreightZoneOverrideReason: freightZoneOverrideReason }
+          : {}),
       },
       pricedLineMapper: stripInternalLineFields,
     });
@@ -721,29 +753,17 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     if (!staffCanAddOrderSegment(actorForSegments, segment, { isFullSuperAdmin: fullSA })) {
       throw new HttpsError(
         'permission-denied',
-        segment === 'spare'
-          ? 'Only super admins and Spare Incharge can add spare parts to a sales order.'
-          : actorForSegments.spareIncharge
-            ? 'Spare Incharge can only add spare parts to a sales order.'
-            : `You are not allowed to add ${segmentLabel(segment).toLowerCase()} items.`,
+        actorForSegments.spareIncharge
+          ? 'Spare Incharge can only add spare parts to a sales order.'
+          : `You are not allowed to add ${segmentLabel(segment).toLowerCase()} items.`,
       );
     }
   }
 
-  const groups = groupLinesBySegment(lines);
-  const buckets = groupLinesBySegmentAndSite(lines);
-  const freightLinesOnly = lines.filter(isFreightOrderLine);
-  if (freightLinesOnly.length > 0) {
-    const host = groups.product.length > 0 ? 'product' : (groups.spare.length > 0 ? 'spare' : null);
-    if (!host) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Freight charges can only be added to product or spare sales orders — not software.',
-      );
-    }
-  }
-  const subtotal = sumSubtotal(lines);
-  if (profile.maxOrderLimit != null && profile.maxOrderLimit > 0 && subtotal > profile.maxOrderLimit) {
+  // Client freight amounts are ignored — rebuild from rate cards + courierBySite (same as dealer).
+  const goodsLines = lines.filter(line => !isFreightOrderLine(line));
+  const goodsSubtotal = sumSubtotal(goodsLines);
+  if (profile.maxOrderLimit != null && profile.maxOrderLimit > 0 && goodsSubtotal > profile.maxOrderLimit) {
     throw new HttpsError(
       'failed-precondition',
       `Order total exceeds this dealer’s limit of ₹${profile.maxOrderLimit.toLocaleString('en-IN')}.`,
@@ -762,6 +782,33 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     if (err instanceof HttpsError) throw err;
     throw new HttpsError('invalid-argument', err?.message || 'Invalid shipping address.');
   }
+
+  const freightDestination = {
+    state: shippingResolved.address?.state || null,
+    city: shippingResolved.address?.city || null,
+    zip: shippingResolved.address?.zip || null,
+  };
+  const freightZoneMeta = resolveFreightZone(freightDestination, payload.freightZone);
+  const freightZoneOverrideReason = String(payload.freightZoneOverrideReason ?? '').trim().slice(0, 500);
+  if (freightZoneMeta.zoneOverridden && !freightZoneOverrideReason) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Enter a reason for changing the freight charge plan.',
+    );
+  }
+
+  const freightConfig = await loadDealerFreightConfig();
+  const freightLines = buildDealerAutoFreightLines({
+    lines: goodsLines,
+    destination: freightDestination,
+    courierRates: freightConfig.courierRates,
+    spareFreightMinimumInr: freightConfig.spareFreightMinimumInr,
+    courierBySite: payload.courierBySite || {},
+    freightZone: freightZoneMeta.zone,
+  });
+  const linesWithFreight = [...goodsLines, ...freightLines];
+  const buckets = groupLinesBySegmentAndSite(linesWithFreight);
+  const subtotal = sumSubtotal(linesWithFreight);
 
   const remarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
   const orderNumber = await nextOrderNumber();
@@ -813,7 +860,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
       zohoCustomerId,
       shippingResolved,
       remarks,
-      lines,
+      lines: linesWithFreight,
       salespersonsBySegment,
       orderNumberBase: orderNumber,
       pricedLineMapper: stripInternalLineFields,
@@ -824,6 +871,11 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
         yesOneCreatedByName: actorName,
         yesOnePriceCustomized: priceAudit.length > 0,
         yesOnePriceChanges: priceAudit,
+        yesOneFreightZone: freightZoneMeta.zone,
+        yesOneFreightZoneInferred: freightZoneMeta.inferredZone,
+        ...(freightZoneMeta.zoneOverridden
+          ? { yesOneFreightZoneOverrideReason: freightZoneOverrideReason }
+          : {}),
         ...(stageTarget === 'ready_for_payment'
           ? {
             yesOneStage: 'ready_for_payment',
@@ -847,7 +899,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     status: primary?.status || 'draft',
     yesOneStage: stageTarget,
     subtotal,
-    itemCount: sumItemCount(lines),
+    itemCount: sumItemCount(linesWithFreight),
     zohoCustomerId,
     dealerName: profile.dealerName,
     priceCustomized: priceChanges.length > 0,

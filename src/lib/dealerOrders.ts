@@ -58,6 +58,9 @@ export async function submitDealerOrder(
   lines: SubmitDealerOrderLineInput[],
   shipping: ShippingSelection,
   remarks = '',
+  courierBySite?: Partial<Record<'cochin' | 'head_office', string>>,
+  freightZone?: string,
+  freightZoneOverrideReason?: string,
 ): Promise<SubmitDealerOrderResult> {
   try {
     return await call(
@@ -66,6 +69,11 @@ export async function submitDealerOrder(
         lines,
         shipping: shippingSelectionPayload(shipping),
         remarks: remarks.trim() || undefined,
+        courierBySite: courierBySite || undefined,
+        ...(freightZone ? { freightZone } : {}),
+        ...(freightZoneOverrideReason?.trim()
+          ? { freightZoneOverrideReason: freightZoneOverrideReason.trim() }
+          : {}),
       },
       180_000,
     );

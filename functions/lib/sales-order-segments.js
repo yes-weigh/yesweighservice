@@ -261,6 +261,8 @@ export function parseOrderSegment(value) {
 /**
  * Who may add a segment on staff/super-admin create paths.
  * Dealers are not gated here (cart path).
+ * Full SA: all. Spare Incharge (non-SA): spare only.
+ * Other sales staff: product + spare + software (submit splits; spare → SI SP).
  *
  * @param {{ role?: string, spareIncharge?: boolean, viewOnly?: boolean }} user
  * @param {'product'|'spare'|'software'} segment
@@ -272,5 +274,5 @@ export function staffCanAddOrderSegment(user, segment, opts = {}) {
 
   if (isFullSA) return true;
   if (isSI) return segment === 'spare';
-  return segment === 'product' || segment === 'software';
+  return segment === 'product' || segment === 'spare' || segment === 'software';
 }

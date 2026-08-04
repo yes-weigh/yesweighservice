@@ -35,6 +35,10 @@ export function normalizeLogisticsDeliveryRules(
     return structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES);
   }
   const data = raw as Record<string, unknown>;
+  // Legacy key: tamil_nadu → tamil_nadu_pondy
+  if (!data.tamil_nadu_pondy && data.tamil_nadu) {
+    data.tamil_nadu_pondy = data.tamil_nadu;
+  }
   const base = emptyLogisticsDeliveryRules();
   for (const region of LOGISTICS_DESTINATION_REGIONS) {
     const regionRaw = data[region];
@@ -156,8 +160,14 @@ export function inferLogisticsDestinationRegion(
     || normalized === 'tn'
     || normalized.includes('tamil nadu')
     || normalized.includes('tamilnadu')
+    || normalized === 'puducherry'
+    || normalized === 'pondicherry'
+    || normalized === 'pondy'
+    || normalized === 'py'
+    || normalized.includes('puducherry')
+    || normalized.includes('pondicherry')
   ) {
-    return 'tamil_nadu';
+    return 'tamil_nadu_pondy';
   }
 
   return 'other_states';

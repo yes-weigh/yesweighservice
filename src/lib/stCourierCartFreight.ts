@@ -1,15 +1,27 @@
 import type { CatalogPackageCarton, CatalogPackageInfo, CatalogProduct } from '../types/catalog';
+import type { LogisticsPartnerId } from '../constants/logisticsPartners';
+import { logisticsPartnerLabel } from '../constants/logisticsPartners';
+import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
 import {
   ST_COURIER_ZONE_LABELS,
+  isCourierRatePartnerId,
+  isStCourierZone,
+  type CourierRatePartnerId,
   type LogisticsCourierRates,
   type StCourierOriginRates,
   type StCourierZone,
 } from '../types/logistics-courier-rates';
 import {
+  isPickupPartner,
+  listOrderCourierOptions,
+  type OrderCourierOption,
+} from './orderFreight';
+import {
   classifyOrderLineSegment,
   resolveLineInventorySite,
   segmentAllowsFreight,
   type InventorySite,
+  type OrderSegment,
 } from './salesOrderSegments';
 import {
   stCourierVolumetricKg,
@@ -32,6 +44,7 @@ export type StCourierCartLine = {
 export type StCourierParcel = {
   productId: string;
   sku: string | null;
+  name: string | null;
   kind: 'master_carton' | 'single_box';
   quantityUnits: number;
   actualKg: number;
@@ -45,32 +58,56 @@ export type StCourierCartFreightSkip = {
   reason: 'no_package' | 'incomplete_package' | 'software' | 'zero_qty';
 };
 
-export type StCourierOriginFreightQuote = {
-  site: InventorySite;
-  /** product = ST carton quote; spare = logistics spare minimum. */
-  kind: 'product' | 'spare';
-  label: string;
-  parcelCount: number;
-  actualKg: number;
-  volumetricKg: number;
+/** Per-product packing + ₹ contribution inside a ship-from bucket. */
+export type FreightLineBreakdown = {
+  productId: string;
+  sku: string | null;
+  name: string | null;
+  quantity: number;
+  masterCartonCount: number;
+  singleBoxCount: number;
+  /** Units that could not be cartonized (missing dims). */
+  missingUnits: number;
   chargeableKg: number;
-  boxPerKgInr: number;
-  quote: StCourierQuoteResult;
-  /** True when zone box rate is 0 (product quotes only). */
+  amountInr: number;
+  indication: 'ok' | 'missing_package' | 'incomplete_package' | 'spare_default';
+};
+
+export type SiteFreightBucket = {
+  site: InventorySite;
+  siteLabel: string;
+  /** product and/or spare content on this ship-from. */
+  hasProduct: boolean;
+  hasSpare: boolean;
+  partnerId: LogisticsPartnerId;
+  partnerLabel: string;
+  courierOptions: OrderCourierOption[];
+  isPickup: boolean;
+  zone: StCourierZone;
+  zoneLabel: string;
+  lineBreakdowns: FreightLineBreakdown[];
+  productFreightInr: number;
+  spareFreightInr: number;
+  totalInr: number;
+  chargeableKg: number;
+  parcelCount: number;
   rateMissing: boolean;
+  indications: string[];
 };
 
 export type StCourierCartFreightEstimate = {
+  /** Effective zone used for quoting (override if set, else inferred). */
   zone: StCourierZone;
   zoneLabel: string;
-  partnerLabel: 'ST Courier';
-  /** One row per ship-from × product/spare bucket that will get a freight line. */
-  origins: StCourierOriginFreightQuote[];
+  /** Zone inferred from shipping address state/city. */
+  inferredZone: StCourierZone;
+  inferredZoneLabel: string;
+  zoneOverridden: boolean;
+  sites: SiteFreightBucket[];
   totalInr: number;
   totalChargeableKg: number;
   parcelCount: number;
   skipped: StCourierCartFreightSkip[];
-  /** True when at least one freight line will be placed on the order. */
   usable: boolean;
   warnings: string[];
   spareFreightMinimumInr: number;
@@ -95,13 +132,12 @@ function singleBoxes(info: CatalogPackageInfo | null | undefined): CatalogPackag
   return info.singleBox;
 }
 
-/**
- * Expand a line qty into physical parcels using master carton + single-box data.
- * Prefers full master cartons, then one (or more) single-box parcels per leftover unit.
- */
 export function cartonizeCartLine(line: StCourierCartLine): {
   parcels: StCourierParcel[];
   skip: StCourierCartFreightSkip | null;
+  masterCartonCount: number;
+  singleBoxCount: number;
+  missingUnits: number;
 } {
   const qty = Math.max(0, Math.floor(Number(line.quantity) || 0));
   const sku = line.sku?.trim() || null;
@@ -111,6 +147,9 @@ export function cartonizeCartLine(line: StCourierCartLine): {
     return {
       parcels: [],
       skip: { productId: line.productId, sku, name, reason: 'zero_qty' },
+      masterCartonCount: 0,
+      singleBoxCount: 0,
+      missingUnits: 0,
     };
   }
 
@@ -119,6 +158,9 @@ export function cartonizeCartLine(line: StCourierCartLine): {
     return {
       parcels: [],
       skip: { productId: line.productId, sku, name, reason: 'software' },
+      masterCartonCount: 0,
+      singleBoxCount: 0,
+      missingUnits: 0,
     };
   }
 
@@ -139,32 +181,37 @@ export function cartonizeCartLine(line: StCourierCartLine): {
         name,
         reason: info ? 'incomplete_package' : 'no_package',
       },
+      masterCartonCount: 0,
+      singleBoxCount: 0,
+      missingUnits: qty,
     };
   }
 
   const parcels: StCourierParcel[] = [];
   let remaining = qty;
+  let masterCartonCount = 0;
+  let singleBoxCount = 0;
 
   if (masterOk && master && masterQty > 0) {
-    const masters = Math.floor(remaining / masterQty);
-    for (let i = 0; i < masters; i += 1) {
+    masterCartonCount = Math.floor(remaining / masterQty);
+    for (let i = 0; i < masterCartonCount; i += 1) {
       parcels.push({
         productId: line.productId,
         sku,
+        name,
         kind: 'master_carton',
         quantityUnits: masterQty,
         actualKg: Number(master.weightKg),
         dims: toQuoteDims(master),
       });
     }
-    remaining -= masters * masterQty;
+    remaining -= masterCartonCount * masterQty;
   }
 
+  let missingUnits = 0;
   if (remaining > 0) {
     if (singles.length === 0) {
-      // Master-only catalog: ship leftover units as proportional weight is unknown —
-      // fall back to one master-sized box per leftover batch only when leftover equals
-      // a full master (already handled). Otherwise skip remainder.
+      missingUnits = remaining;
       return {
         parcels,
         skip: {
@@ -173,6 +220,9 @@ export function cartonizeCartLine(line: StCourierCartLine): {
           name,
           reason: 'incomplete_package',
         },
+        masterCartonCount,
+        singleBoxCount,
+        missingUnits,
       };
     }
     for (let u = 0; u < remaining; u += 1) {
@@ -180,23 +230,24 @@ export function cartonizeCartLine(line: StCourierCartLine): {
         parcels.push({
           productId: line.productId,
           sku,
+          name,
           kind: 'single_box',
           quantityUnits: 1,
           actualKg: Number(box.weightKg),
           dims: toQuoteDims(box),
         });
+        singleBoxCount += 1;
       }
     }
   }
 
-  return { parcels, skip: null };
+  return { parcels, skip: null, masterCartonCount, singleBoxCount, missingUnits };
 }
 
 function ratesWithoutMinFloor(rates: StCourierOriginRates): StCourierOriginRates {
   return { ...rates, minimumChargeableWeightKg: 0 };
 }
 
-/** Quote a multi-parcel consignment: sum per-box chargeable, apply min floor once. */
 export function quoteStCourierParcels(input: {
   zone: StCourierZone;
   rates: StCourierOriginRates;
@@ -207,11 +258,13 @@ export function quoteStCourierParcels(input: {
   chargeableKg: number;
   quote: StCourierQuoteResult;
   rateMissing: boolean;
+  perParcelChargeableKg: number[];
 } {
   const perBoxRates = ratesWithoutMinFloor(input.rates);
   let actualKg = 0;
   let volumetricKg = 0;
   let chargeableBeforeMin = 0;
+  const perParcelChargeableKg: number[] = [];
 
   for (const parcel of input.parcels) {
     actualKg += parcel.actualKg;
@@ -220,6 +273,7 @@ export function quoteStCourierParcels(input: {
     const base = perBoxRates.useChargeableWeight
       ? Math.max(parcel.actualKg, vol)
       : parcel.actualKg;
+    perParcelChargeableKg.push(base);
     chargeableBeforeMin += base;
   }
 
@@ -248,38 +302,72 @@ export function quoteStCourierParcels(input: {
       totalInr: freightInr + fuelSurchargeInr,
     },
     rateMissing: !(boxPerKgInr > 0),
+    perParcelChargeableKg,
   };
 }
 
-function zeroQuote(amount = 0): StCourierQuoteResult {
-  return {
-    volumetricKg: 0,
-    chargeableKg: 0,
-    envelopeFixedInr: 0,
-    boxPerKgInr: 0,
-    freightInr: amount,
-    fuelSurchargeInr: 0,
-    totalInr: amount,
-  };
+function inventoryOriginLabel(site: InventorySite): string {
+  return site === 'head_office' ? 'Head Office' : 'Cochin';
 }
 
+function partnerRates(
+  rates: LogisticsCourierRates,
+  partnerId: LogisticsPartnerId,
+  site: InventorySite,
+): StCourierOriginRates | null {
+  if (!isCourierRatePartnerId(partnerId)) return null;
+  return rates[partnerId as CourierRatePartnerId][site];
+}
+
+/**
+ * Full cart freight estimate with per-site courier choice and line-level breakdown.
+ */
 export function estimateStCourierCartFreight(input: {
   lines: StCourierCartLine[];
   destination: StCourierDestination | null | undefined;
   rates: LogisticsCourierRates;
+  deliveryRules: LogisticsDeliveryRulesMatrix;
   spareFreightMinimumInr?: number;
+  /** Selected courier per ship-from site. Missing sites use default. */
+  courierBySite?: Partial<Record<InventorySite, LogisticsPartnerId>>;
+  /** Override freight charge plan (Kerala / TN-Pondy / Other). */
+  zoneOverride?: StCourierZone | null;
 }): StCourierCartFreightEstimate | null {
-  const zone = inferStCourierZone(input.destination);
-  if (!zone) return null;
+  const inferredZone = inferStCourierZone(input.destination);
+  if (!inferredZone) return null;
+  const zone = input.zoneOverride && isStCourierZone(input.zoneOverride)
+    ? input.zoneOverride
+    : inferredZone;
+  const zoneOverridden = zone !== inferredZone;
 
   const spareMin = Math.max(0, Number(input.spareFreightMinimumInr) || 0);
   const skipped: StCourierCartFreightSkip[] = [];
-  const productParcelsBySite = new Map<InventorySite, StCourierParcel[]>();
-  const productSites = new Set<InventorySite>();
-  const spareSites = new Set<InventorySite>();
+  const warnings: string[] = [];
+
+  type SiteAcc = {
+    productLines: Array<{
+      line: StCourierCartLine;
+      parcels: StCourierParcel[];
+      masterCartonCount: number;
+      singleBoxCount: number;
+      missingUnits: number;
+      skip: StCourierCartFreightSkip | null;
+    }>;
+    spareLines: StCourierCartLine[];
+  };
+  const bySite = new Map<InventorySite, SiteAcc>();
+
+  const ensure = (site: InventorySite): SiteAcc => {
+    let acc = bySite.get(site);
+    if (!acc) {
+      acc = { productLines: [], spareLines: [] };
+      bySite.set(site, acc);
+    }
+    return acc;
+  };
 
   for (const line of input.lines) {
-    const segment = classifyOrderLineSegment(line);
+    const segment = classifyOrderLineSegment(line) as OrderSegment | null;
     if (!segmentAllowsFreight(segment)) {
       if (segment === 'software') {
         skipped.push({
@@ -291,108 +379,182 @@ export function estimateStCourierCartFreight(input: {
       }
       continue;
     }
-
     const site = resolveLineInventorySite(segment, line.warehouses);
+    const acc = ensure(site);
     if (segment === 'spare') {
-      spareSites.add(site);
+      acc.spareLines.push(line);
       continue;
     }
-
-    productSites.add(site);
-    const { parcels, skip } = cartonizeCartLine(line);
-    if (skip && parcels.length === 0) {
-      skipped.push(skip);
-      continue;
-    }
-    if (skip) skipped.push(skip);
-    if (!parcels.length) continue;
-    const list = productParcelsBySite.get(site) ?? [];
-    list.push(...parcels);
-    productParcelsBySite.set(site, list);
-  }
-
-  const warnings: string[] = [];
-  const origins: StCourierOriginFreightQuote[] = [];
-
-  for (const site of ['cochin', 'head_office'] as InventorySite[]) {
-    if (!productSites.has(site)) continue;
-    const parcels = productParcelsBySite.get(site) ?? [];
-    const originRates = input.rates.st_courier[site];
-    const quoted = parcels.length
-      ? quoteStCourierParcels({ zone, rates: originRates, parcels })
-      : {
-          actualKg: 0,
-          volumetricKg: 0,
-          chargeableKg: 0,
-          quote: zeroQuote(0),
-          rateMissing: true,
-        };
-
-    origins.push({
-      site,
-      kind: 'product',
-      label: `Product · ${inventoryOriginLabel(site)}`,
-      parcelCount: parcels.length,
-      actualKg: quoted.actualKg,
-      volumetricKg: quoted.volumetricKg,
-      chargeableKg: quoted.chargeableKg,
-      boxPerKgInr: quoted.quote.boxPerKgInr,
-      quote: quoted.quote,
-      rateMissing: quoted.rateMissing,
-    });
-
-    if (quoted.rateMissing) {
-      warnings.push(
-        `ST ${inventoryOriginLabel(site)} has no ₹/kg rate for ${ST_COURIER_ZONE_LABELS[zone]} (₹0 placeholder).`,
-      );
-    }
-  }
-
-  for (const site of ['cochin', 'head_office'] as InventorySite[]) {
-    if (!spareSites.has(site)) continue;
-    const amount = Math.round(spareMin * 100) / 100;
-    origins.push({
-      site,
-      kind: 'spare',
-      label: `Spare · ${inventoryOriginLabel(site)}`,
-      parcelCount: 0,
-      actualKg: 0,
-      volumetricKg: 0,
-      chargeableKg: 0,
-      boxPerKgInr: 0,
-      quote: zeroQuote(amount),
-      rateMissing: false,
+    const packed = cartonizeCartLine(line);
+    if (packed.skip) skipped.push(packed.skip);
+    acc.productLines.push({
+      line,
+      parcels: packed.parcels,
+      masterCartonCount: packed.masterCartonCount,
+      singleBoxCount: packed.singleBoxCount,
+      missingUnits: packed.missingUnits,
+      skip: packed.skip,
     });
   }
 
-  const totalInr = origins.reduce((sum, o) => sum + o.quote.totalInr, 0);
-  const totalChargeableKg = origins
-    .filter(o => o.kind === 'product')
-    .reduce((sum, o) => sum + o.chargeableKg, 0);
-  const parcelCount = origins.reduce((sum, o) => sum + o.parcelCount, 0);
-  const usable = origins.length > 0;
+  const sites: SiteFreightBucket[] = [];
+
+  for (const site of ['cochin', 'head_office'] as InventorySite[]) {
+    const acc = bySite.get(site);
+    if (!acc) continue;
+    const hasProduct = acc.productLines.length > 0;
+    const hasSpare = acc.spareLines.length > 0;
+    if (!hasProduct && !hasSpare) continue;
+
+    const { options, defaultPartnerId } = listOrderCourierOptions({
+      deliveryRules: input.deliveryRules,
+      site,
+      destination: input.destination,
+      rates: input.rates,
+      spareOnly: hasSpare && !hasProduct,
+    });
+
+    const requested = input.courierBySite?.[site];
+    const selectedOpt = options.find(o => o.partnerId === requested && o.enabled)
+      ?? options.find(o => o.partnerId === defaultPartnerId && o.enabled)
+      ?? options.find(o => o.enabled)
+      ?? options[0];
+    const partnerId = selectedOpt?.partnerId ?? defaultPartnerId;
+    const isPickup = isPickupPartner(partnerId);
+    const originRates = partnerRates(input.rates, partnerId, site);
+
+    const allParcels = acc.productLines.flatMap(row => row.parcels);
+    const quoted = !isPickup && originRates && allParcels.length
+      ? quoteStCourierParcels({ zone, rates: originRates, parcels: allParcels })
+      : null;
+
+    const boxPerKg = quoted?.quote.boxPerKgInr ?? 0;
+    const totalProductChargeable = quoted?.chargeableKg ?? 0;
+    const totalProductFreight = isPickup ? 0 : (quoted?.quote.totalInr ?? 0);
+
+    // Allocate freight to lines by share of chargeable kg
+    let parcelOffset = 0;
+    const lineBreakdowns: FreightLineBreakdown[] = [];
+
+    for (const row of acc.productLines) {
+      let lineKg = 0;
+      for (let i = 0; i < row.parcels.length; i += 1) {
+        lineKg += quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0;
+      }
+      parcelOffset += row.parcels.length;
+
+      const share = totalProductChargeable > 0 ? lineKg / totalProductChargeable : 0;
+      const amountInr = Math.round(totalProductFreight * share * 100) / 100;
+      const indication = row.missingUnits > 0 || row.skip
+        ? (row.skip?.reason === 'no_package' ? 'missing_package' : 'incomplete_package')
+        : 'ok';
+
+      lineBreakdowns.push({
+        productId: row.line.productId,
+        sku: row.line.sku?.trim() || null,
+        name: row.line.name?.trim() || null,
+        quantity: row.line.quantity,
+        masterCartonCount: row.masterCartonCount,
+        singleBoxCount: row.singleBoxCount,
+        missingUnits: row.missingUnits,
+        chargeableKg: Math.round(lineKg * 1000) / 1000,
+        amountInr,
+        indication,
+      });
+    }
+
+    for (const spare of acc.spareLines) {
+      lineBreakdowns.push({
+        productId: spare.productId,
+        sku: spare.sku?.trim() || null,
+        name: spare.name?.trim() || null,
+        quantity: spare.quantity,
+        masterCartonCount: 0,
+        singleBoxCount: 0,
+        missingUnits: 0,
+        chargeableKg: 0,
+        amountInr: 0,
+        indication: 'spare_default',
+      });
+    }
+
+    const spareFreightInr = !isPickup && hasSpare
+      ? Math.round(spareMin * 100) / 100
+      : 0;
+
+    // Attach spare default amount to first spare breakdown row for display
+    if (spareFreightInr > 0) {
+      const firstSpare = lineBreakdowns.find(b => b.indication === 'spare_default');
+      if (firstSpare) firstSpare.amountInr = spareFreightInr;
+    }
+
+    const indications: string[] = [];
+    if (isPickup) indications.push('Customer pickup — no freight');
+    if (spareFreightInr > 0) {
+      indications.push(`Spare minimum ₹${spareFreightInr.toLocaleString('en-IN')}`);
+    }
+    for (const b of lineBreakdowns) {
+      if (b.indication === 'missing_package' || b.indication === 'incomplete_package') {
+        indications.push(`${b.name || b.sku || 'Item'} — no package data (₹0)`);
+      }
+    }
+
+    const rateMissing = Boolean(
+      !isPickup
+      && hasProduct
+      && (!originRates || !(boxPerKg > 0)),
+    );
+
+    sites.push({
+      site,
+      siteLabel: inventoryOriginLabel(site),
+      hasProduct,
+      hasSpare,
+      partnerId,
+      partnerLabel: logisticsPartnerLabel(partnerId),
+      courierOptions: options,
+      isPickup,
+      zone,
+      zoneLabel: ST_COURIER_ZONE_LABELS[zone],
+      lineBreakdowns,
+      productFreightInr: totalProductFreight,
+      spareFreightInr,
+      totalInr: Math.round((totalProductFreight + spareFreightInr) * 100) / 100,
+      chargeableKg: totalProductChargeable,
+      parcelCount: allParcels.length,
+      rateMissing,
+      indications: [...new Set(indications)],
+    });
+  }
 
   if (skipped.some(s => s.reason === 'no_package' || s.reason === 'incomplete_package')) {
-    warnings.push('Some products lack packaging data — those units are quoted as ₹0 until filled.');
+    warnings.push('Some products lack packaging data — those units are ₹0 until filled.');
   }
+  if (zoneOverridden) {
+    warnings.push(
+      `Freight plan overridden from ${ST_COURIER_ZONE_LABELS[inferredZone]} to ${ST_COURIER_ZONE_LABELS[zone]} — reason required.`,
+    );
+  }
+
+  const totalInr = sites.reduce((sum, s) => sum + s.totalInr, 0);
+  const totalChargeableKg = sites.reduce((sum, s) => sum + s.chargeableKg, 0);
+  const parcelCount = sites.reduce((sum, s) => sum + s.parcelCount, 0);
 
   return {
     zone,
     zoneLabel: ST_COURIER_ZONE_LABELS[zone],
-    partnerLabel: 'ST Courier',
-    origins,
+    inferredZone,
+    inferredZoneLabel: ST_COURIER_ZONE_LABELS[inferredZone],
+    zoneOverridden,
+    sites,
     totalInr,
     totalChargeableKg,
     parcelCount,
     skipped,
-    usable,
+    usable: sites.length > 0,
     warnings,
     spareFreightMinimumInr: spareMin,
   };
-}
-
-function inventoryOriginLabel(site: InventorySite): string {
-  return site === 'head_office' ? 'Head Office' : 'Cochin';
 }
 
 /** Build cart freight lines from cart items + catalog package snapshots. */
@@ -421,3 +583,5 @@ export function cartLinesForFreightEstimate(
     };
   });
 }
+
+export type { OrderCourierOption };

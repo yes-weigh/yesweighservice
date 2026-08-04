@@ -18,37 +18,23 @@ export function isCourierRatePartnerId(value: unknown): value is CourierRatePart
 }
 
 /**
- * ST Courier destination zones (rate-table keys).
- * Labels may combine regions (e.g. Tamil Nadu / Pondy).
- * Shared by Trackon / Delhivery placeholders until partner-specific zones exist.
+ * Destination zones for courier rate cards — same 3 buckets as Delivery rules.
  */
 export type StCourierZone =
   | 'kerala'
   | 'tamil_nadu_pondy'
-  | 'karnataka'
-  | 'andhra_pradesh'
-  | 'mumbai'
-  | 'delhi'
-  | 'rest_of_india';
+  | 'other_states';
 
 export const ST_COURIER_ZONES: StCourierZone[] = [
   'kerala',
   'tamil_nadu_pondy',
-  'karnataka',
-  'andhra_pradesh',
-  'mumbai',
-  'delhi',
-  'rest_of_india',
+  'other_states',
 ];
 
 export const ST_COURIER_ZONE_LABELS: Record<StCourierZone, string> = {
   kerala: 'Kerala',
-  tamil_nadu_pondy: 'Tamil Nadu / Pondy',
-  karnataka: 'Karnataka',
-  andhra_pradesh: 'Andhra Pradesh',
-  mumbai: 'Mumbai',
-  delhi: 'Delhi',
-  rest_of_india: 'Rest of India',
+  tamil_nadu_pondy: 'Tamil Nadu, Pondy',
+  other_states: 'Other states',
 };
 
 export function isStCourierZone(value: unknown): value is StCourierZone {
