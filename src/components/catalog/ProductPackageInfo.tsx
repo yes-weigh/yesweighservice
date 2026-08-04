@@ -494,56 +494,28 @@ export const ProductPackageInfo: React.FC<{
 
   return (
     <div className={`product-detail-page__package-info ${embedded ? 'product-detail-page__package-info--embedded' : ''}`} ref={cardRef}>
-      <div className="product-package__head">
-        {!embedded && (
-          <h2 className="product-detail-page__stock-locations-title">Package information</h2>
-        )}
-        <div className={`product-package__head-actions ${embedded ? 'product-package__head-actions--embedded' : ''}`}>
-          {!alwaysEditing && !isEditing && <span className="product-package__badge">Package</span>}
-          {canEdit && !alwaysEditing && !isEditing && (
-            <button
-              type="button"
-              className="product-package__edit-btn"
-              onClick={() => setEditing(true)}
-              aria-label="Edit package information"
-            >
-              <Pencil size={13} />
-            </button>
+      {(!embedded || !alwaysEditing) ? (
+        <div className="product-package__head">
+          {!embedded && (
+            <h2 className="product-detail-page__stock-locations-title">Package information</h2>
           )}
-          {canEdit && isEditing && (
-            <div className="product-package__row-actions">
-              {!alwaysEditing ? (
+          {!alwaysEditing ? (
+            <div className={`product-package__head-actions ${embedded ? 'product-package__head-actions--embedded' : ''}`}>
+              {!isEditing && <span className="product-package__badge">Package</span>}
+              {canEdit && !isEditing && (
                 <button
                   type="button"
-                  className="product-package__cancel-btn"
-                  onClick={handleCancel}
-                  disabled={saving}
+                  className="product-package__edit-btn"
+                  onClick={() => setEditing(true)}
+                  aria-label="Edit package information"
                 >
-                  Cancel
+                  <Pencil size={13} />
                 </button>
-              ) : null}
-              <button
-                type="button"
-                className="product-package__save-btn"
-                onClick={() => void handleSave()}
-                disabled={saving || (alwaysEditing && !canSaveToProduct)}
-                title={
-                  alwaysEditing && !canSaveToProduct
-                    ? 'Enter at least one complete single box (weight + L × B × H)'
-                    : undefined
-                }
-              >
-                <Save size={15} aria-hidden />
-                {saving
-                  ? 'Saving…'
-                  : alwaysEditing
-                    ? 'Save and push to product data'
-                    : 'Save'}
-              </button>
+              )}
             </div>
-          )}
+          ) : null}
         </div>
-      </div>
+      ) : null}
 
       {error && <p className="product-package__row-error">{error}</p>}
 
@@ -587,6 +559,39 @@ export const ProductPackageInfo: React.FC<{
           }}
         />
       </div>
+
+      {canEdit && isEditing ? (
+        <div className="product-package__footer-actions">
+          {!alwaysEditing ? (
+            <button
+              type="button"
+              className="product-package__cancel-btn"
+              onClick={handleCancel}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="product-package__save-btn"
+            onClick={() => void handleSave()}
+            disabled={saving || (alwaysEditing && !canSaveToProduct)}
+            title={
+              alwaysEditing && !canSaveToProduct
+                ? 'Enter at least one complete single box (weight + L × B × H)'
+                : undefined
+            }
+          >
+            <Save size={15} aria-hidden />
+            {saving
+              ? 'Saving…'
+              : alwaysEditing
+                ? 'Save and push to product data'
+                : 'Save'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 };
