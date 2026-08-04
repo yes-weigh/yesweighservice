@@ -3,10 +3,12 @@
  * Fee splits still come from salesOrders.yesOneGatcLines (not on Zoho invoice lines).
  */
 import { getFirestore } from 'firebase-admin/firestore';
+import { loadWeighingScaleCategoryIdSet } from './weighing-scale-description.js';
 
 export const GATC_REPORTS = 'gatcReports';
 const INVOICE_INDEX = 'invoiceIndex';
 const SALES_ORDERS = 'salesOrders';
+const PRODUCTS = 'catalogProducts';
 
 function round2(n) {
   return Math.round(Number(n || 0) * 100) / 100;
@@ -53,8 +55,38 @@ export function toYesOneGatcLines(lines) {
       gatcStampingRange,
       unitRate,
       hasStamping: Boolean(gatcStampingPriceId && gatcFeePerUnit > 0),
+      isWeighingScale: Boolean(line.isWeighingScale),
+      categoryId: line.categoryId != null ? String(line.categoryId).trim() || null : null,
     };
   });
+}
+
+/** Resolve isWeighingScale from product category when missing on portal lines. */
+async function enrichWeighingScaleOnLines(lineItems) {
+  const weighingIds = await loadWeighingScaleCategoryIdSet();
+  if (!weighingIds.size) return lineItems;
+
+  const db = getFirestore();
+  return Promise.all(lineItems.map(async line => {
+    if (line.isWeighingScale) return line;
+    if (line.categoryId && weighingIds.has(String(line.categoryId))) {
+      return { ...line, isWeighingScale: true };
+    }
+    const productId = String(line.productId || '').trim();
+    if (!productId) return line;
+    try {
+      const snap = await db.doc(`${PRODUCTS}/${productId}`).get();
+      const categoryId = snap.exists
+        ? String(snap.data()?.categoryId || '').trim()
+        : '';
+      if (categoryId && weighingIds.has(categoryId)) {
+        return { ...line, isWeighingScale: true, categoryId };
+      }
+    } catch {
+      // leave line as-is
+    }
+    return line;
+  }));
 }
 
 /** Fields to merge onto salesOrders/{id} (outside Zoho lineItems). */
@@ -115,6 +147,7 @@ function mapGatcReportLineItems(rawLines) {
       lineGatcTotal: round2(gatcFeePerUnit * qty),
       lineTotal: round2(unitRate * qty),
       hasStamping,
+      isWeighingScale: Boolean(line.isWeighingScale),
     };
   });
 }
@@ -231,7 +264,7 @@ export async function writeGatcReportForInvoice({
     return null;
   }
 
-  const lineItems = mapGatcReportLineItems(rawLines);
+  const lineItems = await enrichWeighingScaleOnLines(mapGatcReportLineItems(rawLines));
   const stamped = lineItems.filter(line => line.hasStamping);
   if (stamped.length === 0) {
     return null;
@@ -277,6 +310,7 @@ export async function writeGatcReportForInvoice({
     createdAt: nowIso(),
     source: String(source || 'invoice'),
     hasStamping: true,
+    hasWeighingScale: lineItems.some(line => line.isWeighingScale),
     lineItems,
     totals,
   };

@@ -18,6 +18,8 @@ import {
   readPackageInfo,
   saveCategoryOrder,
   saveCategoryProductOrder,
+  saveCategoryWeighingScaleFlags,
+  seedWeighingScaleCategoriesIfEmpty,
   uploadCategoryThumbnail,
   importProductImagesFromZoho,
   pushMissingCatalogProductImagesToZoho,
@@ -536,6 +538,55 @@ export const saveCatalogCategoryOrder = onCall(
 
     await saveCategoryOrder(payload);
     return { ok: true, count: payload.length };
+  },
+);
+
+/** Save weighing-scale category flags — staff / super admin only. */
+export const saveCatalogCategoryWeighingScaleFlags = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+
+    const categories = request.data?.categories;
+    if (!Array.isArray(categories) || categories.length === 0) {
+      throw new HttpsError('invalid-argument', 'categories array is required.');
+    }
+
+    const payload = categories.map(cat => ({
+      id: String(cat?.id ?? '').trim(),
+      isWeighingScale: Boolean(cat?.isWeighingScale),
+    })).filter(cat => cat.id);
+
+    if (!payload.length) {
+      throw new HttpsError('invalid-argument', 'No valid categories provided.');
+    }
+
+    try {
+      return await saveCategoryWeighingScaleFlags(payload);
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not save weighing-scale flags.');
+    }
+  },
+);
+
+/** One-shot seed of default weighing-scale categories when none are flagged. */
+export const seedCatalogWeighingScaleCategories = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      return await seedWeighingScaleCategoriesIfEmpty();
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not seed weighing-scale categories.');
+    }
   },
 );
 

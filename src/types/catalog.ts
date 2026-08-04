@@ -103,6 +103,8 @@ export interface CatalogCategory {
   totalProductCount?: number;
   displayOrder: number;
   thumbnailUrl: string | null;
+  /** Admin Product settings: weighing-scale description + GATC report rules. */
+  isWeighingScale?: boolean;
 }
 
 export interface CatalogStats {

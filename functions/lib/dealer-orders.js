@@ -45,6 +45,10 @@ import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 import { catalogProductIgnoresStockForCart, effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
 import {
+  appendWeighingScaleDescription,
+  loadWeighingScaleCategoryIdSet,
+} from './weighing-scale-description.js';
+import {
   loadGatcStampingPriceMap,
   mergeKeyForLine,
   resolveGatcFeeForProduct,
@@ -281,7 +285,10 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
     throw new HttpsError('invalid-argument', 'Add at least one product.');
   }
 
-  const gatcMap = await loadGatcStampingPriceMap();
+  const [gatcMap, weighingScaleCategoryIds] = await Promise.all([
+    loadGatcStampingPriceMap(),
+    loadWeighingScaleCategoryIdSet(),
+  ]);
   const merged = new Map();
 
   for (const row of rawLines) {
@@ -340,17 +347,25 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
     const baseRate = entry.baseOverride != null ? entry.baseOverride : catalogBase;
     const finalRate = Math.round((baseRate + gatc.gatcFeePerUnit) * 100) / 100;
 
+    const isWeighingScale = Boolean(
+      product.categoryId && weighingScaleCategoryIds.has(product.categoryId),
+    );
     const line = toOrderLine(product, entry.quantity, finalRate, catalogBase);
     line.baseRate = baseRate;
     line.gatcStampingPriceId = gatc.gatcStampingPriceId;
     line.gatcFeePerUnit = gatc.gatcFeePerUnit;
     line.gatcStampingRange = gatc.gatcStampingRange;
+    line.isWeighingScale = isWeighingScale;
     if (gatc.gatcStampingPriceId) {
       const stampNote = `Stamping: ${gatc.gatcStampingRange}`;
       line.description = line.description
         ? `${line.description}\n${stampNote}`
         : stampNote;
     }
+    line.description = appendWeighingScaleDescription(line.description, {
+      isWeighingScale,
+      hasStamping: Boolean(gatc.gatcStampingPriceId),
+    });
     lines.push(line);
 
     // Audit customizes base only — not the fixed GATC fee.

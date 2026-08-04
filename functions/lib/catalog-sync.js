@@ -256,6 +256,7 @@ async function remapCategorySettingsAfterSync(db, products, existingCategories) 
       name: cat.name || prev?.name || 'Category',
       displayOrder: cat.displayOrder ?? prev?.displayOrder ?? 999,
       thumbnailUrl,
+      isWeighingScale: Boolean(cat.isWeighingScale ?? prev?.isWeighingScale),
     });
   }
 
@@ -267,6 +268,7 @@ async function remapCategorySettingsAfterSync(db, products, existingCategories) 
         name: cat.name,
         displayOrder: cat.displayOrder,
         thumbnailUrl: cat.thumbnailUrl,
+        isWeighingScale: Boolean(cat.isWeighingScale),
       }, { merge: true });
     }
     for (const staleId of staleIds) {
@@ -304,6 +306,7 @@ function buildCategoryMap(products, existingCategories, existingProductMap) {
         productCount: 0,
         displayOrder: settings?.displayOrder ?? 999,
         thumbnailUrl: settings?.thumbnailUrl ?? null,
+        isWeighingScale: Boolean(settings?.isWeighingScale),
       });
     }
 
@@ -1054,6 +1057,74 @@ export async function saveCategoryOrder(categories) {
 
   await batch.commit();
   return { ok: true, count: categories.length };
+}
+
+/**
+ * Batch-set isWeighingScale on catalogCategories.
+ * @param {Array<{ id: string, isWeighingScale?: boolean }>} categories
+ */
+export async function saveCategoryWeighingScaleFlags(categories) {
+  if (!Array.isArray(categories) || categories.length === 0) {
+    throw new Error('categories array is required.');
+  }
+  const db = getFirestore();
+  const batch = db.batch();
+  const now = new Date().toISOString();
+  let count = 0;
+
+  for (const cat of categories) {
+    const id = String(cat?.id ?? '').trim();
+    if (!id) continue;
+    batch.set(
+      db.collection(CATEGORIES_COLLECTION).doc(id),
+      {
+        isWeighingScale: Boolean(cat.isWeighingScale),
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+    count += 1;
+  }
+
+  if (!count) throw new Error('No valid categories provided.');
+  await batch.commit();
+  return { ok: true, count };
+}
+
+/**
+ * One-shot: mark default Zoho weighing-scale groups when none are flagged yet.
+ */
+export async function seedWeighingScaleCategoriesIfEmpty() {
+  const { DEFAULT_WEIGHING_SCALE_CATEGORY_NAMES } = await import(
+    './weighing-scale-description.js'
+  );
+  const db = getFirestore();
+  const snap = await db.collection(CATEGORIES_COLLECTION).get();
+  if (snap.empty) return { seeded: 0, skipped: true, reason: 'no_categories' };
+
+  const anyFlagged = snap.docs.some(doc => Boolean(doc.data()?.isWeighingScale));
+  if (anyFlagged) return { seeded: 0, skipped: true, reason: 'already_flagged' };
+
+  const nameSet = new Set(
+    DEFAULT_WEIGHING_SCALE_CATEGORY_NAMES.map(name => name.toLowerCase()),
+  );
+  const batch = db.batch();
+  const now = new Date().toISOString();
+  let seeded = 0;
+
+  for (const doc of snap.docs) {
+    const name = String(doc.data()?.name ?? '').trim().toLowerCase();
+    if (!nameSet.has(name)) continue;
+    batch.set(
+      doc.ref,
+      { isWeighingScale: true, updatedAt: now },
+      { merge: true },
+    );
+    seeded += 1;
+  }
+
+  if (seeded) await batch.commit();
+  return { seeded, skipped: false };
 }
 
 export async function saveCategoryProductOrder(categoryId, products) {

@@ -55,6 +55,7 @@ export const GatcReportTab: React.FC = () => {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [month, setMonth] = useState(defaultMonth);
+  const [weighingScaleOnly, setWeighingScaleOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -78,15 +79,16 @@ export const GatcReportTab: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [search, month]);
+  }, [search, month, weighingScaleOnly]);
 
   const filtered = useMemo(() => {
     return rows.filter(report => {
       const invoiceMonth = String(report.invoiceDate || '').slice(0, 7);
       if (month && invoiceMonth !== month) return false;
+      if (weighingScaleOnly && !report.hasWeighingScale) return false;
       return gatcReportMatchesQuery(report, search);
     });
-  }, [rows, search, month]);
+  }, [rows, search, month, weighingScaleOnly]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -176,6 +178,14 @@ export const GatcReportTab: React.FC = () => {
                 ))}
               </select>
             </label>
+            <label className="gatc-report__check">
+              <input
+                type="checkbox"
+                checked={weighingScaleOnly}
+                onChange={e => setWeighingScaleOnly(e.target.checked)}
+              />
+              Weighing scale only
+            </label>
           </div>
 
           {filtered.length === 0 ? (
@@ -185,7 +195,7 @@ export const GatcReportTab: React.FC = () => {
               <p className="text-muted text-sm">
                 {rows.length === 0
                   ? 'Entries appear when a stamped portal invoice is created or synced.'
-                  : 'Try clearing search or choosing another month.'}
+                  : 'Try clearing search, filters, or choosing another month.'}
               </p>
             </div>
           ) : (

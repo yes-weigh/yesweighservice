@@ -27,6 +27,7 @@ export type GatcReportLineItem = {
   lineGatcTotal: number;
   lineTotal: number;
   hasStamping: boolean;
+  isWeighingScale: boolean;
 };
 
 export type GatcReportTotals = {
@@ -54,6 +55,7 @@ export type GatcReportDoc = {
   createdAt: string;
   source: string;
   hasStamping: boolean;
+  hasWeighingScale: boolean;
   searchBlob: string;
   lineItems: GatcReportLineItem[];
   totals: GatcReportTotals;
@@ -77,6 +79,7 @@ function mapLine(raw: Record<string, unknown>): GatcReportLineItem {
     lineGatcTotal: Number(raw.lineGatcTotal) || 0,
     lineTotal: Number(raw.lineTotal) || 0,
     hasStamping: Boolean(raw.hasStamping ?? (gatcStampingPriceId && gatcFeePerUnit > 0)),
+    isWeighingScale: Boolean(raw.isWeighingScale),
   };
 }
 
@@ -105,6 +108,10 @@ function mapReport(id: string, data: Record<string, unknown>): GatcReportDoc {
     createdAt: String(data.createdAt ?? ''),
     source: String(data.source ?? 'portal_verify'),
     hasStamping: Boolean(data.hasStamping),
+    hasWeighingScale: Boolean(
+      data.hasWeighingScale
+      ?? lineItems.some(line => line.isWeighingScale),
+    ),
     searchBlob: String(data.searchBlob ?? ''),
     lineItems,
     totals: {

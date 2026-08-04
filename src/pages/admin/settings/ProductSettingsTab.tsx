@@ -30,6 +30,12 @@ import {
   type CatalogGatcStampingPriceEntry,
 } from '../../../lib/catalogProductSettings';
 import { calculateProductMrpBreakdown, getMrpFormulaOption } from '../../../lib/catalogMrp';
+import {
+  fetchCatalog,
+  saveCatalogCategoryWeighingScaleFlags,
+  seedCatalogWeighingScaleCategories,
+} from '../../../lib/catalog';
+import type { CatalogCategory } from '../../../types/catalog';
 import { PushFirebaseImagesToZohoSection } from './PushFirebaseImagesToZohoSection';
 import { HiddenItemsSection } from './HiddenItemsSection';
 
@@ -53,6 +59,7 @@ type ProductSettingsSubTab =
   | 'model-approval'
   | 'spare-groups'
   | 'gatc'
+  | 'weighing-scales'
   | 'images'
   | 'hidden-items';
 
@@ -61,6 +68,7 @@ const PRODUCT_SETTINGS_SUBTABS: { id: ProductSettingsSubTab; label: string }[] =
   { id: 'model-approval', label: 'Model & approval' },
   { id: 'spare-groups', label: 'Spare groups' },
   { id: 'gatc', label: 'Stamping' },
+  { id: 'weighing-scales', label: 'Weighing scales' },
   { id: 'images', label: 'Images' },
   { id: 'hidden-items', label: 'Hidden items' },
 ];
@@ -221,6 +229,9 @@ export const ProductSettingsTab: React.FC = () => {
   const [approvalNumbers, setApprovalNumbers] = useState<CatalogApprovalNumberOption[]>([]);
   const [spareGroups, setSpareGroups] = useState<CatalogSpareGroupOption[]>([]);
   const [gatcEntries, setGatcEntries] = useState<CatalogGatcStampingPriceEntry[]>([]);
+  const [weighingCategories, setWeighingCategories] = useState<CatalogCategory[]>([]);
+  const [weighingDraft, setWeighingDraft] = useState<Record<string, boolean>>({});
+  const [weighingLoaded, setWeighingLoaded] = useState(false);
   const [newModel, setNewModel] = useState('');
   const [newApproval, setNewApproval] = useState('');
   const [newSpareGroup, setNewSpareGroup] = useState('');
@@ -264,6 +275,63 @@ export const ProductSettingsTab: React.FC = () => {
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  const loadWeighingCategories = useCallback(async () => {
+    setBusyKey('weighing-load');
+    setError('');
+    try {
+      await seedCatalogWeighingScaleCategories();
+      const catalog = await fetchCatalog({}, { force: true });
+      const cats = [...catalog.categories].sort((a, b) => {
+        const orderDiff = a.displayOrder - b.displayOrder;
+        if (orderDiff !== 0) return orderDiff;
+        return a.name.localeCompare(b.name);
+      });
+      setWeighingCategories(cats);
+      const draft: Record<string, boolean> = {};
+      for (const cat of cats) draft[cat.id] = Boolean(cat.isWeighingScale);
+      setWeighingDraft(draft);
+      setWeighingLoaded(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load categories.');
+    } finally {
+      setBusyKey(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (subTab !== 'weighing-scales' || weighingLoaded) return;
+    void loadWeighingCategories();
+  }, [subTab, weighingLoaded, loadWeighingCategories]);
+
+  const weighingDirty = useMemo(() => {
+    return weighingCategories.some(
+      cat => Boolean(weighingDraft[cat.id]) !== Boolean(cat.isWeighingScale),
+    );
+  }, [weighingCategories, weighingDraft]);
+
+  const handleSaveWeighingScales = async () => {
+    if (busyKey) return;
+    setBusyKey('weighing-save');
+    setError('');
+    setSuccess('');
+    try {
+      const payload = weighingCategories.map(cat => ({
+        id: cat.id,
+        isWeighingScale: Boolean(weighingDraft[cat.id]),
+      }));
+      await saveCatalogCategoryWeighingScaleFlags(payload);
+      setWeighingCategories(prev => prev.map(cat => ({
+        ...cat,
+        isWeighingScale: Boolean(weighingDraft[cat.id]),
+      })));
+      setSuccess('Weighing scale categories saved.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save weighing-scale categories.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
 
   const sortedQuantities = useMemo(
     () => [...quantities].sort((a, b) => a - b),
@@ -942,6 +1010,58 @@ export const ProductSettingsTab: React.FC = () => {
     </div>
   );
 
+  const renderWeighingScalesSection = () => (
+    <div className="settings-product-qty__section">
+      <h4 className="settings-product-qty__title">Weighing scale categories</h4>
+      <p className="settings-product-qty__hint text-muted text-sm">
+        Products in these categories append “Supplied in Dismantled Condition” (no stamping)
+        or “Verified, Stamped & Certified by GATC” (with stamping) on SO and invoice lines.
+        Also used to filter the GATC report.
+      </p>
+      {busyKey === 'weighing-load' || (!weighingLoaded && subTab === 'weighing-scales') ? (
+        <p className="text-muted text-sm">Loading categories…</p>
+      ) : (
+        <>
+          <ul className="settings-product-weighing" aria-label="Weighing scale categories">
+            {weighingCategories.map(cat => (
+              <li key={cat.id}>
+                <label className="settings-product-weighing__row">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(weighingDraft[cat.id])}
+                    disabled={busyKey != null}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      setWeighingDraft(prev => ({ ...prev, [cat.id]: checked }));
+                    }}
+                  />
+                  <span>{cat.name}</span>
+                  <em className="text-muted text-sm">
+                    {cat.productCount.toLocaleString('en-IN')} items
+                  </em>
+                </label>
+              </li>
+            ))}
+          </ul>
+          {weighingCategories.length === 0 ? (
+            <p className="text-muted text-sm">No catalog categories found. Sync the catalog first.</p>
+          ) : null}
+          <div className="settings-product-mrp__actions">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busyKey != null || !weighingDirty}
+              onClick={() => void handleSaveWeighingScales()}
+            >
+              <Save size={15} aria-hidden />
+              {busyKey === 'weighing-save' ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   const renderGatcSection = () => (
     <div className="settings-product-qty__section">
       <h4 className="settings-product-qty__title">Stamping prices</h4>
@@ -1359,6 +1479,7 @@ export const ProductSettingsTab: React.FC = () => {
         )}
         {subTab === 'spare-groups' && renderSpareGroupSection()}
         {subTab === 'gatc' && renderGatcSection()}
+        {subTab === 'weighing-scales' && renderWeighingScalesSection()}
         {subTab === 'images' && <PushFirebaseImagesToZohoSection />}
         {subTab === 'hidden-items' && <HiddenItemsSection />}
       </div>

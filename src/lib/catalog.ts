@@ -957,6 +957,7 @@ function mapCategory(data: Record<string, unknown>): CatalogCategory {
     productCount: Number(data.productCount ?? 0),
     displayOrder: Number(data.displayOrder ?? 999),
     thumbnailUrl: (data.thumbnailUrl as string | null) ?? null,
+    isWeighingScale: Boolean(data.isWeighingScale),
   };
 }
 
@@ -1012,6 +1013,7 @@ function deriveCategoriesFromProducts(
         productCount: 1,
         displayOrder: storedMap.get(categoryId)?.displayOrder ?? 999,
         thumbnailUrl: storedMap.get(categoryId)?.thumbnailUrl ?? null,
+        isWeighingScale: Boolean(storedMap.get(categoryId)?.isWeighingScale),
       });
     } else {
       existing.productCount += 1;
@@ -1030,6 +1032,7 @@ function deriveCategoriesFromProducts(
         ...cat,
         thumbnailUrl: prev?.thumbnailUrl || cat.thumbnailUrl,
         displayOrder: prev?.displayOrder ?? cat.displayOrder,
+        isWeighingScale: Boolean(prev?.isWeighingScale ?? cat.isWeighingScale),
       };
     })
     .filter(cat => cat.id && cat.productCount > 0)
@@ -1448,6 +1451,40 @@ export async function saveCatalogCategoryOrder(
   try {
     await callable({ categories });
     clearCatalogCache();
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export async function saveCatalogCategoryWeighingScaleFlags(
+  categories: Array<{ id: string; isWeighingScale: boolean }>,
+): Promise<void> {
+  const callable = httpsCallable<
+    { categories: Array<{ id: string; isWeighingScale: boolean }> },
+    { ok: boolean; count: number }
+  >(functions, 'saveCatalogCategoryWeighingScaleFlags');
+  try {
+    await callable({ categories });
+    clearCatalogCache();
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** One-shot seed of default weighing-scale groups when none are flagged. */
+export async function seedCatalogWeighingScaleCategories(): Promise<{
+  seeded: number;
+  skipped: boolean;
+  reason?: string;
+}> {
+  const callable = httpsCallable<
+    Record<string, never>,
+    { seeded: number; skipped: boolean; reason?: string }
+  >(functions, 'seedCatalogWeighingScaleCategories');
+  try {
+    const res = await callable({});
+    if (!res.data.skipped && res.data.seeded > 0) clearCatalogCache();
+    return res.data;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

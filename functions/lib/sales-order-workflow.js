@@ -37,6 +37,10 @@ import {
   resolveGatcFeeForProduct,
 } from './gatc-stamping.js';
 import {
+  appendWeighingScaleDescription,
+  loadWeighingScaleCategoryIdSet,
+} from './weighing-scale-description.js';
+import {
   loadInvoiceDocById,
   writeGatcReportFromSalesOrder,
   yesOneGatcPersistFields,
@@ -451,6 +455,7 @@ async function loadCatalogProduct(productId) {
       data.hsn,
     ),
     categoryName: data.categoryName != null ? String(data.categoryName) : null,
+    categoryId: data.categoryId != null ? String(data.categoryId) : null,
     hsn: data.hsn != null ? String(data.hsn) : null,
     status: String(data.status ?? 'active'),
     hiddenFromCatalog: Boolean(data.hiddenFromCatalog),
@@ -465,7 +470,10 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true, allowRate
     throw new HttpsError('invalid-argument', 'Add at least one product.');
   }
 
-  const gatcMap = await loadGatcStampingPriceMap();
+  const [gatcMap, weighingScaleCategoryIds] = await Promise.all([
+    loadGatcStampingPriceMap(),
+    loadWeighingScaleCategoryIdSet(),
+  ]);
   const merged = new Map();
 
   for (const row of rawLines) {
@@ -525,11 +533,18 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true, allowRate
     const baseRate = entry.baseOverride != null ? entry.baseOverride : catalogBase;
     const rate = Math.round((baseRate + gatc.gatcFeePerUnit) * 100) / 100;
 
+    const isWeighingScale = Boolean(
+      product.categoryId && weighingScaleCategoryIds.has(product.categoryId),
+    );
     let description = product.description;
     if (gatc.gatcStampingPriceId) {
       const stampNote = `Stamping: ${gatc.gatcStampingRange}`;
       description = description ? `${description}\n${stampNote}` : stampNote;
     }
+    description = appendWeighingScaleDescription(description, {
+      isWeighingScale,
+      hasStamping: Boolean(gatc.gatcStampingPriceId),
+    });
 
     lines.push({
       productId: product.productId,
@@ -543,11 +558,13 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true, allowRate
       quantity: entry.quantity,
       lineTotal: lineTotal(rate, entry.quantity),
       categoryName: product.categoryName,
+      categoryId: product.categoryId,
       hsn: product.hsn,
       stockStatus: product.stockStatus,
       gatcStampingPriceId: gatc.gatcStampingPriceId,
       gatcFeePerUnit: gatc.gatcFeePerUnit,
       gatcStampingRange: gatc.gatcStampingRange,
+      isWeighingScale,
     });
 
     if (Math.round(baseRate * 100) !== Math.round(catalogBase * 100)) {
