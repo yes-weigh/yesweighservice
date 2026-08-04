@@ -907,10 +907,13 @@ function emptyCategoryCounts(): AdminInvoiceCategoryCounts {
   };
 }
 
-/** Rollup docs sometimes have total count but missing/zero byCategory — repair via live counts. */
+/**
+ * Rollup docs sometimes have total count but missing/zero byCategory — repair via live counts.
+ * Exclude gatc: it is overlaid from portal gatcReports and must not mask empty product/spare/etc.
+ */
 function rollupCategoryCountsNeedRepair(counts: AdminInvoiceCategoryCounts): boolean {
   if (counts.all <= 0) return false;
-  const segmented = counts.product + counts.spare + counts.software_key + counts.service + counts.gatc;
+  const segmented = counts.product + counts.spare + counts.software_key + counts.service;
   return segmented === 0;
 }
 
@@ -921,14 +924,30 @@ async function repairRollupCategoryCounts(
     dateEnd?: string | null;
     salespersonIds?: string[] | null;
     category: InvoiceCategory | 'all';
+    /** Portal Billwise stamping count — kept after live repair. */
+    portalGatcCount?: number;
   },
 ): Promise<AdminInvoiceStatsKpi> {
-  if (!rollupCategoryCountsNeedRepair(rollup.categoryCounts)) return rollup;
+  if (!rollupCategoryCountsNeedRepair(rollup.categoryCounts)) {
+    if (typeof options.portalGatcCount === 'number') {
+      return {
+        ...rollup,
+        categoryCounts: {
+          ...rollup.categoryCounts,
+          gatc: options.portalGatcCount,
+        },
+      };
+    }
+    return rollup;
+  }
   const categoryCounts = await countAdminInvoicesByCategory({
     dateStart: options.dateStart,
     dateEnd: options.dateEnd,
     salespersonIds: options.salespersonIds,
   });
+  if (typeof options.portalGatcCount === 'number') {
+    categoryCounts.gatc = options.portalGatcCount;
+  }
   return {
     ...rollup,
     categoryCounts,
@@ -1049,6 +1068,7 @@ export async function loadAdminInvoiceKpis(options: {
             dateEnd,
             salespersonIds: options.salespersonIds,
             category,
+            portalGatcCount: portalStamping.count,
           });
         }
       } else {
@@ -1101,6 +1121,7 @@ export async function loadAdminInvoiceKpis(options: {
               dateEnd,
               salespersonIds: options.salespersonIds,
               category,
+              portalGatcCount: portalStamping.count,
             });
           }
         }
