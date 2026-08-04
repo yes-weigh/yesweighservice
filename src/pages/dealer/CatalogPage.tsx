@@ -184,6 +184,8 @@ export const CatalogPage: React.FC = () => {
   const isMobile = useIsMobile();
   const canSync = hasStaffPermission(user, 'catalog.sync');
   const canSpareGroup = isSuperAdmin || isStaff;
+  /** Admin + staff share catalogue multi-filters (mapping, stock, location, audit, NC). */
+  const canUseCatalogFilters = isSuperAdmin || isStaff;
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const showAuditedLocations = isSuperAdmin || isStaff;
   /** Matches firestore `canAccessYesStore` — staff cannot list yesStoreItems. */
@@ -300,7 +302,7 @@ export const CatalogPage: React.FC = () => {
   const isMapBrowse = focus === 'map';
 
   const loadLinkedSpareIds = useCallback(async () => {
-    if (!canSync) return;
+    if (!canSync && !canUseCatalogFilters) return;
     setLinksLoading(true);
     try {
       const index = await fetchSpareLinkIndex();
@@ -311,7 +313,7 @@ export const CatalogPage: React.FC = () => {
     } finally {
       setLinksLoading(false);
     }
-  }, [canSync]);
+  }, [canSync, canUseCatalogFilters]);
 
   const loadCatalog = useCallback(async (opts?: { force?: boolean }) => {
     setLoading(true);
@@ -560,7 +562,7 @@ export const CatalogPage: React.FC = () => {
     || productNcStatusFilters.size > 0;
 
   const applyProductBrowseFilters = useCallback((items: typeof shopProducts) => {
-    if (!isSuperAdmin || !hasActiveProductFilters) return items;
+    if (!canUseCatalogFilters || !hasActiveProductFilters) return items;
     let next = items;
     if (spareCountByProductId) {
       next = next.filter(product => matchesCategorizedProductFilters(
@@ -586,7 +588,7 @@ export const CatalogPage: React.FC = () => {
     ));
     return next;
   }, [
-    isSuperAdmin,
+    canUseCatalogFilters,
     hasActiveProductFilters,
     spareCountByProductId,
     productCatalogFilters,
@@ -615,7 +617,7 @@ export const CatalogPage: React.FC = () => {
         }
         : undefined);
     }
-    if (!isSuperAdmin || !hasActiveProductFilters) {
+    if (!canUseCatalogFilters || !hasActiveProductFilters) {
       return getShopCatalogCategories(categories, shopProducts, spareParts);
     }
     return getShopCatalogCategories(categories, shopProducts, spareParts, {
@@ -630,7 +632,7 @@ export const CatalogPage: React.FC = () => {
     catalogSpareParts,
     isMedia,
     hasMediaProductFilters,
-    isSuperAdmin,
+    canUseCatalogFilters,
     hasActiveProductFilters,
     applyProductBrowseFilters,
   ]);
@@ -650,10 +652,10 @@ export const CatalogPage: React.FC = () => {
 
   const filteredSpareParts = useMemo(() => {
     let items = spareParts;
-    if (isSuperAdmin && linkedSpareIds) {
+    if (canUseCatalogFilters && linkedSpareIds) {
       items = items.filter(product => matchesSpareCatalogFilters(product, spareCatalogFilters, linkedSpareIds));
     }
-    if (isSuperAdmin) {
+    if (canUseCatalogFilters) {
       items = items.filter(product => matchesSpareAuditStatusFilters(
         product,
         spareAuditStatusFilters,
@@ -672,7 +674,7 @@ export const CatalogPage: React.FC = () => {
       return a.name.localeCompare(b.name);
     });
   }, [
-    isSuperAdmin,
+    canUseCatalogFilters,
     spareParts,
     spareCatalogFilters,
     spareStockStatusFilters,
@@ -1109,8 +1111,8 @@ export const CatalogPage: React.FC = () => {
     mobileCompactHeader: isMobile && showHeaderSearch,
   });
 
-  const showSparesFilters = isSuperAdmin && focus === 'all-spares';
-  const showProductFilters = isSuperAdmin && focus === 'browse';
+  const showSparesFilters = canUseCatalogFilters && focus === 'all-spares';
+  const showProductFilters = canUseCatalogFilters && focus === 'browse';
   const hasActiveSpareFilters =
     spareCatalogFilters.size > 0
     || spareStockStatusFilters.size > 0
@@ -1944,7 +1946,7 @@ export const CatalogPage: React.FC = () => {
           : pathname;
         const browsePanel = (
           <CatalogBrowse
-            products={isSuperAdmin ? filteredBrowseProducts : browseProducts}
+            products={canUseCatalogFilters ? filteredBrowseProducts : browseProducts}
             categories={shopCategories}
             isLoading={loading || (isMedia && mediaIndexLoading)}
             showToolbar={false}
@@ -1960,20 +1962,20 @@ export const CatalogPage: React.FC = () => {
           dealerView={dealerView}
             hideFilterBar
             spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
-            openNcQtyByProductId={isSuperAdmin ? openNcQtyByProductId : undefined}
+            openNcQtyByProductId={canUseCatalogFilters ? openNcQtyByProductId : undefined}
             auditedLocationByProductId={auditedLocationByProductId}
             onLongPressProduct={canTransferWarehouseLocation ? handleLongPressWarehouseLocation : undefined}
             activeCategoryId={categoryId}
             onActiveCategoryChange={setCategoryId}
             emptyTitle={
-              (isSuperAdmin && hasActiveProductFilters) || hasMediaProductFilters
+              (canUseCatalogFilters && hasActiveProductFilters) || hasMediaProductFilters
                 ? 'No products match the selected filters'
                 : undefined
             }
             emptyHint={
               hasMediaProductFilters
                 ? 'Try clearing filters or open another category.'
-                : isSuperAdmin && hasActiveProductFilters
+                : canUseCatalogFilters && hasActiveProductFilters
                   ? 'Try clearing filters or run Sync from Zoho to refresh stock.'
                   : undefined
             }
@@ -2077,7 +2079,7 @@ export const CatalogPage: React.FC = () => {
             <CatalogBrowse
               products={filteredSpareParts}
               categories={[]}
-              isLoading={loading || (isSuperAdmin && linksLoading)}
+              isLoading={loading || (canUseCatalogFilters && linksLoading)}
               showToolbar={false}
               showCategoryGrid={false}
               flatBrowse
@@ -2102,14 +2104,14 @@ export const CatalogPage: React.FC = () => {
                   : undefined
               }
               emptyTitle={
-                isSuperAdmin && hasActiveSpareFilters
+                canUseCatalogFilters && hasActiveSpareFilters
                   ? flatListSearch.trim()
                     ? 'No spare parts match your search and filters'
                     : 'No spare parts match the selected filters'
                   : undefined
               }
               emptyHint={
-                isSuperAdmin && hasActiveSpareFilters
+                canUseCatalogFilters && hasActiveSpareFilters
                   ? 'Try clearing filters or run Sync from Zoho to refresh stock by location.'
                   : undefined
               }
