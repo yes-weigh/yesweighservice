@@ -38428,6 +38428,42 @@ button.invoice-detail-top__card {
   color: #fff;
 }
 
+.so-detail__payment-notes {
+  resize: vertical;
+  min-height: 4.5rem;
+  width: 100%;
+  line-height: 1.4;
+}
+
+.so-detail__payment-hint {
+  margin: 0;
+}
+
+.so-detail__payment-note-view {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.so-detail__payment-note-label {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.so-detail__payment-note-text {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: #f1f5f9;
+}
+
 .so-detail__payment-file {
   position: relative;
   display: flex;

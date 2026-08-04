@@ -151,6 +151,7 @@ export interface AdminSalesOrderDetail {
   yesOneCreatedByName?: string | null;
   paymentAmount?: number | null;
   paymentUtr?: string | null;
+  paymentNotes?: string | null;
   paymentScreenshotStoragePath?: string | null;
   paymentScreenshotUrl?: string | null;
   paymentSubmittedAt?: string | null;
@@ -816,6 +817,7 @@ export function mapAdminSalesOrderDetail(
     yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
     paymentAmount: data.paymentAmount != null ? Number(data.paymentAmount) : null,
     paymentUtr: data.paymentUtr ? String(data.paymentUtr) : null,
+    paymentNotes: data.paymentNotes ? String(data.paymentNotes) : null,
     paymentScreenshotStoragePath: data.paymentScreenshotStoragePath
       ? String(data.paymentScreenshotStoragePath)
       : null,

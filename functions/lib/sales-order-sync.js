@@ -873,7 +873,15 @@ export function mapSalesOrderDoc(id, data) {
     pdfStoragePath: data.pdfStoragePath ?? null,
     yesOneStage,
     yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
+    paymentAmount: data.paymentAmount != null ? Number(data.paymentAmount) : null,
     paymentUtr: data.paymentUtr ?? null,
+    paymentNotes: data.paymentNotes ? String(data.paymentNotes) : null,
+    paymentScreenshotStoragePath: data.paymentScreenshotStoragePath
+      ? String(data.paymentScreenshotStoragePath)
+      : null,
+    paymentScreenshotUrl: data.paymentScreenshotUrl
+      ? String(data.paymentScreenshotUrl)
+      : null,
     paymentSubmittedAt: data.paymentSubmittedAt ?? null,
     paymentVerifiedAt: data.paymentVerifiedAt ?? null,
     readyForPaymentAt: data.readyForPaymentAt ?? null,

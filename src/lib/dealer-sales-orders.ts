@@ -86,6 +86,7 @@ function mapDetail(raw: Record<string, unknown>): AdminSalesOrderDetail {
     yesOneCreatedFromCart: list.yesOneCreatedFromCart,
     paymentAmount: raw.paymentAmount != null ? Number(raw.paymentAmount) : null,
     paymentUtr: raw.paymentUtr ? String(raw.paymentUtr) : null,
+    paymentNotes: raw.paymentNotes ? String(raw.paymentNotes) : null,
     paymentScreenshotStoragePath: raw.paymentScreenshotStoragePath
       ? String(raw.paymentScreenshotStoragePath)
       : null,

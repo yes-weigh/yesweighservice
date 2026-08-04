@@ -139,6 +139,7 @@ export interface SalesOrderWorkflowDetail extends AdminSalesOrderDetail {
   yesOneStage: YesOneSalesOrderStage | string | null;
   paymentAmount: number | null;
   paymentUtr: string | null;
+  paymentNotes: string | null;
   paymentScreenshotStoragePath: string | null;
   paymentScreenshotUrl: string | null;
   paymentSubmittedAt: string | null;
@@ -287,7 +288,8 @@ export async function uploadSalesOrderPaymentScreenshot(
 
 export async function submitSalesOrderPayment(input: {
   salesOrderId: string;
-  paymentScreenshotStoragePath: string;
+  paymentScreenshotStoragePath?: string | null;
+  paymentNotes?: string | null;
   paymentUtr?: string;
 }): Promise<SalesOrderWorkflowDetail> {
   try {

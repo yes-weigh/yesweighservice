@@ -641,6 +641,7 @@ async function detailPayload(id, data, { includePaymentUrl = false } = {}) {
     yesOneCreatedByName: data.yesOneCreatedByName ? String(data.yesOneCreatedByName) : null,
     paymentAmount: data.paymentAmount != null ? Number(data.paymentAmount) : null,
     paymentUtr: data.paymentUtr ?? null,
+    paymentNotes: data.paymentNotes ? String(data.paymentNotes) : null,
     paymentScreenshotStoragePath: data.paymentScreenshotStoragePath ?? null,
     paymentScreenshotUrl,
     paymentSubmittedAt: data.paymentSubmittedAt ?? null,
@@ -844,23 +845,35 @@ export async function submitSalesOrderPayment(uid, role, payload = {}) {
   }
 
   const storagePath = String(payload.paymentScreenshotStoragePath || '').trim();
-  if (!storagePath.startsWith(`sales-order-payments/${id}/`)) {
+  const notes = String(payload.paymentNotes || '').trim().slice(0, 1000);
+  const utr = String(payload.paymentUtr || '').trim().slice(0, 80);
+
+  if (storagePath && !storagePath.startsWith(`sales-order-payments/${id}/`)) {
     throw new HttpsError('invalid-argument', 'Invalid payment screenshot path.');
   }
-  const utr = String(payload.paymentUtr || '').trim().slice(0, 80);
+  if (!storagePath && !notes) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Attach a payment screenshot or add a payment note (e.g. existing credit).',
+    );
+  }
+
   const at = nowIso();
   let paymentScreenshotUrl = null;
-  try {
-    paymentScreenshotUrl = await durableReadUrl(storagePath);
-  } catch {
-    paymentScreenshotUrl = null;
+  if (storagePath) {
+    try {
+      paymentScreenshotUrl = await durableReadUrl(storagePath);
+    } catch {
+      paymentScreenshotUrl = null;
+    }
   }
 
   await ref.set({
     yesOneStage: 'payment_submitted',
-    paymentScreenshotStoragePath: storagePath,
+    paymentScreenshotStoragePath: storagePath || null,
     paymentScreenshotUrl,
     paymentUtr: utr || null,
+    paymentNotes: notes || null,
     paymentAmount: Number(data.total ?? data.paymentAmount ?? 0),
     paymentSubmittedAt: at,
     paymentSubmittedByUid: uid,
@@ -887,8 +900,13 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       'Payment must be submitted before verification.',
     );
   }
-  if (!data.paymentScreenshotStoragePath) {
-    throw new HttpsError('failed-precondition', 'Payment screenshot is missing.');
+  const hasScreenshot = Boolean(String(data.paymentScreenshotStoragePath || '').trim());
+  const hasNotes = Boolean(String(data.paymentNotes || '').trim());
+  if (!hasScreenshot && !hasNotes) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Payment screenshot or payment note is missing.',
+    );
   }
 
   const zohoStatus = normalizeZohoStatus(data.status);

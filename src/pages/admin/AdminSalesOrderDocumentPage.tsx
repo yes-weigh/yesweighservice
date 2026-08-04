@@ -88,6 +88,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [linesHydrating, setLinesHydrating] = useState(false);
   const [savingLines, setSavingLines] = useState(false);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
+  const [paymentNotes, setPaymentNotes] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [editingShip, setEditingShip] = useState(false);
   const [shipAddresses, setShipAddresses] = useState<ShippingAddress[]>([]);
@@ -499,27 +500,33 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const handleSubmitPayment = async () => {
     if (!salesOrderId || submittingPayment) return;
-    if (!paymentFile && !salesOrder?.paymentScreenshotStoragePath) {
-      window.alert('Attach a payment screenshot.');
+    const notes = paymentNotes.trim();
+    const hasExistingShot = Boolean(salesOrder?.paymentScreenshotStoragePath?.trim());
+    if (!paymentFile && !hasExistingShot && !notes) {
+      window.alert(
+        'Attach a payment screenshot, or add a note (for example: adjust against existing credit).',
+      );
       return;
     }
     setSubmittingPayment(true);
     try {
-      let storagePath = salesOrder?.paymentScreenshotStoragePath || '';
+      let storagePath = salesOrder?.paymentScreenshotStoragePath?.trim() || '';
       if (paymentFile) {
         const uploaded = await uploadSalesOrderPaymentScreenshot(salesOrderId, paymentFile);
         storagePath = uploaded.storagePath;
       }
       const next = await submitSalesOrderPayment({
         salesOrderId,
-        paymentScreenshotStoragePath: storagePath,
+        paymentScreenshotStoragePath: storagePath || null,
+        paymentNotes: notes || null,
       });
       setSalesOrder(next);
       setPaymentFile(null);
+      setPaymentNotes('');
       window.alert(
         isDealer
-          ? 'Payment proof submitted. Staff will verify and complete your order.'
-          : 'Payment proof submitted. Super admin can verify and invoice.',
+          ? 'Payment details submitted. Staff will verify and complete your order.'
+          : 'Payment details submitted. Super admin can verify and invoice.',
       );
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
@@ -653,7 +660,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     ),
   );
   const showPayment = canPay
-    || (isOps && (stage === 'payment_submitted' || stage === 'completed' || salesOrder.paymentScreenshotUrl));
+    || (isOps && (
+      stage === 'payment_submitted'
+      || stage === 'completed'
+      || salesOrder.paymentScreenshotUrl
+      || salesOrder.paymentNotes
+    ));
   const priceChanges = salesOrder.yesOnePriceChanges ?? [];
   const showPriceChanges = Boolean(salesOrder.yesOnePriceCustomized && priceChanges.length);
 
@@ -936,7 +948,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           {canUploadPayment && (
             <div className="so-detail__payment-form" data-capture-ignore="1">
               <div className="so-detail__payment-field">
-                <span>Payment screenshot</span>
+                <span>Payment screenshot <span className="text-muted">(optional if noting credit)</span></span>
                 <label className="so-detail__payment-file" htmlFor="so-payment-file">
                   <span className="so-detail__payment-file-icon" aria-hidden>
                     <ImageIcon size={18} />
@@ -956,6 +968,23 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                 </label>
               </div>
 
+              <label className="so-detail__payment-field" htmlFor="so-payment-notes">
+                <span>Payment note <span className="text-muted">(optional if screenshot attached)</span></span>
+                <textarea
+                  id="so-payment-notes"
+                  className="input-field so-detail__payment-notes"
+                  value={paymentNotes}
+                  onChange={e => setPaymentNotes(e.target.value.slice(0, 1000))}
+                  disabled={submittingPayment}
+                  rows={3}
+                  maxLength={1000}
+                  placeholder="e.g. Adjust against existing company credit / advance balance"
+                />
+              </label>
+              <p className="so-detail__payment-hint text-muted text-sm mb-0">
+                Provide a screenshot, a note, or both. Notes alone are enough when settling against existing credit.
+              </p>
+
               <button
                 type="button"
                 className="btn btn-primary so-detail__payment-submit"
@@ -963,10 +992,17 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                 onClick={() => { void handleSubmitPayment(); }}
               >
                 <IndianRupee size={16} aria-hidden />
-                {submittingPayment ? 'Submitting…' : 'Submit payment proof'}
+                {submittingPayment ? 'Submitting…' : 'Submit payment'}
               </button>
             </div>
           )}
+
+          {salesOrder.paymentNotes?.trim() ? (
+            <div className="so-detail__payment-note-view">
+              <span className="so-detail__payment-note-label">Payment note</span>
+              <p className="so-detail__payment-note-text mb-0">{salesOrder.paymentNotes.trim()}</p>
+            </div>
+          ) : null}
 
           {stage === 'payment_submitted' && !canUploadPayment && (
             <p className="so-detail__payment-waiting text-muted text-sm mb-0">
