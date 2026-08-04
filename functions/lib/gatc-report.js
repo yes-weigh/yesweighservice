@@ -119,6 +119,8 @@ function mapGatcReportLineItems(rawLines) {
   });
 }
 
+const ZOHO_CUSTOMERS = 'zohoCustomers';
+
 /** Load mirrored invoice doc via invoiceIndex. */
 export async function loadInvoiceDocById(invoiceId) {
   const invId = String(invoiceId || '').trim();
@@ -128,9 +130,72 @@ export async function loadInvoiceDocById(invoiceId) {
   if (!indexSnap.exists) return null;
   const customerId = String(indexSnap.data()?.customerId || '').trim();
   if (!customerId) return null;
-  const invSnap = await db.doc(`zohoCustomers/${customerId}/invoices/${invId}`).get();
+  const invSnap = await db.doc(`${ZOHO_CUSTOMERS}/${customerId}/invoices/${invId}`).get();
   if (!invSnap.exists) return null;
   return { id: invSnap.id, ...(invSnap.data() || {}) };
+}
+
+/** Find mirrored invoice for a portal SO via Zoho sales-order number. */
+export async function loadInvoiceDocBySalesOrderNumber(customerId, salesOrderNumber) {
+  const cid = String(customerId || '').trim();
+  const soNum = String(salesOrderNumber || '').trim();
+  if (!cid || !soNum) return null;
+  const snap = await getFirestore()
+    .collection(ZOHO_CUSTOMERS)
+    .doc(cid)
+    .collection('invoices')
+    .where('salesOrderNumber', '==', soNum)
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+  const doc = snap.docs[0];
+  return { id: doc.id, ...(doc.data() || {}) };
+}
+
+/** Resolve portal SO for an invoice (id link, zohoInvoiceId, or SO number). */
+async function resolvePortalSoForInvoice(invoice) {
+  const db = getFirestore();
+  const invId = String(invoice?.id || invoice?.invoiceId || '').trim();
+  let soId = String(invoice?.salesOrderId || '').trim();
+  let soData = null;
+
+  if (soId) {
+    const soSnap = await db.doc(`${SALES_ORDERS}/${soId}`).get();
+    if (soSnap.exists) soData = soSnap.data() || {};
+  }
+
+  if (!soData && invId) {
+    const byInv = await db.collection(SALES_ORDERS)
+      .where('zohoInvoiceId', '==', invId)
+      .limit(1)
+      .get();
+    if (!byInv.empty) {
+      soId = byInv.docs[0].id;
+      soData = byInv.docs[0].data() || {};
+    }
+  }
+
+  if (!soData) {
+    const soNum = String(invoice?.salesOrderNumber || '').trim();
+    if (soNum) {
+      const byNum = await db.collection(SALES_ORDERS)
+        .where('salesOrderNumber', '==', soNum)
+        .limit(5)
+        .get();
+      const stamped = byNum.docs.find(doc => {
+        const lines = mapGatcReportLineItems(doc.data()?.yesOneGatcLines);
+        return lines.some(line => line.hasStamping);
+      });
+      const pick = stamped || byNum.docs[0];
+      if (pick) {
+        soId = pick.id;
+        soData = pick.data() || {};
+      }
+    }
+  }
+
+  if (!soData) return null;
+  return { soId, soData };
 }
 
 /**
@@ -257,46 +322,28 @@ export async function writeGatcReportFromSalesOrder({
 
 /**
  * After an invoice mirror upsert: join linked SO and index stamped GATC fees.
- * When salesOrderId is missing (org sync), resolve portal SO by zohoInvoiceId.
+ * Resolves portal SO by salesOrderId, zohoInvoiceId, or salesOrderNumber.
  */
 export async function maybeWriteGatcReportAfterInvoiceUpsert(invoice) {
   const invId = String(invoice?.id || invoice?.invoiceId || '').trim();
   if (!invId) return null;
 
-  const db = getFirestore();
-  let soId = String(invoice?.salesOrderId || '').trim();
-  let soData = null;
-
-  if (soId) {
-    const soSnap = await db.doc(`${SALES_ORDERS}/${soId}`).get();
-    if (soSnap.exists) soData = soSnap.data() || {};
-  }
-
-  if (!soData) {
-    const byInv = await db.collection(SALES_ORDERS)
-      .where('zohoInvoiceId', '==', invId)
-      .limit(1)
-      .get();
-    if (byInv.empty) return null;
-    soId = byInv.docs[0].id;
-    soData = byInv.docs[0].data() || {};
-  }
+  const resolved = await resolvePortalSoForInvoice({ id: invId, ...invoice });
+  if (!resolved) return null;
 
   return writeGatcReportForInvoice({
     invoice: { id: invId, ...invoice },
     invoiceId: invId,
-    soId,
-    soData,
+    soId: resolved.soId,
+    soData: resolved.soData,
     source: 'invoice_sync',
   });
 }
 
 /**
- * Rebuild gatcReports from portal SOs that already have a Zoho invoice id
- * (+ refresh header from mirrored invoice when present).
- *
- * Note: most org-synced invoices have salesOrderId=null, so scanning invoices
- * alone rarely finds stamping. Portal SOs with zohoInvoiceId are the source of truth.
+ * Rebuild gatcReports from stamped portal SOs.
+ * Joins mirrored invoices by zohoInvoiceId, then by salesOrderNumber
+ * (covers invoices created in Zoho while the portal SO is still payment_submitted).
  */
 export async function backfillGatcReportsFromInvoices({
   dryRun = false,
@@ -309,6 +356,7 @@ export async function backfillGatcReportsFromInvoices({
   let scannedInvoices = 0;
   let wrote = 0;
   let soIndexed = 0;
+  let soNumberIndexed = 0;
   let invoiceJoinIndexed = 0;
   let skippedNoInvoice = 0;
   let skippedNoStamping = 0;
@@ -336,8 +384,12 @@ export async function backfillGatcReportsFromInvoices({
 
   /** @type {Map<string, { soId: string, soData: object }>} */
   const stampedByInvoiceId = new Map();
+  /** @type {Map<string, { soId: string, soData: object }>} */
+  const stampedBySoNumber = new Map();
+  /** @type {Set<string>} */
+  const writtenInvoiceIds = new Set();
 
-  // Primary: portal sales orders that were invoiced with stamping meta.
+  // Collect stamped portal SOs (with or without zohoInvoiceId).
   let lastSoDoc = null;
   for (;;) {
     let q = db.collection(SALES_ORDERS).limit(size);
@@ -349,36 +401,50 @@ export async function backfillGatcReportsFromInvoices({
     for (const doc of snap.docs) {
       scannedSalesOrders += 1;
       const soData = doc.data() || {};
-      const invId = String(soData.zohoInvoiceId || '').trim();
-      if (!invId) {
-        skippedNoInvoice += 1;
-        continue;
-      }
       const lines = mapGatcReportLineItems(soData.yesOneGatcLines);
       if (!lines.some(line => line.hasStamping)) {
         skippedNoStamping += 1;
         continue;
       }
-      stampedByInvoiceId.set(invId, { soId: doc.id, soData });
+      const invId = String(soData.zohoInvoiceId || '').trim();
+      if (invId) stampedByInvoiceId.set(invId, { soId: doc.id, soData });
+      const soNum = String(soData.salesOrderNumber || '').trim();
+      if (soNum) stampedBySoNumber.set(soNum, { soId: doc.id, soData });
+      if (!invId) skippedNoInvoice += 1;
     }
     if (snap.size < size) break;
   }
 
+  async function indexPair(invId, invoice, soId, soData, source) {
+    if (!invId || writtenInvoiceIds.has(invId)) return false;
+    if (!dryRun) {
+      await writeGatcReportForInvoice({
+        invoice,
+        invoiceId: invId,
+        invoiceNumber: soData.zohoInvoiceNumber || invoice?.invoiceNumber || null,
+        soId,
+        soData,
+        source,
+      });
+    }
+    writtenInvoiceIds.add(invId);
+    wrote += 1;
+    return true;
+  }
+
+  // Path A: SO already has zohoInvoiceId.
   for (const [invId, { soId, soData }] of stampedByInvoiceId) {
     try {
       const invoice = await loadInvoiceDocById(invId);
-      if (!dryRun) {
-        await writeGatcReportForInvoice({
-          invoice,
-          invoiceId: invId,
-          invoiceNumber: soData.zohoInvoiceNumber || invoice?.invoiceNumber || null,
-          soId,
-          soData,
-          source: invoice ? 'backfill_invoice' : 'backfill_so',
-        });
+      if (await indexPair(
+        invId,
+        invoice,
+        soId,
+        soData,
+        invoice ? 'backfill_invoice' : 'backfill_so',
+      )) {
+        soIndexed += 1;
       }
-      soIndexed += 1;
-      wrote += 1;
     } catch (err) {
       errors += 1;
       console.warn(
@@ -388,7 +454,35 @@ export async function backfillGatcReportsFromInvoices({
     }
   }
 
-  // Secondary: invoices that still carry salesOrderId (webhook / non-skip sync).
+  // Path B: stamped SO still payment_submitted/etc, but Zoho invoice exists by SO number.
+  for (const [soNum, { soId, soData }] of stampedBySoNumber) {
+    const linkedInvId = String(soData.zohoInvoiceId || '').trim();
+    if (linkedInvId && writtenInvoiceIds.has(linkedInvId)) continue;
+    try {
+      const invoice = await loadInvoiceDocBySalesOrderNumber(
+        soData.customerId,
+        soNum,
+      );
+      if (!invoice?.id) continue;
+      if (await indexPair(
+        String(invoice.id),
+        invoice,
+        soId,
+        soData,
+        'backfill_so_number',
+      )) {
+        soNumberIndexed += 1;
+      }
+    } catch (err) {
+      errors += 1;
+      console.warn(
+        `backfillGatcReportsFromInvoices: SO number ${soNum}:`,
+        err?.message || err,
+      );
+    }
+  }
+
+  // Path C: invoices that still carry salesOrderId (webhook / non-skip sync).
   let lastInvoiceDoc = null;
   for (;;) {
     let q = db.collectionGroup('invoices').limit(size);
@@ -399,36 +493,37 @@ export async function backfillGatcReportsFromInvoices({
 
     for (const doc of snap.docs) {
       scannedInvoices += 1;
-      if (stampedByInvoiceId.has(doc.id)) continue;
+      if (writtenInvoiceIds.has(doc.id)) continue;
       const invoice = { id: doc.id, ...(doc.data() || {}) };
-      const soId = String(invoice.salesOrderId || '').trim();
-      if (!soId) {
+
+      let soId = String(invoice.salesOrderId || '').trim();
+      let soData = null;
+      if (soId) {
+        const soSnap = await db.doc(`${SALES_ORDERS}/${soId}`).get();
+        if (soSnap.exists) soData = soSnap.data() || {};
+      }
+      if (!soData) {
+        const soNum = String(invoice.salesOrderNumber || '').trim();
+        const fromMap = soNum ? stampedBySoNumber.get(soNum) : null;
+        if (fromMap) {
+          soId = fromMap.soId;
+          soData = fromMap.soData;
+        }
+      }
+      if (!soData) {
         skippedNoSo += 1;
         continue;
       }
+
       try {
-        const soSnap = await db.doc(`${SALES_ORDERS}/${soId}`).get();
-        if (!soSnap.exists) {
-          skippedMissingSo += 1;
-          continue;
-        }
-        const soData = soSnap.data() || {};
         const lines = mapGatcReportLineItems(soData.yesOneGatcLines);
         if (!lines.some(line => line.hasStamping)) {
           skippedNoStamping += 1;
           continue;
         }
-        if (!dryRun) {
-          await writeGatcReportForInvoice({
-            invoice,
-            invoiceId: doc.id,
-            soId,
-            soData,
-            source: 'backfill_invoice',
-          });
+        if (await indexPair(doc.id, invoice, soId, soData, 'backfill_invoice')) {
+          invoiceJoinIndexed += 1;
         }
-        invoiceJoinIndexed += 1;
-        wrote += 1;
       } catch (err) {
         errors += 1;
         console.warn(
@@ -447,8 +542,9 @@ export async function backfillGatcReportsFromInvoices({
     scannedInvoices,
     wrote,
     soIndexed,
+    soNumberIndexed,
     invoiceJoinIndexed,
-    soFallbackWrote: soIndexed,
+    soFallbackWrote: soIndexed + soNumberIndexed,
     skippedNoInvoice,
     skippedNoSo,
     skippedNoStamping,

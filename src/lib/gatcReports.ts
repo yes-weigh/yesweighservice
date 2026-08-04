@@ -155,6 +155,7 @@ export async function backfillGatcReportsFromInvoices(options?: {
   scannedInvoices: number;
   wrote: number;
   soIndexed: number;
+  soNumberIndexed: number;
   invoiceJoinIndexed: number;
   soFallbackWrote: number;
   skippedNoInvoice: number;
@@ -172,6 +173,7 @@ export async function backfillGatcReportsFromInvoices(options?: {
       scannedInvoices: number;
       wrote: number;
       soIndexed: number;
+      soNumberIndexed: number;
       invoiceJoinIndexed: number;
       soFallbackWrote: number;
       skippedNoInvoice: number;
