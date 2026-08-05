@@ -143,6 +143,10 @@ export interface AdminSalesOrderDetail {
     catalogRate: number;
     rate: number;
     quantity: number;
+    /** price_level = settings rule at create; user = staff/admin edit */
+    source?: 'price_level' | 'user' | null;
+    priceLevelId?: string | null;
+    priceLevelName?: string | null;
     changedAt: string | null;
     changedByUid: string | null;
     changedByName: string | null;
@@ -838,6 +842,11 @@ export function mapAdminSalesOrderDetail(
         catalogRate: Number(raw.catalogRate ?? 0),
         rate: Number(raw.rate ?? 0),
         quantity: Number(raw.quantity ?? 0),
+        source: raw.source === 'price_level' || raw.source === 'user'
+          ? raw.source
+          : null,
+        priceLevelId: raw.priceLevelId ? String(raw.priceLevelId) : null,
+        priceLevelName: raw.priceLevelName ? String(raw.priceLevelName) : null,
         changedAt: raw.changedAt ? String(raw.changedAt) : null,
         changedByUid: raw.changedByUid ? String(raw.changedByUid) : null,
         changedByName: raw.changedByName ? String(raw.changedByName) : null,

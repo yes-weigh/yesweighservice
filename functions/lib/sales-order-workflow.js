@@ -40,6 +40,7 @@ import {
   appendWeighingScaleDescription,
   loadWeighingScaleCategoryIdSet,
 } from './weighing-scale-description.js';
+import { mergePriceChangeAudit } from './price-change-audit.js';
 import {
   loadInvoiceDocById,
   writeGatcReportFromSalesOrder,
@@ -680,12 +681,11 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
 
   const at = nowIso();
   const actorName = displayName(user);
-  const nextChanges = priceChanges.map(change => ({
-    ...change,
-    changedAt: at,
-    changedByUid: uid,
-    changedByName: actorName,
-  }));
+  const nextChanges = mergePriceChangeAudit(
+    data.yesOnePriceChanges,
+    priceChanges,
+    { uid, name: actorName, at },
+  );
 
   // Keep YesOne stage (review or ready_for_payment).
   const stage = yesOneStageOf(data);

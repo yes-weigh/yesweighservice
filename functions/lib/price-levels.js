@@ -101,34 +101,42 @@ export function findPriceLevelForDealer(levels, dealerId) {
 }
 
 /**
- * @returns {{ listRate: number, chargeRate: number, mode: string, percent: number, itemOverride: boolean }}
+ * @returns {{
+ *   listRate: number,
+ *   chargeRate: number,
+ *   mode: string,
+ *   percent: number,
+ *   itemOverride: boolean,
+ *   levelId: string | null,
+ *   levelName: string | null,
+ * }}
  */
 export function resolveDealerUnitPrice(levels, dealerId, product) {
   const listRate = roundMoney(Number(product?.rate) || 0);
+  const none = {
+    listRate,
+    chargeRate: listRate,
+    mode: 'none',
+    percent: 0,
+    itemOverride: false,
+    levelId: null,
+    levelName: null,
+  };
   const level = findPriceLevelForDealer(levels, dealerId);
   const categoryId = String(product?.categoryId ?? '').trim() || null;
   const productId = String(product?.id ?? product?.productId ?? '').trim();
-  if (!level || !categoryId) {
-    return { listRate, chargeRate: listRate, mode: 'none', percent: 0, itemOverride: false };
-  }
+  if (!level || !categoryId) return none;
   const rule = level.categoryRules.find(r => r.categoryId === categoryId);
-  if (!rule) {
-    return { listRate, chargeRate: listRate, mode: 'none', percent: 0, itemOverride: false };
-  }
+  if (!rule) return none;
 
+  const levelMeta = { levelId: level.id, levelName: level.name };
   const itemRule = productId
     ? (rule.itemRules || []).find(r => r.productId === productId)
     : null;
 
   if (itemRule) {
     if (itemRule.kind === 'except' || itemRule.percent <= 0) {
-      return {
-        listRate,
-        chargeRate: listRate,
-        mode: 'none',
-        percent: 0,
-        itemOverride: true,
-      };
+      return { ...none, itemOverride: true, ...levelMeta };
     }
     return {
       listRate,
@@ -136,11 +144,12 @@ export function resolveDealerUnitPrice(levels, dealerId, product) {
       mode: itemRule.kind,
       percent: itemRule.percent,
       itemOverride: true,
+      ...levelMeta,
     };
   }
 
   if (rule.percent <= 0) {
-    return { listRate, chargeRate: listRate, mode: 'none', percent: 0, itemOverride: false };
+    return { ...none, ...levelMeta };
   }
   return {
     listRate,
@@ -148,6 +157,7 @@ export function resolveDealerUnitPrice(levels, dealerId, product) {
     mode: rule.mode,
     percent: rule.percent,
     itemOverride: false,
+    ...levelMeta,
   };
 }
 

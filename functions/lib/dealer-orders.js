@@ -53,6 +53,10 @@ import {
   resolveDealerUnitPrice,
 } from './price-levels.js';
 import {
+  filterPriceAuditForLines,
+  stampCreatePriceAudit,
+} from './price-change-audit.js';
+import {
   loadGatcStampingPriceMap,
   mergeKeyForLine,
   resolveGatcFeeForProduct,
@@ -368,13 +372,21 @@ async function buildLinesFromInput(rawLines, {
     const gatc = resolveGatcFeeForProduct(product, entry.gatcStampingPriceId, gatcMap);
     const catalogBase = Math.round((Number(product.rate) || 0) * 100) / 100;
     let levelBase = null;
+    let levelId = null;
+    let levelName = null;
     if (priceLevelDealerId && !isFreight) {
       const priced = resolveDealerUnitPrice(priceLevels, priceLevelDealerId, product);
       if (priced.mode !== 'none') {
         levelBase = priced.chargeRate;
+        levelId = priced.levelId;
+        levelName = priced.levelName;
       }
     }
-    const baseRate = entry.baseOverride != null
+    // Catalog-equal client rates mean "default" (staff UI always sends a rate).
+    // Only a rate ≠ list is treated as an intentional override so levels can apply.
+    const overrideDiffersFromCatalog = entry.baseOverride != null
+      && Math.round(entry.baseOverride * 100) !== Math.round(catalogBase * 100);
+    const baseRate = overrideDiffersFromCatalog
       ? entry.baseOverride
       : (levelBase != null ? levelBase : catalogBase);
     const finalRate = Math.round((baseRate + gatc.gatcFeePerUnit) * 100) / 100;
@@ -402,6 +414,8 @@ async function buildLinesFromInput(rawLines, {
 
     // Audit customizes base only — not the fixed GATC fee.
     if (Math.round(baseRate * 100) !== Math.round(catalogBase * 100)) {
+      const matchesLevel = levelBase != null
+        && Math.round(baseRate * 100) === Math.round(levelBase * 100);
       priceChanges.push({
         productId: line.productId,
         itemId: line.itemId,
@@ -410,6 +424,17 @@ async function buildLinesFromInput(rawLines, {
         catalogRate: catalogBase,
         rate: baseRate,
         quantity: line.quantity,
+        ...(matchesLevel
+          ? {
+            source: 'price_level',
+            priceLevelId: levelId,
+            priceLevelName: levelName,
+          }
+          : {
+            source: 'user',
+            priceLevelId: null,
+            priceLevelName: null,
+          }),
       });
     }
   }
@@ -553,6 +578,10 @@ async function createSegmentSalesOrders({
             ? 'bluedart'
             : (segmentLines.some(isFreightOrderLine) ? 'st_courier' : 'personal_collection');
 
+    const segmentPriceChanges = filterPriceAuditForLines(
+      workflowBase.yesOnePriceChanges,
+      segmentLines,
+    );
     const workflowExtras = {
       ...workflowBase,
       yesOneCartReference: orderNumber,
@@ -566,6 +595,8 @@ async function createSegmentSalesOrders({
       categoryAmounts: { [segmentToInvoiceCategory(segment)]: subtotal },
       shippingAddressId: shippingResolved.shippingAddressId || null,
       shippingAddress: shippingResolved.address?.formatted || null,
+      yesOnePriceCustomized: segmentPriceChanges.length > 0,
+      yesOnePriceChanges: segmentPriceChanges,
       ...yesOneGatcPersistFields(segmentLines),
       ...(salesperson ? {
         salespersonId: salesperson.id,
@@ -633,8 +664,14 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     );
   }
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
-  const { lines: builtLines } = await buildLinesFromInput(payload.lines, {
+  const { lines: builtLines, priceChanges } = await buildLinesFromInput(payload.lines, {
     priceLevelDealerId: zohoCustomerId,
+  });
+  const at = nowIso();
+  const priceAudit = stampCreatePriceAudit(priceChanges, {
+    uid: null,
+    name: null,
+    at,
   });
 
   // Dealers cannot choose freight amounts — strip any client freight and auto-add below.
@@ -722,6 +759,10 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       orderNumberBase: orderNumber,
       workflowBase: {
         yesOneCreatedFromCart: true,
+        yesOneCreatedByUid: uid,
+        yesOneCreatedByName: displayName(user),
+        yesOnePriceCustomized: priceAudit.length > 0,
+        yesOnePriceChanges: priceAudit,
         yesOneFreightZone: freightZoneMeta.zone,
         yesOneFreightZoneInferred: freightZoneMeta.inferredZone,
         ...(freightZoneMeta.zoneOverridden
@@ -750,6 +791,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     dealerName: profile.dealerName,
     createdByUid: uid,
     createdByName: displayName(user),
+    priceCustomized: priceAudit.length > 0,
     salesOrders,
   };
 }
@@ -782,6 +824,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
   const profile = await loadDealerProfile(null, zohoCustomerId);
   const { lines, priceChanges } = await buildLinesFromInput(payload.lines, {
     allowRateOverride: true,
+    priceLevelDealerId: zohoCustomerId,
   });
 
   if (profile.canBuySpares === false) {
@@ -902,12 +945,11 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
       },
     );
 
-    const priceAudit = priceChanges.map(change => ({
-      ...change,
-      changedAt: at,
-      changedByUid: uid,
-      changedByName: actorName,
-    }));
+    const priceAudit = stampCreatePriceAudit(priceChanges, {
+      uid,
+      name: actorName,
+      at,
+    });
 
     salesOrders = await createSegmentSalesOrders({
       secrets,

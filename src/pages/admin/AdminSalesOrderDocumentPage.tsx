@@ -941,23 +941,30 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         <section className="so-detail__price-changes panel glass">
           <h3 className="so-detail__section-title">Custom prices</h3>
           <ul className="so-detail__price-changes-list">
-            {priceChanges.map(change => (
-              <li key={`${change.productId}-${change.changedAt ?? change.rate}`}>
-                <div>
-                  <strong>{change.name}</strong>
-                  {change.sku ? <span className="text-muted text-sm"> · {change.sku}</span> : null}
-                </div>
-                <p className="text-sm mb-0">
-                  {formatCurrency(change.catalogRate, salesOrder.currencyCode)}
-                  {' → '}
-                  <strong>{formatCurrency(change.rate, salesOrder.currencyCode)}</strong>
-                  {change.changedByName ? ` · ${change.changedByName}` : ''}
-                  {change.changedAt
-                    ? ` · ${new Date(change.changedAt).toLocaleString('en-IN')}`
-                    : ''}
-                </p>
-              </li>
-            ))}
+            {priceChanges.map(change => {
+              const isLevel = change.source === 'price_level'
+                || (!change.changedByUid && Boolean(change.priceLevelName));
+              const attribution = isLevel
+                ? (change.priceLevelName || 'Price level')
+                : (change.changedByName || null);
+              return (
+                <li key={`${change.productId}-${change.changedAt ?? change.rate}`}>
+                  <div>
+                    <strong>{change.name}</strong>
+                    {change.sku ? <span className="text-muted text-sm"> · {change.sku}</span> : null}
+                  </div>
+                  <p className="text-sm mb-0">
+                    {formatCurrency(change.catalogRate, salesOrder.currencyCode)}
+                    {' → '}
+                    <strong>{formatCurrency(change.rate, salesOrder.currencyCode)}</strong>
+                    {attribution ? ` · ${attribution}` : ''}
+                    {change.changedAt
+                      ? ` · ${new Date(change.changedAt).toLocaleString('en-IN')}`
+                      : ''}
+                  </p>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

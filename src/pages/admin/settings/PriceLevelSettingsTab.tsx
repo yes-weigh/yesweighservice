@@ -11,6 +11,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { CategoryBrowseCard } from '../../../components/catalog/CategoryBrowseCard';
 import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../../context/AuthContext';
 import { fetchCatalog, isHiddenCatalogCategory } from '../../../lib/catalog';
@@ -73,9 +74,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const [error, setError] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [dealerQuery, setDealerQuery] = useState('');
-  /** Per-category item search query in the rules list. */
-  const [itemQueryByCategory, setItemQueryByCategory] = useState<Record<string, string>>({});
-  const [expandedItemCats, setExpandedItemCats] = useState<Record<string, boolean>>({});
+  /** Category selected from the catalogue-style grid for editing rules. */
+  const [ruleCategoryId, setRuleCategoryId] = useState<string | null>(null);
+  const [itemQuery, setItemQuery] = useState('');
 
   const levelsRef = useRef(levels);
   const savedRef = useRef(savedLevels);
@@ -90,6 +91,11 @@ export const PriceLevelSettingsTab: React.FC = () => {
     () => levels.find(l => l.id === selectedId) ?? null,
     [levels, selectedId],
   );
+
+  useEffect(() => {
+    setRuleCategoryId(null);
+    setItemQuery('');
+  }, [selectedId]);
 
   const rulesByCategoryId = useMemo(() => {
     const map = new Map<string, PriceLevelCategoryRule>();
@@ -370,8 +376,8 @@ export const PriceLevelSettingsTab: React.FC = () => {
       categoryName: category.name,
       itemRules,
     });
-    setItemQueryByCategory(prev => ({ ...prev, [category.id]: '' }));
-    setExpandedItemCats(prev => ({ ...prev, [category.id]: true }));
+    setItemQuery('');
+    setRuleCategoryId(category.id);
   };
 
   const updateItemRule = (
@@ -585,21 +591,69 @@ export const PriceLevelSettingsTab: React.FC = () => {
                   ) : null}
                 </h4>
                 <p className="text-muted text-sm">
-                  Set a category % (discount or hike), then optionally override specific items:
-                  except from the category rule, special discount, or special hike.
+                  Pick a category card (same as catalogue), then set discount or hike % and optional item overrides.
                 </p>
                 {categories.length === 0 ? (
                   <p className="text-muted text-sm">No catalog categories found.</p>
                 ) : (
-                  <ul className="price-levels-tab__rules">
-                    {categories.map(cat => {
+                  <>
+                    <div className="catalog-categories catalog-categories--bare price-levels-tab__cat-grid">
+                      <div className="catalog-categories__grid">
+                        {categories.map((cat, idx) => {
+                          const rule = rulesByCategoryId.get(cat.id);
+                          const active = categoryRuleHasEffect(
+                            rule ?? emptyCategoryRule(cat.id, cat.name),
+                          );
+                          const percent = rule?.percent ?? 0;
+                          const mode = rule?.mode ?? 'discount';
+                          const itemCount = rule?.itemRules.length ?? 0;
+                          const badge = active
+                            ? (percent > 0
+                              ? `${mode === 'increment' ? '+' : '−'}${percent}%`
+                              : `${itemCount} item${itemCount === 1 ? '' : 's'}`)
+                            : null;
+                          return (
+                            <div
+                              key={cat.id}
+                              className={[
+                                'price-levels-tab__cat-tile',
+                                ruleCategoryId === cat.id ? 'is-selected' : '',
+                                active ? 'is-active' : '',
+                              ].filter(Boolean).join(' ')}
+                            >
+                              {badge ? (
+                                <span className="price-levels-tab__cat-badge">{badge}</span>
+                              ) : null}
+                              <CategoryBrowseCard
+                                category={cat}
+                                index={idx}
+                                onClick={() => {
+                                  setRuleCategoryId(cat.id);
+                                  setItemQuery('');
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const cat = categories.find(c => c.id === ruleCategoryId) ?? null;
+                      if (!cat) {
+                        return (
+                          <p className="text-muted text-sm price-levels-tab__pick-hint">
+                            Select a category card to edit its pricing rule.
+                          </p>
+                        );
+                      }
                       const rule = rulesByCategoryId.get(cat.id);
                       const mode: PriceLevelRuleMode = rule?.mode ?? 'discount';
                       const percent = rule?.percent ?? 0;
                       const itemRules = rule?.itemRules ?? [];
-                      const active = categoryRuleHasEffect(rule ?? emptyCategoryRule(cat.id, cat.name));
-                      const itemPanelOpen = expandedItemCats[cat.id] ?? itemRules.length > 0;
-                      const itemQuery = itemQueryByCategory[cat.id] ?? '';
+                      const active = categoryRuleHasEffect(
+                        rule ?? emptyCategoryRule(cat.id, cat.name),
+                      );
                       const usedItemIds = new Set(itemRules.map(r => r.productId));
                       const catProducts = productsByCategory.get(cat.id) ?? [];
                       const itemHits = itemQuery.trim().length < 2
@@ -614,12 +668,21 @@ export const PriceLevelSettingsTab: React.FC = () => {
                           .slice(0, 12);
 
                       return (
-                        <li
-                          key={cat.id}
-                          className={`price-levels-tab__rule-tile${active ? ' is-active' : ''}`}
-                        >
+                        <div className="price-levels-tab__rule-editor">
+                          <div className="price-levels-tab__rule-editor-head">
+                            <strong>{cat.name}</strong>
+                            <button
+                              type="button"
+                              className="price-levels-tab__rule-delete"
+                              aria-label={`Clear rule for ${cat.name}`}
+                              title="Clear category + item rules"
+                              disabled={!active}
+                              onClick={() => clearCategoryRule(cat.id)}
+                            >
+                              <Trash2 size={14} aria-hidden />
+                            </button>
+                          </div>
                           <div className="price-levels-tab__rule-main">
-                            <span className="price-levels-tab__rule-cat">{cat.name}</span>
                             <select
                               value={mode}
                               onChange={e => upsertCategoryRule(cat, {
@@ -649,177 +712,151 @@ export const PriceLevelSettingsTab: React.FC = () => {
                               />
                               <span>%</span>
                             </label>
-                            <button
-                              type="button"
-                              className="price-levels-tab__rule-delete"
-                              aria-label={`Clear rule for ${cat.name}`}
-                              title="Clear category + item rules"
-                              disabled={!active}
-                              onClick={() => clearCategoryRule(cat.id)}
-                            >
-                              <Trash2 size={14} aria-hidden />
-                            </button>
                           </div>
 
                           <div className="price-levels-tab__item-rules">
-                            <button
-                              type="button"
-                              className="price-levels-tab__item-toggle"
-                              onClick={() => setExpandedItemCats(prev => ({
-                                ...prev,
-                                [cat.id]: !itemPanelOpen,
-                              }))}
-                            >
+                            <div className="price-levels-tab__item-toggle">
                               Item rules
                               {itemRules.length > 0 ? ` (${itemRules.length})` : ''}
-                              <span aria-hidden>{itemPanelOpen ? '▴' : '▾'}</span>
-                            </button>
-
-                            {itemPanelOpen ? (
-                              <>
-                                <div className="price-levels-tab__item-search">
-                                  <Search size={14} aria-hidden />
-                                  <input
-                                    type="search"
-                                    value={itemQuery}
-                                    onChange={e => setItemQueryByCategory(prev => ({
-                                      ...prev,
-                                      [cat.id]: e.target.value,
-                                    }))}
-                                    placeholder="Search item in this category…"
-                                    autoComplete="off"
-                                  />
-                                </div>
-                                {itemHits.length > 0 ? (
-                                  <ul className="price-levels-tab__item-hits">
-                                    {itemHits.map(product => (
-                                      <li key={product.id} className="price-levels-tab__item-hit-row">
-                                        <div className="price-levels-tab__item-hit-thumb" aria-hidden>
-                                          {product.imageUrl ? (
-                                            <CategoryThumbnail src={product.imageUrl} />
-                                          ) : (
-                                            <Package size={18} />
-                                          )}
-                                        </div>
-                                        <div className="price-levels-tab__item-hit-body">
-                                          <button
-                                            type="button"
-                                            className="price-levels-tab__item-hit"
-                                            onClick={() => upsertItemRule(cat, product, {
-                                              kind: 'except',
-                                            })}
-                                          >
-                                            <strong>{product.name}</strong>
-                                            <span className="text-muted text-sm">
-                                              {[product.sku, `₹${product.rate.toLocaleString('en-IN')}`]
-                                                .filter(Boolean)
-                                                .join(' · ')}
-                                            </span>
-                                          </button>
-                                          <div className="price-levels-tab__item-hit-actions">
-                                            <button
-                                              type="button"
-                                              onClick={() => upsertItemRule(cat, product, {
-                                                kind: 'except',
-                                              })}
-                                            >
-                                              Except
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => upsertItemRule(cat, product, {
-                                                kind: 'discount',
-                                                percent: percent > 0 ? percent : 10,
-                                              })}
-                                            >
-                                              Discount
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => upsertItemRule(cat, product, {
-                                                kind: 'increment',
-                                                percent: 5,
-                                              })}
-                                            >
-                                              Hike
-                                            </button>
-                                          </div>
-                                        </div>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : itemQuery.trim().length >= 2 ? (
-                                  <p className="text-muted text-sm">No matching items in this category.</p>
-                                ) : null}
-
-                                {itemRules.length > 0 ? (
-                                  <ul className="price-levels-tab__item-list">
-                                    {itemRules.map(item => (
-                                      <li key={item.productId}>
-                                        <div className="price-levels-tab__item-meta">
-                                          <strong>{item.productName}</strong>
-                                          {item.sku ? (
-                                            <span className="text-muted text-sm">{item.sku}</span>
-                                          ) : null}
-                                        </div>
-                                        <select
-                                          value={item.kind}
-                                          onChange={e => updateItemRule(cat, item.productId, {
-                                            kind: e.target.value as PriceLevelItemRuleKind,
-                                          })}
-                                          aria-label={`Override type for ${item.productName}`}
-                                        >
-                                          <option value="except">Except (list price)</option>
-                                          <option value="discount">Special discount %</option>
-                                          <option value="increment">Special hike %</option>
-                                        </select>
-                                        {item.kind === 'except' ? (
-                                          <span className="price-levels-tab__item-except-label">
-                                            No category %
-                                          </span>
-                                        ) : (
-                                          <label className="price-levels-tab__percent">
-                                            <input
-                                              type="number"
-                                              min={0}
-                                              max={1000}
-                                              step={0.1}
-                                              value={item.percent === 0 ? '' : item.percent}
-                                              placeholder="0"
-                                              onChange={e => {
-                                                const v = e.target.value;
-                                                updateItemRule(cat, item.productId, {
-                                                  percent: v === '' ? 0 : Number(v),
-                                                });
-                                              }}
-                                              aria-label={`Percent for ${item.productName}`}
-                                            />
-                                            <span>%</span>
-                                          </label>
-                                        )}
+                            </div>
+                            <div className="price-levels-tab__item-search">
+                              <Search size={14} aria-hidden />
+                              <input
+                                type="search"
+                                value={itemQuery}
+                                onChange={e => setItemQuery(e.target.value)}
+                                placeholder="Search item in this category…"
+                                autoComplete="off"
+                              />
+                            </div>
+                            {itemHits.length > 0 ? (
+                              <ul className="price-levels-tab__item-hits">
+                                {itemHits.map(product => (
+                                  <li key={product.id} className="price-levels-tab__item-hit-row">
+                                    <div className="price-levels-tab__item-hit-thumb" aria-hidden>
+                                      {product.imageUrl ? (
+                                        <CategoryThumbnail src={product.imageUrl} />
+                                      ) : (
+                                        <Package size={18} />
+                                      )}
+                                    </div>
+                                    <div className="price-levels-tab__item-hit-body">
+                                      <button
+                                        type="button"
+                                        className="price-levels-tab__item-hit"
+                                        onClick={() => upsertItemRule(cat, product, {
+                                          kind: 'except',
+                                        })}
+                                      >
+                                        <strong>{product.name}</strong>
+                                        <span className="text-muted text-sm">
+                                          {[product.sku, `₹${product.rate.toLocaleString('en-IN')}`]
+                                            .filter(Boolean)
+                                            .join(' · ')}
+                                        </span>
+                                      </button>
+                                      <div className="price-levels-tab__item-hit-actions">
                                         <button
                                           type="button"
-                                          className="price-levels-tab__rule-delete"
-                                          aria-label={`Remove item rule for ${item.productName}`}
-                                          onClick={() => removeItemRule(cat, item.productId)}
+                                          onClick={() => upsertItemRule(cat, product, {
+                                            kind: 'except',
+                                          })}
                                         >
-                                          <X size={14} aria-hidden />
+                                          Except
                                         </button>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p className="text-muted text-sm">
-                                    No item overrides. Search above to except or special-price an item.
-                                  </p>
-                                )}
-                              </>
+                                        <button
+                                          type="button"
+                                          onClick={() => upsertItemRule(cat, product, {
+                                            kind: 'discount',
+                                            percent: percent > 0 ? percent : 10,
+                                          })}
+                                        >
+                                          Discount
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => upsertItemRule(cat, product, {
+                                            kind: 'increment',
+                                            percent: 5,
+                                          })}
+                                        >
+                                          Hike
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : itemQuery.trim().length >= 2 ? (
+                              <p className="text-muted text-sm">No matching items in this category.</p>
                             ) : null}
+
+                            {itemRules.length > 0 ? (
+                              <ul className="price-levels-tab__item-list">
+                                {itemRules.map(item => (
+                                  <li key={item.productId}>
+                                    <div className="price-levels-tab__item-meta">
+                                      <strong>{item.productName}</strong>
+                                      {item.sku ? (
+                                        <span className="text-muted text-sm">{item.sku}</span>
+                                      ) : null}
+                                    </div>
+                                    <select
+                                      value={item.kind}
+                                      onChange={e => updateItemRule(cat, item.productId, {
+                                        kind: e.target.value as PriceLevelItemRuleKind,
+                                      })}
+                                      aria-label={`Override type for ${item.productName}`}
+                                    >
+                                      <option value="except">Except (list price)</option>
+                                      <option value="discount">Special discount %</option>
+                                      <option value="increment">Special hike %</option>
+                                    </select>
+                                    {item.kind === 'except' ? (
+                                      <span className="price-levels-tab__item-except-label">
+                                        No category %
+                                      </span>
+                                    ) : (
+                                      <label className="price-levels-tab__percent">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          max={1000}
+                                          step={0.1}
+                                          value={item.percent === 0 ? '' : item.percent}
+                                          placeholder="0"
+                                          onChange={e => {
+                                            const v = e.target.value;
+                                            updateItemRule(cat, item.productId, {
+                                              percent: v === '' ? 0 : Number(v),
+                                            });
+                                          }}
+                                          aria-label={`Percent for ${item.productName}`}
+                                        />
+                                        <span>%</span>
+                                      </label>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="price-levels-tab__rule-delete"
+                                      aria-label={`Remove item rule for ${item.productName}`}
+                                      onClick={() => removeItemRule(cat, item.productId)}
+                                    >
+                                      <X size={14} aria-hidden />
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-muted text-sm">
+                                No item overrides. Search above to except or special-price an item.
+                              </p>
+                            )}
                           </div>
-                        </li>
+                        </div>
                       );
-                    })}
-                  </ul>
+                    })()}
+                  </>
                 )}
               </div>
             </>

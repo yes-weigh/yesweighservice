@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg-app: #030712;
   --bg-glass: rgba(17, 24, 39, 0.65);
   --bg-glass-hover: rgba(31, 41, 55, 0.8);
@@ -5095,11 +5095,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.9375rem;
   font-weight: 900;
   letter-spacing: -0.025em;
-  color: #166534;
+  color: #dc2626;
 }
 
 .dealer-price__charge svg {
-  color: #166534;
+  color: #dc2626;
 }
 
 .dealer-price__for-you {
@@ -5108,7 +5108,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: #166534;
+  color: #dc2626;
 }
 
 .catalog-product-card__audit {
@@ -10208,11 +10208,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .product-detail-page__title-price-amount:has(.product-detail-page__title-price-list) {
-  color: #166534;
+  color: #dc2626;
 }
 
 .product-detail-page__title-price-amount:has(.product-detail-page__title-price-list) > svg {
-  color: #166534;
+  color: #dc2626;
 }
 
 .product-detail-page__title-price-for-you {
@@ -10221,7 +10221,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: #166534;
+  color: #dc2626;
 }
 
 .product-detail-page__title-price-mrp {
@@ -13530,11 +13530,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .orders-page__item-price:has(.orders-page__item-list-rate) {
-  color: #166534;
+  color: #dc2626;
 }
 
 .orders-page__item-price:has(.orders-page__item-list-rate) > svg {
-  color: #166534;
+  color: #dc2626;
 }
 
 .orders-page__item-for-you {
@@ -13543,7 +13543,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: #166534;
+  color: #dc2626;
 }
 
 .orders-page__item-warning {
