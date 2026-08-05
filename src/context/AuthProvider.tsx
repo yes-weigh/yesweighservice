@@ -28,6 +28,7 @@ async function readParentDealerAccess(dealerId: string): Promise<{
   dealerTier?: DealerTier;
   dealerAccessMode?: DealerAccessMode;
   dealerPermissions?: DealerPermission[];
+  zohoCustomerId?: string;
 } | null> {
   try {
     const parentSnap = await getDoc(doc(db, 'users', dealerId));
@@ -37,6 +38,7 @@ async function readParentDealerAccess(dealerId: string): Promise<{
       dealerTier: parent.dealerTier,
       dealerAccessMode: parent.dealerAccessMode,
       dealerPermissions: parent.dealerPermissions,
+      zohoCustomerId: parent.zohoCustomerId?.trim() || undefined,
     };
   } catch {
     return null;
@@ -58,15 +60,21 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
     let dealerTier = data.dealerTier;
     let dealerAccessMode = data.dealerAccessMode;
     let dealerPermissions = data.dealerPermissions;
+    let zohoCustomerId = data.zohoCustomerId?.trim() || undefined;
 
-    if (role === 'dealer_staff' && !dealerTier) {
+    if (role === 'dealer_staff') {
       const parentId = readDealerId(data);
       if (parentId) {
         const inherited = await readParentDealerAccess(parentId);
         if (inherited) {
-          dealerTier = inherited.dealerTier;
-          dealerAccessMode = inherited.dealerAccessMode;
-          dealerPermissions = inherited.dealerPermissions;
+          if (!dealerTier) {
+            dealerTier = inherited.dealerTier;
+            dealerAccessMode = inherited.dealerAccessMode;
+            dealerPermissions = inherited.dealerPermissions;
+          }
+          if (!zohoCustomerId && inherited.zohoCustomerId) {
+            zohoCustomerId = inherited.zohoCustomerId;
+          }
         }
       }
     }
@@ -95,6 +103,7 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       phone: data.phone?.trim() || contacts.phone,
       aadhar: data.aadhar || contacts.aadhar,
       dealerId: readDealerId(data),
+      zohoCustomerId,
       staffDepartment: data.staffDepartment,
       staffRoleId: data.staffRoleId ?? null,
       staffAccessMode: data.staffAccessMode,

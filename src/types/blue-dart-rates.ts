@@ -183,6 +183,22 @@ export interface BlueDartSourceMeta {
   files: string[];
 }
 
+/**
+ * Keys for Settings setup checklist acknowledgements
+ * (see src/lib/blueDartSetup.ts). Value = ISO timestamp when confirmed.
+ */
+export type BlueDartSetupAckKey =
+  | 'shared.fuelSurchargePercent'
+  | 'shared.cafPercent'
+  | 'shared.gstPercent'
+  | 'shared.rasPerKgInr'
+  | 'shared.fov'
+  | 'shared.originRegion'
+  | 'shared.edlFlatFallbackInr'
+  | 'air.rates'
+  | 'surface.rates'
+  | 'domestic_priority.rates';
+
 /** Full Blue Dart block under logisticsCourierRates.bluedart */
 export interface BlueDartConfig {
   shared: BlueDartSharedRules;
@@ -190,6 +206,11 @@ export interface BlueDartConfig {
   surface: BlueDartKgServiceRates;
   domestic_priority: BlueDartDomesticPriorityRates;
   source: BlueDartSourceMeta | null;
+  /**
+   * Ops confirmed a seeded default (or intentional ₹0 EDL flat).
+   * Cleared items disappear from the Settings checklist.
+   */
+  setupAcknowledgements?: Partial<Record<BlueDartSetupAckKey, string>>;
 }
 
 /** Firestore blueDartPincodes/{pincode} */

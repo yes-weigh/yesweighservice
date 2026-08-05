@@ -134,9 +134,10 @@ function parseAddOptions(options?: number | AddCartItemOptions): Required<
   };
 }
 
-function dealerPortalId(user: { role?: string; zohoCustomerId?: string; dealerId?: string } | null): string | null {
+function dealerPortalId(user: { role?: string; zohoCustomerId?: string } | null): string | null {
   if (!user || (user.role !== 'dealer' && user.role !== 'dealer_staff')) return null;
-  return user.zohoCustomerId?.trim() || user.dealerId?.trim() || null;
+  // Must be Zoho contact id (same ids stored in priceLevels.dealerIds) — not Firebase uid.
+  return user.zohoCustomerId?.trim() || null;
 }
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

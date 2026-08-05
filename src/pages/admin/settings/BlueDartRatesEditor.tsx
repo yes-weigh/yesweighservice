@@ -6,8 +6,15 @@
  * Zoho product IDs are hardcoded in freightLines.ts — intentionally not shown here.
  * Full architecture notes: src/types/blue-dart-rates.ts
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Check, CircleAlert } from 'lucide-react';
 import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
+import {
+  acknowledgeBlueDartSetup,
+  blueDartFieldNeedsVerifyNote,
+  listOpenBlueDartSetupTasks,
+  type BlueDartSetupAckKey,
+} from '../../../lib/blueDartSetup';
 import {
   BLUE_DART_AIR_ZONES,
   BLUE_DART_DP_ZONES,
@@ -47,10 +54,28 @@ const SERVICE_BLURB: Record<BlueDartServiceId, string> = {
   domestic_priority: 'Priority parcels. Billed in 500 g slabs (Within Kerala A1, then A/B/C).',
 };
 
+function VerifyNote(props: {
+  note: string;
+  keepLabel?: string;
+  onKeep: () => void;
+}) {
+  return (
+    <div className="settings-bluedart__verify-note">
+      <p>{props.note}</p>
+      <button type="button" onClick={props.onKeep}>
+        {props.keepLabel ?? 'Keep as is'}
+      </button>
+    </div>
+  );
+}
+
 function Field(props: {
   label: string;
   tip?: string;
   hint?: string;
+  verifyNote?: string | null;
+  keepLabel?: string;
+  onKeepDefault?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -62,6 +87,13 @@ function Field(props: {
       >
         {props.label}
       </span>
+      {props.verifyNote && props.onKeepDefault ? (
+        <VerifyNote
+          note={props.verifyNote}
+          keepLabel={props.keepLabel}
+          onKeep={props.onKeepDefault}
+        />
+      ) : null}
       {props.children}
       {props.hint ? <em className="settings-bluedart__hint">{props.hint}</em> : null}
     </label>
@@ -73,10 +105,20 @@ function PctInput(props: {
   tip?: string;
   value: number;
   hint?: string;
+  verifyNote?: string | null;
+  keepLabel?: string;
+  onKeepDefault?: () => void;
   onChange: (n: number) => void;
 }) {
   return (
-    <Field label={props.label} tip={props.tip} hint={props.hint}>
+    <Field
+      label={props.label}
+      tip={props.tip}
+      hint={props.hint}
+      verifyNote={props.verifyNote}
+      keepLabel={props.keepLabel}
+      onKeepDefault={props.onKeepDefault}
+    >
       <div className="settings-courier-rates__suffix-input">
         <DecimalAmountInput
           min={0}
@@ -100,10 +142,20 @@ function InrInput(props: {
   value: number;
   hint?: string;
   decimals?: number;
+  verifyNote?: string | null;
+  keepLabel?: string;
+  onKeepDefault?: () => void;
   onChange: (n: number) => void;
 }) {
   return (
-    <Field label={props.label} tip={props.tip} hint={props.hint}>
+    <Field
+      label={props.label}
+      tip={props.tip}
+      hint={props.hint}
+      verifyNote={props.verifyNote}
+      keepLabel={props.keepLabel}
+      onKeepDefault={props.onKeepDefault}
+    >
       <div className="settings-courier-rates__suffix-input">
         <DecimalAmountInput
           min={0}
@@ -125,11 +177,20 @@ function KgServiceEditor(props: {
   service: 'air' | 'surface';
   rates: BlueDartKgServiceRates;
   onPatch: (patch: Partial<BlueDartKgServiceRates>) => void;
+  verifyNote?: string | null;
+  onKeepDefault?: () => void;
 }) {
   const { rates, onPatch, service } = props;
   return (
     <div className="settings-bluedart__tab-panel">
       <p className="settings-bluedart__panel-blurb">{SERVICE_BLURB[service]}</p>
+      {props.verifyNote && props.onKeepDefault ? (
+        <VerifyNote
+          note={props.verifyNote}
+          keepLabel="Rates look correct"
+          onKeep={props.onKeepDefault}
+        />
+      ) : null}
       <div className="settings-bluedart__subhead">Weight &amp; fees</div>
       <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
         <Field
@@ -248,6 +309,12 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
     shared.edlMode === 'matrix_when_km' || shared.edlFlatFallbackInr > 0,
   );
 
+  const openTasks = useMemo(() => listOpenBlueDartSetupTasks(config), [config]);
+  const openByKey = useMemo(() => {
+    const map = new Map(openTasks.map(task => [task.key, task]));
+    return map;
+  }, [openTasks]);
+
   const patchShared = (patch: Partial<BlueDartConfig['shared']>) => {
     onChange({ ...config, shared: { ...shared, ...patch } });
   };
@@ -263,6 +330,15 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
     });
   };
 
+  const ack = (key: BlueDartSetupAckKey) => {
+    onChange(acknowledgeBlueDartSetup(config, key));
+  };
+
+  const verifyNoteFor = (key: BlueDartSetupAckKey): string | null => {
+    if (!blueDartFieldNeedsVerifyNote(config, key)) return null;
+    return openByKey.get(key)?.detail ?? null;
+  };
+
   const selectTab = (next: BlueDartTab) => {
     setTab(next);
     if (next !== 'shared') onServiceChange(next);
@@ -274,6 +350,58 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
         Quotes use the dealer’s shipping <strong>pincode + state</strong>.
         Shared charges apply to every service; open Air, Surface, or Domestic Priority to edit that price table.
       </p>
+
+      {openTasks.length > 0 ? (
+        <div className="settings-bluedart__checklist" role="region" aria-label="Blue Dart setup checklist">
+          <div className="settings-bluedart__checklist-head">
+            <CircleAlert size={16} aria-hidden />
+            <div>
+              <strong>Finish these so Blue Dart quotes stay accurate</strong>
+              <p>
+                Items leave this list when you change the value, or when you confirm a seeded default
+                is intentionally kept.
+              </p>
+            </div>
+            <span className="settings-bluedart__checklist-count">
+              {openTasks.length}
+              {' '}
+              open
+            </span>
+          </div>
+          <ul className="settings-bluedart__checklist-list">
+            {openTasks.map(task => (
+              <li key={task.key}>
+                <button
+                  type="button"
+                  className="settings-bluedart__checklist-item"
+                  onClick={() => selectTab(task.tab)}
+                >
+                  <span className={`settings-bluedart__checklist-kind is-${task.kind}`}>
+                    {task.kind === 'gap' ? 'Needed' : 'Verify'}
+                  </span>
+                  <span className="settings-bluedart__checklist-copy">
+                    <strong>{task.title}</strong>
+                    <em>{task.detail}</em>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="settings-bluedart__checklist-ack"
+                  onClick={() => ack(task.key)}
+                >
+                  <Check size={14} aria-hidden />
+                  {task.kind === 'gap' ? 'Keep ₹0' : 'Looks good'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="settings-bluedart__checklist settings-bluedart__checklist--done">
+          <Check size={16} aria-hidden />
+          <span>All Blue Dart setup checks are clear.</span>
+        </div>
+      )}
 
       <div
         className="settings-bluedart__tabs"
@@ -312,18 +440,24 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
               label="Fuel (FS)"
               tip="Fuel Surcharge — absolute % you bill (e.g. 92)."
               value={shared.fuelSurchargePercent}
+              verifyNote={verifyNoteFor('shared.fuelSurchargePercent')}
+              onKeepDefault={() => ack('shared.fuelSurchargePercent')}
               onChange={fuelSurchargePercent => patchShared({ fuelSurchargePercent })}
             />
             <PctInput
               label="CAF"
               tip="Currency Adjustment Factor — absolute % (e.g. 22)."
               value={shared.cafPercent}
+              verifyNote={verifyNoteFor('shared.cafPercent')}
+              onKeepDefault={() => ack('shared.cafPercent')}
               onChange={cafPercent => patchShared({ cafPercent })}
             />
             <PctInput
               label="GST"
               tip="Tax % on freight subtotal. Set 0 to quote exclusive of GST."
               value={shared.gstPercent}
+              verifyNote={verifyNoteFor('shared.gstPercent')}
+              onKeepDefault={() => ack('shared.gstPercent')}
               onChange={gstPercent => patchShared({ gstPercent })}
             />
             <InrInput
@@ -331,12 +465,16 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
               tip="Remote Area Surcharge — ₹/kg for Bihar, Jharkhand, Kerala, J&K, Ladakh."
               value={shared.rasPerKgInr}
               hint="Only certain states"
+              verifyNote={verifyNoteFor('shared.rasPerKgInr')}
+              onKeepDefault={() => ack('shared.rasPerKgInr')}
               onChange={rasPerKgInr => patchShared({ rasPerKgInr })}
             />
             <InrInput
               label="Insurance min (FOV)"
               tip="Freight on Value — minimum insurance ₹ per AWB."
               value={shared.fov.minInr}
+              verifyNote={verifyNoteFor('shared.fov')}
+              onKeepDefault={() => ack('shared.fov')}
               onChange={minInr => patchShared({ fov: { ...shared.fov, minInr } })}
             />
             <PctInput
@@ -344,6 +482,8 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
               tip="FOV % of invoice value. Billed as max(min, this %)."
               value={shared.fov.percentOfInvoice}
               hint="e.g. 0.05 = 0.05%"
+              verifyNote={verifyNoteFor('shared.fov')}
+              onKeepDefault={() => ack('shared.fov')}
               onChange={percentOfInvoice => patchShared({
                 fov: { ...shared.fov, percentOfInvoice },
               })}
@@ -351,6 +491,8 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
             <Field
               label="Ship-from region"
               tip="Used with destination state to pick Zone 1–5. Keep SOUTH for Kerala warehouses."
+              verifyNote={verifyNoteFor('shared.originRegion')}
+              onKeepDefault={() => ack('shared.originRegion')}
             >
               <select
                 className="settings-bluedart__select"
@@ -412,6 +554,9 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
               tip="Charged for EDL pins when hub-km is unknown."
               value={shared.edlFlatFallbackInr}
               hint="Main gap-fill field"
+              verifyNote={verifyNoteFor('shared.edlFlatFallbackInr')}
+              keepLabel="Keep ₹0 intentionally"
+              onKeepDefault={() => ack('shared.edlFlatFallbackInr')}
               onChange={edlFlatFallbackInr => patchShared({ edlFlatFallbackInr })}
             />
             <InrInput
@@ -462,6 +607,8 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
             service={tab}
             rates={config[tab]}
             onPatch={patch => patchKg(tab, patch)}
+            verifyNote={verifyNoteFor(tab === 'air' ? 'air.rates' : 'surface.rates')}
+            onKeepDefault={() => ack(tab === 'air' ? 'air.rates' : 'surface.rates')}
           />
         </div>
       ) : null}
@@ -475,6 +622,13 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
             {BLUE_DART_SERVICE_META.domestic_priority.sku}
             )
           </p>
+          {verifyNoteFor('domestic_priority.rates') ? (
+            <VerifyNote
+              note={verifyNoteFor('domestic_priority.rates')!}
+              keepLabel="Slabs look correct"
+              onKeep={() => ack('domestic_priority.rates')}
+            />
+          ) : null}
           <div className="settings-bluedart__subhead">Rules</div>
           <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
             <Field

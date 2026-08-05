@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../../context/AuthContext';
-import { fetchCatalog } from '../../../lib/catalog';
+import { fetchCatalog, isHiddenCatalogCategory } from '../../../lib/catalog';
 import {
   ensureDealersCached,
   peekCachedDealers,
@@ -132,8 +132,15 @@ export const PriceLevelSettingsTab: React.FC = () => {
       setSelectedId(prev => prev && docData.levels.some(l => l.id === prev)
         ? prev
         : (docData.levels[0]?.id ?? null));
+      // Same browse filter as catalogue: drop hidden names (e.g. Inactive, Stamping) and empty cats.
       setCategories(
-        [...catalog.categories].sort((a, b) => a.name.localeCompare(b.name)),
+        [...catalog.categories]
+          .filter(c => c.id && c.productCount > 0 && !isHiddenCatalogCategory(c))
+          .sort((a, b) => {
+            const orderDiff = a.displayOrder - b.displayOrder;
+            if (orderDiff !== 0) return orderDiff;
+            return a.name.localeCompare(b.name);
+          }),
       );
       setProducts(catalog.items ?? []);
 

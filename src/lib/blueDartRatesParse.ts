@@ -8,6 +8,7 @@ import {
   defaultBlueDartSurfaceRates,
   defaultBlueDartZoneMatrix,
 } from '../constants/blueDartRates';
+import { parseBlueDartSetupAcknowledgements } from './blueDartSetup';
 import type {
   BlueDartAirZone,
   BlueDartConfig,
@@ -261,12 +262,16 @@ export function parseBlueDartConfig(raw: unknown): BlueDartConfig {
   }
 
   const data = raw as Record<string, unknown>;
+  const setupAcknowledgements = parseBlueDartSetupAcknowledgements(data.setupAcknowledgements);
   return {
     shared: parseShared(data.shared),
     air: parseKgService(data.air, defaultBlueDartAirRates()),
     surface: parseKgService(data.surface, defaultBlueDartSurfaceRates()),
     domestic_priority: parseDp(data.domestic_priority),
     source: parseSource(data.source),
+    ...(Object.keys(setupAcknowledgements).length > 0
+      ? { setupAcknowledgements }
+      : {}),
   };
 }
 

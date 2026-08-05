@@ -5063,6 +5063,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.12rem;
   min-width: 0;
   line-height: 1.1;
+  color: inherit;
 }
 
 .dealer-price--single {
@@ -5076,13 +5077,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   align-items: baseline;
   gap: 0.08rem;
   font-size: 0.72rem;
-  font-weight: 650;
-  color: #94a3b8;
+  font-weight: 700;
+  color: #0f172a;
   text-decoration: line-through;
+  text-decoration-color: #ef4444;
+  text-decoration-thickness: 2px;
 }
 
 .dealer-price__list svg {
-  color: #94a3b8;
+  color: #0f172a;
 }
 
 .dealer-price__charge {
@@ -5092,11 +5095,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.9375rem;
   font-weight: 900;
   letter-spacing: -0.025em;
-  color: #0f172a;
+  color: #166534;
 }
 
 .dealer-price__charge svg {
-  color: var(--cat-accent);
+  color: #166534;
 }
 
 .dealer-price__for-you {
@@ -5105,7 +5108,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: #ea580c;
+  color: #166534;
 }
 
 .catalog-product-card__audit {
@@ -10193,13 +10196,23 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.08rem;
   margin-right: 0.3rem;
   font-size: 0.8125rem;
-  font-weight: 650;
-  color: #94a3b8;
+  font-weight: 700;
+  color: #0f172a;
   text-decoration: line-through;
+  text-decoration-color: #ef4444;
+  text-decoration-thickness: 2px;
 }
 
 .product-detail-page__title-price-list svg {
-  color: #94a3b8;
+  color: #0f172a;
+}
+
+.product-detail-page__title-price-amount:has(.product-detail-page__title-price-list) {
+  color: #166534;
+}
+
+.product-detail-page__title-price-amount:has(.product-detail-page__title-price-list) > svg {
+  color: #166534;
 }
 
 .product-detail-page__title-price-for-you {
@@ -10208,7 +10221,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: #ea580c;
+  color: #166534;
 }
 
 .product-detail-page__title-price-mrp {
@@ -13505,9 +13518,23 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.08rem;
   margin-right: 0.25rem;
   font-size: 0.75rem;
-  font-weight: 650;
-  color: #94a3b8;
+  font-weight: 700;
+  color: #0f172a;
   text-decoration: line-through;
+  text-decoration-color: #ef4444;
+  text-decoration-thickness: 2px;
+}
+
+.orders-page__item-list-rate svg {
+  color: #0f172a;
+}
+
+.orders-page__item-price:has(.orders-page__item-list-rate) {
+  color: #166534;
+}
+
+.orders-page__item-price:has(.orders-page__item-list-rate) > svg {
+  color: #166534;
 }
 
 .orders-page__item-for-you {
@@ -13516,7 +13543,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: #ea580c;
+  color: #166534;
 }
 
 .orders-page__item-warning {

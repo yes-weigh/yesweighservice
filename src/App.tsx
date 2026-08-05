@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartProvider';
+import { DealerPriceLevelProvider } from './context/DealerPriceLevelProvider';
 import { CartFlyProvider } from './context/CartFlyProvider';
 import { ConfirmProvider } from './context/ConfirmContext';
 import { Layout } from './components/Layout';
@@ -193,6 +194,7 @@ const dealerRoutes = (
 
 const App: React.FC = () => (
   <AuthProvider>
+    <DealerPriceLevelProvider>
     <CartProvider>
     <CartFlyProvider>
     <ConfirmProvider>
@@ -385,6 +387,7 @@ const App: React.FC = () => (
     </ConfirmProvider>
     </CartFlyProvider>
     </CartProvider>
+    </DealerPriceLevelProvider>
   </AuthProvider>
 );
 
