@@ -17,9 +17,11 @@ import { formatAuditDate } from '../../lib/yesStore/format';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
+import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
 import type { CatalogProduct } from '../../types/catalog';
 import { AuditedSealIcon } from './AuditedSealIcon';
 import { CategoryThumbnail } from './CategoryThumbnail';
+import { DealerPriceDisplay } from './DealerPriceDisplay';
 import { StockBadge, StockQuantity } from './StockBadge';
 import { PackageInfoIcon } from './PackageInfoIcon';
 import { StampingShieldIcon } from './StampingShieldIcon';
@@ -101,6 +103,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 }) => {
   const { addItem, isInCart } = useCart();
   const { flyToCart } = useCartFly();
+  const dealerPricing = useDealerUnitPrice(dealerView ? product : null);
   const [addedFlash, setAddedFlash] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [gatcOptions, setGatcOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
@@ -338,8 +341,14 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>
           <div className="catalog-product-card__price-row">
             <div className="catalog-product-card__price">
-              <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-              <span>{product.rate.toLocaleString('en-IN')}</span>
+              {dealerView ? (
+                <DealerPriceDisplay listRate={product.rate} pricing={dealerPricing} />
+              ) : (
+                <>
+                  <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                  <span>{product.rate.toLocaleString('en-IN')}</span>
+                </>
+              )}
             </div>
             {showStockQuantity && (
               <StockQuantity

@@ -18,6 +18,13 @@ export interface CartItem {
   rate: number;
   /** Catalog / staff-editable product rate before stamping fee. */
   baseRate: number;
+  /**
+   * Catalog list rate when a price-level discount applies (dealer portal).
+   * Null/undefined for list pricing or price-hike levels (hike hides list).
+   */
+  listRate?: number | null;
+  /** Price-level mode applied to baseRate, if any. */
+  priceLevelMode?: 'none' | 'discount' | 'increment' | null;
   /** Fixed GATC fee per unit from Product settings (0 if without stamping). */
   gatcFeePerUnit: number;
   /** Selected GATC entry id; null/undefined = without stamping. */
@@ -40,6 +47,11 @@ export type AddCartItemOptions = {
   gatcStampingRange?: string | null;
   /** When set, insert the new line immediately after this cart line (sibling stamping). */
   insertAfterCartLineId?: string | null;
+  /** Override catalog rate (e.g. dealer price level charge rate). */
+  baseRateOverride?: number | null;
+  /** List rate to show alongside a discount charge rate. */
+  listRate?: number | null;
+  priceLevelMode?: 'none' | 'discount' | 'increment' | null;
 };
 
 export function cartItemFromProduct(
@@ -47,9 +59,16 @@ export function cartItemFromProduct(
   quantity = 1,
   options: Omit<AddCartItemOptions, 'quantity'> = {},
 ): CartItem {
-  const baseRate = Math.round(Number(product.rate) * 100) / 100;
+  const catalogRate = Math.round(Number(product.rate) * 100) / 100;
+  const baseRate = options.baseRateOverride != null && Number.isFinite(Number(options.baseRateOverride))
+    ? Math.round(Number(options.baseRateOverride) * 100) / 100
+    : catalogRate;
   const gatcFeePerUnit = Math.round(Number(options.gatcFeePerUnit ?? 0) * 100) / 100;
   const gatcStampingPriceId = options.gatcStampingPriceId?.trim() || null;
+  const priceLevelMode = options.priceLevelMode ?? null;
+  const listRate = options.listRate != null && Number.isFinite(Number(options.listRate))
+    ? Math.round(Number(options.listRate) * 100) / 100
+    : null;
   return {
     cartLineId: newCartLineId(),
     productId: product.id,
@@ -58,6 +77,8 @@ export function cartItemFromProduct(
     description: product.description?.trim() || null,
     imageUrl: product.imageUrl,
     baseRate,
+    listRate,
+    priceLevelMode,
     gatcFeePerUnit: gatcStampingPriceId ? gatcFeePerUnit : 0,
     gatcStampingPriceId,
     gatcStampingRange: gatcStampingPriceId

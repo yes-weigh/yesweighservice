@@ -1,3 +1,28 @@
+/**
+ * Blue Dart freight quote engine (client).
+ *
+ * Inputs: BlueDartConfig from Firestore + optional blueDartPincodes/{zip} +
+ * shipping state + parcel weight/dims (+ invoice value for FOV).
+ *
+ * Zone resolution:
+ * - Air/Surface: shared.originRegion × dest state→region → zoneMatrix → Zone 1–5
+ * - DP: Kerala dest (+ Kerala origin) → A1; else pin.dpZone A/B/C
+ *
+ * v1 charge stack (HARDCODED order — change here + functions/lib/blue-dart-quote.js):
+ *   base (₹/kg or 500g slabs, with min freight/weight)
+ *   → PSS% + IDC% on base
+ *   → FS% then CAF% (shared, or per-service override)
+ *   → EFSS%
+ *   → docket (Air/Surface)
+ *   → RAS ₹/kg if dest in rasStates
+ *   → FOV max(min, % of invoice)
+ *   → EDL (NE/J&K special, else flat_fallback / matrix_when_km)
+ *   → GST% on subtotal
+ *   → ceilCourierChargeInr
+ *
+ * Skipped VAS (not wired): FOD, DOD, DG, demurrage, appointment/SEZ, laptop box, ECC.
+ * Keep server mirror in functions/lib/blue-dart-quote.js in sync.
+ */
 import { isRasDestination, resolveBlueDartRegion } from './blueDartPlace';
 import { resolveBlueDartAirZone, resolveBlueDartDpZone } from './blueDartZone';
 import { ceilCourierChargeInr } from './stCourierQuote';

@@ -1,8 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { combinedCartRate, newCartLineId } from '../lib/gatcCart';
 import { catalogProductIgnoresStockForCart } from '../lib/catalog';
+import {
+  resolveDealerUnitPrice,
+  subscribePriceLevels,
+} from '../lib/priceLevels';
 import { effectiveCatalogStockStatus } from '../lib/sacCatalog';
 import type { CatalogProduct } from '../types/catalog';
+import type { PriceLevel } from '../types/priceLevels';
 import {
   cartItemFromProduct,
   type AddCartItemOptions,
@@ -43,6 +48,12 @@ function normalizeCartItem(raw: Partial<CartItem> & { productId?: string }): Car
     description: raw.description?.trim() || null,
     imageUrl: raw.imageUrl != null ? String(raw.imageUrl) : null,
     baseRate,
+    listRate: raw.listRate != null && Number.isFinite(Number(raw.listRate))
+      ? Math.round(Number(raw.listRate) * 100) / 100
+      : null,
+    priceLevelMode: raw.priceLevelMode === 'discount' || raw.priceLevelMode === 'increment'
+      ? raw.priceLevelMode
+      : (raw.priceLevelMode === 'none' ? 'none' : null),
     gatcFeePerUnit,
     gatcStampingPriceId,
     gatcStampingRange: gatcStampingPriceId
@@ -117,13 +128,25 @@ function parseAddOptions(options?: number | AddCartItemOptions): Required<
     gatcFeePerUnit: options?.gatcFeePerUnit,
     gatcStampingRange: options?.gatcStampingRange,
     insertAfterCartLineId: options?.insertAfterCartLineId,
+    baseRateOverride: options?.baseRateOverride,
+    listRate: options?.listRate,
+    priceLevelMode: options?.priceLevelMode,
   };
+}
+
+function dealerPortalId(user: { role?: string; zohoCustomerId?: string; dealerId?: string } | null): string | null {
+  if (!user || (user.role !== 'dealer' && user.role !== 'dealer_staff')) return null;
+  return user.zohoCustomerId?.trim() || user.dealerId?.trim() || null;
 }
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
   const [remarks, setRemarksState] = useState('');
+  const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
+  const priceLevelsRef = useRef<PriceLevel[]>([]);
+  priceLevelsRef.current = priceLevels;
+  const dealerId = dealerPortalId(user);
 
   useEffect(() => {
     if (user?.uid) {
@@ -135,6 +158,52 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRemarksState('');
     }
   }, [user?.uid]);
+
+  useEffect(() => {
+    if (!dealerId) {
+      setPriceLevels([]);
+      return;
+    }
+    return subscribePriceLevels(docData => {
+      setPriceLevels(docData.levels);
+    });
+  }, [dealerId]);
+
+  // Re-apply level rules when settings change (cart may have been filled earlier).
+  useEffect(() => {
+    if (!dealerId) return;
+    setItems(prev => {
+      let changed = false;
+      const next = prev.map(item => {
+        const catalogList = item.listRate != null && Number.isFinite(item.listRate)
+          ? item.listRate
+          : item.baseRate;
+        const priced = resolveDealerUnitPrice(priceLevels, dealerId, {
+          rate: catalogList,
+          categoryId: item.categoryId ?? null,
+        });
+        const baseRate = priced.chargeRate;
+        const listRate = priced.listRate;
+        const priceLevelMode = priced.mode;
+        if (
+          item.baseRate === baseRate
+          && item.listRate === listRate
+          && (item.priceLevelMode ?? null) === priceLevelMode
+        ) {
+          return item;
+        }
+        changed = true;
+        return {
+          ...item,
+          baseRate,
+          listRate,
+          priceLevelMode,
+          rate: combinedCartRate(baseRate, item.gatcFeePerUnit),
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [dealerId, priceLevels]);
 
   useEffect(() => {
     if (user?.uid) {
@@ -161,7 +230,22 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const gatcFeePerUnit = gatcStampingPriceId
       ? Math.round(Number(opts.gatcFeePerUnit ?? 0) * 100) / 100
       : 0;
-    const baseRate = Math.round(Number(product.rate) * 100) / 100;
+
+    let baseRate = opts.baseRateOverride != null && Number.isFinite(Number(opts.baseRateOverride))
+      ? Math.round(Number(opts.baseRateOverride) * 100) / 100
+      : Math.round(Number(product.rate) * 100) / 100;
+    let listRate: number | null = opts.listRate != null && Number.isFinite(Number(opts.listRate))
+      ? Math.round(Number(opts.listRate) * 100) / 100
+      : null;
+    let priceLevelMode = opts.priceLevelMode ?? null;
+
+    if (opts.baseRateOverride == null && dealerId) {
+      const priced = resolveDealerUnitPrice(priceLevelsRef.current, dealerId, product);
+      baseRate = priced.chargeRate;
+      priceLevelMode = priced.mode;
+      // Keep catalog list on the line so hike/discount can be re-resolved later.
+      listRate = priced.listRate;
+    }
 
     setItems(prev => {
       const existing = prev.find(
@@ -174,6 +258,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? {
                 ...item,
                 baseRate,
+                listRate,
+                priceLevelMode,
                 gatcFeePerUnit,
                 gatcStampingPriceId,
                 gatcStampingRange: gatcStampingPriceId
@@ -194,6 +280,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         gatcStampingPriceId,
         gatcFeePerUnit,
         gatcStampingRange: opts.gatcStampingRange,
+        baseRateOverride: baseRate,
+        listRate,
+        priceLevelMode,
       });
       const afterId = String(opts.insertAfterCartLineId ?? '').trim();
       if (afterId) {
@@ -207,7 +296,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return [...prev, nextItem];
     });
     return true;
-  }, []);
+  }, [dealerId]);
 
   const removeItem = useCallback((cartLineId: string) => {
     setItems(prev => prev.filter(item => item.cartLineId !== cartLineId));

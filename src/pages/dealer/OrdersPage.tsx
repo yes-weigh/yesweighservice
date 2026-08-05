@@ -381,8 +381,24 @@ const DealerCartPage: React.FC = () => {
                     description={item.description || descByProductId[item.productId] || null}
                   >
                     <div className="orders-page__item-price">
-                      <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-                      <span>{item.rate.toLocaleString('en-IN')}</span>
+                      {item.priceLevelMode === 'discount'
+                        && item.listRate != null
+                        && item.listRate > item.baseRate ? (
+                        <>
+                          <span className="orders-page__item-list-rate">
+                            <IndianRupee size={12} strokeWidth={2.5} aria-hidden />
+                            {item.listRate.toLocaleString('en-IN')}
+                          </span>
+                          <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                          <span>{item.rate.toLocaleString('en-IN')}</span>
+                          <span className="orders-page__item-for-you">for you</span>
+                        </>
+                      ) : (
+                        <>
+                          <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                          <span>{item.rate.toLocaleString('en-IN')}</span>
+                        </>
+                      )}
                       <span className="text-muted text-sm">/ {item.unit}</span>
                     </div>
                     {item.gatcFeePerUnit > 0 ? (

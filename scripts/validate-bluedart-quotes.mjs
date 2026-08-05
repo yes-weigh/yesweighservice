@@ -1,6 +1,7 @@
 /**
- * Spot-check Blue Dart quote math against tariff sheets (no Firestore).
- * Usage: node scripts/validate-bluedart-quotes.mjs
+ * Spot-check Blue Dart quote math (no Firestore) after tariff/code changes.
+ * Usage: npm run validate:bluedart
+ * Update assertions here when seed defaults change materially.
  */
 
 import {

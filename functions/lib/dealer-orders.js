@@ -49,6 +49,10 @@ import {
   loadWeighingScaleCategoryIdSet,
 } from './weighing-scale-description.js';
 import {
+  loadPriceLevelsFromFirestore,
+  resolveDealerUnitPrice,
+} from './price-levels.js';
+import {
   loadGatcStampingPriceMap,
   mergeKeyForLine,
   resolveGatcFeeForProduct,
@@ -292,15 +296,22 @@ function stripInternalLineFields(line) {
 /**
  * @returns {{ lines: object[], priceChanges: object[] }}
  */
-async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {}) {
+async function buildLinesFromInput(rawLines, {
+  allowRateOverride = false,
+  priceLevelDealerId = null,
+} = {}) {
   if (!Array.isArray(rawLines) || rawLines.length === 0) {
     throw new HttpsError('invalid-argument', 'Add at least one product.');
   }
 
-  const [gatcMap, weighingScaleCategoryIds] = await Promise.all([
+  const [gatcMap, weighingScaleCategoryIds, priceLevelsDoc] = await Promise.all([
     loadGatcStampingPriceMap(),
     loadWeighingScaleCategoryIdSet(),
+    priceLevelDealerId
+      ? loadPriceLevelsFromFirestore(getFirestore())
+      : Promise.resolve({ levels: [] }),
   ]);
+  const priceLevels = priceLevelsDoc.levels || [];
   const merged = new Map();
 
   for (const row of rawLines) {
@@ -356,7 +367,16 @@ async function buildLinesFromInput(rawLines, { allowRateOverride = false } = {})
 
     const gatc = resolveGatcFeeForProduct(product, entry.gatcStampingPriceId, gatcMap);
     const catalogBase = Math.round((Number(product.rate) || 0) * 100) / 100;
-    const baseRate = entry.baseOverride != null ? entry.baseOverride : catalogBase;
+    let levelBase = null;
+    if (priceLevelDealerId && !isFreight) {
+      const priced = resolveDealerUnitPrice(priceLevels, priceLevelDealerId, product);
+      if (priced.mode !== 'none') {
+        levelBase = priced.chargeRate;
+      }
+    }
+    const baseRate = entry.baseOverride != null
+      ? entry.baseOverride
+      : (levelBase != null ? levelBase : catalogBase);
     const finalRate = Math.round((baseRate + gatc.gatcFeePerUnit) * 100) / 100;
 
     const isWeighingScale = Boolean(
@@ -613,7 +633,9 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     );
   }
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
-  const { lines: builtLines } = await buildLinesFromInput(payload.lines);
+  const { lines: builtLines } = await buildLinesFromInput(payload.lines, {
+    priceLevelDealerId: zohoCustomerId,
+  });
 
   // Dealers cannot choose freight amounts — strip any client freight and auto-add below.
   const goodsLines = builtLines.filter(line => !isFreightOrderLine(line));

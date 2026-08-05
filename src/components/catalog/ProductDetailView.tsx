@@ -66,6 +66,7 @@ import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import { useConfirm } from '../../context/ConfirmContext';
+import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
 import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import {
   calculateGroupTotals,
@@ -218,6 +219,7 @@ export const ProductDetailView: React.FC<{
   const canEnterProductEdit = editImages || canEditProductDetails;
   const navigate = useNavigate();
   const { user } = useAuth();
+  const isDealerPortal = user?.role === 'dealer' || user?.role === 'dealer_staff';
   const goBack = useCallback(() => {
     const origin = normalizeCatalogOrigin(currentNavState);
     // Spare list/rack/QR: restore explicit context instead of blind history back.
@@ -239,6 +241,7 @@ export const ProductDetailView: React.FC<{
   const [quantityText, setQuantityText] = useState('1');
   const [addedFlash, setAddedFlash] = useState(false);
   const [product, setProduct] = useState<CatalogProductDetail | CatalogProduct | null>(preview);
+  const dealerPricing = useDealerUnitPrice(isDealerPortal ? product : null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [relatedItems, setRelatedItems] = useState<CatalogProduct[]>([]);
@@ -2022,8 +2025,33 @@ export const ProductDetailView: React.FC<{
               {!productEditMode && (
                 <div className="product-detail-page__title-price" aria-label="Dealer price">
                   <div className="product-detail-page__title-price-amount">
-                    <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
-                    <span>{formatCurrencyWhole(product.rate).replace('₹', '').trim()}</span>
+                    {dealerPricing?.mode === 'discount'
+                      && dealerPricing.chargeRate < dealerPricing.listRate ? (
+                      <>
+                        <span className="product-detail-page__title-price-list">
+                          <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                          <span>
+                            {formatCurrencyWhole(dealerPricing.listRate).replace('₹', '').trim()}
+                          </span>
+                        </span>
+                        <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
+                        <span>
+                          {formatCurrencyWhole(dealerPricing.chargeRate).replace('₹', '').trim()}
+                        </span>
+                        <span className="product-detail-page__title-price-for-you">for you</span>
+                      </>
+                    ) : (
+                      <>
+                        <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
+                        <span>
+                          {formatCurrencyWhole(
+                            dealerPricing?.mode === 'increment'
+                              ? dealerPricing.chargeRate
+                              : product.rate,
+                          ).replace('₹', '').trim()}
+                        </span>
+                      </>
+                    )}
                   </div>
                   <span className="product-detail-page__title-price-gst">+GST</span>
                   {product.mrpOverride != null && Number(product.mrpOverride) > 0 && (

@@ -1,3 +1,9 @@
+/**
+ * Load Blue Dart pin serviceability from Firestore `blueDartPincodes/{zip}`.
+ * Populated by scripts/extract-bluedart-pincodes.py + seed-bluedart-rates.mjs
+ * from the BdService workbook (DPSERVICE / APXSERVICE / SFCSERVICE / DP_ZONE).
+ * Session-cached; not edited in Settings UI.
+ */
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { BlueDartPincodeDoc, BlueDartServiceability } from '../types/blue-dart-rates';

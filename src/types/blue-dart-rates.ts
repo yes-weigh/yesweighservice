@@ -1,5 +1,32 @@
 /**
- * Blue Dart tariff + geo/EDL rules (Firestore appSettings/logisticsCourierRates.bluedart).
+ * Blue Dart tariff + geo/EDL types.
+ *
+ * ## Firestore layout
+ * - `appSettings/logisticsCourierRates.bluedart` → `BlueDartConfig`
+ *   (shared surcharges + air / surface / domestic_priority rate tables + geo/EDL matrices)
+ * - `blueDartPincodes/{6-digit-pin}` → `BlueDartPincodeDoc`
+ *   (~22k serviceability rows; do NOT embed in the rate-card document)
+ *
+ * ## Services → Zoho freight SKUs (item IDs hardcoded in freightLines.ts)
+ * - air → BDAIR
+ * - surface → BDFRC (Surface Band 13)
+ * - domestic_priority → BDDP
+ *
+ * ## Source workbooks (re-burn when ops share new Excels)
+ * - `BdService (*.xlsx)` → pin Yes/EDL/No/TEM/PER + DP_ZONE A/B/C
+ * - `Apex & Domestic Priority Rates (*.xlsx)` → DP 500g slabs + Air ₹/kg + FS/CAF/IDC/EFSS/PSS
+ * - Surface Band 13 + region/EDL images → surface ₹/kg, zone matrix, EDL matrix, RAS states
+ *
+ * ## Re-import (credentials required)
+ *   npm run seed:bluedart
+ *   # or: python scripts/extract-bluedart-pincodes.py
+ *   #      node scripts/seed-bluedart-rates.mjs [--overwrite-rates] [--pins-only|--rates-only]
+ *
+ * ## What Settings UI edits vs what stays in code
+ * - UI (live-save): FS/CAF/GST/RAS/FOV/EDL gap fields + per-service rate tables
+ * - Seeded but not in UI: regionsByState, zoneMatrix, edlMatrix (update via seed/defaults)
+ * - Hardcoded logic: quote stack order, A1=within Kerala, TEM/PER meaning, skipped VAS
+ *
  * Distinct from ST Courier envelope/box zone cards.
  */
 

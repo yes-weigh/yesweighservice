@@ -1,5 +1,12 @@
 /**
- * Server-side Blue Dart parse + quote (mirrors src/lib/blueDart*).
+ * Server-side Blue Dart parse + quote.
+ * MIRROR of src/lib/blueDartQuote.ts + blueDartRatesParse + blueDartZone —
+ * keep charge stack and defaults in sync when updating tariffs.
+ *
+ * Used by functions/lib/st-courier-cart-freight.js buildDealerAutoFreightLines
+ * when partner is bluedart (pin loaded in dealer-orders.js).
+ *
+ * Re-burn / schema notes: see header on src/types/blue-dart-rates.ts
  */
 
 const BLUE_DART_SERVICES = ['air', 'surface', 'domestic_priority'];

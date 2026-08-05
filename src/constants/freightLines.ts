@@ -32,27 +32,28 @@ export const FREIGHT_LINE_OPTIONS = [
     tagline: 'Other freight charges',
     image: '/logistics/own-vehicle.png',
   },
+  // Blue Dart Zoho items — HARDCODED (not shown in Settings). Keep in sync with
+  // functions/lib/freight-lines.js and defaults in src/constants/blueDartRates.ts.
   {
-    /** Wire Zoho item id when available — SKU is the stable match key. */
-    productId: 'BDAIR',
+    productId: '99381000031970648',
     sku: 'BDAIR',
-    name: 'BLUE DART AIR FREIGHT',
+    name: 'Blue Dart Air',
     label: 'Blue Dart Air',
     tagline: 'Air',
     image: '/logistics/bluedart.png',
   },
   {
-    productId: 'BDFRC',
+    productId: '99381000031970559',
     sku: 'BDFRC',
-    name: 'BLUE DART SURFACE FREIGHT',
+    name: 'Blue Dart Surface',
     label: 'Blue Dart Surface',
     tagline: 'Surface',
     image: '/logistics/bluedart.png',
   },
   {
-    productId: 'BDDP',
+    productId: '99381000031970625',
     sku: 'BDDP',
-    name: 'BLUE DART DOMESTIC PRIORITY FREIGHT',
+    name: 'Blue Dart Domestic Priority',
     label: 'Blue Dart Domestic Priority',
     tagline: 'Domestic Priority',
     image: '/logistics/bluedart.png',

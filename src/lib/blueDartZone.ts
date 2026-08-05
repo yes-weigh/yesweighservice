@@ -1,3 +1,9 @@
+/**
+ * Blue Dart zone helpers.
+ * Air/Surface zones come from shared.zoneMatrix (Firestore).
+ * DP A1 is HARDCODED: destination Kerala + origin Kerala → A1 (rate sheet
+ * "Within Kerala"); otherwise use pin.dpZone from blueDartPincodes.
+ */
 import type {
   BlueDartAirZone,
   BlueDartDpZone,

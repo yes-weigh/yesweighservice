@@ -2919,14 +2919,184 @@
 .settings-bluedart {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.1rem;
+}
+
+.settings-bluedart__intro {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid #262626;
+  background: #101010;
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.settings-bluedart__tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+  padding: 0.3rem;
+  border-radius: 12px;
+  border: 1px solid #262626;
+  background: #101010;
+}
+
+.settings-bluedart__tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #94a3b8;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-bluedart__tab:hover:not(.is-selected) {
+  background: #161616;
+  color: #e2e8f0;
+}
+
+.settings-bluedart__tab.is-selected {
+  background: rgba(255, 122, 0, 0.12);
+  border-color: #ff7a00;
+  color: #f8fafc;
+}
+
+.settings-bluedart__tab-label {
+  font-size: 0.8125rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.settings-bluedart__tab-sku {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #ff7a00;
+  letter-spacing: 0.02em;
+}
+
+.settings-bluedart__tab-panel {
+  padding: 0.15rem 0 0;
+}
+
+@media (max-width: 720px) {
+  .settings-bluedart__tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.settings-bluedart__intro strong {
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.settings-bluedart__block {
+  border: 1px solid #262626;
+  border-radius: 12px;
+  background: #0c0c0c;
+  overflow: hidden;
+}
+
+.settings-bluedart__block-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-bluedart__block-toggle--static {
+  cursor: default;
+}
+
+.settings-bluedart__block-toggle:hover:not(.settings-bluedart__block-toggle--static) {
+  background: #121212;
+}
+
+.settings-bluedart__section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.settings-bluedart__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  background: #1f1408;
+  border: 1px solid #ff7a00;
+  color: #ff7a00;
+  font-size: 0.75rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.settings-bluedart__section-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 750;
+  color: #f8fafc;
+}
+
+.settings-bluedart__section-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.settings-bluedart__chevron {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+  color: #94a3b8;
+  transition: transform 0.15s ease;
+}
+
+.settings-bluedart__block.is-open > .settings-bluedart__block-toggle .settings-bluedart__chevron,
+.settings-bluedart__service-panel.is-open .settings-bluedart__chevron {
+  transform: rotate(180deg);
+  color: #ff7a00;
+}
+
+.settings-bluedart__block-body {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid #1f1f1f;
+}
+
+.settings-bluedart__subhead {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
 }
 
 .settings-bluedart__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
   gap: 0.75rem 1rem;
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .settings-bluedart__hint {
@@ -2955,6 +3125,170 @@
 .settings-bluedart__text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.8125rem;
+}
+
+.settings-bluedart__linkish {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #ff9a3c;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.settings-bluedart__linkish:hover {
+  color: #ffb36b;
+}
+
+.settings-bluedart__service-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0 1rem 1rem;
+}
+
+.settings-bluedart__service-panel {
+  border: 1px solid #262626;
+  border-radius: 10px;
+  background: #101010;
+  overflow: hidden;
+}
+
+.settings-bluedart__service-panel.is-open {
+  border-color: #ff7a00;
+  box-shadow: inset 0 0 0 1px rgba(255, 122, 0, 0.25);
+}
+
+.settings-bluedart__service-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 0.65rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-bluedart__service-toggle:hover {
+  background: #141414;
+}
+
+.settings-bluedart__service-toggle-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.settings-bluedart__service-toggle-name {
+  font-size: 0.9rem;
+  font-weight: 750;
+  color: #f8fafc;
+}
+
+.settings-bluedart__service-toggle-sku {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ff7a00;
+  letter-spacing: 0.02em;
+}
+
+.settings-bluedart__service-toggle-blurb {
+  grid-column: 1;
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.settings-bluedart__service-toggle .settings-bluedart__chevron {
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.settings-bluedart__panel-body {
+  padding: 0 0.85rem 0.9rem;
+  border-top: 1px solid #1f1f1f;
+}
+
+.settings-bluedart__panel-blurb {
+  margin: 0.7rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.settings-bluedart__seed-note {
+  margin: 0;
+}
+
+.settings-bluedart__label-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  width: fit-content;
+  max-width: 100%;
+  border-bottom: 1px dotted #64748b;
+  cursor: help;
+}
+
+.settings-bluedart__label-tip::after {
+  content: '?';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 999px;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.settings-bluedart__label-tip::before {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.45rem);
+  z-index: 20;
+  width: min(18rem, 70vw);
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #0b1220;
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+}
+
+.settings-bluedart__label-tip:hover::before,
+.settings-bluedart__label-tip:focus-visible::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
 }
 
 .settings-courier-rates__placeholder {
@@ -3822,5 +4156,377 @@
 
   .settings-local-printer__fields-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* —— Price level setting —— */
+.price-levels-tab {
+  padding: 1rem 1.1rem 1.25rem;
+}
+
+.price-levels-tab--loading {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 8rem;
+}
+
+.price-levels-tab__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.price-levels-tab__header h3 {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+}
+
+.price-levels-tab__save {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.price-levels-tab__save.is-saved {
+  color: #6ee7b7;
+}
+
+.price-levels-tab__save.is-error {
+  color: #fca5a5;
+}
+
+.price-levels-tab__error {
+  margin: 0 0 0.75rem;
+  color: #fca5a5;
+  font-size: 0.875rem;
+}
+
+.price-levels-tab__layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.price-levels-tab__levels {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.35);
+  padding: 0.65rem;
+}
+
+.price-levels-tab__levels-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+
+.price-levels-tab__empty {
+  margin: 0.35rem 0.15rem;
+}
+
+.price-levels-tab__level-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.price-levels-tab__level-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem;
+  align-items: stretch;
+}
+
+.price-levels-tab__level-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  text-align: left;
+  padding: 0.55rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.price-levels-tab__level-btn svg {
+  color: #94a3b8;
+}
+
+.price-levels-tab__level-btn.is-active {
+  background: rgba(245, 130, 32, 0.14);
+  border-color: rgba(245, 130, 32, 0.35);
+  color: #fdba74;
+}
+
+.price-levels-tab__level-btn.is-active svg {
+  color: #fdba74;
+}
+
+.price-levels-tab__level-name {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.price-levels-tab__level-meta {
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.price-levels-tab__level-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.price-levels-tab__level-delete:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.price-levels-tab__detail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.price-levels-tab__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.price-levels-tab__field input,
+.price-levels-tab__add-rule select,
+.price-levels-tab__rules select,
+.price-levels-tab__percent input,
+.price-levels-tab__dealer-search input {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.45);
+  color: inherit;
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+}
+
+.price-levels-tab__field input {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.price-levels-tab__block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.price-levels-tab__block h4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.price-levels-tab__dealer-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.price-levels-tab__dealer-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 0.45rem 0;
+  min-width: 0;
+}
+
+.price-levels-tab__dealer-search input:focus {
+  outline: none;
+}
+
+.price-levels-tab__dealer-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 12rem;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.price-levels-tab__dealer-hits button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.price-levels-tab__dealer-hits button:hover:not(:disabled) {
+  background: rgba(245, 130, 32, 0.1);
+}
+
+.price-levels-tab__dealer-hits button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.price-levels-tab__dealer-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.price-levels-tab__dealer-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.45rem 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(245, 130, 32, 0.14);
+  color: #fdba74;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.price-levels-tab__dealer-chips button {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.1rem;
+}
+
+.price-levels-tab__add-rule {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.price-levels-tab__add-rule select {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.price-levels-tab__rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.price-levels-tab__rules > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(7.5rem, 0.9fr) auto auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.price-levels-tab__rule-cat {
+  font-size: 0.875rem;
+  font-weight: 650;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price-levels-tab__percent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.price-levels-tab__percent input {
+  width: 4.5rem;
+  text-align: right;
+}
+
+.price-levels-tab__rule-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.price-levels-tab__rule-delete:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+@media (max-width: 900px) {
+  .price-levels-tab__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .price-levels-tab__rules > li {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .price-levels-tab__rule-cat {
+    grid-column: 1 / -1;
   }
 }

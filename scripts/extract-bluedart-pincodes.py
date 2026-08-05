@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Extract BdService workbook → JSONL for blueDartPincodes seed."""
+"""Extract BdService workbook → JSONL for blueDartPincodes seed.
+
+AGENT: When ops share a new Blue Dart pin/serviceability Excel, set SRC below
+to that filename (repo root), then run this script and seed-bluedart-rates.mjs.
+Expected columns (BdService sheet): CPINCODE, CREGION, CSTATE, CAREA, CAREADESC,
+CSCRCD, DPSERVICE, DP_ZONE, APXSERVICE, EDL_APX, APX_LOCIB, SFCSERVICE, EDL_SFC,
+SFC_LOCIB. Output docs match BlueDartPincodeDoc in src/types/blue-dart-rates.ts.
+"""
 
 from __future__ import annotations
 

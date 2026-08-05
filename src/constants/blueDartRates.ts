@@ -1,3 +1,16 @@
+/**
+ * Default Blue Dart commercials + geo seed (mirrors Excel / tariff images).
+ *
+ * AGENT: When ops drop new Blue Dart Excels/images:
+ * 1. Update numbers in this file (defaults) AND scripts/seed-bluedart-rates.mjs
+ *    (keep them in sync — seed does not import TS).
+ * 2. If BdService pin file changed: update scripts/extract-bluedart-pincodes.py
+ *    SRC path if the filename changed, then re-run npm run seed:bluedart.
+ * 3. Prefer seed with --overwrite-rates only when intentionally replacing
+ *    admin UI overrides already saved in Firestore.
+ * 4. Keep Zoho productIds in sync with src/constants/freightLines.ts.
+ * See header on src/types/blue-dart-rates.ts for Firestore layout.
+ */
 import type {
   BlueDartAirZone,
   BlueDartConfig,
@@ -121,9 +134,9 @@ export function defaultBlueDartSharedRules(): BlueDartSharedRules {
     zoneMatrix: defaultBlueDartZoneMatrix(),
     edlMatrix: defaultBlueDartEdlMatrix(),
     productIds: {
-      air: 'BDAIR',
-      surface: 'BDFRC',
-      domestic_priority: 'BDDP',
+      air: '99381000031970648',
+      surface: '99381000031970559',
+      domestic_priority: '99381000031970625',
     },
   };
 }

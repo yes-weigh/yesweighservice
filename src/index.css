@@ -5056,6 +5056,58 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: var(--cat-accent);
 }
 
+.dealer-price {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+  line-height: 1.1;
+}
+
+.dealer-price--single {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.12rem;
+}
+
+.dealer-price__list {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.08rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+.dealer-price__list svg {
+  color: #94a3b8;
+}
+
+.dealer-price__charge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12rem;
+  font-size: 0.9375rem;
+  font-weight: 900;
+  letter-spacing: -0.025em;
+  color: #0f172a;
+}
+
+.dealer-price__charge svg {
+  color: var(--cat-accent);
+}
+
+.dealer-price__for-you {
+  margin-left: 0.2rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #ea580c;
+}
+
 .catalog-product-card__audit {
   margin-top: 0.35rem;
   padding-top: 0.4rem;
@@ -10119,6 +10171,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .product-detail-page__title-price-amount {
   display: inline-flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 0.15rem;
   font-size: 1rem;
   font-weight: 800;
@@ -10132,6 +10185,30 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   height: 0.95rem;
   transform: translateY(0.08em);
   flex-shrink: 0;
+}
+
+.product-detail-page__title-price-list {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.08rem;
+  margin-right: 0.3rem;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+.product-detail-page__title-price-list svg {
+  color: #94a3b8;
+}
+
+.product-detail-page__title-price-for-you {
+  margin-left: 0.2rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #ea580c;
 }
 
 .product-detail-page__title-price-mrp {
@@ -13415,10 +13492,31 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .orders-page__item-price {
   display: inline-flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 0.15rem;
   margin-top: 0.35rem;
   font-weight: 800;
   font-size: 0.875rem;
+}
+
+.orders-page__item-list-rate {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.08rem;
+  margin-right: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+.orders-page__item-for-you {
+  margin-left: 0.15rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #ea580c;
 }
 
 .orders-page__item-warning {

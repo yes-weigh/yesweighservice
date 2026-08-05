@@ -1,13 +1,21 @@
 /**
- * Seed Blue Dart tariff (logisticsCourierRates.bluedart) + optional pin index.
+ * Seed Blue Dart tariff + pin index into Firestore.
  *
- * Usage:
- *   set GOOGLE_APPLICATION_CREDENTIALS=path\to\sa.json
- *   python scripts/extract-bluedart-pincodes.py
- *   node scripts/seed-bluedart-rates.mjs
- *   node scripts/seed-bluedart-rates.mjs --pins-only
- *   node scripts/seed-bluedart-rates.mjs --rates-only
- *   node scripts/seed-bluedart-rates.mjs --overwrite-rates
+ * AGENT — when ops share new Blue Dart Excels / rate cards:
+ * 1. Put BdService workbook at repo root (or update extract script SRC path).
+ * 2. Update defaultBlueDartConfig() BELOW to match new Air/Surface/DP/FS/CAF/EDL
+ *    numbers (also update src/constants/blueDartRates.ts — same defaults).
+ * 3. Run:
+ *      set GOOGLE_APPLICATION_CREDENTIALS=secrets\<sa>.json
+ *      npm run seed:bluedart
+ *    Flags:
+ *      --overwrite-rates  replace Firestore tariff (wipes admin UI overrides)
+ *      --rates-only       skip pin batch
+ *      --pins-only        skip tariff (after extract JSONL exists)
+ * 4. Spot-check: npm run validate:bluedart
+ * 5. Schema / quote rules: src/types/blue-dart-rates.ts + src/lib/blueDartQuote.ts
+ *
+ * Does not commit Excels or scripts/data/bluedart-pincodes.jsonl (gitignored).
  */
 
 import fs from 'node:fs';
@@ -112,9 +120,9 @@ function defaultBlueDartConfig() {
         { distanceKmMin: 450, distanceKmMax: 500, amountsInr: [3025, 3700, 4750, 5800, 6960] },
       ],
       productIds: {
-        air: 'BDAIR',
-        surface: 'BDFRC',
-        domestic_priority: 'BDDP',
+        air: '99381000031970648',
+        surface: '99381000031970559',
+        domestic_priority: '99381000031970625',
       },
     },
     air: {

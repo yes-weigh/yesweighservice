@@ -51,6 +51,7 @@ import { SettingsProfileTab } from './pages/admin/settings/SettingsProfileTab';
 import { WarehouseLocationsTab } from './pages/admin/settings/WarehouseLocationsTab';
 import { StoreRoomTab } from './pages/admin/settings/StoreRoomTab';
 import { ProductSettingsTab } from './pages/admin/settings/ProductSettingsTab';
+import { PriceLevelSettingsTab } from './pages/admin/settings/PriceLevelSettingsTab';
 import { SkuCorrectionTab } from './pages/admin/settings/SkuCorrectionTab';
 import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTab';
 import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
@@ -280,6 +281,7 @@ const App: React.FC = () => (
                   element={<Navigate to="/super-admin/reports/audit-report" replace />}
                 />
                 <Route path="product" element={<ProductSettingsTab />} />
+                <Route path="price-levels" element={<PriceLevelSettingsTab />} />
                 <Route path="sku-correction" element={<SkuCorrectionTab />} />
                 <Route path="logistics" element={<LogisticsSettingsTab />} />
                 <Route path="local-printers" element={<LocalPrintersTab />} />

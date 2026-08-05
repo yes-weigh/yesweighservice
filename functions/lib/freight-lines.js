@@ -20,20 +20,21 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'FRC',
     name: 'OTHERS FREIGHT CHARGES',
   },
+  // Blue Dart Zoho items — keep in sync with src/constants/freightLines.ts
   {
-    productId: 'BDAIR',
+    productId: '99381000031970648',
     sku: 'BDAIR',
-    name: 'BLUE DART AIR FREIGHT',
+    name: 'Blue Dart Air',
   },
   {
-    productId: 'BDFRC',
+    productId: '99381000031970559',
     sku: 'BDFRC',
-    name: 'BLUE DART SURFACE FREIGHT',
+    name: 'Blue Dart Surface',
   },
   {
-    productId: 'BDDP',
+    productId: '99381000031970625',
     sku: 'BDDP',
-    name: 'BLUE DART DOMESTIC PRIORITY FREIGHT',
+    name: 'Blue Dart Domestic Priority',
   },
 ];
 
