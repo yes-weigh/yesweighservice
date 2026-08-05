@@ -32,6 +32,7 @@ import {
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
+import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import type { InventorySite } from '../../lib/salesOrderSegments';
@@ -93,6 +94,7 @@ const DealerCartPage: React.FC = () => {
     () => resolveShippingDestination(shipping, addresses),
     [shipping, addresses],
   );
+  const blueDartPin = useBlueDartPincode(shippingDestination?.zip);
   const inferredFreightZone = useMemo(
     () => inferStCourierZone(shippingDestination),
     [shippingDestination],
@@ -142,6 +144,7 @@ const DealerCartPage: React.FC = () => {
       deliveryRules,
       spareFreightMinimumInr,
       courierBySite,
+      blueDartPin,
     });
   }, [
     courierRates,
@@ -152,6 +155,7 @@ const DealerCartPage: React.FC = () => {
     catalogById,
     courierBySite,
     inferredFreightZone,
+    blueDartPin,
   ]);
 
   const loadAddresses = useCallback(() => {

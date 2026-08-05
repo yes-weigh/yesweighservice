@@ -7,12 +7,15 @@ import {
   defaultStCourierZoneRates,
   LOGISTICS_COURIER_RATES_DOC_ID,
 } from '../constants/logisticsCourierRates';
+import { defaultBlueDartConfig } from '../constants/blueDartRates';
 import {
   STAFF_LOGISTICS_SITES,
   isStaffLogisticsSite,
   type StaffLogisticsSite,
 } from '../types/staff-logistics';
+import type { BlueDartConfig } from '../types/blue-dart-rates';
 import type {
+  BlueDartServiceId,
   CourierRatePartnerId,
   LogisticsCourierRates,
   StCourierOriginRates,
@@ -27,6 +30,7 @@ import {
   isCourierRatePartnerId,
   isStCourierZone,
 } from '../types/logistics-courier-rates';
+import { blueDartConfigsEqual, parseBlueDartConfig } from './blueDartRatesParse';
 
 function finiteNonNeg(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
@@ -59,7 +63,6 @@ function parseZoneTable(data: Record<string, unknown>): Record<StCourierZone, St
     zones.tamil_nadu_pondy = parseZoneRates(
       map.tamil_nadu_pondy ?? map.tamil_nadu,
     );
-    // Prefer explicit other_states; else legacy rest_of_india / metro leftovers.
     zones.other_states = parseZoneRates(
       map.other_states
       ?? map.rest_of_india
@@ -71,7 +74,6 @@ function parseZoneTable(data: Record<string, unknown>): Record<StCourierZone, St
     return zones;
   }
 
-  // Legacy flat mode base + 2-zone per-kg
   const modeRaw = data.modeBaseInr && typeof data.modeBaseInr === 'object'
     ? data.modeBaseInr as Record<string, unknown>
     : {};
@@ -105,7 +107,7 @@ function parseOriginRates(raw: unknown): StCourierOriginRates {
   };
 }
 
-function parseStCourierRates(raw: unknown): StCourierRatesByOrigin {
+function parseStCourierRatesByOrigin(raw: unknown): StCourierRatesByOrigin {
   const defaults = defaultLogisticsCourierRates().st_courier;
   if (!raw || typeof raw !== 'object') return defaults;
   const data = raw as Record<string, unknown>;
@@ -115,16 +117,56 @@ function parseStCourierRates(raw: unknown): StCourierRatesByOrigin {
   };
 }
 
+/** Shared card, or legacy { cochin, head_office } → prefer head_office then cochin. */
+function parseSharedPartnerRates(raw: unknown): StCourierOriginRates {
+  if (!raw || typeof raw !== 'object') return defaultStCourierOriginRates();
+  const data = raw as Record<string, unknown>;
+  if (data.cochin != null || data.head_office != null) {
+    const head = parseOriginRates(data.head_office);
+    const cochin = parseOriginRates(data.cochin);
+    const headHasRates = ST_COURIER_ZONES.some(z => (
+      head.zones[z].boxPerKgInr > 0 || head.zones[z].envelopeFixedInr > 0
+    ));
+    return headHasRates ? head : cochin;
+  }
+  return parseOriginRates(data);
+}
+
 export function parseLogisticsCourierRates(data: Record<string, unknown> | undefined): LogisticsCourierRates {
   const defaults = defaultLogisticsCourierRates();
   if (!data) return defaults;
   return {
-    st_courier: parseStCourierRates(data.st_courier),
-    trackon: parseStCourierRates(data.trackon),
-    delhivery: parseStCourierRates(data.delhivery),
+    st_courier: parseStCourierRatesByOrigin(data.st_courier),
+    trackon: parseSharedPartnerRates(data.trackon),
+    delhivery: parseSharedPartnerRates(data.delhivery),
+    bluedart: parseBlueDartConfig(data.bluedart),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
   };
+}
+
+/**
+ * Resolve ST-style rate card for a priced partner.
+ * Origin is used only for ST Courier; ignored for shared-card partners.
+ * Blue Dart is not ST-shaped — use `blueDartConfigOf` / quoteBlueDart* instead.
+ */
+export function originRatesForPartner(
+  rates: LogisticsCourierRates,
+  partnerId: CourierRatePartnerId,
+  origin: StaffLogisticsSite,
+  _blueDartService: BlueDartServiceId = 'surface',
+): StCourierOriginRates {
+  if (partnerId === 'bluedart') {
+    return defaultStCourierOriginRates();
+  }
+  if (partnerId === 'st_courier') {
+    return rates.st_courier[origin];
+  }
+  return rates[partnerId];
+}
+
+export function blueDartConfigOf(rates: LogisticsCourierRates): BlueDartConfig {
+  return rates.bluedart ?? defaultBlueDartConfig();
 }
 
 export async function loadLogisticsCourierRates(): Promise<LogisticsCourierRates> {
@@ -142,13 +184,18 @@ export async function saveCourierOriginRates(
   origin: StaffLogisticsSite,
   rates: StCourierOriginRates,
   updatedBy?: string | null,
+  blueDartService: BlueDartServiceId = 'surface',
 ): Promise<StCourierOriginRates> {
   if (!isCourierRatePartnerId(partner)) {
     throw new Error('Select a valid courier partner.');
   }
-  if (!isStaffLogisticsSite(origin)) {
+  if (partner === 'bluedart') {
+    throw new Error('Use saveBlueDartConfig for Blue Dart tariffs.');
+  }
+  if (partner === 'st_courier' && !isStaffLogisticsSite(origin)) {
     throw new Error('Select a valid logistics origin.');
   }
+  void blueDartService;
 
   const normalized = parseOriginRates(rates);
   if (normalized.volumetricDivisor <= 0) {
@@ -156,18 +203,53 @@ export async function saveCourierOriginRates(
   }
 
   const updatedAt = new Date().toISOString();
+  let partnerPayload: Record<string, unknown>;
+  if (partner === 'st_courier') {
+    partnerPayload = {
+      st_courier: {
+        [origin]: normalized,
+      },
+    };
+  } else {
+    partnerPayload = {
+      [partner]: normalized,
+    };
+  }
+
   await setDoc(
     doc(db, 'appSettings', LOGISTICS_COURIER_RATES_DOC_ID),
     {
-      [partner]: {
-        [origin]: normalized,
-      },
+      ...partnerPayload,
       updatedAt,
       ...(updatedBy ? { updatedBy } : {}),
     },
     { merge: true },
   );
 
+  return normalized;
+}
+
+export async function saveBlueDartConfig(
+  config: BlueDartConfig,
+  updatedBy?: string | null,
+): Promise<BlueDartConfig> {
+  const normalized = parseBlueDartConfig(config);
+  if (normalized.air.volumetricDivisor <= 0
+    || normalized.surface.volumetricDivisor <= 0
+    || normalized.domestic_priority.volumetricDivisor <= 0) {
+    throw new Error('Volumetric divisor must be greater than zero.');
+  }
+
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_COURIER_RATES_DOC_ID),
+    {
+      bluedart: normalized,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
   return normalized;
 }
 
@@ -180,7 +262,7 @@ export async function saveStCourierOriginRates(
   return saveCourierOriginRates('st_courier', origin, rates, updatedBy);
 }
 
-export { COURIER_RATE_PARTNER_IDS, isCourierRatePartnerId };
+export { COURIER_RATE_PARTNER_IDS, isCourierRatePartnerId, blueDartConfigsEqual };
 
 export async function saveStCourierRatesByOrigin(
   byOrigin: StCourierRatesByOrigin,

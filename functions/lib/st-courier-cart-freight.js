@@ -4,6 +4,10 @@
  */
 import { FREIGHT_LINE_OPTIONS } from './freight-lines.js';
 import {
+  parseBlueDartConfig,
+  quoteBlueDartParcels,
+} from './blue-dart-quote.js';
+import {
   classifyOrderLineSegment,
   resolveLineInventorySite,
   segmentAllowsFreight,
@@ -139,25 +143,45 @@ function parseOriginRates(raw) {
   };
 }
 
+const ZONE_KEYS = ['kerala', 'tamil_nadu_pondy', 'other_states'];
+
+function parseSharedPartnerRates(raw) {
+  if (!raw || typeof raw !== 'object') return parseOriginRates(null);
+  // Legacy by-origin → prefer head_office if it has any prices.
+  if (raw.cochin != null || raw.head_office != null) {
+    const head = parseOriginRates(raw.head_office);
+    const cochin = parseOriginRates(raw.cochin);
+    const headHas = ZONE_KEYS.some(z => (
+      (head.zones?.[z]?.boxPerKgInr || 0) > 0
+      || (head.zones?.[z]?.envelopeFixedInr || 0) > 0
+    ));
+    return headHas ? head : cochin;
+  }
+  return parseOriginRates(raw);
+}
+
 export function parseLogisticsCourierRates(data) {
-  const empty = () => ({
+  const emptyByOrigin = () => ({
     cochin: parseOriginRates(null),
     head_office: parseOriginRates(null),
   });
   if (!data || typeof data !== 'object') {
-    return { st_courier: empty(), trackon: empty(), delhivery: empty() };
-  }
-  const partner = (key) => {
-    const raw = data[key] && typeof data[key] === 'object' ? data[key] : {};
     return {
-      cochin: parseOriginRates(raw.cochin),
-      head_office: parseOriginRates(raw.head_office),
+      st_courier: emptyByOrigin(),
+      trackon: parseOriginRates(null),
+      delhivery: parseOriginRates(null),
+      bluedart: parseBlueDartConfig(null),
     };
-  };
+  }
+  const stRaw = data.st_courier && typeof data.st_courier === 'object' ? data.st_courier : {};
   return {
-    st_courier: partner('st_courier'),
-    trackon: partner('trackon'),
-    delhivery: partner('delhivery'),
+    st_courier: {
+      cochin: parseOriginRates(stRaw.cochin),
+      head_office: parseOriginRates(stRaw.head_office),
+    },
+    trackon: parseSharedPartnerRates(data.trackon),
+    delhivery: parseSharedPartnerRates(data.delhivery),
+    bluedart: parseBlueDartConfig(data.bluedart),
   };
 }
 
@@ -297,6 +321,7 @@ const PARTNER_FREIGHT_SKU = {
   st_courier: 'STFRC',
   trackon: 'TRFRC',
   delhivery: 'DELFRC',
+  bluedart: 'BDFRC',
 };
 
 function normalizeCourierBySite(raw) {
@@ -310,8 +335,12 @@ function normalizeCourierBySite(raw) {
 }
 
 function partnerOriginRates(rates, partnerId, site) {
-  if (partnerId === 'st_courier' || partnerId === 'trackon' || partnerId === 'delhivery') {
-    return rates[partnerId]?.[site] || null;
+  if (partnerId === 'bluedart') return null;
+  if (partnerId === 'st_courier') {
+    return rates.st_courier?.[site] || null;
+  }
+  if (partnerId === 'trackon' || partnerId === 'delhivery') {
+    return rates[partnerId] || null;
   }
   return null;
 }
@@ -327,6 +356,9 @@ export function buildDealerAutoFreightLines({
   spareFreightMinimumInr = 0,
   courierBySite = {},
   freightZone = null,
+  blueDartPin = null,
+  blueDartService = 'surface',
+  invoiceValueInr = 0,
 }) {
   const rates = parseLogisticsCourierRates(courierRates);
   const { zone } = resolveFreightZone(destination, freightZone);
@@ -365,17 +397,34 @@ export function buildDealerAutoFreightLines({
     const partnerId = selected[site] || 'st_courier';
     if (partnerId === 'personal_collection') continue;
 
-    const sku = PARTNER_FREIGHT_SKU[partnerId] || 'STFRC';
+    let sku = PARTNER_FREIGHT_SKU[partnerId] || 'STFRC';
     const originRates = partnerOriginRates(rates, partnerId, site) || rates.st_courier[site];
 
     if (productSites.has(site)) {
       const parcels = productParcelsBySite.get(site) || [];
-      const quoted = parcels.length
-        ? quoteParcels(zone, originRates, parcels)
-        : { totalInr: 0 };
+      let totalInr = 0;
+      if (partnerId === 'bluedart') {
+        const bd = parcels.length
+          ? quoteBlueDartParcels({
+            config: rates.bluedart,
+            service: blueDartService,
+            destState: destination?.state,
+            pin: blueDartPin,
+            parcels,
+            invoiceValueInr,
+          })
+          : { totalInr: 0, sku: 'BDFRC' };
+        totalInr = bd.totalInr || 0;
+        sku = bd.sku || sku;
+      } else {
+        const quoted = parcels.length
+          ? quoteParcels(zone, originRates, parcels)
+          : { totalInr: 0 };
+        totalInr = quoted.totalInr;
+      }
       freightLines.push(makeFreightLine({
         sku,
-        rate: quoted.totalInr,
+        rate: totalInr,
         site,
         hostSegment: 'product',
       }));

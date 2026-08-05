@@ -20,6 +20,21 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'FRC',
     name: 'OTHERS FREIGHT CHARGES',
   },
+  {
+    productId: 'BDAIR',
+    sku: 'BDAIR',
+    name: 'BLUE DART AIR FREIGHT',
+  },
+  {
+    productId: 'BDFRC',
+    sku: 'BDFRC',
+    name: 'BLUE DART SURFACE FREIGHT',
+  },
+  {
+    productId: 'BDDP',
+    sku: 'BDDP',
+    name: 'BLUE DART DOMESTIC PRIORITY FREIGHT',
+  },
 ];
 
 const FREIGHT_SKU_SET = new Set(

@@ -216,6 +216,12 @@ service cloud.firestore {
       );
     }
 
+    // Blue Dart pin serviceability index (seeded from BdService workbook).
+    match /blueDartPincodes/{pincode} {
+      allow read: if signedIn();
+      allow write: if isFullSuperAdmin();
+    }
+
     match /catalogProducts/{productId} {
       allow read: if true;
       allow write: if false;

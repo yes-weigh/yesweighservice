@@ -16,6 +16,8 @@
     "generate:icons": "npm install --no-save sharp && node scripts/generate-icons.mjs",
     "preview": "vite preview",
     "seed:admin": "node scripts/seed-admin.mjs",
+    "seed:bluedart": "python scripts/extract-bluedart-pincodes.py && node scripts/seed-bluedart-rates.mjs",
+    "validate:bluedart": "node scripts/validate-bluedart-quotes.mjs",
     "complete:admin": "node scripts/complete-super-admin.mjs",
     "seed:sample-users": "node scripts/seed-sample-users.mjs",
     "migrate:dealer-rename": "node scripts/migrate-dealer-rename.mjs",

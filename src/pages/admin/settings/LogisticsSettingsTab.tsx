@@ -35,7 +35,7 @@ type LogisticsSettingsSubTab = 'sites' | 'delivery-rules' | 'courier-rates' | 's
 const LOGISTICS_SETTINGS_SUBTABS: { id: LogisticsSettingsSubTab; label: string }[] = [
   { id: 'sites', label: 'Sites' },
   { id: 'delivery-rules', label: 'Delivery rules' },
-  { id: 'courier-rates', label: 'Courier rates' },
+  { id: 'courier-rates', label: 'Delivery Partners' },
   { id: 'staff', label: 'Staff' },
 ];
 
@@ -171,7 +171,7 @@ export const LogisticsSettingsTab: React.FC = () => {
         <div>
           <h3>Logistics</h3>
           <p className="text-muted text-sm">
-            Configure ship-from sites, delivery partner rules, courier rates, and staff warehouse assignments.
+            Configure ship-from sites, delivery partner rules, partner rates, and staff warehouse assignments.
           </p>
         </div>
       </header>

@@ -1,4 +1,7 @@
+import type { BlueDartConfig } from './blue-dart-rates';
 import type { StaffLogisticsSite } from './staff-logistics';
+
+export type { BlueDartConfig } from './blue-dart-rates';
 
 /** Origin site for courier rate cards (same ids as ship-from). */
 export type LogisticsOrigin = StaffLogisticsSite;
@@ -8,6 +11,7 @@ export const COURIER_RATE_PARTNER_IDS = [
   'st_courier',
   'trackon',
   'delhivery',
+  'bluedart',
 ] as const;
 
 export type CourierRatePartnerId = (typeof COURIER_RATE_PARTNER_IDS)[number];
@@ -15,6 +19,11 @@ export type CourierRatePartnerId = (typeof COURIER_RATE_PARTNER_IDS)[number];
 export function isCourierRatePartnerId(value: unknown): value is CourierRatePartnerId {
   return typeof value === 'string'
     && (COURIER_RATE_PARTNER_IDS as readonly string[]).includes(value);
+}
+
+/** Only ST Courier rates differ by ship-from site. */
+export function partnerUsesOriginRates(partnerId: CourierRatePartnerId): boolean {
+  return partnerId === 'st_courier';
 }
 
 /**
@@ -47,7 +56,7 @@ export interface StCourierZoneRates {
   boxPerKgInr: number;
 }
 
-/** Per-origin courier rate card (ST / Trackon / Delhivery share this shape). */
+/** Rate card fields (volumetric rules + zone prices). */
 export interface StCourierOriginRates {
   /** Volumetric: chargeable = max(actualKg, L*W*H / divisor). */
   volumetricDivisor: number;
@@ -63,19 +72,61 @@ export interface StCourierOriginRates {
   zones: Record<StCourierZone, StCourierZoneRates>;
 }
 
+/** ST Courier only — separate cards per ship-from site. */
 export interface StCourierRatesByOrigin {
   cochin: StCourierOriginRates;
   head_office: StCourierOriginRates;
 }
 
 /**
+ * Blue Dart Zoho freight services (each has its own rate card).
+ * SKUs: BDAIR, BDFRC, BDDP.
+ */
+export const BLUE_DART_SERVICE_IDS = [
+  'air',
+  'surface',
+  'domestic_priority',
+] as const;
+
+export type BlueDartServiceId = (typeof BLUE_DART_SERVICE_IDS)[number];
+
+export function isBlueDartServiceId(value: unknown): value is BlueDartServiceId {
+  return typeof value === 'string'
+    && (BLUE_DART_SERVICE_IDS as readonly string[]).includes(value);
+}
+
+export const BLUE_DART_SERVICE_META: Record<BlueDartServiceId, {
+  label: string;
+  tagline: string;
+  sku: 'BDAIR' | 'BDFRC' | 'BDDP';
+}> = {
+  air: {
+    label: 'Air',
+    tagline: 'BDAIR · Blue Dart Air',
+    sku: 'BDAIR',
+  },
+  surface: {
+    label: 'Surface',
+    tagline: 'BDFRC · Blue Dart Surface',
+    sku: 'BDFRC',
+  },
+  domestic_priority: {
+    label: 'Domestic Priority',
+    tagline: 'BDDP · Blue Dart Domestic Priority',
+    sku: 'BDDP',
+  },
+};
+
+/**
  * Courier rate cards under appSettings/logisticsCourierRates.
- * Trackon / Delhivery start as ₹0 placeholders until rates are entered.
+ * ST is per origin; other partners share one card for all ship-from sites.
+ * Blue Dart uses a dedicated tariff + geo/EDL config (not ST envelope/box).
  */
 export interface LogisticsCourierRates {
   st_courier: StCourierRatesByOrigin;
-  trackon: StCourierRatesByOrigin;
-  delhivery: StCourierRatesByOrigin;
+  trackon: StCourierOriginRates;
+  delhivery: StCourierOriginRates;
+  bluedart: BlueDartConfig;
   updatedAt: string;
   updatedBy?: string | null;
 }

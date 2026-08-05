@@ -1,18 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Save } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import { useAuth } from '../../../context/AuthContext';
 import { defaultLogisticsCourierRates } from '../../../constants/logisticsCourierRates';
-import { LOGISTICS_PARTNERS } from '../../../constants/logisticsPartners';
 import {
-  originsUsingAnyPartnerInDeliveryRules,
-  partnersForOriginInDeliveryRules,
+  LOGISTICS_PARTNERS,
+  logisticsPartnerImage,
+} from '../../../constants/logisticsPartners';
+import {
+  originsUsingPartnerInDeliveryRules,
   partnersUsedInDeliveryRules,
 } from '../../../lib/logisticsDeliveryRules';
 import {
+  blueDartConfigsEqual,
   loadLogisticsCourierRates,
+  originRatesForPartner,
+  saveBlueDartConfig,
   saveCourierOriginRates,
 } from '../../../lib/logisticsCourierRates';
+import type { BlueDartConfig } from '../../../types/blue-dart-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
 import {
   STAFF_LOGISTICS_SITES,
@@ -24,11 +29,18 @@ import {
   ST_COURIER_ZONES,
   ST_COURIER_ZONE_LABELS,
   isCourierRatePartnerId,
+  partnerUsesOriginRates,
+  type BlueDartServiceId,
   type CourierRatePartnerId,
   type LogisticsCourierRates,
   type StCourierOriginRates,
   type StCourierZone,
 } from '../../../types/logistics-courier-rates';
+import { BlueDartRatesEditor } from './BlueDartRatesEditor';
+
+type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
+
+const LIVE_SAVE_MS = 550;
 
 const RATE_PARTNER_ORDER = COURIER_RATE_PARTNER_IDS;
 
@@ -47,65 +59,95 @@ function ratesEqual(a: StCourierOriginRates, b: StCourierOriginRates): boolean {
   ));
 }
 
+function partnerMeta(id: CourierRatePartnerId) {
+  const partner = LOGISTICS_PARTNERS.find(p => p.id === id);
+  return {
+    label: partner?.label ?? id,
+    tagline: partner?.tagline ?? '',
+    image: logisticsPartnerImage(id) ?? partner?.image ?? null,
+  };
+}
+
 function partnerLabel(id: CourierRatePartnerId): string {
-  return LOGISTICS_PARTNERS.find(p => p.id === id)?.label ?? id;
+  return partnerMeta(id).label;
 }
 
 type Props = {
-  /** Current delivery-rules matrix — drives which couriers / origins appear. */
   deliveryRules: LogisticsDeliveryRulesMatrix;
-  /** Bubble errors up to the parent Logistics tab banner. */
   onError: (message: string) => void;
 };
+
+function withPartnerRates(
+  prev: LogisticsCourierRates,
+  partner: CourierRatePartnerId,
+  site: StaffLogisticsSite,
+  nextRates: StCourierOriginRates,
+): LogisticsCourierRates {
+  if (partner === 'st_courier') {
+    return {
+      ...prev,
+      st_courier: {
+        ...prev.st_courier,
+        [site]: nextRates,
+      },
+    };
+  }
+  if (partner === 'bluedart') return prev;
+  return {
+    ...prev,
+    [partner]: nextRates,
+  };
+}
 
 export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError }) => {
   const { user } = useAuth();
   const [partnerId, setPartnerId] = useState<CourierRatePartnerId>('st_courier');
+  const [blueDartService, setBlueDartService] = useState<BlueDartServiceId>('surface');
   const [origin, setOrigin] = useState<StaffLogisticsSite>('head_office');
   const [saved, setSaved] = useState<LogisticsCourierRates>(defaultLogisticsCourierRates);
   const [draft, setDraft] = useState<LogisticsCourierRates>(defaultLogisticsCourierRates);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const draftRef = useRef(draft);
+  const savedRef = useRef(saved);
+  const saveTimersRef = useRef<Partial<Record<string, ReturnType<typeof setTimeout>>>>({});
+  const saveEpochRef = useRef(0);
+  const userUid = user?.uid ?? null;
 
-  /** Sites that use at least one priced courier in Delivery rules. */
+  draftRef.current = draft;
+  savedRef.current = saved;
+
+  const visiblePartners = RATE_PARTNER_ORDER;
+
   const visibleOrigins = useMemo(() => {
-    const sites = originsUsingAnyPartnerInDeliveryRules(deliveryRules, RATE_PARTNER_ORDER);
+    if (!partnerUsesOriginRates(partnerId)) return [] as StaffLogisticsSite[];
+    const sites = originsUsingPartnerInDeliveryRules(deliveryRules, partnerId);
     return sites.length ? sites : [...STAFF_LOGISTICS_SITES];
-  }, [deliveryRules]);
-
-  /** Priced couriers for the selected site only (Pickup / own vehicle omitted). */
-  const visiblePartners = useMemo(() => {
-    const atSite = new Set(partnersForOriginInDeliveryRules(deliveryRules, origin));
-    return RATE_PARTNER_ORDER.filter(id => atSite.has(id));
-  }, [deliveryRules, origin]);
-
-  const anyRatePartnerInRules = useMemo(
-    () => partnersUsedInDeliveryRules(deliveryRules).some(id => isCourierRatePartnerId(id)),
-    [deliveryRules],
-  );
+  }, [deliveryRules, partnerId]);
 
   useEffect(() => {
-    if (!visibleOrigins.length) return;
-    if (!visibleOrigins.includes(origin)) {
-      setOrigin(visibleOrigins[0]);
-    }
-  }, [visibleOrigins, origin]);
-
-  useEffect(() => {
-    if (!visiblePartners.length) return;
     if (!visiblePartners.includes(partnerId)) {
       setPartnerId(visiblePartners[0]);
     }
   }, [visiblePartners, partnerId]);
 
+  useEffect(() => {
+    if (!partnerUsesOriginRates(partnerId)) return;
+    if (!visibleOrigins.length) return;
+    if (!visibleOrigins.includes(origin)) {
+      setOrigin(visibleOrigins[0]);
+    }
+  }, [visibleOrigins, origin, partnerId]);
+
   const loadRates = useCallback(async () => {
     setLoading(true);
+    setSaveStatus('idle');
     try {
       const rates = await loadLogisticsCourierRates();
       setSaved(rates);
       setDraft(rates);
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Could not load courier rates.');
+      onError(err instanceof Error ? err.message : 'Could not load partner rates.');
     } finally {
       setLoading(false);
     }
@@ -115,27 +157,98 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
     void loadRates();
   }, [loadRates]);
 
-  const activeRates = draft[partnerId][origin];
-  const dirty = useMemo(
-    () => !ratesEqual(draft[partnerId][origin], saved[partnerId][origin]),
-    [draft, saved, origin, partnerId],
-  );
+  useEffect(() => () => {
+    for (const timer of Object.values(saveTimersRef.current)) {
+      if (timer) clearTimeout(timer);
+    }
+  }, []);
+
+  const queueLiveSave = useCallback((
+    partner: CourierRatePartnerId,
+    site: StaffLogisticsSite,
+  ) => {
+    if (partner === 'bluedart') return;
+    const key = partner === 'st_courier' ? `st_courier:${site}` : partner;
+    const existing = saveTimersRef.current[key];
+    if (existing) clearTimeout(existing);
+    setSaveStatus('pending');
+    saveTimersRef.current[key] = setTimeout(() => {
+      const rates = originRatesForPartner(draftRef.current, partner, site);
+      const savedRates = originRatesForPartner(savedRef.current, partner, site);
+      if (ratesEqual(rates, savedRates)) {
+        setSaveStatus(prev => (prev === 'pending' ? 'idle' : prev));
+        return;
+      }
+      const epoch = ++saveEpochRef.current;
+      setSaveStatus('saving');
+      onError('');
+      void saveCourierOriginRates(partner, site, rates, userUid)
+        .then(normalized => {
+          setSaved(prev => withPartnerRates(prev, partner, site, normalized));
+          setDraft(prev => {
+            const current = originRatesForPartner(prev, partner, site);
+            if (!ratesEqual(current, rates)) return prev;
+            return withPartnerRates(prev, partner, site, normalized);
+          });
+          if (epoch === saveEpochRef.current) setSaveStatus('saved');
+        })
+        .catch(err => {
+          if (epoch !== saveEpochRef.current) return;
+          setSaveStatus('error');
+          onError(err instanceof Error ? err.message : 'Could not save partner rates.');
+        });
+    }, LIVE_SAVE_MS);
+  }, [onError, userUid]);
+
+  const queueBlueDartSave = useCallback(() => {
+    const key = 'bluedart';
+    const existing = saveTimersRef.current[key];
+    if (existing) clearTimeout(existing);
+    setSaveStatus('pending');
+    saveTimersRef.current[key] = setTimeout(() => {
+      const next = draftRef.current.bluedart;
+      const prev = savedRef.current.bluedart;
+      if (blueDartConfigsEqual(next, prev)) {
+        setSaveStatus(s => (s === 'pending' ? 'idle' : s));
+        return;
+      }
+      const epoch = ++saveEpochRef.current;
+      setSaveStatus('saving');
+      onError('');
+      void saveBlueDartConfig(next, userUid)
+        .then(normalized => {
+          setSaved(s => ({ ...s, bluedart: normalized }));
+          setDraft(d => {
+            if (!blueDartConfigsEqual(d.bluedart, next)) return d;
+            return { ...d, bluedart: normalized };
+          });
+          if (epoch === saveEpochRef.current) setSaveStatus('saved');
+        })
+        .catch(err => {
+          if (epoch !== saveEpochRef.current) return;
+          setSaveStatus('error');
+          onError(err instanceof Error ? err.message : 'Could not save Blue Dart rates.');
+        });
+    }, LIVE_SAVE_MS);
+  }, [onError, userUid]);
+
+  const activeRates = originRatesForPartner(draft, partnerId, origin);
 
   const ratesWarning = useMemo(() => (
-    ST_COURIER_ZONES.every(zone => (
+    partnerId !== 'bluedart'
+    && ST_COURIER_ZONES.every(zone => (
       activeRates.zones[zone].envelopeFixedInr === 0
       && activeRates.zones[zone].boxPerKgInr === 0
     ))
-  ), [activeRates]);
+  ), [activeRates, partnerId]);
 
   const patchOrigin = (patch: Partial<StCourierOriginRates>) => {
-    setDraft(prev => ({
-      ...prev,
-      [partnerId]: {
-        ...prev[partnerId],
-        [origin]: { ...prev[partnerId][origin], ...patch },
-      },
-    }));
+    if (partnerId === 'bluedart') return;
+    setDraft(prev => {
+      const current = originRatesForPartner(prev, partnerId, origin);
+      return withPartnerRates(prev, partnerId, origin, { ...current, ...patch });
+    });
+    queueLiveSave(partnerId, origin);
   };
 
   const patchZone = (
@@ -143,149 +256,157 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
     field: 'envelopeFixedInr' | 'boxPerKgInr',
     value: number,
   ) => {
-    setDraft(prev => ({
-      ...prev,
-      [partnerId]: {
-        ...prev[partnerId],
-        [origin]: {
-          ...prev[partnerId][origin],
-          zones: {
-            ...prev[partnerId][origin].zones,
-            [zone]: {
-              ...prev[partnerId][origin].zones[zone],
-              [field]: value,
-            },
+    if (partnerId === 'bluedart') return;
+    setDraft(prev => {
+      const current = originRatesForPartner(prev, partnerId, origin);
+      return withPartnerRates(prev, partnerId, origin, {
+        ...current,
+        zones: {
+          ...current.zones,
+          [zone]: {
+            ...current.zones[zone],
+            [field]: value,
           },
         },
-      },
-    }));
+      });
+    });
+    queueLiveSave(partnerId, origin);
   };
 
-  const handleSave = async () => {
-    if (!isCourierRatePartnerId(partnerId)) return;
-    setSaving(true);
-    onError('');
-    try {
-      const normalized = await saveCourierOriginRates(
-        partnerId,
-        origin,
-        draft[partnerId][origin],
-        user?.uid ?? null,
-      );
-      setSaved(prev => ({
-        ...prev,
-        [partnerId]: { ...prev[partnerId], [origin]: normalized },
-      }));
-      setDraft(prev => ({
-        ...prev,
-        [partnerId]: { ...prev[partnerId], [origin]: normalized },
-      }));
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Could not save courier rates.');
-    } finally {
-      setSaving(false);
-    }
+  const patchBlueDart = (next: BlueDartConfig) => {
+    setDraft(prev => ({ ...prev, bluedart: next }));
+    queueBlueDartSave();
   };
 
-  if (!anyRatePartnerInRules) {
-    return (
-      <div className="settings-logistics__default panel settings-courier-rates">
-        <div className="settings-logistics__default-head">
-          <div>
-            <h4 className="settings-logistics__title">Courier rates</h4>
-            <p className="text-muted text-sm">
-              No priced couriers in Delivery rules yet. Add ST, Trackon, or Delhivery on the
-              Delivery rules tab — Pickup and Own vehicle do not need rate cards.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const partnerInDeliveryRules = useMemo(
+    () => partnersUsedInDeliveryRules(deliveryRules).includes(partnerId),
+    [deliveryRules, partnerId],
+  );
 
-  const canEditRates = visiblePartners.length > 0 && isCourierRatePartnerId(partnerId);
+  const canEditRates = isCourierRatePartnerId(partnerId);
+  const saveStatusLabel = saveStatus === 'pending' || saveStatus === 'saving'
+    ? 'Saving…'
+    : saveStatus === 'saved'
+      ? 'Saved'
+      : saveStatus === 'error'
+        ? 'Save failed'
+        : 'Changes save automatically';
 
   return (
     <div className="settings-logistics__default panel settings-courier-rates">
       <div className="settings-logistics__default-head">
         <div>
-          <h4 className="settings-logistics__title">Courier rates</h4>
+          <h4 className="settings-logistics__title">Delivery Partners</h4>
           <p className="text-muted text-sm">
-            Pick a ship-from site, then the courier. Only partners from Delivery rules (Pickup skipped).
+            ST Courier rates differ by ship-from site. Other partners use one shared card for all
+            origins. Blue Dart uses Air / Surface / Domestic Priority tariffs with pin-based quotes.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          disabled={!canEditRates || !dirty || saving || loading}
-          onClick={() => void handleSave()}
-        >
-          <Save size={15} aria-hidden />
-          Save {canEditRates ? `${partnerLabel(partnerId)} · ${STAFF_LOGISTICS_SITE_LABELS[origin]}` : 'rates'}
-        </button>
+        {!loading ? (
+          <span
+            className={`settings-courier-rates__save-status${
+              saveStatus === 'saved' ? ' is-saved' : ''
+            }${saveStatus === 'error' ? ' is-error' : ''}${
+              saveStatus === 'pending' || saveStatus === 'saving' ? ' is-busy' : ''
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {saveStatusLabel}
+          </span>
+        ) : null}
       </div>
 
-      <div className="settings-courier-rates__hierarchy">
-        <div className="settings-courier-rates__level">
-          <span className="settings-courier-rates__level-label">Ship from</span>
-          <div
-            className="settings-courier-rates__origins settings-courier-rates__origins--master"
-            role="tablist"
-            aria-label="Ship-from site"
-          >
-            {visibleOrigins.map(site => (
-              <button
-                key={site}
-                type="button"
-                role="tab"
-                aria-selected={origin === site}
-                className={`settings-courier-rates__origin${origin === site ? ' is-selected' : ''}`}
-                onClick={() => setOrigin(site)}
-              >
-                {STAFF_LOGISTICS_SITE_LABELS[site]}
-              </button>
-            ))}
+      <div
+        className="settings-courier-rates__partner-grid"
+        role="tablist"
+        aria-label="Delivery partners"
+      >
+        {visiblePartners.map(id => {
+          const meta = partnerMeta(id);
+          const selected = id === partnerId;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className={`settings-courier-rates__partner-card${selected ? ' is-selected' : ''}`}
+              onClick={() => setPartnerId(id)}
+            >
+              <span className="settings-courier-rates__partner-logo-wrap">
+                {meta.image ? (
+                  <img
+                    src={meta.image}
+                    alt=""
+                    className="settings-courier-rates__partner-logo"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                ) : (
+                  <span className="settings-courier-rates__partner-logo-fallback" aria-hidden>
+                    {meta.label.slice(0, 1)}
+                  </span>
+                )}
+              </span>
+              <span className="settings-courier-rates__partner-copy">
+                <span className="settings-courier-rates__partner-name">{meta.label}</span>
+                {meta.tagline ? (
+                  <span className="settings-courier-rates__partner-tagline">{meta.tagline}</span>
+                ) : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {partnerId === 'bluedart' ? null : partnerUsesOriginRates(partnerId) ? (
+        <div className="settings-courier-rates__hierarchy">
+          <div className="settings-courier-rates__level">
+            <span className="settings-courier-rates__level-label">Ship from</span>
+            <div
+              className="settings-courier-rates__origins settings-courier-rates__origins--master"
+              role="tablist"
+              aria-label="Ship-from site"
+            >
+              {visibleOrigins.map(site => (
+                <button
+                  key={site}
+                  type="button"
+                  role="tab"
+                  aria-selected={origin === site}
+                  className={`settings-courier-rates__origin${origin === site ? ' is-selected' : ''}`}
+                  onClick={() => setOrigin(site)}
+                >
+                  {STAFF_LOGISTICS_SITE_LABELS[site]}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-
-        <div className="settings-courier-rates__level">
-          <span className="settings-courier-rates__level-label">Courier</span>
-          {visiblePartners.length ? (
-            <div
-              className="settings-courier-rates__partners settings-courier-rates__partners--compact"
-              role="tablist"
-              aria-label="Courier partner"
-            >
-              {visiblePartners.map(id => {
-                const selected = id === partnerId;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    className={`settings-courier-rates__partner${selected ? ' is-selected' : ''}`}
-                    onClick={() => setPartnerId(id)}
-                  >
-                    {partnerLabel(id)}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="settings-courier-rates__empty-partners text-muted text-sm">
-              {STAFF_LOGISTICS_SITE_LABELS[origin]} has no priced courier in Delivery rules
-              (only Pickup / Own vehicle).
-            </p>
-          )}
-        </div>
-      </div>
+      ) : (
+        <p className="settings-courier-rates__shared-note text-muted text-sm">
+          One rate card for all ship-from sites.
+        </p>
+      )}
+      {!partnerInDeliveryRules ? (
+        <p className="settings-courier-rates__empty-partners text-muted text-sm">
+          {partnerLabel(partnerId)} is not in Delivery rules yet — rates still save automatically.
+        </p>
+      ) : null}
 
       {loading ? (
         <div className="settings-locations__loading settings-courier-rates__loading">
           <div className="loader-ring" />
         </div>
-      ) : !canEditRates ? null : (
+      ) : !canEditRates ? null : partnerId === 'bluedart' ? (
+        <BlueDartRatesEditor
+          config={draft.bluedart}
+          service={blueDartService}
+          onServiceChange={setBlueDartService}
+          onChange={patchBlueDart}
+        />
+      ) : (
         <>
           {ratesWarning && (
             <p className="settings-courier-rates__warn text-sm">
@@ -300,7 +421,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
                 <input
                   type="checkbox"
                   checked={activeRates.useChargeableWeight}
-                  disabled={saving}
                   onChange={e => patchOrigin({ useChargeableWeight: e.target.checked })}
                 />
                 <span>
@@ -316,7 +436,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
                     min={1}
                     decimals={0}
                     value={activeRates.volumetricDivisor}
-                    disabled={saving || !activeRates.useChargeableWeight}
+                    disabled={!activeRates.useChargeableWeight}
                     aria-label="Size-to-weight divisor"
                     onChange={next => {
                       if (next == null) return;
@@ -331,7 +451,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
                       min={0}
                       decimals={1}
                       value={activeRates.minimumChargeableWeightKg}
-                      disabled={saving}
                       aria-label="Minimum billable weight in kilograms"
                       onChange={next => {
                         if (next == null) return;
@@ -348,7 +467,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
                       min={0}
                       decimals={1}
                       value={activeRates.fuelSurchargePercent}
-                      disabled={saving}
                       aria-label="Fuel surcharge percent"
                       onChange={next => {
                         if (next == null) return;
@@ -364,7 +482,9 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
 
           <fieldset className="settings-courier-rates__card settings-courier-rates__zone-card">
             <legend>
-              Prices from {STAFF_LOGISTICS_SITE_LABELS[origin]}
+              {partnerUsesOriginRates(partnerId)
+                ? `Prices from ${STAFF_LOGISTICS_SITE_LABELS[origin]}`
+                : 'Prices (all ship-from sites)'}
             </legend>
             <div className="settings-courier-rates__zone-table-wrap">
               <table className="settings-courier-rates__zone-table">
@@ -394,7 +514,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
                             min={0}
                             decimals={2}
                             value={activeRates.zones[zone].envelopeFixedInr}
-                            disabled={saving}
                             aria-label={`${ST_COURIER_ZONE_LABELS[zone]} envelope flat rupees`}
                             onChange={next => {
                               if (next == null) return;
@@ -412,7 +531,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
                             min={0}
                             decimals={2}
                             value={activeRates.zones[zone].boxPerKgInr}
-                            disabled={saving}
                             aria-label={`${ST_COURIER_ZONE_LABELS[zone]} box rupees per kilogram`}
                             onChange={next => {
                               if (next == null) return;

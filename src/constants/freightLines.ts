@@ -32,6 +32,31 @@ export const FREIGHT_LINE_OPTIONS = [
     tagline: 'Other freight charges',
     image: '/logistics/own-vehicle.png',
   },
+  {
+    /** Wire Zoho item id when available — SKU is the stable match key. */
+    productId: 'BDAIR',
+    sku: 'BDAIR',
+    name: 'BLUE DART AIR FREIGHT',
+    label: 'Blue Dart Air',
+    tagline: 'Air',
+    image: '/logistics/bluedart.png',
+  },
+  {
+    productId: 'BDFRC',
+    sku: 'BDFRC',
+    name: 'BLUE DART SURFACE FREIGHT',
+    label: 'Blue Dart Surface',
+    tagline: 'Surface',
+    image: '/logistics/bluedart.png',
+  },
+  {
+    productId: 'BDDP',
+    sku: 'BDDP',
+    name: 'BLUE DART DOMESTIC PRIORITY FREIGHT',
+    label: 'Blue Dart Domestic Priority',
+    tagline: 'Domestic Priority',
+    image: '/logistics/bluedart.png',
+  },
 ] as const;
 
 export type FreightLineSku = (typeof FREIGHT_LINE_OPTIONS)[number]['sku'];

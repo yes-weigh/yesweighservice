@@ -265,6 +265,18 @@ async function loadDealerFreightConfig() {
   };
 }
 
+async function loadBlueDartPinForZip(zip) {
+  const zipDigits = String(zip ?? '').replace(/\D/g, '');
+  if (zipDigits.length !== 6) return null;
+  try {
+    const pinSnap = await getFirestore().doc(`blueDartPincodes/${zipDigits}`).get();
+    if (!pinSnap.exists) return null;
+    return { pincode: zipDigits, ...(pinSnap.data() || {}) };
+  } catch {
+    return null;
+  }
+}
+
 function stripInternalLineFields(line) {
   const {
     catalogRate: _catalogRate,
@@ -517,7 +529,9 @@ async function createSegmentSalesOrders({
         ? 'delhivery'
         : freightSku === 'STFRC'
           ? 'st_courier'
-          : (segmentLines.some(isFreightOrderLine) ? 'st_courier' : 'personal_collection');
+          : (freightSku === 'BDAIR' || freightSku === 'BDFRC' || freightSku === 'BDDP')
+            ? 'bluedart'
+            : (segmentLines.some(isFreightOrderLine) ? 'st_courier' : 'personal_collection');
 
     const workflowExtras = {
       ...workflowBase,
@@ -650,6 +664,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
   }
 
   const freightConfig = await loadDealerFreightConfig();
+  const blueDartPin = await loadBlueDartPinForZip(freightDestination.zip);
   const freightLines = buildDealerAutoFreightLines({
     lines: goodsLines,
     destination: freightDestination,
@@ -657,6 +672,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     spareFreightMinimumInr: freightConfig.spareFreightMinimumInr,
     courierBySite: payload.courierBySite || {},
     freightZone: freightZoneMeta.zone,
+    blueDartPin,
   });
   const lines = [...goodsLines, ...freightLines];
 
@@ -813,6 +829,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
   }
 
   const freightConfig = await loadDealerFreightConfig();
+  const blueDartPin = await loadBlueDartPinForZip(freightDestination.zip);
   const freightLines = buildDealerAutoFreightLines({
     lines: goodsLines,
     destination: freightDestination,
@@ -820,6 +837,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     spareFreightMinimumInr: freightConfig.spareFreightMinimumInr,
     courierBySite: payload.courierBySite || {},
     freightZone: freightZoneMeta.zone,
+    blueDartPin,
   });
   const linesWithFreight = [...goodsLines, ...freightLines];
   const buckets = groupLinesBySegmentAndSite(linesWithFreight);

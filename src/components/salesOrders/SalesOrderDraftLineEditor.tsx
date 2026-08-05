@@ -18,6 +18,7 @@ import {
   type FreightLineSku,
 } from '../../constants/freightLines';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
+import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
 import { combinedCartRate, newCartLineId, productHasLinkedGatc } from '../../lib/gatcCart';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
@@ -250,6 +251,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     () => inferStCourierZone(shippingDestination),
     [shippingDestination],
   );
+  const blueDartPin = useBlueDartPincode(shippingDestination?.zip);
 
   const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
     if (!allowFreight || !courierRates || !deliveryRules || productLines.length === 0) return null;
@@ -261,6 +263,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       deliveryRules,
       spareFreightMinimumInr,
       courierBySite,
+      blueDartPin,
     });
   }, [
     allowFreight,
@@ -272,6 +275,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     shippingDestination,
     courierBySite,
     inferredFreightZone,
+    blueDartPin,
   ]);
 
   const applyFreight = (sku: string | null, amountRaw: string) => {

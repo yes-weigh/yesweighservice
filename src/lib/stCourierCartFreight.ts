@@ -1,16 +1,18 @@
 import type { CatalogPackageCarton, CatalogPackageInfo, CatalogProduct } from '../types/catalog';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../constants/logisticsPartners';
+import type { BlueDartPincodeDoc } from '../types/blue-dart-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
 import {
   ST_COURIER_ZONE_LABELS,
   isCourierRatePartnerId,
   isStCourierZone,
-  type CourierRatePartnerId,
+  type BlueDartServiceId,
   type LogisticsCourierRates,
   type StCourierOriginRates,
   type StCourierZone,
 } from '../types/logistics-courier-rates';
+import { quoteBlueDartParcels } from './blueDartQuote';
 import {
   isPickupPartner,
   listOrderCourierOptions,
@@ -341,7 +343,39 @@ function partnerRates(
   site: InventorySite,
 ): StCourierOriginRates | null {
   if (!isCourierRatePartnerId(partnerId)) return null;
-  return rates[partnerId as CourierRatePartnerId][site];
+  if (partnerId === 'bluedart') return null;
+  if (partnerId === 'st_courier') {
+    return rates.st_courier[site];
+  }
+  return rates[partnerId];
+}
+
+function quoteBlueDartPartnerTotal(input: {
+  rates: LogisticsCourierRates;
+  destination: StCourierDestination | null | undefined;
+  pin: BlueDartPincodeDoc | null | undefined;
+  parcels: StCourierParcel[];
+  service: BlueDartServiceId;
+  invoiceValueInr: number;
+}): number {
+  if (!input.parcels.length) return 0;
+  const quoted = quoteBlueDartParcels({
+    config: input.rates.bluedart,
+    service: input.service,
+    destState: input.destination?.state,
+    pin: input.pin,
+    parcels: input.parcels.map(p => ({
+      actualKg: p.actualKg,
+      dims: {
+        lengthCm: Number(p.dims.lengthCm) || 0,
+        widthCm: Number(p.dims.widthCm) || 0,
+        heightCm: Number(p.dims.heightCm) || 0,
+      },
+    })),
+    invoiceValueInr: input.invoiceValueInr,
+  });
+  if (quoted.notServiceable || quoted.rateMissing) return 0;
+  return quoted.totalInr;
 }
 
 /**
@@ -357,6 +391,12 @@ export function estimateStCourierCartFreight(input: {
   courierBySite?: Partial<Record<InventorySite, LogisticsPartnerId>>;
   /** Override freight charge plan (Kerala / TN-Pondy / Other). */
   zoneOverride?: StCourierZone | null;
+  /** Blue Dart pin serviceability (from blueDartPincodes/{zip}). */
+  blueDartPin?: BlueDartPincodeDoc | null;
+  /** Default Blue Dart service for cart estimates (Surface). */
+  blueDartService?: BlueDartServiceId;
+  /** Invoice / cargo value for FOV. */
+  invoiceValueInr?: number;
 }): StCourierCartFreightEstimate | null {
   const inferredZone = inferStCourierZone(input.destination);
   if (!inferredZone) return null;
@@ -441,8 +481,23 @@ export function estimateStCourierCartFreight(input: {
 
     const allParcels = acc.productLines.flatMap(row => row.parcels);
 
+    const bdService = input.blueDartService ?? 'surface';
+    const invoiceValueInr = Number(input.invoiceValueInr) || 0;
+
     const quotePartnerTotal = (partnerId: LogisticsPartnerId): number => {
       if (isPickupPartner(partnerId)) return 0;
+      if (partnerId === 'bluedart') {
+        const productFreight = quoteBlueDartPartnerTotal({
+          rates: input.rates,
+          destination: input.destination,
+          pin: input.blueDartPin,
+          parcels: allParcels,
+          service: bdService,
+          invoiceValueInr,
+        });
+        const spareFreight = hasSpare ? ceilCourierChargeInr(spareMin) : 0;
+        return ceilCourierChargeInr(productFreight + spareFreight);
+      }
       const originRatesForPartner = partnerRates(input.rates, partnerId, site);
       const quotedForPartner = originRatesForPartner && allParcels.length
         ? quoteStCourierParcels({ zone, rates: originRatesForPartner, parcels: allParcels })
@@ -464,25 +519,56 @@ export function estimateStCourierCartFreight(input: {
       ?? optionsWithTotals[0];
     const partnerId = selectedOpt?.partnerId ?? defaultPartnerId;
     const isPickup = isPickupPartner(partnerId);
+    const isBlueDart = partnerId === 'bluedart';
     const originRates = partnerRates(input.rates, partnerId, site);
 
-    const quoted = !isPickup && originRates && allParcels.length
+    const quoted = !isPickup && !isBlueDart && originRates && allParcels.length
       ? quoteStCourierParcels({ zone, rates: originRates, parcels: allParcels })
       : null;
 
-    const boxPerKg = quoted?.quote.boxPerKgInr ?? 0;
-    const totalProductChargeable = quoted?.chargeableKg ?? 0;
-    const totalProductFreight = isPickup ? 0 : (quoted?.quote.totalInr ?? 0);
+    const bdQuoted = !isPickup && isBlueDart && allParcels.length
+      ? quoteBlueDartParcels({
+        config: input.rates.bluedart,
+        service: bdService,
+        destState: input.destination?.state,
+        pin: input.blueDartPin,
+        parcels: allParcels.map(p => ({
+          actualKg: p.actualKg,
+          dims: {
+            lengthCm: Number(p.dims.lengthCm) || 0,
+            widthCm: Number(p.dims.widthCm) || 0,
+            heightCm: Number(p.dims.heightCm) || 0,
+          },
+        })),
+        invoiceValueInr,
+      })
+      : null;
+
+    const boxPerKg = isBlueDart
+      ? 0
+      : (quoted?.quote.boxPerKgInr ?? 0);
+    const totalProductChargeable = isBlueDart
+      ? (bdQuoted && !bdQuoted.notServiceable ? bdQuoted.chargeableKg : 0)
+      : (quoted?.chargeableKg ?? 0);
+    const totalProductFreight = isPickup
+      ? 0
+      : isBlueDart
+        ? (bdQuoted && !bdQuoted.notServiceable && !bdQuoted.rateMissing ? bdQuoted.totalInr : 0)
+        : (quoted?.quote.totalInr ?? 0);
 
     // Allocate freight to lines by share of chargeable kg
     let parcelOffset = 0;
     const lineBreakdowns: FreightLineBreakdown[] = [];
-    const volumetricDivisor = originRates && originRates.volumetricDivisor > 0
-      ? originRates.volumetricDivisor
-      : 5000;
-    const fuelSurchargePercent = originRates
-      ? (Number(originRates.fuelSurchargePercent) || 0)
-      : 0;
+    const volumetricDivisor = isBlueDart
+      ? (bdService === 'domestic_priority'
+        ? input.rates.bluedart.domestic_priority.volumetricDivisor
+        : input.rates.bluedart[bdService].volumetricDivisor)
+      : (originRates && originRates.volumetricDivisor > 0
+        ? originRates.volumetricDivisor
+        : 5000);
+    const fuelSurchargePercent = isBlueDart
+      ? (Number(input.rates.bluedart.shared.fuelSurchargePercent) || 0)
+      : (originRates ? (Number(originRates.fuelSurchargePercent) || 0) : 0);
 
     for (const row of acc.productLines) {
       let lineKg = 0;
@@ -492,7 +578,11 @@ export function estimateStCourierCartFreight(input: {
 
       for (let i = 0; i < row.parcels.length; i += 1) {
         const parcel = row.parcels[i];
-        const chg = quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0;
+        const chg = isBlueDart
+          ? (totalProductChargeable > 0 && allParcels.length
+            ? totalProductChargeable / allParcels.length
+            : 0)
+          : (quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0);
         lineKg += chg;
         lineActualKg += parcel.actualKg;
         const vol = stCourierVolumetricKg(parcel.dims, volumetricDivisor);

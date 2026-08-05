@@ -1,3 +1,4 @@
+import { defaultBlueDartConfig } from './blueDartRates';
 import type {
   LogisticsCourierRates,
   StCourierOriginRates,
@@ -5,7 +6,10 @@ import type {
   StCourierZone,
   StCourierZoneRates,
 } from '../types/logistics-courier-rates';
-import { COURIER_RATE_PARTNER_IDS, ST_COURIER_ZONES } from '../types/logistics-courier-rates';
+import {
+  COURIER_RATE_PARTNER_IDS,
+  ST_COURIER_ZONES,
+} from '../types/logistics-courier-rates';
 
 export const LOGISTICS_COURIER_RATES_DOC_ID = 'logisticsCourierRates';
 
@@ -44,14 +48,14 @@ export function defaultStCourierRatesByOrigin(): StCourierRatesByOrigin {
 }
 
 export function defaultLogisticsCourierRates(): LogisticsCourierRates {
-  const byOrigin = defaultStCourierRatesByOrigin();
   return {
-    st_courier: byOrigin,
-    trackon: defaultStCourierRatesByOrigin(),
-    delhivery: defaultStCourierRatesByOrigin(),
+    st_courier: defaultStCourierRatesByOrigin(),
+    trackon: defaultStCourierOriginRates(),
+    delhivery: defaultStCourierOriginRates(),
+    bluedart: defaultBlueDartConfig(),
     updatedAt: '',
     updatedBy: null,
   };
 }
 
-export { COURIER_RATE_PARTNER_IDS };
+export { COURIER_RATE_PARTNER_IDS, defaultBlueDartConfig };

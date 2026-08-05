@@ -8,6 +8,7 @@ import {
   freightOptionBySku,
   type FreightLineSku,
 } from '../../constants/freightLines';
+import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
@@ -116,6 +117,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     () => inferStCourierZone(shippingDestination),
     [shippingDestination],
   );
+  const blueDartPin = useBlueDartPincode(shippingDestination?.zip);
 
   const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
     if (!courierRates || !deliveryRules || productLines.length === 0) return null;
@@ -127,6 +129,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
       deliveryRules,
       spareFreightMinimumInr,
       courierBySite,
+      blueDartPin,
     });
   }, [
     courierRates,
@@ -137,6 +140,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     shippingDestination,
     courierBySite,
     inferredZone,
+    blueDartPin,
   ]);
 
   const applyFreight = (sku: string | null, amountRaw: string) => {

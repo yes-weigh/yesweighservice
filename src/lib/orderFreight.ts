@@ -1,3 +1,4 @@
+import { blueDartConfigHasAnyRate } from '../constants/blueDartRates';
 import type { FreightLineSku } from '../constants/freightLines';
 import { FREIGHT_LINE_OPTIONS } from '../constants/freightLines';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
@@ -7,9 +8,11 @@ import {
 } from '../constants/logisticsPartners';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
 import {
+  BLUE_DART_SERVICE_IDS,
+  BLUE_DART_SERVICE_META,
   COURIER_RATE_PARTNER_IDS,
   isCourierRatePartnerId,
-  type CourierRatePartnerId,
+  type BlueDartServiceId,
   type LogisticsCourierRates,
   type StCourierZone,
 } from '../types/logistics-courier-rates';
@@ -27,7 +30,19 @@ const PARTNER_TO_FREIGHT_SKU: Partial<Record<LogisticsPartnerId, FreightLineSku>
   st_courier: 'STFRC',
   trackon: 'TRFRC',
   delhivery: 'DELFRC',
+  /** Default Blue Dart service for freight lines (Surface). */
+  bluedart: 'BDFRC',
 };
+
+export function freightSkuForBlueDartService(service: BlueDartServiceId): FreightLineSku {
+  return BLUE_DART_SERVICE_META[service].sku;
+}
+
+export function blueDartServiceForFreightSku(sku: string | null | undefined): BlueDartServiceId | null {
+  const value = String(sku ?? '').trim().toUpperCase();
+  if (!value) return null;
+  return BLUE_DART_SERVICE_IDS.find(id => BLUE_DART_SERVICE_META[id].sku === value) ?? null;
+}
 
 export function freightSkuForPartner(partnerId: LogisticsPartnerId): FreightLineSku | null {
   return PARTNER_TO_FREIGHT_SKU[partnerId] ?? null;
@@ -36,6 +51,7 @@ export function freightSkuForPartner(partnerId: LogisticsPartnerId): FreightLine
 export function partnerIdForFreightSku(sku: string | null | undefined): LogisticsPartnerId | null {
   const value = String(sku ?? '').trim().toUpperCase();
   if (!value) return null;
+  if (blueDartServiceForFreightSku(value)) return 'bluedart';
   const hit = (Object.entries(PARTNER_TO_FREIGHT_SKU) as Array<[LogisticsPartnerId, FreightLineSku]>)
     .find(([, freightSku]) => freightSku === value);
   return hit?.[0] ?? null;
@@ -53,7 +69,14 @@ export function partnerHasZoneRate(
   zone: StCourierZone,
 ): boolean {
   if (!isCourierRatePartnerId(partnerId)) return false;
-  const boxPerKg = rates[partnerId as CourierRatePartnerId]?.[site]?.zones?.[zone]?.boxPerKgInr;
+  if (partnerId === 'bluedart') {
+    return blueDartConfigHasAnyRate(rates.bluedart);
+  }
+  if (partnerId === 'st_courier') {
+    const boxPerKg = rates.st_courier?.[site]?.zones?.[zone]?.boxPerKgInr;
+    return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
+  }
+  const boxPerKg = rates[partnerId]?.zones?.[zone]?.boxPerKgInr;
   return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
 }
 

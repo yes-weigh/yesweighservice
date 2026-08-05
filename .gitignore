@@ -12,5 +12,10 @@ functions/.env.*
 dist/
 .tmp-*
 *.log
+scripts/data/bluedart-pincodes.jsonl
+secrets/
+**/firebase-adminsdk*.json
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
 .DS_Store
 Thumbs.db

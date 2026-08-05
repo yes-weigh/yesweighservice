@@ -30,6 +30,7 @@ import { QuantityStepper } from '../../components/QuantityStepper';
 import { OrderFreightPanel } from '../../components/orders/OrderFreightPanel';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
+import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
@@ -453,6 +454,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     () => resolveShippingDestination(shipping, addresses),
     [shipping, addresses],
   );
+  const blueDartPin = useBlueDartPincode(shippingDestination?.zip);
   const inferredFreightZone = useMemo(
     () => inferStCourierZone(shippingDestination),
     [shippingDestination],
@@ -468,6 +470,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       deliveryRules,
       spareFreightMinimumInr,
       courierBySite,
+      blueDartPin,
     });
   }, [
     freightAllowed,
@@ -479,6 +482,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     catalogById,
     courierBySite,
     inferredFreightZone,
+    blueDartPin,
   ]);
 
   const segmentPreview = useMemo(() => summarizeSegmentSiteBuckets(submitLines), [submitLines]);
