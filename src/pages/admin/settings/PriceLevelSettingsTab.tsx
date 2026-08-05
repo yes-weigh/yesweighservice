@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
   Loader2,
+  Package,
   Percent,
   Plus,
   Search,
@@ -10,22 +11,32 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../../context/AuthContext';
 import { fetchCatalog } from '../../../lib/catalog';
-import { fetchDealers, fetchDealerById } from '../../../lib/dealers';
 import {
+  ensureDealersCached,
+  peekCachedDealers,
+  subscribeDealerCache,
+} from '../../../lib/dealer-cache';
+import { dealerMatchesLogisticsQuery } from '../../../lib/logisticsDealers';
+import {
+  categoryRuleHasEffect,
   createEmptyPriceLevel,
+  emptyCategoryRule,
   enforceUniqueDealerAssignments,
   loadPriceLevels,
   priceLevelsEqual,
   priceLevelsLiveSaveMs,
   savePriceLevels,
 } from '../../../lib/priceLevels';
-import type { CatalogCategory } from '../../../types/catalog';
+import type { CatalogCategory, CatalogProduct } from '../../../types/catalog';
 import type { ZohoDealer } from '../../../types/dealers';
 import type {
   PriceLevel,
   PriceLevelCategoryRule,
+  PriceLevelItemRule,
+  PriceLevelItemRuleKind,
   PriceLevelRuleMode,
 } from '../../../types/priceLevels';
 
@@ -35,20 +46,36 @@ function dealerLabel(d: Pick<ZohoDealer, 'contactName' | 'companyName' | 'id'>):
   return (d.companyName || d.contactName || d.id).trim();
 }
 
+function namesFromDealers(
+  dealers: ZohoDealer[],
+  dealerIds: string[],
+): Record<string, string> {
+  const byId = new Map(dealers.map(d => [d.id, dealerLabel(d)]));
+  const names: Record<string, string> = {};
+  for (const id of dealerIds) {
+    names[id] = byId.get(id) || id;
+  }
+  return names;
+}
+
 export const PriceLevelSettingsTab: React.FC = () => {
   const { user } = useAuth();
   const [levels, setLevels] = useState<PriceLevel[]>([]);
   const [savedLevels, setSavedLevels] = useState<PriceLevel[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [dealerNames, setDealerNames] = useState<Record<string, string>>({});
+  const [allDealers, setAllDealers] = useState<ZohoDealer[]>(() => peekCachedDealers() ?? []);
+  const [dealersLoading, setDealersLoading] = useState(() => !(peekCachedDealers()?.length));
+  const [dealerSearchError, setDealerSearchError] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [dealerQuery, setDealerQuery] = useState('');
-  const [dealerHits, setDealerHits] = useState<ZohoDealer[]>([]);
-  const [dealerSearching, setDealerSearching] = useState(false);
-  const [categoryPick, setCategoryPick] = useState('');
+  /** Per-category item search query in the rules list. */
+  const [itemQueryByCategory, setItemQueryByCategory] = useState<Record<string, string>>({});
+  const [expandedItemCats, setExpandedItemCats] = useState<Record<string, boolean>>({});
 
   const levelsRef = useRef(levels);
   const savedRef = useRef(savedLevels);
@@ -64,15 +91,33 @@ export const PriceLevelSettingsTab: React.FC = () => {
     [levels, selectedId],
   );
 
-  const usedCategoryIds = useMemo(() => {
-    if (!selected) return new Set<string>();
-    return new Set(selected.categoryRules.map(r => r.categoryId));
+  const rulesByCategoryId = useMemo(() => {
+    const map = new Map<string, PriceLevelCategoryRule>();
+    for (const rule of selected?.categoryRules ?? []) {
+      map.set(rule.categoryId, rule);
+    }
+    return map;
   }, [selected]);
 
-  const availableCategories = useMemo(
-    () => categories.filter(c => !usedCategoryIds.has(c.id)),
-    [categories, usedCategoryIds],
+  const activeRuleCount = useMemo(
+    () => (selected?.categoryRules ?? []).filter(categoryRuleHasEffect).length,
+    [selected],
   );
+
+  const productsByCategory = useMemo(() => {
+    const map = new Map<string, CatalogProduct[]>();
+    for (const product of products) {
+      const catId = String(product.categoryId ?? '').trim();
+      if (!catId) continue;
+      const list = map.get(catId) ?? [];
+      list.push(product);
+      map.set(catId, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return map;
+  }, [products]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,19 +135,12 @@ export const PriceLevelSettingsTab: React.FC = () => {
       setCategories(
         [...catalog.categories].sort((a, b) => a.name.localeCompare(b.name)),
       );
+      setProducts(catalog.items ?? []);
 
       const allDealerIds = [...new Set(docData.levels.flatMap(l => l.dealerIds))];
       if (allDealerIds.length) {
-        const names: Record<string, string> = {};
-        await Promise.all(allDealerIds.map(async id => {
-          try {
-            const d = await fetchDealerById(id);
-            names[id] = dealerLabel(d);
-          } catch {
-            names[id] = id;
-          }
-        }));
-        setDealerNames(names);
+        const cached = peekCachedDealers() ?? [];
+        setDealerNames(namesFromDealers(cached, allDealerIds));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load price levels.');
@@ -115,9 +153,61 @@ export const PriceLevelSettingsTab: React.FC = () => {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const cached = peekCachedDealers();
+    if (cached?.length) {
+      setAllDealers(cached);
+      setDealersLoading(false);
+    } else {
+      setDealersLoading(true);
+    }
+
+    const unsubscribe = subscribeDealerCache((list, complete) => {
+      if (cancelled) return;
+      setAllDealers(list);
+      if (complete || list.length > 0) setDealersLoading(false);
+    });
+
+    void ensureDealersCached()
+      .then(list => {
+        if (cancelled) return;
+        setAllDealers(list);
+        setDealersLoading(false);
+        setDealerSearchError('');
+      })
+      .catch(err => {
+        if (cancelled || peekCachedDealers()?.length) return;
+        setAllDealers([]);
+        setDealersLoading(false);
+        setDealerSearchError(
+          err instanceof Error ? err.message : 'Could not load dealers for search.',
+        );
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const ids = [...new Set(levels.flatMap(l => l.dealerIds))];
+    if (!ids.length || !allDealers.length) return;
+    setDealerNames(prev => ({ ...prev, ...namesFromDealers(allDealers, ids) }));
+  }, [levels, allDealers]);
+
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
   }, []);
+
+  const dealerHits = useMemo(() => {
+    const q = dealerQuery.trim();
+    if (q.length < 2) return [];
+    return allDealers
+      .filter(dealer => dealerMatchesLogisticsQuery(dealer, q))
+      .slice(0, 20);
+  }, [allDealers, dealerQuery]);
 
   const queueSave = useCallback((nextLevels: PriceLevel[]) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -178,30 +268,6 @@ export const PriceLevelSettingsTab: React.FC = () => {
     patchLevels(prev => prev.map(l => (l.id === selectedId ? { ...l, ...patch } : l)));
   };
 
-  const searchDealers = useCallback(async (q: string) => {
-    const query = q.trim();
-    if (query.length < 2) {
-      setDealerHits([]);
-      return;
-    }
-    setDealerSearching(true);
-    try {
-      const res = await fetchDealers({ q: query, limit: 12, page: 1 });
-      setDealerHits(res.data || []);
-    } catch {
-      setDealerHits([]);
-    } finally {
-      setDealerSearching(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      void searchDealers(dealerQuery);
-    }, 280);
-    return () => clearTimeout(t);
-  }, [dealerQuery, searchDealers]);
-
   const addDealer = (dealer: ZohoDealer) => {
     if (!selected) return;
     setDealerNames(prev => ({ ...prev, [dealer.id]: dealerLabel(dealer) }));
@@ -216,7 +282,6 @@ export const PriceLevelSettingsTab: React.FC = () => {
       };
     }));
     setDealerQuery('');
-    setDealerHits([]);
   };
 
   const removeDealer = (dealerId: string) => {
@@ -226,37 +291,112 @@ export const PriceLevelSettingsTab: React.FC = () => {
     });
   };
 
-  const addCategoryRule = () => {
-    if (!selected || !categoryPick) return;
-    const cat = categories.find(c => c.id === categoryPick);
-    if (!cat || selected.categoryRules.some(r => r.categoryId === cat.id)) return;
-    const rule: PriceLevelCategoryRule = {
-      categoryId: cat.id,
-      categoryName: cat.name,
-      mode: 'discount',
-      percent: 0,
-    };
-    updateSelected({ categoryRules: [...selected.categoryRules, rule] });
-    setCategoryPick('');
-  };
-
-  const updateRule = (
-    categoryId: string,
-    patch: Partial<Pick<PriceLevelCategoryRule, 'mode' | 'percent'>>,
-  ) => {
-    if (!selected) return;
-    updateSelected({
-      categoryRules: selected.categoryRules.map(r => (
-        r.categoryId === categoryId ? { ...r, ...patch } : r
-      )),
-    });
-  };
-
-  const removeRule = (categoryId: string) => {
+  const clearCategoryRule = (categoryId: string) => {
     if (!selected) return;
     updateSelected({
       categoryRules: selected.categoryRules.filter(r => r.categoryId !== categoryId),
     });
+  };
+
+  const replaceCategoryRule = (nextRule: PriceLevelCategoryRule) => {
+    if (!selected) return;
+    const others = selected.categoryRules.filter(r => r.categoryId !== nextRule.categoryId);
+    if (nextRule.percent <= 0 && nextRule.itemRules.length === 0) {
+      updateSelected({ categoryRules: others });
+      return;
+    }
+    updateSelected({ categoryRules: [...others, nextRule] });
+  };
+
+  const ensureCategoryRule = (category: CatalogCategory): PriceLevelCategoryRule => {
+    return rulesByCategoryId.get(category.id)
+      ?? emptyCategoryRule(category.id, category.name);
+  };
+
+  const upsertCategoryRule = (
+    category: CatalogCategory,
+    patch: Partial<Pick<PriceLevelCategoryRule, 'mode' | 'percent'>>,
+  ) => {
+    if (!selected) return;
+    const existing = ensureCategoryRule(category);
+    const nextRule: PriceLevelCategoryRule = {
+      ...existing,
+      categoryName: category.name,
+      mode: patch.mode ?? existing.mode,
+      percent: patch.percent !== undefined ? patch.percent : existing.percent,
+    };
+    // Clearing category % drops the rule when there are no item overrides.
+    if (
+      nextRule.percent <= 0
+      && patch.percent !== undefined
+      && nextRule.itemRules.length === 0
+    ) {
+      clearCategoryRule(category.id);
+      return;
+    }
+    replaceCategoryRule(nextRule);
+  };
+
+  const upsertItemRule = (
+    category: CatalogCategory,
+    product: CatalogProduct,
+    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent'>>,
+  ) => {
+    const existing = ensureCategoryRule(category);
+    const prevItem = existing.itemRules.find(r => r.productId === product.id);
+    const kind: PriceLevelItemRuleKind = patch.kind ?? prevItem?.kind ?? 'except';
+    const nextItem: PriceLevelItemRule = {
+      productId: product.id,
+      productName: product.name,
+      sku: product.sku,
+      kind,
+      percent: kind === 'except'
+        ? 0
+        : (patch.percent !== undefined ? patch.percent : (prevItem?.percent ?? 0)),
+    };
+    const itemRules = [
+      ...existing.itemRules.filter(r => r.productId !== product.id),
+      nextItem,
+    ];
+    replaceCategoryRule({
+      ...existing,
+      categoryName: category.name,
+      itemRules,
+    });
+    setItemQueryByCategory(prev => ({ ...prev, [category.id]: '' }));
+    setExpandedItemCats(prev => ({ ...prev, [category.id]: true }));
+  };
+
+  const updateItemRule = (
+    category: CatalogCategory,
+    productId: string,
+    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent'>>,
+  ) => {
+    const existing = ensureCategoryRule(category);
+    const prevItem = existing.itemRules.find(r => r.productId === productId);
+    if (!prevItem) return;
+    const kind = patch.kind ?? prevItem.kind;
+    const nextItem: PriceLevelItemRule = {
+      ...prevItem,
+      kind,
+      percent: kind === 'except'
+        ? 0
+        : (patch.percent !== undefined ? patch.percent : prevItem.percent),
+    };
+    replaceCategoryRule({
+      ...existing,
+      itemRules: existing.itemRules.map(r => (r.productId === productId ? nextItem : r)),
+    });
+  };
+
+  const removeItemRule = (category: CatalogCategory, productId: string) => {
+    const existing = ensureCategoryRule(category);
+    const itemRules = existing.itemRules.filter(r => r.productId !== productId);
+    if (existing.percent <= 0 && itemRules.length === 0) {
+      clearCategoryRule(category.id);
+      return;
+    }
+    replaceCategoryRule({ ...existing, itemRules });
   };
 
   const saveLabel = saveStatus === 'saving' || saveStatus === 'pending'
@@ -330,7 +470,8 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     <Users size={15} aria-hidden />
                     <span className="price-levels-tab__level-name">{level.name}</span>
                     <span className="price-levels-tab__level-meta">
-                      {level.dealerIds.length} dealers · {level.categoryRules.length} rules
+                      {level.dealerIds.length} dealers ·{' '}
+                      {level.categoryRules.filter(categoryRuleHasEffect).length} rules
                     </span>
                   </button>
                   <button
@@ -377,8 +518,15 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     placeholder="Search dealers by name, company, phone…"
                     autoComplete="off"
                   />
-                  {dealerSearching ? <Loader2 size={14} className="spin-icon" aria-hidden /> : null}
+                  {dealersLoading ? <Loader2 size={14} className="spin-icon" aria-hidden /> : null}
                 </div>
+                {dealerSearchError ? (
+                  <p className="price-levels-tab__error text-sm">{dealerSearchError}</p>
+                ) : null}
+                {dealerQuery.trim().length >= 2 && !dealersLoading && dealerHits.length === 0
+                  && !dealerSearchError ? (
+                  <p className="text-muted text-sm">No matching dealers.</p>
+                ) : null}
                 {dealerHits.length > 0 ? (
                   <ul className="price-levels-tab__dealer-hits">
                     {dealerHits.map(d => {
@@ -425,78 +573,245 @@ export const PriceLevelSettingsTab: React.FC = () => {
                 <h4>
                   <Percent size={16} aria-hidden />
                   Category pricing rules
+                  {activeRuleCount > 0 ? (
+                    <span className="price-levels-tab__rule-count">{activeRuleCount} active</span>
+                  ) : null}
                 </h4>
                 <p className="text-muted text-sm">
-                  Discount shows list + “for you” price to the dealer. Increment shows only
-                  the hiked charge price.
+                  Set a category % (discount or hike), then optionally override specific items:
+                  except from the category rule, special discount, or special hike.
                 </p>
-                <div className="price-levels-tab__add-rule">
-                  <select
-                    value={categoryPick}
-                    onChange={e => setCategoryPick(e.target.value)}
-                  >
-                    <option value="">Select category…</option>
-                    {availableCategories.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-primary"
-                    disabled={!categoryPick}
-                    onClick={addCategoryRule}
-                  >
-                    <Plus size={14} aria-hidden />
-                    Add rule
-                  </button>
-                </div>
-
-                {selected.categoryRules.length === 0 ? (
-                  <p className="text-muted text-sm">No category rules yet.</p>
+                {categories.length === 0 ? (
+                  <p className="text-muted text-sm">No catalog categories found.</p>
                 ) : (
                   <ul className="price-levels-tab__rules">
-                    {selected.categoryRules.map(rule => (
-                      <li key={rule.categoryId}>
-                        <span className="price-levels-tab__rule-cat">
-                          {rule.categoryName || rule.categoryId}
-                        </span>
-                        <select
-                          value={rule.mode}
-                          onChange={e => updateRule(rule.categoryId, {
-                            mode: e.target.value as PriceLevelRuleMode,
-                          })}
-                          aria-label="Rule type"
+                    {categories.map(cat => {
+                      const rule = rulesByCategoryId.get(cat.id);
+                      const mode: PriceLevelRuleMode = rule?.mode ?? 'discount';
+                      const percent = rule?.percent ?? 0;
+                      const itemRules = rule?.itemRules ?? [];
+                      const active = categoryRuleHasEffect(rule ?? emptyCategoryRule(cat.id, cat.name));
+                      const itemPanelOpen = expandedItemCats[cat.id] ?? itemRules.length > 0;
+                      const itemQuery = itemQueryByCategory[cat.id] ?? '';
+                      const usedItemIds = new Set(itemRules.map(r => r.productId));
+                      const catProducts = productsByCategory.get(cat.id) ?? [];
+                      const itemHits = itemQuery.trim().length < 2
+                        ? []
+                        : catProducts
+                          .filter(p => {
+                            if (usedItemIds.has(p.id)) return false;
+                            const q = itemQuery.trim().toLowerCase();
+                            return p.name.toLowerCase().includes(q)
+                              || (p.sku ?? '').toLowerCase().includes(q);
+                          })
+                          .slice(0, 12);
+
+                      return (
+                        <li
+                          key={cat.id}
+                          className={`price-levels-tab__rule-tile${active ? ' is-active' : ''}`}
                         >
-                          <option value="discount">Discount %</option>
-                          <option value="increment">Price hike %</option>
-                        </select>
-                        <label className="price-levels-tab__percent">
-                          <input
-                            type="number"
-                            min={0}
-                            max={1000}
-                            step={0.1}
-                            value={rule.percent === 0 ? '' : rule.percent}
-                            placeholder="0"
-                            onChange={e => {
-                              const v = e.target.value;
-                              updateRule(rule.categoryId, {
-                                percent: v === '' ? 0 : Number(v),
-                              });
-                            }}
-                          />
-                          <span>%</span>
-                        </label>
-                        <button
-                          type="button"
-                          className="price-levels-tab__rule-delete"
-                          aria-label={`Remove rule for ${rule.categoryName}`}
-                          onClick={() => removeRule(rule.categoryId)}
-                        >
-                          <Trash2 size={14} aria-hidden />
-                        </button>
-                      </li>
-                    ))}
+                          <div className="price-levels-tab__rule-main">
+                            <span className="price-levels-tab__rule-cat">{cat.name}</span>
+                            <select
+                              value={mode}
+                              onChange={e => upsertCategoryRule(cat, {
+                                mode: e.target.value as PriceLevelRuleMode,
+                              })}
+                              aria-label={`Rule type for ${cat.name}`}
+                            >
+                              <option value="discount">Discount %</option>
+                              <option value="increment">Price hike %</option>
+                            </select>
+                            <label className="price-levels-tab__percent">
+                              <input
+                                type="number"
+                                min={0}
+                                max={1000}
+                                step={0.1}
+                                value={percent === 0 ? '' : percent}
+                                placeholder="0"
+                                onChange={e => {
+                                  const v = e.target.value;
+                                  upsertCategoryRule(cat, {
+                                    mode,
+                                    percent: v === '' ? 0 : Number(v),
+                                  });
+                                }}
+                                aria-label={`Percent for ${cat.name}`}
+                              />
+                              <span>%</span>
+                            </label>
+                            <button
+                              type="button"
+                              className="price-levels-tab__rule-delete"
+                              aria-label={`Clear rule for ${cat.name}`}
+                              title="Clear category + item rules"
+                              disabled={!active}
+                              onClick={() => clearCategoryRule(cat.id)}
+                            >
+                              <Trash2 size={14} aria-hidden />
+                            </button>
+                          </div>
+
+                          <div className="price-levels-tab__item-rules">
+                            <button
+                              type="button"
+                              className="price-levels-tab__item-toggle"
+                              onClick={() => setExpandedItemCats(prev => ({
+                                ...prev,
+                                [cat.id]: !itemPanelOpen,
+                              }))}
+                            >
+                              Item rules
+                              {itemRules.length > 0 ? ` (${itemRules.length})` : ''}
+                              <span aria-hidden>{itemPanelOpen ? '▴' : '▾'}</span>
+                            </button>
+
+                            {itemPanelOpen ? (
+                              <>
+                                <div className="price-levels-tab__item-search">
+                                  <Search size={14} aria-hidden />
+                                  <input
+                                    type="search"
+                                    value={itemQuery}
+                                    onChange={e => setItemQueryByCategory(prev => ({
+                                      ...prev,
+                                      [cat.id]: e.target.value,
+                                    }))}
+                                    placeholder="Search item in this category…"
+                                    autoComplete="off"
+                                  />
+                                </div>
+                                {itemHits.length > 0 ? (
+                                  <ul className="price-levels-tab__item-hits">
+                                    {itemHits.map(product => (
+                                      <li key={product.id} className="price-levels-tab__item-hit-row">
+                                        <div className="price-levels-tab__item-hit-thumb" aria-hidden>
+                                          {product.imageUrl ? (
+                                            <CategoryThumbnail src={product.imageUrl} />
+                                          ) : (
+                                            <Package size={18} />
+                                          )}
+                                        </div>
+                                        <div className="price-levels-tab__item-hit-body">
+                                          <button
+                                            type="button"
+                                            className="price-levels-tab__item-hit"
+                                            onClick={() => upsertItemRule(cat, product, {
+                                              kind: 'except',
+                                            })}
+                                          >
+                                            <strong>{product.name}</strong>
+                                            <span className="text-muted text-sm">
+                                              {[product.sku, `₹${product.rate.toLocaleString('en-IN')}`]
+                                                .filter(Boolean)
+                                                .join(' · ')}
+                                            </span>
+                                          </button>
+                                          <div className="price-levels-tab__item-hit-actions">
+                                            <button
+                                              type="button"
+                                              onClick={() => upsertItemRule(cat, product, {
+                                                kind: 'except',
+                                              })}
+                                            >
+                                              Except
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => upsertItemRule(cat, product, {
+                                                kind: 'discount',
+                                                percent: percent > 0 ? percent : 10,
+                                              })}
+                                            >
+                                              Discount
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => upsertItemRule(cat, product, {
+                                                kind: 'increment',
+                                                percent: 5,
+                                              })}
+                                            >
+                                              Hike
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : itemQuery.trim().length >= 2 ? (
+                                  <p className="text-muted text-sm">No matching items in this category.</p>
+                                ) : null}
+
+                                {itemRules.length > 0 ? (
+                                  <ul className="price-levels-tab__item-list">
+                                    {itemRules.map(item => (
+                                      <li key={item.productId}>
+                                        <div className="price-levels-tab__item-meta">
+                                          <strong>{item.productName}</strong>
+                                          {item.sku ? (
+                                            <span className="text-muted text-sm">{item.sku}</span>
+                                          ) : null}
+                                        </div>
+                                        <select
+                                          value={item.kind}
+                                          onChange={e => updateItemRule(cat, item.productId, {
+                                            kind: e.target.value as PriceLevelItemRuleKind,
+                                          })}
+                                          aria-label={`Override type for ${item.productName}`}
+                                        >
+                                          <option value="except">Except (list price)</option>
+                                          <option value="discount">Special discount %</option>
+                                          <option value="increment">Special hike %</option>
+                                        </select>
+                                        {item.kind === 'except' ? (
+                                          <span className="price-levels-tab__item-except-label">
+                                            No category %
+                                          </span>
+                                        ) : (
+                                          <label className="price-levels-tab__percent">
+                                            <input
+                                              type="number"
+                                              min={0}
+                                              max={1000}
+                                              step={0.1}
+                                              value={item.percent === 0 ? '' : item.percent}
+                                              placeholder="0"
+                                              onChange={e => {
+                                                const v = e.target.value;
+                                                updateItemRule(cat, item.productId, {
+                                                  percent: v === '' ? 0 : Number(v),
+                                                });
+                                              }}
+                                              aria-label={`Percent for ${item.productName}`}
+                                            />
+                                            <span>%</span>
+                                          </label>
+                                        )}
+                                        <button
+                                          type="button"
+                                          className="price-levels-tab__rule-delete"
+                                          aria-label={`Remove item rule for ${item.productName}`}
+                                          onClick={() => removeItemRule(cat, item.productId)}
+                                        >
+                                          <X size={14} aria-hidden />
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-muted text-sm">
+                                    No item overrides. Search above to except or special-price an item.
+                                  </p>
+                                )}
+                              </>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

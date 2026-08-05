@@ -18,15 +18,40 @@ function normalizeMode(raw) {
   return raw === 'increment' ? 'increment' : 'discount';
 }
 
+function normalizeItemKind(raw) {
+  if (raw === 'except' || raw === 'increment') return raw;
+  return 'discount';
+}
+
+function normalizeItemRule(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const productId = String(raw.productId ?? '').trim();
+  if (!productId) return null;
+  const kind = normalizeItemKind(raw.kind);
+  return {
+    productId,
+    productName: String(raw.productName ?? '').trim() || productId,
+    sku: raw.sku != null && String(raw.sku).trim() ? String(raw.sku).trim() : null,
+    kind,
+    percent: kind === 'except' ? 0 : clampPercent(raw.percent),
+  };
+}
+
 function normalizeRule(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const categoryId = String(raw.categoryId ?? '').trim();
   if (!categoryId) return null;
+  const itemRules = Array.isArray(raw.itemRules)
+    ? raw.itemRules.map(normalizeItemRule).filter(Boolean)
+    : [];
+  const byProduct = new Map();
+  for (const item of itemRules) byProduct.set(item.productId, item);
   return {
     categoryId,
     categoryName: String(raw.categoryName ?? '').trim() || categoryId,
     mode: normalizeMode(raw.mode),
     percent: clampPercent(raw.percent),
+    itemRules: [...byProduct.values()],
   };
 }
 
@@ -76,24 +101,53 @@ export function findPriceLevelForDealer(levels, dealerId) {
 }
 
 /**
- * @returns {{ listRate: number, chargeRate: number, mode: string, percent: number }}
+ * @returns {{ listRate: number, chargeRate: number, mode: string, percent: number, itemOverride: boolean }}
  */
 export function resolveDealerUnitPrice(levels, dealerId, product) {
   const listRate = roundMoney(Number(product?.rate) || 0);
   const level = findPriceLevelForDealer(levels, dealerId);
   const categoryId = String(product?.categoryId ?? '').trim() || null;
+  const productId = String(product?.id ?? product?.productId ?? '').trim();
   if (!level || !categoryId) {
-    return { listRate, chargeRate: listRate, mode: 'none', percent: 0 };
+    return { listRate, chargeRate: listRate, mode: 'none', percent: 0, itemOverride: false };
   }
   const rule = level.categoryRules.find(r => r.categoryId === categoryId);
-  if (!rule || rule.percent <= 0) {
-    return { listRate, chargeRate: listRate, mode: 'none', percent: 0 };
+  if (!rule) {
+    return { listRate, chargeRate: listRate, mode: 'none', percent: 0, itemOverride: false };
+  }
+
+  const itemRule = productId
+    ? (rule.itemRules || []).find(r => r.productId === productId)
+    : null;
+
+  if (itemRule) {
+    if (itemRule.kind === 'except' || itemRule.percent <= 0) {
+      return {
+        listRate,
+        chargeRate: listRate,
+        mode: 'none',
+        percent: 0,
+        itemOverride: true,
+      };
+    }
+    return {
+      listRate,
+      chargeRate: applyPriceLevelPercent(listRate, itemRule.kind, itemRule.percent),
+      mode: itemRule.kind,
+      percent: itemRule.percent,
+      itemOverride: true,
+    };
+  }
+
+  if (rule.percent <= 0) {
+    return { listRate, chargeRate: listRate, mode: 'none', percent: 0, itemOverride: false };
   }
   return {
     listRate,
     chargeRate: applyPriceLevelPercent(listRate, rule.mode, rule.percent),
     mode: rule.mode,
     percent: rule.percent,
+    itemOverride: false,
   };
 }
 

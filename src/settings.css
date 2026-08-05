@@ -4327,9 +4327,6 @@
 }
 
 .price-levels-tab__field input,
-.price-levels-tab__add-rule select,
-.price-levels-tab__rules select,
-.price-levels-tab__percent input,
 .price-levels-tab__dealer-search input {
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 10px;
@@ -4449,16 +4446,16 @@
   padding: 0.1rem;
 }
 
-.price-levels-tab__add-rule {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.price-levels-tab__add-rule select {
-  flex: 1;
-  min-width: 12rem;
+.price-levels-tab__rule-count {
+  margin-left: 0.4rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(245, 130, 32, 0.16);
+  color: #fdba74;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .price-levels-tab__rules {
@@ -4467,12 +4464,29 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.4rem;
+  max-height: min(28rem, 55vh);
+  overflow: auto;
 }
 
-.price-levels-tab__rules > li {
+.price-levels-tab__rule-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.price-levels-tab__rule-tile.is-active {
+  border-color: rgba(245, 130, 32, 0.35);
+  background: rgba(245, 130, 32, 0.08);
+}
+
+.price-levels-tab__rule-main {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(7.5rem, 0.9fr) auto auto;
+  grid-template-columns: minmax(0, 1.5fr) minmax(7.5rem, 0.85fr) auto auto;
   gap: 0.45rem;
   align-items: center;
 }
@@ -4484,6 +4498,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.price-levels-tab__rules select,
+.price-levels-tab__percent input,
+.price-levels-tab__item-search input {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.45);
+  color: inherit;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
 }
 
 .price-levels-tab__percent {
@@ -4512,9 +4537,184 @@
   cursor: pointer;
 }
 
-.price-levels-tab__rule-delete:hover {
+.price-levels-tab__rule-delete:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.price-levels-tab__rule-delete:hover:not(:disabled) {
   color: #fca5a5;
   background: rgba(248, 113, 113, 0.12);
+}
+
+.price-levels-tab__item-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.price-levels-tab__item-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.2rem 0;
+  border: none;
+  background: transparent;
+  color: #fdba74;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.price-levels-tab__item-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.price-levels-tab__item-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 0.4rem 0;
+  min-width: 0;
+}
+
+.price-levels-tab__item-search input:focus {
+  outline: none;
+}
+
+.price-levels-tab__item-hits,
+.price-levels-tab__item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.price-levels-tab__item-hit-row {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.price-levels-tab__item-hit-thumb {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.65);
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.price-levels-tab__item-hit-thumb img,
+.price-levels-tab__item-hit-thumb .catalog-category-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.price-levels-tab__item-hit-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.price-levels-tab__item-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  width: 100%;
+}
+
+.price-levels-tab__item-hit strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.price-levels-tab__item-hit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.price-levels-tab__item-hit-actions button {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.45);
+  color: #e2e8f0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+
+.price-levels-tab__item-hit-actions button:hover {
+  border-color: rgba(245, 130, 32, 0.45);
+  color: #fdba74;
+}
+
+.price-levels-tab__item-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(8rem, 1fr) auto auto;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.price-levels-tab__item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.price-levels-tab__item-meta strong {
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price-levels-tab__item-except-label {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #94a3b8;
 }
 
 @media (max-width: 900px) {
@@ -4522,11 +4722,19 @@
     grid-template-columns: 1fr;
   }
 
-  .price-levels-tab__rules > li {
+  .price-levels-tab__rule-main {
     grid-template-columns: 1fr 1fr;
   }
 
   .price-levels-tab__rule-cat {
+    grid-column: 1 / -1;
+  }
+
+  .price-levels-tab__item-list > li {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .price-levels-tab__item-meta {
     grid-column: 1 / -1;
   }
 }

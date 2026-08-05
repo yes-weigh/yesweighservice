@@ -5,6 +5,8 @@ import type {
   DealerUnitPrice,
   PriceLevel,
   PriceLevelCategoryRule,
+  PriceLevelItemRule,
+  PriceLevelItemRuleKind,
   PriceLevelRuleMode,
   PriceLevelsDoc,
 } from '../types/priceLevels';
@@ -31,16 +33,43 @@ function normalizeMode(raw: unknown): PriceLevelRuleMode {
   return raw === 'increment' ? 'increment' : 'discount';
 }
 
+function normalizeItemKind(raw: unknown): PriceLevelItemRuleKind {
+  if (raw === 'except' || raw === 'increment') return raw;
+  return 'discount';
+}
+
+function normalizeItemRule(raw: unknown): PriceLevelItemRule | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const productId = String(row.productId ?? '').trim();
+  if (!productId) return null;
+  const kind = normalizeItemKind(row.kind);
+  return {
+    productId,
+    productName: String(row.productName ?? '').trim() || productId,
+    sku: row.sku != null && String(row.sku).trim() ? String(row.sku).trim() : null,
+    kind,
+    percent: kind === 'except' ? 0 : clampPercent(row.percent),
+  };
+}
+
 function normalizeRule(raw: unknown): PriceLevelCategoryRule | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
   const categoryId = String(row.categoryId ?? '').trim();
   if (!categoryId) return null;
+  const itemRules = Array.isArray(row.itemRules)
+    ? row.itemRules.map(normalizeItemRule).filter((r): r is PriceLevelItemRule => Boolean(r))
+    : [];
+  // Deduplicate by productId (last wins).
+  const byProduct = new Map<string, PriceLevelItemRule>();
+  for (const item of itemRules) byProduct.set(item.productId, item);
   return {
     categoryId,
     categoryName: String(row.categoryName ?? '').trim() || categoryId,
     mode: normalizeMode(row.mode),
     percent: clampPercent(row.percent),
+    itemRules: [...byProduct.values()],
   };
 }
 
@@ -100,6 +129,27 @@ export function createEmptyPriceLevel(name = 'New level', sortOrder = 0): PriceL
   };
 }
 
+export function emptyCategoryRule(
+  categoryId: string,
+  categoryName: string,
+): PriceLevelCategoryRule {
+  return {
+    categoryId,
+    categoryName,
+    mode: 'discount',
+    percent: 0,
+    itemRules: [],
+  };
+}
+
+/** Category has a usable default % or at least one item override. */
+export function categoryRuleHasEffect(rule: PriceLevelCategoryRule): boolean {
+  if (rule.percent > 0) return true;
+  return rule.itemRules.some(item => (
+    item.kind === 'except' || item.percent > 0
+  ));
+}
+
 /** Ensure each dealer id appears in at most one level (keeps the first occurrence). */
 export function enforceUniqueDealerAssignments(levels: PriceLevel[]): PriceLevel[] {
   const seen = new Set<string>();
@@ -141,46 +191,76 @@ export function findPriceLevelForDealer(
   return levels.find(level => level.dealerIds.includes(id)) ?? null;
 }
 
+function nonePrice(
+  listRate: number,
+  level: PriceLevel | null,
+  categoryId: string | null,
+  itemOverride = false,
+): DealerUnitPrice {
+  return {
+    listRate,
+    chargeRate: listRate,
+    mode: 'none',
+    percent: 0,
+    levelId: level?.id ?? null,
+    levelName: level?.name ?? null,
+    categoryId,
+    itemOverride,
+  };
+}
+
 export function resolveDealerUnitPrice(
   levels: PriceLevel[],
   dealerId: string | null | undefined,
-  product: Pick<CatalogProduct, 'rate' | 'categoryId'>,
+  product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId'>,
 ): DealerUnitPrice {
   const listRate = roundMoney(Number(product.rate) || 0);
   const level = findPriceLevelForDealer(levels, dealerId);
   const categoryId = String(product.categoryId ?? '').trim() || null;
+  const productId = String(product.id ?? '').trim();
   if (!level || !categoryId) {
-    return {
-      listRate,
-      chargeRate: listRate,
-      mode: 'none',
-      percent: 0,
-      levelId: level?.id ?? null,
-      levelName: level?.name ?? null,
-      categoryId,
-    };
+    return nonePrice(listRate, level, categoryId);
   }
   const rule = level.categoryRules.find(r => r.categoryId === categoryId);
-  if (!rule || rule.percent <= 0) {
+  if (!rule) {
+    return nonePrice(listRate, level, categoryId);
+  }
+
+  const itemRule = productId
+    ? rule.itemRules.find(r => r.productId === productId)
+    : undefined;
+
+  if (itemRule) {
+    if (itemRule.kind === 'except') {
+      return nonePrice(listRate, level, categoryId, true);
+    }
+    if (itemRule.percent <= 0) {
+      return nonePrice(listRate, level, categoryId, true);
+    }
     return {
       listRate,
-      chargeRate: listRate,
-      mode: 'none',
-      percent: 0,
+      chargeRate: applyPriceLevelPercent(listRate, itemRule.kind, itemRule.percent),
+      mode: itemRule.kind,
+      percent: itemRule.percent,
       levelId: level.id,
       levelName: level.name,
       categoryId,
+      itemOverride: true,
     };
   }
-  const chargeRate = applyPriceLevelPercent(listRate, rule.mode, rule.percent);
+
+  if (rule.percent <= 0) {
+    return nonePrice(listRate, level, categoryId);
+  }
   return {
     listRate,
-    chargeRate,
+    chargeRate: applyPriceLevelPercent(listRate, rule.mode, rule.percent),
     mode: rule.mode,
     percent: rule.percent,
     levelId: level.id,
     levelName: level.name,
     categoryId,
+    itemOverride: false,
   };
 }
 

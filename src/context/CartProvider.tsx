@@ -179,6 +179,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ? item.listRate
           : item.baseRate;
         const priced = resolveDealerUnitPrice(priceLevels, dealerId, {
+          id: item.productId,
           rate: catalogList,
           categoryId: item.categoryId ?? null,
         });

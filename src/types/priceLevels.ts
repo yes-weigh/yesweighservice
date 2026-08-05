@@ -6,9 +6,26 @@
  * - named tier (Directors / Agents / Dealers / anything the admin creates)
  * - assigned Zoho dealer contact ids
  * - per-catalog-category % discount or % price increment
+ * - optional per-item overrides inside a category (except / special discount / hike)
  */
 
 export type PriceLevelRuleMode = 'discount' | 'increment';
+
+/** Item override inside a category rule. */
+export type PriceLevelItemRuleKind = 'except' | 'discount' | 'increment';
+
+export interface PriceLevelItemRule {
+  productId: string;
+  productName: string;
+  sku: string | null;
+  /**
+   * except — charge list rate (ignore category %).
+   * discount / increment — special % for this item only.
+   */
+  kind: PriceLevelItemRuleKind;
+  /** Ignored when kind === 'except'. */
+  percent: number;
+}
 
 export interface PriceLevelCategoryRule {
   /** Catalog category id (`catalogCategories` / Zoho category_id). */
@@ -17,6 +34,8 @@ export interface PriceLevelCategoryRule {
   mode: PriceLevelRuleMode;
   /** Percent of list rate. 10 = 10% off (discount) or 10% hike (increment). */
   percent: number;
+  /** Per-product overrides within this category. */
+  itemRules: PriceLevelItemRule[];
 }
 
 export interface PriceLevel {
@@ -44,4 +63,6 @@ export interface DealerUnitPrice {
   levelId: string | null;
   levelName: string | null;
   categoryId: string | null;
+  /** True when an item-level override decided the price. */
+  itemOverride: boolean;
 }

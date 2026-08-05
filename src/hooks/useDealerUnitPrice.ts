@@ -51,7 +51,7 @@ export function useDealerPriceLevels(): {
 }
 
 export function useDealerUnitPrice(
-  product: Pick<CatalogProduct, 'rate' | 'categoryId'> | null | undefined,
+  product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId'> | null | undefined,
 ): DealerUnitPrice | null {
   const { levels, dealerId } = useDealerPriceLevels();
   return useMemo(() => {
