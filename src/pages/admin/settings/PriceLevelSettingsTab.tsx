@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   Check,
   Loader2,
-  Package,
   Percent,
   Plus,
   Search,
@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { CategoryBrowseCard } from '../../../components/catalog/CategoryBrowseCard';
-import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
+import { ProductBrowseCard } from '../../../components/catalog/ProductBrowseCard';
 import { useAuth } from '../../../context/AuthContext';
 import { fetchCatalog, isHiddenCatalogCategory } from '../../../lib/catalog';
 import {
@@ -74,15 +74,24 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const [error, setError] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [dealerQuery, setDealerQuery] = useState('');
-  /** Category selected from the catalogue-style grid for editing rules. */
+  /** Category selected from the catalogue-style grid for editing rules (Items mode). */
   const [ruleCategoryId, setRuleCategoryId] = useState<string | null>(null);
+  /** Filters the product browse grid in Items mode only. */
   const [itemQuery, setItemQuery] = useState('');
+  const [focusOverrideId, setFocusOverrideId] = useState<string | null>(null);
 
   const levelsRef = useRef(levels);
   const savedRef = useRef(savedLevels);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveEpochRef = useRef(0);
+  const overrideRowRefs = useRef<Map<string, HTMLLIElement>>(new Map());
   const userUid = user?.uid ?? null;
+
+  const exitCategoryEdit = useCallback(() => {
+    setRuleCategoryId(null);
+    setItemQuery('');
+    setFocusOverrideId(null);
+  }, []);
 
   levelsRef.current = levels;
   savedRef.current = savedLevels;
@@ -376,9 +385,27 @@ export const PriceLevelSettingsTab: React.FC = () => {
       categoryName: category.name,
       itemRules,
     });
-    setItemQuery('');
     setRuleCategoryId(category.id);
+    setFocusOverrideId(product.id);
   };
+
+  const pickProductForOverride = (category: CatalogCategory, product: CatalogProduct) => {
+    const existing = selected?.categoryRules.find(r => r.categoryId === category.id);
+    if (existing?.itemRules.some(r => r.productId === product.id)) {
+      setFocusOverrideId(product.id);
+      return;
+    }
+    upsertItemRule(category, product, { kind: 'except' });
+  };
+
+  useEffect(() => {
+    if (!focusOverrideId) return;
+    const row = overrideRowRefs.current.get(focusOverrideId);
+    if (!row) return;
+    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const t = window.setTimeout(() => setFocusOverrideId(null), 1600);
+    return () => window.clearTimeout(t);
+  }, [focusOverrideId, selected?.categoryRules]);
 
   const updateItemRule = (
     category: CatalogCategory,
@@ -456,58 +483,59 @@ export const PriceLevelSettingsTab: React.FC = () => {
 
       {error ? <p className="price-levels-tab__error">{error}</p> : null}
 
-      <div className="price-levels-tab__layout">
-        <aside className="price-levels-tab__levels">
-          <div className="price-levels-tab__levels-head">
-            <span>Levels</span>
-            <button type="button" className="btn btn-sm btn-primary" onClick={addLevel}>
-              <Plus size={14} aria-hidden />
-              Add
-            </button>
-          </div>
-          {levels.length === 0 ? (
-            <p className="text-muted text-sm price-levels-tab__empty">
-              No levels yet. Add one (e.g. Directors, Agents, Dealers).
-            </p>
-          ) : (
-            <ul className="price-levels-tab__level-list">
-              {levels.map(level => (
-                <li key={level.id}>
-                  <button
-                    type="button"
-                    className={`price-levels-tab__level-btn ${
-                      level.id === selectedId ? 'is-active' : ''
-                    }`}
-                    onClick={() => setSelectedId(level.id)}
-                  >
-                    <Users size={15} aria-hidden />
-                    <span className="price-levels-tab__level-name">{level.name}</span>
-                    <span className="price-levels-tab__level-meta">
-                      {level.dealerIds.length} dealers ·{' '}
-                      {level.categoryRules.filter(categoryRuleHasEffect).length} rules
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="price-levels-tab__level-delete"
-                    title="Delete level"
-                    aria-label={`Delete ${level.name}`}
-                    onClick={() => removeLevel(level.id)}
-                  >
-                    <Trash2 size={14} aria-hidden />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
+      <div className="price-levels-tab__levels-bar">
+        <div className="price-levels-tab__levels-head">
+          <span>Levels</span>
+          <button type="button" className="btn btn-sm btn-primary" onClick={addLevel}>
+            <Plus size={14} aria-hidden />
+            Add
+          </button>
+        </div>
+        {levels.length === 0 ? (
+          <p className="text-muted text-sm price-levels-tab__empty">
+            No levels yet. Add one (e.g. Directors, Agents, Dealers).
+          </p>
+        ) : (
+          <ul className="price-levels-tab__level-list" role="tablist" aria-label="Price levels">
+            {levels.map(level => (
+              <li key={level.id}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={level.id === selectedId}
+                  className={`price-levels-tab__level-btn ${
+                    level.id === selectedId ? 'is-active' : ''
+                  }`}
+                  onClick={() => setSelectedId(level.id)}
+                >
+                  <Users size={14} aria-hidden />
+                  <span className="price-levels-tab__level-name">{level.name}</span>
+                  <span className="price-levels-tab__level-meta">
+                    {level.dealerIds.length} ·{' '}
+                    {level.categoryRules.filter(categoryRuleHasEffect).length} rules
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="price-levels-tab__level-delete"
+                  title="Delete level"
+                  aria-label={`Delete ${level.name}`}
+                  onClick={() => removeLevel(level.id)}
+                >
+                  <Trash2 size={13} aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
-        <section className="price-levels-tab__detail">
+      <section className="price-levels-tab__detail">
           {!selected ? (
             <p className="text-muted">Select or create a level to edit.</p>
           ) : (
             <>
-              <label className="price-levels-tab__field">
+              <label className="price-levels-tab__field price-levels-tab__field--inline">
                 <span>Level name</span>
                 <input
                   type="text"
@@ -590,279 +618,306 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     <span className="price-levels-tab__rule-count">{activeRuleCount} active</span>
                   ) : null}
                 </h4>
-                <p className="text-muted text-sm">
-                  Pick a category card (same as catalogue), then set discount or hike % and optional item overrides.
-                </p>
                 {categories.length === 0 ? (
                   <p className="text-muted text-sm">No catalog categories found.</p>
-                ) : (
-                  <>
-                    <div className="catalog-categories catalog-categories--bare price-levels-tab__cat-grid">
-                      <div className="catalog-categories__grid">
-                        {categories.map((cat, idx) => {
-                          const rule = rulesByCategoryId.get(cat.id);
-                          const active = categoryRuleHasEffect(
-                            rule ?? emptyCategoryRule(cat.id, cat.name),
-                          );
-                          const percent = rule?.percent ?? 0;
-                          const mode = rule?.mode ?? 'discount';
-                          const itemCount = rule?.itemRules.length ?? 0;
-                          const badge = active
-                            ? (percent > 0
-                              ? `${mode === 'increment' ? '+' : '−'}${percent}%`
-                              : `${itemCount} item${itemCount === 1 ? '' : 's'}`)
-                            : null;
-                          return (
-                            <div
-                              key={cat.id}
-                              className={[
-                                'price-levels-tab__cat-tile',
-                                ruleCategoryId === cat.id ? 'is-selected' : '',
-                                active ? 'is-active' : '',
-                              ].filter(Boolean).join(' ')}
-                            >
-                              {badge ? (
-                                <span className="price-levels-tab__cat-badge">{badge}</span>
-                              ) : null}
-                              <CategoryBrowseCard
-                                category={cat}
-                                index={idx}
-                                onClick={() => {
-                                  setRuleCategoryId(cat.id);
-                                  setItemQuery('');
-                                }}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                ) : (() => {
+                  const editCat = categories.find(c => c.id === ruleCategoryId) ?? null;
+                  if (!editCat) {
+                    return (
+                      <>
+                        <p className="text-muted text-sm">
+                          Tap a category to set its % and browse items for overrides.
+                        </p>
+                        <div className="catalog-categories catalog-categories--bare price-levels-tab__cat-grid">
+                          <div className="catalog-categories__grid">
+                            {categories.map((cat, idx) => {
+                              const rule = rulesByCategoryId.get(cat.id);
+                              const active = categoryRuleHasEffect(
+                                rule ?? emptyCategoryRule(cat.id, cat.name),
+                              );
+                              const percent = rule?.percent ?? 0;
+                              const mode = rule?.mode ?? 'discount';
+                              const itemCount = rule?.itemRules.length ?? 0;
+                              const badge = active
+                                ? (percent > 0
+                                  ? `${mode === 'increment' ? '+' : '−'}${percent}%`
+                                  : `${itemCount} item${itemCount === 1 ? '' : 's'}`)
+                                : null;
+                              return (
+                                <div
+                                  key={cat.id}
+                                  className={[
+                                    'price-levels-tab__cat-tile',
+                                    active ? 'is-active' : '',
+                                  ].filter(Boolean).join(' ')}
+                                >
+                                  {badge ? (
+                                    <span className="price-levels-tab__cat-badge">{badge}</span>
+                                  ) : null}
+                                  <CategoryBrowseCard
+                                    category={cat}
+                                    index={idx}
+                                    onClick={() => {
+                                      setRuleCategoryId(cat.id);
+                                      setItemQuery('');
+                                      setFocusOverrideId(null);
+                                    }}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  }
 
-                    {(() => {
-                      const cat = categories.find(c => c.id === ruleCategoryId) ?? null;
-                      if (!cat) {
-                        return (
-                          <p className="text-muted text-sm price-levels-tab__pick-hint">
-                            Select a category card to edit its pricing rule.
-                          </p>
-                        );
-                      }
-                      const rule = rulesByCategoryId.get(cat.id);
-                      const mode: PriceLevelRuleMode = rule?.mode ?? 'discount';
-                      const percent = rule?.percent ?? 0;
-                      const itemRules = rule?.itemRules ?? [];
-                      const active = categoryRuleHasEffect(
-                        rule ?? emptyCategoryRule(cat.id, cat.name),
-                      );
-                      const usedItemIds = new Set(itemRules.map(r => r.productId));
-                      const catProducts = productsByCategory.get(cat.id) ?? [];
-                      const itemHits = itemQuery.trim().length < 2
-                        ? []
-                        : catProducts
-                          .filter(p => {
-                            if (usedItemIds.has(p.id)) return false;
-                            const q = itemQuery.trim().toLowerCase();
-                            return p.name.toLowerCase().includes(q)
-                              || (p.sku ?? '').toLowerCase().includes(q);
-                          })
-                          .slice(0, 12);
+                  const rule = rulesByCategoryId.get(editCat.id);
+                  const mode: PriceLevelRuleMode = rule?.mode ?? 'discount';
+                  const percent = rule?.percent ?? 0;
+                  const itemRules = rule?.itemRules ?? [];
+                  const active = categoryRuleHasEffect(
+                    rule ?? emptyCategoryRule(editCat.id, editCat.name),
+                  );
+                  const usedItemIds = new Set(itemRules.map(r => r.productId));
+                  const catProducts = productsByCategory.get(editCat.id) ?? [];
+                  const q = itemQuery.trim().toLowerCase();
+                  const browseProducts = q
+                    ? catProducts.filter(p => (
+                      p.name.toLowerCase().includes(q)
+                      || (p.sku ?? '').toLowerCase().includes(q)
+                    ))
+                    : catProducts;
 
-                      return (
-                        <div className="price-levels-tab__rule-editor">
-                          <div className="price-levels-tab__rule-editor-head">
-                            <strong>{cat.name}</strong>
+                  return (
+                    <div className="price-levels-tab__items-mode" aria-label={`Items in ${editCat.name}`}>
+                      <div className="price-levels-tab__items-chrome">
+                        <div className="price-levels-tab__items-chrome-row">
+                          <button
+                            type="button"
+                            className="price-levels-tab__back"
+                            onClick={exitCategoryEdit}
+                          >
+                            <ArrowLeft size={15} aria-hidden />
+                            Categories
+                          </button>
+                          <div className="price-levels-tab__items-chrome-title">
+                            <strong>{editCat.name}</strong>
+                            {active ? (
+                              <span className="price-levels-tab__rule-editor-pill">
+                                {percent > 0
+                                  ? `${mode === 'increment' ? '+' : '−'}${percent}%`
+                                  : `${itemRules.length} override${itemRules.length === 1 ? '' : 's'}`}
+                              </span>
+                            ) : (
+                              <span className="price-levels-tab__rule-editor-pill is-muted">
+                                No rule yet
+                              </span>
+                            )}
+                          </div>
+                          <div className="price-levels-tab__rule-editor-actions">
                             <button
                               type="button"
                               className="price-levels-tab__rule-delete"
-                              aria-label={`Clear rule for ${cat.name}`}
+                              aria-label={`Clear rule for ${editCat.name}`}
                               title="Clear category + item rules"
                               disabled={!active}
-                              onClick={() => clearCategoryRule(cat.id)}
+                              onClick={() => clearCategoryRule(editCat.id)}
                             >
                               <Trash2 size={14} aria-hidden />
                             </button>
-                          </div>
-                          <div className="price-levels-tab__rule-main">
-                            <select
-                              value={mode}
-                              onChange={e => upsertCategoryRule(cat, {
-                                mode: e.target.value as PriceLevelRuleMode,
-                              })}
-                              aria-label={`Rule type for ${cat.name}`}
+                            <button
+                              type="button"
+                              className="price-levels-tab__rule-close"
+                              aria-label="Close and return to categories"
+                              title="Close"
+                              onClick={exitCategoryEdit}
                             >
-                              <option value="discount">Discount %</option>
-                              <option value="increment">Price hike %</option>
-                            </select>
-                            <label className="price-levels-tab__percent">
-                              <input
-                                type="number"
-                                min={0}
-                                max={1000}
-                                step={0.1}
-                                value={percent === 0 ? '' : percent}
-                                placeholder="0"
-                                onChange={e => {
-                                  const v = e.target.value;
-                                  upsertCategoryRule(cat, {
-                                    mode,
-                                    percent: v === '' ? 0 : Number(v),
-                                  });
-                                }}
-                                aria-label={`Percent for ${cat.name}`}
-                              />
-                              <span>%</span>
-                            </label>
-                          </div>
-
-                          <div className="price-levels-tab__item-rules">
-                            <div className="price-levels-tab__item-toggle">
-                              Item rules
-                              {itemRules.length > 0 ? ` (${itemRules.length})` : ''}
-                            </div>
-                            <div className="price-levels-tab__item-search">
-                              <Search size={14} aria-hidden />
-                              <input
-                                type="search"
-                                value={itemQuery}
-                                onChange={e => setItemQuery(e.target.value)}
-                                placeholder="Search item in this category…"
-                                autoComplete="off"
-                              />
-                            </div>
-                            {itemHits.length > 0 ? (
-                              <ul className="price-levels-tab__item-hits">
-                                {itemHits.map(product => (
-                                  <li key={product.id} className="price-levels-tab__item-hit-row">
-                                    <div className="price-levels-tab__item-hit-thumb" aria-hidden>
-                                      {product.imageUrl ? (
-                                        <CategoryThumbnail src={product.imageUrl} />
-                                      ) : (
-                                        <Package size={18} />
-                                      )}
-                                    </div>
-                                    <div className="price-levels-tab__item-hit-body">
-                                      <button
-                                        type="button"
-                                        className="price-levels-tab__item-hit"
-                                        onClick={() => upsertItemRule(cat, product, {
-                                          kind: 'except',
-                                        })}
-                                      >
-                                        <strong>{product.name}</strong>
-                                        <span className="text-muted text-sm">
-                                          {[product.sku, `₹${product.rate.toLocaleString('en-IN')}`]
-                                            .filter(Boolean)
-                                            .join(' · ')}
-                                        </span>
-                                      </button>
-                                      <div className="price-levels-tab__item-hit-actions">
-                                        <button
-                                          type="button"
-                                          onClick={() => upsertItemRule(cat, product, {
-                                            kind: 'except',
-                                          })}
-                                        >
-                                          Except
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => upsertItemRule(cat, product, {
-                                            kind: 'discount',
-                                            percent: percent > 0 ? percent : 10,
-                                          })}
-                                        >
-                                          Discount
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => upsertItemRule(cat, product, {
-                                            kind: 'increment',
-                                            percent: 5,
-                                          })}
-                                        >
-                                          Hike
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : itemQuery.trim().length >= 2 ? (
-                              <p className="text-muted text-sm">No matching items in this category.</p>
-                            ) : null}
-
-                            {itemRules.length > 0 ? (
-                              <ul className="price-levels-tab__item-list">
-                                {itemRules.map(item => (
-                                  <li key={item.productId}>
-                                    <div className="price-levels-tab__item-meta">
-                                      <strong>{item.productName}</strong>
-                                      {item.sku ? (
-                                        <span className="text-muted text-sm">{item.sku}</span>
-                                      ) : null}
-                                    </div>
-                                    <select
-                                      value={item.kind}
-                                      onChange={e => updateItemRule(cat, item.productId, {
-                                        kind: e.target.value as PriceLevelItemRuleKind,
-                                      })}
-                                      aria-label={`Override type for ${item.productName}`}
-                                    >
-                                      <option value="except">Except (list price)</option>
-                                      <option value="discount">Special discount %</option>
-                                      <option value="increment">Special hike %</option>
-                                    </select>
-                                    {item.kind === 'except' ? (
-                                      <span className="price-levels-tab__item-except-label">
-                                        No category %
-                                      </span>
-                                    ) : (
-                                      <label className="price-levels-tab__percent">
-                                        <input
-                                          type="number"
-                                          min={0}
-                                          max={1000}
-                                          step={0.1}
-                                          value={item.percent === 0 ? '' : item.percent}
-                                          placeholder="0"
-                                          onChange={e => {
-                                            const v = e.target.value;
-                                            updateItemRule(cat, item.productId, {
-                                              percent: v === '' ? 0 : Number(v),
-                                            });
-                                          }}
-                                          aria-label={`Percent for ${item.productName}`}
-                                        />
-                                        <span>%</span>
-                                      </label>
-                                    )}
-                                    <button
-                                      type="button"
-                                      className="price-levels-tab__rule-delete"
-                                      aria-label={`Remove item rule for ${item.productName}`}
-                                      onClick={() => removeItemRule(cat, item.productId)}
-                                    >
-                                      <X size={14} aria-hidden />
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="text-muted text-sm">
-                                No item overrides. Search above to except or special-price an item.
-                              </p>
-                            )}
+                              <X size={15} aria-hidden />
+                            </button>
                           </div>
                         </div>
-                      );
-                    })()}
-                  </>
-                )}
+
+                        <div className="price-levels-tab__rule-main">
+                          <div
+                            className="price-levels-tab__mode-toggle"
+                            role="group"
+                            aria-label={`Rule type for ${editCat.name}`}
+                          >
+                            <button
+                              type="button"
+                              className={mode === 'discount' ? 'is-active' : ''}
+                              onClick={() => upsertCategoryRule(editCat, { mode: 'discount' })}
+                            >
+                              Discount
+                            </button>
+                            <button
+                              type="button"
+                              className={mode === 'increment' ? 'is-active' : ''}
+                              onClick={() => upsertCategoryRule(editCat, { mode: 'increment' })}
+                            >
+                              Hike
+                            </button>
+                          </div>
+                          <label className="price-levels-tab__percent">
+                            <input
+                              type="number"
+                              min={0}
+                              max={1000}
+                              step={0.1}
+                              value={percent === 0 ? '' : percent}
+                              placeholder="0"
+                              onChange={e => {
+                                const v = e.target.value;
+                                upsertCategoryRule(editCat, {
+                                  mode,
+                                  percent: v === '' ? 0 : Number(v),
+                                });
+                              }}
+                              aria-label={`Percent for ${editCat.name}`}
+                            />
+                            <span>%</span>
+                          </label>
+                        </div>
+
+                        <div className="price-levels-tab__item-rules">
+                          <div className="price-levels-tab__item-toggle">
+                            Item overrides
+                            {itemRules.length > 0 ? ` · ${itemRules.length}` : ''}
+                          </div>
+                          {itemRules.length > 0 ? (
+                            <ul className="price-levels-tab__item-list">
+                              {itemRules.map(item => (
+                                <li
+                                  key={item.productId}
+                                  ref={el => {
+                                    if (el) overrideRowRefs.current.set(item.productId, el);
+                                    else overrideRowRefs.current.delete(item.productId);
+                                  }}
+                                  className={
+                                    focusOverrideId === item.productId ? 'is-focus' : undefined
+                                  }
+                                >
+                                  <div className="price-levels-tab__item-meta">
+                                    <strong>{item.productName}</strong>
+                                    {item.sku ? (
+                                      <span className="text-muted text-sm">{item.sku}</span>
+                                    ) : null}
+                                  </div>
+                                  <select
+                                    value={item.kind}
+                                    onChange={e => updateItemRule(editCat, item.productId, {
+                                      kind: e.target.value as PriceLevelItemRuleKind,
+                                    })}
+                                    aria-label={`Override type for ${item.productName}`}
+                                  >
+                                    <option value="except">Except</option>
+                                    <option value="discount">Disc. %</option>
+                                    <option value="increment">Hike %</option>
+                                  </select>
+                                  {item.kind === 'except' ? (
+                                    <span className="price-levels-tab__item-except-label">
+                                      List
+                                    </span>
+                                  ) : (
+                                    <label className="price-levels-tab__percent">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={1000}
+                                        step={0.1}
+                                        value={item.percent === 0 ? '' : item.percent}
+                                        placeholder="0"
+                                        onChange={e => {
+                                          const v = e.target.value;
+                                          updateItemRule(editCat, item.productId, {
+                                            percent: v === '' ? 0 : Number(v),
+                                          });
+                                        }}
+                                        aria-label={`Percent for ${item.productName}`}
+                                      />
+                                      <span>%</span>
+                                    </label>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="price-levels-tab__rule-delete"
+                                    aria-label={`Remove item rule for ${item.productName}`}
+                                    onClick={() => removeItemRule(editCat, item.productId)}
+                                  >
+                                    <X size={14} aria-hidden />
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-muted text-sm price-levels-tab__item-empty">
+                              Tap a product below to add an override.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="price-levels-tab__browse-head">
+                        <span className="price-levels-tab__browse-label">
+                          Browse items
+                          <span className="text-muted">
+                            {' '}· {browseProducts.length}
+                            {q ? ` of ${catProducts.length}` : ''}
+                          </span>
+                        </span>
+                        <div className="price-levels-tab__item-search">
+                          <Search size={14} aria-hidden />
+                          <input
+                            type="search"
+                            value={itemQuery}
+                            onChange={e => setItemQuery(e.target.value)}
+                            placeholder="Filter products…"
+                            autoComplete="off"
+                          />
+                        </div>
+                      </div>
+
+                      {browseProducts.length === 0 ? (
+                        <p className="text-muted text-sm">
+                          {catProducts.length === 0
+                            ? 'No products in this category.'
+                            : 'No products match this filter.'}
+                        </p>
+                      ) : (
+                        <div className="price-levels-tab__product-grid catalog-grid catalog-grid--tiles">
+                          {browseProducts.map((product, idx) => {
+                            const inOverrides = usedItemIds.has(product.id);
+                            return (
+                              <div
+                                key={product.id}
+                                className={[
+                                  'price-levels-tab__product-tile',
+                                  inOverrides ? 'is-override' : '',
+                                ].filter(Boolean).join(' ')}
+                              >
+                                {inOverrides ? (
+                                  <span className="price-levels-tab__product-badge">Override</span>
+                                ) : null}
+                                <ProductBrowseCard
+                                  product={product}
+                                  index={idx}
+                                  enableCart={false}
+                                  onSelect={() => pickProductForOverride(editCat, product)}
+                                  highlighted={focusOverrideId === product.id}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </>
           )}
-        </section>
-      </div>
+      </section>
     </div>
   );
 };
