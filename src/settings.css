@@ -4697,6 +4697,23 @@
   box-shadow: 0 0 0 1px rgba(245, 130, 32, 0.45);
 }
 
+.price-levels-tab__cat-tile.is-spare .catalog-category-card {
+  min-height: 7.5rem;
+}
+
+.price-levels-tab__spare-hint {
+  font-size: 0.6875rem;
+  font-weight: 650;
+  color: #94a3b8;
+}
+
+.price-levels-tab__items-mode--spare .price-levels-tab__items-chrome {
+  border-color: rgba(56, 189, 248, 0.35);
+  background:
+    linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.96) 2.25rem),
+    rgba(15, 23, 42, 0.96);
+}
+
 .price-levels-tab__cat-badge {
   position: absolute;
   z-index: 2;
@@ -4966,8 +4983,8 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  max-height: 9.5rem;
+  gap: 0.4rem;
+  max-height: min(22rem, 42vh);
   overflow: auto;
 }
 
@@ -4975,26 +4992,111 @@
   margin: 0;
 }
 
-.price-levels-tab__item-list > li {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(6.5rem, auto) auto auto;
-  gap: 0.35rem;
-  align-items: center;
-  padding: 0.35rem 0.45rem;
+.price-levels-tab__item-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem;
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.45);
   border: 1px solid transparent;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.price-levels-tab__item-list > li.is-focus {
+.price-levels-tab__item-row.is-focus {
   border-color: rgba(245, 130, 32, 0.55);
   background: rgba(245, 130, 32, 0.12);
 }
 
-.price-levels-tab__item-list > li select {
+.price-levels-tab__item-row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(6.5rem, auto) auto auto;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.price-levels-tab__item-row-main select {
   min-width: 0;
   font-size: 0.75rem;
+}
+
+.price-levels-tab__slabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.price-levels-tab__slabs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.price-levels-tab__slabs-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.35);
+  color: #fdba74;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.price-levels-tab__slabs-add:hover {
+  border-color: rgba(245, 130, 32, 0.45);
+}
+
+.price-levels-tab__slabs-hint {
+  margin: 0;
+}
+
+.price-levels-tab__slabs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.price-levels-tab__slabs-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.price-levels-tab__slabs-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #94a3b8;
+}
+
+.price-levels-tab__slabs-list input[type='number'] {
+  width: 4.25rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.45);
+  color: inherit;
+  padding: 0.3rem 0.4rem;
+  font: inherit;
 }
 
 .price-levels-tab__item-meta {
@@ -5053,11 +5155,11 @@
     grid-template-columns: 1fr;
   }
 
-  .price-levels-tab__item-list > li {
+  .price-levels-tab__item-row-main {
     grid-template-columns: 1fr 1fr;
   }
 
-  .price-levels-tab__item-list > li .price-levels-tab__item-meta {
+  .price-levels-tab__item-row-main .price-levels-tab__item-meta {
     grid-column: 1 / -1;
   }
 

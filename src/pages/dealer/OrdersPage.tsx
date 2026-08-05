@@ -400,6 +400,22 @@ const DealerCartPage: React.FC = () => {
                         </>
                       )}
                       <span className="text-muted text-sm">/ {item.unit}</span>
+                      {item.priceLevelSlabs && item.priceLevelSlabs.length > 1 ? (
+                        <ul className="orders-page__item-slabs" aria-label="Quantity rates">
+                          {item.priceLevelSlabs.map((slab, idx) => {
+                            const next = item.priceLevelSlabs![idx + 1];
+                            const label = next
+                              ? `Qty ${slab.minQty}–${next.minQty - 1}`
+                              : `Qty ${slab.minQty}+`;
+                            return (
+                              <li key={`${slab.minQty}-${slab.rate}`}>
+                                <span>{label}</span>
+                                <span>₹{slab.rate.toLocaleString('en-IN')}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
                     </div>
                     {item.gatcFeePerUnit > 0 ? (
                       <span className="orders-page__item-price-breakdown text-muted">

@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { combinedCartRate, newCartLineId } from '../lib/gatcCart';
 import { catalogProductIgnoresStockForCart } from '../lib/catalog';
 import {
+  normalizePriceLevelSlabs,
   resolveDealerUnitPrice,
   subscribePriceLevels,
 } from '../lib/priceLevels';
 import { effectiveCatalogStockStatus } from '../lib/sacCatalog';
 import type { CatalogProduct } from '../types/catalog';
-import type { PriceLevel } from '../types/priceLevels';
+import type { PriceLevel, PriceLevelQtySlab } from '../types/priceLevels';
 import {
   cartItemFromProduct,
   type AddCartItemOptions,
@@ -56,6 +57,9 @@ function normalizeCartItem(raw: Partial<CartItem> & { productId?: string }): Car
       || raw.priceLevelMode === 'fixed'
       ? raw.priceLevelMode
       : (raw.priceLevelMode === 'none' ? 'none' : null),
+    priceLevelSlabs: Array.isArray(raw.priceLevelSlabs)
+      ? normalizePriceLevelSlabs(raw.priceLevelSlabs)
+      : null,
     gatcFeePerUnit,
     gatcStampingPriceId,
     gatcStampingRange: gatcStampingPriceId
@@ -185,14 +189,21 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: item.productId,
           rate: catalogList,
           categoryId: item.categoryId ?? null,
-        });
+          categoryName: item.categoryName ?? null,
+        }, item.quantity);
         const baseRate = priced.chargeRate;
         const listRate = priced.listRate;
         const priceLevelMode = priced.mode;
+        const priceLevelSlabs: PriceLevelQtySlab[] | null = priced.slabs.length
+          ? priced.slabs
+          : null;
+        const slabsKey = JSON.stringify(priceLevelSlabs ?? []);
+        const prevSlabsKey = JSON.stringify(item.priceLevelSlabs ?? []);
         if (
           item.baseRate === baseRate
           && item.listRate === listRate
           && (item.priceLevelMode ?? null) === priceLevelMode
+          && slabsKey === prevSlabsKey
         ) {
           return item;
         }
@@ -202,6 +213,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           baseRate,
           listRate,
           priceLevelMode,
+          priceLevelSlabs,
           rate: combinedCartRate(baseRate, item.gatcFeePerUnit),
         };
       });
@@ -243,12 +255,19 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       : null;
     let priceLevelMode = opts.priceLevelMode ?? null;
 
+    let priceLevelSlabs: PriceLevelQtySlab[] | null = null;
     if (opts.baseRateOverride == null && dealerId) {
-      const priced = resolveDealerUnitPrice(priceLevelsRef.current, dealerId, product);
+      const priced = resolveDealerUnitPrice(
+        priceLevelsRef.current,
+        dealerId,
+        product,
+        quantity,
+      );
       baseRate = priced.chargeRate;
       priceLevelMode = priced.mode;
       // Keep catalog list on the line so hike/discount can be re-resolved later.
       listRate = priced.listRate;
+      priceLevelSlabs = priced.slabs.length ? priced.slabs : null;
     }
 
     setItems(prev => {
@@ -257,25 +276,43 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           && sameGatcKey(item.gatcStampingPriceId, gatcStampingPriceId),
       );
       if (existing) {
+        const nextQty = existing.quantity + quantity;
+        let nextBase = baseRate;
+        let nextList = listRate;
+        let nextMode = priceLevelMode;
+        let nextSlabs = priceLevelSlabs;
+        if (opts.baseRateOverride == null && dealerId) {
+          const priced = resolveDealerUnitPrice(
+            priceLevelsRef.current,
+            dealerId,
+            product,
+            nextQty,
+          );
+          nextBase = priced.chargeRate;
+          nextList = priced.listRate;
+          nextMode = priced.mode;
+          nextSlabs = priced.slabs.length ? priced.slabs : null;
+        }
         return prev.map(item =>
           item.cartLineId === existing.cartLineId
             ? {
                 ...item,
-                baseRate,
-                listRate,
-                priceLevelMode,
+                baseRate: nextBase,
+                listRate: nextList,
+                priceLevelMode: nextMode,
+                priceLevelSlabs: nextSlabs,
                 gatcFeePerUnit,
                 gatcStampingPriceId,
                 gatcStampingRange: gatcStampingPriceId
                   ? (opts.gatcStampingRange?.trim() || item.gatcStampingRange || null)
                   : null,
-                rate: combinedCartRate(baseRate, gatcFeePerUnit),
+                rate: combinedCartRate(nextBase, gatcFeePerUnit),
                 stockStatus,
                 hsn: product.hsn ?? item.hsn ?? null,
                 name: product.name,
                 description: product.description?.trim() || item.description || null,
                 sku: product.sku ?? item.sku,
-                quantity: item.quantity + quantity,
+                quantity: nextQty,
               }
             : item,
         );
@@ -287,6 +324,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         baseRateOverride: baseRate,
         listRate,
         priceLevelMode,
+        priceLevelSlabs,
       });
       const afterId = String(opts.insertAfterCartLineId ?? '').trim();
       if (afterId) {
@@ -311,10 +349,32 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setItems(prev => prev.filter(item => item.cartLineId !== cartLineId));
       return;
     }
+    const qty = Math.max(1, Math.floor(quantity));
     setItems(prev =>
-      prev.map(item => (item.cartLineId === cartLineId ? { ...item, quantity } : item)),
+      prev.map(item => {
+        if (item.cartLineId !== cartLineId) return item;
+        if (!dealerId) return { ...item, quantity: qty };
+        const catalogList = item.listRate != null && Number.isFinite(item.listRate)
+          ? item.listRate
+          : item.baseRate;
+        const priced = resolveDealerUnitPrice(priceLevelsRef.current, dealerId, {
+          id: item.productId,
+          rate: catalogList,
+          categoryId: item.categoryId ?? null,
+          categoryName: item.categoryName ?? null,
+        }, qty);
+        return {
+          ...item,
+          quantity: qty,
+          baseRate: priced.chargeRate,
+          listRate: priced.listRate,
+          priceLevelMode: priced.mode,
+          priceLevelSlabs: priced.slabs.length ? priced.slabs : null,
+          rate: combinedCartRate(priced.chargeRate, item.gatcFeePerUnit),
+        };
+      }),
     );
-  }, []);
+  }, [dealerId]);
 
   const updateStamping = useCallback((cartLineId: string, input: UpdateCartStampingInput) => {
     setItems(prev => {

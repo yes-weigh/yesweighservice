@@ -375,7 +375,12 @@ async function buildLinesFromInput(rawLines, {
     let levelId = null;
     let levelName = null;
     if (priceLevelDealerId && !isFreight) {
-      const priced = resolveDealerUnitPrice(priceLevels, priceLevelDealerId, product);
+      const priced = resolveDealerUnitPrice(
+        priceLevels,
+        priceLevelDealerId,
+        product,
+        entry.quantity,
+      );
       if (priced.mode !== 'none') {
         levelBase = priced.chargeRate;
         levelId = priced.levelId;

@@ -1,6 +1,7 @@
 import type { CatalogProduct, StockStatus } from './catalog';
 import { combinedCartRate, newCartLineId } from '../lib/gatcCart';
 import { effectiveCatalogStockStatus } from '../lib/sacCatalog';
+import type { PriceLevelQtySlab } from './priceLevels';
 
 export interface CartItem {
   /** Stable row id — same product can appear twice (with / without stamping). */
@@ -25,6 +26,8 @@ export interface CartItem {
   listRate?: number | null;
   /** Price-level mode applied to baseRate, if any. */
   priceLevelMode?: 'none' | 'discount' | 'increment' | 'fixed' | null;
+  /** Qty slab table for dealer display when this line uses fixed slabs. */
+  priceLevelSlabs?: PriceLevelQtySlab[] | null;
   /** Fixed GATC fee per unit from Product settings (0 if without stamping). */
   gatcFeePerUnit: number;
   /** Selected GATC entry id; null/undefined = without stamping. */
@@ -52,6 +55,7 @@ export type AddCartItemOptions = {
   /** List rate to show alongside a discount charge rate. */
   listRate?: number | null;
   priceLevelMode?: 'none' | 'discount' | 'increment' | 'fixed' | null;
+  priceLevelSlabs?: PriceLevelQtySlab[] | null;
 };
 
 export function cartItemFromProduct(
@@ -69,6 +73,9 @@ export function cartItemFromProduct(
   const listRate = options.listRate != null && Number.isFinite(Number(options.listRate))
     ? Math.round(Number(options.listRate) * 100) / 100
     : null;
+  const priceLevelSlabs = Array.isArray(options.priceLevelSlabs) && options.priceLevelSlabs.length
+    ? options.priceLevelSlabs
+    : null;
   return {
     cartLineId: newCartLineId(),
     productId: product.id,
@@ -79,6 +86,7 @@ export function cartItemFromProduct(
     baseRate,
     listRate,
     priceLevelMode,
+    priceLevelSlabs,
     gatcFeePerUnit: gatcStampingPriceId ? gatcFeePerUnit : 0,
     gatcStampingPriceId,
     gatcStampingRange: gatcStampingPriceId

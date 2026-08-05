@@ -1,5 +1,6 @@
 import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { isGenericSparePartsCategory } from './catalog';
 import type { CatalogProduct } from '../types/catalog';
 import type {
   DealerUnitPrice,
@@ -7,11 +8,31 @@ import type {
   PriceLevelCategoryRule,
   PriceLevelItemRule,
   PriceLevelItemRuleKind,
+  PriceLevelQtySlab,
   PriceLevelRuleMode,
   PriceLevelsDoc,
 } from '../types/priceLevels';
+import {
+  SPARE_PRICE_LEVEL_CATEGORY_ID,
+  SPARE_PRICE_LEVEL_CATEGORY_NAME,
+} from '../types/priceLevels';
 
 export const PRICE_LEVELS_DOC_ID = 'priceLevels';
+export { SPARE_PRICE_LEVEL_CATEGORY_ID, SPARE_PRICE_LEVEL_CATEGORY_NAME };
+
+export function isSparePriceLevelCategoryId(id: string | null | undefined): boolean {
+  return String(id ?? '').trim() === SPARE_PRICE_LEVEL_CATEGORY_ID;
+}
+
+/** Uncategorized or Generic Spare Parts — uses the synthetic spare price-level bucket. */
+export function productUsesSparePriceLevel(
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+): boolean {
+  const catId = String(product.categoryId ?? '').trim();
+  if (!catId) return true;
+  const name = String(product.categoryName ?? '').trim();
+  return Boolean(name && isGenericSparePartsCategory({ name }));
+}
 
 const LIVE_SAVE_MS = 450;
 
@@ -44,6 +65,65 @@ function normalizeItemKind(raw: unknown): PriceLevelItemRuleKind {
   return 'discount';
 }
 
+function clampQty(raw: unknown): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(n, 1_000_000);
+}
+
+/** Normalize + sort qty slabs; dedupe by minQty (last wins). */
+export function normalizePriceLevelSlabs(raw: unknown): PriceLevelQtySlab[] {
+  if (!Array.isArray(raw)) return [];
+  const byQty = new Map<number, number>();
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const item = row as Record<string, unknown>;
+    const minQty = clampQty(item.minQty ?? item.qty ?? item.fromQty);
+    const rate = clampMoney(item.rate ?? item.customRate ?? item.price);
+    byQty.set(minQty, rate);
+  }
+  return [...byQty.entries()]
+    .map(([minQty, rate]) => ({ minQty, rate }))
+    .sort((a, b) => a.minQty - b.minQty);
+}
+
+/** Unit ₹ for qty from sorted slabs (highest minQty ≤ qty). */
+export function resolveSlabUnitRate(
+  slabs: PriceLevelQtySlab[],
+  quantity: number,
+  fallbackRate: number,
+): number {
+  const list = normalizePriceLevelSlabs(slabs);
+  if (!list.length) return roundMoney(Number(fallbackRate) || 0);
+  const qty = clampQty(quantity);
+  let rate = list[0].rate;
+  for (const slab of list) {
+    if (qty >= slab.minQty) rate = slab.rate;
+    else break;
+  }
+  return roundMoney(rate);
+}
+
+/** Dealer-facing labels for qty slabs (e.g. Qty 1–10, Qty 11+). */
+export function formatPriceLevelSlabLabels(
+  slabs: PriceLevelQtySlab[],
+): Array<{ minQty: number; maxQty: number | null; label: string; rate: number }> {
+  const list = normalizePriceLevelSlabs(slabs);
+  return list.map((slab, index) => {
+    const next = list[index + 1];
+    const maxQty = next ? next.minQty - 1 : null;
+    const label = maxQty != null && maxQty >= slab.minQty
+      ? `Qty ${slab.minQty}–${maxQty}`
+      : `Qty ${slab.minQty}+`;
+    return {
+      minQty: slab.minQty,
+      maxQty,
+      label,
+      rate: slab.rate,
+    };
+  });
+}
+
 function normalizeItemRule(raw: unknown): PriceLevelItemRule | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
@@ -51,13 +131,21 @@ function normalizeItemRule(raw: unknown): PriceLevelItemRule | null {
   if (!productId) return null;
   const kind = normalizeItemKind(row.kind);
   const customRaw = row.customRate ?? row.fixedRate;
+  const slabs = kind === 'fixed' ? normalizePriceLevelSlabs(row.slabs) : [];
+  let customRate: number | null = null;
+  if (kind === 'fixed') {
+    customRate = slabs.length > 0
+      ? slabs[0].rate
+      : clampMoney(customRaw);
+  }
   return {
     productId,
     productName: String(row.productName ?? '').trim() || productId,
     sku: row.sku != null && String(row.sku).trim() ? String(row.sku).trim() : null,
     kind,
     percent: kind === 'except' || kind === 'fixed' ? 0 : clampPercent(row.percent),
-    customRate: kind === 'fixed' ? clampMoney(customRaw) : null,
+    customRate,
+    slabs,
   };
 }
 
@@ -156,6 +244,7 @@ export function categoryRuleHasEffect(rule: PriceLevelCategoryRule): boolean {
   return rule.itemRules.some(item => (
     item.kind === 'except'
     || item.kind === 'fixed'
+    || item.slabs.length > 0
     || item.percent > 0
   ));
 }
@@ -216,48 +305,46 @@ function nonePrice(
     levelName: level?.name ?? null,
     categoryId,
     itemOverride,
+    slabs: [],
   };
 }
 
-export function resolveDealerUnitPrice(
-  levels: PriceLevel[],
-  dealerId: string | null | undefined,
-  product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId'>,
+function applyItemOrCategoryRule(
+  listRate: number,
+  level: PriceLevel,
+  rule: PriceLevelCategoryRule,
+  productId: string,
+  reportCategoryId: string | null,
+  quantity: number,
 ): DealerUnitPrice {
-  const listRate = roundMoney(Number(product.rate) || 0);
-  const level = findPriceLevelForDealer(levels, dealerId);
-  const categoryId = String(product.categoryId ?? '').trim() || null;
-  const productId = String(product.id ?? '').trim();
-  if (!level || !categoryId) {
-    return nonePrice(listRate, level, categoryId);
-  }
-  const rule = level.categoryRules.find(r => r.categoryId === categoryId);
-  if (!rule) {
-    return nonePrice(listRate, level, categoryId);
-  }
-
   const itemRule = productId
     ? rule.itemRules.find(r => r.productId === productId)
     : undefined;
 
   if (itemRule) {
     if (itemRule.kind === 'except') {
-      return nonePrice(listRate, level, categoryId, true);
+      return nonePrice(listRate, level, reportCategoryId, true);
     }
     if (itemRule.kind === 'fixed') {
+      const slabs = normalizePriceLevelSlabs(itemRule.slabs);
+      const fallback = roundMoney(Number(itemRule.customRate) || 0);
+      const chargeRate = slabs.length > 0
+        ? resolveSlabUnitRate(slabs, quantity, fallback)
+        : fallback;
       return {
         listRate,
-        chargeRate: roundMoney(Number(itemRule.customRate) || 0),
+        chargeRate,
         mode: 'fixed',
         percent: 0,
         levelId: level.id,
         levelName: level.name,
-        categoryId,
+        categoryId: reportCategoryId,
         itemOverride: true,
+        slabs,
       };
     }
     if (itemRule.percent <= 0) {
-      return nonePrice(listRate, level, categoryId, true);
+      return nonePrice(listRate, level, reportCategoryId, true);
     }
     return {
       listRate,
@@ -266,13 +353,14 @@ export function resolveDealerUnitPrice(
       percent: itemRule.percent,
       levelId: level.id,
       levelName: level.name,
-      categoryId,
+      categoryId: reportCategoryId,
       itemOverride: true,
+      slabs: [],
     };
   }
 
   if (rule.percent <= 0) {
-    return nonePrice(listRate, level, categoryId);
+    return nonePrice(listRate, level, reportCategoryId);
   }
   return {
     listRate,
@@ -281,9 +369,58 @@ export function resolveDealerUnitPrice(
     percent: rule.percent,
     levelId: level.id,
     levelName: level.name,
-    categoryId,
+    categoryId: reportCategoryId,
     itemOverride: false,
+    slabs: [],
   };
+}
+
+export function resolveDealerUnitPrice(
+  levels: PriceLevel[],
+  dealerId: string | null | undefined,
+  product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'>,
+  quantity = 1,
+): DealerUnitPrice {
+  const listRate = roundMoney(Number(product.rate) || 0);
+  const level = findPriceLevelForDealer(levels, dealerId);
+  const categoryId = String(product.categoryId ?? '').trim() || null;
+  const productId = String(product.id ?? '').trim();
+  const qty = clampQty(quantity);
+  if (!level) {
+    return nonePrice(listRate, null, categoryId);
+  }
+
+  const spareRule = level.categoryRules.find(r => r.categoryId === SPARE_PRICE_LEVEL_CATEGORY_ID);
+  const categoryRule = categoryId
+    ? level.categoryRules.find(r => r.categoryId === categoryId)
+    : undefined;
+  const useSpareBucket = productUsesSparePriceLevel(product);
+
+  if (useSpareBucket && spareRule) {
+    const priced = applyItemOrCategoryRule(
+      listRate,
+      level,
+      spareRule,
+      productId,
+      SPARE_PRICE_LEVEL_CATEGORY_ID,
+      qty,
+    );
+    // Spare bucket decided a non-list charge, or an explicit item override.
+    if (priced.itemOverride || priced.mode !== 'none') {
+      return priced;
+    }
+  }
+
+  // Legacy: rules stored on the Zoho Generic Spare Parts category id.
+  if (useSpareBucket && categoryRule && categoryId) {
+    return applyItemOrCategoryRule(listRate, level, categoryRule, productId, categoryId, qty);
+  }
+
+  if (!useSpareBucket && categoryRule && categoryId) {
+    return applyItemOrCategoryRule(listRate, level, categoryRule, productId, categoryId, qty);
+  }
+
+  return nonePrice(listRate, level, categoryId);
 }
 
 export async function loadPriceLevels(): Promise<PriceLevelsDoc> {

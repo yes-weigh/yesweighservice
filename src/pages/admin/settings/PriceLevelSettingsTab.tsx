@@ -14,7 +14,14 @@ import {
 import { CategoryBrowseCard } from '../../../components/catalog/CategoryBrowseCard';
 import { ProductBrowseCard } from '../../../components/catalog/ProductBrowseCard';
 import { useAuth } from '../../../context/AuthContext';
-import { fetchCatalog, isHiddenCatalogCategory } from '../../../lib/catalog';
+import {
+  excludeHiddenCatalogProducts,
+  fetchCatalog,
+  getCatalogSparePartsPool,
+  getShopCatalogCategories,
+  getShopCatalogProducts,
+  isGenericSparePartsCategory,
+} from '../../../lib/catalog';
 import {
   ensureDealersCached,
   peekCachedDealers,
@@ -26,10 +33,14 @@ import {
   createEmptyPriceLevel,
   emptyCategoryRule,
   enforceUniqueDealerAssignments,
+  isSparePriceLevelCategoryId,
   loadPriceLevels,
+  normalizePriceLevelSlabs,
   priceLevelsEqual,
   priceLevelsLiveSaveMs,
   savePriceLevels,
+  SPARE_PRICE_LEVEL_CATEGORY_ID,
+  SPARE_PRICE_LEVEL_CATEGORY_NAME,
 } from '../../../lib/priceLevels';
 import type { CatalogCategory, CatalogProduct } from '../../../types/catalog';
 import type { ZohoDealer } from '../../../types/dealers';
@@ -38,6 +49,7 @@ import type {
   PriceLevelCategoryRule,
   PriceLevelItemRule,
   PriceLevelItemRuleKind,
+  PriceLevelQtySlab,
   PriceLevelRuleMode,
 } from '../../../types/priceLevels';
 
@@ -64,8 +76,10 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const [levels, setLevels] = useState<PriceLevel[]>([]);
   const [savedLevels, setSavedLevels] = useState<PriceLevel[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Shop + synthetic Spare parts card (catalogue-aligned). */
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
+  const [spareProducts, setSpareProducts] = useState<CatalogProduct[]>([]);
   const [dealerNames, setDealerNames] = useState<Record<string, string>>({});
   const [allDealers, setAllDealers] = useState<ZohoDealer[]>(() => peekCachedDealers() ?? []);
   const [dealersLoading, setDealersLoading] = useState(() => !(peekCachedDealers()?.length));
@@ -123,16 +137,21 @@ export const PriceLevelSettingsTab: React.FC = () => {
     const map = new Map<string, CatalogProduct[]>();
     for (const product of products) {
       const catId = String(product.categoryId ?? '').trim();
-      if (!catId) continue;
+      if (!catId || isGenericSparePartsCategory({ name: product.categoryName || '' })) {
+        continue;
+      }
       const list = map.get(catId) ?? [];
       list.push(product);
       map.set(catId, list);
     }
-    for (const list of map.values()) {
+    const spares = [...spareProducts].sort((a, b) => a.name.localeCompare(b.name));
+    map.set(SPARE_PRICE_LEVEL_CATEGORY_ID, spares);
+    for (const [key, list] of map.entries()) {
+      if (key === SPARE_PRICE_LEVEL_CATEGORY_ID) continue;
       list.sort((a, b) => a.name.localeCompare(b.name));
     }
     return map;
-  }, [products]);
+  }, [products, spareProducts]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -147,17 +166,29 @@ export const PriceLevelSettingsTab: React.FC = () => {
       setSelectedId(prev => prev && docData.levels.some(l => l.id === prev)
         ? prev
         : (docData.levels[0]?.id ?? null));
-      // Same browse filter as catalogue: drop hidden names (e.g. Inactive, Stamping) and empty cats.
-      setCategories(
-        [...catalog.categories]
-          .filter(c => c.id && c.productCount > 0 && !isHiddenCatalogCategory(c))
-          .sort((a, b) => {
-            const orderDiff = a.displayOrder - b.displayOrder;
-            if (orderDiff !== 0) return orderDiff;
-            return a.name.localeCompare(b.name);
-          }),
+
+      const allItems = catalog.items ?? [];
+      const allCats = catalog.categories ?? [];
+      const shopProducts = excludeHiddenCatalogProducts(
+        getShopCatalogProducts(allItems, allCats),
+        allCats,
       );
-      setProducts(catalog.items ?? []);
+      const spares = getCatalogSparePartsPool(allItems, allCats);
+      setProducts(shopProducts);
+      setSpareProducts(spares);
+
+      // Same category cards as catalogue Categories tab, but one Spare parts card
+      // for the full spare pool (generic + uncategorized) — not Zoho generic alone.
+      const shopCats = getShopCatalogCategories(allCats, shopProducts, spares)
+        .filter(c => !isGenericSparePartsCategory(c));
+      const spareCard: CatalogCategory = {
+        id: SPARE_PRICE_LEVEL_CATEGORY_ID,
+        name: SPARE_PRICE_LEVEL_CATEGORY_NAME,
+        productCount: spares.length,
+        displayOrder: 9999,
+        thumbnailUrl: allCats.find(isGenericSparePartsCategory)?.thumbnailUrl ?? null,
+      };
+      setCategories(spares.length > 0 ? [...shopCats, spareCard] : shopCats);
 
       const allDealerIds = [...new Set(docData.levels.flatMap(l => l.dealerIds))];
       if (allDealerIds.length) {
@@ -362,12 +393,22 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const upsertItemRule = (
     category: CatalogCategory,
     product: CatalogProduct,
-    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent' | 'customRate'>>,
+    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent' | 'customRate' | 'slabs'>>,
   ) => {
     const existing = ensureCategoryRule(category);
     const prevItem = existing.itemRules.find(r => r.productId === product.id);
     const kind: PriceLevelItemRuleKind = patch.kind ?? prevItem?.kind ?? 'fixed';
     const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
+    const slabs = kind === 'fixed'
+      ? normalizePriceLevelSlabs(patch.slabs !== undefined ? patch.slabs : (prevItem?.slabs ?? []))
+      : [];
+    const customRate = kind === 'fixed'
+      ? (slabs.length > 0
+        ? slabs[0].rate
+        : (patch.customRate !== undefined
+          ? patch.customRate
+          : (prevItem?.customRate ?? listRate)))
+      : null;
     const nextItem: PriceLevelItemRule = {
       productId: product.id,
       productName: product.name,
@@ -376,11 +417,8 @@ export const PriceLevelSettingsTab: React.FC = () => {
       percent: kind === 'except' || kind === 'fixed'
         ? 0
         : (patch.percent !== undefined ? patch.percent : (prevItem?.percent ?? 0)),
-      customRate: kind === 'fixed'
-        ? (patch.customRate !== undefined
-          ? patch.customRate
-          : (prevItem?.customRate ?? listRate))
-        : null,
+      customRate,
+      slabs,
     };
     const itemRules = [
       ...existing.itemRules.filter(r => r.productId !== product.id),
@@ -417,7 +455,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const updateItemRule = (
     category: CatalogCategory,
     productId: string,
-    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent' | 'customRate'>>,
+    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent' | 'customRate' | 'slabs'>>,
   ) => {
     const existing = ensureCategoryRule(category);
     const prevItem = existing.itemRules.find(r => r.productId === productId);
@@ -426,21 +464,44 @@ export const PriceLevelSettingsTab: React.FC = () => {
     const catalogProduct = (productsByCategory.get(category.id) ?? [])
       .find(p => p.id === productId);
     const listRate = Math.round((Number(catalogProduct?.rate) || 0) * 100) / 100;
+    const slabs = kind === 'fixed'
+      ? normalizePriceLevelSlabs(patch.slabs !== undefined ? patch.slabs : prevItem.slabs)
+      : [];
+    let customRate: number | null = null;
+    if (kind === 'fixed') {
+      if (patch.customRate !== undefined && slabs.length === 0) {
+        customRate = patch.customRate;
+      } else if (slabs.length > 0) {
+        customRate = slabs[0].rate;
+      } else {
+        customRate = prevItem.customRate ?? listRate;
+      }
+    }
     const nextItem: PriceLevelItemRule = {
       ...prevItem,
       kind,
       percent: kind === 'except' || kind === 'fixed'
         ? 0
         : (patch.percent !== undefined ? patch.percent : prevItem.percent),
-      customRate: kind === 'fixed'
-        ? (patch.customRate !== undefined
-          ? patch.customRate
-          : (prevItem.customRate ?? listRate))
-        : null,
+      customRate,
+      slabs,
     };
     replaceCategoryRule({
       ...existing,
       itemRules: existing.itemRules.map(r => (r.productId === productId ? nextItem : r)),
+    });
+  };
+
+  const setItemSlabs = (
+    category: CatalogCategory,
+    productId: string,
+    slabs: PriceLevelQtySlab[],
+  ) => {
+    const normalized = normalizePriceLevelSlabs(slabs);
+    updateItemRule(category, productId, {
+      kind: 'fixed',
+      slabs: normalized,
+      customRate: normalized[0]?.rate,
     });
   };
 
@@ -641,11 +702,12 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     return (
                       <>
                         <p className="text-muted text-sm">
-                          Tap a category to set its % and browse items for overrides.
+                          Tap a category (or Spare parts) to set its % and browse items for overrides.
                         </p>
                         <div className="catalog-categories catalog-categories--bare price-levels-tab__cat-grid">
                           <div className="catalog-categories__grid">
                             {categories.map((cat, idx) => {
+                              const isSpare = isSparePriceLevelCategoryId(cat.id);
                               const rule = rulesByCategoryId.get(cat.id);
                               const active = categoryRuleHasEffect(
                                 rule ?? emptyCategoryRule(cat.id, cat.name),
@@ -663,6 +725,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                                   key={cat.id}
                                   className={[
                                     'price-levels-tab__cat-tile',
+                                    isSpare ? 'is-spare' : '',
                                     active ? 'is-active' : '',
                                   ].filter(Boolean).join(' ')}
                                 >
@@ -672,6 +735,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                                   <CategoryBrowseCard
                                     category={cat}
                                     index={idx}
+                                    simple={isSpare}
                                     onClick={() => {
                                       setRuleCategoryId(cat.id);
                                       setItemQuery('');
@@ -695,6 +759,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     rule ?? emptyCategoryRule(editCat.id, editCat.name),
                   );
                   const usedItemIds = new Set(itemRules.map(r => r.productId));
+                  const isSpareEdit = isSparePriceLevelCategoryId(editCat.id);
                   const catProducts = productsByCategory.get(editCat.id) ?? [];
                   const q = itemQuery.trim().toLowerCase();
                   const browseProducts = q
@@ -705,7 +770,13 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     : catProducts;
 
                   return (
-                    <div className="price-levels-tab__items-mode" aria-label={`Items in ${editCat.name}`}>
+                    <div
+                      className={[
+                        'price-levels-tab__items-mode',
+                        isSpareEdit ? 'price-levels-tab__items-mode--spare' : '',
+                      ].filter(Boolean).join(' ')}
+                      aria-label={isSpareEdit ? 'Spare parts overrides' : `Items in ${editCat.name}`}
+                    >
                       <div className="price-levels-tab__items-chrome">
                         <div className="price-levels-tab__items-chrome-row">
                           <button
@@ -718,6 +789,11 @@ export const PriceLevelSettingsTab: React.FC = () => {
                           </button>
                           <div className="price-levels-tab__items-chrome-title">
                             <strong>{editCat.name}</strong>
+                            {isSpareEdit ? (
+                              <span className="price-levels-tab__spare-hint">
+                                Generic + uncategorized pool
+                              </span>
+                            ) : null}
                             {active ? (
                               <span className="price-levels-tab__rule-editor-pill">
                                 {percent > 0
@@ -802,89 +878,209 @@ export const PriceLevelSettingsTab: React.FC = () => {
                           </div>
                           {itemRules.length > 0 ? (
                             <ul className="price-levels-tab__item-list">
-                              {itemRules.map(item => (
-                                <li
-                                  key={item.productId}
-                                  ref={el => {
-                                    if (el) overrideRowRefs.current.set(item.productId, el);
-                                    else overrideRowRefs.current.delete(item.productId);
-                                  }}
-                                  className={
-                                    focusOverrideId === item.productId ? 'is-focus' : undefined
-                                  }
-                                >
-                                  <div className="price-levels-tab__item-meta">
-                                    <strong>{item.productName}</strong>
-                                    {item.sku ? (
-                                      <span className="text-muted text-sm">{item.sku}</span>
+                              {itemRules.map(item => {
+                                const slabs = item.kind === 'fixed'
+                                  ? normalizePriceLevelSlabs(item.slabs)
+                                  : [];
+                                const hasSlabs = slabs.length > 0;
+                                return (
+                                  <li
+                                    key={item.productId}
+                                    ref={el => {
+                                      if (el) overrideRowRefs.current.set(item.productId, el);
+                                      else overrideRowRefs.current.delete(item.productId);
+                                    }}
+                                    className={[
+                                      'price-levels-tab__item-row',
+                                      focusOverrideId === item.productId ? 'is-focus' : '',
+                                    ].filter(Boolean).join(' ')}
+                                  >
+                                    <div className="price-levels-tab__item-row-main">
+                                      <div className="price-levels-tab__item-meta">
+                                        <strong>{item.productName}</strong>
+                                        {item.sku ? (
+                                          <span className="text-muted text-sm">{item.sku}</span>
+                                        ) : null}
+                                      </div>
+                                      <select
+                                        value={item.kind}
+                                        onChange={e => updateItemRule(editCat, item.productId, {
+                                          kind: e.target.value as PriceLevelItemRuleKind,
+                                        })}
+                                        aria-label={`Override type for ${item.productName}`}
+                                      >
+                                        <option value="fixed">Custom ₹</option>
+                                        <option value="except">Except (list)</option>
+                                        <option value="discount">Disc. %</option>
+                                        <option value="increment">Hike %</option>
+                                      </select>
+                                      {item.kind === 'except' ? (
+                                        <span className="price-levels-tab__item-except-label">
+                                          List
+                                        </span>
+                                      ) : item.kind === 'fixed' && !hasSlabs ? (
+                                        <label className="price-levels-tab__custom-rate">
+                                          <span>₹</span>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            step={0.01}
+                                            value={item.customRate == null || item.customRate === 0
+                                              ? ''
+                                              : item.customRate}
+                                            placeholder="0"
+                                            onChange={e => {
+                                              const v = e.target.value;
+                                              updateItemRule(editCat, item.productId, {
+                                                customRate: v === '' ? 0 : Number(v),
+                                                slabs: [],
+                                              });
+                                            }}
+                                            aria-label={`Custom price for ${item.productName}`}
+                                          />
+                                        </label>
+                                      ) : item.kind === 'fixed' && hasSlabs ? (
+                                        <span className="price-levels-tab__item-except-label">
+                                          {slabs.length} slabs
+                                        </span>
+                                      ) : (
+                                        <label className="price-levels-tab__percent">
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            max={1000}
+                                            step={0.1}
+                                            value={item.percent === 0 ? '' : item.percent}
+                                            placeholder="0"
+                                            onChange={e => {
+                                              const v = e.target.value;
+                                              updateItemRule(editCat, item.productId, {
+                                                percent: v === '' ? 0 : Number(v),
+                                              });
+                                            }}
+                                            aria-label={`Percent for ${item.productName}`}
+                                          />
+                                          <span>%</span>
+                                        </label>
+                                      )}
+                                      <button
+                                        type="button"
+                                        className="price-levels-tab__rule-delete"
+                                        aria-label={`Remove item rule for ${item.productName}`}
+                                        onClick={() => removeItemRule(editCat, item.productId)}
+                                      >
+                                        <X size={14} aria-hidden />
+                                      </button>
+                                    </div>
+
+                                    {item.kind === 'fixed' ? (
+                                      <div className="price-levels-tab__slabs">
+                                        <div className="price-levels-tab__slabs-head">
+                                          <span>Qty slabs</span>
+                                          <button
+                                            type="button"
+                                            className="price-levels-tab__slabs-add"
+                                            onClick={() => {
+                                              const base = hasSlabs
+                                                ? slabs
+                                                : [{
+                                                  minQty: 1,
+                                                  rate: item.customRate ?? 0,
+                                                }];
+                                              const last = base[base.length - 1];
+                                              setItemSlabs(editCat, item.productId, [
+                                                ...base,
+                                                {
+                                                  minQty: (last?.minQty ?? 1) + 10,
+                                                  rate: last?.rate ?? item.customRate ?? 0,
+                                                },
+                                              ]);
+                                            }}
+                                          >
+                                            <Plus size={12} aria-hidden />
+                                            Add slab
+                                          </button>
+                                        </div>
+                                        {hasSlabs ? (
+                                          <ul className="price-levels-tab__slabs-list">
+                                            {slabs.map((slab, slabIdx) => (
+                                              <li key={`${item.productId}-slab-${slab.minQty}-${slabIdx}`}>
+                                                <label>
+                                                  <span>Qty ≥</span>
+                                                  <input
+                                                    type="number"
+                                                    min={1}
+                                                    step={1}
+                                                    value={slab.minQty}
+                                                    onChange={e => {
+                                                      const next = [...slabs];
+                                                      next[slabIdx] = {
+                                                        ...slab,
+                                                        minQty: Math.max(1, Math.floor(Number(e.target.value) || 1)),
+                                                      };
+                                                      setItemSlabs(editCat, item.productId, next);
+                                                    }}
+                                                    aria-label={`Min qty for slab ${slabIdx + 1}`}
+                                                  />
+                                                </label>
+                                                <label className="price-levels-tab__custom-rate">
+                                                  <span>₹</span>
+                                                  <input
+                                                    type="number"
+                                                    min={0}
+                                                    step={0.01}
+                                                    value={slab.rate === 0 ? '' : slab.rate}
+                                                    placeholder="0"
+                                                    onChange={e => {
+                                                      const v = e.target.value;
+                                                      const next = [...slabs];
+                                                      next[slabIdx] = {
+                                                        ...slab,
+                                                        rate: v === '' ? 0 : Number(v),
+                                                      };
+                                                      setItemSlabs(editCat, item.productId, next);
+                                                    }}
+                                                    aria-label={`Rate for slab ${slabIdx + 1}`}
+                                                  />
+                                                </label>
+                                                <button
+                                                  type="button"
+                                                  className="price-levels-tab__rule-delete"
+                                                  aria-label={
+                                                    slabs.length <= 1
+                                                      ? 'Clear qty slabs'
+                                                      : `Remove slab ${slabIdx + 1}`
+                                                  }
+                                                  title={slabs.length <= 1 ? 'Clear qty slabs' : 'Remove slab'}
+                                                  onClick={() => {
+                                                    const next = slabs.filter((_, i) => i !== slabIdx);
+                                                    if (next.length === 0) {
+                                                      updateItemRule(editCat, item.productId, {
+                                                        kind: 'fixed',
+                                                        slabs: [],
+                                                        customRate: slab.rate,
+                                                      });
+                                                      return;
+                                                    }
+                                                    setItemSlabs(editCat, item.productId, next);
+                                                  }}
+                                                >
+                                                  <X size={13} aria-hidden />
+                                                </button>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        ) : (
+                                          <p className="text-muted text-sm price-levels-tab__slabs-hint">
+                                            Single custom ₹ above. Add slabs for qty-based unit rates
+                                            (e.g. 1→₹1900, 11→₹1800).
+                                          </p>
+                                        )}
+                                      </div>
                                     ) : null}
-                                  </div>
-                                  <select
-                                    value={item.kind}
-                                    onChange={e => updateItemRule(editCat, item.productId, {
-                                      kind: e.target.value as PriceLevelItemRuleKind,
-                                    })}
-                                    aria-label={`Override type for ${item.productName}`}
-                                  >
-                                    <option value="fixed">Custom ₹</option>
-                                    <option value="except">Except (list)</option>
-                                    <option value="discount">Disc. %</option>
-                                    <option value="increment">Hike %</option>
-                                  </select>
-                                  {item.kind === 'except' ? (
-                                    <span className="price-levels-tab__item-except-label">
-                                      List
-                                    </span>
-                                  ) : item.kind === 'fixed' ? (
-                                    <label className="price-levels-tab__custom-rate">
-                                      <span>₹</span>
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        step={0.01}
-                                        value={item.customRate == null || item.customRate === 0
-                                          ? ''
-                                          : item.customRate}
-                                        placeholder="0"
-                                        onChange={e => {
-                                          const v = e.target.value;
-                                          updateItemRule(editCat, item.productId, {
-                                            customRate: v === '' ? 0 : Number(v),
-                                          });
-                                        }}
-                                        aria-label={`Custom price for ${item.productName}`}
-                                      />
-                                    </label>
-                                  ) : (
-                                    <label className="price-levels-tab__percent">
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        max={1000}
-                                        step={0.1}
-                                        value={item.percent === 0 ? '' : item.percent}
-                                        placeholder="0"
-                                        onChange={e => {
-                                          const v = e.target.value;
-                                          updateItemRule(editCat, item.productId, {
-                                            percent: v === '' ? 0 : Number(v),
-                                          });
-                                        }}
-                                        aria-label={`Percent for ${item.productName}`}
-                                      />
-                                      <span>%</span>
-                                    </label>
-                                  )}
-                                  <button
-                                    type="button"
-                                    className="price-levels-tab__rule-delete"
-                                    aria-label={`Remove item rule for ${item.productName}`}
-                                    onClick={() => removeItemRule(editCat, item.productId)}
-                                  >
-                                    <X size={14} aria-hidden />
-                                  </button>
-                                </li>
-                              ))}
+                                  </li>
+                                );
+                              })}
                             </ul>
                           ) : (
                             <p className="text-muted text-sm price-levels-tab__item-empty">
@@ -896,7 +1092,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
 
                       <div className="price-levels-tab__browse-head">
                         <span className="price-levels-tab__browse-label">
-                          Browse items
+                          {isSpareEdit ? 'Browse spares' : 'Browse items'}
                           <span className="text-muted">
                             {' '}· {browseProducts.length}
                             {q ? ` of ${catProducts.length}` : ''}
@@ -908,7 +1104,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                             type="search"
                             value={itemQuery}
                             onChange={e => setItemQuery(e.target.value)}
-                            placeholder="Filter products…"
+                            placeholder={isSpareEdit ? 'Filter spares…' : 'Filter products…'}
                             autoComplete="off"
                           />
                         </div>
@@ -917,7 +1113,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                       {browseProducts.length === 0 ? (
                         <p className="text-muted text-sm">
                           {catProducts.length === 0
-                            ? 'No products in this category.'
+                            ? (isSpareEdit ? 'No spare parts in catalog.' : 'No products in this category.')
                             : 'No products match this filter.'}
                         </p>
                       ) : (

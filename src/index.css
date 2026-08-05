@@ -5111,6 +5111,71 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #dc2626;
 }
 
+.dealer-price__slabs {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+}
+
+.dealer-price__slabs li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.45rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.dealer-price__slabs-rate {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.05rem;
+  color: #dc2626;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.dealer-price__slabs-rate svg {
+  color: #dc2626;
+}
+
+.catalog-product-card__price .dealer-price__slabs {
+  max-width: 100%;
+}
+
+.product-detail-page__title-price .dealer-price {
+  align-items: flex-start;
+}
+
+.product-detail-page__title-price .dealer-price__slabs li {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.orders-page__item-slabs {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.orders-page__item-slabs li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 650;
+  color: #94a3b8;
+}
+
 .catalog-product-card__audit {
   margin-top: 0.35rem;
   padding-top: 0.4rem;

@@ -8,7 +8,7 @@ export type DealerPriceLevelContextValue = {
   dealerId: string | null;
   ready: boolean;
   resolveProductPrice: (
-    product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId'> | null | undefined,
+    product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> | null | undefined,
   ) => DealerUnitPrice | null;
 };
 

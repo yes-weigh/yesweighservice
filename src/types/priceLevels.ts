@@ -8,12 +8,27 @@
  * - per-catalog-category % discount or % price increment
  * - optional per-item overrides inside a category
  *   (except / special discount / hike / fixed custom ₹)
+ * - synthetic Spare parts category (`SPARE_PRICE_LEVEL_CATEGORY_ID`) for the
+ *   full spare pool (generic + uncategorized), same as catalogue Spares
  */
+
+/** Virtual category id for spare-pool rules (not a Zoho category). */
+export const SPARE_PRICE_LEVEL_CATEGORY_ID = '__spare_parts__';
+
+export const SPARE_PRICE_LEVEL_CATEGORY_NAME = 'Spare parts';
 
 export type PriceLevelRuleMode = 'discount' | 'increment';
 
 /** Item override inside a category rule. */
 export type PriceLevelItemRuleKind = 'except' | 'discount' | 'increment' | 'fixed';
+
+/** Quantity tier for a fixed item override (unit ₹ from this qty upward). */
+export interface PriceLevelQtySlab {
+  /** Inclusive minimum order qty for this unit rate. */
+  minQty: number;
+  /** Unit price in ₹. */
+  rate: number;
+}
 
 export interface PriceLevelItemRule {
   productId: string;
@@ -22,13 +37,21 @@ export interface PriceLevelItemRule {
   /**
    * except — charge list rate (ignore category %).
    * discount / increment — special % for this item only.
-   * fixed — charge absolute customRate (₹).
+   * fixed — charge absolute customRate (₹), optionally with qty slabs.
    */
   kind: PriceLevelItemRuleKind;
   /** Used when kind is discount / increment. Ignored for except / fixed. */
   percent: number;
-  /** Absolute unit price when kind === 'fixed'. */
+  /**
+   * Absolute unit price when kind === 'fixed' and slabs are empty.
+   * When slabs exist, this mirrors the minQty=1 (or lowest) slab rate.
+   */
   customRate: number | null;
+  /**
+   * Qty → unit ₹ tiers (fixed overrides). Empty = single customRate.
+   * Example: [{ minQty: 1, rate: 1900 }, { minQty: 11, rate: 1800 }]
+   */
+  slabs: PriceLevelQtySlab[];
 }
 
 export interface PriceLevelCategoryRule {
@@ -69,4 +92,6 @@ export interface DealerUnitPrice {
   categoryId: string | null;
   /** True when an item-level override decided the price. */
   itemOverride: boolean;
+  /** Qty slabs for dealer display (empty when none). chargeRate is for the requested qty. */
+  slabs: PriceLevelQtySlab[];
 }
