@@ -14,7 +14,7 @@ type Props = {
 
 /**
  * Catalog / cart unit price for dealers:
- * - discount, or fixed custom below list → strikethrough list + charge (“for you”)
+ * - discount, or fixed custom below list → strikethrough list + charge
  * - increment, or fixed custom at/above list → charge only
  * - qty slabs (when present) listed under the charge rate
  * - none / staff → list
@@ -23,7 +23,7 @@ export const DealerPriceDisplay: React.FC<Props> = ({
   listRate,
   pricing,
   className = '',
-  iconSize = 14,
+  iconSize = 15,
   showSlabs = true,
 }) => {
   const mode = pricing?.mode ?? 'none';
@@ -51,7 +51,6 @@ export const DealerPriceDisplay: React.FC<Props> = ({
           <span className="dealer-price__charge">
             <IndianRupee size={iconSize} strokeWidth={2.5} aria-hidden />
             <span>{charge.toLocaleString('en-IN')}</span>
-            <span className="dealer-price__for-you">for you</span>
           </span>
         </>
       ) : (

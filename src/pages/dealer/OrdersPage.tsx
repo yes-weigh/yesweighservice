@@ -391,7 +391,6 @@ const DealerCartPage: React.FC = () => {
                           </span>
                           <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
                           <span>{item.rate.toLocaleString('en-IN')}</span>
-                          <span className="orders-page__item-for-you">for you</span>
                         </>
                       ) : (
                         <>

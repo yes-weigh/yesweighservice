@@ -5076,12 +5076,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: inline-flex;
   align-items: baseline;
   gap: 0.08rem;
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #0f172a;
   text-decoration: line-through;
   text-decoration-color: #ef4444;
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: 1px;
 }
 
 .dealer-price__list svg {
@@ -5092,22 +5092,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: inline-flex;
   align-items: baseline;
   gap: 0.12rem;
-  font-size: 0.9375rem;
+  font-size: 1.0625rem;
   font-weight: 900;
   letter-spacing: -0.025em;
   color: #dc2626;
 }
 
 .dealer-price__charge svg {
-  color: #dc2626;
-}
-
-.dealer-price__for-you {
-  margin-left: 0.2rem;
-  font-size: 0.625rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   color: #dc2626;
 }
 
@@ -10265,7 +10256,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #0f172a;
   text-decoration: line-through;
   text-decoration-color: #ef4444;
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: 1px;
 }
 
 .product-detail-page__title-price-list svg {
@@ -10277,15 +10268,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .product-detail-page__title-price-amount:has(.product-detail-page__title-price-list) > svg {
-  color: #dc2626;
-}
-
-.product-detail-page__title-price-for-you {
-  margin-left: 0.2rem;
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   color: #dc2626;
 }
 
@@ -13582,12 +13564,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   align-items: baseline;
   gap: 0.08rem;
   margin-right: 0.25rem;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: #0f172a;
   text-decoration: line-through;
   text-decoration-color: #ef4444;
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: 1px;
 }
 
 .orders-page__item-list-rate svg {
@@ -13596,18 +13578,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .orders-page__item-price:has(.orders-page__item-list-rate) {
   color: #dc2626;
+  font-size: 1.0625rem;
 }
 
 .orders-page__item-price:has(.orders-page__item-list-rate) > svg {
-  color: #dc2626;
-}
-
-.orders-page__item-for-you {
-  margin-left: 0.15rem;
-  font-size: 0.625rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   color: #dc2626;
 }
 

@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   Loader2,
+  Package,
   Percent,
   Plus,
   Search,
@@ -12,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { CategoryBrowseCard } from '../../../components/catalog/CategoryBrowseCard';
+import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
 import { ProductBrowseCard } from '../../../components/catalog/ProductBrowseCard';
 import { useAuth } from '../../../context/AuthContext';
 import {
@@ -29,6 +32,7 @@ import {
 } from '../../../lib/dealer-cache';
 import { dealerMatchesLogisticsQuery } from '../../../lib/logisticsDealers';
 import {
+  applyPriceLevelPercent,
   categoryRuleHasEffect,
   createEmptyPriceLevel,
   emptyCategoryRule,
@@ -55,8 +59,43 @@ import type {
 
 type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
+type OverrideEditorDraft = {
+  kind: PriceLevelItemRuleKind;
+  percent: number;
+  customRate: number;
+  slabs: PriceLevelQtySlab[];
+};
+
+type OverrideEditorState = {
+  category: CatalogCategory;
+  product: CatalogProduct;
+  draft: OverrideEditorDraft;
+  isExisting: boolean;
+};
+
 function dealerLabel(d: Pick<ZohoDealer, 'contactName' | 'companyName' | 'id'>): string {
   return (d.companyName || d.contactName || d.id).trim();
+}
+
+function draftFromItemRule(rule: PriceLevelItemRule, listRate: number): OverrideEditorDraft {
+  const slabs = rule.kind === 'fixed' ? normalizePriceLevelSlabs(rule.slabs) : [];
+  return {
+    kind: rule.kind,
+    percent: rule.percent,
+    customRate: rule.kind === 'fixed'
+      ? (slabs[0]?.rate ?? rule.customRate ?? listRate)
+      : listRate,
+    slabs,
+  };
+}
+
+function emptyOverrideDraft(listRate: number): OverrideEditorDraft {
+  return {
+    kind: 'fixed',
+    percent: 0,
+    customRate: listRate,
+    slabs: [],
+  };
 }
 
 function namesFromDealers(
@@ -69,6 +108,59 @@ function namesFromDealers(
     names[id] = byId.get(id) || id;
   }
   return names;
+}
+
+function formatOverrideMoney(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  return value.toLocaleString('en-IN', {
+    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
+  });
+}
+
+/** Compact lines for product-grid override chips. */
+function itemOverrideDisplay(rule: PriceLevelItemRule, listRate: number): {
+  kindLabel: string;
+  lines: Array<{ text: string; emphasize?: boolean }>;
+} {
+  if (rule.kind === 'except') {
+    return {
+      kindLabel: 'Except',
+      lines: [{ text: `₹${formatOverrideMoney(listRate)}`, emphasize: true }],
+    };
+  }
+  if (rule.kind === 'discount') {
+    const effective = applyPriceLevelPercent(listRate, 'discount', rule.percent);
+    return {
+      kindLabel: 'Disc.',
+      lines: [
+        { text: `−${rule.percent}%` },
+        { text: `₹${formatOverrideMoney(effective)}`, emphasize: true },
+      ],
+    };
+  }
+  if (rule.kind === 'increment') {
+    const effective = applyPriceLevelPercent(listRate, 'increment', rule.percent);
+    return {
+      kindLabel: 'Hike',
+      lines: [
+        { text: `+${rule.percent}%` },
+        { text: `₹${formatOverrideMoney(effective)}`, emphasize: true },
+      ],
+    };
+  }
+  const slabs = normalizePriceLevelSlabs(rule.slabs);
+  if (slabs.length > 0) {
+    return {
+      kindLabel: 'Slabs',
+      lines: slabs.map(s => ({
+        text: `≥${s.minQty} · ₹${formatOverrideMoney(s.rate)}`,
+      })),
+    };
+  }
+  return {
+    kindLabel: 'Custom',
+    lines: [{ text: `₹${formatOverrideMoney(rule.customRate ?? 0)}`, emphasize: true }],
+  };
 }
 
 export const PriceLevelSettingsTab: React.FC = () => {
@@ -88,23 +180,24 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const [error, setError] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [dealerQuery, setDealerQuery] = useState('');
+  /** Level name + dealer assignment — rarely edited; collapsed by default. */
+  const [showLevelMeta, setShowLevelMeta] = useState(false);
   /** Category selected from the catalogue-style grid for editing rules (Items mode). */
   const [ruleCategoryId, setRuleCategoryId] = useState<string | null>(null);
   /** Filters the product browse grid in Items mode only. */
   const [itemQuery, setItemQuery] = useState('');
-  const [focusOverrideId, setFocusOverrideId] = useState<string | null>(null);
+  const [overrideEditor, setOverrideEditor] = useState<OverrideEditorState | null>(null);
 
   const levelsRef = useRef(levels);
   const savedRef = useRef(savedLevels);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveEpochRef = useRef(0);
-  const overrideRowRefs = useRef<Map<string, HTMLLIElement>>(new Map());
   const userUid = user?.uid ?? null;
 
   const exitCategoryEdit = useCallback(() => {
     setRuleCategoryId(null);
     setItemQuery('');
-    setFocusOverrideId(null);
+    setOverrideEditor(null);
   }, []);
 
   levelsRef.current = levels;
@@ -118,6 +211,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
   useEffect(() => {
     setRuleCategoryId(null);
     setItemQuery('');
+    setShowLevelMeta(false);
+    setDealerQuery('');
+    setOverrideEditor(null);
   }, [selectedId]);
 
   const rulesByCategoryId = useMemo(() => {
@@ -430,80 +526,75 @@ export const PriceLevelSettingsTab: React.FC = () => {
       itemRules,
     });
     setRuleCategoryId(category.id);
-    setFocusOverrideId(product.id);
   };
 
-  const pickProductForOverride = (category: CatalogCategory, product: CatalogProduct) => {
-    const existing = selected?.categoryRules.find(r => r.categoryId === category.id);
-    if (existing?.itemRules.some(r => r.productId === product.id)) {
-      setFocusOverrideId(product.id);
-      return;
-    }
+  const openOverrideEditor = (category: CatalogCategory, product: CatalogProduct) => {
+    const existingRule = selected?.categoryRules
+      .find(r => r.categoryId === category.id)
+      ?.itemRules.find(r => r.productId === product.id) ?? null;
     const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
-    upsertItemRule(category, product, { kind: 'fixed', customRate: listRate });
+    setOverrideEditor({
+      category,
+      product,
+      isExisting: Boolean(existingRule),
+      draft: existingRule
+        ? draftFromItemRule(existingRule, listRate)
+        : emptyOverrideDraft(listRate),
+    });
+  };
+
+  const patchOverrideDraft = (patch: Partial<OverrideEditorDraft>) => {
+    setOverrideEditor(prev => {
+      if (!prev) return prev;
+      const nextKind = patch.kind ?? prev.draft.kind;
+      let nextSlabs = patch.slabs !== undefined ? patch.slabs : prev.draft.slabs;
+      let nextCustom = patch.customRate !== undefined ? patch.customRate : prev.draft.customRate;
+      let nextPercent = patch.percent !== undefined ? patch.percent : prev.draft.percent;
+      if (patch.kind && patch.kind !== prev.draft.kind) {
+        if (nextKind !== 'fixed') {
+          nextSlabs = [];
+        }
+        if (nextKind === 'except' || nextKind === 'fixed') {
+          nextPercent = 0;
+        }
+        if (nextKind === 'fixed' && nextSlabs.length === 0 && nextCustom <= 0) {
+          nextCustom = Math.round((Number(prev.product.rate) || 0) * 100) / 100;
+        }
+      }
+      return {
+        ...prev,
+        draft: {
+          kind: nextKind,
+          percent: nextPercent,
+          customRate: nextCustom,
+          slabs: nextKind === 'fixed' ? normalizePriceLevelSlabs(nextSlabs) : [],
+        },
+      };
+    });
+  };
+
+  const closeOverrideEditor = () => setOverrideEditor(null);
+
+  const saveOverrideEditor = () => {
+    if (!overrideEditor) return;
+    const { category, product, draft } = overrideEditor;
+    upsertItemRule(category, product, {
+      kind: draft.kind,
+      percent: draft.percent,
+      customRate: draft.customRate,
+      slabs: draft.kind === 'fixed' ? draft.slabs : [],
+    });
+    setOverrideEditor(null);
   };
 
   useEffect(() => {
-    if (!focusOverrideId) return;
-    const row = overrideRowRefs.current.get(focusOverrideId);
-    if (!row) return;
-    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    const t = window.setTimeout(() => setFocusOverrideId(null), 1600);
-    return () => window.clearTimeout(t);
-  }, [focusOverrideId, selected?.categoryRules]);
-
-  const updateItemRule = (
-    category: CatalogCategory,
-    productId: string,
-    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent' | 'customRate' | 'slabs'>>,
-  ) => {
-    const existing = ensureCategoryRule(category);
-    const prevItem = existing.itemRules.find(r => r.productId === productId);
-    if (!prevItem) return;
-    const kind = patch.kind ?? prevItem.kind;
-    const catalogProduct = (productsByCategory.get(category.id) ?? [])
-      .find(p => p.id === productId);
-    const listRate = Math.round((Number(catalogProduct?.rate) || 0) * 100) / 100;
-    const slabs = kind === 'fixed'
-      ? normalizePriceLevelSlabs(patch.slabs !== undefined ? patch.slabs : prevItem.slabs)
-      : [];
-    let customRate: number | null = null;
-    if (kind === 'fixed') {
-      if (patch.customRate !== undefined && slabs.length === 0) {
-        customRate = patch.customRate;
-      } else if (slabs.length > 0) {
-        customRate = slabs[0].rate;
-      } else {
-        customRate = prevItem.customRate ?? listRate;
-      }
-    }
-    const nextItem: PriceLevelItemRule = {
-      ...prevItem,
-      kind,
-      percent: kind === 'except' || kind === 'fixed'
-        ? 0
-        : (patch.percent !== undefined ? patch.percent : prevItem.percent),
-      customRate,
-      slabs,
+    if (!overrideEditor) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOverrideEditor(null);
     };
-    replaceCategoryRule({
-      ...existing,
-      itemRules: existing.itemRules.map(r => (r.productId === productId ? nextItem : r)),
-    });
-  };
-
-  const setItemSlabs = (
-    category: CatalogCategory,
-    productId: string,
-    slabs: PriceLevelQtySlab[],
-  ) => {
-    const normalized = normalizePriceLevelSlabs(slabs);
-    updateItemRule(category, productId, {
-      kind: 'fixed',
-      slabs: normalized,
-      customRate: normalized[0]?.rate,
-    });
-  };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [overrideEditor]);
 
   const removeItemRule = (category: CatalogCategory, productId: string) => {
     const existing = ensureCategoryRule(category);
@@ -513,6 +604,12 @@ export const PriceLevelSettingsTab: React.FC = () => {
       return;
     }
     replaceCategoryRule({ ...existing, itemRules });
+  };
+
+  const removeOverrideFromEditor = () => {
+    if (!overrideEditor?.isExisting) return;
+    removeItemRule(overrideEditor.category, overrideEditor.product.id);
+    setOverrideEditor(null);
   };
 
   const saveLabel = saveStatus === 'saving' || saveStatus === 'pending'
@@ -611,79 +708,98 @@ export const PriceLevelSettingsTab: React.FC = () => {
             <p className="text-muted">Select or create a level to edit.</p>
           ) : (
             <>
-              <label className="price-levels-tab__field price-levels-tab__field--inline">
-                <span>Level name</span>
-                <input
-                  type="text"
-                  value={selected.name}
-                  onChange={e => updateSelected({ name: e.target.value })}
-                  placeholder="e.g. Directors"
-                />
-              </label>
+              <div className="price-levels-tab__meta">
+                <button
+                  type="button"
+                  className={`price-levels-tab__meta-toggle ${showLevelMeta ? 'is-open' : ''}`}
+                  aria-expanded={showLevelMeta}
+                  onClick={() => setShowLevelMeta(open => !open)}
+                >
+                  <Users size={15} aria-hidden />
+                  <span>Level name & dealers</span>
+                  <span className="price-levels-tab__meta-summary">
+                    {selected.dealerIds.length} dealer{selected.dealerIds.length === 1 ? '' : 's'}
+                  </span>
+                  <ChevronDown size={16} aria-hidden />
+                </button>
+                {showLevelMeta ? (
+                  <div className="price-levels-tab__meta-body">
+                    <label className="price-levels-tab__field price-levels-tab__field--inline">
+                      <span>Level name</span>
+                      <input
+                        type="text"
+                        value={selected.name}
+                        onChange={e => updateSelected({ name: e.target.value })}
+                        placeholder="e.g. Directors"
+                      />
+                    </label>
 
-              <div className="price-levels-tab__block">
-                <h4>
-                  <UserPlus size={16} aria-hidden />
-                  Dealers in this level
-                </h4>
-                <div className="price-levels-tab__dealer-search">
-                  <Search size={16} aria-hidden />
-                  <input
-                    type="search"
-                    value={dealerQuery}
-                    onChange={e => setDealerQuery(e.target.value)}
-                    placeholder="Search dealers by name, company, phone…"
-                    autoComplete="off"
-                  />
-                  {dealersLoading ? <Loader2 size={14} className="spin-icon" aria-hidden /> : null}
-                </div>
-                {dealerSearchError ? (
-                  <p className="price-levels-tab__error text-sm">{dealerSearchError}</p>
+                    <div className="price-levels-tab__block">
+                      <h4>
+                        <UserPlus size={16} aria-hidden />
+                        Dealers in this level
+                      </h4>
+                      <div className="price-levels-tab__dealer-search">
+                        <Search size={16} aria-hidden />
+                        <input
+                          type="search"
+                          value={dealerQuery}
+                          onChange={e => setDealerQuery(e.target.value)}
+                          placeholder="Search dealers by name, company, phone…"
+                          autoComplete="off"
+                        />
+                        {dealersLoading ? <Loader2 size={14} className="spin-icon" aria-hidden /> : null}
+                      </div>
+                      {dealerSearchError ? (
+                        <p className="price-levels-tab__error text-sm">{dealerSearchError}</p>
+                      ) : null}
+                      {dealerQuery.trim().length >= 2 && !dealersLoading && dealerHits.length === 0
+                        && !dealerSearchError ? (
+                        <p className="text-muted text-sm">No matching dealers.</p>
+                      ) : null}
+                      {dealerHits.length > 0 ? (
+                        <ul className="price-levels-tab__dealer-hits">
+                          {dealerHits.map(d => {
+                            const already = selected.dealerIds.includes(d.id);
+                            return (
+                              <li key={d.id}>
+                                <button
+                                  type="button"
+                                  disabled={already}
+                                  onClick={() => addDealer(d)}
+                                >
+                                  <strong>{dealerLabel(d)}</strong>
+                                  <span className="text-muted text-sm">
+                                    {[d.contactName, d.phone || d.mobile].filter(Boolean).join(' · ')}
+                                  </span>
+                                  {already ? <span className="text-muted">Added</span> : null}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
+                      {selected.dealerIds.length === 0 ? (
+                        <p className="text-muted text-sm">No dealers assigned yet.</p>
+                      ) : (
+                        <ul className="price-levels-tab__dealer-chips">
+                          {selected.dealerIds.map(id => (
+                            <li key={id}>
+                              <span>{dealerNames[id] || id}</span>
+                              <button
+                                type="button"
+                                aria-label={`Remove ${dealerNames[id] || id}`}
+                                onClick={() => removeDealer(id)}
+                              >
+                                <X size={14} aria-hidden />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
                 ) : null}
-                {dealerQuery.trim().length >= 2 && !dealersLoading && dealerHits.length === 0
-                  && !dealerSearchError ? (
-                  <p className="text-muted text-sm">No matching dealers.</p>
-                ) : null}
-                {dealerHits.length > 0 ? (
-                  <ul className="price-levels-tab__dealer-hits">
-                    {dealerHits.map(d => {
-                      const already = selected.dealerIds.includes(d.id);
-                      return (
-                        <li key={d.id}>
-                          <button
-                            type="button"
-                            disabled={already}
-                            onClick={() => addDealer(d)}
-                          >
-                            <strong>{dealerLabel(d)}</strong>
-                            <span className="text-muted text-sm">
-                              {[d.contactName, d.phone || d.mobile].filter(Boolean).join(' · ')}
-                            </span>
-                            {already ? <span className="text-muted">Added</span> : null}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : null}
-                {selected.dealerIds.length === 0 ? (
-                  <p className="text-muted text-sm">No dealers assigned yet.</p>
-                ) : (
-                  <ul className="price-levels-tab__dealer-chips">
-                    {selected.dealerIds.map(id => (
-                      <li key={id}>
-                        <span>{dealerNames[id] || id}</span>
-                        <button
-                          type="button"
-                          aria-label={`Remove ${dealerNames[id] || id}`}
-                          onClick={() => removeDealer(id)}
-                        >
-                          <X size={14} aria-hidden />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
 
               <div className="price-levels-tab__block">
@@ -702,7 +818,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     return (
                       <>
                         <p className="text-muted text-sm">
-                          Tap a category (or Spare parts) to set its % and browse items for overrides.
+                          Tap a category (or Spare parts) to set its %, then tap products to apply overrides.
                         </p>
                         <div className="catalog-categories catalog-categories--bare price-levels-tab__cat-grid">
                           <div className="catalog-categories__grid">
@@ -739,7 +855,6 @@ export const PriceLevelSettingsTab: React.FC = () => {
                                     onClick={() => {
                                       setRuleCategoryId(cat.id);
                                       setItemQuery('');
-                                      setFocusOverrideId(null);
                                     }}
                                   />
                                 </div>
@@ -758,7 +873,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                   const active = categoryRuleHasEffect(
                     rule ?? emptyCategoryRule(editCat.id, editCat.name),
                   );
-                  const usedItemIds = new Set(itemRules.map(r => r.productId));
+                  const itemRuleById = new Map(itemRules.map(r => [r.productId, r]));
                   const isSpareEdit = isSparePriceLevelCategoryId(editCat.id);
                   const catProducts = productsByCategory.get(editCat.id) ?? [];
                   const q = itemQuery.trim().toLowerCase();
@@ -870,224 +985,6 @@ export const PriceLevelSettingsTab: React.FC = () => {
                             <span>%</span>
                           </label>
                         </div>
-
-                        <div className="price-levels-tab__item-rules">
-                          <div className="price-levels-tab__item-toggle">
-                            Item overrides
-                            {itemRules.length > 0 ? ` · ${itemRules.length}` : ''}
-                          </div>
-                          {itemRules.length > 0 ? (
-                            <ul className="price-levels-tab__item-list">
-                              {itemRules.map(item => {
-                                const slabs = item.kind === 'fixed'
-                                  ? normalizePriceLevelSlabs(item.slabs)
-                                  : [];
-                                const hasSlabs = slabs.length > 0;
-                                return (
-                                  <li
-                                    key={item.productId}
-                                    ref={el => {
-                                      if (el) overrideRowRefs.current.set(item.productId, el);
-                                      else overrideRowRefs.current.delete(item.productId);
-                                    }}
-                                    className={[
-                                      'price-levels-tab__item-row',
-                                      focusOverrideId === item.productId ? 'is-focus' : '',
-                                    ].filter(Boolean).join(' ')}
-                                  >
-                                    <div className="price-levels-tab__item-row-main">
-                                      <div className="price-levels-tab__item-meta">
-                                        <strong>{item.productName}</strong>
-                                        {item.sku ? (
-                                          <span className="text-muted text-sm">{item.sku}</span>
-                                        ) : null}
-                                      </div>
-                                      <select
-                                        value={item.kind}
-                                        onChange={e => updateItemRule(editCat, item.productId, {
-                                          kind: e.target.value as PriceLevelItemRuleKind,
-                                        })}
-                                        aria-label={`Override type for ${item.productName}`}
-                                      >
-                                        <option value="fixed">Custom ₹</option>
-                                        <option value="except">Except (list)</option>
-                                        <option value="discount">Disc. %</option>
-                                        <option value="increment">Hike %</option>
-                                      </select>
-                                      {item.kind === 'except' ? (
-                                        <span className="price-levels-tab__item-except-label">
-                                          List
-                                        </span>
-                                      ) : item.kind === 'fixed' && !hasSlabs ? (
-                                        <label className="price-levels-tab__custom-rate">
-                                          <span>₹</span>
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            step={0.01}
-                                            value={item.customRate == null || item.customRate === 0
-                                              ? ''
-                                              : item.customRate}
-                                            placeholder="0"
-                                            onChange={e => {
-                                              const v = e.target.value;
-                                              updateItemRule(editCat, item.productId, {
-                                                customRate: v === '' ? 0 : Number(v),
-                                                slabs: [],
-                                              });
-                                            }}
-                                            aria-label={`Custom price for ${item.productName}`}
-                                          />
-                                        </label>
-                                      ) : item.kind === 'fixed' && hasSlabs ? (
-                                        <span className="price-levels-tab__item-except-label">
-                                          {slabs.length} slabs
-                                        </span>
-                                      ) : (
-                                        <label className="price-levels-tab__percent">
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            max={1000}
-                                            step={0.1}
-                                            value={item.percent === 0 ? '' : item.percent}
-                                            placeholder="0"
-                                            onChange={e => {
-                                              const v = e.target.value;
-                                              updateItemRule(editCat, item.productId, {
-                                                percent: v === '' ? 0 : Number(v),
-                                              });
-                                            }}
-                                            aria-label={`Percent for ${item.productName}`}
-                                          />
-                                          <span>%</span>
-                                        </label>
-                                      )}
-                                      <button
-                                        type="button"
-                                        className="price-levels-tab__rule-delete"
-                                        aria-label={`Remove item rule for ${item.productName}`}
-                                        onClick={() => removeItemRule(editCat, item.productId)}
-                                      >
-                                        <X size={14} aria-hidden />
-                                      </button>
-                                    </div>
-
-                                    {item.kind === 'fixed' ? (
-                                      <div className="price-levels-tab__slabs">
-                                        <div className="price-levels-tab__slabs-head">
-                                          <span>Qty slabs</span>
-                                          <button
-                                            type="button"
-                                            className="price-levels-tab__slabs-add"
-                                            onClick={() => {
-                                              const base = hasSlabs
-                                                ? slabs
-                                                : [{
-                                                  minQty: 1,
-                                                  rate: item.customRate ?? 0,
-                                                }];
-                                              const last = base[base.length - 1];
-                                              setItemSlabs(editCat, item.productId, [
-                                                ...base,
-                                                {
-                                                  minQty: (last?.minQty ?? 1) + 10,
-                                                  rate: last?.rate ?? item.customRate ?? 0,
-                                                },
-                                              ]);
-                                            }}
-                                          >
-                                            <Plus size={12} aria-hidden />
-                                            Add slab
-                                          </button>
-                                        </div>
-                                        {hasSlabs ? (
-                                          <ul className="price-levels-tab__slabs-list">
-                                            {slabs.map((slab, slabIdx) => (
-                                              <li key={`${item.productId}-slab-${slab.minQty}-${slabIdx}`}>
-                                                <label>
-                                                  <span>Qty ≥</span>
-                                                  <input
-                                                    type="number"
-                                                    min={1}
-                                                    step={1}
-                                                    value={slab.minQty}
-                                                    onChange={e => {
-                                                      const next = [...slabs];
-                                                      next[slabIdx] = {
-                                                        ...slab,
-                                                        minQty: Math.max(1, Math.floor(Number(e.target.value) || 1)),
-                                                      };
-                                                      setItemSlabs(editCat, item.productId, next);
-                                                    }}
-                                                    aria-label={`Min qty for slab ${slabIdx + 1}`}
-                                                  />
-                                                </label>
-                                                <label className="price-levels-tab__custom-rate">
-                                                  <span>₹</span>
-                                                  <input
-                                                    type="number"
-                                                    min={0}
-                                                    step={0.01}
-                                                    value={slab.rate === 0 ? '' : slab.rate}
-                                                    placeholder="0"
-                                                    onChange={e => {
-                                                      const v = e.target.value;
-                                                      const next = [...slabs];
-                                                      next[slabIdx] = {
-                                                        ...slab,
-                                                        rate: v === '' ? 0 : Number(v),
-                                                      };
-                                                      setItemSlabs(editCat, item.productId, next);
-                                                    }}
-                                                    aria-label={`Rate for slab ${slabIdx + 1}`}
-                                                  />
-                                                </label>
-                                                <button
-                                                  type="button"
-                                                  className="price-levels-tab__rule-delete"
-                                                  aria-label={
-                                                    slabs.length <= 1
-                                                      ? 'Clear qty slabs'
-                                                      : `Remove slab ${slabIdx + 1}`
-                                                  }
-                                                  title={slabs.length <= 1 ? 'Clear qty slabs' : 'Remove slab'}
-                                                  onClick={() => {
-                                                    const next = slabs.filter((_, i) => i !== slabIdx);
-                                                    if (next.length === 0) {
-                                                      updateItemRule(editCat, item.productId, {
-                                                        kind: 'fixed',
-                                                        slabs: [],
-                                                        customRate: slab.rate,
-                                                      });
-                                                      return;
-                                                    }
-                                                    setItemSlabs(editCat, item.productId, next);
-                                                  }}
-                                                >
-                                                  <X size={13} aria-hidden />
-                                                </button>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        ) : (
-                                          <p className="text-muted text-sm price-levels-tab__slabs-hint">
-                                            Single custom ₹ above. Add slabs for qty-based unit rates
-                                            (e.g. 1→₹1900, 11→₹1800).
-                                          </p>
-                                        )}
-                                      </div>
-                                    ) : null}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          ) : (
-                            <p className="text-muted text-sm price-levels-tab__item-empty">
-                              Tap a product below to set a custom ₹ price (or % / except).
-                            </p>
-                          )}
-                        </div>
                       </div>
 
                       <div className="price-levels-tab__browse-head">
@@ -1096,6 +993,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
                           <span className="text-muted">
                             {' '}· {browseProducts.length}
                             {q ? ` of ${catProducts.length}` : ''}
+                            {itemRules.length > 0
+                              ? ` · ${itemRules.length} override${itemRules.length === 1 ? '' : 's'}`
+                              : ''}
                           </span>
                         </span>
                         <div className="price-levels-tab__item-search">
@@ -1119,24 +1019,46 @@ export const PriceLevelSettingsTab: React.FC = () => {
                       ) : (
                         <div className="price-levels-tab__product-grid catalog-grid catalog-grid--tiles">
                           {browseProducts.map((product, idx) => {
-                            const inOverrides = usedItemIds.has(product.id);
+                            const override = itemRuleById.get(product.id) ?? null;
+                            const overrideView = override
+                              ? itemOverrideDisplay(override, product.rate)
+                              : null;
                             return (
                               <div
                                 key={product.id}
                                 className={[
                                   'price-levels-tab__product-tile',
-                                  inOverrides ? 'is-override' : '',
+                                  override ? 'is-override' : '',
                                 ].filter(Boolean).join(' ')}
                               >
-                                {inOverrides ? (
-                                  <span className="price-levels-tab__product-badge">Override</span>
+                                {overrideView ? (
+                                  <div
+                                    className="price-levels-tab__product-override"
+                                    aria-label={`${overrideView.kindLabel}: ${overrideView.lines.map(l => l.text).join(', ')}`}
+                                  >
+                                    <span className="price-levels-tab__product-override-kind">
+                                      {overrideView.kindLabel}
+                                    </span>
+                                    <ul>
+                                      {overrideView.lines.map(line => (
+                                        <li
+                                          key={line.text}
+                                          className={line.emphasize
+                                            ? 'price-levels-tab__product-override-rate'
+                                            : undefined}
+                                        >
+                                          {line.text}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
                                 ) : null}
                                 <ProductBrowseCard
                                   product={product}
                                   index={idx}
                                   enableCart={false}
-                                  onSelect={() => pickProductForOverride(editCat, product)}
-                                  highlighted={focusOverrideId === product.id}
+                                  onSelect={() => openOverrideEditor(editCat, product)}
+                                  highlighted={overrideEditor?.product.id === product.id}
                                 />
                               </div>
                             );
@@ -1150,6 +1072,328 @@ export const PriceLevelSettingsTab: React.FC = () => {
             </>
           )}
       </section>
+
+      {overrideEditor ? (() => {
+        const { product, draft, isExisting } = overrideEditor;
+        const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
+        const editorSlabs = draft.kind === 'fixed'
+          ? normalizePriceLevelSlabs(draft.slabs)
+          : [];
+        const hasSlabs = editorSlabs.length > 0;
+        const percentEffective = draft.kind === 'discount' || draft.kind === 'increment'
+          ? applyPriceLevelPercent(
+            listRate,
+            draft.kind === 'increment' ? 'increment' : 'discount',
+            draft.percent,
+          )
+          : null;
+        const preview = itemOverrideDisplay(
+          {
+            productId: product.id,
+            productName: product.name,
+            sku: product.sku,
+            kind: draft.kind,
+            percent: draft.percent,
+            customRate: draft.customRate,
+            slabs: editorSlabs,
+          },
+          listRate,
+        );
+        return (
+          <div
+            className="price-levels-tab__editor-backdrop"
+            role="presentation"
+            onClick={closeOverrideEditor}
+          >
+            <div
+              className="price-levels-tab__editor"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${isExisting ? 'Edit' : 'Add'} override for ${product.name}`}
+              onClick={e => e.stopPropagation()}
+            >
+              <header className="price-levels-tab__editor-head">
+                <div className="price-levels-tab__editor-product">
+                  <div className="price-levels-tab__item-thumb" aria-hidden>
+                    {product.imageUrl ? (
+                      <CategoryThumbnail src={product.imageUrl} />
+                    ) : (
+                      <Package size={16} />
+                    )}
+                  </div>
+                  <div className="price-levels-tab__item-meta">
+                    <strong title={product.name}>{product.name}</strong>
+                    <span className="text-muted">
+                      {[product.sku, `List ₹${formatOverrideMoney(listRate)}`]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="price-levels-tab__rule-delete"
+                  aria-label="Close"
+                  onClick={closeOverrideEditor}
+                >
+                  <X size={16} aria-hidden />
+                </button>
+              </header>
+
+              <div className="price-levels-tab__editor-body">
+                <label className="price-levels-tab__editor-field">
+                  <span>Override type</span>
+                  <select
+                    value={draft.kind}
+                    onChange={e => patchOverrideDraft({
+                      kind: e.target.value as PriceLevelItemRuleKind,
+                    })}
+                  >
+                    <option value="fixed">Custom ₹</option>
+                    <option value="except">Except (list price)</option>
+                    <option value="discount">Discount %</option>
+                    <option value="increment">Hike %</option>
+                  </select>
+                </label>
+
+                {draft.kind === 'except' ? (
+                  <p className="text-muted text-sm price-levels-tab__editor-hint">
+                    Charges list price and ignores the category %.
+                  </p>
+                ) : null}
+
+                {draft.kind === 'fixed' && !hasSlabs ? (
+                  <label className="price-levels-tab__editor-field">
+                    <span>Custom unit price</span>
+                    <span className="price-levels-tab__custom-rate">
+                      <span>₹</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={draft.customRate === 0 ? '' : draft.customRate}
+                        placeholder="0"
+                        onChange={e => {
+                          const v = e.target.value;
+                          patchOverrideDraft({
+                            customRate: v === '' ? 0 : Number(v),
+                            slabs: [],
+                          });
+                        }}
+                      />
+                    </span>
+                  </label>
+                ) : null}
+
+                {draft.kind === 'discount' || draft.kind === 'increment' ? (
+                  <label className="price-levels-tab__editor-field">
+                    <span>{draft.kind === 'discount' ? 'Discount' : 'Hike'}</span>
+                    <span className="price-levels-tab__editor-percent-row">
+                      <span className="price-levels-tab__percent">
+                        <input
+                          type="number"
+                          min={0}
+                          max={1000}
+                          step={0.1}
+                          value={draft.percent === 0 ? '' : draft.percent}
+                          placeholder="0"
+                          onChange={e => {
+                            const v = e.target.value;
+                            patchOverrideDraft({ percent: v === '' ? 0 : Number(v) });
+                          }}
+                        />
+                        <span>%</span>
+                      </span>
+                      {percentEffective != null ? (
+                        <span className="price-levels-tab__item-effective">
+                          → ₹{formatOverrideMoney(percentEffective)}
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                ) : null}
+
+                {draft.kind === 'fixed' ? (
+                  <div className="price-levels-tab__editor-slabs">
+                    <div className="price-levels-tab__editor-slabs-head">
+                      <span>Qty slabs</span>
+                      <span className="text-muted text-sm">Optional tiered unit rates</span>
+                    </div>
+                    {hasSlabs ? (
+                      <table className="price-levels-tab__slabs-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Qty</th>
+                            <th scope="col">₹</th>
+                            <th scope="col" aria-label="Remove" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {editorSlabs.map((slab, slabIdx) => (
+                            <tr key={`editor-slab-${slab.minQty}-${slabIdx}`}>
+                              <td>
+                                <label className="price-levels-tab__slabs-qty">
+                                  <span>≥</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    value={slab.minQty}
+                                    onChange={e => {
+                                      const next = [...editorSlabs];
+                                      next[slabIdx] = {
+                                        ...slab,
+                                        minQty: Math.max(1, Math.floor(Number(e.target.value) || 1)),
+                                      };
+                                      patchOverrideDraft({ slabs: next });
+                                    }}
+                                  />
+                                </label>
+                              </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.01}
+                                  value={slab.rate === 0 ? '' : slab.rate}
+                                  placeholder="0"
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    const next = [...editorSlabs];
+                                    next[slabIdx] = {
+                                      ...slab,
+                                      rate: v === '' ? 0 : Number(v),
+                                    };
+                                    patchOverrideDraft({ slabs: next });
+                                  }}
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="price-levels-tab__rule-delete"
+                                  aria-label={
+                                    editorSlabs.length <= 1
+                                      ? 'Clear qty slabs'
+                                      : `Remove slab ${slabIdx + 1}`
+                                  }
+                                  onClick={() => {
+                                    const next = editorSlabs.filter((_, i) => i !== slabIdx);
+                                    if (next.length === 0) {
+                                      patchOverrideDraft({
+                                        slabs: [],
+                                        customRate: slab.rate || listRate,
+                                      });
+                                      return;
+                                    }
+                                    patchOverrideDraft({ slabs: next });
+                                  }}
+                                >
+                                  <X size={12} aria-hidden />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="price-levels-tab__slabs-add-row">
+                            <td colSpan={3}>
+                              <button
+                                type="button"
+                                className="price-levels-tab__slabs-add"
+                                onClick={() => {
+                                  const base = editorSlabs.length > 0
+                                    ? editorSlabs
+                                    : [{ minQty: 1, rate: draft.customRate || listRate }];
+                                  const last = base[base.length - 1];
+                                  patchOverrideDraft({
+                                    slabs: [
+                                      ...base,
+                                      {
+                                        minQty: (last?.minQty ?? 1) + 10,
+                                        rate: last?.rate ?? (draft.customRate || listRate),
+                                      },
+                                    ],
+                                  });
+                                }}
+                              >
+                                <Plus size={12} aria-hidden />
+                                Slab
+                              </button>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    ) : (
+                      <button
+                        type="button"
+                        className="price-levels-tab__slabs-add"
+                        onClick={() => {
+                          patchOverrideDraft({
+                            slabs: [
+                              { minQty: 1, rate: draft.customRate || listRate },
+                              { minQty: 11, rate: draft.customRate || listRate },
+                            ],
+                          });
+                        }}
+                      >
+                        <Plus size={12} aria-hidden />
+                        Add qty slabs
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+
+                <div className="price-levels-tab__editor-preview" aria-live="polite">
+                  <span className="price-levels-tab__product-override-kind">
+                    {preview.kindLabel}
+                  </span>
+                  <ul>
+                    {preview.lines.map(line => (
+                      <li
+                        key={line.text}
+                        className={line.emphasize
+                          ? 'price-levels-tab__product-override-rate'
+                          : undefined}
+                      >
+                        {line.text}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <footer className="price-levels-tab__editor-foot">
+                {isExisting ? (
+                  <button
+                    type="button"
+                    className="price-levels-tab__editor-remove"
+                    onClick={removeOverrideFromEditor}
+                  >
+                    Remove override
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <div className="price-levels-tab__editor-actions">
+                  <button
+                    type="button"
+                    className="price-levels-tab__editor-cancel"
+                    onClick={closeOverrideEditor}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="price-levels-tab__editor-save"
+                    onClick={saveOverrideEditor}
+                  >
+                    {isExisting ? 'Save changes' : 'Apply override'}
+                  </button>
+                </div>
+              </footer>
+            </div>
+          </div>
+        );
+      })() : null}
     </div>
   );
 };
