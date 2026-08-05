@@ -6,13 +6,14 @@
  * - named tier (Directors / Agents / Dealers / anything the admin creates)
  * - assigned Zoho dealer contact ids
  * - per-catalog-category % discount or % price increment
- * - optional per-item overrides inside a category (except / special discount / hike)
+ * - optional per-item overrides inside a category
+ *   (except / special discount / hike / fixed custom ₹)
  */
 
 export type PriceLevelRuleMode = 'discount' | 'increment';
 
 /** Item override inside a category rule. */
-export type PriceLevelItemRuleKind = 'except' | 'discount' | 'increment';
+export type PriceLevelItemRuleKind = 'except' | 'discount' | 'increment' | 'fixed';
 
 export interface PriceLevelItemRule {
   productId: string;
@@ -21,10 +22,13 @@ export interface PriceLevelItemRule {
   /**
    * except — charge list rate (ignore category %).
    * discount / increment — special % for this item only.
+   * fixed — charge absolute customRate (₹).
    */
   kind: PriceLevelItemRuleKind;
-  /** Ignored when kind === 'except'. */
+  /** Used when kind is discount / increment. Ignored for except / fixed. */
   percent: number;
+  /** Absolute unit price when kind === 'fixed'. */
+  customRate: number | null;
 }
 
 export interface PriceLevelCategoryRule {
@@ -58,7 +62,7 @@ export interface PriceLevelsDoc {
 export interface DealerUnitPrice {
   listRate: number;
   chargeRate: number;
-  mode: 'none' | PriceLevelRuleMode;
+  mode: 'none' | PriceLevelRuleMode | 'fixed';
   percent: number;
   levelId: string | null;
   levelName: string | null;

@@ -51,7 +51,9 @@ function normalizeCartItem(raw: Partial<CartItem> & { productId?: string }): Car
     listRate: raw.listRate != null && Number.isFinite(Number(raw.listRate))
       ? Math.round(Number(raw.listRate) * 100) / 100
       : null,
-    priceLevelMode: raw.priceLevelMode === 'discount' || raw.priceLevelMode === 'increment'
+    priceLevelMode: raw.priceLevelMode === 'discount'
+      || raw.priceLevelMode === 'increment'
+      || raw.priceLevelMode === 'fixed'
       ? raw.priceLevelMode
       : (raw.priceLevelMode === 'none' ? 'none' : null),
     gatcFeePerUnit,

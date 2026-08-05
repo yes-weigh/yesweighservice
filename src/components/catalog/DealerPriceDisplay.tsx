@@ -11,8 +11,8 @@ type Props = {
 
 /**
  * Catalog / cart unit price for dealers:
- * - discount → strikethrough list + charge (“for you”)
- * - increment → charge only
+ * - discount, or fixed custom below list → strikethrough list + charge (“for you”)
+ * - increment, or fixed custom at/above list → charge only
  * - none / staff → list
  */
 export const DealerPriceDisplay: React.FC<Props> = ({
@@ -22,15 +22,16 @@ export const DealerPriceDisplay: React.FC<Props> = ({
   iconSize = 14,
 }) => {
   const mode = pricing?.mode ?? 'none';
-  const charge = pricing?.chargeRate ?? listRate;
-  const showDual = mode === 'discount' && charge < listRate;
+  const list = Math.round((Number(listRate) || 0) * 100) / 100;
+  const charge = Math.round((Number(pricing?.chargeRate ?? listRate) || 0) * 100) / 100;
+  const showDual = (mode === 'discount' || mode === 'fixed') && charge < list;
 
   if (showDual) {
     return (
       <div className={`dealer-price ${className}`.trim()}>
         <span className="dealer-price__list">
           <IndianRupee size={iconSize - 2} strokeWidth={2.5} aria-hidden />
-          <span>{listRate.toLocaleString('en-IN')}</span>
+          <span>{list.toLocaleString('en-IN')}</span>
         </span>
         <span className="dealer-price__charge">
           <IndianRupee size={iconSize} strokeWidth={2.5} aria-hidden />

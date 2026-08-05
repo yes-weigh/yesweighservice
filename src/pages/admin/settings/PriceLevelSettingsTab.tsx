@@ -362,19 +362,25 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const upsertItemRule = (
     category: CatalogCategory,
     product: CatalogProduct,
-    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent'>>,
+    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent' | 'customRate'>>,
   ) => {
     const existing = ensureCategoryRule(category);
     const prevItem = existing.itemRules.find(r => r.productId === product.id);
-    const kind: PriceLevelItemRuleKind = patch.kind ?? prevItem?.kind ?? 'except';
+    const kind: PriceLevelItemRuleKind = patch.kind ?? prevItem?.kind ?? 'fixed';
+    const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
     const nextItem: PriceLevelItemRule = {
       productId: product.id,
       productName: product.name,
       sku: product.sku,
       kind,
-      percent: kind === 'except'
+      percent: kind === 'except' || kind === 'fixed'
         ? 0
         : (patch.percent !== undefined ? patch.percent : (prevItem?.percent ?? 0)),
+      customRate: kind === 'fixed'
+        ? (patch.customRate !== undefined
+          ? patch.customRate
+          : (prevItem?.customRate ?? listRate))
+        : null,
     };
     const itemRules = [
       ...existing.itemRules.filter(r => r.productId !== product.id),
@@ -395,7 +401,8 @@ export const PriceLevelSettingsTab: React.FC = () => {
       setFocusOverrideId(product.id);
       return;
     }
-    upsertItemRule(category, product, { kind: 'except' });
+    const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
+    upsertItemRule(category, product, { kind: 'fixed', customRate: listRate });
   };
 
   useEffect(() => {
@@ -410,18 +417,26 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const updateItemRule = (
     category: CatalogCategory,
     productId: string,
-    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent'>>,
+    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent' | 'customRate'>>,
   ) => {
     const existing = ensureCategoryRule(category);
     const prevItem = existing.itemRules.find(r => r.productId === productId);
     if (!prevItem) return;
     const kind = patch.kind ?? prevItem.kind;
+    const catalogProduct = (productsByCategory.get(category.id) ?? [])
+      .find(p => p.id === productId);
+    const listRate = Math.round((Number(catalogProduct?.rate) || 0) * 100) / 100;
     const nextItem: PriceLevelItemRule = {
       ...prevItem,
       kind,
-      percent: kind === 'except'
+      percent: kind === 'except' || kind === 'fixed'
         ? 0
         : (patch.percent !== undefined ? patch.percent : prevItem.percent),
+      customRate: kind === 'fixed'
+        ? (patch.customRate !== undefined
+          ? patch.customRate
+          : (prevItem.customRate ?? listRate))
+        : null,
     };
     replaceCategoryRule({
       ...existing,
@@ -811,7 +826,8 @@ export const PriceLevelSettingsTab: React.FC = () => {
                                     })}
                                     aria-label={`Override type for ${item.productName}`}
                                   >
-                                    <option value="except">Except</option>
+                                    <option value="fixed">Custom ₹</option>
+                                    <option value="except">Except (list)</option>
                                     <option value="discount">Disc. %</option>
                                     <option value="increment">Hike %</option>
                                   </select>
@@ -819,6 +835,26 @@ export const PriceLevelSettingsTab: React.FC = () => {
                                     <span className="price-levels-tab__item-except-label">
                                       List
                                     </span>
+                                  ) : item.kind === 'fixed' ? (
+                                    <label className="price-levels-tab__custom-rate">
+                                      <span>₹</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        step={0.01}
+                                        value={item.customRate == null || item.customRate === 0
+                                          ? ''
+                                          : item.customRate}
+                                        placeholder="0"
+                                        onChange={e => {
+                                          const v = e.target.value;
+                                          updateItemRule(editCat, item.productId, {
+                                            customRate: v === '' ? 0 : Number(v),
+                                          });
+                                        }}
+                                        aria-label={`Custom price for ${item.productName}`}
+                                      />
+                                    </label>
                                   ) : (
                                     <label className="price-levels-tab__percent">
                                       <input
@@ -852,7 +888,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                             </ul>
                           ) : (
                             <p className="text-muted text-sm price-levels-tab__item-empty">
-                              Tap a product below to add an override.
+                              Tap a product below to set a custom ₹ price (or % / except).
                             </p>
                           )}
                         </div>

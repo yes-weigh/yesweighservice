@@ -4840,7 +4840,8 @@
   font: inherit;
 }
 
-.price-levels-tab__percent {
+.price-levels-tab__percent,
+.price-levels-tab__custom-rate {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -4851,6 +4852,17 @@
 .price-levels-tab__percent input {
   width: 4.25rem;
   text-align: right;
+}
+
+.price-levels-tab__custom-rate input {
+  width: 5.5rem;
+  text-align: right;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.45);
+  color: inherit;
+  padding: 0.4rem 0.5rem;
+  font: inherit;
 }
 
 .price-levels-tab__rule-delete,

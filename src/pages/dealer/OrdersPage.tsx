@@ -381,7 +381,7 @@ const DealerCartPage: React.FC = () => {
                     description={item.description || descByProductId[item.productId] || null}
                   >
                     <div className="orders-page__item-price">
-                      {item.priceLevelMode === 'discount'
+                      {(item.priceLevelMode === 'discount' || item.priceLevelMode === 'fixed')
                         && item.listRate != null
                         && item.listRate > item.baseRate ? (
                         <>

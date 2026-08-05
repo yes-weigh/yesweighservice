@@ -24,7 +24,7 @@ export interface CartItem {
    */
   listRate?: number | null;
   /** Price-level mode applied to baseRate, if any. */
-  priceLevelMode?: 'none' | 'discount' | 'increment' | null;
+  priceLevelMode?: 'none' | 'discount' | 'increment' | 'fixed' | null;
   /** Fixed GATC fee per unit from Product settings (0 if without stamping). */
   gatcFeePerUnit: number;
   /** Selected GATC entry id; null/undefined = without stamping. */
@@ -51,7 +51,7 @@ export type AddCartItemOptions = {
   baseRateOverride?: number | null;
   /** List rate to show alongside a discount charge rate. */
   listRate?: number | null;
-  priceLevelMode?: 'none' | 'discount' | 'increment' | null;
+  priceLevelMode?: 'none' | 'discount' | 'increment' | 'fixed' | null;
 };
 
 export function cartItemFromProduct(

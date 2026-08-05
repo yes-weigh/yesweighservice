@@ -33,8 +33,14 @@ function normalizeMode(raw: unknown): PriceLevelRuleMode {
   return raw === 'increment' ? 'increment' : 'discount';
 }
 
+function clampMoney(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 function normalizeItemKind(raw: unknown): PriceLevelItemRuleKind {
-  if (raw === 'except' || raw === 'increment') return raw;
+  if (raw === 'except' || raw === 'increment' || raw === 'fixed') return raw;
   return 'discount';
 }
 
@@ -44,12 +50,14 @@ function normalizeItemRule(raw: unknown): PriceLevelItemRule | null {
   const productId = String(row.productId ?? '').trim();
   if (!productId) return null;
   const kind = normalizeItemKind(row.kind);
+  const customRaw = row.customRate ?? row.fixedRate;
   return {
     productId,
     productName: String(row.productName ?? '').trim() || productId,
     sku: row.sku != null && String(row.sku).trim() ? String(row.sku).trim() : null,
     kind,
-    percent: kind === 'except' ? 0 : clampPercent(row.percent),
+    percent: kind === 'except' || kind === 'fixed' ? 0 : clampPercent(row.percent),
+    customRate: kind === 'fixed' ? clampMoney(customRaw) : null,
   };
 }
 
@@ -146,7 +154,9 @@ export function emptyCategoryRule(
 export function categoryRuleHasEffect(rule: PriceLevelCategoryRule): boolean {
   if (rule.percent > 0) return true;
   return rule.itemRules.some(item => (
-    item.kind === 'except' || item.percent > 0
+    item.kind === 'except'
+    || item.kind === 'fixed'
+    || item.percent > 0
   ));
 }
 
@@ -233,6 +243,18 @@ export function resolveDealerUnitPrice(
   if (itemRule) {
     if (itemRule.kind === 'except') {
       return nonePrice(listRate, level, categoryId, true);
+    }
+    if (itemRule.kind === 'fixed') {
+      return {
+        listRate,
+        chargeRate: roundMoney(Number(itemRule.customRate) || 0),
+        mode: 'fixed',
+        percent: 0,
+        levelId: level.id,
+        levelName: level.name,
+        categoryId,
+        itemOverride: true,
+      };
     }
     if (itemRule.percent <= 0) {
       return nonePrice(listRate, level, categoryId, true);

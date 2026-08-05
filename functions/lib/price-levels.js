@@ -14,12 +14,18 @@ function roundMoney(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+function clampMoney(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return roundMoney(n);
+}
+
 function normalizeMode(raw) {
   return raw === 'increment' ? 'increment' : 'discount';
 }
 
 function normalizeItemKind(raw) {
-  if (raw === 'except' || raw === 'increment') return raw;
+  if (raw === 'except' || raw === 'increment' || raw === 'fixed') return raw;
   return 'discount';
 }
 
@@ -28,12 +34,14 @@ function normalizeItemRule(raw) {
   const productId = String(raw.productId ?? '').trim();
   if (!productId) return null;
   const kind = normalizeItemKind(raw.kind);
+  const customRaw = raw.customRate ?? raw.fixedRate;
   return {
     productId,
     productName: String(raw.productName ?? '').trim() || productId,
     sku: raw.sku != null && String(raw.sku).trim() ? String(raw.sku).trim() : null,
     kind,
-    percent: kind === 'except' ? 0 : clampPercent(raw.percent),
+    percent: kind === 'except' || kind === 'fixed' ? 0 : clampPercent(raw.percent),
+    customRate: kind === 'fixed' ? clampMoney(customRaw) : null,
   };
 }
 
@@ -135,7 +143,20 @@ export function resolveDealerUnitPrice(levels, dealerId, product) {
     : null;
 
   if (itemRule) {
-    if (itemRule.kind === 'except' || itemRule.percent <= 0) {
+    if (itemRule.kind === 'except') {
+      return { ...none, itemOverride: true, ...levelMeta };
+    }
+    if (itemRule.kind === 'fixed') {
+      return {
+        listRate,
+        chargeRate: roundMoney(Number(itemRule.customRate) || 0),
+        mode: 'fixed',
+        percent: 0,
+        itemOverride: true,
+        ...levelMeta,
+      };
+    }
+    if (itemRule.percent <= 0) {
       return { ...none, itemOverride: true, ...levelMeta };
     }
     return {

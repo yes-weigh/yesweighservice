@@ -2025,33 +2025,39 @@ export const ProductDetailView: React.FC<{
               {!productEditMode && (
                 <div className="product-detail-page__title-price" aria-label="Dealer price">
                   <div className="product-detail-page__title-price-amount">
-                    {dealerPricing?.mode === 'discount'
-                      && dealerPricing.chargeRate < dealerPricing.listRate ? (
-                      <>
-                        <span className="product-detail-page__title-price-list">
-                          <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                    {(() => {
+                      const list = Math.round((Number(dealerPricing?.listRate ?? product.rate) || 0) * 100) / 100;
+                      const charge = Math.round(
+                        (Number(dealerPricing?.chargeRate ?? product.rate) || 0) * 100,
+                      ) / 100;
+                      const mode = dealerPricing?.mode ?? 'none';
+                      const showDual = (mode === 'discount' || mode === 'fixed') && charge < list;
+                      if (showDual) {
+                        return (
+                          <>
+                            <span className="product-detail-page__title-price-list">
+                              <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                              <span>
+                                {formatCurrencyWhole(list).replace('₹', '').trim()}
+                              </span>
+                            </span>
+                            <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
+                            <span>
+                              {formatCurrencyWhole(charge).replace('₹', '').trim()}
+                            </span>
+                            <span className="product-detail-page__title-price-for-you">for you</span>
+                          </>
+                        );
+                      }
+                      return (
+                        <>
+                          <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
                           <span>
-                            {formatCurrencyWhole(dealerPricing.listRate).replace('₹', '').trim()}
+                            {formatCurrencyWhole(charge).replace('₹', '').trim()}
                           </span>
-                        </span>
-                        <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
-                        <span>
-                          {formatCurrencyWhole(dealerPricing.chargeRate).replace('₹', '').trim()}
-                        </span>
-                        <span className="product-detail-page__title-price-for-you">for you</span>
-                      </>
-                    ) : (
-                      <>
-                        <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
-                        <span>
-                          {formatCurrencyWhole(
-                            dealerPricing?.mode === 'increment'
-                              ? dealerPricing.chargeRate
-                              : product.rate,
-                          ).replace('₹', '').trim()}
-                        </span>
-                      </>
-                    )}
+                        </>
+                      );
+                    })()}
                   </div>
                   <span className="product-detail-page__title-price-gst">+GST</span>
                   {product.mrpOverride != null && Number(product.mrpOverride) > 0 && (
