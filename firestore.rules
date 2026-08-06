@@ -211,6 +211,7 @@ service cloud.firestore {
         || (docId == 'logisticsSettings' && isFullSuperAdmin())
         || (docId == 'logisticsCourierRates' && isFullSuperAdmin())
         || (docId == 'priceLevels' && isFullSuperAdmin())
+        || (docId == 'sparePricing' && isFullSuperAdmin())
         || (docId == 'localPrinterSettings' && isFullSuperAdmin())
         || (docId == 'labelStudio' && isFullSuperAdmin())
         || (docId == 'spareIncharge' && (isFullSuperAdmin() || staffHasHrManage()))
