@@ -137,6 +137,11 @@ service firebase.storage {
       allow write: if false;
     }
 
+    match /catalogSupport/{productId}/{fileName} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Written only via Admin SDK (uploadApprovalNumberPdfFn / removeApprovalNumberPdfFn).
     match /productSettings/approvalPdfs/{fileName} {
       allow read: if signedIn();

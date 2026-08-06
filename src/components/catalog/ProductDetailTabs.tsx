@@ -41,7 +41,7 @@ const TAB_DEFS: { id: ProductDetailTabId; label: string }[] = [
 ];
 
 export const DEALER_PRODUCT_DETAIL_TABS: ProductDetailTabId[] = ['spare', 'media', 'support', 'documents'];
-export const MEDIA_PRODUCT_DETAIL_TABS: ProductDetailTabId[] = ['media'];
+export const MEDIA_PRODUCT_DETAIL_TABS: ProductDetailTabId[] = ['media', 'support'];
 
 function TabPlaceholder({ label }: { label: string }) {
   return (
@@ -399,7 +399,15 @@ export const ProductDetailTabs: React.FC<{
             className="product-detail-tab-panel"
           >
             <TabPanelBody>
-              <TabPlaceholder label="Support" />
+              <ProductMediaPanel
+                catalogProductId={product.id}
+                open={activeTab === 'support'}
+                canWrite={canWriteMedia}
+                actorUid={mediaActorUid}
+                actorName={mediaActorName}
+                variant="support"
+                embedded
+              />
             </TabPanelBody>
           </div>
         )}

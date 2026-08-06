@@ -96,24 +96,37 @@ function firebaseDownloadUrl(bucketName, storagePath, token) {
   return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encoded}?alt=media&token=${token}`;
 }
 
-function assertCatalogMediaStoragePath(storagePath) {
+const GALLERY_STORAGE_PREFIX = {
+  media: 'catalogMedia',
+  support: 'catalogSupport',
+};
+
+function normalizeGallery(value) {
+  const gallery = String(value ?? 'media').trim().toLowerCase();
+  if (gallery === 'support') return 'support';
+  if (gallery === 'media' || !gallery) return 'media';
+  throw new HttpsError('invalid-argument', 'Invalid gallery. Use media or support.');
+}
+
+function assertCatalogFileStoragePath(storagePath) {
   const path = String(storagePath ?? '').trim();
-  const match = /^catalogMedia\/([^/]+)\/([^/]+)$/.exec(path);
+  const match = /^(catalogMedia|catalogSupport)\/([^/]+)\/([^/]+)$/.exec(path);
   if (!match) {
-    throw new HttpsError('invalid-argument', 'Invalid media storage path.');
+    throw new HttpsError('invalid-argument', 'Invalid catalog file storage path.');
   }
   return path;
 }
 
 export async function uploadCatalogMediaFile(callerUid, input) {
   const actor = await requireMediaWriter(callerUid);
+  const gallery = normalizeGallery(input?.gallery);
 
   const catalogProductId = assertSafeSegment(input?.catalogProductId, 'catalogProductId');
   const contentType = String(input?.contentType ?? 'application/octet-stream').trim();
   const fileBase64 = String(input?.fileBase64 ?? '').trim();
   const fileNameHint = String(input?.fileName ?? 'file').trim();
   const fileId = String(input?.fileId ?? '').trim()
-    || `media_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    || `${gallery}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const caption = String(input?.caption ?? '').trim() || null;
 
   if (!fileBase64) {
@@ -139,7 +152,8 @@ export async function uploadCatalogMediaFile(callerUid, input) {
   const ext = extFromContentType(mediaType, fileNameHint);
   const safeFileId = assertSafeSegment(fileId, 'fileId');
   const fileName = `${safeFileId}.${ext}`;
-  const storagePath = `catalogMedia/${catalogProductId}/${fileName}`;
+  const storagePrefix = GALLERY_STORAGE_PREFIX[gallery];
+  const storagePath = `${storagePrefix}/${catalogProductId}/${fileName}`;
   const token = randomUUID();
   const bucket = getStorage().bucket();
   const file = bucket.file(storagePath);
@@ -154,6 +168,7 @@ export async function uploadCatalogMediaFile(callerUid, input) {
       metadata: {
         firebaseStorageDownloadTokens: token,
         uploadedByUid: callerUid,
+        gallery,
       },
     },
   });
@@ -175,7 +190,7 @@ export async function uploadCatalogMediaFile(callerUid, input) {
 
 export async function deleteCatalogMediaFile(callerUid, input) {
   await requireMediaWriter(callerUid);
-  const storagePath = assertCatalogMediaStoragePath(input?.storagePath);
+  const storagePath = assertCatalogFileStoragePath(input?.storagePath);
   const bucket = getStorage().bucket();
   const file = bucket.file(storagePath);
   const [exists] = await file.exists();

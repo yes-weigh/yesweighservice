@@ -41,6 +41,12 @@ const DEV_QUICK_LOGIN_PROFILES: readonly DevQuickLoginProfile[] = import.meta.en
         loginId: 'admin@yesweigh.in',
         password: 'YesWeigh@2026',
       },
+      {
+        id: 'shuhaib',
+        label: 'Shuhaib (media)',
+        loginId: 'shuhaib',
+        password: 'shuhaib',
+      },
     ]
   : [];
 

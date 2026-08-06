@@ -9,17 +9,34 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../../firebase';
 import { compressImageForUpload } from '../compressImage';
 import type {
+  CatalogFileGallery,
   CatalogMediaFile,
   CatalogMediaNote,
   CatalogProductMediaDoc,
 } from '../../types/catalog-media';
 import { catalogMediaKindFromContentType } from '../../types/catalog-media';
 
-const COLLECTION = 'catalogProductMedia';
 const MAX_FILE_BYTES = 40 * 1024 * 1024;
 const MAX_NOTES = 100;
 const MAX_FILES = 40;
 const functions = getFunctions(app, 'asia-south1');
+
+const GALLERY_CONFIG: Record<CatalogFileGallery, {
+  collection: string;
+  fileIdPrefix: string;
+  label: string;
+}> = {
+  media: {
+    collection: 'catalogProductMedia',
+    fileIdPrefix: 'media',
+    label: 'media',
+  },
+  support: {
+    collection: 'catalogProductSupport',
+    fileIdPrefix: 'support',
+    label: 'support',
+  },
+};
 
 const now = () => new Date().toISOString();
 
@@ -27,8 +44,8 @@ function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function mediaDocRef(catalogProductId: string) {
-  return doc(db, COLLECTION, catalogProductId);
+function galleryDocRef(gallery: CatalogFileGallery, catalogProductId: string) {
+  return doc(db, GALLERY_CONFIG[gallery].collection, catalogProductId);
 }
 
 function emptyMediaDoc(catalogProductId: string): CatalogProductMediaDoc {
@@ -133,17 +150,24 @@ async function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export async function getCatalogProductMedia(
+export async function getCatalogProductGallery(
+  gallery: CatalogFileGallery,
   catalogProductId: string,
 ): Promise<CatalogProductMediaDoc | null> {
-  const snap = await getDoc(mediaDocRef(catalogProductId));
+  const snap = await getDoc(galleryDocRef(gallery, catalogProductId));
   if (!snap.exists()) return null;
   return mapMediaDoc(snap.data() as Record<string, unknown>, catalogProductId);
 }
 
+export async function getCatalogProductMedia(
+  catalogProductId: string,
+): Promise<CatalogProductMediaDoc | null> {
+  return getCatalogProductGallery('media', catalogProductId);
+}
+
 /** Product IDs that have at least one Firebase media file. */
 export async function listCatalogProductIdsWithMediaFiles(): Promise<Set<string>> {
-  const snap = await getDocs(collection(db, COLLECTION));
+  const snap = await getDocs(collection(db, GALLERY_CONFIG.media.collection));
   const ids = new Set<string>();
   for (const docSnap of snap.docs) {
     const data = docSnap.data() as Record<string, unknown>;
@@ -158,22 +182,27 @@ export async function listCatalogProductIdsWithMediaFiles(): Promise<Set<string>
   return ids;
 }
 
-async function saveMediaDoc(docData: CatalogProductMediaDoc): Promise<CatalogProductMediaDoc> {
-  await setDoc(mediaDocRef(docData.catalogProductId), docData, { merge: false });
+async function saveGalleryDoc(
+  gallery: CatalogFileGallery,
+  docData: CatalogProductMediaDoc,
+): Promise<CatalogProductMediaDoc> {
+  await setDoc(galleryDocRef(gallery, docData.catalogProductId), docData, { merge: false });
   return docData;
 }
 
-export async function uploadCatalogMediaFile(input: {
+export async function uploadCatalogGalleryFile(input: {
+  gallery: CatalogFileGallery;
   catalogProductId: string;
   file: File;
   caption?: string | null;
   actorUid: string;
   actorName?: string | null;
 }): Promise<CatalogProductMediaDoc> {
-  const existing = await getCatalogProductMedia(input.catalogProductId)
+  const config = GALLERY_CONFIG[input.gallery];
+  const existing = await getCatalogProductGallery(input.gallery, input.catalogProductId)
     ?? emptyMediaDoc(input.catalogProductId);
   if (existing.files.length >= MAX_FILES) {
-    throw new Error(`Maximum ${MAX_FILES} media files per product.`);
+    throw new Error(`Maximum ${MAX_FILES} ${config.label} files per product.`);
   }
 
   let uploadFile = input.file;
@@ -184,10 +213,11 @@ export async function uploadCatalogMediaFile(input: {
     throw new Error('File must be under 40 MB.');
   }
 
-  const fileId = newId('media');
+  const fileId = newId(config.fileIdPrefix);
   try {
     const fn = httpsCallable<
       {
+        gallery: CatalogFileGallery;
         catalogProductId: string;
         fileId: string;
         fileName: string;
@@ -198,6 +228,7 @@ export async function uploadCatalogMediaFile(input: {
       CatalogMediaFile
     >(functions, 'uploadCatalogMediaFileFn', { timeout: 180_000 });
     const result = await fn({
+      gallery: input.gallery,
       catalogProductId: input.catalogProductId,
       fileId,
       fileName: uploadFile.name || 'file',
@@ -213,20 +244,31 @@ export async function uploadCatalogMediaFile(input: {
       updatedByUid: input.actorUid,
       updatedByName: input.actorName?.trim() || null,
     };
-    return saveMediaDoc(next);
+    return saveGalleryDoc(input.gallery, next);
   } catch (err) {
-    throw callableError(err, 'Could not upload media file.');
+    throw callableError(err, `Could not upload ${config.label} file.`);
   }
 }
 
-export async function deleteCatalogMediaFile(input: {
+export async function uploadCatalogMediaFile(input: {
+  catalogProductId: string;
+  file: File;
+  caption?: string | null;
+  actorUid: string;
+  actorName?: string | null;
+}): Promise<CatalogProductMediaDoc> {
+  return uploadCatalogGalleryFile({ ...input, gallery: 'media' });
+}
+
+export async function deleteCatalogGalleryFile(input: {
+  gallery: CatalogFileGallery;
   catalogProductId: string;
   file: CatalogMediaFile;
   actorUid: string;
   actorName?: string | null;
 }): Promise<CatalogProductMediaDoc> {
-  const existing = await getCatalogProductMedia(input.catalogProductId);
-  if (!existing) throw new Error('No media found for this product.');
+  const existing = await getCatalogProductGallery(input.gallery, input.catalogProductId);
+  if (!existing) throw new Error(`No ${GALLERY_CONFIG[input.gallery].label} found for this product.`);
 
   try {
     const fn = httpsCallable<{ storagePath: string }, { deleted: boolean }>(
@@ -240,9 +282,42 @@ export async function deleteCatalogMediaFile(input: {
   }
 
   const stamp = now();
-  return saveMediaDoc({
+  return saveGalleryDoc(input.gallery, {
     ...existing,
     files: existing.files.filter(f => f.id !== input.file.id),
+    updatedAt: stamp,
+    updatedByUid: input.actorUid,
+    updatedByName: input.actorName?.trim() || null,
+  });
+}
+
+export async function deleteCatalogMediaFile(input: {
+  catalogProductId: string;
+  file: CatalogMediaFile;
+  actorUid: string;
+  actorName?: string | null;
+}): Promise<CatalogProductMediaDoc> {
+  return deleteCatalogGalleryFile({ ...input, gallery: 'media' });
+}
+
+export async function updateCatalogGalleryFileCaption(input: {
+  gallery: CatalogFileGallery;
+  catalogProductId: string;
+  fileId: string;
+  caption: string | null;
+  actorUid: string;
+  actorName?: string | null;
+}): Promise<CatalogProductMediaDoc> {
+  const existing = await getCatalogProductGallery(input.gallery, input.catalogProductId);
+  if (!existing) throw new Error(`No ${GALLERY_CONFIG[input.gallery].label} found for this product.`);
+  const stamp = now();
+  return saveGalleryDoc(input.gallery, {
+    ...existing,
+    files: existing.files.map(file => (
+      file.id === input.fileId
+        ? { ...file, caption: input.caption?.trim() || null }
+        : file
+    )),
     updatedAt: stamp,
     updatedByUid: input.actorUid,
     updatedByName: input.actorName?.trim() || null,
@@ -256,20 +331,7 @@ export async function updateCatalogMediaFileCaption(input: {
   actorUid: string;
   actorName?: string | null;
 }): Promise<CatalogProductMediaDoc> {
-  const existing = await getCatalogProductMedia(input.catalogProductId);
-  if (!existing) throw new Error('No media found for this product.');
-  const stamp = now();
-  return saveMediaDoc({
-    ...existing,
-    files: existing.files.map(file => (
-      file.id === input.fileId
-        ? { ...file, caption: input.caption?.trim() || null }
-        : file
-    )),
-    updatedAt: stamp,
-    updatedByUid: input.actorUid,
-    updatedByName: input.actorName?.trim() || null,
-  });
+  return updateCatalogGalleryFileCaption({ ...input, gallery: 'media' });
 }
 
 export async function addCatalogMediaNote(input: {
@@ -294,7 +356,7 @@ export async function addCatalogMediaNote(input: {
     createdByName: input.actorName?.trim() || null,
     updatedAt: null,
   };
-  return saveMediaDoc({
+  return saveGalleryDoc('media', {
     ...existing,
     notes: [note, ...existing.notes],
     updatedAt: stamp,
@@ -315,7 +377,7 @@ export async function updateCatalogMediaNote(input: {
   const existing = await getCatalogProductMedia(input.catalogProductId);
   if (!existing) throw new Error('No media found for this product.');
   const stamp = now();
-  return saveMediaDoc({
+  return saveGalleryDoc('media', {
     ...existing,
     notes: existing.notes.map(note => (
       note.id === input.noteId
@@ -337,7 +399,7 @@ export async function deleteCatalogMediaNote(input: {
   const existing = await getCatalogProductMedia(input.catalogProductId);
   if (!existing) throw new Error('No media found for this product.');
   const stamp = now();
-  return saveMediaDoc({
+  return saveGalleryDoc('media', {
     ...existing,
     notes: existing.notes.filter(note => note.id !== input.noteId),
     updatedAt: stamp,

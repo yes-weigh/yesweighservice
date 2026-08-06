@@ -1,5 +1,8 @@
 export type CatalogMediaKind = 'image' | 'pdf' | 'video' | 'other';
 
+/** Separate Firebase galleries on product detail (Media vs Support tabs). */
+export type CatalogFileGallery = 'media' | 'support';
+
 export interface CatalogMediaFile {
   id: string;
   fileName: string;

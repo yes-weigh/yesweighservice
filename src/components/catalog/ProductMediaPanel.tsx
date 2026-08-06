@@ -10,12 +10,17 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import type { CatalogMediaFile, CatalogMediaKind, CatalogProductMediaDoc } from '../../types/catalog-media';
+import type {
+  CatalogFileGallery,
+  CatalogMediaFile,
+  CatalogMediaKind,
+  CatalogProductMediaDoc,
+} from '../../types/catalog-media';
 import {
-  deleteCatalogMediaFile,
-  getCatalogProductMedia,
-  updateCatalogMediaFileCaption,
-  uploadCatalogMediaFile,
+  deleteCatalogGalleryFile,
+  getCatalogProductGallery,
+  updateCatalogGalleryFileCaption,
+  uploadCatalogGalleryFile,
 } from '../../lib/catalogMedia/data';
 
 type ProductMediaPanelProps = {
@@ -25,6 +30,37 @@ type ProductMediaPanelProps = {
   actorUid: string;
   actorName?: string | null;
   embedded?: boolean;
+  /** Media tab (default) or Support tab gallery. */
+  variant?: CatalogFileGallery;
+};
+
+const GALLERY_COPY: Record<CatalogFileGallery, {
+  title: string;
+  subtitle: string;
+  emptyWrite: string;
+  emptyRead: string;
+  loading: string;
+  addLabel: string;
+  closeAddLabel: string;
+}> = {
+  media: {
+    title: 'Product media',
+    subtitle: 'Images, PDFs, and videos stored in Firebase (not synced to Zoho).',
+    emptyWrite: 'No media files yet. Tap + to add one.',
+    emptyRead: 'No media files yet.',
+    loading: 'Loading media…',
+    addLabel: 'Add media',
+    closeAddLabel: 'Close add media',
+  },
+  support: {
+    title: 'Product support',
+    subtitle: 'Support files (images, PDFs, videos) stored in Firebase (not synced to Zoho).',
+    emptyWrite: 'No support files yet. Tap + to add one.',
+    emptyRead: 'No support files yet.',
+    loading: 'Loading support files…',
+    addLabel: 'Add support file',
+    closeAddLabel: 'Close add support file',
+  },
 };
 
 type PreviewState = {
@@ -52,7 +88,9 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
   actorUid,
   actorName = null,
   embedded = false,
+  variant = 'media',
 }) => {
+  const copy = GALLERY_COPY[variant];
   const [doc, setDoc] = useState<CatalogProductMediaDoc | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,13 +119,13 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
     setPendingFile(null);
     setPendingCaption('');
     if (fileInputRef.current) fileInputRef.current.value = '';
-    void getCatalogProductMedia(catalogProductId)
+    void getCatalogProductGallery(variant, catalogProductId)
       .then(result => {
         if (!cancelled) setDoc(result);
       })
       .catch(err => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Could not load media.');
+          setError(err instanceof Error ? err.message : `Could not load ${variant} files.`);
         }
       })
       .finally(() => {
@@ -96,7 +134,7 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, catalogProductId]);
+  }, [open, catalogProductId, variant]);
 
   const files = doc?.files ?? [];
 
@@ -122,7 +160,8 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
     setUploading(true);
     setError(null);
     try {
-      const next = await uploadCatalogMediaFile({
+      const next = await uploadCatalogGalleryFile({
+        gallery: variant,
         catalogProductId,
         file: pendingFile,
         caption,
@@ -144,7 +183,8 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
     setBusyId(file.id);
     setError(null);
     try {
-      const next = await deleteCatalogMediaFile({
+      const next = await deleteCatalogGalleryFile({
+        gallery: variant,
         catalogProductId,
         file,
         actorUid,
@@ -168,7 +208,8 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
     setBusyId(file.id);
     setError(null);
     try {
-      const next = await updateCatalogMediaFileCaption({
+      const next = await updateCatalogGalleryFileCaption({
+        gallery: variant,
         catalogProductId,
         fileId: file.id,
         caption,
@@ -197,9 +238,9 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
     <div className={`product-media-panel${embedded ? ' product-media-panel--embedded' : ''}`}>
       <div className="product-media-panel__head">
         <div>
-          <h3 className="product-media-panel__title">Product media</h3>
+          <h3 className="product-media-panel__title">{copy.title}</h3>
           <p className="product-media-panel__subtitle text-muted text-sm">
-            Images, PDFs, and videos stored in Firebase (not synced to Zoho).
+            {copy.subtitle}
           </p>
         </div>
       </div>
@@ -207,7 +248,7 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
       {error && <p className="product-media-panel__error text-sm">{error}</p>}
 
       {loading ? (
-        <p className="text-muted text-sm">Loading media…</p>
+        <p className="text-muted text-sm">{copy.loading}</p>
       ) : (
         <section className="product-media-panel__section">
           <div className="product-media-panel__section-head">
@@ -220,8 +261,8 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
                   'btn btn-sm product-media-panel__add-btn',
                   showUpload ? 'is-active' : '',
                 ].filter(Boolean).join(' ')}
-                title={showUpload ? 'Close add media' : 'Add media'}
-                aria-label={showUpload ? 'Close add media' : 'Add media'}
+                title={showUpload ? copy.closeAddLabel : copy.addLabel}
+                aria-label={showUpload ? copy.closeAddLabel : copy.addLabel}
                 aria-expanded={showUpload}
                 onClick={() => (showUpload ? closeUpload() : setShowUpload(true))}
               >
@@ -293,7 +334,7 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
 
           {files.length === 0 ? (
             <p className="text-muted text-sm">
-              {canWrite ? 'No media files yet. Tap + to add one.' : 'No media files yet.'}
+              {canWrite ? copy.emptyWrite : copy.emptyRead}
             </p>
           ) : (
             <ul className="product-media-panel__files">

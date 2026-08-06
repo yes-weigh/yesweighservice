@@ -804,6 +804,11 @@ service cloud.firestore {
       allow write: if isActiveUser() && canWriteCatalogMedia();
     }
 
+    match /catalogProductSupport/{productId} {
+      allow read: if isActiveUser();
+      allow write: if isActiveUser() && canWriteCatalogMedia();
+    }
+
     function isLogisticsBookingDealerAccess(data) {
       return (isDealer() && (
           data.dealerId == request.auth.uid
