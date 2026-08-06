@@ -1,7 +1,7 @@
 import React from 'react';
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, Package } from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
-import { isFreightInvoiceLineItem } from '../../lib/invoices';
+import { isFreightInvoiceLineItem, moveFreightLinesToEnd } from '../../lib/invoices';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
 import { DocumentLineItemSpec } from './DocumentLineItemSpec';
 
@@ -41,9 +41,11 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   renderExpanded,
 }) => {
   const selectable = Boolean(onSelectLineItem);
-  const visibleItems = hideLineItem
-    ? invoice.lineItems.filter(item => !hideLineItem(item))
-    : invoice.lineItems;
+  const visibleItems = moveFreightLinesToEnd(
+    hideLineItem
+      ? invoice.lineItems.filter(item => !hideLineItem(item))
+      : invoice.lineItems,
+  );
   const money = (value: number) => formatCurrency(value, currencyCode);
 
   const totals = !hideTotals ? (

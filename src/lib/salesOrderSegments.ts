@@ -1,3 +1,4 @@
+import type { InvoiceCategory } from '../types/invoices';
 import {
   hasCatalogCategory,
   isGenericSparePartsCategory,
@@ -64,6 +65,31 @@ export function classifyOrderLineSegment(line: {
   return 'product';
 }
 
+/** Map SO invoice category → order segment (create/submit stamp). */
+export function orderSegmentFromInvoiceCategory(
+  category: InvoiceCategory | null | undefined,
+): OrderSegment | null {
+  if (category === 'spare') return 'spare';
+  if (category === 'software_key') return 'software';
+  if (category === 'product') return 'product';
+  return null;
+}
+
+export function parseInventorySite(value: unknown): InventorySite | null {
+  const site = String(value ?? '').trim().toLowerCase();
+  if (site === 'cochin' || site === 'head_office') return site;
+  return null;
+}
+
+/**
+ * Default site when SO has no yesOneInventorySite (legacy rows).
+ * Matches empty-stock defaults in resolveLineInventorySite.
+ */
+export function defaultInventorySiteForSegment(segment: OrderSegment): InventorySite {
+  if (segment === 'spare' || segment === 'software') return 'head_office';
+  return 'cochin';
+}
+
 export function segmentLabel(segment: OrderSegment): string {
   if (segment === 'spare') return 'Spare';
   if (segment === 'software') return 'Software';
@@ -108,6 +134,41 @@ export function resolveLineInventorySite(
   }
 
   return segment === 'spare' ? 'head_office' : 'cochin';
+}
+
+/**
+ * Whether a catalog item may be carted onto an existing SO (add-line).
+ * Freight is never catalog-carted here (auto freight). Must match segment × site
+ * the same way create/submit would bucket the line.
+ */
+export function productMatchesSalesOrderBucket(
+  product: {
+    categoryId?: string | null;
+    categoryName?: string | null;
+    productId?: string | null;
+    id?: string | null;
+    sku?: string | null;
+    warehouses?: Array<{ warehouseName?: string; stock?: number }> | null;
+  },
+  bucket: {
+    segment: OrderSegment | null | undefined;
+    site: InventorySite | null | undefined;
+  },
+): boolean {
+  if (!bucket.segment) return false;
+  const productId = product.productId ?? product.id ?? null;
+  if (isFreightOrderLine({ productId, sku: product.sku })) return false;
+
+  const segment = classifyOrderLineSegment({
+    categoryId: product.categoryId,
+    categoryName: product.categoryName,
+    productId,
+    sku: product.sku,
+  });
+  if (segment !== bucket.segment) return false;
+
+  const site = bucket.site ?? defaultInventorySiteForSegment(bucket.segment);
+  return resolveLineInventorySite(segment, product.warehouses) === site;
 }
 
 export function segmentSiteBucketKey(segment: OrderSegment, site: InventorySite): string {

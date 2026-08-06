@@ -32,6 +32,15 @@ import { isQuantityExcludedLineItem } from './invoice-category.js';
 import { catalogProductIgnoresStockForCart, effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
 import {
+  defaultInventorySiteForSegment,
+  inventorySiteLabel,
+  orderSegmentFromInvoiceCategory,
+  parseInventorySite,
+  parseOrderSegment,
+  productMatchesSalesOrderBucket,
+  segmentLabel,
+} from './sales-order-segments.js';
+import {
   loadGatcStampingPriceMap,
   mergeKeyForLine,
   resolveGatcFeeForProduct,
@@ -456,6 +465,7 @@ async function loadCatalogProduct(productId) {
     hsn: data.hsn != null ? String(data.hsn) : null,
     status: String(data.status ?? 'active'),
     hiddenFromCatalog: Boolean(data.hiddenFromCatalog),
+    warehouses: Array.isArray(data.warehouses) ? data.warehouses : [],
     gatcStampingPriceIds: Array.isArray(data.gatcStampingPriceIds)
       ? data.gatcStampingPriceIds.map(id => String(id ?? '').trim()).filter(Boolean)
       : [],
@@ -680,6 +690,34 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
     allowOutOfStock: true,
     allowRateOverride: true,
   });
+
+  const requiredSegment = parseOrderSegment(data.yesOneOrderSegment)
+    || orderSegmentFromInvoiceCategory(data.salesOrderCategory);
+  if (requiredSegment) {
+    const requiredSite = parseInventorySite(data.yesOneInventorySite)
+      || defaultInventorySiteForSegment(requiredSegment);
+    const existingIds = new Set(
+      (Array.isArray(data.lineItems) ? data.lineItems : [])
+        .map(line => String(line.itemId || line.productId || '').trim())
+        .filter(Boolean),
+    );
+    for (const line of lines) {
+      if (isFreightOrderLine(line)) continue;
+      const productId = String(line.productId || '').trim();
+      if (!productId || existingIds.has(productId)) continue;
+      const product = await loadCatalogProduct(productId);
+      if (!productMatchesSalesOrderBucket(product, {
+        segment: requiredSegment,
+        site: requiredSite,
+      })) {
+        throw new HttpsError(
+          'failed-precondition',
+          `${line.name || 'Item'} cannot be added to this ${segmentLabel(requiredSegment)} · ${inventorySiteLabel(requiredSite)} sales order.`,
+        );
+      }
+    }
+  }
+
   await updateSalesOrderLines(secrets, orgId, id, lines);
   await mirrorSalesOrderFromZoho(secrets, orgId, id);
 

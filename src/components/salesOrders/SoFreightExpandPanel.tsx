@@ -27,8 +27,8 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
+import { isFreightDraftEditLine, withFreightDraftLinesLast } from './SalesOrderDraftLineEditor';
 import type { DraftEditLine } from './SalesOrderDraftLineEditor';
-import { isFreightDraftEditLine } from './SalesOrderDraftLineEditor';
 
 function freightDraftLine(sku: FreightLineSku, rate: number): DraftEditLine {
   const option = FREIGHT_LINE_OPTIONS.find(row => row.sku === sku)!;
@@ -60,6 +60,8 @@ type Props = {
   shippingDestination: StCourierDestination | null;
   canEditPackage?: boolean;
   disabled?: boolean;
+  /** When false, still auto-sync freight into lines but render nothing (keep mounted while editing). */
+  showUi?: boolean;
   onPackageInfoSaved?: (productId: string, info: NonNullable<CatalogProduct['packageInfo']>) => void;
 };
 
@@ -70,12 +72,27 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   shippingDestination,
   canEditPackage = false,
   disabled = false,
+  showUi = true,
   onPackageInfoSaved,
 }) => {
   const productLines = useMemo(
     () => lines.filter(line => !isFreightDraftEditLine(line)),
     [lines],
   );
+  const productLinesKey = useMemo(
+    () => productLines.map(line => `${line.productId}:${line.quantity}:${line.sku || ''}`).join('|'),
+    [productLines],
+  );
+  const destinationKey = useMemo(
+    () => [
+      shippingDestination?.state ?? '',
+      shippingDestination?.city ?? '',
+      shippingDestination?.zip ?? '',
+    ].join('|'),
+    [shippingDestination],
+  );
+  const freightInputsKey = `${productLinesKey}::${destinationKey}`;
+
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
@@ -86,6 +103,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const [freightAmountManual, setFreightAmountManual] = useState(false);
   const hydratedRef = useRef(false);
   const lastAutoKeyRef = useRef('');
+  const prevFreightInputsKeyRef = useRef(freightInputsKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +133,14 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
       setCourierBySite({ cochin: partner, head_office: partner });
     }
   }, [lines]);
+
+  // Line qty/add/remove or destination change → resume auto freight (don't keep a stale manual ₹).
+  useEffect(() => {
+    if (prevFreightInputsKeyRef.current === freightInputsKey) return;
+    prevFreightInputsKeyRef.current = freightInputsKey;
+    setFreightAmountManual(false);
+    lastAutoKeyRef.current = '';
+  }, [freightInputsKey]);
 
   const inferredZone = useMemo(
     () => inferStCourierZone(shippingDestination),
@@ -162,7 +188,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     if (existingFreight?.lineId && existingFreight.lineId !== 'freight-line') {
       next.lineId = existingFreight.lineId;
     }
-    onChangeLines([...withoutFreight, next]);
+    onChangeLines(withFreightDraftLinesLast([...withoutFreight, next]));
   };
 
   useEffect(() => {
@@ -202,6 +228,8 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     // Sync freight from estimate when courier / package / lines change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [freightEstimate, freightAmountManual, disabled]);
+
+  if (!showUi) return null;
 
   return (
     <div className="so-freight-expand" id="so-draft-freight">

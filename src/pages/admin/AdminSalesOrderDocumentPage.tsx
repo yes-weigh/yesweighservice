@@ -22,6 +22,7 @@ import {
   draftLinesFingerprint,
   draftLinesFromSalesOrderItems,
   isFreightDraftEditLine,
+  withFreightDraftLinesLast,
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
 import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCatalogAddSheet';
@@ -36,6 +37,7 @@ import type { CatalogProduct } from '../../types/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
 import {
   listCustomerShippingAddresses,
+  resolveShippingDestination,
   type ShippingAddress,
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
@@ -52,7 +54,7 @@ import {
   updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
-import { formatInvoiceDate, isFreightInvoiceLineItem } from '../../lib/invoices';
+import { formatInvoiceDate, isFreightInvoiceLineItem, moveFreightLinesToEnd } from '../../lib/invoices';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import {
   prepareElementScreenshot,
@@ -231,7 +233,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     });
 
     if (!editLines.length) {
-      return { ...salesOrder, lineItems: withDesc };
+      return { ...salesOrder, lineItems: moveFreightLinesToEnd(withDesc) };
     }
 
     const dirty = Boolean(
@@ -287,7 +289,21 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       });
     }
 
-    return { ...salesOrder, lineItems: mapped };
+    if (freightDraft && !usedDraftIds.has(freightDraft.lineId)) {
+      mapped.push({
+        id: freightDraft.lineId,
+        itemId: freightDraft.productId,
+        name: freightDraft.name,
+        sku: freightDraft.sku,
+        description: freightDraft.description,
+        imageUrl: freightDraft.imageUrl,
+        rate: freightDraft.rate,
+        quantity: freightDraft.quantity,
+        total: Math.round(freightDraft.rate * freightDraft.quantity * 100) / 100,
+      });
+    }
+
+    return { ...salesOrder, lineItems: moveFreightLinesToEnd(mapped) };
   }, [salesOrder, catalogDescByItemId, editLines, baselineFingerprint]);
 
   const portalRemarks = useMemo(
@@ -322,6 +338,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const freightDestination = useMemo((): StCourierDestination | null => {
     if (!salesOrder) return null;
+    if (editingShip && shipSelection) {
+      const fromSelection = resolveShippingDestination(shipSelection, shipAddresses);
+      if (fromSelection) return fromSelection;
+    }
     const id = salesOrder.shippingAddressId?.trim();
     const match = id
       ? shipAddresses.find(addr => addr.addressId === id)
@@ -336,7 +356,28 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     const zip = addr.zip?.trim() || null;
     if (!state && !city && !zip) return null;
     return { state, city, zip };
-  }, [salesOrder, shipAddresses]);
+  }, [salesOrder, shipAddresses, editingShip, shipSelection]);
+
+  const allowFreightEdit = useMemo(() => {
+    if (!salesOrder) return false;
+    return salesOrder.salesOrderCategory === 'product'
+      || salesOrder.salesOrderCategory === 'spare'
+      || (
+        !salesOrder.salesOrderCategory
+        && !(salesOrder.categories ?? []).includes('software_key')
+      );
+  }, [salesOrder]);
+
+  const onFreightPackageInfoSaved = useCallback((
+    productId: string,
+    info: NonNullable<CatalogProduct['packageInfo']>,
+  ) => {
+    setCatalogById(prev => {
+      const existing = prev[productId];
+      if (!existing) return prev;
+      return { ...prev, [productId]: { ...existing, packageInfo: info } };
+    });
+  }, []);
 
   const hydrateEditLines = useCallback(async (): Promise<DraftEditLine[] | null> => {
     if (!salesOrder) return null;
@@ -345,28 +386,30 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     }
     setLinesHydrating(true);
     try {
-      const next = await draftLinesFromSalesOrderItems(
-        salesOrder.lineItems.map(line => {
-          const productId = line.itemId || line.id;
-          const description = line.description?.trim()
-            || catalogDescByItemId[productId]
-            || catalogDescByItemId[line.id]
-            || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
-            || null;
-          return {
-            id: line.id,
-            productId,
-            itemId: line.itemId,
-            name: line.name,
-            sku: line.sku ?? null,
-            description,
-            imageUrl: line.imageUrl ?? null,
-            rate: Number(line.rate) || 0,
-            quantity: Math.max(1, Math.floor(line.quantity || 1)),
-            unit: 'pcs',
-            stockStatus: null,
-          };
-        }),
+      const next = withFreightDraftLinesLast(
+        await draftLinesFromSalesOrderItems(
+          salesOrder.lineItems.map(line => {
+            const productId = line.itemId || line.id;
+            const description = line.description?.trim()
+              || catalogDescByItemId[productId]
+              || catalogDescByItemId[line.id]
+              || (line.sku ? catalogDescByItemId[`sku:${line.sku}`] : null)
+              || null;
+            return {
+              id: line.id,
+              productId,
+              itemId: line.itemId,
+              name: line.name,
+              sku: line.sku ?? null,
+              description,
+              imageUrl: line.imageUrl ?? null,
+              rate: Number(line.rate) || 0,
+              quantity: Math.max(1, Math.floor(line.quantity || 1)),
+              unit: 'pcs',
+              stockStatus: null,
+            };
+          }),
+        ),
       );
       setEditLines(next);
       setBaselineFingerprint(draftLinesFingerprint(next));
@@ -428,7 +471,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const saveLines = async () => {
     if (!salesOrderId || savingLines) return;
-    const lines = editLines
+    const lines = withFreightDraftLinesLast(editLines)
       .filter(line => line.productId && line.quantity > 0)
       .map(line => ({
         productId: line.productId,
@@ -461,6 +504,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     const items = (documentInvoice ?? salesOrder).lineItems ?? [];
     return items.find(item => item.id === expandedLineId) ?? null;
   }, [expandedLineId, salesOrder, documentInvoice]);
+
+  const freightLineExpanded = Boolean(
+    expandedLineItem && isFreightInvoiceLineItem(expandedLineItem),
+  );
 
   const handleSelectLineItem = (item: DealerInvoiceLineItem) => {
     if (!canEditLines) return;
@@ -533,7 +580,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const applyCatalogAdd = (productLines: DraftEditLine[]) => {
     setEditLines(prev => {
       const freight = prev.filter(isFreightDraftEditLine);
-      return [...productLines, ...freight];
+      return withFreightDraftLinesLast([...productLines, ...freight]);
     });
     setShowCatalogAdd(false);
   };
@@ -541,13 +588,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const renderLineEditor = (item: DealerInvoiceLineItem): React.ReactNode => {
     if (!salesOrder) return null;
     if (isFreightInvoiceLineItem(item)) {
-      const allowFreight = salesOrder.salesOrderCategory === 'product'
-        || salesOrder.salesOrderCategory === 'spare'
-        || (
-          !salesOrder.salesOrderCategory
-          && !(salesOrder.categories ?? []).includes('software_key')
-        );
-      if (!allowFreight) {
+      if (!allowFreightEdit) {
         return <p className="text-muted text-sm">Freight is not used on this order type.</p>;
       }
       return (
@@ -558,13 +599,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           shippingDestination={freightDestination}
           canEditPackage={isOps}
           disabled={savingLines}
-          onPackageInfoSaved={(productId, info) => {
-            setCatalogById(prev => {
-              const existing = prev[productId];
-              if (!existing) return prev;
-              return { ...prev, [productId]: { ...existing, packageInfo: info } };
-            });
-          }}
+          onPackageInfoSaved={onFreightPackageInfoSaved}
         />
       );
     }
@@ -979,12 +1014,27 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         />
       </section>
 
+      {canEditLines && allowFreightEdit && editLines.length > 0 && !freightLineExpanded ? (
+        <SoFreightExpandPanel
+          showUi={false}
+          lines={editLines}
+          onChangeLines={setEditLines}
+          catalogById={catalogById}
+          shippingDestination={freightDestination}
+          canEditPackage={isOps}
+          disabled={savingLines}
+          onPackageInfoSaved={onFreightPackageInfoSaved}
+        />
+      ) : null}
+
       {canEditLines ? (
         <SoDetailCatalogAddSheet
           open={showCatalogAdd}
           sessionKey={catalogAddSession}
           seedLines={editLines}
           orderCategory={salesOrder.salesOrderCategory}
+          orderSegment={salesOrder.yesOneOrderSegment ?? null}
+          inventorySite={salesOrder.yesOneInventorySite ?? null}
           onClose={() => setShowCatalogAdd(false)}
           onApply={applyCatalogAdd}
         />

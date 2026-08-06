@@ -25,6 +25,7 @@ import {
   setCachedInvoiceList,
 } from './invoice-cache';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
+import { isFreightProductId, isFreightSku } from '../constants/freightLines';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -672,13 +673,33 @@ function hsnMatchesCategory(
 }
 
 export function isFreightInvoiceLineItem(
-  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & { hsn?: string | null },
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & {
+    hsn?: string | null;
+    itemId?: string | null;
+    id?: string | null;
+  },
 ): boolean {
+  if (isFreightProductId(item.itemId) || isFreightProductId(item.id)) return true;
+  if (isFreightSku(item.sku)) return true;
   if (hsnMatchesCategory(normalizeCategoryHsn(item.hsn), INVOICE_CATEGORY_HSN.freight)) return true;
   const name = item.name.trim().toLowerCase();
   if (name === 'freight' || name.includes('freight')) return true;
   const sku = item.sku?.trim().toLowerCase() ?? '';
   return sku === 'freight' || sku.includes('freight');
+}
+
+/** Keep product/spare lines first; freight charge lines always last. */
+export function moveFreightLinesToEnd<T extends Parameters<typeof isFreightInvoiceLineItem>[0]>(
+  lines: readonly T[],
+): T[] {
+  const goods: T[] = [];
+  const freight: T[] = [];
+  for (const line of lines) {
+    if (isFreightInvoiceLineItem(line)) freight.push(line);
+    else goods.push(line);
+  }
+  if (freight.length === 0) return lines.slice() as T[];
+  return [...goods, ...freight];
 }
 
 /** Lines omitted from qty totals: freight and GATC lines. */

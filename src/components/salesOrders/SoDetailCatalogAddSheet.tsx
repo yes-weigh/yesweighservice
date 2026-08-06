@@ -12,10 +12,19 @@ import {
   fetchCatalog,
   fetchSpareLinkIndex,
   getCategoriesForProducts,
+  getFinishedGoodsForSpareMapping,
   isHiddenCatalogCategory,
 } from '../../lib/catalog';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
-import { classifyOrderLineSegment } from '../../lib/salesOrderSegments';
+import {
+  defaultInventorySiteForSegment,
+  inventorySiteLabel,
+  orderSegmentFromInvoiceCategory,
+  productMatchesSalesOrderBucket,
+  segmentLabel,
+  type InventorySite,
+  type OrderSegment,
+} from '../../lib/salesOrderSegments';
 import type { CartItem } from '../../types/cart';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import type { InvoiceCategory } from '../../types/invoices';
@@ -67,23 +76,22 @@ function cartItemToDraftLine(item: CartItem): DraftEditLine {
   };
 }
 
-function productMatchesOrderCategory(
-  product: CatalogProduct,
-  category: InvoiceCategory | null | undefined,
-): boolean {
-  if (!category || category === 'service' || category === 'gatc') return true;
-  const segment = classifyOrderLineSegment(product);
-  if (category === 'software_key') return segment === 'software';
-  if (category === 'spare') return segment === 'spare';
-  if (category === 'product') return segment === 'product';
-  return true;
-}
-
 const SoDetailCatalogAddBody: React.FC<{
   orderCategory: InvoiceCategory | null | undefined;
+  orderSegment: OrderSegment | null;
+  inventorySite: InventorySite | null;
+  /** Product ids already on the SO — kept even if warehouse stock later flips site. */
+  seedProductIds: Set<string>;
   onClose: () => void;
   onApply: (productLines: DraftEditLine[]) => void;
-}> = ({ orderCategory, onClose, onApply }) => {
+}> = ({
+  orderCategory,
+  orderSegment,
+  inventorySite,
+  seedProductIds,
+  onClose,
+  onApply,
+}) => {
   const { user } = useAuth();
   const { items, itemCount } = useCart();
   const { registerCartTarget, cartBump } = useCartFly();
@@ -98,16 +106,35 @@ const SoDetailCatalogAddBody: React.FC<{
   const [peekProduct, setPeekProduct] = useState<CatalogProduct | null>(null);
   const [spareCountByProductId, setSpareCountByProductId] = useState<Map<string, number> | null>(null);
 
+  const resolvedSegment = orderSegment
+    || orderSegmentFromInvoiceCategory(orderCategory);
+  const resolvedSite = inventorySite
+    || (resolvedSegment ? defaultInventorySiteForSegment(resolvedSegment) : null);
+  const isSpareOrder = resolvedSegment === 'spare';
+  const bucketLabel = resolvedSegment && resolvedSite
+    ? `${segmentLabel(resolvedSegment)} · ${inventorySiteLabel(resolvedSite)}`
+    : null;
+
+  /** Strict create/submit bucket: segment × inventory site only. */
   const isCartable = useMemo(
-    () => (product: CatalogProduct) => productMatchesOrderCategory(product, orderCategory),
-    [orderCategory],
+    () => (product: CatalogProduct) => productMatchesSalesOrderBucket(product, {
+      segment: resolvedSegment,
+      site: resolvedSite,
+    }),
+    [resolvedSegment, resolvedSite],
   );
 
-  const shopProducts = useMemo(
-    () => excludeHiddenCatalogProducts(catalogProducts, catalogCategories)
-      .filter(isCartable),
-    [catalogProducts, catalogCategories, isCartable],
-  );
+  /**
+   * Spare SO: browse finished goods by category, open product for linked spares.
+   * Other SO types: browse only cartable bucket items.
+   */
+  const shopProducts = useMemo(() => {
+    const visible = excludeHiddenCatalogProducts(catalogProducts, catalogCategories);
+    if (isSpareOrder) {
+      return getFinishedGoodsForSpareMapping(visible, catalogCategories);
+    }
+    return visible.filter(isCartable);
+  }, [catalogProducts, catalogCategories, isSpareOrder, isCartable]);
 
   const shopCategories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -128,8 +155,7 @@ const SoDetailCatalogAddBody: React.FC<{
       });
   }, [catalogCategories, shopProducts]);
 
-  const spareOnlyCatalog = orderCategory === 'spare';
-  const showBrowseCategoryChips = !spareOnlyCatalog && shopCategories.length > 0;
+  const showBrowseCategoryChips = shopCategories.length > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +203,20 @@ const SoDetailCatalogAddBody: React.FC<{
   }, [onClose]);
 
   const apply = () => {
-    onApply(items.map(cartItemToDraftLine));
+    const allowed = items.filter(item => {
+      if (seedProductIds.has(item.productId)) return true;
+      const catalog = catalogProducts.find(product => product.id === item.productId);
+      return productMatchesSalesOrderBucket(
+        catalog ?? {
+          id: item.productId,
+          categoryId: item.categoryId,
+          categoryName: item.categoryName,
+          sku: item.sku,
+        },
+        { segment: resolvedSegment, site: resolvedSite },
+      );
+    });
+    onApply(allowed.map(cartItemToDraftLine));
   };
 
   return (
@@ -197,7 +236,11 @@ const SoDetailCatalogAddBody: React.FC<{
           Cancel
         </button>
         <p className="text-muted text-sm so-detail-catalog-add__hint">
-          Tap an item for details & linked spares, or the cart icon to add it
+          {isSpareOrder
+            ? `Browse by category, open a product for linked spares — only ${bucketLabel || 'this SO’s'} spares can be added`
+            : bucketLabel
+              ? `Only ${bucketLabel} items can be added to this order`
+              : 'Tap an item for details & linked spares, or the cart icon to add it'}
         </p>
         <button
           ref={cartBtnRef}
@@ -245,8 +288,8 @@ const SoDetailCatalogAddBody: React.FC<{
               dealerView
               enableCart
               isCartable={isCartable}
-              flatBrowse={spareOnlyCatalog}
-              showCategoryGrid={!spareOnlyCatalog && !browseCategoryId}
+              flatBrowse={false}
+              showCategoryGrid={!browseCategoryId}
               searchPlaceholder="Search catalog…"
               showStockQuantity={showStockQuantity}
               spareLinkCountByProductId={spareCountByProductId ?? undefined}
@@ -273,7 +316,9 @@ const SoDetailCatalogAddBody: React.FC<{
         <span className="text-muted text-sm">
           {items.length
             ? `${items.length} line${items.length === 1 ? '' : 's'} selected`
-            : 'Add items from the catalog'}
+            : isSpareOrder
+              ? 'Open a product and add linked spares'
+              : 'Add items from the catalog'}
         </span>
         <button
           type="button"
@@ -295,12 +340,27 @@ export const SoDetailCatalogAddSheet: React.FC<{
   sessionKey: number;
   seedLines: DraftEditLine[];
   orderCategory?: InvoiceCategory | null;
+  orderSegment?: OrderSegment | null;
+  inventorySite?: InventorySite | null;
   onClose: () => void;
   onApply: (productLines: DraftEditLine[]) => void;
-}> = ({ open, sessionKey, seedLines, orderCategory, onClose, onApply }) => {
+}> = ({
+  open,
+  sessionKey,
+  seedLines,
+  orderCategory,
+  orderSegment = null,
+  inventorySite = null,
+  onClose,
+  onApply,
+}) => {
   const seedItems = useMemo(
     () => seedLines.filter(line => !isFreightDraftEditLine(line)).map(draftLineToCartItem),
     [seedLines],
+  );
+  const seedProductIds = useMemo(
+    () => new Set(seedItems.map(item => item.productId)),
+    [seedItems],
   );
 
   if (!open) return null;
@@ -309,6 +369,9 @@ export const SoDetailCatalogAddSheet: React.FC<{
     <CartProvider key={sessionKey} persist={false} initialItems={seedItems}>
       <SoDetailCatalogAddBody
         orderCategory={orderCategory}
+        orderSegment={orderSegment}
+        inventorySite={inventorySite}
+        seedProductIds={seedProductIds}
         onClose={onClose}
         onApply={onApply}
       />

@@ -126,6 +126,51 @@ export function resolveLineInventorySite(segment, warehouses) {
   return segment === 'spare' ? 'head_office' : 'cochin';
 }
 
+export function orderSegmentFromInvoiceCategory(category) {
+  const value = String(category ?? '').trim().toLowerCase();
+  if (value === 'spare') return 'spare';
+  if (value === 'software_key' || value === 'software') return 'software';
+  if (value === 'product') return 'product';
+  return null;
+}
+
+export function parseInventorySite(value) {
+  const site = String(value ?? '').trim().toLowerCase();
+  if (site === 'cochin' || site === 'head_office') return site;
+  return null;
+}
+
+export function defaultInventorySiteForSegment(segment) {
+  if (segment === 'spare' || segment === 'software') return 'head_office';
+  return 'cochin';
+}
+
+/**
+ * Existing-SO add-line gate: item must match the SO's segment × inventory site.
+ * Freight is not catalog-carted (auto freight).
+ */
+export function productMatchesSalesOrderBucket(product, bucket = {}) {
+  const requiredSegment = parseOrderSegment(bucket.segment)
+    || orderSegmentFromInvoiceCategory(bucket.salesOrderCategory);
+  if (!requiredSegment) return false;
+
+  const productId = product?.productId ?? product?.id ?? null;
+  if (isFreightOrderLine({ productId, sku: product?.sku })) return false;
+
+  const segment = classifyOrderLineSegment({
+    categoryId: product?.categoryId,
+    categoryName: product?.categoryName,
+    productId,
+    sku: product?.sku,
+  });
+  if (segment !== requiredSegment) return false;
+
+  const requiredSite = parseInventorySite(bucket.site)
+    || parseInventorySite(bucket.yesOneInventorySite)
+    || defaultInventorySiteForSegment(requiredSegment);
+  return resolveLineInventorySite(segment, product?.warehouses) === requiredSite;
+}
+
 export function inventorySiteLabel(site) {
   return site === 'head_office' ? 'Head Office' : 'Cochin';
 }

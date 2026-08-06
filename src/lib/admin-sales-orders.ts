@@ -132,6 +132,12 @@ export interface AdminSalesOrderDetail {
   notes: string | null;
   /** True when this Draft SO was created from a dealer cart submit. */
   yesOneCreatedFromCart?: boolean;
+  /** Create/submit segment stamp (product | spare | software). */
+  yesOneOrderSegment?: 'product' | 'spare' | 'software' | null;
+  /** Create/submit inventory site stamp (cochin | head_office). */
+  yesOneInventorySite?: 'cochin' | 'head_office' | null;
+  yesOneBranchLabel?: string | null;
+  zohoLocationId?: string | null;
   lineItems: DealerInvoiceLineItem[];
   yesOneStage?: string | null;
   yesOnePriceCustomized?: boolean;
@@ -815,6 +821,18 @@ export function mapAdminSalesOrderDetail(
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ? String(data.notes) : null,
     yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
+    yesOneOrderSegment: (() => {
+      const segment = String(data.yesOneOrderSegment ?? '').trim().toLowerCase();
+      return segment === 'product' || segment === 'spare' || segment === 'software'
+        ? segment
+        : null;
+    })(),
+    yesOneInventorySite: (() => {
+      const site = String(data.yesOneInventorySite ?? '').trim().toLowerCase();
+      return site === 'cochin' || site === 'head_office' ? site : null;
+    })(),
+    yesOneBranchLabel: data.yesOneBranchLabel ? String(data.yesOneBranchLabel) : null,
+    zohoLocationId: data.zohoLocationId ? String(data.zohoLocationId) : null,
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapLineItem(item as Record<string, unknown>))
       : [],

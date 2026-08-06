@@ -204,6 +204,20 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     () => lines.filter(line => !isFreightDraftLine(line)),
     [lines],
   );
+  const productLinesKey = useMemo(
+    () => productLines.map(line => `${line.productId}:${line.quantity}:${line.sku || ''}`).join('|'),
+    [productLines],
+  );
+  const destinationKey = useMemo(
+    () => [
+      shippingDestination?.state ?? '',
+      shippingDestination?.city ?? '',
+      shippingDestination?.zip ?? '',
+    ].join('|'),
+    [shippingDestination],
+  );
+  const freightInputsKey = `${productLinesKey}::${destinationKey}`;
+  const prevFreightInputsKeyRef = useRef(freightInputsKey);
 
   const catalogById = useMemo(() => {
     const map: Record<string, CatalogProduct> = {};
@@ -234,6 +248,14 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       setCourierBySite({ cochin: partner, head_office: partner });
     }
   }, [allowFreight, lines]);
+
+  useEffect(() => {
+    if (!allowFreight) return;
+    if (prevFreightInputsKeyRef.current === freightInputsKey) return;
+    prevFreightInputsKeyRef.current = freightInputsKey;
+    setFreightAmountManual(false);
+    lastAutoFreightKeyRef.current = '';
+  }, [allowFreight, freightInputsKey]);
 
   useEffect(() => {
     if (!allowFreight) return;
@@ -964,6 +986,18 @@ export async function draftLinesFromSalesOrderItems(
 
 export function isFreightDraftEditLine(line: Pick<DraftEditLine, 'productId' | 'sku'>): boolean {
   return isFreightProductId(line.productId) || isFreightSku(line.sku);
+}
+
+/** Product/spare lines first; freight charge lines last. */
+export function withFreightDraftLinesLast(lines: DraftEditLine[]): DraftEditLine[] {
+  const goods: DraftEditLine[] = [];
+  const freight: DraftEditLine[] = [];
+  for (const line of lines) {
+    if (isFreightDraftEditLine(line)) freight.push(line);
+    else goods.push(line);
+  }
+  if (freight.length === 0) return lines;
+  return [...goods, ...freight];
 }
 
 export function draftLinesFingerprint(lines: DraftEditLine[]): string {

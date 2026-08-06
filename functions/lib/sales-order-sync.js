@@ -872,6 +872,18 @@ export function mapSalesOrderDoc(id, data) {
     searchBlob: data.searchBlob ?? '',
     pdfStoragePath: data.pdfStoragePath ?? null,
     yesOneStage,
+    yesOneOrderSegment: (() => {
+      const segment = String(data.yesOneOrderSegment ?? '').trim().toLowerCase();
+      return segment === 'product' || segment === 'spare' || segment === 'software'
+        ? segment
+        : null;
+    })(),
+    yesOneInventorySite: (() => {
+      const site = String(data.yesOneInventorySite ?? '').trim().toLowerCase();
+      return site === 'cochin' || site === 'head_office' ? site : null;
+    })(),
+    yesOneBranchLabel: data.yesOneBranchLabel ? String(data.yesOneBranchLabel) : null,
+    zohoLocationId: data.zohoLocationId ? String(data.zohoLocationId) : null,
     yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
     paymentAmount: data.paymentAmount != null ? Number(data.paymentAmount) : null,
     paymentUtr: data.paymentUtr ?? null,

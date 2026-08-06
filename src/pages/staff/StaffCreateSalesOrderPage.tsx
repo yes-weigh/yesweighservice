@@ -53,6 +53,7 @@ import {
   fetchSpareLinkIndex,
   formatCurrency,
   getCategoriesForProducts,
+  getFinishedGoodsForSpareMapping,
   isHiddenCatalogCategory,
 } from '../../lib/catalog';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
@@ -531,11 +532,20 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     [lines, freightSubtotal],
   );
 
-  const shopProducts = useMemo(
-    () => excludeHiddenCatalogProducts(catalogProducts, catalogCategories)
-      .filter(productMatchesActiveSegments),
-    [catalogProducts, catalogCategories, productMatchesActiveSegments],
-  );
+  const spareOnlyCatalog = activeSegments.length === 1 && activeSegments[0] === 'spare';
+
+  const shopProducts = useMemo(() => {
+    const visible = excludeHiddenCatalogProducts(catalogProducts, catalogCategories);
+    if (spareOnlyCatalog) {
+      return getFinishedGoodsForSpareMapping(visible, catalogCategories);
+    }
+    return visible.filter(productMatchesActiveSegments);
+  }, [
+    catalogProducts,
+    catalogCategories,
+    spareOnlyCatalog,
+    productMatchesActiveSegments,
+  ]);
 
   const shopCategories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -556,8 +566,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       });
   }, [catalogCategories, shopProducts]);
 
-  const spareOnlyCatalog = activeSegments.length === 1 && activeSegments[0] === 'spare';
-  const showBrowseCategoryChips = !spareOnlyCatalog && shopCategories.length > 0;
+  const showBrowseCategoryChips = shopCategories.length > 0;
 
   useEffect(() => {
     setBrowseCategoryId('');
@@ -1423,8 +1432,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 dealerView
                 enableCart
                 isCartable={productMatchesActiveSegments}
-                flatBrowse={spareOnlyCatalog}
-                showCategoryGrid={!spareOnlyCatalog && !browseCategoryId}
+                flatBrowse={false}
+                showCategoryGrid={!browseCategoryId}
                 searchPlaceholder="Search catalog…"
                 showStockQuantity={showStockQuantity}
                 spareLinkCountByProductId={spareCountByProductId ?? undefined}

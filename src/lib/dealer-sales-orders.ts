@@ -84,6 +84,18 @@ function mapDetail(raw: Record<string, unknown>): AdminSalesOrderDetail {
     lineItems,
     yesOneStage: list.yesOneStage ?? null,
     yesOneCreatedFromCart: list.yesOneCreatedFromCart,
+    yesOneOrderSegment: (() => {
+      const segment = String(raw.yesOneOrderSegment ?? '').trim().toLowerCase();
+      return segment === 'product' || segment === 'spare' || segment === 'software'
+        ? segment
+        : null;
+    })(),
+    yesOneInventorySite: (() => {
+      const site = String(raw.yesOneInventorySite ?? '').trim().toLowerCase();
+      return site === 'cochin' || site === 'head_office' ? site : null;
+    })(),
+    yesOneBranchLabel: raw.yesOneBranchLabel ? String(raw.yesOneBranchLabel) : null,
+    zohoLocationId: raw.zohoLocationId ? String(raw.zohoLocationId) : null,
     paymentAmount: raw.paymentAmount != null ? Number(raw.paymentAmount) : null,
     paymentUtr: raw.paymentUtr ? String(raw.paymentUtr) : null,
     paymentNotes: raw.paymentNotes ? String(raw.paymentNotes) : null,
